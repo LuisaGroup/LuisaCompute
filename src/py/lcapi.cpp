@@ -10,6 +10,8 @@
 #include <luisa-compute.h>
 #include <nlohmann/json.hpp>
 
+#include "export_op.hpp"
+
 namespace py = pybind11;
 using namespace luisa::compute;
 using luisa::compute::detail::FunctionBuilder;
@@ -48,11 +50,13 @@ PYBIND11_MODULE(lcapi, m) {
         .def("create_stream", &Device::create_stream)
         .def("impl", &Device::impl, pyref);
     py::class_<Device::Interface, eastl::shared_ptr<Device::Interface>>(m, "DeviceInterface")
-        .def("create_shader", [](Device::Interface& self, Function kernel){return self.create_shader(kernel, {});}); // TODO: support metaoptions
+        .def("create_shader", [](Device::Interface& self, Function kernel){return self.create_shader(kernel, {});}) // TODO: support metaoptions
+        .def("create_buffer", &Device::Interface::create_buffer)
+        .def("destroy_shader", &Device::Interface::destroy_shader)
+        .def("destroy_buffer", &Device::Interface::destroy_buffer);
     py::class_<Stream>(m, "Stream")
         .def("synchronize", &Stream::synchronize)
         .def("add", [](Stream& self, Command* cmd){self<<cmd;});
-
 
     // AST (FunctionBuilder)
     py::class_<Function>(m, "Function");
@@ -60,13 +64,15 @@ PYBIND11_MODULE(lcapi, m) {
         .def("define_kernel", &FunctionBuilder::define_kernel<const std::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder& self, uint sx, uint sy, uint sz){self.set_block_size(uint3{sx,sy,sz});})
 
-        // .def("thread_id")
-        // .def("block_id")
-        // .def("dispatch_id")
-        // .def("dispatch_size")
+        .def("thread_id", &FunctionBuilder::thread_id, pyref)
+        .def("block_id", &FunctionBuilder::block_id, pyref)
+        .def("dispatch_id", &FunctionBuilder::dispatch_id, pyref)
+        .def("dispatch_size", &FunctionBuilder::dispatch_size, pyref)
 
         .def("local", &FunctionBuilder::local, pyref)
         // .def("shared")
+        // .def("constant")
+        .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
 
         .def("literal", &FunctionBuilder::literal, pyref)
         .def("unary", &FunctionBuilder::unary, pyref)
@@ -75,17 +81,20 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("swizzle")
         // .def("access")
         // .def("cast")
-        // .def("call")
+        .def("call", [](FunctionBuilder& self, const Type *type, CallOp call_op, std::vector<const Expression *> args){return self.call(type, call_op, args);}, pyref)
+        .def("call", [](FunctionBuilder& self, const Type *type, Function custom, std::vector<const Expression *> args){return self.call(type, custom, args);}, pyref)
+        .def("call", [](FunctionBuilder& self, CallOp call_op, std::vector<const Expression *> args){self.call(call_op, args);})
+        .def("call", [](FunctionBuilder& self, Function custom, std::vector<const Expression *> args){self.call(custom, args);})
 
-        // .def("break_")
-        // .def("continue_")
+        .def("break_", &FunctionBuilder::break_)
+        .def("continue_", &FunctionBuilder::continue_)
         // .def("return_")
         // .def("comment_")
         .def("assign", &FunctionBuilder::assign, pyref)
 
         // // create_expression 内存？
-        // .def("if_")
-        // .def("loop_") // ???
+        .def("if_", &FunctionBuilder::if_, pyref)
+        .def("loop_", &FunctionBuilder::loop_, pyref)
         // .def("switch_")
         // .def("case_")
         // .def("default_")
@@ -93,46 +102,26 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("meta") // ???
 
         // .def("case_")
-        // .def("push_scope")
-        // .def("pop_scope")
+        .def("push_scope", &FunctionBuilder::push_scope)
+        .def("pop_scope", &FunctionBuilder::pop_scope)
         .def("function", &FunctionBuilder::function); // returning object
     m.def("builder", &FunctionBuilder::current, pyref);
 
     py::class_<Expression>(m, "Expression");
     py::class_<LiteralExpr, Expression>(m, "LiteralExpr");
     py::class_<RefExpr, Expression>(m, "RefExpr");
+    py::class_<CallExpr, Expression>(m, "CallExpr");
     py::class_<UnaryExpr, Expression>(m, "UnaryExpr");
     py::class_<BinaryExpr, Expression>(m, "BinaryExpr");
 
+    py::class_<ScopeStmt>(m, "ScopeStmt"); // not yet exporting base class (Statement)
+    py::class_<IfStmt>(m, "IfStmt")
+        .def("true_branch", py::overload_cast<>(&IfStmt::true_branch), pyref) // using overload_cast because there's also a const method variant
+        .def("false_branch", py::overload_cast<>(&IfStmt::false_branch), pyref);
+    py::class_<LoopStmt>(m, "LoopStmt")
+        .def("body", py::overload_cast<>(&LoopStmt::body), pyref);
 
-    py::enum_<UnaryOp>(m, "UnaryOp")
-        .value("PLUS", UnaryOp::PLUS)
-        .value("MINUS", UnaryOp::MINUS)
-        .value("NOT", UnaryOp::NOT)
-        .value("BIT_NOT", UnaryOp::BIT_NOT);
-
-    py::enum_<BinaryOp>(m, "BinaryOp")
-        // arithmetic
-        .value("ADD", BinaryOp::ADD)
-        .value("SUB", BinaryOp::SUB)
-        .value("MUL", BinaryOp::MUL)
-        .value("DIV", BinaryOp::DIV)
-        .value("MOD", BinaryOp::MOD)
-        .value("BIT_AND", BinaryOp::BIT_AND)
-        .value("BIT_OR", BinaryOp::BIT_OR)
-        .value("BIT_XOR", BinaryOp::BIT_XOR)
-        .value("SHL", BinaryOp::SHL)
-        .value("SHR", BinaryOp::SHR)
-        .value("AND", BinaryOp::AND)
-        .value("OR", BinaryOp::OR)
-        // relational
-        .value("LESS", BinaryOp::LESS)
-        .value("GREATER", BinaryOp::GREATER)
-        .value("LESS_EQUAL", BinaryOp::LESS_EQUAL)
-        .value("GREATER_EQUAL", BinaryOp::GREATER_EQUAL)
-        .value("EQUAL", BinaryOp::EQUAL)
-        .value("NOT_EQUAL", BinaryOp::NOT_EQUAL);
-
+    export_op(m); // UnaryOp, BinaryOp, CallOp. def at export_op.hpp
 
     py::class_<Type>(m, "Type")
         .def_static("from_", &Type::from, pyref);
@@ -141,4 +130,13 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand")
         .def_static("create", [](uint64_t handle, Function func){return ShaderDispatchCommand::create(handle, func);}, pyref)
         .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});});
+    py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
+        .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
+            return BufferUploadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
+        }, pyref);
+    py::class_<BufferDownloadCommand, Command>(m, "BufferDownloadCommand")
+        .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
+            return BufferDownloadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
+        }, pyref);
+
 }
