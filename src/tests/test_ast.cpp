@@ -19,41 +19,23 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
 
 
-    auto _builder = FunctionBuilder::define_kernel([] {
-        // auto a = def(2);
-    });
-
-    auto shader = device.impl()->create_shader(_builder->function(), {});
-
-    std::cout << Type::of<float3>()->description() << "\n";
-
-    LiteralExpr(Type::of<int>(), 3);
-    LiteralExpr(Type::of<bool>(), false);
-    LiteralExpr(Type::of<float3>(), make_float3(0.4f));
-
-    // Kernel1D k1 = [] {
-    //     auto a = def(2);
-    // };
-    // auto s = device.compile(k1);
-
-    // ===============================================================
-
-    // auto f = make_shared<FunctionBuilder>(Function::Tag::KERNEL);
-    // {
-    //     f->push(f.get());
-    //     f->push_scope(&f->_body);
-
+    // auto _builder = FunctionBuilder::define_kernel([] {
     //     // auto a = def(2);
+    // });
 
-    //     f->pop_scope(&f->_body);
-    //     f->pop(f.get());
-    // }
-    // auto _builder = luisa::const_pointer_cast<const FunctionBuilder>(f);
-    // auto s = Shader<1>(device, _builder, std::string_view{});
+    // auto shader = device.impl()->create_shader(_builder->function(), {});
 
+    std::cout << Type::of<Buffer<int>>()->description() << "\n";
 
-    // auto command = s().dispatch(1024u);
-    // stream << command;
-    // stream << synchronize();
+    auto buf = device.create_buffer<int>(100);
+
+    Kernel1D k1 = [&] {
+        buf.write(1,42);
+    };
+    auto s = device.compile(k1);
+
+    auto command = s().dispatch(1u);
+    stream << command;
+    stream << synchronize();
 
 }
