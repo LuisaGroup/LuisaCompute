@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Api/LCDevice.h>
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
@@ -16,6 +16,7 @@
 #include <Shader/PipelineLibrary.h>
 #include <Resource/TopAccel.h>
 #include <vstl/BinaryReader.h>
+#include <Api/LCDisplayCmdBuffer.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 LCDevice::LCDevice(const Context &ctx)
@@ -103,6 +104,9 @@ void LCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noex
     reinterpret_cast<BindlessArray *>(array)
         ->UnBind(BindlessArray::BindTag::Tex3D, index);
 }
+void LCDevice::present_display_stream(uint64_t stream_handle, uint64_t texture) noexcept {
+    reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->Present(reinterpret_cast<RenderTexture *>(texture));
+}
 uint64_t LCDevice::create_stream() noexcept {
     return reinterpret_cast<uint64>(
         new LCCmdBuffer(
@@ -110,6 +114,26 @@ uint64_t LCDevice::create_stream() noexcept {
             nativeDevice.defaultAllocator,
             D3D12_COMMAND_LIST_TYPE_COMPUTE));
 }
+uint64_t LCDevice::create_display_stream(
+    uint64 window_handle,
+    uint width,
+    uint height) noexcept {
+    return reinterpret_cast<uint64>(
+        new LCDisplayCmdBuffer(
+            &nativeDevice,
+            nativeDevice.defaultAllocator,
+            D3D12_COMMAND_LIST_TYPE_DIRECT,
+            reinterpret_cast<HWND>(window_handle),
+            width,
+            height));
+}
+void LCDevice::destroy_display_stream(uint64_t handle) noexcept {
+    delete reinterpret_cast<LCDisplayCmdBuffer *>(handle);
+}
+void LCDevice::synchronize_display_stream(uint64_t stream_handle) noexcept {
+    reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->Sync();
+}
+
 void LCDevice::destroy_stream(uint64_t handle) noexcept {
     delete reinterpret_cast<LCCmdBuffer *>(handle);
 }
@@ -124,11 +148,11 @@ void LCDevice::dispatch(uint64_t stream_handle, CommandList const &v, luisa::mov
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute({&v, 1}, maxAllocatorCount, &callback);
 }
-void LCDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
+void LCDevice::dispatch(uint64_t stream_handle, vstd::span<const CommandList> lists) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute(lists, maxAllocatorCount);
 }
-void LCDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists, luisa::move_only_function<void()> &&callback) noexcept {
+void LCDevice::dispatch(uint64_t stream_handle, vstd::span<const CommandList> lists, luisa::move_only_function<void()> &&callback) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute(lists, maxAllocatorCount, &callback);
 }
@@ -174,6 +198,15 @@ void LCDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
 }
 void LCDevice::synchronize_event(uint64_t handle) noexcept {
     reinterpret_cast<LCEvent *>(handle)->Sync();
+}
+void LCDevice::signal_display_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    reinterpret_cast<LCEvent *>(handle)->Wait(
+        &reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->queue);
+}
+
+void LCDevice::wait_display_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    reinterpret_cast<LCEvent *>(handle)->Wait(
+        &reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->queue);
 }
 uint64_t LCDevice::create_mesh(
     uint64_t v_buffer,

@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Shader/Shader.h>
 #include <d3dcompiler.h>
 #include <DXRuntime/CommandBuffer.h>

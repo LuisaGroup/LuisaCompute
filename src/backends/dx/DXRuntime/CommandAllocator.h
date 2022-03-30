@@ -38,6 +38,7 @@ private:
     //TODO: allocate commandbuffer
     CommandAllocator(Device *device, IGpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
     void Execute(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
+    void ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3* swapchain);
     void Complete(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
     vstd::StackAllocator::Chunk Allocate(vstd::StackAllocator &allocator, uint64 size, size_t align);
 

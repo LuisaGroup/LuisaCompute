@@ -17,7 +17,6 @@ public:
     ~LCEvent();
     void Sync() const;
     void Signal(CommandQueue *queue) const;
-    void Signal(CommandQueue *queue, luisa::move_only_function<void()> &&func) const;
     void Wait(CommandQueue *queue) const;
 };
 }// namespace toolhub::directx

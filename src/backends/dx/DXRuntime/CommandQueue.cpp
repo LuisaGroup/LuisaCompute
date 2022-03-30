@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <DXRuntime/CommandQueue.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
@@ -38,10 +38,6 @@ void CommandQueue::AddEvent(LCEvent const *evt) {
     executedAllocators.Push(evt, uint64(evt->fenceIndex));
     waitCv.notify_one();
 }
-void CommandQueue::AddEvent(LCEvent const *evt, luisa::move_only_function<void()> &&func) {
-    executedAllocators.Push(new StreamCallback(evt, uint64(evt->fenceIndex), std::move(func)));
-    waitCv.notify_one();
-}
 
 void CommandQueue::ExecuteThread() {
     while (enabled) {
@@ -62,21 +58,10 @@ void CommandQueue::ExecuteThread() {
             }
             evt->cv.notify_one();
         };
-        auto ExecuteStreamCallback = [&](vstd::unique_ptr < StreamCallback>& ptr) {
-            auto &&callback = *ptr;
-            callback.evt->SyncTarget(callback.tarFrame);
-            callback.callback();
-            {
-                std::lock_guard lck(callback.evt->globalMtx);
-                callback.evt->finishedEvent = callback.tarFrame;
-            }
-            callback.evt->cv.notify_one();
-        };
         while (auto b = executedAllocators.Pop()) {
             b->multi_visit(
                 ExecuteAllocator,
-                ExecuteEvent,
-                ExecuteStreamCallback);
+                ExecuteEvent);
         }
         std::unique_lock lck(mtx);
         while (enabled && executedAllocators.Length() == 0)
@@ -102,6 +87,17 @@ uint64 CommandQueue::Execute(AllocatorPtr &&alloc) {
     waitCv.notify_one();
     return lastFrame;
 }
+uint64 CommandQueue::ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain) {
+    alloc->ExecuteAndPresent(this, cmdFence.Get(), lastFrame + 1, swapChain);
+    executedAllocators.Push(std::move(alloc));
+    {
+        std::lock_guard lck(mtx);
+        lastFrame++;
+    }
+    waitCv.notify_one();
+    return lastFrame;
+}
+
 void CommandQueue::Complete(uint64 fence) {
     std::unique_lock lck(mtx);
     while (executedFrame < fence) {

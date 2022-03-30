@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Api/LCCmdBuffer.h>
 #include <Api/LCDevice.h>
 #include <runtime/command.h>

@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/RenderTexture.h>
 #include <Resource/DescriptorHeap.h>
 namespace toolhub::directx {

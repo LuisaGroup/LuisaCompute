@@ -12,7 +12,7 @@
 #include <runtime/command_list.h>
 #include <runtime/command_buffer.h>
 #include <runtime/command_reorder_visitor.h>
-
+#include <runtime/image.h>
 namespace luisa::compute {
 
 class LC_RUNTIME_API Stream final : public Resource {
@@ -26,6 +26,7 @@ public:
     private:
         Stream *_stream;
         CommandList _command_list;
+
     private:
         void _commit() noexcept;
 
@@ -46,7 +47,7 @@ public:
 private:
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
-    void _dispatch(CommandList command_buffer, luisa::move_only_function<void()>&& func) noexcept;
+    void _dispatch(CommandList command_buffer, luisa::move_only_function<void()> &&func) noexcept;
     explicit Stream(Device::Interface *device) noexcept;
     void _synchronize() noexcept;
     luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
@@ -65,5 +66,21 @@ public:
 };
 
 [[nodiscard]] constexpr auto synchronize() noexcept { return Stream::Synchronize{}; }
+
+class LC_RUNTIME_API DisplayStream : public Resource {
+    friend class Device;
+    explicit DisplayStream(
+        Device::Interface *device,
+        uint64_t window_handle,
+        uint32_t width,
+        uint32_t height);
+
+public:
+    ~DisplayStream();
+    DisplayStream &operator<<(Event::Signal signal) noexcept;
+    DisplayStream &operator<<(Event::Wait wait) noexcept;
+    void present(Image<float> const& image) noexcept;
+    void synchronize() noexcept;
+};
 
 }// namespace luisa::compute

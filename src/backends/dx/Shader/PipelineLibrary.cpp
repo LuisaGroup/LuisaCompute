@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Shader/PipelineLibrary.h>
 #include <vstl/BinaryReader.h>
 #include <Shader/ComputeShader.h>

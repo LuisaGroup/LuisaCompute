@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Shader/BuiltinKernel.h>
 #include <Codegen/DxCodegen.h>
 #include <Codegen/ShaderHeader.h>

@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/DefaultBuffer.h>
 namespace toolhub::directx {
 DefaultBuffer::DefaultBuffer(

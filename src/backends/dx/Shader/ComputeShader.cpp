@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
 #include <vstl/BinaryReader.h>
@@ -58,7 +58,6 @@ ComputeShader *ComputeShader::CompileCompute(
             oldDeleted = true;
         }
     };
-    static DXShaderCompiler dxCompiler;
     vstd::string path;
     vstd::string psoPath;
     auto savePso = [&](ComputeShader const *cs) {
@@ -109,7 +108,7 @@ ComputeShader *ComputeShader::CompileCompute(
                 << str.result
                 << "\n===============================\n";
         }
-        return dxCompiler.CompileCompute(
+        return Device::Compiler()->CompileCompute(
             str.result,
             true,
             shaderModel);

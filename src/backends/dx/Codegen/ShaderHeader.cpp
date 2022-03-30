@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <vstl/Common.h>
 namespace toolhub::directx {
 vstd::string_view GetAccelProcessCompute() {

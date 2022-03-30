@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/BindlessArray.h>
 #include <Resource/TextureBase.h>
 #include <Resource/Buffer.h>

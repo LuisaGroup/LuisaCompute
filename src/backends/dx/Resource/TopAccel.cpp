@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/TopAccel.h>
 #include <Resource/DefaultBuffer.h>
 #include <DXRuntime/CommandAllocator.h>

@@ -19,6 +19,7 @@ public:
         MESH,
         ACCEL,
         STREAM,
+        DISPLAY_STREAM,
         EVENT,
         SHADER
     };
