@@ -77,9 +77,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def("literal", &FunctionBuilder::literal, pyref)
         .def("unary", &FunctionBuilder::unary, pyref)
         .def("binary", &FunctionBuilder::binary, pyref)
-        // .def("member")
+        .def("member", &FunctionBuilder::member, pyref)
+        .def("access", &FunctionBuilder::access, pyref)
         // .def("swizzle")
-        // .def("access")
         // .def("cast")
         .def("call", [](FunctionBuilder& self, const Type *type, CallOp call_op, std::vector<const Expression *> args){return self.call(type, call_op, args);}, pyref)
         .def("call", [](FunctionBuilder& self, const Type *type, Function custom, std::vector<const Expression *> args){return self.call(type, custom, args);}, pyref)
@@ -113,6 +113,8 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<CallExpr, Expression>(m, "CallExpr");
     py::class_<UnaryExpr, Expression>(m, "UnaryExpr");
     py::class_<BinaryExpr, Expression>(m, "BinaryExpr");
+    py::class_<MemberExpr, Expression>(m, "MemberExpr");
+    py::class_<AccessExpr, Expression>(m, "AccessExpr");
 
     py::class_<ScopeStmt>(m, "ScopeStmt"); // not yet exporting base class (Statement)
     py::class_<IfStmt>(m, "IfStmt")
@@ -129,6 +131,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<Command>(m, "Command");
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand")
         .def_static("create", [](uint64_t handle, Function func){return ShaderDispatchCommand::create(handle, func);}, pyref)
+        .def("encode_pending_bindings", &ShaderDispatchCommand::encode_pending_bindings)
         .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});});
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
         .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
