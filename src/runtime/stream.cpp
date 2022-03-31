@@ -25,27 +25,8 @@ void Stream::_dispatch(CommandList list) noexcept {
         for (auto command : commands) {
             command->recycle();
         }
-
     } else {
         device()->dispatch(handle(), list);
-    }
-}
-void Stream::_dispatch(CommandList list, luisa::move_only_function<void()> &&func) noexcept {
-    if (auto size = list.size();
-        size > 1u && device()->requires_command_reordering()) {
-        auto commands = list.steal_commands();
-        for (auto command : commands) {
-            command->accept(*reorder_visitor);
-        }
-        auto lists = reorder_visitor->command_lists();
-        device()->dispatch(handle(), lists, std::move(func));
-        reorder_visitor->clear();
-        for (auto command : commands) {
-            command->recycle();
-        }
-
-    } else {
-        device()->dispatch(handle(), list, std::move(func));
     }
 }
 
@@ -72,12 +53,12 @@ Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
 Stream::Stream(Device::Interface *device) noexcept
     : Resource{device, Tag::STREAM, device->create_stream()},
       reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
-Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
+Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 void Stream::Delegate::_commit() noexcept {
-    if (!_command_list.empty()) {
+    if (!_command_list.empty()) [[likely]] {
         _stream->_dispatch(std::move(_command_list));
     }
 }
@@ -108,6 +89,7 @@ Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Synchronize s) &&
     *_stream << s;
     return std::move(*this);
 }
+
 Stream::Delegate &&Stream::Delegate::operator<<(SwapChain::Present p) &&noexcept {
     _commit();
     *_stream << p;
@@ -119,8 +101,19 @@ Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcep
     return std::move(*this);
 }
 
+Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> f) &&noexcept {
+    _commit();
+    *_stream << std::move(f);
+    return std::move(*this);
+}
+
 Stream &Stream::operator<<(SwapChain::Present p) noexcept {
     device()->present_display_stream(handle(), p.chain->handle(), p.frame.handle());
+    return *this;
+}
+
+Stream &Stream::operator<<(luisa::move_only_function<void()> f) noexcept {
+    device()->dispatch(handle(), std::move(f));
     return *this;
 }
 

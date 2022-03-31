@@ -262,6 +262,9 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "instance_to_world"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
+        case CallOp::SET_ACCEL_TRANFORM: _scratch << "set_accel_transform"; break;
+        case CallOp::SET_ACCEL_VISIBILITY: _scratch << "set_accel_visibility"; break;
+        case CallOp::SET_ACCEL_TRANSFORM_VISIBILITY: _scratch << "set_accel_transform_visibility"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {
