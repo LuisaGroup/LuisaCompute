@@ -47,6 +47,8 @@ class ASTVisitor:
 
     @staticmethod
     def build_Call(node):
+        for x in node.args:
+            build(x)
         if node.func.__class__.__name__ == "Name": # static function
             # TODO check for builtins
             pass
