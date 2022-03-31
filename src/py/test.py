@@ -236,12 +236,11 @@ ulcmd = lcapi.BufferUploadCommand.create(buffer_handle, 0, 400, arr)
 stream.add(ulcmd)
 
 # compile kernel
-builder = lcapi.FunctionBuilder.define_kernel(astgen)
+builder = lcapi.FunctionBuilder.define_kernel(test_astgen)
 func = builder.function()
 shader_handle = device.impl().create_shader(func)
 # call kernel
 command = lcapi.ShaderDispatchCommand.create(shader_handle, func)
-command.encode_pending_bindings()
 command.set_dispatch_size(100,1,1)
 stream.add(command)
 

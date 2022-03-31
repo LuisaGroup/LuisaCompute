@@ -131,8 +131,13 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<Command>(m, "Command");
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand")
         .def_static("create", [](uint64_t handle, Function func){return ShaderDispatchCommand::create(handle, func);}, pyref)
-        .def("encode_pending_bindings", &ShaderDispatchCommand::encode_pending_bindings)
-        .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});});
+        .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});})
+        .def("encode_buffer", &ShaderDispatchCommand::encode_buffer)
+        .def("encode_texture", &ShaderDispatchCommand::encode_texture)
+        .def("encode_uniform", &ShaderDispatchCommand::encode_uniform)
+        .def("encode_bindless_array", &ShaderDispatchCommand::encode_bindless_array)
+        .def("encode_accel", &ShaderDispatchCommand::encode_accel);
+        
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
         .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
             return BufferUploadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
