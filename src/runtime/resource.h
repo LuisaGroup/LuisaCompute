@@ -19,9 +19,9 @@ public:
         MESH,
         ACCEL,
         STREAM,
-        DISPLAY_STREAM,
         EVENT,
-        SHADER
+        SHADER,
+        SWAP_CHAIN
     };
 
 private:

@@ -56,7 +56,7 @@ void CommandQueue::ExecuteThread() {
                 std::lock_guard lck(evt->globalMtx);
                 evt->finishedEvent = tarFrame;
             }
-            evt->cv.notify_one();
+            evt->cv.notify_all();
         };
         while (auto b = executedAllocators.Pop()) {
             b->multi_visit(

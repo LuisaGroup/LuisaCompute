@@ -4,6 +4,7 @@ namespace toolhub::directx {
 class SwapChain : public Resource {
 public:
     ComPtr<ID3D12Resource> rt;
+    SwapChain(SwapChain &&) = default;
     SwapChain(Device *device)
         : Resource(device) {}
     Tag GetTag() const override { return Tag::SwapChain; }

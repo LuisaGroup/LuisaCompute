@@ -10,6 +10,7 @@
 #include <Resource/BottomAccel.h>
 #include <Resource/TopAccel.h>
 #include <Resource/BindlessArray.h>
+#include <Api/LCSwapChain.h>
 namespace toolhub::directx {
 class LCPreProcessVisitor : public CommandVisitor {
 public:
@@ -626,5 +627,35 @@ void LCCmdBuffer::Execute(
 }
 void LCCmdBuffer::Sync() {
     queue.Complete(lastFence);
+}
+void LCCmdBuffer::Present(
+    LCSwapChain *swapchain,
+    RenderTexture *rt) {
+    auto alloc = queue.CreateAllocator(0);
+    {
+        swapchain->frameIndex = swapchain->swapChain->GetCurrentBackBufferIndex();
+        auto &&rt = &swapchain->m_renderTargets[swapchain->frameIndex];
+        auto cb = alloc->GetBuffer();
+        auto bd = cb->Build();
+        auto cmdList = bd.CmdList();
+        tracker.RecordState(
+            rt, D3D12_RESOURCE_STATE_COPY_DEST);
+        tracker.UpdateState(bd);
+        D3D12_TEXTURE_COPY_LOCATION sourceLocation;
+        sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        sourceLocation.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION destLocation;
+        destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        destLocation.SubresourceIndex = 0;
+        sourceLocation.pResource = rt->GetResource();
+        destLocation.pResource = rt->GetResource();
+        cmdList->CopyTextureRegion(
+            &destLocation,
+            0, 0, 0,
+            &sourceLocation,
+            nullptr);
+        tracker.RestoreState(bd);
+    }
+    lastFence = queue.ExecuteAndPresent(std::move(alloc), swapchain->swapChain.Get());
 }
 }// namespace toolhub::directx

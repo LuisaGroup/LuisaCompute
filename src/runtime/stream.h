@@ -13,6 +13,7 @@
 #include <runtime/command_buffer.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/image.h>
+#include <runtime/swap_chain.h>
 namespace luisa::compute {
 
 class LC_RUNTIME_API Stream final : public Resource {
@@ -20,7 +21,10 @@ class LC_RUNTIME_API Stream final : public Resource {
 public:
     struct Synchronize {};
     friend class CommandBuffer;
-
+    struct Present {
+        SwapChain const *swap_chain;
+        Image<float> const *img;
+    };
     class Delegate {
 
     private:
@@ -42,6 +46,7 @@ public:
         Delegate &&operator<<(Event::Wait wait) &&noexcept;
         Delegate &&operator<<(CommandBuffer::Commit) &&noexcept;
         Delegate &&operator<<(Synchronize) &&noexcept;
+        Delegate &&operator<<(Present) &&noexcept;
     };
 
 private:
@@ -63,24 +68,10 @@ public:
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
     [[nodiscard]] auto native_handle() const noexcept { return device()->stream_native_handle(handle()); }
     void synchronize() noexcept { _synchronize(); }
+    Stream &operator<<(Present p) noexcept;
 };
 
-[[nodiscard]] constexpr auto synchronize() noexcept { return Stream::Synchronize{}; }
-
-class LC_RUNTIME_API DisplayStream : public Resource {
-    friend class Device;
-    explicit DisplayStream(
-        Device::Interface *device,
-        uint64_t window_handle,
-        uint32_t width,
-        uint32_t height);
-
-public:
-    ~DisplayStream();
-    DisplayStream &operator<<(Event::Signal signal) noexcept;
-    DisplayStream &operator<<(Event::Wait wait) noexcept;
-    void present(Image<float> const& image) noexcept;
-    void synchronize() noexcept;
-};
+[[nodiscard]] constexpr auto synchronize() { return Stream::Synchronize(); }
+[[nodiscard]] constexpr auto present(SwapChain const &swap_chain, Image<float> const &img) noexcept { return Stream::Present{&swap_chain, &img}; }
 
 }// namespace luisa::compute

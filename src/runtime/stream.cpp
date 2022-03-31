@@ -11,15 +11,6 @@ namespace luisa::compute {
 Stream Device::create_stream() noexcept {
     return _create<Stream>();
 }
-DisplayStream Device::create_display_stream(
-    uint64_t window_handle,
-    uint32_t width,
-    uint32_t height) noexcept {
-    return _create<DisplayStream>(
-        window_handle,
-        width,
-        height);
-}
 
 void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
@@ -81,13 +72,6 @@ Stream &Stream::operator<<(Stream::Synchronize) noexcept {
 Stream::Stream(Device::Interface *device) noexcept
     : Resource{device, Tag::STREAM, device->create_stream()},
       reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
-DisplayStream::DisplayStream(
-    Device::Interface *device,
-    uint64_t window_handle,
-    uint32_t width,
-    uint32_t height)
-    : Resource(device, Tag::DISPLAY_STREAM, device->create_display_stream(window_handle, width, height)) {}
-
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
@@ -124,23 +108,19 @@ Stream::Delegate &&Stream::Delegate::operator<<(Stream::Synchronize) &&noexcept 
     *_stream << Synchronize{};
     return std::move(*this);
 }
+Stream::Delegate &&Stream::Delegate::operator<<(Present p) &&noexcept {
+    _commit();
+    *_stream << p;
+    return std::move(*this);
+}
 
 Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcept {
     _commit();
     return std::move(*this);
 }
-DisplayStream::~DisplayStream() {
-}
-DisplayStream &DisplayStream::operator<<(Event::Signal signal) noexcept {
-    device()->signal_display_event(signal.handle, handle());
-}
-DisplayStream &DisplayStream::operator<<(Event::Wait wait) noexcept {
-    device()->wait_display_event(wait.handle, handle());
-}
-void DisplayStream::synchronize() noexcept {
-    device()->synchronize_display_stream(handle());
-}
-void DisplayStream::present(Image<float> const &image) noexcept {
-    device()->present_display_stream(handle(), image.handle());
+
+Stream &Stream::operator<<(Present p) noexcept {
+    device()->present_display_stream(handle(), p.swap_chain->handle(), p.img->handle());
+    return *this;
 }
 }// namespace luisa::compute
