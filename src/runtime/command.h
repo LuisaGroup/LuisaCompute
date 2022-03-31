@@ -412,6 +412,14 @@ private:
     uint32_t _argument_count{0u};
     ArgumentBuffer _argument_buffer{};
 
+private:
+    void _encode_pending_bindings() noexcept;
+    void _encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void _encode_texture(uint64_t handle, uint32_t level) noexcept;
+    void _encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void _encode_bindless_array(uint64_t handle) noexcept;
+    void _encode_accel(uint64_t handle) noexcept;
+
 public:
     explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
     void set_dispatch_size(uint3 launch_size) noexcept;
@@ -420,39 +428,11 @@ public:
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
     [[nodiscard]] auto dispatch_size() const noexcept { return uint3(_dispatch_size[0], _dispatch_size[1], _dispatch_size[2]); }
 
-    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, uint32_t level, Usage usage) noexcept;
-    void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
-    void encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept;
-    void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;
-
-    void encode_pending_bindings() noexcept {
-        auto bindings = _kernel.builder()->argument_bindings();
-        for (; _argument_count < _kernel.arguments().size() &&
-               !luisa::holds_alternative<luisa::monostate>(// has binding
-                   bindings[_argument_count]);
-             _argument_count++) {
-            luisa::visit(
-                [&, arg = _kernel.arguments()[_argument_count]]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, detail::FunctionBuilder::BufferBinding>) {
-                        encode_buffer(
-                            arg.uid(), binding.handle, binding.offset_bytes,
-                            _kernel.variable_usage(arg.uid()));
-                    } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::TextureBinding>) {
-                        encode_texture(
-                            arg.uid(), binding.handle, binding.level,
-                            _kernel.variable_usage(arg.uid()));
-                    } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::BindlessArrayBinding>) {
-                        encode_bindless_array(arg.uid(), binding.handle);
-                    } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::AccelBinding>) {
-                        encode_accel(arg.uid(), binding.handle);
-                    } else {
-                        LUISA_ERROR_WITH_LOCATION("Invalid argument binding type.");
-                    }
-                },
-                bindings[_argument_count]);
-        }
-    }
+    void encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void encode_texture(uint64_t handle, uint32_t level) noexcept;
+    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void encode_bindless_array(uint64_t handle) noexcept;
+    void encode_accel(uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
