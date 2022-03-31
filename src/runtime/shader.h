@@ -42,42 +42,11 @@ using prototype_to_shader_invocation_t = typename prototype_to_shader_invocation
 class ShaderInvokeBase {
 
 private:
-    Command *_command;
+    ShaderDispatchCommand *_command;
     Function _kernel;
     size_t _argument_index{0u};
 
 private:
-    [[nodiscard]] auto _dispatch_command() noexcept {
-        return static_cast<ShaderDispatchCommand *>(_command);
-    }
-    void _encode_pending_bindings() noexcept {
-        auto bindings = _kernel.builder()->argument_bindings();
-        for (; _argument_index < _kernel.arguments().size() &&
-               !luisa::holds_alternative<luisa::monostate>(// has binding
-                   bindings[_argument_index]);
-             _argument_index++) {
-            luisa::visit(
-                [&, arg = _kernel.arguments()[_argument_index]]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, FunctionBuilder::BufferBinding>) {
-                        _dispatch_command()->encode_buffer(
-                            arg.uid(), binding.handle, binding.offset_bytes,
-                            _kernel.variable_usage(arg.uid()));
-                    } else if constexpr (std::is_same_v<T, FunctionBuilder::TextureBinding>) {
-                        _dispatch_command()->encode_texture(
-                            arg.uid(), binding.handle, binding.level,
-                            _kernel.variable_usage(arg.uid()));
-                    } else if constexpr (std::is_same_v<T, FunctionBuilder::BindlessArrayBinding>) {
-                        _dispatch_command()->encode_bindless_array(arg.uid(), binding.handle);
-                    } else if constexpr (std::is_same_v<T, FunctionBuilder::AccelBinding>) {
-                        _dispatch_command()->encode_accel(arg.uid(), binding.handle);
-                    } else {
-                        LUISA_ERROR_WITH_LOCATION("Invalid argument binding type.");
-                    }
-                },
-                bindings[_argument_index]);
-        }
-    }
-
 public:
     explicit ShaderInvokeBase(uint64_t handle, Function kernel) noexcept
         : _command{ShaderDispatchCommand::create(handle, kernel)},
@@ -89,47 +58,19 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(BufferView<T> buffer) noexcept {
-        _encode_pending_bindings();
-        if (auto t = _kernel.arguments()[_argument_index].type();
-            !t->is_buffer()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Expected {} but got buffer for argument {}.",
-                t->description(), _argument_index);
-        }
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        auto usage = _kernel.variable_usage(variable_uid);
-        _dispatch_command()->encode_buffer(
-            variable_uid, buffer.handle(), buffer.offset_bytes(), usage);
+        _command->encode_buffer(buffer.handle(), buffer.offset());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(ImageView<T> image) noexcept {
-        _encode_pending_bindings();
-        if (auto t = _kernel.arguments()[_argument_index].type();
-            !t->is_texture()) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Expected {} but got image for argument {}.",
-                t->description(), _argument_index);
-        }
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        auto usage = _kernel.variable_usage(variable_uid);
-        _dispatch_command()->encode_texture(variable_uid, image.handle(), image.level(), usage);
+        _command->encode_texture(image.handle(), image.level());
         return *this << image.offset();
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(VolumeView<T> volume) noexcept {
-        _encode_pending_bindings();
-        if (auto t = _kernel.arguments()[_argument_index].type();
-            !t->is_texture()) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Expected {} but got volume for argument {}.",
-                t->description(), _argument_index);
-        }
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        auto usage = _kernel.variable_usage(variable_uid);
-        _dispatch_command()->encode_texture(variable_uid, volume.handle(), volume.level(), usage);
+        _command->encode_texture(volume.handle(), volume.level());
         return *this << volume.offset();
     }
 
@@ -150,18 +91,7 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {
-        _encode_pending_bindings();
-        if (auto t = _kernel.arguments()[_argument_index].type();
-            (!t->is_basic() && !t->is_structure() && !t->is_array()) ||
-            t->size() != sizeof(T)) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid uniform (size = {}) at index {}, "
-                "expected {} (size = {}).",
-                sizeof(T), _argument_index,
-                t->description(), t->size());
-        }
-        auto variable_uid = _kernel.arguments()[_argument_index++].uid();
-        _dispatch_command()->encode_uniform(variable_uid, &data, sizeof(T), alignof(T));
+        _command->encode_uniform(&data, sizeof(T), alignof(T));
         return *this;
     }
 
@@ -173,9 +103,8 @@ public:
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) &&noexcept {
-        _encode_pending_bindings();
-        _dispatch_command()->set_dispatch_size(dispatch_size);
-        Command *command{nullptr};
+        _command->set_dispatch_size(dispatch_size);
+        ShaderDispatchCommand *command{nullptr};
         std::swap(command, _command);
         return command;
     }
@@ -228,11 +157,10 @@ private:
 
 private:
     friend class Device;
-    Shader(Device::Interface *device, luisa::shared_ptr<const detail::FunctionBuilder> kernel, std::string_view meta_options) noexcept
-        : Resource{
-              device,
-              Tag::SHADER,
-              device->create_shader(kernel->function(), meta_options)},
+    Shader(Device::Interface *device,
+           luisa::shared_ptr<const detail::FunctionBuilder> kernel,
+           std::string_view meta_options) noexcept
+        : Resource{device, Tag::SHADER, device->create_shader(kernel->function(), meta_options)},
           _kernel{std::move(kernel)} {}
 
 public:
