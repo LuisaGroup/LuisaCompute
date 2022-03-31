@@ -66,11 +66,7 @@ public:
                 level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
-        return ImageView<T>{handle(), _storage, level, {}, mip_size};
-    }
-
-    [[nodiscard]] auto region(uint2 offset, uint2 size) const noexcept {
-        return this->view().region(offset, size);
+        return ImageView<T>{handle(), _storage, level, mip_size};
     }
 
     template<typename UV>
@@ -97,7 +93,6 @@ class ImageView {
 private:
     uint64_t _handle;
     uint2 _size;
-    uint2 _offset;
     uint _level;
     PixelStorage _storage;
 
@@ -109,38 +104,23 @@ private:
         uint64_t handle,
         PixelStorage storage,
         uint level,
-        uint2 offset,
         uint2 size) noexcept
         : _handle{handle},
           _size{size},
-          _offset{offset},
           _level{level},
           _storage{storage} {}
 
     [[nodiscard]] auto _as_mipmap() const noexcept {
-        return detail::MipmapView{
-            _handle,
-            make_uint3(_size, 1u),
-            make_uint3(_offset, 0u),
-            _level, _storage};
+        return detail::MipmapView{_handle, make_uint3(_size, 1u), _level, _storage};
     }
 
 public:
     ImageView(const Image<T> &image) noexcept : ImageView{image.view()} {}
-
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
     [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto region(uint2 offset, uint2 size) const noexcept {
-        if (any(offset + size > _size)) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Invalid region.");
-        }
-        return ImageView{_handle, _storage, _level, _offset + offset, size};
-    }
-
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept { return _as_mipmap().copy_to(std::forward<U>(dst)); }
     template<typename U>

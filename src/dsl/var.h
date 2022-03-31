@@ -85,9 +85,7 @@ struct Var<BufferView<T>> : public Expr<Buffer<T>> {
 template<typename T>
 struct Var<Image<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>>{
-              detail::FunctionBuilder::current()->texture(Type::of<Image<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint2>())} {
+        : Expr<Image<T>>{detail::FunctionBuilder::current()->texture(Type::of<Image<T>>())} {
     }
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
@@ -96,9 +94,7 @@ struct Var<Image<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<ImageView<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>>{
-              detail::FunctionBuilder::texture(Type::of<Image<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint2>())} {}
+        : Expr<Image<T>>{detail::FunctionBuilder::texture(Type::of<Image<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -106,9 +102,7 @@ struct Var<ImageView<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<Volume<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>>{
-              detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
+        : Expr<Volume<T>>{detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -116,9 +110,7 @@ struct Var<Volume<T>> : public Expr<Volume<T>> {
 template<typename T>
 struct Var<VolumeView<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>>{
-              detail::FunctionBuilder::texture(Type::of<Volume<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
+        : Expr<Volume<T>>{detail::FunctionBuilder::texture(Type::of<Volume<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
