@@ -92,9 +92,7 @@ int main(int argc, char *argv[]) {
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()
-           << fill_image(heap,
-                         device_image.region(make_uint2(128u), make_uint2(1024u - 256u)))
-                  .dispatch(make_uint2(1024u - 256u))
+           << fill_image(heap,device_image).dispatch(1024u, 1024u)
            << device_image.copy_to(host_image.data())
            << event.signal()
            << synchronize();

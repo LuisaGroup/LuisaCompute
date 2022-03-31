@@ -13,6 +13,13 @@ inline uint64_t compute::detail::TypeRegistry::_hash(std::string_view desc) noex
 
 const Type *TypeRegistry::_decode(std::string_view desc) noexcept {
 
+    // TYPE := BASIC | ARRAY | VECTOR | MATRIX | STRUCT
+    // BASIC := int | uint | bool | float
+    // ARRAY := array<BASIC,N>
+    // VECTOR := vector<BASIC,2> | vector<BASIC,3> | vector<BASIC,4>
+    // MATRIX := matrix<2> | matrix<3> | matrix<4>
+    // STRUCT := struct<4,TYPE...> | struct<8,TYPE...> | struct<16,TYPE...>
+
     auto hash = _hash(desc);
     if (auto iter = _type_set.find_as(hash, TypePtrHash{}, TypePtrEqual{});
         iter != _type_set.cend()) {

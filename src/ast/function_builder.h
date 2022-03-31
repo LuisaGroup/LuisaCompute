@@ -220,6 +220,7 @@ public:
     FunctionBuilder(const FunctionBuilder &) noexcept = delete;
     FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
     FunctionBuilder &operator=(const FunctionBuilder &) noexcept = delete;
+    ~FunctionBuilder() noexcept;
 
     /**
      * @brief Return current function builder on function stack.

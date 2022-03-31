@@ -40,7 +40,7 @@ public:
      * @param mip_levels mipmap levels 
      */
     ISPCTexture(PixelFormat format, uint dim, uint3 size, uint mip_levels) noexcept;
-    ~ISPCTexture();
+    ~ISPCTexture() noexcept;
     /**
      * @brief Return handle for device usage
      * 
