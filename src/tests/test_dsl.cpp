@@ -13,8 +13,6 @@
 #include <ast/interface.h>
 #include <compile/cpp_codegen.h>
 #include <dsl/syntax.h>
-
-#include <tests/fake_device.h>
 #include <rtx/ray.h>
 
 using namespace luisa;

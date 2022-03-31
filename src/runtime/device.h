@@ -119,22 +119,15 @@ public:
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, const CommandList &list) noexcept = 0;
-        virtual void dispatch(uint64_t stream_handle, const CommandList &list, luisa::move_only_function<void()> &&func) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
             for (auto &&list : lists) { dispatch(stream_handle, list); }
         }
-        virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists, luisa::move_only_function<void()> &&func) noexcept {
-            for (auto &&list : lists) { dispatch(stream_handle, list, std::move(func)); }
-        }
+        virtual void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> func) noexcept = 0;
         [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
         // swap chain
         [[nodiscard]] virtual uint64_t create_swap_chain(
-            uint64_t window_handle,
-            uint64_t stream_handle,
-            uint width,
-            uint height,
-            bool allow_hdr,
-            uint back_buffer_size) noexcept = 0;
+            uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
+            bool allow_hdr, uint back_buffer_size) noexcept = 0;
         virtual void destroy_swap_chain(uint64_t handle) noexcept = 0;
         virtual PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept = 0;
         virtual void present_display_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept = 0;
@@ -181,21 +174,18 @@ private:
     }
 
 public:
-    explicit Device(Handle handle) noexcept
-        : _impl{std::move(handle)} {}
+    explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
 
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
-    [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp           // see definition in runtime/stream.cpp
+    [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp
     [[nodiscard]] Event create_event() noexcept;  // see definition in runtime/event.cpp
+
     [[nodiscard]] SwapChain create_swapchain(
-        uint64_t window_handle,
-        Stream const& stream,
-        uint width,
-        uint height,
-        bool allow_hdr = true,
-        uint back_buffer_size = 1) noexcept;
+        uint64_t window_handle, const Stream &stream, uint width, uint height,
+        bool allow_hdr = true, uint back_buffer_count = 1) noexcept;
+
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(
         VBuffer &&vertices, TBuffer &&triangles,

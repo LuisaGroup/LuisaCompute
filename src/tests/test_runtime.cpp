@@ -13,7 +13,6 @@
 #include <runtime/bindless_array.h>
 #include <dsl/syntax.h>
 #include <dsl/sugar.h>
-#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -34,16 +33,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 
     Buffer<float> buffer;
-
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
     auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     auto buffer2 = device.create_buffer<float>(16384u);
     buffer = std::move(buffer2);

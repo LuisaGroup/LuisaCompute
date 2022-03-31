@@ -38,8 +38,8 @@ public:
     CommandBuffer &operator<<(SwapChain::Present p) &noexcept;
     CommandBuffer &operator<<(Commit) &noexcept;
     CommandBuffer &operator<<(Synchronize) &noexcept;
+    CommandBuffer &operator<<(luisa::move_only_function<void()> f) &noexcept;
     void commit() &noexcept { _commit(); }
-    void commit(luisa::move_only_function<void()> func) &noexcept;
     void synchronize() &noexcept;
     [[nodiscard]] auto &stream() noexcept { return *_stream; }
 };

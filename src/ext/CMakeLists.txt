@@ -46,6 +46,26 @@ set(JSON_SystemInclude ON CACHE BOOL "" FORCE)
 add_subdirectory(json)
 target_link_libraries(luisa-compute-ext INTERFACE nlohmann_json::nlohmann_json)
 
+if (LUISA_COMPUTE_ENABLE_GUI)
+    add_subdirectory(glad)
+    target_link_libraries(luisa-compute-ext INTERFACE glad)
+
+    find_package(GLFW3 CONFIG)
+    if (NOT GLFW3_FOUND)
+        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+        set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+        set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "" FORCE)
+        add_subdirectory(glfw)
+        set_target_properties(glfw PROPERTIES UNITY_BUILD ON)
+    endif ()
+    target_link_libraries(luisa-compute-ext INTERFACE glfw)
+
+    add_subdirectory(imgui)
+    target_link_libraries(luisa-compute-ext INTERFACE imgui)
+endif ()
+
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 

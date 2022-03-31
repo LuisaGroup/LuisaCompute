@@ -12,7 +12,6 @@
 #include <rtx/accel.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
-#include <tests/fake_device.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
 

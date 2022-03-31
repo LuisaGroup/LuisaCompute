@@ -41,6 +41,7 @@ public:
         Delegate &&operator<<(Command *cmd) &&noexcept;
         Delegate &&operator<<(Event::Signal signal) &&noexcept;
         Delegate &&operator<<(Event::Wait wait) &&noexcept;
+        Delegate &&operator<<(luisa::move_only_function<void()> f) &&noexcept;
         Delegate &&operator<<(CommandBuffer::Commit) &&noexcept;
         Delegate &&operator<<(CommandBuffer::Synchronize) &&noexcept;
         Delegate &&operator<<(SwapChain::Present present) &&noexcept;
@@ -49,7 +50,6 @@ public:
 private:
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
-    void _dispatch(CommandList command_buffer, luisa::move_only_function<void()> &&func) noexcept;
     explicit Stream(Device::Interface *device) noexcept;
     void _synchronize() noexcept;
     luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
@@ -61,6 +61,7 @@ public:
     Stream &operator<<(Event::Wait wait) noexcept;
     Stream &operator<<(CommandBuffer::Synchronize) noexcept;
     Stream &operator<<(CommandBuffer::Commit) noexcept { return *this; }
+    Stream &operator<<(luisa::move_only_function<void()> f) noexcept;
     Delegate operator<<(Command *cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
     [[nodiscard]] auto native_handle() const noexcept { return device()->stream_native_handle(handle()); }

@@ -15,7 +15,6 @@
 #include <runtime/event.h>
 #include <meta/property.h>
 #include <dsl/sugar.h>
-#include <tests/fake_device.h>
 
 #define ENABLE_DISPLAY
 

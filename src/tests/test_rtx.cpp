@@ -13,7 +13,6 @@
 #include <dsl/syntax.h>
 #include <dsl/sugar.h>
 #include <rtx/accel.h>
-#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;

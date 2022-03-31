@@ -99,6 +99,8 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
                 }
             }
             break;
+        case ResourceType::Bindless: break;
+        case ResourceType::Accel: break;
     }
     return layer;
 }

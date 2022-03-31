@@ -11,7 +11,6 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/syntax.h>
-#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -164,14 +163,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("{}", typeid(linear_tuple).name());
 
     Context context{argv[0]};
-
-#if defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     Callable multi_ret = [] {
         return compose(0u, 1u);
