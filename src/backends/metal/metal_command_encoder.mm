@@ -85,7 +85,6 @@ void MetalCommandEncoder::visit(const BufferToTextureCopyCommand *command) noexc
     auto buffer = to_buffer(command->buffer());
     auto texture = to_texture(command->texture());
     auto size = command->size();
-    auto offset = command->offset();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y;
@@ -98,26 +97,24 @@ void MetalCommandEncoder::visit(const BufferToTextureCopyCommand *command) noexc
                        toTexture:texture
                 destinationSlice:0u
                 destinationLevel:command->level()
-               destinationOrigin:MTLOriginMake(offset.x, offset.y, offset.z)];
+               destinationOrigin:MTLOriginMake(0u, 0u, 0u)];
     [blit_encoder endEncoding];
 }
 
 void MetalCommandEncoder::visit(const TextureCopyCommand *command) noexcept {
     auto src = to_texture(command->src_handle());
     auto dst = to_texture(command->dst_handle());
-    auto src_offset = command->src_offset();
-    auto dst_offset = command->dst_offset();
     auto size = command->size();
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromTexture:src
                       sourceSlice:0u
                       sourceLevel:command->src_level()
-                     sourceOrigin:MTLOriginMake(src_offset.x, src_offset.y, src_offset.z)
+                     sourceOrigin:MTLOriginMake(0u, 0u, 0u)
                        sourceSize:MTLSizeMake(size.x, size.y, size.z)
                         toTexture:dst
                  destinationSlice:0u
                  destinationLevel:command->dst_level()
-                destinationOrigin:MTLOriginMake(dst_offset.x, dst_offset.y, dst_offset.z)];
+                destinationOrigin:MTLOriginMake(0u, 0u, 0u)];
     [blit_encoder endEncoding];
 }
 
@@ -125,7 +122,6 @@ void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexc
     auto buffer = to_buffer(command->buffer());
     auto texture = to_texture(command->texture());
     auto size = command->size();
-    auto offset = command->offset();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y;
@@ -133,7 +129,7 @@ void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexc
     [blit_encoder copyFromTexture:texture
                       sourceSlice:0u
                       sourceLevel:command->level()
-                     sourceOrigin:MTLOriginMake(offset.x, offset.y, offset.z)
+                     sourceOrigin:MTLOriginMake(0u, 0u, 0u)
                        sourceSize:MTLSizeMake(size.x, size.y, size.z)
                          toBuffer:buffer
                 destinationOffset:command->buffer_offset()
@@ -143,7 +139,6 @@ void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexc
 }
 
 void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
-    auto offset = command->offset();
     auto size = command->size();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
@@ -159,12 +154,11 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
                        toTexture:texture
                 destinationSlice:0u
                 destinationLevel:command->level()
-               destinationOrigin:MTLOriginMake(offset.x, offset.y, offset.z)];
+               destinationOrigin:MTLOriginMake(0u, 0u, 0u)];
     [blit_encoder endEncoding];
 }
 
 void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
-    auto offset = command->offset();
     auto size = command->size();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
@@ -175,7 +169,7 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
     [blit_encoder copyFromTexture:texture
                       sourceSlice:0u
                       sourceLevel:command->level()
-                     sourceOrigin:MTLOriginMake(offset.x, offset.y, offset.z)
+                     sourceOrigin:MTLOriginMake(0u, 0u, 0u)
                        sourceSize:MTLSizeMake(size.x, size.y, size.z)
                          toBuffer:buffer.handle()
                 destinationOffset:buffer.offset()
