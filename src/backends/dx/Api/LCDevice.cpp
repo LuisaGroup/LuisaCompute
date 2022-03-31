@@ -16,7 +16,7 @@
 #include <Shader/PipelineLibrary.h>
 #include <Resource/TopAccel.h>
 #include <vstl/BinaryReader.h>
-#include <Api/LCDisplayCmdBuffer.h>
+#include <Api/LCSwapChain.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 LCDevice::LCDevice(const Context &ctx)
@@ -104,34 +104,12 @@ void LCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noex
     reinterpret_cast<BindlessArray *>(array)
         ->UnBind(BindlessArray::BindTag::Tex3D, index);
 }
-void LCDevice::present_display_stream(uint64_t stream_handle, uint64_t texture) noexcept {
-    reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->Present(reinterpret_cast<RenderTexture *>(texture));
-}
 uint64_t LCDevice::create_stream() noexcept {
     return reinterpret_cast<uint64>(
         new LCCmdBuffer(
             &nativeDevice,
             nativeDevice.defaultAllocator,
             D3D12_COMMAND_LIST_TYPE_COMPUTE));
-}
-uint64_t LCDevice::create_display_stream(
-    uint64 window_handle,
-    uint width,
-    uint height) noexcept {
-    return reinterpret_cast<uint64>(
-        new LCDisplayCmdBuffer(
-            &nativeDevice,
-            nativeDevice.defaultAllocator,
-            D3D12_COMMAND_LIST_TYPE_DIRECT,
-            reinterpret_cast<HWND>(window_handle),
-            width,
-            height));
-}
-void LCDevice::destroy_display_stream(uint64_t handle) noexcept {
-    delete reinterpret_cast<LCDisplayCmdBuffer *>(handle);
-}
-void LCDevice::synchronize_display_stream(uint64_t stream_handle) noexcept {
-    reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->Sync();
 }
 
 void LCDevice::destroy_stream(uint64_t handle) noexcept {
@@ -199,15 +177,7 @@ void LCDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
 void LCDevice::synchronize_event(uint64_t handle) noexcept {
     reinterpret_cast<LCEvent *>(handle)->Sync();
 }
-void LCDevice::signal_display_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    reinterpret_cast<LCEvent *>(handle)->Wait(
-        &reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->queue);
-}
 
-void LCDevice::wait_display_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    reinterpret_cast<LCEvent *>(handle)->Wait(
-        &reinterpret_cast<LCDisplayCmdBuffer *>(stream_handle)->queue);
-}
 uint64_t LCDevice::create_mesh(
     uint64_t v_buffer,
     size_t v_offset,
@@ -275,7 +245,36 @@ uint64_t LCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noe
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
 }
-
+uint64_t LCDevice::create_swap_chain(
+    uint64 window_handle,
+    uint64 stream_handle,
+    uint width,
+    uint height,
+    bool allow_hdr,
+    uint back_buffer_size) noexcept {
+    return reinterpret_cast<uint64>(
+        new LCSwapChain(
+            &nativeDevice,
+            &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue,
+            nativeDevice.defaultAllocator,
+            reinterpret_cast<HWND>(window_handle),
+            width,
+            height,
+            allow_hdr,
+            back_buffer_size));
+}
+void LCDevice::destroy_swap_chain(uint64_t handle) noexcept {
+    delete reinterpret_cast<LCSwapChain *>(handle);
+}
+PixelStorage LCDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
+    return PixelStorage::BYTE4;
+}
+void LCDevice::present_display_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)
+        ->Present(
+            reinterpret_cast<LCSwapChain *>(swapchain_handle),
+            reinterpret_cast<RenderTexture *>(image_handle));
+}
 VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view) {
     return new LCDevice(c);
 }

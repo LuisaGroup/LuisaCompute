@@ -23,9 +23,9 @@ class Context;
 
 class Event;
 class Stream;
-class DisplayStream;
 class Mesh;
 class Accel;
+class SwapChain;
 class BindlessArray;
 
 template<typename T>
@@ -88,18 +88,10 @@ public:
         virtual void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
-
         // stream
         [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
-        [[nodiscard]] virtual uint64_t create_display_stream(
-            uint64_t window_handle,
-            uint32_t width,
-            uint32_t height) noexcept = 0;
-        virtual void destroy_display_stream(uint64_t handle) noexcept = 0;
-        virtual void synchronize_display_stream(uint64_t stream_handle) noexcept = 0;
-        virtual void present_display_stream(uint64_t stream_handle, uint64_t texture) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, const CommandList &list) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, const CommandList &list, luisa::move_only_function<void()> &&func) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
@@ -109,7 +101,17 @@ public:
             for (auto &&list : lists) { dispatch(stream_handle, list, std::move(func)); }
         }
         [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
-
+        // swap chain
+        [[nodiscard]] virtual uint64_t create_swap_chain(
+            uint64_t window_handle,
+            uint64_t stream_handle,
+            uint width,
+            uint height,
+            bool allow_hdr,
+            uint back_buffer_size) noexcept = 0;
+        virtual void destroy_swap_chain(uint64_t handle) noexcept = 0;
+        virtual PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept = 0;
+        virtual void present_display_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept = 0;
         // kernel
         [[nodiscard]] virtual uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept = 0;
         virtual void destroy_shader(uint64_t handle) noexcept = 0;
@@ -119,8 +121,6 @@ public:
         virtual void destroy_event(uint64_t handle) noexcept = 0;
         virtual void signal_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
         virtual void wait_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
-        virtual void signal_display_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
-        virtual void wait_display_event(uint64_t handle, uint64_t stream_handle) noexcept = 0;
         virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
         // accel
@@ -161,13 +161,15 @@ public:
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
-    [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp
-    [[nodiscard]] DisplayStream create_display_stream(
+    [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp           // see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;  // see definition in runtime/event.cpp
+    [[nodiscard]] SwapChain create_swapchain(
         uint64_t window_handle,
-        uint32_t width,
-        uint32_t height) noexcept;              // see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;// see definition in runtime/event.cpp
-
+        Stream const& stream,
+        uint width,
+        uint height,
+        bool allow_hdr = true,
+        uint back_buffer_size = 1) noexcept;
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(
         VBuffer &&vertices, TBuffer &&triangles,
