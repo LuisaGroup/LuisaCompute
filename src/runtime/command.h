@@ -79,7 +79,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
         return command;                                                          \
     }
 
-#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)                                             \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
     void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
@@ -184,23 +184,20 @@ private:
     uint64_t _texture_handle;
     PixelStorage _pixel_storage;
     uint _texture_level;
-    uint _texture_offset[3];
     uint _texture_size[3];
 
 public:
     BufferToTextureCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
-                               uint level, uint3 offset, uint3 size) noexcept
+                               uint level, uint3 size) noexcept
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_offset{offset.x, offset.y, offset.z},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(BufferToTextureCopyCommand)
 };
@@ -213,23 +210,19 @@ private:
     uint64_t _texture_handle;
     PixelStorage _pixel_storage;
     uint _texture_level;
-    uint _texture_offset[3];
     uint _texture_size[3];
 
 public:
     TextureToBufferCopyCommand(uint64_t buffer, size_t buffer_offset,
-                               uint64_t texture, PixelStorage storage,
-                               uint level, uint3 offset, uint3 size) noexcept
+                               uint64_t texture, PixelStorage storage, uint level, uint3 size) noexcept
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_offset{offset.x, offset.y, offset.z},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(TextureToBufferCopyCommand)
 };
@@ -240,8 +233,6 @@ private:
     PixelStorage _storage;
     uint64_t _src_handle;
     uint64_t _dst_handle;
-    uint _src_offset[3];
-    uint _dst_offset[3];
     uint _size[3];
     uint _src_level;
     uint _dst_level;
@@ -253,20 +244,14 @@ public:
         uint64_t dst_handle,
         uint src_level,
         uint dst_level,
-        uint3 src_offset,
-        uint3 dst_offset,
         uint3 size) noexcept
         : _storage{storage},
           _src_handle{src_handle}, _dst_handle{dst_handle},
-          _src_offset{src_offset.x, src_offset.y, src_offset.z},
-          _dst_offset{dst_offset.x, dst_offset.y, dst_offset.z},
           _size{size.x, size.y, size.z},
           _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
-    [[nodiscard]] auto src_offset() const noexcept { return uint3(_src_offset[0], _src_offset[1], _src_offset[2]); }
-    [[nodiscard]] auto dst_offset() const noexcept { return uint3(_dst_offset[0], _dst_offset[1], _dst_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto src_level() const noexcept { return _src_level; }
     [[nodiscard]] auto dst_level() const noexcept { return _dst_level; }
@@ -279,24 +264,20 @@ private:
     uint64_t _handle;
     PixelStorage _storage;
     uint _level;
-    uint _offset[3];
     uint _size[3];
     const void *_data;
 
 public:
-    TextureUploadCommand(
-        uint64_t handle, PixelStorage storage, uint level,
-        uint3 offset, uint3 size, const void *data) noexcept
+    TextureUploadCommand(uint64_t handle, PixelStorage storage,
+                         uint level, uint3 size, const void *data) noexcept
         : _handle{handle},
           _storage{storage},
           _level{level},
-          _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
           _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand)
@@ -308,24 +289,21 @@ private:
     uint64_t _handle;
     PixelStorage _storage;
     uint _level;
-    uint _offset[3];
     uint _size[3];
     void *_data;
 
 public:
     TextureDownloadCommand(
-        uint64_t handle, PixelStorage storage, uint level,
-        uint3 offset, uint3 size, void *data) noexcept
+        uint64_t handle, PixelStorage storage,
+        uint level, uint3 size, void *data) noexcept
         : _handle{handle},
           _storage{storage},
           _level{level},
-          _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
           _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)

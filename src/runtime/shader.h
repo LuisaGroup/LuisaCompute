@@ -65,13 +65,13 @@ public:
     template<typename T>
     ShaderInvokeBase &operator<<(ImageView<T> image) noexcept {
         _command->encode_texture(image.handle(), image.level());
-        return *this << image.offset();
+        return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(VolumeView<T> volume) noexcept {
         _command->encode_texture(volume.handle(), volume.level());
-        return *this << volume.offset();
+        return *this;
     }
 
     template<typename T>

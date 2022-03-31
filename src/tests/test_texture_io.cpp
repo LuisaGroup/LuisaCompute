@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
 
     stream << clear_image(device_image.view(0)).dispatch(1024u, 1024u)
-           << fill_image(device_image.view(0).region(make_uint2(256u), make_uint2(512u))).dispatch(512u, 512u)
+           << fill_image(device_image.view(0)).dispatch(1024u, 1024u)
            << fill_buffer(device_buffer).dispatch(1024, 1024)
            << device_image.copy_to(device_image_uchar4)
            << device_image_uchar4.view(0).copy_to(download_image.data())
