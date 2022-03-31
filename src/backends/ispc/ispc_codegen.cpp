@@ -286,7 +286,10 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "transpose"; break;
         case CallOp::INVERSE: _scratch << "inverse"; break;
-        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "barrier"; break;
+        case CallOp::SYNCHRONIZE_BLOCK:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            _scratch << "barrier";
+            break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomic_swap_global";
             is_atomic = true;
@@ -646,7 +649,10 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
 void ISPCCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
-        case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
+        case Variable::Tag::SHARED:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            _scratch << "s" << v.uid();
+            break;
         case Variable::Tag::REFERENCE: _scratch << "r" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
@@ -776,6 +782,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
         case Variable::Tag::SHARED:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
             // TODO: support shared
             _scratch << "__shared__ ";
             _emit_type_name(v.type());
