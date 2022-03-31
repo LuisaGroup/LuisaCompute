@@ -14,6 +14,9 @@
 #include <gui/framerate.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
+#include <stb/stb_image.h>
+
+#include <dsl/printer.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/tiny_obj_loader.h>
@@ -42,11 +45,21 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 // clang-format on
 
 int main(int argc, char *argv[]) {
-
     log_level_info();
 
     Context context{argv[0]};
     auto device = context.create_device("cuda");
+    Printer printer{device};
+
+    std::filesystem::path output_dir{"frames"};
+    std::filesystem::remove_all(output_dir);
+    std::filesystem::create_directories(output_dir);
+
+    // settings
+    static constexpr uint differentiable_index = 4u;
+    static constexpr uint max_depth = 10u;
+    static constexpr float learning_rate = pi;
+    static constexpr uint spp_per_dispatch = 256u;
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -77,6 +90,7 @@ int main(int argc, char *argv[]) {
 
     auto heap = device.create_bindless_array();
     auto stream = device.create_stream();
+    printer.reset(stream);
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
     std::vector<Mesh> meshes;
@@ -115,8 +129,21 @@ int main(int argc, char *argv[]) {
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// short box
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// tall box
     materials.emplace_back(Material{make_float3(0.0f), make_float3(17.0f, 12.0f, 4.0f)});  // light
-    auto material_buffer = device.create_buffer<Material>(materials.size());
-    stream << material_buffer.copy_from(materials.data());
+
+    std::vector<Buffer<Material>> material_buffer;
+    material_buffer.emplace_back(device.create_buffer<Material>(materials.size()));
+    material_buffer.emplace_back(device.create_buffer<Material>(materials.size()));
+    // right cbox
+    stream << material_buffer[0].copy_from(materials.data())
+           << synchronize();
+    LUISA_INFO("target albedo = ({}, {}, {})",
+               materials[4].albedo.x, materials[4].albedo.y, materials[4].albedo.z);
+    // left wall green cbox
+    materials[4] = materials[3];
+    stream << material_buffer[1].copy_from(materials.data())
+           << synchronize();
+    LUISA_INFO("start with albedo = ({}, {}, {})",
+               materials[4].albedo.x, materials[4].albedo.y, materials[4].albedo.z);
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -175,7 +202,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+    auto raytracing_kernel_template = [&](size_t material_buffer_id, ImageFloat &image, ImageUInt &seed_image, AccelVar &accel, UInt2 resolution) noexcept {
         set_block_size(8u, 8u, 1u);
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
@@ -194,7 +221,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        $for(depth, 10u) {
+        $for(depth, max_depth) {
             // trace
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
@@ -206,17 +233,139 @@ int main(int argc, char *argv[]) {
             auto n = normalize(cross(p1 - p0, p2 - p0));
             auto cos_wi = dot(-ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
-            auto material = material_buffer.read(hit.inst);
 
-            //            // hit light
-            //            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-            //                $break;
+            auto material = material_buffer[material_buffer_id].read(hit.inst);
+            //            $if(material_buffer_id == 1u & hit.inst == differentiable_index) {
+            //                //                printer.log("material_index_uint64 = ", (int)material_index_uint64);
+            //                printer.log("material.albedo = (", material.albedo.x, ", ", material.albedo.y, ", ", material.albedo.z, ")");
+            //                auto material_diff = material_buffer[1u].read(hit.inst);
+            //                printer.log("material_diff.albedo = (", material_diff.albedo.x, ", ", material_diff.albedo.y, ", ", material_diff.albedo.z, ")");
             //            };
 
-            $if(hit.inst == 3) {
-                auto bsdf_diff = make_float3(0.0f, 1.0f, 0.0f);
-                auto li = make_float3(1.0f, 1.0f, 1.0f);
-                radiance += beta * li * bsdf_diff;
+            // hit light
+            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                $if(depth == 0u) {
+                    radiance += light_emission;
+                }
+                $else {
+                    auto pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                    auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                    radiance += mis_weight * beta * light_emission;
+                };
+                $break;
+            };
+
+            // sample light
+            auto ux_light = lcg(state);
+            auto uy_light = lcg(state);
+            auto p_light = light_position + ux_light * light_u + uy_light * light_v;
+            auto d_light = distance(p, p_light);
+            auto wi_light = normalize(p_light - p);
+            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+            auto occluded = accel.trace_any(shadow_ray);
+            auto cos_wi_light = dot(wi_light, n);
+            auto cos_light = -dot(light_normal, wi_light);
+            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                auto pdf_light = (d_light * d_light) / (light_area * cos_light);
+                auto pdf_bsdf = cos_wi_light * inv_pi;
+                auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+                auto bsdf = material.albedo * inv_pi * cos_wi_light;
+                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+            };
+
+            // sample BSDF
+            auto onb = make_onb(n);
+            auto ux = lcg(state);
+            auto uy = lcg(state);
+            auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
+            ray = make_ray_robust(p, n, new_direction);
+            beta *= material.albedo;
+            pdf_bsdf = cos_wi * inv_pi;
+
+            // rr
+            auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
+            $if(l == 0.0f) { $break; };
+            auto q = max(l, 0.05f);
+            auto r = lcg(state);
+            $if(r >= q) { $break; };
+            beta *= 1.0f / q;
+        };
+        seed_image.write(coord, make_uint4(state));
+        $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+    };
+
+    Kernel2D radiative_kernel = [&](ImageFloat rendered_image, ImageFloat target_image, ImageFloat grad_image,
+                                    ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+        set_block_size(8u, 8u, 1u);
+        auto coord = dispatch_id().xy();
+        auto frame_size = min(resolution.x, resolution.y).cast<float>();
+        auto state = seed_image.read(coord).x;
+        auto rx = lcg(state);
+        auto ry = lcg(state);
+        auto pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
+        auto ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
+        auto grad = def(make_float3(0.0f));
+        auto beta = def(make_float3(1.0f));
+        auto pdf_bsdf = def(0.0f);
+        constexpr auto light_position = make_float3(-0.24f, 1.98f, 0.16f);
+        constexpr auto light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
+        constexpr auto light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
+        constexpr auto light_emission = make_float3(17.0f, 12.0f, 4.0f);
+        auto light_area = length(cross(light_u, light_v));
+        auto light_normal = normalize(cross(light_u, light_v));
+
+        // calculate L2 loss
+        auto rendered = rendered_image.read(coord);
+        auto target = target_image.read(coord);
+        beta *= 2.0f * (rendered - target).xyz();
+        //        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, ")");
+        //        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")");
+        //        $if(rendered.x < target.x) {
+        //        printer.log("beta = (", beta.x, ", ", beta.y, ", ", beta.z, ")");
+        //        };
+
+        $for(depth, max_depth) {
+            // trace
+            auto hit = accel.trace_closest(ray);
+            $if(hit->miss()) { $break; };
+            auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
+            auto p0 = vertex_buffer.read(triangle.i0);
+            auto p1 = vertex_buffer.read(triangle.i1);
+            auto p2 = vertex_buffer.read(triangle.i2);
+            auto p = hit->interpolate(p0, p1, p2);
+            auto n = normalize(cross(p1 - p0, p2 - p0));
+            auto cos_wi = dot(-ray->direction(), n);
+            $if(cos_wi < 1e-4f) { $break; };
+
+            auto material = material_buffer[1u].read(hit.inst);
+
+            // hit light
+            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                $break;
+            };
+
+            $if(hit.inst == differentiable_index) {
+                auto bsdf_diff = make_float3(1.0f) * inv_pi * cos_wi;
+                auto Li = make_float3(1.0f);
+                grad += beta * Li * bsdf_diff;
+
+                //                // sample light
+                //                auto ux_light = lcg(state);
+                //                auto uy_light = lcg(state);
+                //                auto p_light = light_position + ux_light * light_u + uy_light * light_v;
+                //                auto d_light = distance(p, p_light);
+                //                auto wi_light = normalize(p_light - p);
+                //                auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+                //                auto occluded = accel.trace_any(shadow_ray);
+                //                auto cos_wi_light = dot(wi_light, n);
+                //                auto cos_light = -dot(light_normal, wi_light);
+                //                $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                //                    auto pdf_light = (d_light * d_light) / (light_area * cos_light);
+                //                    auto pdf_bsdf = cos_wi_light * inv_pi;
+                //                    auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+                //                    grad += beta * bsdf_diff * mis_weight * light_emission / max(pdf_light, 1e-4f);
+                //                };
             };
 
             // sample BSDF
@@ -237,8 +386,8 @@ int main(int argc, char *argv[]) {
             beta *= 1.0f / q;
         };
         seed_image.write(coord, make_uint4(state));
-        $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        $if(any(isnan(grad))) { grad = make_float3(0.0f); };
+        grad_image.write(dispatch_id().xy(), make_float4(grad, 1.0f));
     };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
@@ -262,6 +411,11 @@ int main(int argc, char *argv[]) {
         image.write(dispatch_id().xy(), make_float4(0.0f));
     };
 
+    Kernel2D copy_kernel = [](ImageUInt from, ImageUInt to) noexcept {
+        auto coord = dispatch_id().xy();
+        to.write(coord, from.read(coord));
+    };
+
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
@@ -272,19 +426,42 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
-    auto raytracing_shader = device.compile(raytracing_kernel);
+    auto raytracing_shader_0 = device.compile<2>(
+        [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+            raytracing_kernel_template(0, image, seed_image, accel, resolution);
+        });
+    auto raytracing_shader_1 = device.compile<2>(
+        [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+            raytracing_kernel_template(1, image, seed_image, accel, resolution);
+        });
+    auto radiative_shader = device.compile(radiative_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
+    auto copy_shader = device.compile(copy_kernel);
 
     static constexpr auto resolution = make_uint2(1024u);
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, resolution);
-    auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto seed_bank_image = device.create_image<uint>(PixelStorage::INT1, resolution);
+    auto rendered_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto buffer_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
 
+    auto target_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto grad_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    std::vector<float> grad_vec(4u * resolution.x * resolution.y);
+
+    // pipeline
     Clock clock;
-    stream << clear_shader(accum_image).dispatch(resolution)
-           << make_sampler_shader(seed_image).dispatch(resolution);
+    stream << make_sampler_shader(seed_image).dispatch(resolution) << synchronize();
+
+    // render target image
+    stream << clear_shader(target_image).dispatch(resolution);
+    for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
+        stream << raytracing_shader_0(buffer_image, seed_image, accel, resolution)
+                      .dispatch(resolution)
+               << accumulate_shader(target_image, buffer_image).dispatch(resolution)
+               << synchronize();
+    }
 
     Framerate framerate;
     Window window{"Display", resolution};
@@ -294,18 +471,59 @@ int main(int argc, char *argv[]) {
         }
     });
     auto frame_count = 0u;
+    auto output_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 256u;
-        for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution).dispatch(resolution)
-                           << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
+
+        command_buffer << clear_shader(rendered_image).dispatch(resolution)
+                       << clear_shader(grad_image).dispatch(resolution)
+                       << copy_shader(seed_image, seed_bank_image).dispatch(resolution);
+
+        // render
+        for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
+            command_buffer << raytracing_shader_1(buffer_image, seed_image,
+                                                  accel, resolution)
+                                  .dispatch(resolution)
+                           << accumulate_shader(rendered_image, buffer_image).dispatch(resolution)
+                           << synchronize();
         }
-        command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
-                       << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
+
+        // bp
+        for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
+            command_buffer << radiative_shader(rendered_image, target_image, buffer_image,
+                                               seed_bank_image, accel, resolution)
+                                  .dispatch(resolution)
+                           << accumulate_shader(grad_image, buffer_image).dispatch(resolution)
+                           << synchronize();
+        }
+        command_buffer << grad_image.copy_to(grad_vec.data());
+        // adjust material params
+        float3 grad = make_float3(0.f);
+        for (auto x = 0u; x < resolution.x; ++x)
+            for (auto y = 0u; y < resolution.y; ++y) {
+                auto index = (x * resolution.x + y) * 4u;
+                grad += {grad_vec[index + 0u],
+                         grad_vec[index + 1u],
+                         grad_vec[index + 2u]};
+            }
+        grad /= float(resolution.x * resolution.y);
+        auto &albedo = materials[differentiable_index].albedo;
+        albedo -= learning_rate * grad;
+        command_buffer << material_buffer[1].copy_from(materials.data());
+
+        std::cout << printer.retrieve(stream);
+        LUISA_INFO("grad = ({}, {}, {}), "
+                   "albedo = ({}, {}, {})",
+                   grad.x, grad.y, grad.z,
+                   albedo.x, albedo.y, albedo.z);
+
+        // display
+        command_buffer << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution)
                        << ldr_image.copy_to(host_image.data())
                        << commit();
         stream << synchronize();
+        auto file_name = output_dir / luisa::format("{:06}.png", output_count++);
+        stbi_write_png(file_name.string().c_str(), resolution.x, resolution.y, 4, host_image.data(), 0);
         window.set_background(host_image.data(), resolution);
         framerate.record(spp_per_dispatch);
         frame_count += spp_per_dispatch;
@@ -314,5 +532,6 @@ int main(int argc, char *argv[]) {
         ImGui::Text("FPS: %.1f", framerate.report());
         ImGui::End();
     });
+
     stbi_write_png("test_radiative_bp.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }

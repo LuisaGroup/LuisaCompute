@@ -4,7 +4,6 @@
 
 #pragma once
 
-
 #include <core/stl.h>
 #include <ast/interface.h>
 

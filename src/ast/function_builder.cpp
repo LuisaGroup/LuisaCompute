@@ -61,7 +61,8 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
 }
 
 FunctionBuilder *FunctionBuilder::current() noexcept {
-    return _function_stack().empty() ? nullptr : _function_stack().back();
+    LUISA_ASSERT(!_function_stack().empty(), "Empty function stack.");
+    return _function_stack().back();
 }
 
 void FunctionBuilder::_append(const Statement *statement) noexcept {
@@ -72,13 +73,11 @@ void FunctionBuilder::_append(const Statement *statement) noexcept {
 }
 
 void FunctionBuilder::break_() noexcept {
-    static thread_local BreakStmt stmt;
-    _append(&stmt);
+    _create_and_append_statement<BreakStmt>();
 }
 
 void FunctionBuilder::continue_() noexcept {
-    static thread_local ContinueStmt stmt;
-    _append(&stmt);
+    _create_and_append_statement<ContinueStmt>();
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
@@ -222,10 +221,20 @@ const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *se
 }
 
 const MemberExpr *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
+    if (self->tag() == Expression::Tag::LITERAL) {
+        auto v = local(self->type());
+        assign(v, self);
+        self = v;
+    }
     return _create_expression<MemberExpr>(type, self, swizzle_size, swizzle_code);
 }
 
 const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *range, const Expression *index) noexcept {
+    if (range->tag() == Expression::Tag::LITERAL) {
+        auto v = local(range->type());
+        assign(v, range);
+        range = v;
+    }
     return _create_expression<AccessExpr>(type, range, index);
 }
 
@@ -265,8 +274,14 @@ void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
     _variable_usages[uid] = u;
 }
 
+FunctionBuilder::~FunctionBuilder() noexcept
+{
+        LUISA_VERBOSE("FunctionBuilder destructor called");
+}
 FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
-    : _body{"__function_body"}, _hash{0ul}, _tag{tag} {}
+    : _body{"__function_body"}, _hash{0ul}, _tag{tag} {
+        LUISA_VERBOSE("FunctionBuilder constructor called");
+    }
 
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
@@ -298,33 +313,13 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
-    if (call_op == CallOp::CUSTOM) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Custom functions are not allowed to "
-            "be called with enum CallOp.");
-    }
-    if (call_op == CallOp::TRACE_ANY ||
-        call_op == CallOp::TRACE_CLOSEST) {
-        _raytracing = true;
-    }
-    _used_builtin_callables.mark(call_op);
-    return _create_expression<CallExpr>(type, call_op, args);
+    luisa::vector<const Expression *> arg_list{args};
+    return call(type, call_op, arg_list);
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::initializer_list<const Expression *> args) noexcept {
-    if (custom.tag() != Function::Tag::CALLABLE) {
-        LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
-    }
-    if (custom.raytracing()) { _raytracing = true; }
-    auto expr = _create_expression<CallExpr>(type, custom, args);
-    if (auto iter = std::find_if(
-            _used_custom_callables.cbegin(),
-            _used_custom_callables.cend(),
-            [c = custom.builder()](auto &&p) noexcept { return c == p.get(); });
-        iter == _used_custom_callables.cend()) {
-        _used_custom_callables.emplace_back(custom.shared_builder());
-    }
-    return expr;
+    luisa::vector<const Expression *> arg_list{args};
+    return call(type, custom, arg_list);
 }
 
 void FunctionBuilder::call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept {

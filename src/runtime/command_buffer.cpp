@@ -32,7 +32,7 @@ void CommandBuffer::_commit() &noexcept {
         _stream->_dispatch(std::move(_command_list));
     }
 }
-void CommandBuffer::commit(luisa::move_only_function<void()>&& func) & noexcept {
+void CommandBuffer::commit(luisa::move_only_function<void()> func) &noexcept {
     if (!_command_list.empty()) {
         _stream->_dispatch(std::move(_command_list), std::move(func));
     }
@@ -50,9 +50,25 @@ CommandBuffer &CommandBuffer::operator<<(Event::Wait wait) &noexcept {
     return *this;
 }
 
+CommandBuffer &CommandBuffer::operator<<(SwapChain::Present p) &noexcept {
+    _commit();
+    *_stream << p;
+    return *this;
+}
+
 CommandBuffer &CommandBuffer::operator<<(CommandBuffer::Commit) &noexcept {
     _commit();
     return *this;
+}
+
+CommandBuffer &CommandBuffer::operator<<(CommandBuffer::Synchronize) &noexcept {
+    synchronize();
+    return *this;
+}
+
+void CommandBuffer::synchronize() &noexcept {
+    _commit();
+    _stream->synchronize();
 }
 
 }// namespace luisa::compute

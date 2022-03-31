@@ -18,7 +18,14 @@ private:
     RTCScene _handle;
     RTCGeometry _geometry;
     uint64_t _v_buffer;
+    uint64_t _v_offset;
+    uint64_t _v_stride;
+    uint64_t _v_count;
     uint64_t _t_buffer;
+    uint64_t _t_offset;
+    uint64_t _t_count;
+    AccelBuildHint _hint;
+    std::atomic_bool _buffers_already_set{false};
 
 public:
     /**

@@ -1,6 +1,9 @@
 add_executable(test_type test_type.cpp)
 target_link_libraries(test_type PRIVATE luisa::compute)
 
+add_executable(test_ast test_ast.cpp)
+target_link_libraries(test_ast PRIVATE luisa::compute)
+
 add_executable(test_dsl test_dsl.cpp)
 target_link_libraries(test_dsl PRIVATE luisa::compute)
 
@@ -73,3 +76,6 @@ target_link_libraries(test_playground PRIVATE luisa::compute)
 
 add_executable(test_radiative_bp test_radiative_bp.cpp)
 target_link_libraries(test_radiative_bp PRIVATE luisa::compute)
+
+add_executable(test_image_byte4 test_image_byte4.cpp)
+target_link_libraries(test_image_byte4 PRIVATE luisa::compute)

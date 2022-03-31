@@ -1,4 +1,5 @@
 #pragma once
+
 #if defined(_MSC_VER)
 
 #ifdef LC_CORE_EXPORT_DLL

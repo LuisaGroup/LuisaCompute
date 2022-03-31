@@ -9,16 +9,19 @@
 namespace luisa::compute {
 
 inline namespace dsl {
+/// Assign rhs to lhs
 template<typename Lhs, typename Rhs>
 inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept;// defined in dsl/stmt.h
 }
 
 namespace detail {
 
+/// Enable subscript access
 template<typename T>
 struct RefEnableSubscriptAccess {
 
 public:
+    /// Access index
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto operator[](I &&index) const &noexcept {
@@ -29,6 +32,7 @@ public:
             Type::of<Elem>(), self.expression(),
             extract_expression(std::forward<I>(index))));
     }
+    /// Access index
     template<typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto &operator[](I &&index) &noexcept {
@@ -44,8 +48,10 @@ public:
     }
 };
 
+/// Enbale get member by index
 template<typename T>
 struct RefEnableGetMemberByIndex {
+    /// Get member by index
     template<size_t i>
     [[nodiscard]] auto get() const noexcept {
         static_assert(i < dimension_v<expr_value_t<T>>);
@@ -54,6 +60,7 @@ struct RefEnableGetMemberByIndex {
     }
 };
 
+/// Ref class common definition
 #define LUISA_REF_COMMON(...)                                              \
 private:                                                                   \
     const Expression *_expression;                                         \
@@ -72,6 +79,7 @@ public:                                                                    \
     }                                                                      \
     void operator=(Ref rhs) &noexcept { (*this) = Expr<__VA_ARGS__>{rhs}; }
 
+/// Ref<T>
 template<typename T>
 struct Ref
     : detail::ExprEnableStaticCast<Ref<T>>,
@@ -85,6 +93,7 @@ struct Ref
     }
 };
 
+/// Ref<std::array<T, N>>
 template<typename T, size_t N>
 struct Ref<std::array<T, N>>
     : detail::RefEnableSubscriptAccess<Ref<std::array<T, N>>>,
@@ -92,6 +101,7 @@ struct Ref<std::array<T, N>>
     LUISA_REF_COMMON(std::array<T, N>)
 };
 
+/// Ref<Matrix<N>>
 template<size_t N>
 struct Ref<Matrix<N>>
     : detail::RefEnableSubscriptAccess<Ref<Matrix<N>>>,
@@ -99,6 +109,7 @@ struct Ref<Matrix<N>>
     LUISA_REF_COMMON(Matrix<N>)
 };
 
+/// Ref<std::tuple<T...>>
 template<typename... T>
 struct Ref<std::tuple<T...>> {
     LUISA_REF_COMMON(std::tuple<T...>)
@@ -110,6 +121,7 @@ struct Ref<std::tuple<T...>> {
     }
 };
 
+/// Ref<Vector<T, 2>>
 template<typename T>
 struct Ref<Vector<T, 2>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 2>>>,
@@ -122,6 +134,7 @@ struct Ref<Vector<T, 2>>
 #include <dsl/swizzle_2.inl.h>
 };
 
+/// Ref<Vector<T, 3>>
 template<typename T>
 struct Ref<Vector<T, 3>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 3>>>,
@@ -135,6 +148,7 @@ struct Ref<Vector<T, 3>>
 #include <dsl/swizzle_3.inl.h>
 };
 
+/// Ref<Vector<T, 4>>
 template<typename T>
 struct Ref<Vector<T, 4>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 4>>>,

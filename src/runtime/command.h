@@ -19,6 +19,7 @@
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>
+#include <ast/function_builder.h>
 
 namespace luisa::compute {
 
@@ -78,7 +79,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
         return command;                                                          \
     }
 
-#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)                                             \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
     void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
@@ -100,9 +101,9 @@ class LC_RUNTIME_API Command {
 
 protected:
     virtual void _recycle() noexcept = 0;
-    ~Command() noexcept = default;
 
 public:
+    virtual ~Command() noexcept = default;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
     [[nodiscard]] virtual Command *clone() const noexcept = 0;
@@ -183,23 +184,20 @@ private:
     uint64_t _texture_handle;
     PixelStorage _pixel_storage;
     uint _texture_level;
-    uint _texture_offset[3];
     uint _texture_size[3];
 
 public:
     BufferToTextureCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
-                               uint level, uint3 offset, uint3 size) noexcept
+                               uint level, uint3 size) noexcept
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_offset{offset.x, offset.y, offset.z},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(BufferToTextureCopyCommand)
 };
@@ -212,23 +210,19 @@ private:
     uint64_t _texture_handle;
     PixelStorage _pixel_storage;
     uint _texture_level;
-    uint _texture_offset[3];
     uint _texture_size[3];
 
 public:
     TextureToBufferCopyCommand(uint64_t buffer, size_t buffer_offset,
-                               uint64_t texture, PixelStorage storage,
-                               uint level, uint3 offset, uint3 size) noexcept
+                               uint64_t texture, PixelStorage storage, uint level, uint3 size) noexcept
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_offset{offset.x, offset.y, offset.z},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(TextureToBufferCopyCommand)
 };
@@ -239,8 +233,6 @@ private:
     PixelStorage _storage;
     uint64_t _src_handle;
     uint64_t _dst_handle;
-    uint _src_offset[3];
-    uint _dst_offset[3];
     uint _size[3];
     uint _src_level;
     uint _dst_level;
@@ -252,20 +244,14 @@ public:
         uint64_t dst_handle,
         uint src_level,
         uint dst_level,
-        uint3 src_offset,
-        uint3 dst_offset,
         uint3 size) noexcept
         : _storage{storage},
           _src_handle{src_handle}, _dst_handle{dst_handle},
-          _src_offset{src_offset.x, src_offset.y, src_offset.z},
-          _dst_offset{dst_offset.x, dst_offset.y, dst_offset.z},
           _size{size.x, size.y, size.z},
           _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
-    [[nodiscard]] auto src_offset() const noexcept { return uint3(_src_offset[0], _src_offset[1], _src_offset[2]); }
-    [[nodiscard]] auto dst_offset() const noexcept { return uint3(_dst_offset[0], _dst_offset[1], _dst_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto src_level() const noexcept { return _src_level; }
     [[nodiscard]] auto dst_level() const noexcept { return _dst_level; }
@@ -278,24 +264,20 @@ private:
     uint64_t _handle;
     PixelStorage _storage;
     uint _level;
-    uint _offset[3];
     uint _size[3];
     const void *_data;
 
 public:
-    TextureUploadCommand(
-        uint64_t handle, PixelStorage storage, uint level,
-        uint3 offset, uint3 size, const void *data) noexcept
+    TextureUploadCommand(uint64_t handle, PixelStorage storage,
+                         uint level, uint3 size, const void *data) noexcept
         : _handle{handle},
           _storage{storage},
           _level{level},
-          _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
           _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand)
@@ -307,24 +289,21 @@ private:
     uint64_t _handle;
     PixelStorage _storage;
     uint _level;
-    uint _offset[3];
     uint _size[3];
     void *_data;
 
 public:
     TextureDownloadCommand(
-        uint64_t handle, PixelStorage storage, uint level,
-        uint3 offset, uint3 size, void *data) noexcept
+        uint64_t handle, PixelStorage storage,
+        uint level, uint3 size, void *data) noexcept
         : _handle{handle},
           _storage{storage},
           _level{level},
-          _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
           _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
@@ -411,6 +390,14 @@ private:
     uint32_t _argument_count{0u};
     ArgumentBuffer _argument_buffer{};
 
+private:
+    void _encode_pending_bindings() noexcept;
+    void _encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void _encode_texture(uint64_t handle, uint32_t level) noexcept;
+    void _encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void _encode_bindless_array(uint64_t handle) noexcept;
+    void _encode_accel(uint64_t handle) noexcept;
+
 public:
     explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
     void set_dispatch_size(uint3 launch_size) noexcept;
@@ -419,17 +406,11 @@ public:
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
     [[nodiscard]] auto dispatch_size() const noexcept { return uint3(_dispatch_size[0], _dispatch_size[1], _dispatch_size[2]); }
 
-    // Note: encode/decode order:
-    //   1. captured buffers
-    //   2. captured textures
-    //   3. captured texture heaps
-    //   4. captured acceleration structures
-    //   4. arguments
-    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, uint32_t level, Usage usage) noexcept;
-    void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
-    void encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept;
-    void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;
+    void encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void encode_texture(uint64_t handle, uint32_t level) noexcept;
+    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void encode_bindless_array(uint64_t handle) noexcept;
+    void encode_accel(uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {

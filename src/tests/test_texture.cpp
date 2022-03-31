@@ -103,10 +103,8 @@ int test_texture_crop(Device& device, int width, int height, int lod, TestType t
         uint h = max(1, height>>i);
         uint sx = rand()%w+1;
         uint sy = rand()%h+1;
-        ro0[i] = make_uint2(rand()%(w-sx+1), rand()%(h-sy+1));
-        ro1[i] = make_uint2(rand()%(w-sx+1), rand()%(h-sy+1));
         rs[i] = make_uint2(sx, sy);
-        LUISA_INFO("crop@{}: ({},{})  ({},{})  size({},{})", i, ro0[i].x, ro0[i].y, ro1[i].x, ro1[i].y, rs[i].x, rs[i].y);
+        LUISA_INFO("crop@{}: size({},{})", i, rs[i].x, rs[i].y);
     }
     auto image0 = device.create_image<float>(PixelStorage::FLOAT4, width, height, lod);
     auto image1 = device.create_image<float>(PixelStorage::FLOAT4, width, height, lod);
@@ -125,19 +123,19 @@ int test_texture_crop(Device& device, int width, int height, int lod, TestType t
     // upload texture
     auto stream = device.create_stream();
     for (int i=0, offset=0; i<lod; ++i) {
-        stream << image0.view(i).region(ro0[i],rs[i]).copy_from(input.data() + offset*4);
+        stream << image0.view(i).copy_from(input.data() + offset*4);
         offset += rs[i].x * rs[i].y;
     }
 
     if (test_type == COPY_TEXTURE) {
         for (int i=0, offset=0; i<lod; ++i)
-            stream << image1.view(i).region(ro1[i],rs[i]).copy_from(image0.view(i).region(ro0[i],rs[i]));
+            stream << image1.view(i).copy_from(image0.view(i));
     }
     if (test_type == COPY_BUFFER) {
         auto buf = device.create_buffer<float4>(width*height);
         for (int i=0, offset=0; i<lod; ++i) {
-            stream << image0.view(i).region(ro0[i],rs[i]).copy_to(buf.view());
-            stream << image1.view(i).region(ro1[i],rs[i]).copy_from(buf.view());
+            stream << image0.view(i).copy_to(buf.view());
+            stream << image1.view(i).copy_from(buf.view());
         }
         stream << synchronize();
     }
@@ -153,7 +151,7 @@ int test_texture_crop(Device& device, int width, int height, int lod, TestType t
         auto shader = device.compile(rw_kernel);
         auto shader1 = device.compile(fill_kernel);
         for (int i=0, offset=0; i<lod; ++i)
-            stream << shader( image0.view(i).region(ro0[i],rs[i]), image1.view(i).region(ro1[i],rs[i])).dispatch(rs[i].x, rs[i].y);
+            stream << shader(image0.view(i), image1.view(i)).dispatch(rs[i].x, rs[i].y);
         stream << synchronize();
         LUISA_WARNING("=====3");
     }
@@ -161,7 +159,7 @@ int test_texture_crop(Device& device, int width, int height, int lod, TestType t
     // download texture
     std::vector<float> output(total_size * 4);
     for (int i=0, offset=0; i<lod; ++i) {
-        stream << (test_type? image1: image0).view(i).region((test_type? ro1: ro0)[i],rs[i]).copy_to(output.data() + offset*4);
+        stream << (test_type? image1: image0).view(i).copy_to(output.data() + offset*4);
         offset += rs[i].x * rs[i].y;
     }
     stream << synchronize();

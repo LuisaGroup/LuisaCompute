@@ -298,17 +298,12 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 
 }// namespace detail
 
-/// Literal expression
+/// TODO
 class LiteralExpr final : public Expression {
     friend class AstSerializer;
 
 public:
-    /**
-     * @brief Meta value.
-     * 
-     * Valid literal value type together with basic value types.
-     * 
-     */
+    /// TODO
     class MetaValue {
     private:
         const Type *_type;
