@@ -30,31 +30,47 @@ class ASTVisitor:
         if method is None:
             raise Exception(f'Unsupported node {node}:\n{astpretty.pformat(node)}')
         return method(node)
-    
-    def build_FunctionDef(self, node):
+
+    @staticmethod
+    def build_FunctionDef(node):
         if node.returns is not None:
             raise Exception('Return value is not supported')
         if len(node.args.args)!=0 or node.args.vararg is not None or node.args.kwarg is not None:
             raise Exception('Arguments are not supported')
         for x in node.body: # build over a list
             build(x)
-            
-    def build_Expr(self, node):
+
+    @staticmethod
+    def build_Expr(node):
         print("WARNING: Expr discarded")
         # TODO: callable?
-        
-    def build_Name(self, node):
-        # TODO: find name in scopes (node.id)
+
+    @staticmethod
+    def build_Call(node):
+        if node.func.__class__.__name__ == "Name": # static function
+            # TODO check for builtins
+            pass
+        elif node.func.__class__.__name__ == "Attribute": # class method
+            # TODO check for builtin methods (buffer, etc.)
+            pass
+        else:
+            raise Exception('unrecognized call func type')
+
+    @staticmethod
+    def build_Name(node):
+        # Note: in Python all local variables are function-scoped
         if node.id in local_variable:
             node.dtype, node.ptr = local_variable[node.id]
         else:
             node.ptr = None
-        
-    def build_Constant(self, node):
+
+    @staticmethod
+    def build_Constant(node):
         node.dtype = deduce_literal_type(node.value)
         node.ptr = lcapi.builder().literal(node.dtype, node.value)
-        
-    def build_Assign(self, node):
+
+    @staticmethod
+    def build_Assign(node):
         if len(node.targets)!=1:
             raise Exception('Tuple assignment not supported')
         build(node.targets[0])
@@ -67,13 +83,15 @@ class ASTVisitor:
             local_variable[node.targets[0].id] = (dtype, node.targets[0].ptr)
             # all local variables are function scope
         lcapi.builder().assign(node.targets[0].ptr, node.value.ptr)
-        
-    def build_UnaryOp(self, node):
+
+    @staticmethod
+    def build_UnaryOp(node):
         build(node.operand)
         node.dtype = deduce_unary_type(node.op, node.operand.dtype)
         node.ptr = lcapi.builder().unary(node.dtype, op, node.operand.ptr)
-        
-    def build_BinOp(self, node):
+
+    @staticmethod
+    def build_BinOp(node):
         build(node.left)
         build(node.right)
         op = {
@@ -94,8 +112,9 @@ class ASTVisitor:
             raise Exception(f'Unsupported binary operation: {type(node.op)}')
         node.dtype = deduce_binary_type(node.op, node.left.dtype, node.right.dtype)
         node.ptr = lcapi.builder().binary(node.dtype, op, node.left.ptr, node.right.ptr)
-        
-    def build_Compare(self, node):
+
+    @staticmethod
+    def build_Compare(node):
         if len(node.comparators)!=1:
             raise Exception('chained comparison not supported yet. use brackets instead.')
         build(node.left)
@@ -114,7 +133,8 @@ class ASTVisitor:
         node.dtype = lcapi.Type.from_("bool")
         node.ptr = lcapi.builder().binary(node.dtype, op, node.left.ptr, node.comparators[0].ptr)
 
-    def build_BoolOp(self, node):
+    @staticmethod
+    def build_BoolOp(node):
         # should be short-circuiting
         if len(node.values)!=2:
             raise Exception('chained bool op not supported yet. use brackets instead.')
@@ -126,8 +146,9 @@ class ASTVisitor:
         }.get(type(node.op))
         node.dtype = lcapi.Type.from_("bool")
         node.ptr = lcapi.builder().binary(node.dtype, op, node.values[0].ptr, node.values[1].ptr)
-    
-    def build_If(self, node):
+
+    @staticmethod
+    def build_If(node):
         # condition
         build(node.test)
         ifstmt = lcapi.builder().if_(node.test.ptr)
@@ -141,12 +162,14 @@ class ASTVisitor:
         for x in node.orelse:
             build(x)
         lcapi.builder().pop_scope(ifstmt.false_branch())
-        
-    def build_For(self, node):
+
+    @staticmethod
+    def build_For(node):
         raise Exception('for loop not supported yet')
         pass
-    
-    def build_While(self, node):
+
+    @staticmethod
+    def build_While(node):
         loopstmt = lcapi.builder().loop_()
         lcapi.builder().push_scope(loopstmt.body())
         # condition
@@ -160,10 +183,12 @@ class ASTVisitor:
             build(x)
         lcapi.builder().pop_scope(loopstmt.body())
 
-    def build_Break(self, node):
+    @staticmethod
+    def build_Break(node):
         lcapi.builder().break_()
 
-    def build_Continue(self, node):
+    @staticmethod
+    def build_Continue(node):
         lcapi.builder().continue_()
     
 build = ASTVisitor()
@@ -204,17 +229,21 @@ def astgen():
 arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
+# upload command
 ulcmd = lcapi.BufferUploadCommand.create(buffer_handle, 0, 400, arr)
 stream.add(ulcmd)
 
-builder = lcapi.FunctionBuilder.define_kernel(test_astgen)
+# compile kernel
+builder = lcapi.FunctionBuilder.define_kernel(astgen)
 func = builder.function()
 shader_handle = device.impl().create_shader(func)
+# call kernel
 command = lcapi.ShaderDispatchCommand.create(shader_handle, func)
 command.encode_pending_bindings()
 command.set_dispatch_size(100,1,1)
 stream.add(command)
 
+# download command
 dlcmd = lcapi.BufferDownloadCommand.create(buffer_handle, 0, 400, arr1)
 stream.add(dlcmd)
 
