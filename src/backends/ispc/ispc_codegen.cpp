@@ -286,7 +286,10 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "transpose"; break;
         case CallOp::INVERSE: _scratch << "inverse"; break;
-        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "barrier"; break;
+        case CallOp::SYNCHRONIZE_BLOCK:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            _scratch << "barrier";
+            break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomic_swap_global";
             is_atomic = true;
@@ -418,8 +421,13 @@ void ISPCCodegen::visit(const BreakStmt *) {
     _scratch << "break;";
 }
 
-void ISPCCodegen::visit(const ContinueStmt *) {
+void ISPCCodegen::visit(const ContinueStmt *s) {
+    // FIXME: ISPC reports error, if continue found in switch-case inside loops
     _scratch << "continue;";
+    //    auto target = _continue_analysis.continue_scopes().at(s);
+    //    _scratch << luisa::format(
+    //        "goto CONT_{};",
+    //        _scope_label(target));
 }
 
 void ISPCCodegen::visit(const ReturnStmt *stmt) {
@@ -435,6 +443,9 @@ void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
+    _scratch << luisa::format(
+        "CONT_{}:;\n",
+        _scope_label(stmt));
     _scratch << "}";
 }
 
@@ -506,6 +517,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _emit_function(callable->function());
     }
 
+    _continue_analysis.analyze(f);
     _definition_analysis.analyze(f);
 
     _function = f;
@@ -629,6 +641,7 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << "  }\n"
                  << "}";
     }
+    _continue_analysis.reset();
     _definition_analysis.reset();
     _defined_variables.clear();
 }
@@ -636,7 +649,10 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
 void ISPCCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
-        case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
+        case Variable::Tag::SHARED:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            _scratch << "s" << v.uid();
+            break;
         case Variable::Tag::REFERENCE: _scratch << "r" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
@@ -766,6 +782,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
         case Variable::Tag::SHARED:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
             // TODO: support shared
             _scratch << "__shared__ ";
             _emit_type_name(v.type());
@@ -1015,6 +1032,12 @@ void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
             }
         }
     }
+}
+
+uint ISPCCodegen::_scope_label(const ScopeStmt *s) noexcept {
+    auto [iter, _] = _scope_labels.try_emplace(
+        s, static_cast<uint>(_scope_labels.size()));
+    return iter->second;
 }
 
 }// namespace luisa::compute::ispc

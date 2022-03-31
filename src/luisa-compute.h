@@ -10,6 +10,7 @@
 #include <core/concepts.h>
 #include <core/constants.h>
 #include <core/dirty_range.h>
+#include <core/dll_export.h>
 #include <core/dynamic_module.h>
 #include <core/first_fit.h>
 #include <core/hash.h>
@@ -54,6 +55,7 @@
 #include <runtime/sampler.h>
 #include <runtime/shader.h>
 #include <runtime/stream.h>
+#include <runtime/swap_chain.h>
 #include <runtime/volume.h>
 
 #include <dsl/arg.h>
@@ -62,7 +64,9 @@
 #include <dsl/expr.h>
 #include <dsl/expr_traits.h>
 #include <dsl/func.h>
+#include <dsl/local.h>
 #include <dsl/operators.h>
+#include <dsl/printer.h>
 #include <dsl/ref.h>
 #include <dsl/shared.h>
 #include <dsl/stmt.h>

@@ -26,9 +26,20 @@ target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 set_target_properties(xxhash PROPERTIES UNITY_BUILD ON)
 target_link_libraries(luisa-compute-ext INTERFACE xxhash)
 
+add_library(asio INTERFACE)
+target_include_directories(asio INTERFACE asio/asio/include)
+target_compile_definitions(asio INTERFACE
+        ASIO_STANDALONE=1
+        ASIO_HAS_STD_INVOKE_RESULT=1
+        ASIO_NO_EXCEPTIONS=1)
+if (WIN32)
+    target_compile_definitions(asio INTERFACE _WIN32_WINNT=0x0A00)
+    target_link_libraries(asio INTERFACE ws2_32 wsock32 bcrypt)
+endif ()
+target_link_libraries(luisa-compute-ext INTERFACE asio)
 
-#add_subdirectory(stb)
-#target_link_libraries(luisa-compute-ext INTERFACE stb)
+add_subdirectory(stb)
+target_link_libraries(luisa-compute-ext INTERFACE stb)
 
 set(JSON_MultipleHeaders ON CACHE BOOL "" FORCE)
 set(JSON_SystemInclude ON CACHE BOOL "" FORCE)
@@ -37,3 +48,52 @@ target_link_libraries(luisa-compute-ext INTERFACE nlohmann_json::nlohmann_json)
 
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
+
+if (LUISA_COMPUTE_ENABLE_ISPC)
+    find_package(embree 3)
+    if (embree_FOUND)
+        if (CMAKE_BUILD_TYPE)
+            add_custom_target(lc-ext-copy-embree ALL
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:embree>"
+                    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
+            add_dependencies(luisa-compute-ext lc-ext-copy-embree)
+        endif ()
+        foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
+            string(TOLOWER ${CONFIG} config_lower)
+            string(TOUPPER ${CONFIG} CONFIG_UPPER)
+            add_custom_target(lc-ext-copy-embree-${config_lower} ALL
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_FILE:embree>"
+                    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/")
+            add_dependencies(luisa-compute-ext lc-ext-copy-embree-${config_lower})
+        endforeach ()
+    else ()
+        set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
+        set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
+        set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
+        set(EMBREE_ISA_SSE42 OFF CACHE BOOL "" FORCE)
+        set(EMBREE_ISA_AVX OFF CACHE BOOL "" FORCE)
+        set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
+        set(EMBREE_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
+        set(EMBREE_RAY_MASK ON CACHE BOOL "" FORCE)
+        set(EMBREE_BACKFACE_CULLING OFF CACHE BOOL "" FORCE)
+        set(EMBREE_FILTER_FUNCTION OFF CACHE BOOL "" FORCE)
+        set(EMBREE_IGNORE_INVALID_RAYS ON CACHE BOOL "" FORCE)
+        set(EMBREE_GEOMETRY_QUAD OFF CACHE BOOL "" FORCE)
+        set(EMBREE_GEOMETRY_CURVE OFF CACHE BOOL "" FORCE)
+        set(EMBREE_GEOMETRY_SUBDIVISION OFF CACHE BOOL "" FORCE)
+        set(EMBREE_GEOMETRY_USER OFF CACHE BOOL "" FORCE)
+        set(EMBREE_GEOMETRY_GRID OFF CACHE BOOL "" FORCE)
+        set(EMBREE_GEOMETRY_POINT OFF CACHE BOOL "" FORCE)
+        set(EMBREE_ISPC_SUPPORT OFF CACHE BOOL "" FORCE)
+        set(CMAKE_CXX_STANDARD 11)
+        add_subdirectory(embree)
+    endif ()
+    set(LUISA_EMBREE_LIBS embree)
+endif ()
+target_link_libraries(luisa-compute-ext INTERFACE ${LUISA_EMBREE_LIBS})
+
+if (LUISA_COMPUTE_ENABLE_PYTHON)
+    add_subdirectory(pybind11)
+endif ()

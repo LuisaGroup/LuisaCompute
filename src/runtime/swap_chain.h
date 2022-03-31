@@ -1,4 +1,5 @@
 #pragma once
+
 #include <utility>
 
 #include <core/spin_mutex.h>
@@ -8,8 +9,18 @@
 #include <runtime/command_buffer.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/image.h>
+
 namespace luisa::compute {
+
 class LC_RUNTIME_API SwapChain final : public Resource {
+
+public:
+    struct Present {
+        const SwapChain *chain;
+        ImageView<float> frame;
+    };
+
+private:
     friend class Device;
     SwapChain(
         Device::Interface* device,
@@ -18,9 +29,11 @@ class LC_RUNTIME_API SwapChain final : public Resource {
         uint width,
         uint height,
         bool allow_hdr,
-        uint back_buffer_size);
+        uint back_buffer_size) noexcept;
 
 public:
-    PixelStorage backend_storage() const;
+    [[nodiscard]] PixelStorage backend_storage() const;
+    [[nodiscard]] Present present(ImageView<float> frame) const noexcept;
 };
+
 }// namespace luisa::compute

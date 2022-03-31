@@ -64,7 +64,7 @@ Stream &Stream::operator<<(Event::Wait wait) noexcept {
     return *this;
 }
 
-Stream &Stream::operator<<(Stream::Synchronize) noexcept {
+Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
     _synchronize();
     return *this;
 }
@@ -103,12 +103,12 @@ Stream::Delegate &&Stream::Delegate::operator<<(Event::Wait wait) &&noexcept {
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(Stream::Synchronize) &&noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Synchronize s) &&noexcept {
     _commit();
-    *_stream << Synchronize{};
+    *_stream << s;
     return std::move(*this);
 }
-Stream::Delegate &&Stream::Delegate::operator<<(Present p) &&noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(SwapChain::Present p) &&noexcept {
     _commit();
     *_stream << p;
     return std::move(*this);
@@ -119,8 +119,9 @@ Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcep
     return std::move(*this);
 }
 
-Stream &Stream::operator<<(Present p) noexcept {
-    device()->present_display_stream(handle(), p.swap_chain->handle(), p.img->handle());
+Stream &Stream::operator<<(SwapChain::Present p) noexcept {
+    device()->present_display_stream(handle(), p.chain->handle(), p.frame.handle());
     return *this;
 }
+
 }// namespace luisa::compute

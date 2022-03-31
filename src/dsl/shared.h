@@ -16,16 +16,20 @@ struct SharedAsAtomic {};
 
 }// namespace detail
 
+/// Shared class
 template<typename T>
 class Shared : public detail::SharedAsAtomic<T> {
 
 private:
     const RefExpr *_expression;
+    size_t _size;
 
 public:
+    /// Create a shared array of size n
     explicit Shared(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->shared(
-              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
+              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))},
+          _size{n} {}
 
     Shared(Shared &&) noexcept = default;
     Shared(const Shared &) noexcept = delete;
@@ -33,7 +37,9 @@ public:
     Shared &operator=(const Shared &) noexcept = delete;
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
 
+    /// Access at index
     template<typename U>
         requires is_integral_expr_v<U>
     [[nodiscard]] auto &operator[](U &&index) const noexcept {
@@ -44,9 +50,11 @@ public:
         return *f->create_temporary<Var<T>>(expr);
     }
 
+    /// Read index
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept { return (*this)[std::forward<I>(index)]; }
 
+    /// Write index
     template<typename I, typename U>
     void write(I &&i, U &&u) const noexcept { (*this)[std::forward<I>(i)] = std::forward<U>(u); }
 };

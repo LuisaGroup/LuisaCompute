@@ -9,18 +9,22 @@
 
 namespace luisa::compute {
 
+/// Class of variable
 template<typename T>
 struct Var : public detail::Ref<T> {
 
     static_assert(std::is_trivially_destructible_v<T>);
 
+    /// Construct from expression
     explicit Var(const Expression *expr) noexcept
         : detail::Ref<T>{expr} {}
 
     // for local variables of basic or array types
+    /// Construct a local variable of basic or array types
     Var() noexcept
         : detail::Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {}
 
+    /// Assign from arg.
     template<typename Arg>
         requires concepts::different<std::remove_cvref_t<Arg>, Var<T>> &&
             std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>>
@@ -29,15 +33,18 @@ struct Var : public detail::Ref<T> {
         dsl::assign(*this, std::forward<Arg>(arg));
     }
 
+    /// Assign members from args
     template<typename... Args, size_t... i>
     Var(std::tuple<Args...> args, std::index_sequence<i...>) noexcept : Var{} {
         (dsl::assign(this->template get<i>(), std::get<i>(args)), ...);
     }
 
+    /// Assign members
     template<typename... Args>
     Var(std::tuple<Args...> args) noexcept
         : Var{args, std::index_sequence_for<Args...>{}} {}
 
+    /// Assign from list
     template<typename First, typename Second, typename... Other>
     Var(First &&first, Second &&second, Other &&...other) noexcept
         : Var{std::make_tuple(
@@ -78,9 +85,7 @@ struct Var<BufferView<T>> : public Expr<Buffer<T>> {
 template<typename T>
 struct Var<Image<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>>{
-              detail::FunctionBuilder::current()->texture(Type::of<Image<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint2>())} {
+        : Expr<Image<T>>{detail::FunctionBuilder::current()->texture(Type::of<Image<T>>())} {
     }
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
@@ -89,9 +94,7 @@ struct Var<Image<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<ImageView<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>>{
-              detail::FunctionBuilder::texture(Type::of<Image<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint2>())} {}
+        : Expr<Image<T>>{detail::FunctionBuilder::texture(Type::of<Image<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -99,9 +102,7 @@ struct Var<ImageView<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<Volume<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>>{
-              detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
+        : Expr<Volume<T>>{detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -109,9 +110,7 @@ struct Var<Volume<T>> : public Expr<Volume<T>> {
 template<typename T>
 struct Var<VolumeView<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>>{
-              detail::FunctionBuilder::texture(Type::of<Volume<T>>()),
-              detail::FunctionBuilder::current()->argument(Type::of<uint3>())} {}
+        : Expr<Volume<T>>{detail::FunctionBuilder::texture(Type::of<Volume<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
