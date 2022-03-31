@@ -114,6 +114,6 @@ if (LUISA_COMPUTE_ENABLE_ISPC)
 endif ()
 target_link_libraries(luisa-compute-ext INTERFACE ${LUISA_EMBREE_LIBS})
 
-add_subdirectory(pybind11)
-
-
+if (LUISA_COMPUTE_ENABLE_PYTHON)
+    add_subdirectory(pybind11)
+endif ()
