@@ -9,6 +9,7 @@
 #import <chrono>
 #import <numeric>
 
+#import <nlohmann/json.hpp>
 #import <core/platform.h>
 #import <core/hash.h>
 #import <core/clock.h>
@@ -329,38 +330,10 @@ void MetalDevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t
 #endif
 }
 
-void MetalDevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    accel->set_transform(index, transform);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
+void MetalDevice::pop_back_instance_in_accel(uint64_t accel_handle) noexcept {
 #ifdef LUISA_METAL_RAYTRACING_ENABLED
     auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
     accel->pop_instance();
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::set_instance_in_accel(uint64_t accel_handle, size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    accel->set_instance(index, mesh, transform, visible);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::set_instance_visibility_in_accel(uint64_t accel_handle, size_t index, bool visible) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    accel->set_visibility(index, visible);
 #else
     LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
 #endif
@@ -470,6 +443,32 @@ bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) 
 
 bool MetalDevice::requires_command_reordering() const noexcept {
     return false;
+}
+
+void MetalDevice::dispatch(uint64_t stream_handle, luisa::move_only_function<void()> func) noexcept {
+
+}
+
+uint64_t MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void MetalDevice::destroy_swap_chain(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+PixelStorage MetalDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void MetalDevice::set_instance_mesh_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept {
+    auto a = reinterpret_cast<MetalAccel *>(accel);
+    auto m = reinterpret_cast<MetalMesh *>(mesh);
+    a->set_instance(index, m, )
 }
 
 }

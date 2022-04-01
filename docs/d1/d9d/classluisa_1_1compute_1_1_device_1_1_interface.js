@@ -33,7 +33,7 @@ var classluisa_1_1compute_1_1_device_1_1_interface =
     [ "is_mesh_in_accel", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#abbefbe67d76f4fdbbf199d51e6bb20bc", null ],
     [ "is_texture_in_bindless_array", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#ab6c2672fbad947da8b694429a35024ae", null ],
     [ "native_handle", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#a43faac3f6d69e2cad1ee26f392777f7b", null ],
-    [ "pop_back_instance_from_accel", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#afd0151dde1e691a99f0ce907690cf7db", null ],
+    [ "pop_back_instance_in_accel", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#afd0151dde1e691a99f0ce907690cf7db", null ],
     [ "query", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#ace2a754fb468f97696f175af4c0276ee", null ],
     [ "remove_buffer_in_bindless_array", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#adc441dd3a8e893dc116bb78ffd906711", null ],
     [ "remove_tex2d_in_bindless_array", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#a54772c9de0f336057ea4c4d60d561bef", null ],

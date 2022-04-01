@@ -1,8 +1,11 @@
 #pragma once
+
 #include <runtime/device.h>
 #include <core/hash.h>
 #include <vstl/Common.h>
+
 namespace luisa::compute {
+
 class CommandReorderVisitor : public CommandVisitor {
     enum class ResourceRW : uint8_t {
         Read,
@@ -69,11 +72,11 @@ class CommandReorderVisitor : public CommandVisitor {
     Device::Interface *device = nullptr;
 
 public:
-    luisa::span<CommandList const> command_lists() const {
+    [[nodiscard]] luisa::span<CommandList const> command_lists() const noexcept {
         return {commandLists.data(), layerCount};
     }
-    CommandReorderVisitor(Device::Interface *device);
-    ~CommandReorderVisitor();
+    explicit CommandReorderVisitor(Device::Interface *device) noexcept;
+    ~CommandReorderVisitor() noexcept;
     void clear();
 
     // Buffer : resource
@@ -108,4 +111,5 @@ public:
     void operator()(uint uid, vstd::span<std::byte const> bf);
     void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf);
 };
+
 }// namespace luisa::compute

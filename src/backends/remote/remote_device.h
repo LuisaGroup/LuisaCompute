@@ -53,7 +53,7 @@ public:
     uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
-    void pop_back_instance_from_accel(uint64_t accel) noexcept override;
+    void pop_back_instance_in_accel(uint64_t accel) noexcept override;
 };
 
 }

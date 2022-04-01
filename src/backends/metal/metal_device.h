@@ -83,13 +83,16 @@ public:
     bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
     bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
     bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
-    void pop_back_instance_from_accel(uint64_t accel) noexcept override;
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
+    void pop_back_instance_in_accel(uint64_t accel) noexcept override;
     bool requires_command_reordering() const noexcept override;
+    void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> func) noexcept override;
+    uint64_t create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept override;
+    void destroy_swap_chain(uint64_t handle) noexcept override;
+    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
+    void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
+    void set_instance_mesh_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept override;
 };
 
 }// namespace luisa::compute::metal

@@ -101,18 +101,18 @@ Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcep
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> f) &&noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) &&noexcept {
     _commit();
     *_stream << std::move(f);
     return std::move(*this);
 }
 
 Stream &Stream::operator<<(SwapChain::Present p) noexcept {
-    device()->present_display_stream(handle(), p.chain->handle(), p.frame.handle());
+    device()->present_display_in_stream(handle(), p.chain->handle(), p.frame.handle());
     return *this;
 }
 
-Stream &Stream::operator<<(luisa::move_only_function<void()> f) noexcept {
+Stream &Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {
     device()->dispatch(handle(), std::move(f));
     return *this;
 }

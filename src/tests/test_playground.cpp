@@ -43,6 +43,10 @@ struct WithSerialize {
 
 static_assert(has_member_function_serialize<WithSerialize, WithSerialize>);
 
+void nothing() noexcept {}
+
+void do_something(luisa::move_only_function<void()> &&f) noexcept {}
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();

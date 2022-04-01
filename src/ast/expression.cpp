@@ -18,9 +18,8 @@ void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         if (_op == CallOp::BUFFER_WRITE ||
             _op == CallOp::TEXTURE_WRITE ||
-            _op == CallOp::SET_ACCEL_TRANFORM ||
-            _op == CallOp::SET_ACCEL_VISIBILITY ||
-            _op == CallOp::SET_ACCEL_TRANSFORM_VISIBILITY ||
+            _op == CallOp::SET_INSTANCE_TRANSFORM ||
+            _op == CallOp::SET_INSTANCE_VISIBILITY ||
             _op == CallOp::ATOMIC_EXCHANGE ||
             _op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
             _op == CallOp::ATOMIC_FETCH_ADD ||
