@@ -374,7 +374,7 @@ void CUDADevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t 
     accel->add_instance(mesh, transform, visible);
 }
 
-void CUDADevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
+void CUDADevice::pop_back_instance_in_accel(uint64_t accel_handle) noexcept {
     auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
     accel->pop_instance();
 }

@@ -215,7 +215,7 @@ void LCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, lui
         transform,
         visible);
 }
-void LCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
+void LCDevice::pop_back_instance_in_accel(uint64_t accel) noexcept {
     auto topAccel = reinterpret_cast<TopAccel *>(accel);
     topAccel->PopBack();
 }
@@ -269,7 +269,7 @@ void LCDevice::destroy_swap_chain(uint64_t handle) noexcept {
 PixelStorage LCDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
     return PixelStorage::BYTE4;
 }
-void LCDevice::present_display_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+void LCDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Present(
             reinterpret_cast<LCSwapChain *>(swapchain_handle),

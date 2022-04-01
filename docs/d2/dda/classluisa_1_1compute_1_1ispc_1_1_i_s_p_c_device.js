@@ -31,7 +31,7 @@ var classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device =
     [ "is_mesh_in_accel", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a6ede56c090fafbe32d3454d14d95d76d", null ],
     [ "is_texture_in_bindless_array", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#af056999dda201f08f7fb5e7ca71bdd2b", null ],
     [ "native_handle", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a73435a603ad97ab07ffdd844a63426e9", null ],
-    [ "pop_back_instance_from_accel", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a8389b87e0bee016e9c10a4460b15cc4d", null ],
+    [ "pop_back_instance_in_accel", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a8389b87e0bee016e9c10a4460b15cc4d", null ],
     [ "remove_buffer_in_bindless_array", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a5838e24dfd5a34b67d7d659504a2f416", null ],
     [ "remove_tex2d_in_bindless_array", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a12dc8154812d900c024827759125ace0", null ],
     [ "remove_tex3d_in_bindless_array", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#ab9ef10a24ef018ce8e513cc0a5400456", null ],

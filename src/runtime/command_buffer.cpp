@@ -66,7 +66,7 @@ void CommandBuffer::synchronize() &noexcept {
     _stream->synchronize();
 }
 
-CommandBuffer &CommandBuffer::operator<<(luisa::move_only_function<void()> f) &noexcept {
+CommandBuffer &CommandBuffer::operator<<(luisa::move_only_function<void()> &&f) &noexcept {
     _commit();
     *_stream << std::move(f);
     return *this;

@@ -445,7 +445,7 @@ public:
      * 
      * @param accel handle of accel
      */
-    void pop_back_instance_from_accel(uint64_t accel) noexcept override;
+    void pop_back_instance_in_accel(uint64_t accel) noexcept override;
     /**
      * @brief Set instance in accel
      * 

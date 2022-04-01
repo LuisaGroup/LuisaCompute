@@ -119,7 +119,7 @@ uint64_t RemoteDevice::create_accel(AccelBuildHint hint) noexcept {
 void RemoteDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept {
 }
 
-void RemoteDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
+void RemoteDevice::pop_back_instance_in_accel(uint64_t accel) noexcept {
 }
 
 

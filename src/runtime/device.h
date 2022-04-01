@@ -122,7 +122,7 @@ public:
         virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
             for (auto &&list : lists) { dispatch(stream_handle, list); }
         }
-        virtual void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> func) noexcept = 0;
+        virtual void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept = 0;
         [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
         // swap chain
         [[nodiscard]] virtual uint64_t create_swap_chain(
@@ -130,7 +130,7 @@ public:
             bool allow_hdr, uint back_buffer_size) noexcept = 0;
         virtual void destroy_swap_chain(uint64_t handle) noexcept = 0;
         virtual PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept = 0;
-        virtual void present_display_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept = 0;
+        virtual void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept = 0;
         // kernel
         [[nodiscard]] virtual uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept = 0;
         virtual void destroy_shader(uint64_t handle) noexcept = 0;
@@ -150,8 +150,8 @@ public:
 
         [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
         virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept = 0;
-        virtual void pop_back_instance_from_accel(uint64_t accel) noexcept = 0;
-        virtual void set_instance_mesh_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept = 0;
+        virtual void pop_back_instance_in_accel(uint64_t accel) noexcept = 0;
+        virtual void set_instance_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept = 0;
         [[nodiscard]] virtual bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept = 0;
         [[nodiscard]] virtual bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept = 0;
         [[nodiscard]] virtual uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;

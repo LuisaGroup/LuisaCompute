@@ -1,7 +1,9 @@
 #include <core/mathematics.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/stream.h>
+
 namespace luisa::compute {
+
 CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
     uint64_t tarGetHandle,
     ResourceType target_type) {
@@ -108,7 +110,7 @@ size_t CommandReorderVisitor::GetLastLayerRead(ResourceHandle *handle) const {
     size_t layer = handle->writeLayer + 1;
     return layer;
 }
-CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device)
+CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device) noexcept
     : device(device),
       handlePool(256, true),
       meshHandlePool(256, true),
@@ -117,8 +119,8 @@ CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device)
       accelMap(256),
       meshMap(256) {}
 
-CommandReorderVisitor::~CommandReorderVisitor() {
-}
+CommandReorderVisitor::~CommandReorderVisitor() noexcept = default;
+
 size_t CommandReorderVisitor::SetRead(
     uint64_t handle,
     ResourceType type) {

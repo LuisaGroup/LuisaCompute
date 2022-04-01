@@ -161,7 +161,7 @@ void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, f
         reinterpret_cast<const ISPCMesh *>(mesh), transform, visible);
 }
 
-void ISPCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
+void ISPCDevice::pop_back_instance_in_accel(uint64_t accel) noexcept {
     reinterpret_cast<ISPCAccel *>(accel)->pop_mesh();
 }
 
