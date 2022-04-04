@@ -297,6 +297,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
+        case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
+        case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
 
     _scratch << "(";
@@ -1220,14 +1222,17 @@ using namespace metal::raytracing;
 
 struct alignas(16) Instance {
   array<float, 12> transform;
-  uint pad[4];
+  uint options;
+  uint mask;
+  uint intersection_function_offset;
+  uint mesh_index;
 };
 
 static_assert(sizeof(Instance) == 64u);
 
 struct Accel {
   instance_acceleration_structure handle;
-  device const Instance *__restrict__ instances;
+  device Instance *__restrict__ instances;
 };
 
 [[nodiscard, gnu::always_inline]] constexpr auto intersector_closest() {
@@ -1273,6 +1278,26 @@ struct Accel {
     m[3], m[4], m[5], 0.0f,
     m[6], m[7], m[8], 0.0f,
     m[9], m[10], m[11], 1.0f);
+}
+
+[[gnu::always_inline]] inline void accel_set_instance_transform(Accel accel, uint i, float4x4 m) {
+  auto p = accel.instances[i].transform.data();
+  p[0] = m[0][0];
+  p[1] = m[0][1];
+  p[2] = m[0][2];
+  p[3] = m[1][0];
+  p[4] = m[1][1];
+  p[5] = m[1][2];
+  p[6] = m[2][0];
+  p[7] = m[2][1];
+  p[8] = m[2][2];
+  p[9] = m[3][0];
+  p[10] = m[3][1];
+  p[11] = m[3][2];
+}
+
+[[gnu::always_inline]] inline void accel_set_instance_visibility(Accel accel, uint i, bool v) {
+  accel.instances[i].mask = v ? ~0u : 0u;
 }
 
 )";

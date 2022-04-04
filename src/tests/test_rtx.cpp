@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    auto device = context.create_device("metal");
 
     std::array vertices{
         float3(-0.5f, -0.5f, 0.0f),
@@ -132,6 +132,7 @@ int main(int argc, char *argv[]) {
             auto mm = translation(make_float3(0.0f, 0.0f, 0.3f)) *
                       rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f));
             accel.emplace_back(mesh, mm, true);
+            stream << accel.build();
         }
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)

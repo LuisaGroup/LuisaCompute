@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("ispc");
+    auto device = context.create_device("metal");
 
     Kernel2D clear_image_kernel = [](BufferVar<uint> image) noexcept {
         Var coord = dispatch_id().xy();

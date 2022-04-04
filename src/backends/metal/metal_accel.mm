@@ -7,7 +7,8 @@
 
 namespace luisa::compute::metal {
 
-MetalAccel::MetalAccel(AccelBuildHint hint) noexcept {
+MetalAccel::MetalAccel(id<MTLComputePipelineState> update_shader, AccelBuildHint hint) noexcept
+    : _update_shader{update_shader} {
     _descriptor = [MTLInstanceAccelerationStructureDescriptor descriptor];
     switch (hint) {
         case AccelBuildHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
@@ -17,51 +18,27 @@ MetalAccel::MetalAccel(AccelBuildHint hint) noexcept {
 }
 
 id<MTLCommandBuffer> MetalAccel::build(
-    MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept {
+    MetalStream *stream, id<MTLCommandBuffer> command_buffer,
+    luisa::span<const uint64_t> mesh_handles,
+    luisa::span<const AccelUpdateRequest> requests) noexcept {
 
-    // build instance buffer
+    // create instance buffer
     auto device = [command_buffer device];
-    auto instance_buffer_size = _instance_meshes.size() * sizeof(MTLAccelerationStructureInstanceDescriptor);
+    auto instance_buffer_size = mesh_handles.size() *
+                                sizeof(MTLAccelerationStructureInstanceDescriptor);
     if (_instance_buffer == nullptr || _instance_buffer.length < instance_buffer_size) {
-        _instance_buffer = [device newBufferWithLength:instance_buffer_size
+        _instance_buffer = [device newBufferWithLength:next_pow2(instance_buffer_size)
                                                options:MTLResourceStorageModePrivate];
     }
-    _dirty_range.clear();
 
-    auto pool = &stream->upload_host_buffer_pool();
-    auto instance_buffer = pool->allocate(instance_buffer_size);
-    if (instance_buffer.is_pooled()) {
-        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          pool->recycle(instance_buffer);
-        }];
-    }
-
-    auto instances = reinterpret_cast<MTLAccelerationStructureInstanceDescriptor *>(
-        static_cast<std::byte *>([instance_buffer.handle() contents]) +
-        instance_buffer.offset());
-    for (auto i = 0u; i < _instance_meshes.size(); i++) {
-        instances[i].mask = _instance_visibilities[i] ? ~0u : 0u;
-        instances[i].accelerationStructureIndex = i;
-        instances[i].intersectionFunctionTableOffset = 0u;
-        instances[i].options = MTLAccelerationStructureInstanceOptionOpaque |
-                               MTLAccelerationStructureInstanceOptionDisableTriangleCulling;
-        auto t = _instance_transforms[i];
-        for (auto c = 0; c < 4; c++) {
-            instances[i].transformationMatrix[c] = {t[c].x, t[c].y, t[c].z};
-        }
-    }
-    auto blit_encoder = [command_buffer blitCommandEncoder];
-    [blit_encoder copyFromBuffer:instance_buffer.handle()
-                    sourceOffset:instance_buffer.offset()
-                        toBuffer:_instance_buffer
-               destinationOffset:0u
-                            size:instance_buffer_size];
-    [blit_encoder endEncoding];
+    // process host update requests
+    _process_update_requests(stream, command_buffer, requests);
 
     // build accel and (possibly) compact
     _resources.clear();
     auto meshes = [[NSMutableArray<id<MTLAccelerationStructure>> alloc] init];
-    for (auto mesh : _instance_meshes) {
+    for (auto mesh_handle : mesh_handles) {
+        auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
         [meshes addObject:mesh->handle()];
         _resources.emplace_back(mesh->handle());
         _resources.emplace_back(mesh->vertex_buffer());
@@ -74,13 +51,11 @@ id<MTLCommandBuffer> MetalAccel::build(
     _resources.erase(
         std::unique(_resources.begin(), _resources.end()),
         _resources.end());
-
     LUISA_VERBOSE_WITH_LOCATION(
         "Building accel with reference to {} resource(s).",
         _resources.size());
-
     _descriptor.instancedAccelerationStructures = meshes;
-    _descriptor.instanceCount = _instance_meshes.size();
+    _descriptor.instanceCount = mesh_handles.size();
     _descriptor.instanceDescriptorBuffer = _instance_buffer;
     auto sizes = [device accelerationStructureSizesWithDescriptor:_descriptor];
     _update_scratch_size = sizes.refitScratchBufferSize;
@@ -96,90 +71,16 @@ id<MTLCommandBuffer> MetalAccel::build(
                             count:_resources.size()
                             usage:MTLResourceUsageRead];
     [command_encoder endEncoding];
-
-    //    if (_descriptor.usage != MTLAccelerationStructureUsagePreferFastBuild) {
-    //
-    //        auto download_pool = &stream->download_host_buffer_pool();
-    //        auto compacted_size_buffer = download_pool->allocate(sizeof(uint));
-    //        auto compaction_encoder = [command_buffer accelerationStructureCommandEncoder];
-    //        [compaction_encoder writeCompactedAccelerationStructureSize:_handle
-    //                                                           toBuffer:compacted_size_buffer.handle()
-    //                                                             offset:compacted_size_buffer.offset()];
-    //        [command_encoder useResources:_resources.data()
-    //                                count:_resources.size()
-    //                                usage:MTLResourceUsageRead];
-    //        [compaction_encoder endEncoding];
-    //        stream->dispatch(command_buffer);
-    //        [command_buffer waitUntilCompleted];
-    //
-    //        auto compacted_size = *reinterpret_cast<const uint *>(
-    //            static_cast<const std::byte *>(compacted_size_buffer.handle().contents) +
-    //            compacted_size_buffer.offset());
-    //        download_pool->recycle(compacted_size_buffer);
-    //
-    //        LUISA_INFO(
-    //            "Accel size: before = {}, after = {}.",
-    //            sizes.accelerationStructureSize, compacted_size);
-    //
-    //        auto accel_before_compaction = _handle;
-    //        _handle = [device newAccelerationStructureWithSize:compacted_size];
-    //        command_buffer = stream->command_buffer();
-    //        compaction_encoder = [command_buffer accelerationStructureCommandEncoder];
-    //        [compaction_encoder copyAndCompactAccelerationStructure:accel_before_compaction
-    //                                        toAccelerationStructure:_handle];
-    //        [compaction_encoder useResources:_resources.data()
-    //                                   count:_resources.size()
-    //                                   usage:MTLResourceUsageRead];
-    //        [compaction_encoder endEncoding];
-    //    }
     return command_buffer;
 }
 
 id<MTLCommandBuffer> MetalAccel::update(
-    MetalStream *stream,
-    id<MTLCommandBuffer> command_buffer) noexcept {
-
-    if (!_dirty_range.empty()) {// some instances have been updated...
-
-        using Instance = MTLAccelerationStructureInstanceDescriptor;
-        auto dirty_instance_buffer_size = _dirty_range.size() * sizeof(Instance);
-
-        auto pool = &stream->upload_host_buffer_pool();
-        auto dirty_instance_buffer = pool->allocate(dirty_instance_buffer_size);
-        if (dirty_instance_buffer.is_pooled()) {
-            [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-              pool->recycle(dirty_instance_buffer);
-            }];
-        }
-
-        auto instances = reinterpret_cast<Instance *>(
-            static_cast<std::byte *>([dirty_instance_buffer.handle() contents]) +
-            dirty_instance_buffer.offset());
-        for (auto i = 0u; i < _dirty_range.size(); i++) {
-            auto index = i + _dirty_range.offset();
-            instances[i].mask = _instance_visibilities[i] ? ~0u : 0u;
-            instances[i].accelerationStructureIndex = index;
-            instances[i].intersectionFunctionTableOffset = 0u;
-            instances[i].options = MTLAccelerationStructureInstanceOptionOpaque;
-            auto t = _instance_transforms[index];
-            for (auto c = 0; c < 4; c++) {
-                instances[i].transformationMatrix[c] = {t[c].x, t[c].y, t[c].z};
-            }
-        }
-        auto blit_encoder = [command_buffer blitCommandEncoder];
-        [blit_encoder copyFromBuffer:dirty_instance_buffer.handle()
-                        sourceOffset:dirty_instance_buffer.offset()
-                            toBuffer:_instance_buffer
-                   destinationOffset:_dirty_range.offset() * sizeof(Instance)
-                                size:dirty_instance_buffer_size];
-        [blit_encoder endEncoding];
-        _dirty_range.clear();
-    }
-
-    // update accel
+    MetalStream *stream, id<MTLCommandBuffer> command_buffer,
+    luisa::span<const AccelUpdateRequest> requests) noexcept {
+    _process_update_requests(stream, command_buffer, requests);
     auto device = [command_buffer device];
     if (_update_buffer == nullptr || _update_buffer.length < _update_scratch_size) {
-        _update_buffer = [device newBufferWithLength:_update_scratch_size
+        _update_buffer = [device newBufferWithLength:next_pow2(_update_scratch_size)
                                              options:MTLResourceStorageModePrivate];
     }
     auto command_encoder = [command_buffer accelerationStructureCommandEncoder];
@@ -192,42 +93,31 @@ id<MTLCommandBuffer> MetalAccel::update(
     return command_buffer;
 }
 
-void MetalAccel::add_instance(MetalMesh *mesh, float4x4 transform, bool visible) noexcept {
-    _instance_meshes.emplace_back(mesh);
-    _instance_transforms.emplace_back(transform);
-    _instance_visibilities.push_back(visible);
-    _resource_handles.emplace(reinterpret_cast<uint64_t>(mesh));
-    _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer())));
-    _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer())));
-}
-
-void MetalAccel::set_transform(size_t index, float4x4 transform) noexcept {
-    _instance_transforms[index] = transform;
-    _dirty_range.mark(index);
-}
-
-void MetalAccel::set_visibility(size_t index, bool visible) noexcept {
-    _instance_visibilities[index] = visible;
-    _dirty_range.mark(index);
-}
-
-bool MetalAccel::uses_resource(uint64_t r) const noexcept {
-    return _resource_handles.count(r) != 0u;
-}
-
-void MetalAccel::pop_instance() noexcept {
-    _instance_meshes.pop_back();
-    _instance_transforms.pop_back();
-    _instance_visibilities.pop_back();
-}
-
-void MetalAccel::set_instance(size_t index, MetalMesh *mesh, float4x4 transform, bool visible) noexcept {
-    _instance_meshes[index] = mesh;
-    _instance_transforms[index] = transform;
-    _instance_visibilities[index] = visible;
-    _resource_handles.emplace(reinterpret_cast<uint64_t>(mesh));
-    _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer())));
-    _resource_handles.emplace(reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer())));
+void MetalAccel::_process_update_requests(
+    MetalStream *stream, id<MTLCommandBuffer> command_buffer,
+    luisa::span<const AccelUpdateRequest> requests) noexcept {
+    if (auto n = static_cast<uint>(requests.size())) {
+        auto pool = &stream->upload_host_buffer_pool();
+        auto request_buffer = pool->allocate(requests.size() * sizeof(AccelUpdateRequest));
+        auto ptr = static_cast<std::byte *>([request_buffer.handle() contents]) +
+                   request_buffer.offset();
+        std::memcpy(ptr, requests.data(), requests.size_bytes());
+        auto encoder = [command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
+        constexpr auto threads_per_group = 256u;
+        auto groups = (n + threads_per_group - 1u) / threads_per_group;
+        [encoder setComputePipelineState:_update_shader];
+        [encoder setBuffer:_instance_buffer offset:0u atIndex:0u];
+        [encoder setBuffer:request_buffer.handle() offset:request_buffer.offset() atIndex:1u];
+        [encoder setBytes:&n length:sizeof(uint) atIndex:2u];
+        [encoder dispatchThreadgroups:MTLSizeMake(groups, 1u, 1u)
+                threadsPerThreadgroup:MTLSizeMake(threads_per_group, 1u, 1u)];
+        [encoder endEncoding];
+        if (request_buffer.is_pooled()) {
+            [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+              pool->recycle(request_buffer);
+            }];
+        }
+    }
 }
 
 }

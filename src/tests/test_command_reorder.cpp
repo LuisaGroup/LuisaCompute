@@ -279,7 +279,6 @@ int main(int argc, char *argv[]) {
         auto mesh1 = device.create_mesh(vertex_buffer1, triangle_buffer);
         auto accel = device.create_accel();
         accel.emplace_back(mesh, scaling(1));
-        assert(device.impl()->is_mesh_in_accel(accel.handle(), mesh.handle()));
 
         /*
          * vertex_buffer -------

@@ -27,10 +27,10 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
             value->handle = tarGetHandle;
             value->type = target_type;
             for (auto &&i : meshMap) {
-                if (device->is_mesh_in_accel(tarGetHandle, i.first)) {
-                    i.second->belonedAccel.emplace_back(value);
-                    value->writeLayer = std::max<int64_t>(value->writeLayer, i.second->writeLayer);
-                }
+//                if (device->is_mesh_in_accel(tarGetHandle, i.first)) {
+//                    i.second->belonedAccel.emplace_back(value);
+//                    value->writeLayer = std::max<int64_t>(value->writeLayer, i.second->writeLayer);
+//                }
             }
         }
         return value;
@@ -45,10 +45,10 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
             value->handle = tarGetHandle;
             value->type = target_type;
             for (auto &&i : accelMap) {
-                if (device->is_mesh_in_accel(i.first, tarGetHandle)) {
-                    newMeshValue->belonedAccel.emplace_back(i.second);
-                    newMeshValue->writeLayer = std::max<int64_t>(newMeshValue->writeLayer, i.second->writeLayer);
-                }
+//                if (device->is_mesh_in_accel(i.first, tarGetHandle)) {
+//                    newMeshValue->belonedAccel.emplace_back(i.second);
+//                    newMeshValue->writeLayer = std::max<int64_t>(newMeshValue->writeLayer, i.second->writeLayer);
+//                }
             }
         }
         return value;
@@ -77,9 +77,9 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
             }
             if (accelMaxLayer >= layer) {
                 for (auto &&i : accelMap) {
-                    if (device->is_buffer_in_accel(i.first, handle->handle)) {
-                        layer = std::max<int64_t>(layer, i.second->readLayer + 1);
-                    }
+//                    if (device->is_buffer_in_accel(i.first, handle->handle)) {
+//                        layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+//                    }
                 }
             }
             break;
@@ -94,9 +94,9 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) const {
             if (bindlessMaxLayer >= layer) {
                 if (accelMaxLayer >= layer) {
                     for (auto &&i : accelMap) {
-                        if (device->is_mesh_in_accel(i.first, handle->handle)) {
-                            layer = std::max<int64_t>(layer, i.second->readLayer + 1);
-                        }
+//                        if (device->is_mesh_in_accel(i.first, handle->handle)) {
+//                            layer = std::max<int64_t>(layer, i.second->readLayer + 1);
+//                        }
                     }
                 }
             }
