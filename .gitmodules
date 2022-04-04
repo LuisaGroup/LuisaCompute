@@ -38,3 +38,6 @@
 	path = src/ext/pybind11
 	url = https://github.com/pybind/pybind11
 	branch = stable
+[submodule "src/ext/abseil-cpp"]
+	path = src/ext/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git

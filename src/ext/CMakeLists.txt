@@ -69,6 +69,10 @@ endif ()
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 
+set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+add_subdirectory(abseil-cpp)
+target_link_libraries(luisa-compute-ext INTERFACE absl::flat_hash_map)
+
 if (LUISA_COMPUTE_ENABLE_ISPC)
     find_package(embree 3)
     if (embree_FOUND)
