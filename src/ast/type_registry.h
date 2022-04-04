@@ -46,13 +46,15 @@ class LC_AST_API TypeRegistry {
 private:
     /// Hash
     struct TypePtrHash {
-        [[nodiscard]] auto operator()(const Type *type) const noexcept { return type->hash(); }
-        [[nodiscard]] auto operator()(uint64_t hash) const noexcept { return hash; }
+        using is_transparent = void;
+        [[nodiscard]] uint64_t operator()(const Type *type) const noexcept { return type->hash(); }
+        [[nodiscard]] uint64_t operator()(uint64_t hash) const noexcept { return hash; }
     };
     /// Equal
     struct TypePtrEqual {
+        using is_transparent = void;
         template<typename Lhs, typename Rhs>
-        [[nodiscard]] auto operator()(Lhs &&lhs, Rhs &&rhs) const noexcept {
+        [[nodiscard]] bool operator()(Lhs &&lhs, Rhs &&rhs) const noexcept {
             constexpr TypePtrHash hash;
             return hash(std::forward<Lhs>(lhs)) == hash(std::forward<Rhs>(rhs));
         }
