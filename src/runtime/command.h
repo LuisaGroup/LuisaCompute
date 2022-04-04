@@ -472,13 +472,36 @@ enum struct AccelBuildHint {
     FAST_REBUILD// optimize for frequent rebuild, maybe without compaction
 };
 
+struct alignas(16) AccelUpdateRequest {
+
+    // update flags
+    static constexpr auto update_flag_transform = 0x01u;
+    static constexpr auto update_flag_visibility = 0x02u;
+    static constexpr auto update_flag_transform_and_visibility =
+        update_flag_transform | update_flag_visibility;
+
+    // members
+    uint index;
+    uint flags;
+    bool visible;
+    uint padding;
+    float affine[12];
+
+    // encode interfaces
+    [[nodiscard]] static AccelUpdateRequest encode(uint index, float4x4 m) noexcept;
+    [[nodiscard]] static AccelUpdateRequest encode(uint index, bool vis) noexcept;
+    [[nodiscard]] static AccelUpdateRequest encode(uint index, float4x4 m, bool vis) noexcept;
+    void set_transform(float4x4 m) noexcept;
+    void set_visibility(bool vis) noexcept;
+};
+
 class MeshBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
 
 public:
-    MeshBuildCommand(uint64_t handle) noexcept
+    explicit MeshBuildCommand(uint64_t handle) noexcept
         : _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
@@ -494,26 +517,33 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
 };
-class AccelBuildCommand final : public Command {
-
-private:
-    uint64_t _handle;
-
-public:
-    explicit AccelBuildCommand(uint64_t handle) noexcept : _handle{handle} {}
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
-};
 
 class AccelUpdateCommand final : public Command {
 
 private:
     uint64_t _handle;
+    luisa::vector<AccelUpdateRequest> _requests;
 
 public:
-    explicit AccelUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
+    AccelUpdateCommand(uint64_t handle, luisa::vector<AccelUpdateRequest> requests) noexcept
+        : _handle{handle}, _requests{std::move(requests)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto host_requests() const noexcept { return luisa::span{_requests}; }
     LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
+};
+
+class AccelBuildCommand final : public Command {
+
+private:
+    uint64_t _handle;
+    luisa::vector<AccelUpdateRequest> _requests;
+
+public:
+    AccelBuildCommand(uint64_t handle, luisa::vector<AccelUpdateRequest> requests) noexcept
+        : _handle{handle}, _requests{std::move(requests)} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto host_requests() const noexcept { return _requests; }
+    LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
 
 class BindlessArrayUpdateCommand final : public Command {

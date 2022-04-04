@@ -149,9 +149,7 @@ public:
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
         [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
-        virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept = 0;
-        virtual void pop_back_instance_in_accel(uint64_t accel) noexcept = 0;
-        virtual void set_instance_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept = 0;
+        virtual void set_meshes_in_accel(uint64_t accel, luisa::span<const uint64_t> meshes) noexcept = 0;
         [[nodiscard]] virtual bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept = 0;
         [[nodiscard]] virtual bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept = 0;
         [[nodiscard]] virtual uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
