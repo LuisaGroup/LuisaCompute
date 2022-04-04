@@ -12,8 +12,6 @@
 #include <fmt/format.h>
 
 #include <EASTL/bit.h>
-#include <EASTL/map.h>
-#include <EASTL/set.h>
 #include <EASTL/span.h>
 #include <EASTL/list.h>
 #include <EASTL/slist.h>
@@ -122,34 +120,34 @@ using eastl::slist;
 using eastl::variant;
 
 template<typename K, typename V,
-         typename Hash = eastl::hash<K>,
-         typename Eq = eastl::equal_to<K>,
+         typename Hash = absl::container_internal::hash_default_hash<K>,
+         typename Eq = absl::container_internal::hash_default_eq<K>,
          typename Allocator = luisa::allocator<std::pair<const K, V>>>
 using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
 
 template<typename K,
-         typename Hash = eastl::hash<K>,
-         typename Eq = eastl::equal_to<K>,
+         typename Hash = absl::container_internal::hash_default_hash<K>,
+         typename Eq = absl::container_internal::hash_default_eq<K>,
          typename Allocator = luisa::allocator<const K>>
 using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
 
 template<typename K, typename V,
-         typename Compare = std::less<>,
+         typename Compare = std::less<K>,
          typename Alloc = luisa::allocator<std::pair<const K, V>>>
 using map = absl::btree_map<K, V, Compare, Alloc>;
 
 template<typename K, typename V,
-         typename Compare = std::less<>,
+         typename Compare = std::less<K>,
          typename Alloc = luisa::allocator<std::pair<const K, V>>>
 using multimap = absl::btree_multimap<K, V, Compare, Alloc>;
 
 template<typename K,
-         typename Compare = std::less<>,
+         typename Compare = std::less<K>,
          typename Alloc = luisa::allocator<K>>
 using set = absl::btree_set<K, Compare, Alloc>;
 
 template<typename K,
-         typename Compare = std::less<>,
+         typename Compare = std::less<K>,
          typename Alloc = luisa::allocator<K>>
 using multiset = absl::btree_multiset<K, Compare, Alloc>;
 
