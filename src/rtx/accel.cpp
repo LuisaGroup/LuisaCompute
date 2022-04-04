@@ -24,13 +24,6 @@ Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
           device, Resource::Tag::ACCEL, device->create_accel(hint))} {}
 
 Command *Accel::update() noexcept {
-    if (_requires_build) [[unlikely]] {
-        LUISA_WARNING_WITH_LOCATION(
-            "Accel #{} requires rebuild rather than update. "
-            "Automatically replacing with AccelBuildCommand.",
-            _resource->handle());
-        return build();
-    }
     return AccelUpdateCommand::create(_resource->handle(), _get_update_requests());
 }
 
@@ -43,9 +36,11 @@ luisa::vector<AccelUpdateRequest> Accel::_get_update_requests() noexcept {
 }
 
 Command *Accel::build() noexcept {
-    _requires_build = false;
-    _resource->device()->set_meshes_in_accel(_resource->handle(), _mesh_handles);
-    return AccelBuildCommand::create(_resource->handle(), _get_update_requests());
+    if (_mesh_handles.empty()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("No mesh found in accel.");
+    }
+    return AccelBuildCommand::create(
+        _resource->handle(), _mesh_handles, _get_update_requests());
 }
 
 Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
@@ -84,14 +79,12 @@ void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noe
     auto index = static_cast<uint>(_mesh_handles.size());
     _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
     _mesh_handles.emplace_back(mesh.resource()->handle());
-    _requires_build = true;
 }
 
 void Accel::pop_back() noexcept {
     if (auto n = _mesh_handles.size()) {
         _mesh_handles.pop_back();
         _update_requests.erase(n - 1u);
-        _requires_build = true;
     } else {
         LUISA_WARNING_WITH_LOCATION(
             "Ignoring pop-back operation on empty accel.");
@@ -106,7 +99,6 @@ void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible
     }
     _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
     _mesh_handles[index] = mesh.resource()->handle();
-    _requires_build = true;
 }
 
 void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {

@@ -45,6 +45,15 @@ public:
         Delegate &&operator<<(CommandBuffer::Commit) &&noexcept;
         Delegate &&operator<<(CommandBuffer::Synchronize) &&noexcept;
         Delegate &&operator<<(SwapChain::Present present) &&noexcept;
+
+        // compound commands
+        template<typename... T>
+        decltype(auto) operator<<(std::tuple<T...> args) noexcept {
+            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
+                return (*this << ... << std::get<i>(a));
+            };
+            return encode(std::move(args));
+        }
     };
 
 private:
@@ -67,6 +76,15 @@ public:
     [[nodiscard]] auto native_handle() const noexcept { return device()->stream_native_handle(handle()); }
     void synchronize() noexcept { _synchronize(); }
     Stream &operator<<(SwapChain::Present p) noexcept;
+
+    // compound commands
+    template<typename... T>
+    decltype(auto) operator<<(std::tuple<T...> args) noexcept {
+        auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
+            return (*this << ... << std::get<i>(a));
+        };
+        return encode(std::move(args));
+    }
 };
 
 }// namespace luisa::compute

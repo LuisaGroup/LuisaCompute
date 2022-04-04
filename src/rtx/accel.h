@@ -19,7 +19,6 @@ private:
     luisa::map<size_t, AccelUpdateRequest> _update_requests;
     luisa::vector<uint64_t> _mesh_handles;
     Resource::Handle _resource;
-    bool _requires_build{true};
 
 private:
     friend class Device;

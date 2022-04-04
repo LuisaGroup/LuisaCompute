@@ -6,11 +6,8 @@
 #import <core/clock.h>
 #import <ast/function.h>
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
 #import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_accel.h>
-#endif
-
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_bindless_array.h>
@@ -37,14 +34,12 @@ MetalCommandEncoder::MetalCommandEncoder(
     return reinterpret_cast<MetalBindlessArray *>(handle);
 }
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
 [[nodiscard]] inline static auto to_accel(uint64_t handle) noexcept {
     return reinterpret_cast<MetalAccel *>(handle);
 }
 [[nodiscard]] inline static auto to_mesh(uint64_t handle) noexcept {
     return reinterpret_cast<MetalMesh *>(handle);
 }
-#endif
 
 void MetalCommandEncoder::visit(const BufferCopyCommand *command) noexcept {
     auto blit_encoder = [_command_buffer blitCommandEncoder];
@@ -233,7 +228,6 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                                 offset:0u
                                atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding geometry #{} at index {}.",
                 argument.handle, buffer_index);
@@ -248,9 +242,6 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
             [compute_encoder setBuffer:accel->instance_buffer()
                                 offset:0u
                                atIndex:buffer_index++];
-#else
-            LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
         } else {// uniform
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding uniform at index {}.",
@@ -299,16 +290,18 @@ void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexc
     array->update(_stream, _command_buffer);
 }
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-
 void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
     auto accel = to_accel(command->handle());
-    _command_buffer = accel->update(_stream, _command_buffer);
+    _command_buffer = accel->update(
+        _stream, _command_buffer,
+        command->host_requests());
 }
 
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = to_accel(command->handle());
-    _command_buffer = accel->build(_stream, _command_buffer);
+    _command_buffer = accel->build(
+        _stream, _command_buffer,
+        command->meshes(), command->host_requests());
 }
 
 void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
@@ -320,25 +313,5 @@ void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = to_mesh(command->handle());
     _command_buffer = mesh->build(_stream, _command_buffer);
 }
-
-#else
-
-void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-#endif
 
 }

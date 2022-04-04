@@ -20,35 +20,33 @@ class MetalStream;
 class MetalAccel {
 
 private:
+    id<MTLComputePipelineState> _update_shader;
     id<MTLAccelerationStructure> _handle{nullptr};
     id<MTLBuffer> _instance_buffer{nullptr};
     id<MTLBuffer> _update_buffer{nullptr};
     MTLInstanceAccelerationStructureDescriptor *_descriptor{nullptr};
     size_t _update_scratch_size{};
-    luisa::vector<MetalMesh *> _instance_meshes;
-    luisa::vector<float4x4> _instance_transforms;
-    luisa::bitvector<> _instance_visibilities;
-    luisa::vector<id<MTLResource>> _resources;// sorted
+    luisa::vector<id<MTLResource>> _resources;
     luisa::unordered_set<uint64_t> _resource_handles;
-    DirtyRange _dirty_range;
+
+private:
+    void _process_update_requests(
+        MetalStream *stream, id<MTLCommandBuffer> command_buffer,
+        luisa::span<const AccelUpdateRequest> requests) noexcept;
 
 public:
-    explicit MetalAccel(AccelBuildHint hint) noexcept;
+    MetalAccel(id<MTLComputePipelineState> update_shader, AccelBuildHint hint) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] id<MTLCommandBuffer> build(
-        MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
+        MetalStream *stream, id<MTLCommandBuffer> command_buffer,
+        luisa::span<const uint64_t> meshes,
+        luisa::span<const AccelUpdateRequest> requests) noexcept;
     [[nodiscard]] id<MTLCommandBuffer> update(
-        MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
+        MetalStream *stream, id<MTLCommandBuffer> command_buffer,
+        luisa::span<const AccelUpdateRequest> requests) noexcept;
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
     [[nodiscard]] auto descriptor() const noexcept { return _descriptor; }
     [[nodiscard]] auto resources() noexcept { return luisa::span{_resources}; }
-
-    void add_instance(MetalMesh *mesh, float4x4 transform, bool visible) noexcept;
-    void pop_instance() noexcept;
-    void set_instance(size_t index, MetalMesh *mesh, float4x4 transform, bool visible) noexcept;
-    void set_transform(size_t index, float4x4 transform) noexcept;
-    void set_visibility(size_t index, bool visible) noexcept;
-    [[nodiscard]] bool uses_resource(uint64_t resource) const noexcept;
 };
 
 }// namespace luisa::compute::metal
