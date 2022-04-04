@@ -14,36 +14,32 @@
 
 namespace luisa::compute {
 
-class LC_RTX_API Accel final : public Resource {
-
-public:
-    class RebuildObserver : public Observer {
-
-    private:
-        bool _requires_rebuild{true};
-
-    public:
-        RebuildObserver() noexcept = default;
-        void clear() noexcept { _requires_rebuild = false; }
-        void notify() noexcept override { _requires_rebuild = true; }
-        [[nodiscard]] auto requires_rebuild() const noexcept { return _requires_rebuild; }
-    };
+class LC_RTX_API Accel {
 
 private:
-    luisa::unique_ptr<RebuildObserver> _rebuild_observer;
+    luisa::map<size_t, AccelUpdateRequest> _update_requests;
+    luisa::vector<uint64_t> _mesh_handles;
+    Resource::Handle _resource;
+    bool _requires_build{true};
 
 private:
     friend class Device;
     friend class Mesh;
     explicit Accel(Device::Interface *device, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;
+    [[nodiscard]] luisa::vector<AccelUpdateRequest> _get_update_requests() noexcept;
 
 public:
     Accel() noexcept = default;
-    using Resource::operator bool;
-    [[nodiscard]] auto size() const noexcept { return _rebuild_observer->size(); }
-    Accel &emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
-    Accel &set(size_t index, const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
-    Accel &pop_back() noexcept;
+    [[nodiscard]] auto size() const noexcept { return _mesh_handles.size(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return _resource != nullptr; }
+    [[nodiscard]] auto resource() const noexcept { return _resource.get(); }
+
+    // host interfaces
+    void emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
+    void set(size_t index, const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
+    void pop_back() noexcept;
+    void set_transform_on_update(size_t index, float4x4 transform) noexcept;
+    void set_visibility_on_update(size_t index, bool visible) noexcept;
     [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] Command *build() noexcept;
 
@@ -68,7 +64,8 @@ public:
     explicit Expr(const RefExpr *expr) noexcept
         : _expression{expr} {}
     explicit Expr(const Accel &accel) noexcept
-        : _expression{detail::FunctionBuilder::current()->accel_binding(accel.handle())} {}
+        : _expression{detail::FunctionBuilder::current()->accel_binding(
+              accel.resource()->handle())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto trace_closest(Expr<Ray> ray) const noexcept {
         return def<Hit>(
@@ -129,3 +126,27 @@ struct Var<Accel> : public Expr<Accel> {
 using AccelVar = Var<Accel>;
 
 }// namespace luisa::compute
+
+LUISA_STRUCT(luisa::compute::AccelUpdateRequest,
+             index, flags, visible, padding, affine) {
+
+    [[nodiscard]] auto transform() const noexcept {
+        return make_float4x4(
+            affine[0], affine[4], affine[8], 0.f,
+            affine[1], affine[5], affine[9], 0.f,
+            affine[2], affine[6], affine[10], 0.f,
+            affine[3], affine[7], affine[11], 1.f);
+    };
+    [[nodiscard]] auto updates_transform() const noexcept {
+        auto test_mask = luisa::compute::AccelUpdateRequest::update_flag_transform;
+        return (flags & test_mask) != 0u;
+    }
+    [[nodiscard]] auto updates_visibility() const noexcept {
+        auto test_mask = luisa::compute::AccelUpdateRequest::update_flag_visibility;
+        return (flags & test_mask) != 0u;
+    }
+    [[nodiscard]] auto updates_transform_and_visibility() const noexcept {
+        auto test_mask = luisa::compute::AccelUpdateRequest::update_flag_transform_and_visibility;
+        return (flags & test_mask) != 0u;
+    }
+};

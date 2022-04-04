@@ -11,7 +11,7 @@ namespace luisa::compute {
 namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
-    _command->encode_accel(accel.handle());
+    _command->encode_accel(accel.resource()->handle());
     return *this;
 }
 
@@ -20,18 +20,32 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 Accel Device::create_accel(AccelBuildHint hint) noexcept { return _create<Accel>(hint); }
 
 Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
-    : Resource{device, Resource::Tag::ACCEL, device->create_accel(hint)},
-      _rebuild_observer{luisa::make_unique<RebuildObserver>()} {}
+    : _resource{luisa::make_shared<Resource>(
+          device, Resource::Tag::ACCEL, device->create_accel(hint))} {}
 
 Command *Accel::update() noexcept {
-    if (_rebuild_observer->requires_rebuild()) [[unlikely]] {
+    if (_requires_build) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Accel #{} requires rebuild rather than update. "
             "Automatically replacing with AccelBuildCommand.",
-            handle());
+            _resource->handle());
         return build();
     }
-    return AccelUpdateCommand::create(handle());
+    return AccelUpdateCommand::create(_resource->handle(), _get_update_requests());
+}
+
+luisa::vector<AccelUpdateRequest> Accel::_get_update_requests() noexcept {
+    eastl::vector<AccelUpdateRequest> requests;
+    requests.reserve(_update_requests.size());
+    for (auto [_, r] : _update_requests) { requests.emplace_back(r); }
+    _update_requests.clear();
+    return requests;
+}
+
+Command *Accel::build() noexcept {
+    _requires_build = false;
+    _resource->device()->set_meshes_in_accel(_resource->handle(), _mesh_handles);
+    return AccelBuildCommand::create(_resource->handle(), _get_update_requests());
 }
 
 Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
@@ -66,37 +80,59 @@ void Accel::set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcep
     Expr<Accel>{*this}.set_visibility(instance_id, vis);
 }
 
-Accel &Accel::emplace_back(
-    const Mesh &mesh,
-    float4x4 transform,
-    bool visible) noexcept {
-    _rebuild_observer->notify();
-    device()->emplace_back_instance_in_accel(handle(), mesh.handle(), transform, visible);
-    _rebuild_observer->emplace_back(mesh.shared_subject());
-    return *this;
+void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noexcept {
+    auto index = static_cast<uint>(_mesh_handles.size());
+    _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
+    _mesh_handles.emplace_back(mesh.resource()->handle());
+    _requires_build = true;
 }
 
-Command *Accel::build() noexcept {
-    _rebuild_observer->clear();
-    return AccelBuildCommand::create(handle());
+void Accel::pop_back() noexcept {
+    if (auto n = _mesh_handles.size()) {
+        _mesh_handles.pop_back();
+        _update_requests.erase(n - 1u);
+        _requires_build = true;
+    } else {
+        LUISA_WARNING_WITH_LOCATION(
+            "Ignoring pop-back operation on empty accel.");
+    }
 }
 
-Accel &Accel::pop_back() noexcept {
-    _rebuild_observer->notify();
-    _rebuild_observer->pop_back();
-    device()->pop_back_instance_in_accel(handle());
-    return *this;
-}
-
-Accel& Accel::set(size_t index, const Mesh& mesh, float4x4 transform, bool visible) noexcept {
+void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
-            index, handle());
+            index, _resource->handle());
     }
-    _rebuild_observer->notify();
-    _rebuild_observer->set(index, mesh.shared_subject());
-    device()->set_instance_in_accel(handle(), index, mesh.handle());
-    return *this;
+    _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
+    _mesh_handles[index] = mesh.resource()->handle();
+    _requires_build = true;
 }
+
+void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
+    if (index >= size()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid index {} in accel #{}.",
+            index, _resource->handle());
+    }
+    auto r = AccelUpdateRequest::encode(index, transform);
+    if (auto [iter, success] = _update_requests.try_emplace(index, r);
+        !success) [[unlikely]] {// already exists
+        iter->second.set_transform(transform);
+    }
+}
+
+void Accel::set_visibility_on_update(size_t index, bool visible) noexcept {
+    if (index >= size()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid index {} in accel #{}.",
+            index, _resource->handle());
+    }
+    auto r = AccelUpdateRequest::encode(index, visible);
+    if (auto [iter, success] = _update_requests.try_emplace(index, r);
+        !success) [[unlikely]] {// already exists
+        iter->second.set_visibility(visible);
+    }
+}
+
 }// namespace luisa::compute

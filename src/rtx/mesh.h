@@ -20,12 +20,11 @@ struct Triangle {
 
 class Accel;
 
-class LC_RTX_API Mesh : public Resource {
+class LC_RTX_API Mesh {
 
 private:
-    luisa::shared_ptr<Subject> _subject;
-    uint _triangle_count;
-    bool _requires_rebuild{true};
+    Resource::Handle _resource;
+    uint _triangle_count{};
 
 private:
     friend class Device;
@@ -37,9 +36,7 @@ private:
             std::same_as<buffer_element_t<TBuffer>, Triangle>
     explicit Mesh(Device::Interface *device, VBuffer &&vertex_buffer, TBuffer &&triangle_buffer,
                   AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept
-        : Resource{device, Resource::Tag::MESH, 0u},
-          _triangle_count{static_cast<uint>(triangle_buffer.size())},
-          _subject{luisa::make_unique<Subject>()} {
+        : _triangle_count{static_cast<uint>(triangle_buffer.size())} {
         BufferView vertices{std::forward<VBuffer>(vertex_buffer)};
         BufferView triangles{std::forward<TBuffer>(triangle_buffer)};
         using vertex_type = buffer_element_t<VBuffer>;
@@ -50,18 +47,19 @@ private:
         auto triangle_buffer_handle = triangles.handle();
         auto triangle_buffer_offset = triangles.offset_bytes();
         auto triangle_count = triangles.size();
-        _set_handle(device->create_mesh(
+        auto handle = device->create_mesh(
             vertex_buffer_handle, vertex_buffer_offset, vertex_stride, vertex_count,
-            triangle_buffer_handle, triangle_buffer_offset, triangle_count, hint));
+            triangle_buffer_handle, triangle_buffer_offset, triangle_count, hint);
+        _resource = luisa::make_shared<Resource>(device, Resource::Tag::MESH, handle);
     }
 
 public:
     Mesh() noexcept = default;
-    using Resource::operator bool;
     [[nodiscard]] Command *build() noexcept;
     [[nodiscard]] Command *update() noexcept;
     [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
-    [[nodiscard]] auto shared_subject() const noexcept { return _subject; }
+    [[nodiscard]] explicit operator bool() const noexcept { return _resource != nullptr; }
+    [[nodiscard]] auto resource() const noexcept { return _resource.get(); }
 };
 
 template<typename VBuffer, typename TBuffer>

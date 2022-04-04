@@ -225,4 +225,53 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_ALL_COMMANDS)
 
 }// namespace detail
 
+AccelUpdateRequest AccelUpdateRequest::encode(uint index, float4x4 m) noexcept {
+    return {.index = index,
+            .flags = update_flag_transform,
+            .visible = {},
+            .padding = {},
+            .affine = {m[0][0], m[1][0], m[2][0], m[3][0],
+                       m[0][1], m[1][1], m[2][1], m[3][1],
+                       m[0][2], m[1][2], m[2][2], m[3][2]}};
+}
+
+AccelUpdateRequest AccelUpdateRequest::encode(uint index, bool vis) noexcept {
+    return {.index = index,
+            .flags = update_flag_visibility,
+            .visible = vis,
+            .padding = {},
+            .affine = {}};
+}
+
+AccelUpdateRequest AccelUpdateRequest::encode(uint index, float4x4 m, bool vis) noexcept {
+    return {.index = index,
+            .flags = update_flag_transform_and_visibility,
+            .visible = vis,
+            .padding = {},
+            .affine = {m[0][0], m[1][0], m[2][0], m[3][0],
+                       m[0][1], m[1][1], m[2][1], m[3][1],
+                       m[0][2], m[1][2], m[2][2], m[3][2]}};
+}
+
+void AccelUpdateRequest::set_transform(float4x4 m) noexcept {
+    affine[0] = m[0][0];
+    affine[1] = m[1][0];
+    affine[2] = m[2][0];
+    affine[3] = m[3][0];
+    affine[4] = m[0][1];
+    affine[5] = m[1][1];
+    affine[6] = m[2][1];
+    affine[7] = m[3][1];
+    affine[8] = m[0][2];
+    affine[9] = m[1][2];
+    affine[10] = m[2][2];
+    affine[11] = m[3][2];
+    flags |= update_flag_transform;
+}
+
+void AccelUpdateRequest::set_visibility(bool vis) noexcept {
+    visible = vis;
+    flags |= update_flag_visibility;
+}
+
 }// namespace luisa::compute

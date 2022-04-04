@@ -109,9 +109,9 @@ int main(int argc, char *argv[]) {
 
     auto accel = device.create_accel();
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
-    accel.emplace_back(mesh, scaling(1.5f))
-        .emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
-                                rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
+    accel.emplace_back(mesh, scaling(1.5f));
+    accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
+                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
     stream << mesh.build()
            << accel.build();
 
@@ -130,18 +130,17 @@ int main(int argc, char *argv[]) {
     for (auto i = 0u; i < spp; i++) {
         auto t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;
-        accel.set_transform(1u, translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
-                                    rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f));
+        auto m = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
+                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
+        accel.set_transform_on_update(1u, m);
         stream << vertex_buffer.copy_from(vertices.data())
                << mesh.update()
                << accel.update()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
         if (i == 511u) {
-            accel.emplace_back(
-                mesh,
-                translation(make_float3(0.0f, 0.0f, 0.3f)) *
-                    rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f)),
-                true);
+            auto mm = translation(make_float3(0.0f, 0.0f, 0.3f)) *
+                      rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f));
+            accel.emplace_back(mesh, mm, true);
         }
     }
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)
