@@ -71,7 +71,8 @@ target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory(abseil-cpp)
-target_link_libraries(luisa-compute-ext INTERFACE absl::flat_hash_map)
+target_link_libraries(luisa-compute-ext INTERFACE absl::base absl::flat_hash_map)
+target_compile_definitions(luisa-compute-ext INTERFACE ABSL_CONSUME_DLL=1)
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
     find_package(embree 3)
