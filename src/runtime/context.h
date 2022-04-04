@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <unordered_map>
 
+#include <nlohmann/json.hpp>
 
 #include <core/dynamic_module.h>
 
@@ -30,7 +31,9 @@ public:
     ~Context() noexcept;
     [[nodiscard]] const std::filesystem::path &runtime_directory() const noexcept;
     [[nodiscard]] const std::filesystem::path &cache_directory() const noexcept;
-    [[nodiscard]] Device create_device(const char* backend_name, const char* properties_json = nullptr) noexcept;
+    [[nodiscard]] Device create_device(
+        std::string_view backend_name,
+        const nlohmann::json &properties = nlohmann::json::object()) noexcept;
 };
 
 }// namespace luisa::compute

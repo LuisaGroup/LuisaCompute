@@ -56,13 +56,7 @@ const std::filesystem::path &Context::cache_directory() const noexcept {
     return _impl->cache_directory;
 }
 
-Device Context::create_device(const char *a_backend_name, const char *a_properties_json) noexcept {
-    std::string_view backend_name = a_backend_name;
-    nlohmann::json properties = [&] {
-        if (a_properties_json)
-            return nlohmann::json(a_properties_json);
-        return nlohmann::json::object();
-    }();
+Device Context::create_device(std::string_view backend_name, const nlohmann::json &properties) noexcept {
     if (!properties.is_object()) {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid device properties: {}.",
