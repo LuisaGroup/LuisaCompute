@@ -12,8 +12,9 @@ namespace luisa::compute {
 class LC_RUNTIME_API ResourceTracker {
 
 private:
-    luisa::unordered_map<uint64_t, size_t> _buffer_ref_count;
-    luisa::unordered_map<uint64_t, size_t> _texture_ref_count;
+    // FIXME: EASTL has trouble with MSVC; using std instead
+    std::unordered_map<uint64_t, size_t, Hash64> _buffer_ref_count;
+    std::unordered_map<uint64_t, size_t, Hash64> _texture_ref_count;
     luisa::vector<uint64_t> _buffers_to_remove;
     luisa::vector<uint64_t> _textures_to_remove;
 
