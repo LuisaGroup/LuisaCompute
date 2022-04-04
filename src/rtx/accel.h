@@ -48,10 +48,10 @@ public:
     [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
-    void set_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
-    void set_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
-    void set_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept;
-    void set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
+    void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
+    void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
 };
 
 template<>
@@ -91,22 +91,22 @@ public:
                 Type::of<float4x4>(), CallOp::INSTANCE_TO_WORLD_MATRIX,
                 {_expression, instance_id.expression()}));
     }
-    void set_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
+    void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::SET_INSTANCE_TRANSFORM,
             {_expression, instance_id.expression(), mat.expression()});
     }
-    void set_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
+    void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::SET_INSTANCE_VISIBILITY,
             {_expression, instance_id.expression(), vis.expression()});
     }
-    void set_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
+    void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::SET_INSTANCE_TRANSFORM,
             {_expression, instance_id.expression(), mat.expression()});
     }
-    void set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
+    void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::SET_INSTANCE_VISIBILITY,
             {_expression, instance_id.expression(), vis.expression()});
@@ -137,6 +137,7 @@ LUISA_STRUCT(luisa::compute::AccelUpdateRequest,
             affine[2], affine[6], affine[10], 0.f,
             affine[3], affine[7], affine[11], 1.f);
     };
+    [[nodiscard]] auto visibility() const noexcept { return visible; }
     [[nodiscard]] auto updates_transform() const noexcept {
         auto test_mask = luisa::compute::AccelUpdateRequest::update_flag_transform;
         return (flags & test_mask) != 0u;

@@ -64,20 +64,20 @@ Var<float4x4> Accel::instance_transform(Expr<uint> instance_id) const noexcept {
     return Expr<Accel>{*this}.instance_transform(instance_id);
 }
 
-void Accel::set_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
-    Expr<Accel>{*this}.set_transform(instance_id, mat);
+void Accel::set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
+    Expr<Accel>{*this}.set_instance_transform(instance_id, mat);
 }
 
-void Accel::set_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
-    Expr<Accel>{*this}.set_transform(instance_id, mat);
+void Accel::set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
+    Expr<Accel>{*this}.set_instance_transform(instance_id, mat);
 }
 
-void Accel::set_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
-    Expr<Accel>{*this}.set_visibility(instance_id, vis);
+void Accel::set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_instance_visibility(instance_id, vis);
 }
 
-void Accel::set_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
-    Expr<Accel>{*this}.set_visibility(instance_id, vis);
+void Accel::set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
+    Expr<Accel>{*this}.set_instance_visibility(instance_id, vis);
 }
 
 void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noexcept {
