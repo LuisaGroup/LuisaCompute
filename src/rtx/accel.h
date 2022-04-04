@@ -6,7 +6,6 @@
 
 #include <core/basic_types.h>
 #include <core/stl.h>
-#include <core/observer.h>
 #include <dsl/expr.h>
 #include <rtx/ray.h>
 #include <rtx/hit.h>
