@@ -113,7 +113,7 @@ void update_instance_buffer(
   if (tid < n) [[likely]] {
     auto r = requests[tid];
     instances[r.index].mesh_index = r.index;
-    instances[r.index].options = 0x05u;
+    instances[r.index].options = 0x07u;
     instances[r.index].intersection_function_offset = 0u;
     constexpr auto update_flag_transform = 0x01u;
     constexpr auto update_flag_visibility = 0x02u;

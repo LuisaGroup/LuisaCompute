@@ -114,6 +114,7 @@ public:
         virtual void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
+
         // stream
         [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
@@ -149,9 +150,10 @@ public:
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
         [[nodiscard]] virtual uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
         [[nodiscard]] virtual uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
-
         [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
+
+        // query
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
         [[nodiscard]] virtual bool requires_command_reordering() const noexcept { return true; }
     };

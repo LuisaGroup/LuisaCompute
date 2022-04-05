@@ -124,28 +124,3 @@ struct Var<Accel> : public Expr<Accel> {
 using AccelVar = Var<Accel>;
 
 }// namespace luisa::compute
-
-LUISA_STRUCT(luisa::compute::AccelUpdateRequest,
-             index, flags, visible, padding, affine) {
-
-    [[nodiscard]] auto transform() const noexcept {
-        return make_float4x4(
-            affine[0], affine[4], affine[8], 0.f,
-            affine[1], affine[5], affine[9], 0.f,
-            affine[2], affine[6], affine[10], 0.f,
-            affine[3], affine[7], affine[11], 1.f);
-    };
-    [[nodiscard]] auto visibility() const noexcept { return visible; }
-    [[nodiscard]] auto updates_transform() const noexcept {
-        auto test_mask = luisa::compute::AccelUpdateRequest::update_flag_transform;
-        return (flags & test_mask) != 0u;
-    }
-    [[nodiscard]] auto updates_visibility() const noexcept {
-        auto test_mask = luisa::compute::AccelUpdateRequest::update_flag_visibility;
-        return (flags & test_mask) != 0u;
-    }
-    [[nodiscard]] auto updates_transform_and_visibility() const noexcept {
-        auto test_mask = luisa::compute::AccelUpdateRequest::update_flag_transform_and_visibility;
-        return (flags & test_mask) != 0u;
-    }
-};
