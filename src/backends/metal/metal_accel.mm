@@ -27,14 +27,26 @@ id<MTLCommandBuffer> MetalAccel::build(
     auto instance_buffer_size = mesh_handles.size() *
                                 sizeof(MTLAccelerationStructureInstanceDescriptor);
     if (_instance_buffer == nullptr || _instance_buffer.length < instance_buffer_size) {
-        _instance_buffer = [device newBufferWithLength:next_pow2(instance_buffer_size)
+        auto instance_buffer = [device newBufferWithLength:next_pow2(instance_buffer_size)
                                                options:MTLResourceStorageModePrivate];
+        if (_instance_buffer != nullptr) {
+            auto blit_encoder = [command_buffer blitCommandEncoder];
+            [blit_encoder copyFromBuffer:_instance_buffer
+                            sourceOffset:0u
+                                toBuffer:instance_buffer
+                       destinationOffset:0u
+                                    size:_instance_buffer.length];
+            [blit_encoder endEncoding];
+        }
+        _instance_buffer = instance_buffer;
     }
 
     // process host update requests
+    LUISA_INFO("AccelBuildCommand size: {}, updates: {}.",
+               mesh_handles.size(), requests.size());
     _process_update_requests(stream, command_buffer, requests);
 
-    // build accel and (possibly) compact
+    // build accel
     _resources.clear();
     auto meshes = [[NSMutableArray<id<MTLAccelerationStructure>> alloc] init];
     for (auto mesh_handle : mesh_handles) {
@@ -71,6 +83,8 @@ id<MTLCommandBuffer> MetalAccel::build(
                             count:_resources.size()
                             usage:MTLResourceUsageRead];
     [command_encoder endEncoding];
+
+    // TODO: compaction?
     return command_buffer;
 }
 
@@ -98,10 +112,9 @@ void MetalAccel::_process_update_requests(
     luisa::span<const AccelUpdateRequest> requests) noexcept {
     if (auto n = static_cast<uint>(requests.size())) {
         auto pool = &stream->upload_host_buffer_pool();
-        auto request_buffer = pool->allocate(requests.size() * sizeof(AccelUpdateRequest));
-        auto ptr = static_cast<std::byte *>([request_buffer.handle() contents]) +
-                   request_buffer.offset();
-        std::memcpy(ptr, requests.data(), requests.size_bytes());
+        auto request_buffer = pool->allocate(requests.size_bytes());
+        auto ptr = static_cast<std::byte *>([request_buffer.handle() contents]);
+        std::memcpy(ptr + request_buffer.offset(), requests.data(), requests.size_bytes());
         auto encoder = [command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
         constexpr auto threads_per_group = 256u;
         auto groups = (n + threads_per_group - 1u) / threads_per_group;

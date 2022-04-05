@@ -93,37 +93,40 @@ void Accel::pop_back() noexcept {
 
 void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible) noexcept {
     if (index >= size()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
+        LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, _resource->handle());
+    } else {
+        _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
+        _mesh_handles[index] = mesh.resource()->handle();
     }
-    _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
-    _mesh_handles[index] = mesh.resource()->handle();
 }
 
 void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
     if (index >= size()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
+        LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, _resource->handle());
-    }
-    auto r = AccelUpdateRequest::encode(index, transform);
-    if (auto [iter, success] = _update_requests.try_emplace(index, r);
-        !success) [[unlikely]] {// already exists
-        iter->second.set_transform(transform);
+    } else {
+        auto r = AccelUpdateRequest::encode(index, transform);
+        if (auto [iter, success] = _update_requests.try_emplace(index, r);
+            !success) [[unlikely]] {// already exists
+            iter->second.set_transform(transform);
+        }
     }
 }
 
 void Accel::set_visibility_on_update(size_t index, bool visible) noexcept {
     if (index >= size()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
+        LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, _resource->handle());
-    }
-    auto r = AccelUpdateRequest::encode(index, visible);
-    if (auto [iter, success] = _update_requests.try_emplace(index, r);
-        !success) [[unlikely]] {// already exists
-        iter->second.set_visibility(visible);
+    } else {
+        auto r = AccelUpdateRequest::encode(index, visible);
+        if (auto [iter, success] = _update_requests.try_emplace(index, r);
+            !success) [[unlikely]] {// already exists
+            iter->second.set_visibility(visible);
+        }
     }
 }
 

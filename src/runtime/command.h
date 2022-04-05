@@ -537,15 +537,15 @@ class AccelBuildCommand final : public Command {
 private:
     uint64_t _handle;
     luisa::vector<AccelUpdateRequest> _requests;
-    luisa::span<const uint64_t> _meshes;
+    luisa::vector<uint64_t> _meshes;
 
 public:
-    AccelBuildCommand(uint64_t handle, luisa::span<const uint64_t> meshes,
+    AccelBuildCommand(uint64_t handle, luisa::vector<uint64_t> meshes,
                       luisa::vector<AccelUpdateRequest> requests) noexcept
-        : _handle{handle}, _requests{std::move(requests)}, _meshes{meshes} {}
+        : _handle{handle}, _requests{std::move(requests)}, _meshes{std::move(meshes)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto meshes() const noexcept { return _meshes; }
-    [[nodiscard]] auto host_requests() const noexcept { return _requests; }
+    [[nodiscard]] auto meshes() const noexcept { return luisa::span{_meshes}; }
+    [[nodiscard]] auto host_requests() const noexcept { return luisa::span{_requests}; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
 };
 
