@@ -43,9 +43,6 @@ Context::Context(const std::filesystem::path &program) noexcept
         std::filesystem::create_directories(_impl->cache_directory);
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
-#ifdef LUISA_PLATFORM_WINDOWS
-    SetDllDirectoryW((_impl->runtime_directory / "backends").wstring().c_str());
-#endif
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {
@@ -68,7 +65,7 @@ Device Context::create_device(std::string_view backend_name, luisa::string_view 
             return std::make_pair(c, d);
         }
         auto &&m = _impl->loaded_modules.emplace_back(
-            _impl->runtime_directory / "backends",
+            _impl->runtime_directory,
             fmt::format("luisa-compute-backend-{}", backend_name));
         auto c = m.function<Device::Creator>("create");
         auto d = m.function<Device::Deleter>("destroy");
