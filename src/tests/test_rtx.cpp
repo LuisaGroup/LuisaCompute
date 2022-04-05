@@ -140,5 +140,5 @@ int main(int argc, char *argv[]) {
            << synchronize();
     auto time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);
+    stbi_write_png("test_rtx_ispc.png", width, height, 4, pixels.data(), 0);
 }
