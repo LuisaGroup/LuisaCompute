@@ -32,18 +32,19 @@ ISPCAccel::~ISPCAccel() noexcept { rtcReleaseScene(_handle); }
 void ISPCAccel::build(ThreadPool &pool, luisa::span<const uint64_t> mesh_handles, luisa::span<const AccelUpdateRequest> requests) noexcept {
     pool.async([this, meshes = luisa::vector<uint64_t>{mesh_handles.cbegin(), mesh_handles.cend()},
                 requests = luisa::vector<AccelUpdateRequest>{requests.cbegin(), requests.cend()}] {
-        // TODO: reuse old geometries if possible
-        for (auto i = 0u; i < _instances.size(); i++) {
-            rtcDetachGeometry(_handle, i);
-        }
-        _instances.resize(meshes.size());
-        auto device = rtcGetSceneDevice(_handle);
-        for (auto i = 0u; i < meshes.size(); i++) {
-            auto mesh = reinterpret_cast<const ISPCMesh *>(meshes[i]);
-            auto geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);
-            rtcSetGeometryInstancedScene(geometry, mesh->handle());
-            rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);
-            _instances[i].geometry = geometry;
+        if (meshes.size() < _instances.size()) {// remove redundant geometries
+            for (auto i = meshes.size(); i < _instances.size(); i++) { rtcDetachGeometry(_handle, i); }
+            _instances.resize(meshes.size());
+        } else {// create new geometries
+            auto device = rtcGetSceneDevice(_handle);
+            _instances.reserve(next_pow2(meshes.size()));
+            for (auto i = _instances.size(); i < meshes.size(); i++) {
+                auto geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);
+                rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);
+                rtcAttachGeometryByID(_handle, geometry, i);
+                rtcReleaseGeometry(geometry);// already moved into the scene
+                _instances.emplace_back().geometry = geometry;
+            }
         }
         for (auto r : requests) {
             if (r.flags & AccelUpdateRequest::update_flag_transform) {
@@ -55,6 +56,8 @@ void ISPCAccel::build(ThreadPool &pool, luisa::span<const uint64_t> mesh_handles
         }
         for (auto i = 0u; i < _instances.size(); i++) {
             auto geometry = _instances[i].geometry;
+            auto mesh = reinterpret_cast<const ISPCMesh *>(meshes[i]);
+            rtcSetGeometryInstancedScene(geometry, mesh->handle());
             rtcSetGeometryTransform(geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR, _instances[i].affine);
             if (_instances[i].visible) {
                 rtcEnableGeometry(geometry);
@@ -62,8 +65,6 @@ void ISPCAccel::build(ThreadPool &pool, luisa::span<const uint64_t> mesh_handles
                 rtcDisableGeometry(geometry);
             }
             rtcCommitGeometry(geometry);
-            rtcAttachGeometryByID(_handle, geometry, i);
-            rtcReleaseGeometry(geometry);// already moved into the scene
             _instances[i].dirty = false;
         }
         rtcCommitScene(_handle);
