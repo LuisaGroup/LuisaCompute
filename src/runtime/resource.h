@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class LC_RUNTIME_API Resource : public luisa::enable_shared_from_this<Resource> {
+class LC_RUNTIME_API Resource {
 
 public:
     enum struct Tag : uint32_t {
@@ -23,8 +23,6 @@ public:
         SHADER,
         SWAP_CHAIN
     };
-
-    using Handle = luisa::shared_ptr<Resource>;
 
 private:
     Device::Handle _device{nullptr};

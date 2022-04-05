@@ -13,12 +13,11 @@
 
 namespace luisa::compute {
 
-class LC_RTX_API Accel {
+class LC_RTX_API Accel final : public Resource {
 
 private:
     luisa::map<size_t, AccelUpdateRequest> _update_requests;
     luisa::vector<uint64_t> _mesh_handles;
-    Resource::Handle _resource;
 
 private:
     friend class Device;
@@ -28,9 +27,8 @@ private:
 
 public:
     Accel() noexcept = default;
+    using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _mesh_handles.size(); }
-    [[nodiscard]] explicit operator bool() const noexcept { return _resource != nullptr; }
-    [[nodiscard]] auto resource() const noexcept { return _resource.get(); }
 
     // host interfaces
     void emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
@@ -63,7 +61,7 @@ public:
         : _expression{expr} {}
     explicit Expr(const Accel &accel) noexcept
         : _expression{detail::FunctionBuilder::current()->accel_binding(
-              accel.resource()->handle())} {}
+              accel.handle())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto trace_closest(Expr<Ray> ray) const noexcept {
         return def<Hit>(

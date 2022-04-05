@@ -11,7 +11,7 @@ namespace luisa::compute {
 namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
-    _command->encode_accel(accel.resource()->handle());
+    _command->encode_accel(accel.handle());
     return *this;
 }
 
@@ -20,11 +20,10 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 Accel Device::create_accel(AccelBuildHint hint) noexcept { return _create<Accel>(hint); }
 
 Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
-    : _resource{luisa::make_shared<Resource>(
-          device, Resource::Tag::ACCEL, device->create_accel(hint))} {}
+    : Resource{device, Resource::Tag::ACCEL, device->create_accel(hint)} {}
 
 Command *Accel::update() noexcept {
-    return AccelUpdateCommand::create(_resource->handle(), _get_update_requests());
+    return AccelUpdateCommand::create(handle(), _get_update_requests());
 }
 
 luisa::vector<AccelUpdateRequest> Accel::_get_update_requests() noexcept {
@@ -40,7 +39,7 @@ Command *Accel::build() noexcept {
         LUISA_ERROR_WITH_LOCATION("No mesh found in accel.");
     }
     return AccelBuildCommand::create(
-        _resource->handle(), _mesh_handles, _get_update_requests());
+        handle(), _mesh_handles, _get_update_requests());
 }
 
 Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
@@ -78,7 +77,7 @@ void Accel::set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) cons
 void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noexcept {
     auto index = static_cast<uint>(_mesh_handles.size());
     _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
-    _mesh_handles.emplace_back(mesh.resource()->handle());
+    _mesh_handles.emplace_back(mesh.handle());
 }
 
 void Accel::pop_back() noexcept {
@@ -95,10 +94,10 @@ void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
-            index, _resource->handle());
+            index, handle());
     } else {
         _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
-        _mesh_handles[index] = mesh.resource()->handle();
+        _mesh_handles[index] = mesh.handle();
     }
 }
 
@@ -106,7 +105,7 @@ void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
-            index, _resource->handle());
+            index, handle());
     } else {
         auto r = AccelUpdateRequest::encode(index, transform);
         if (auto [iter, success] = _update_requests.try_emplace(index, r);
@@ -120,7 +119,7 @@ void Accel::set_visibility_on_update(size_t index, bool visible) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
-            index, _resource->handle());
+            index, handle());
     } else {
         auto r = AccelUpdateRequest::encode(index, visible);
         if (auto [iter, success] = _update_requests.try_emplace(index, r);
