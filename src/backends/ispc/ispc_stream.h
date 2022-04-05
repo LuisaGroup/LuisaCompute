@@ -34,6 +34,12 @@ public:
      */
     void dispatch(const CommandList &cmd_list) noexcept;
     /**
+     * @brief Dispatch a host function
+     *
+     * @param f host function to dispatch
+     */
+    void dispatch(luisa::move_only_function<void()> &&f) noexcept;
+    /**
      * @brief Signal event
      * 
      * @param event event

@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include <core/basic_types.h>
 #include <core/stl.h>
+#include <core/hash.h>
 
 namespace luisa::compute {
 
