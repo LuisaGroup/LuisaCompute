@@ -18,6 +18,7 @@ class LC_RTX_API Accel final : public Resource {
 private:
     luisa::map<size_t, AccelUpdateRequest> _update_requests;
     luisa::vector<uint64_t> _mesh_handles;
+    luisa::unique_ptr<std::mutex> _mutex;
 
 private:
     friend class Device;

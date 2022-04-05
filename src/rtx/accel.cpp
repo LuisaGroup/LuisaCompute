@@ -20,13 +20,15 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 Accel Device::create_accel(AccelBuildHint hint) noexcept { return _create<Accel>(hint); }
 
 Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
-    : Resource{device, Resource::Tag::ACCEL, device->create_accel(hint)} {}
+    : Resource{device, Resource::Tag::ACCEL, device->create_accel(hint)},
+      _mutex{luisa::make_unique<std::mutex>()} {}
 
 Command *Accel::update() noexcept {
     return AccelUpdateCommand::create(handle(), _get_update_requests());
 }
 
 luisa::vector<AccelUpdateRequest> Accel::_get_update_requests() noexcept {
+    std::scoped_lock lock{*_mutex};
     eastl::vector<AccelUpdateRequest> requests;
     requests.reserve(_update_requests.size());
     for (auto [_, r] : _update_requests) { requests.emplace_back(r); }
@@ -75,12 +77,14 @@ void Accel::set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) cons
 }
 
 void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noexcept {
+    std::scoped_lock lock{*_mutex};
     auto index = static_cast<uint>(_mesh_handles.size());
     _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
     _mesh_handles.emplace_back(mesh.handle());
 }
 
 void Accel::pop_back() noexcept {
+    std::scoped_lock lock{*_mutex};
     if (auto n = _mesh_handles.size()) {
         _mesh_handles.pop_back();
         _update_requests.erase(n - 1u);
@@ -91,6 +95,7 @@ void Accel::pop_back() noexcept {
 }
 
 void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible) noexcept {
+    std::scoped_lock lock{*_mutex};
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -102,6 +107,7 @@ void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible
 }
 
 void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
+    std::scoped_lock lock{*_mutex};
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -116,6 +122,7 @@ void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
 }
 
 void Accel::set_visibility_on_update(size_t index, bool visible) noexcept {
+    std::scoped_lock lock{*_mutex};
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
