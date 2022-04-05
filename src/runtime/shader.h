@@ -58,7 +58,7 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(BufferView<T> buffer) noexcept {
-        _command->encode_buffer(buffer.handle(), buffer.offset());
+        _command->encode_buffer(buffer.handle(), buffer.offset_bytes() /* !!! */);
         return *this;
     }
 
