@@ -4,6 +4,7 @@
 
 #include <fstream>
 
+#include <core/clock.h>
 #include <runtime/context.h>
 #include <backends/ispc/ispc_codegen.h>
 #include <backends/ispc/ispc_shader.h>

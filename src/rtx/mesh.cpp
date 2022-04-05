@@ -8,11 +8,11 @@
 namespace luisa::compute {
 
 Command *Mesh::update() noexcept {
-    return MeshUpdateCommand::create(_resource->handle());
+    return MeshUpdateCommand::create(handle());
 }
 
 Command *Mesh::build() noexcept {
-    return MeshBuildCommand::create(_resource->handle());
+    return MeshBuildCommand::create(handle());
 }
 
 }// namespace luisa::compute
