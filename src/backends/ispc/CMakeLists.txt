@@ -17,22 +17,11 @@ luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})
 # copy device libs
 set(ISPC_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ispc_support")
 mark_as_advanced(ISPC_SUPPORT_DIR)
-if (CMAKE_BUILD_TYPE)
-    add_custom_target(lc-ispc-copy-support ALL
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${ISPC_SUPPORT_DIR}"
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/backends/ispc_support")
-    add_dependencies(luisa-compute-backend-ispc lc-ispc-copy-support)
-endif ()
-foreach (CONFIG ${CMAKE_CONFIGURATION_TYPES})
-    string(TOLOWER ${CONFIG} config_lower)
-    string(TOUPPER ${CONFIG} CONFIG_UPPER)
-    add_custom_target(lc-ispc-copy-support-${config_lower} ALL
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${ISPC_SUPPORT_DIR}"
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_UPPER}}/backends/ispc_support")
-    add_dependencies(luisa-compute-backend-ispc lc-ispc-copy-support-${config_lower})
-endforeach ()
+add_custom_target(lc-ispc-copy-support ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${ISPC_SUPPORT_DIR}"
+        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+add_dependencies(luisa-compute-backend-ispc lc-ispc-copy-support)
 
 option(LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT "Enable LLVM JIT for ISPC kernels" ON)
 if (LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT)
