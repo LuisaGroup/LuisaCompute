@@ -10,8 +10,7 @@ set(ISPC_BACKEND_SOURCES
         ispc_mesh.cpp ispc_mesh.h
         ispc_accel.cpp ispc_accel.h
         ispc_texture.cpp ispc_texture.h
-        ispc_bindless_array.cpp ispc_bindless_array.h
-        )
+        ispc_bindless_array.cpp ispc_bindless_array.h)
 
 luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})
 

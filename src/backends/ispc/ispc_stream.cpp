@@ -74,16 +74,16 @@ void ISPCStream::visit(const BufferCopyCommand *command) noexcept {
 
 void ISPCStream::visit(const BufferToTextureCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
-        ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.texture());
+        auto tex = reinterpret_cast<ISPCTexture *>(cmd.texture());
         check_texture_boundary(tex, cmd.level(), cmd.size());
         // calc stride
-        uint pxsize = pixel_storage_size(tex->storage);
-        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
-        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
-        int tex_r_stride = texsizex * pxsize;
-        int tex_p_stride = texsizex * texsizey * pxsize;
-        int target_r_stride = cmd.size().x * pxsize;
-        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        auto pxsize = pixel_storage_size(tex->storage);
+        auto texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        auto texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        auto tex_r_stride = texsizex * pxsize;
+        auto tex_p_stride = texsizex * texsizey * pxsize;
+        auto target_r_stride = cmd.size().x * pxsize;
+        auto target_p_stride = cmd.size().x * cmd.size().y * pxsize;
         // copy data
         for (int dz = 0; dz < cmd.size().z; ++dz)
             for (int dy = 0; dy < cmd.size().y; ++dy)
@@ -111,7 +111,7 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
             auto handle = array->handle();
             std::memcpy(ptr, &handle, sizeof(handle));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-            auto accel = reinterpret_cast<const ISPCAccel *>(argument.handle);
+            auto accel = reinterpret_cast<ISPCAccel *>(argument.handle);
             auto handle = accel->handle();
             std::memcpy(ptr, &handle, sizeof(handle));
         } else {// uniform
@@ -123,12 +123,6 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
     auto dispatch_size = command->dispatch_size();
     auto block_size = command->kernel().block_size();
     auto grid_size = (dispatch_size + block_size - 1u) / block_size;
-    //    LUISA_INFO(
-    //        "Dispatching ISPC kernel "
-    //        "with ({}, {}, {}) blocks, "
-    //        "each with ({}, {}, {}) threads.",
-    //        grid_size.x, grid_size.y, grid_size.z,
-    //        block_size.x, block_size.y, block_size.z);
     _pool.parallel(
         grid_size.x, grid_size.y, grid_size.z,
         [shared_buffer, dispatch_size, module = shader->shared_module()](auto bx, auto by, auto bz) noexcept {
@@ -138,16 +132,16 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
 
 void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
     _pool.async([cmd = *command] {
-        ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.handle());
+        auto tex = reinterpret_cast<ISPCTexture *>(cmd.handle());
         check_texture_boundary(tex, cmd.level(), cmd.size());
         // calc stride
-        uint pxsize = pixel_storage_size(tex->storage);
-        int target_r_stride = cmd.size().x * pxsize;
-        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
-        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
-        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
-        int tex_r_stride = texsizex * pxsize;
-        int tex_p_stride = texsizex * texsizey * pxsize;
+        auto pxsize = pixel_storage_size(tex->storage);
+        auto target_r_stride = cmd.size().x * pxsize;
+        auto target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        auto texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        auto texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        auto tex_r_stride = texsizex * pxsize;
+        auto tex_p_stride = texsizex * texsizey * pxsize;
         // copy data
         for (int dz = 0; dz < cmd.size().z; ++dz)
             for (int dy = 0; dy < cmd.size().y; ++dy)
@@ -159,16 +153,16 @@ void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
 
 void ISPCStream::visit(const TextureDownloadCommand *command) noexcept {
     _pool.async([cmd = *command] {
-        ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.handle());
+        auto tex = reinterpret_cast<ISPCTexture *>(cmd.handle());
         check_texture_boundary(tex, cmd.level(), cmd.size());
         // calc stride
-        uint pxsize = pixel_storage_size(tex->storage);
-        int target_r_stride = cmd.size().x * pxsize;
-        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
-        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
-        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
-        int tex_r_stride = texsizex * pxsize;
-        int tex_p_stride = texsizex * texsizey * pxsize;
+        auto pxsize = pixel_storage_size(tex->storage);
+        auto target_r_stride = cmd.size().x * pxsize;
+        auto target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        auto texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        auto texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        auto tex_r_stride = texsizex * pxsize;
+        auto tex_p_stride = texsizex * texsizey * pxsize;
         // copy data
         for (int dz = 0; dz < cmd.size().z; ++dz)
             for (int dy = 0; dy < cmd.size().y; ++dy)
@@ -180,20 +174,20 @@ void ISPCStream::visit(const TextureDownloadCommand *command) noexcept {
 
 void ISPCStream::visit(const TextureCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
-        ISPCTexture *src_tex = reinterpret_cast<ISPCTexture *>(cmd.src_handle());
-        ISPCTexture *dst_tex = reinterpret_cast<ISPCTexture *>(cmd.dst_handle());
+        auto src_tex = reinterpret_cast<ISPCTexture *>(cmd.src_handle());
+        auto dst_tex = reinterpret_cast<ISPCTexture *>(cmd.dst_handle());
         check_texture_boundary(src_tex, cmd.src_level(), cmd.size());
         check_texture_boundary(dst_tex, cmd.dst_level(), cmd.size());
         // calc stride
-        uint pxsize = pixel_storage_size(src_tex->storage);
-        uint src_sizex = max(src_tex->size[0] >> cmd.src_level(), 1u);
-        uint dst_sizex = max(dst_tex->size[0] >> cmd.dst_level(), 1u);
-        uint src_sizey = max(src_tex->size[1] >> cmd.src_level(), 1u);
-        uint dst_sizey = max(dst_tex->size[1] >> cmd.dst_level(), 1u);
-        int src_r_stride = src_sizex * pxsize;
-        int src_p_stride = src_sizex * src_sizey * pxsize;
-        int dst_r_stride = dst_sizex * pxsize;
-        int dst_p_stride = dst_sizex * dst_sizey * pxsize;
+        auto pxsize = pixel_storage_size(src_tex->storage);
+        auto src_sizex = max(src_tex->size[0] >> cmd.src_level(), 1u);
+        auto dst_sizex = max(dst_tex->size[0] >> cmd.dst_level(), 1u);
+        auto src_sizey = max(src_tex->size[1] >> cmd.src_level(), 1u);
+        auto dst_sizey = max(dst_tex->size[1] >> cmd.dst_level(), 1u);
+        auto src_r_stride = src_sizex * pxsize;
+        auto src_p_stride = src_sizex * src_sizey * pxsize;
+        auto dst_r_stride = dst_sizex * pxsize;
+        auto dst_p_stride = dst_sizex * dst_sizey * pxsize;
         // copy data
         for (int dz = 0; dz < cmd.size().z; ++dz)
             for (int dy = 0; dy < cmd.size().y; ++dy)
@@ -205,16 +199,16 @@ void ISPCStream::visit(const TextureCopyCommand *command) noexcept {
 
 void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
-        ISPCTexture *tex = reinterpret_cast<ISPCTexture *>(cmd.texture());
+        auto tex = reinterpret_cast<ISPCTexture *>(cmd.texture());
         check_texture_boundary(tex, cmd.level(), cmd.size());
         // calc stride
-        uint pxsize = pixel_storage_size(tex->storage);
-        uint texsizex = max(tex->size[0] >> cmd.level(), 1u);
-        uint texsizey = max(tex->size[1] >> cmd.level(), 1u);
-        int tex_r_stride = texsizex * pxsize;
-        int tex_p_stride = texsizex * texsizey * pxsize;
-        int target_r_stride = cmd.size().x * pxsize;
-        int target_p_stride = cmd.size().x * cmd.size().y * pxsize;
+        auto pxsize = pixel_storage_size(tex->storage);
+        auto texsizex = max(tex->size[0] >> cmd.level(), 1u);
+        auto texsizey = max(tex->size[1] >> cmd.level(), 1u);
+        auto tex_r_stride = texsizex * pxsize;
+        auto tex_p_stride = texsizex * texsizey * pxsize;
+        auto target_r_stride = cmd.size().x * pxsize;
+        auto target_p_stride = cmd.size().x * cmd.size().y * pxsize;
         // copy data
         for (int dz = 0; dz < cmd.size().z; ++dz)
             for (int dy = 0; dy < cmd.size().y; ++dy)
@@ -225,11 +219,13 @@ void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const AccelUpdateCommand *command) noexcept {
-    reinterpret_cast<ISPCAccel *>(command->handle())->update(_pool);
+    reinterpret_cast<ISPCAccel *>(command->handle())->update(
+        _pool, command->host_requests());
 }
 
 void ISPCStream::visit(const AccelBuildCommand *command) noexcept {
-    reinterpret_cast<ISPCAccel *>(command->handle())->build(_pool);
+    reinterpret_cast<ISPCAccel *>(command->handle())->build(
+        _pool, command->meshes(), command->host_requests());
 }
 
 void ISPCStream::visit(const MeshUpdateCommand *command) noexcept {
@@ -246,6 +242,15 @@ void ISPCStream::visit(const MeshBuildCommand *command) noexcept {
 
 void ISPCStream::visit(const BindlessArrayUpdateCommand *command) noexcept {
     reinterpret_cast<ISPCBindlessArray *>(command->handle())->update(_pool);
+}
+
+void ISPCStream::dispatch(luisa::move_only_function<void()> &&f) noexcept {
+    auto ptr = new_with_allocator<luisa::move_only_function<void()>>(std::move(f));
+    _pool.async([ptr] {
+        (*ptr)();
+        delete_with_allocator(ptr);
+    });
+    _pool.barrier();
 }
 
 }// namespace luisa::compute::ispc

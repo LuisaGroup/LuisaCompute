@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2022/2/11.
 //
 
+#include <core/stl.h>
+
 #include <backends/ispc/ispc_mesh.h>
 #include <backends/ispc/ispc_accel.h>
 
@@ -25,103 +27,75 @@ ISPCAccel::ISPCAccel(RTCDevice device, AccelBuildHint hint) noexcept
     }
 }
 
-ISPCAccel::~ISPCAccel() noexcept {
-    rtcReleaseScene(_handle);
-    for (auto geometry : _committed_geometries) {
-        rtcReleaseGeometry(geometry);
-    }
-}
+ISPCAccel::~ISPCAccel() noexcept { rtcReleaseScene(_handle); }
 
-void ISPCAccel::build(ThreadPool &pool) noexcept {
-    _dirty.clear();
-    _resources.clear();
-    for (auto &_instance : _instances) {
-        auto mesh = _instance.mesh;
-        _resources.emplace(mesh->vertex_buffer());
-        _resources.emplace(mesh->triangle_buffer());
-        _resources.emplace(reinterpret_cast<uint64_t>(mesh));
-    }
-    pool.async([this, instances = _instances] {
-        for (auto i = 0u; i < _committed_geometries.size(); i++) {
+void ISPCAccel::build(ThreadPool &pool, luisa::span<const uint64_t> mesh_handles, luisa::span<const AccelUpdateRequest> requests) noexcept {
+    pool.async([this, meshes = luisa::vector<uint64_t>{mesh_handles.cbegin(), mesh_handles.cend()},
+                requests = luisa::vector<AccelUpdateRequest>{requests.cbegin(), requests.cend()}] {
+        // TODO: reuse old geometries if possible
+        for (auto i = 0u; i < _instances.size(); i++) {
             rtcDetachGeometry(_handle, i);
-            rtcReleaseGeometry(_committed_geometries[i]);
         }
+        _instances.resize(meshes.size());
         auto device = rtcGetSceneDevice(_handle);
-        _committed_transforms.resize(instances.size());
-        _committed_geometries.resize(instances.size());
-        for (auto i = 0u; i < instances.size(); i++) {
-            auto transform = instances[i].transform;
-            _committed_transforms[i] = _decompress(transform);
+        for (auto i = 0u; i < meshes.size(); i++) {
+            auto mesh = reinterpret_cast<const ISPCMesh *>(meshes[i]);
             auto geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);
-            _committed_geometries[i] = geometry;
-            rtcSetGeometryInstancedScene(geometry, instances[i].mesh->handle());
+            rtcSetGeometryInstancedScene(geometry, mesh->handle());
             rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);
-            rtcSetGeometryTransform(
-                geometry, 0.f,
-                RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR,
-                &_committed_transforms[i]);
-            if (!instances[i].visible) { rtcDisableGeometry(geometry); }
-            rtcCommitGeometry(geometry);
-            rtcAttachGeometryByID(_handle, geometry, i);
+            _instances[i].geometry = geometry;
         }
-        rtcCommitScene(_handle);
-    });
-}
-
-void ISPCAccel::update(ThreadPool &pool) noexcept {
-    auto s = luisa::span{_instances}.subspan(_dirty.offset(), _dirty.size());
-    pool.async([this, offset = _dirty.offset(),
-                instances = luisa::vector<Instance>{s.cbegin(), s.cend()}] {
-        for (auto i = 0u; i < instances.size(); i++) {
-            auto geometry = _committed_geometries[i + offset];
-            if (instances[i].visible) {
+        for (auto r : requests) {
+            if (r.flags & AccelUpdateRequest::update_flag_transform) {
+                std::memcpy(_instances[r.index].affine, r.affine, sizeof(r.affine));
+            }
+            if (r.flags & AccelUpdateRequest::update_flag_visibility) {
+                _instances[r.index].visible = r.visible;
+            }
+        }
+        for (auto i = 0u; i < _instances.size(); i++) {
+            auto geometry = _instances[i].geometry;
+            rtcSetGeometryTransform(geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR, _instances[i].affine);
+            if (_instances[i].visible) {
                 rtcEnableGeometry(geometry);
             } else {
                 rtcDisableGeometry(geometry);
             }
-            auto transform = instances[i].transform;
-            _committed_transforms[i + offset] = _decompress(transform);
-            rtcSetGeometryTransform(
-                geometry, 0.f, RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR,
-                &_committed_transforms[i + offset]);
             rtcCommitGeometry(geometry);
+            rtcAttachGeometryByID(_handle, geometry, i);
+            rtcReleaseGeometry(geometry);// already moved into the scene
+            _instances[i].dirty = false;
         }
         rtcCommitScene(_handle);
     });
-    _dirty.clear();
 }
 
-void ISPCAccel::push_mesh(const ISPCMesh *mesh, float4x4 transform, bool visible) noexcept {
-    Instance instance{
-        .mesh = mesh,
-        .transform = _compress(transform),
-        .visible = visible};
-    _instances.emplace_back(instance);
-    _resources.emplace(mesh->vertex_buffer());
-    _resources.emplace(mesh->triangle_buffer());
-    _resources.emplace(reinterpret_cast<uint64_t>(mesh));
-}
-
-void ISPCAccel::pop_mesh() noexcept { _instances.pop_back(); }
-
-void ISPCAccel::set_mesh(size_t index, const ISPCMesh *mesh, float4x4 transform, bool visible) noexcept {
-    _instances[index] = {
-        .mesh = mesh,
-        .transform = _compress(transform),
-        .visible = visible};
-    _resources.emplace(mesh->vertex_buffer());
-    _resources.emplace(mesh->triangle_buffer());
-    _resources.emplace(reinterpret_cast<uint64_t>(mesh));
-}
-
-void ISPCAccel::set_visibility(size_t index, bool visible) noexcept {
-    _instances[index].visible = visible;
-    _dirty.mark(index);
-}
-
-void ISPCAccel::set_transform(size_t index, float4x4 transform) noexcept {
-    _instances[index].transform = _compress(transform);
-    _dirty.mark(index);
+void ISPCAccel::update(ThreadPool &pool, luisa::span<const AccelUpdateRequest> requests) noexcept {
+    pool.async([this, requests = luisa::vector<AccelUpdateRequest>{requests.cbegin(), requests.cend()}] {
+        for (auto r : requests) {
+            if (r.flags & AccelUpdateRequest::update_flag_transform) {
+                std::memcpy(_instances[r.index].affine, r.affine, sizeof(r.affine));
+            }
+            if (r.flags & AccelUpdateRequest::update_flag_visibility) {
+                _instances[r.index].visible = r.visible;
+            }
+            _instances[r.index].dirty = true;
+        }
+        for (auto &&instance : _instances) {
+            if (instance.dirty) {
+                auto geometry = instance.geometry;
+                rtcSetGeometryTransform(geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR, instance.affine);
+                if (instance.visible) {
+                    rtcEnableGeometry(geometry);
+                } else {
+                    rtcDisableGeometry(geometry);
+                }
+                rtcCommitGeometry(geometry);
+                instance.dirty = false;
+            }
+        }
+        rtcCommitScene(_handle);
+    });
 }
 
 std::array<float, 12> ISPCAccel::_compress(float4x4 m) noexcept {

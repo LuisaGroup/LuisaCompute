@@ -262,65 +262,6 @@ public:
      */
     uint64_t create_accel(AccelBuildHint hint) noexcept override;
     /**
-     * @brief Add an instance of mesh at the back of accel
-     * 
-     * @param accel handle of accel
-     * @param mesh handle of mesh
-     * @param transform mesh's transform
-     * @param visible mesh's visibility
-     */
-    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    /**
-     * @brief Pop the latest instance
-     * 
-     * @param accel handle of accel
-     */
-    void pop_back_instance_in_accel(uint64_t accel) noexcept override;
-    /**
-     * @brief Set the instance in accel object
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param mesh new mesh
-     * @param transform new transform
-     * @param visible new visibility
-     */
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    /**
-     * @brief Set the instance transform in accel object
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param transform new transform
-     */
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
-    /**
-     * @brief Set the instance visibility in accel object
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param visible new visibility
-     */
-    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
-    /**
-     * @brief Return if buffer is in accel
-     * 
-     * @param accel handle of accel
-     * @param buffer handle of buffer
-     * @return true 
-     * @return false 
-     */
-    bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
-    /**
-     * @brief Return if mesh is in accel
-     * 
-     * @param accel handle of accel
-     * @param mesh handle of mesh
-     * @return true 
-     * @return false 
-     */
-    bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
-    /**
      * @brief Return the vertex buffer from mesh object
      * 
      * @param mesh_handle handle of mesh
@@ -340,6 +281,45 @@ public:
      * @param handle handle of accel
      */
     void destroy_accel(uint64_t handle) noexcept override;
+    /**
+     * @brief Dispatch a host function in the stream
+     *
+     * @param stream_handle handle of the stream
+     * @param func host function to dispatch
+     */
+    void dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept override;
+    /**
+     * @brief Create a swap-chain for the window
+     *
+     * @param window_handle handle of the window
+     * @param stream_handle handle of the stream
+     * @param width frame width
+     * @param height frame height
+     * @param allow_hdr should support HDR content o not
+     * @param back_buffer_count number of backed buffers (for multiple buffering)
+     * @return handle of the swap-chain
+     */
+    uint64_t create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_count) noexcept override;
+    /**
+     * @brief Destroy the swap-chain
+     *
+     * @param handle handle of the swap-chain
+     */
+    void destroy_swap_chain(uint64_t handle) noexcept override;
+    /**
+     * @brief Query pixel storage of the swap-chain
+     * @param handle handle of the swap-chain
+     * @return pixel storage of the swap-chain
+     */
+    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
+    /**
+     * @brief Present display in the stream
+     *
+     * @param stream_handle handle of the stream
+     * @param swap_chain_handle handle of the swap-chain
+     * @param image_handle handle of the 2D texture to display
+     */
+    void present_display_in_stream(uint64_t stream_handle, uint64_t swap_chain_handle, uint64_t image_handle) noexcept override;
 };
 
 }

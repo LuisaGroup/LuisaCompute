@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <core/dll_export.h>
+
 namespace luisa::compute {
 
 /**

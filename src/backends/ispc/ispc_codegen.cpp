@@ -375,6 +375,8 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
+        case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
+        case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
     _scratch << "(";
     auto args = expr->arguments();
@@ -1024,7 +1026,7 @@ void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
     if (auto iter = _definition_analysis.scoped_variables().find(scope);
         iter != _definition_analysis.scoped_variables().cend()) {
         for (auto v : iter->second) {
-            if (_defined_variables.try_emplace(v).second) {
+            if (_defined_variables.emplace(v).second) {
                 _scratch << "\n  ";
                 _emit_indent();
                 _emit_variable_decl(v, false);

@@ -24,26 +24,21 @@ class CommandReorderVisitor : public CommandVisitor {
         int64_t writeLayer = -1;
         ResourceType type;
     };
-    struct ResourceMeshHandle : public ResourceHandle {
-        vstd::vector<ResourceHandle *, VEngine_AllocType::VEngine, 1> belonedAccel;
-    };
     vstd::Pool<ResourceHandle, true> handlePool;
-    vstd::Pool<ResourceMeshHandle, true> meshHandlePool;
     vstd::HashMap<uint64_t, ResourceHandle *> resMap;
     vstd::HashMap<uint64_t, ResourceHandle *> bindlessMap;
     vstd::HashMap<uint64_t, ResourceHandle *> accelMap;
-    vstd::HashMap<uint64_t, ResourceMeshHandle *> meshMap;
-    int64_t accelMaxLayer = -1;
     int64_t bindlessMaxLayer = -1;
+    int64_t maxMeshLevel = -1;
+    int64_t maxAccelLevel = -1;
     luisa::vector<CommandList> commandLists;
     size_t layerCount = 0;
-    bool useAccelInPass;
     bool useBindlessInPass;
     ResourceHandle *GetHandle(
         uint64_t target_handle,
         ResourceType target_type);
-    size_t GetLastLayerWrite(ResourceHandle *handle) const;
-    size_t GetLastLayerRead(ResourceHandle *handle) const;
+    size_t GetLastLayerWrite(ResourceHandle *handle);
+    size_t GetLastLayerRead(ResourceHandle *handle);
     void AddCommand(Command const *cmd, size_t layer);
     size_t SetRead(
         uint64_t handle,
@@ -72,12 +67,12 @@ class CommandReorderVisitor : public CommandVisitor {
     Device::Interface *device = nullptr;
 
 public:
-    [[nodiscard]] luisa::span<CommandList const> command_lists() const noexcept {
-        return {commandLists.data(), layerCount};
-    }
     explicit CommandReorderVisitor(Device::Interface *device) noexcept;
     ~CommandReorderVisitor() noexcept;
+
+    // public API
     void clear();
+    auto command_lists() const noexcept { return luisa::span{commandLists.data(), layerCount}; }
 
     // Buffer : resource
     void visit(const BufferUploadCommand *command) noexcept override;
