@@ -91,11 +91,12 @@ public:
             command->handle(), arguments.size(),
             blocks.x, blocks.y, blocks.z,
             block_size.x, block_size.y, block_size.z);
+        auto cuda_stream = stream->handle();
         LUISA_CHECK_CUDA(cuLaunchKernel(
             _function,
             blocks.x, blocks.y, blocks.z,
             block_size.x, block_size.y, block_size.z,
-            0u, stream->handle(),
+            0u, cuda_stream,
             arguments.data(), nullptr));
     }
 };
@@ -261,6 +262,7 @@ public:
 
     void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept override {
 
+        auto cuda_stream = stream->handle();
         if (_sbt.raygenRecord == 0u) {// create shader binding table if not
             auto sbt_buffer_offset = (_argument_buffer_size + OPTIX_SBT_RECORD_ALIGNMENT - 1u) /
                                      OPTIX_SBT_RECORD_ALIGNMENT *
@@ -275,7 +277,7 @@ public:
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 sbt_buffer, sbt_record_buffer->address(),
-                sbt_buffer_size, stream->handle()));
+                sbt_buffer_size, cuda_stream));
             stream->emplace_callback(sbt_record_buffer);
             _sbt.raygenRecord = sbt_buffer;
             _sbt.hitgroupRecordBase = sbt_buffer + sizeof(SBTRecord);
@@ -330,10 +332,10 @@ public:
         });
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             _argument_and_sbt_buffer, argument_buffer->address(),
-            _argument_buffer_size, stream->handle()));
+            _argument_buffer_size, cuda_stream));
         stream->emplace_callback(argument_buffer);
         LUISA_CHECK_OPTIX(optixLaunch(
-            _pipeline, stream->handle(),
+            _pipeline, cuda_stream,
             _argument_and_sbt_buffer, _argument_buffer_size, &_sbt,
             command->dispatch_size().x,
             command->dispatch_size().y,

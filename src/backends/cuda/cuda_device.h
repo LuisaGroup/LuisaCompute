@@ -413,7 +413,7 @@ public:
      * 
      * @return true
      */
-    bool requires_command_reordering() const noexcept override { return true; }
+    bool requires_command_reordering() const noexcept override;
     /**
      * @brief Get pointer to the pre-defined acceleration structure update kernel function
      *
