@@ -80,7 +80,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         return (x + alignment - 1u) / alignment * alignment;
     };
     _heap = device->heap();
-    auto cuda_stream = stream->handle(true);
+    auto cuda_stream = stream->handle();
     if (_build_hint == AccelBuildHint::FAST_REBUILD) {// no compaction
         if (_bvh_buffer_size < sizes.outputSizeInBytes) {
             stream->emplace_callback(
@@ -148,7 +148,7 @@ void CUDAMesh::update(CUDADevice *device, CUDAStream *stream) noexcept {
     auto build_input = _make_build_input();
     auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_UPDATE);
     auto update_buffer = _heap->allocate(_update_buffer_size);
-    auto cuda_stream = stream->handle(true);
+    auto cuda_stream = stream->handle();
     LUISA_CHECK_OPTIX(optixAccelBuild(
         device->handle().optix_context(), cuda_stream,
         &build_options, &build_input, 1u,
