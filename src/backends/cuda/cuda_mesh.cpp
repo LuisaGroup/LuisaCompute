@@ -80,6 +80,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         return (x + alignment - 1u) / alignment * alignment;
     };
     _heap = device->heap();
+    auto cuda_stream = stream->handle();
     if (_build_hint == AccelBuildHint::FAST_REBUILD) {// no compaction
         if (_bvh_buffer_size < sizes.outputSizeInBytes) {
             stream->emplace_callback(
@@ -90,7 +91,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         }
         auto temp_buffer = _heap->allocate(sizes.tempSizeInBytes);
         LUISA_CHECK_OPTIX(optixAccelBuild(
-            device->handle().optix_context(), stream->handle(),
+            device->handle().optix_context(), cuda_stream,
             &build_options, &build_input, 1,
             CUDAHeap::buffer_address(temp_buffer), sizes.tempSizeInBytes,
             CUDAHeap::buffer_address(_bvh_buffer_handle),
@@ -115,14 +116,14 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         emit_desc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
         emit_desc.result = compacted_size_buffer;
         LUISA_CHECK_OPTIX(optixAccelBuild(
-            device->handle().optix_context(), stream->handle(),
+            device->handle().optix_context(), cuda_stream,
             &build_options, &build_input, 1,
             temp_buffer, sizes.tempSizeInBytes,
             output_buffer, sizes.outputSizeInBytes,
             &_handle, &emit_desc, 1u));
         size_t compacted_size;
-        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), stream->handle()));
-        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle()));
+        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), cuda_stream));
+        LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
         LUISA_INFO("Compacted size: {}.", compacted_size);
 
         if (_bvh_buffer_size < compacted_size) {
@@ -134,7 +135,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream) noexcept {
         }
         LUISA_CHECK_OPTIX(optixAccelCompact(
             device->handle().optix_context(),
-            stream->handle(), _handle,
+            cuda_stream, _handle,
             CUDAHeap::buffer_address(_bvh_buffer_handle),
             _bvh_buffer_size, &_handle));
         stream->emplace_callback(
@@ -147,8 +148,9 @@ void CUDAMesh::update(CUDADevice *device, CUDAStream *stream) noexcept {
     auto build_input = _make_build_input();
     auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_UPDATE);
     auto update_buffer = _heap->allocate(_update_buffer_size);
+    auto cuda_stream = stream->handle();
     LUISA_CHECK_OPTIX(optixAccelBuild(
-        device->handle().optix_context(), stream->handle(),
+        device->handle().optix_context(), cuda_stream,
         &build_options, &build_input, 1u,
         CUDAHeap::buffer_address(update_buffer),
         _update_buffer_size,

@@ -207,7 +207,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, move_only_function<void()> &&f
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), ptr] {
         // TODO: move into CUDAStream::dispatch()?
         LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(), [](void *ptr) noexcept {
+            stream->handle(true), [](void *ptr) noexcept {
                 auto func = static_cast<luisa::move_only_function<void()> *>(ptr);
                 (*func)();
                 luisa::delete_with_allocator(func);
@@ -220,6 +220,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, const CommandList &list) noexc
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), &list] {
         CUDACommandEncoder encoder{this, stream};
         for (auto cmd : list) { cmd->accept(encoder); }
+        stream->barrier();
         stream->dispatch_callbacks();
     });
 }
@@ -229,6 +230,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList>
         for (auto &&list : lists) {
             CUDACommandEncoder encoder{this, stream};
             for (auto cmd : list) { cmd->accept(encoder); }
+            stream->barrier();
         }
         stream->dispatch_callbacks();
     });
@@ -425,6 +427,10 @@ PixelStorage CUDADevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
 
 void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+bool CUDADevice::requires_command_reordering() const noexcept {
+    return CUDAStream::backed_cuda_stream_count > 1u;
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {

@@ -62,6 +62,7 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream,
 
     // create instance buffer
     _heap = device->heap();
+    auto cuda_stream = stream->handle();
     if (auto instance_buffer_size = mesh_handles.size() * sizeof(OptixInstance);
         _instance_buffer_size < instance_buffer_size) {
         stream->emplace_callback(CUDAHeap::BufferFreeContext::create(
@@ -85,7 +86,7 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream,
         auto update_buffer_address = CUDAHeap::buffer_address(device_buffer);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             update_buffer_address, host_buffer->address(),
-            buffer_size, stream->handle()));
+            buffer_size, cuda_stream));
         auto init_kernel = device->accel_initialize_function();
         auto gas_buffer = update_buffer_address;
         auto request_buffer = update_buffer_address + gas_buffer_size;
@@ -97,7 +98,7 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream,
         auto block_count = (n + block_size - 1u) / block_size;
         LUISA_CHECK_CUDA(cuLaunchKernel(
             init_kernel, block_count, 1u, 1u, block_size, 1u, 1u,
-            0u, stream->handle(), args.data(), nullptr));
+            0u, cuda_stream, args.data(), nullptr));
         stream->emplace_callback(host_buffer);
         stream->emplace_callback(CUDAHeap::BufferFreeContext::create(_heap, device_buffer));
     }
@@ -132,7 +133,7 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream,
         }
         auto temp_buffer = _heap->allocate(sizes.tempSizeInBytes);
         LUISA_CHECK_OPTIX(optixAccelBuild(
-            device->handle().optix_context(), stream->handle(),
+            device->handle().optix_context(), cuda_stream,
             &build_options, &build_input, 1,
             CUDAHeap::buffer_address(temp_buffer),
             sizes.tempSizeInBytes,
@@ -159,14 +160,14 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream,
         emit_desc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
         emit_desc.result = compacted_size_buffer;
         LUISA_CHECK_OPTIX(optixAccelBuild(
-            device->handle().optix_context(), stream->handle(),
+            device->handle().optix_context(), cuda_stream,
             &build_options, &build_input, 1,
             temp_buffer, sizes.tempSizeInBytes,
             output_buffer, sizes.outputSizeInBytes,
             &_handle, &emit_desc, 1u));
         size_t compacted_size;
-        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), stream->handle()));
-        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle()));
+        LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), cuda_stream));
+        LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
         LUISA_INFO("Compacted size: {}.", compacted_size);
 
         // do compaction...
@@ -179,12 +180,11 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream,
         }
         LUISA_CHECK_OPTIX(optixAccelCompact(
             device->handle().optix_context(),
-            stream->handle(), _handle,
+            cuda_stream, _handle,
             CUDAHeap::buffer_address(_bvh_buffer),
             _bvh_buffer_size, &_handle));
         stream->emplace_callback(
-            CUDAHeap::BufferFreeContext::create(
-                _heap, build_buffer));
+            CUDAHeap::BufferFreeContext::create(_heap, build_buffer));
     }
 }
 
@@ -192,6 +192,7 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream,
                        luisa::span<const AccelUpdateRequest> requests) noexcept {
 
     // update instance buffer if dirty
+    auto cuda_stream = stream->handle();
     if (auto n = static_cast<uint>(requests.size())) {
         auto host_request_buffer = stream->upload_pool()->allocate(requests.size_bytes());
         std::memcpy(host_request_buffer->address(), requests.data(), requests.size_bytes());
@@ -199,7 +200,7 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream,
         auto request_buffer_address = CUDAHeap::buffer_address(request_buffer);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             request_buffer_address, host_request_buffer->address(),
-            requests.size_bytes(), stream->handle()));
+            requests.size_bytes(), cuda_stream));
         auto instance_buffer_address = CUDAHeap::buffer_address(_instance_buffer);
         auto update_kernel = device->accel_update_function();
         std::array<void *, 3u> args{
@@ -209,7 +210,7 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream,
         auto block_count = (n + block_size - 1u) / block_size;
         LUISA_CHECK_CUDA(cuLaunchKernel(
             update_kernel, block_count, 1u, 1u, block_size, 1u, 1u,
-            0u, stream->handle(), args.data(), nullptr));
+            0u, cuda_stream, args.data(), nullptr));
         stream->emplace_callback(host_request_buffer);
         stream->emplace_callback(CUDAHeap::BufferFreeContext::create(
             device->heap(), request_buffer));
@@ -220,7 +221,7 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream,
     auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_UPDATE);
     auto update_buffer = _heap->allocate(_update_buffer_size);
     LUISA_CHECK_OPTIX(optixAccelBuild(
-        device->handle().optix_context(), stream->handle(),
+        device->handle().optix_context(), cuda_stream,
         &build_options, &build_input, 1u,
         CUDAHeap::buffer_address(update_buffer),
         _update_buffer_size,
