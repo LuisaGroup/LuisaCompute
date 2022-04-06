@@ -126,7 +126,17 @@ PYBIND11_MODULE(lcapi, m) {
     export_op(m); // UnaryOp, BinaryOp, CallOp. def at export_op.hpp
 
     py::class_<Type>(m, "Type")
-        .def_static("from_", &Type::from, pyref);
+        .def_static("from_", &Type::from, pyref)
+        .def("size", &Type::size)
+        .def("is_array", &Type::is_array)
+        .def("is_vector", &Type::is_vector)
+        .def("is_matrix", &Type::is_matrix)
+        .def("is_structure", &Type::is_structure)
+        .def("is_buffer", &Type::is_buffer)
+        .def("is_texture", &Type::is_texture)
+        .def("is_bindless_array", &Type::is_bindless_array)
+        .def("is_accel", &Type::is_accel)
+        .def("element", &Type::element, pyref);
     // commands
     py::class_<Command>(m, "Command");
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand")

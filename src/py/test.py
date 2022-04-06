@@ -21,7 +21,38 @@ def deduce_binary_type(op, dtype1, dtype2):
     # TODO: upcast
     return dtype1
 
+
+# build context
 local_variable = {}
+closure_variable = {}
+
+
+
+class Buffer:
+    def __init__(self, size, dtype):
+        if not dtype in {int, float, bool}:
+            raise Exception('invalid buffer dtype')
+        self.dtype = dtype
+        self.size = size
+        self.bytesize = size * lcapi.Type.from_(dtype.__name__).size()
+        self.handle = device.impl().create_buffer(self.bytesize)
+
+    def async_copy_from(self, arr): # arr: numpy array
+        assert arr.size * arr.itemsize == self.bytesize
+        ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, arr)
+        stream.add(ulcmd)
+
+    def async_copy_to(self, arr): # arr: numpy array
+        assert arr.size * arr.itemsize == self.bytesize
+        dlcmd = lcapi.BufferDownloadCommand.create(self.handle, 0, self.bytesize, arr)
+        stream.add(dlcmd)
+
+    def read(self, idx):
+        raise Exception("Method can only be called in Luisa kernel / callable")
+
+    def write(self, idx):
+        raise Exception("Method can only be called in Luisa kernel / callable")
+
 
 
 class ASTVisitor:
@@ -42,8 +73,11 @@ class ASTVisitor:
 
     @staticmethod
     def build_Expr(node):
-        print("WARNING: Expr discarded")
-        # TODO: callable?
+        print("!!!!!!!!!!!!!!!!!!!", isinstance(node.value, ast.Call))
+        if isinstance(node.value, ast.Call):
+            build(node.value)
+        else:
+            print("WARNING: Expr discarded")
 
     @staticmethod
     def build_Call(node):
@@ -53,8 +87,24 @@ class ASTVisitor:
             # TODO check for builtins
             pass
         elif node.func.__class__.__name__ == "Attribute": # class method
-            # TODO check for builtin methods (buffer, etc.)
-            pass
+            build(node.func.value)
+            builtin_op = None
+            return_type = None
+            # check for builtin methods (buffer, etc.)
+            if node.func.value.dtype.is_buffer():
+                if node.func.attr == "read":
+                    builtin_op = lcapi.CallOp.BUFFER_READ
+                    return_type = node.func.value.dtype.element()
+                if node.func.attr == "write":
+                    builtin_op = lcapi.CallOp.BUFFER_WRITE
+            if builtin_op is None:
+                raise Exception('unsupported method')
+            if return_type is None:
+                node.dtype = None
+                lcapi.builder().call(builtin_op, [node.func.value.ptr] + [x.ptr for x in node.args])
+            else: # function call has return value
+                node.dtype = return_type
+                node.ptr = lcapi.builder().call(return_type, builtin_op, [node.func.value.ptr] + [x.ptr for x in node.args])
         else:
             raise Exception('unrecognized call func type')
 
@@ -64,7 +114,19 @@ class ASTVisitor:
         if node.id in local_variable:
             node.dtype, node.ptr = local_variable[node.id]
         else:
-            node.ptr = None
+            val = closure_variable.get(node.id)
+            if val is None:
+                node.ptr = None
+                return
+            if type(val) in {int, float, bool}:
+                node.dtype = deduce_literal_type(val)
+                node.ptr = lcapi.builder().literal(node.dtype, val)
+                return
+            if type(val) is Buffer:
+                node.dtype = lcapi.Type.from_("buffer<" + val.dtype.__name__ + ">")
+                node.ptr = lcapi.builder().buffer_binding(node.dtype, val.handle, 0)
+                return
+            raise Exception("unrecognized closure var type")
 
     @staticmethod
     def build_Constant(node):
@@ -118,7 +180,7 @@ class ASTVisitor:
     @staticmethod
     def build_Compare(node):
         if len(node.comparators)!=1:
-            raise Exception('chained comparison not supported yet. use brackets instead.')
+            raise Exception('chained comparison not supported yet.')
         build(node.left)
         build(node.comparators[0])
         op = {
@@ -196,15 +258,14 @@ class ASTVisitor:
 build = ASTVisitor()
 
 
+# ============= test script ================
+
 import numpy as np
 import lcapi
 context = lcapi.Context(lcapi.FsPath(""))
 device = context.create_device("ispc")
 stream = device.create_stream()
 
-buffer_handle = device.impl().create_buffer(400)
-
-print("BUFFER HANDLE: ", buffer_handle)
 
 def test_astgen():
     lcapi.builder().set_block_size(256,1,1)
@@ -217,36 +278,51 @@ def test_astgen():
     value = lcapi.builder().literal(int_type, 42)
     lcapi.builder().call(lcapi.CallOp.BUFFER_WRITE, [buf, idx, idx])
 
-def f():
-    a = 1 + 2
-    if a < 4:
-        b = 3.14
 
+# user code
+
+b = Buffer(100, int)
+
+def f():
+    a = b.read(0)
+    b.write(a+1, 42)
+
+# generate AST
 tree = ast.parse(inspect.getsource(f))
+_closure_vars = inspect.getclosurevars(f)
+closure_variable = {
+    **_closure_vars.globals,
+    **_closure_vars.nonlocals,
+    **_closure_vars.builtins
+}
+local_variable = {}
+
 def astgen():
     print(astpretty.pformat(tree.body[0]))
     lcapi.builder().set_block_size(256,1,1)
     build(tree.body[0])
 
+
+
+# ============= test script ================
+
 arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
 # upload command
-ulcmd = lcapi.BufferUploadCommand.create(buffer_handle, 0, 400, arr)
-stream.add(ulcmd)
+b.async_copy_from(arr)
 
 # compile kernel
-builder = lcapi.FunctionBuilder.define_kernel(test_astgen)
+builder = lcapi.FunctionBuilder.define_kernel(astgen)
 func = builder.function()
 shader_handle = device.impl().create_shader(func)
 # call kernel
 command = lcapi.ShaderDispatchCommand.create(shader_handle, func)
-command.set_dispatch_size(100,1,1)
+command.set_dispatch_size(1,1,1)
 stream.add(command)
 
 # download command
-dlcmd = lcapi.BufferDownloadCommand.create(buffer_handle, 0, 400, arr1)
-stream.add(dlcmd)
+b.async_copy_to(arr1)
 
 stream.synchronize()
 
