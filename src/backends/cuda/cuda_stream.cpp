@@ -11,6 +11,7 @@ namespace luisa::compute::cuda {
 
 CUDAStream::CUDAStream() noexcept
     : _upload_pool{64_mb, true} {
+    _used_streams.reset();
     int lo, hi;
     LUISA_CHECK_CUDA(cuCtxGetStreamPriorityRange(&lo, &hi));
     LUISA_CHECK_CUDA(cuStreamCreateWithPriority(
@@ -36,16 +37,13 @@ void CUDAStream::emplace_callback(CUDACallbackContext *cb) noexcept {
 }
 
 void CUDAStream::barrier() noexcept {
-    _used_streams.reset(0u);
-    if (_used_streams.any()) {
-        for (auto i = 1u; i < backed_cuda_stream_count; i++) {
-            if (_used_streams.test(i)) {
-                LUISA_CHECK_CUDA(cuEventRecord(
-                    _worker_events[i], _worker_streams[i]));
-                LUISA_CHECK_CUDA(cuStreamWaitEvent(
-                    _worker_streams.front(), _worker_events[i],
-                    CU_EVENT_WAIT_DEFAULT));
-            }
+    for (auto i = 1u; i < backed_cuda_stream_count; i++) {
+        if (_used_streams.test(i)) {
+            LUISA_CHECK_CUDA(cuEventRecord(
+                _worker_events[i], _worker_streams[i]));
+            LUISA_CHECK_CUDA(cuStreamWaitEvent(
+                _worker_streams.front(), _worker_events[i],
+                CU_EVENT_WAIT_DEFAULT));
         }
     }
     _round = 0u;
@@ -53,10 +51,13 @@ void CUDAStream::barrier() noexcept {
 }
 
 CUstream CUDAStream::handle(bool force_first_stream) const noexcept {
-    if (force_first_stream) { return _worker_streams.front(); }
-    auto index = _round++;
-    if (_round == backed_cuda_stream_count) { _round = 0u; }
-    if (index != 0u) { _used_streams.set(index); }
+    if (force_first_stream) {
+        if (_round == 0u) { _round = (_round + 1u) % backed_cuda_stream_count; }
+        return _worker_streams.front();
+    }
+    auto index = _round;
+    _round = (_round + 1u) % backed_cuda_stream_count;
+    _used_streams.set(index);
     return _worker_streams[index];
 }
 

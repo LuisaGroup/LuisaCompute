@@ -262,7 +262,7 @@ public:
 
     void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept override {
 
-        auto cuda_stream = stream->handle();
+        auto cuda_stream = stream->handle(true);
         if (_sbt.raygenRecord == 0u) {// create shader binding table if not
             auto sbt_buffer_offset = (_argument_buffer_size + OPTIX_SBT_RECORD_ALIGNMENT - 1u) /
                                      OPTIX_SBT_RECORD_ALIGNMENT *
@@ -301,7 +301,6 @@ public:
             }
             return argument_buffer->address() + offset;
         };
-
         command->decode([&](auto, auto argument) noexcept -> void {
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {

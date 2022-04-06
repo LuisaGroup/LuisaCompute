@@ -198,7 +198,7 @@ void CUDADevice::destroy_stream(uint64_t handle) noexcept {
 
 void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
     with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
-        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle()));
+        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle(true)));
     });
 }
 
@@ -275,14 +275,14 @@ void CUDADevice::destroy_event(uint64_t handle) noexcept {
 void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
     with_handle([event = reinterpret_cast<CUevent>(handle),
                  stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
-        LUISA_CHECK_CUDA(cuEventRecord(event, stream->handle()));
+        LUISA_CHECK_CUDA(cuEventRecord(event, stream->handle(true)));
     });
 }
 
 void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     with_handle([event = reinterpret_cast<CUevent>(handle),
                  stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
-        LUISA_CHECK_CUDA(cuStreamWaitEvent(stream->handle(), event, CU_EVENT_WAIT_DEFAULT));
+        LUISA_CHECK_CUDA(cuStreamWaitEvent(stream->handle(true), event, CU_EVENT_WAIT_DEFAULT));
     });
 }
 

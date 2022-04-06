@@ -393,7 +393,7 @@ public:
      * @return void* 
      */
     void *stream_native_handle(uint64_t handle) const noexcept override {
-        return reinterpret_cast<CUDAStream *>(handle)->handle();
+        return reinterpret_cast<CUDAStream *>(handle)->handle(true);
     }
 
     /**
