@@ -713,22 +713,46 @@ struct alignas(16) LCHit {
 };
 
 struct alignas(16) LCAccelInstance {
-    lc_float4x4 m;
-    float pad[4];
+    lc_float m[12];
+    lc_uint instance_id;
+    lc_uint sbt_offset;
+    lc_uint mask;
+    lc_uint flags;
+    lc_uint pad[4];
 };
 
 struct alignas(16u) LCAccel {
     unsigned long long handle;
-    const LCAccelInstance *instances;
+    LCAccelInstance *instances;
 };
 
 [[nodiscard]] inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
     auto m = accel.instances[instance_id].m;
     return lc_make_float4x4(
-        m[0].x, m[1].x, m[2].x, 0.0f,
-        m[0].y, m[1].y, m[2].y, 0.0f,
-        m[0].z, m[1].z, m[2].z, 0.0f,
-        m[0].w, m[1].w, m[2].w, 1.0f);
+        m[0], m[4], m[8], 0.0f,
+        m[1], m[5], m[9], 0.0f,
+        m[2], m[6], m[10], 0.0f,
+        m[3], m[7], m[11], 1.0f);
+}
+
+inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint index, lc_float4x4 m) noexcept {
+    auto p = accel.instances[index].m;
+    p[0] = m[0][0];
+    p[1] = m[1][0];
+    p[2] = m[2][0];
+    p[3] = m[3][0];
+    p[4] = m[0][1];
+    p[5] = m[1][1];
+    p[6] = m[2][1];
+    p[7] = m[3][1];
+    p[8] = m[0][2];
+    p[9] = m[1][2];
+    p[10] = m[2][2];
+    p[11] = m[3][2];
+}
+
+inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, bool v) noexcept {
+    accel.instances[index].mask = v ? 0xffu : 0x00u;
 }
 
 #if LC_RAYTRACING_KERNEL

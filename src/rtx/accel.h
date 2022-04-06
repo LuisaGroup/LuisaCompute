@@ -19,12 +19,14 @@ private:
     luisa::map<size_t, AccelUpdateRequest> _update_requests;
     luisa::vector<uint64_t> _mesh_handles;
     luisa::unique_ptr<std::mutex> _mutex;
+    bool _requires_build{true};
 
 private:
     friend class Device;
     friend class Mesh;
     explicit Accel(Device::Interface *device, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;
     [[nodiscard]] luisa::vector<AccelUpdateRequest> _get_update_requests() noexcept;
+    [[nodiscard]] Command *_build() noexcept;
 
 public:
     Accel() noexcept = default;
