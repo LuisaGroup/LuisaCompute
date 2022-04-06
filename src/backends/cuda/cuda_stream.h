@@ -25,6 +25,7 @@ class CUDAStream {
 
 public:
     static constexpr auto backed_cuda_stream_count = 1u;
+    static constexpr auto backed_cuda_event_count = 256u;
 
 private:
     CUDAHostBufferPool _upload_pool;
@@ -32,9 +33,10 @@ private:
     luisa::vector<CUDACallbackContext *> _current_callbacks;
     std::mutex _mutex;
     std::array<CUstream, backed_cuda_stream_count> _worker_streams{};
-    std::array<CUevent, backed_cuda_stream_count> _worker_events{};
+    std::vector<CUevent> _worker_events;
+    uint _current_event{0u};
     mutable std::bitset<backed_cuda_stream_count> _used_streams;
-    mutable uint32_t _round{0u};
+    mutable uint _round{0u};
 
 public:
     CUDAStream() noexcept;
