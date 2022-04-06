@@ -148,12 +148,12 @@ void CUDACommandEncoder::visit(const TextureToBufferCopyCommand *command) noexce
 
 void CUDACommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
     auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
-    accel->update(_device, _stream);
+    accel->update(_device, _stream, command->host_requests());
 }
 
 void CUDACommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
-    accel->build(_device, _stream);
+    accel->build(_device, _stream, command->meshes(), command->host_requests());
 }
 
 void CUDACommandEncoder::visit(const MeshUpdateCommand *command) noexcept {

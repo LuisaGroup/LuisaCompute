@@ -24,11 +24,17 @@ Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
       _mutex{luisa::make_unique<std::mutex>()} {}
 
 Command *Accel::update() noexcept {
+    std::scoped_lock lock{*_mutex};
+    if (_requires_build) [[unlikely]] {
+        LUISA_WARNING_WITH_LOCATION(
+            "Accel requires build. Update "
+            "command automatically promoted.");
+        return _build();
+    }
     return AccelUpdateCommand::create(handle(), _get_update_requests());
 }
 
 luisa::vector<AccelUpdateRequest> Accel::_get_update_requests() noexcept {
-    std::scoped_lock lock{*_mutex};
     eastl::vector<AccelUpdateRequest> requests;
     requests.reserve(_update_requests.size());
     for (auto [_, r] : _update_requests) { requests.emplace_back(r); }
@@ -36,12 +42,18 @@ luisa::vector<AccelUpdateRequest> Accel::_get_update_requests() noexcept {
     return requests;
 }
 
-Command *Accel::build() noexcept {
+Command *Accel::_build() noexcept {
     if (_mesh_handles.empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("No mesh found in accel.");
     }
+    _requires_build = false;
     return AccelBuildCommand::create(
         handle(), _mesh_handles, _get_update_requests());
+}
+
+Command *Accel::build() noexcept {
+    std::scoped_lock lock{*_mutex};
+    return _build();
 }
 
 Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
@@ -81,6 +93,7 @@ void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noe
     auto index = static_cast<uint>(_mesh_handles.size());
     _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
     _mesh_handles.emplace_back(mesh.handle());
+    _requires_build = true;
 }
 
 void Accel::pop_back() noexcept {
@@ -88,6 +101,7 @@ void Accel::pop_back() noexcept {
     if (auto n = _mesh_handles.size()) {
         _mesh_handles.pop_back();
         _update_requests.erase(n - 1u);
+        _requires_build = true;
     } else {
         LUISA_WARNING_WITH_LOCATION(
             "Ignoring pop-back operation on empty accel.");
@@ -102,7 +116,10 @@ void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible
             index, handle());
     } else {
         _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
-        _mesh_handles[index] = mesh.handle();
+        if (mesh.handle() != _mesh_handles[index]) [[likely]] {
+            _mesh_handles[index] = mesh.handle();
+            _requires_build = true;
+        }
     }
 }
 

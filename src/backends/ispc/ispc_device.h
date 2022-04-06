@@ -161,7 +161,7 @@ public:
      * 
      * @return handle of stream
      */
-    uint64_t create_stream() noexcept override;
+    [[nodiscard]] uint64_t create_stream() noexcept override;
     /**
      * @brief Destrory a stream object
      * 
@@ -187,7 +187,7 @@ public:
      * @param handle handle of stream
      * @return void* 
      */
-    void *stream_native_handle(uint64_t handle) const noexcept override;
+    [[nodiscard]] void *stream_native_handle(uint64_t handle) const noexcept override;
     /**
      * @brief Create a shader object
      * 
@@ -195,7 +195,7 @@ public:
      * @param meta_options meta options
      * @return handle of shader
      */
-    uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override;
+    [[nodiscard]] uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override;
     /**
      * @brief Destroy a shader object
      * 
@@ -207,7 +207,7 @@ public:
      * 
      * @return handle of event
      */
-    uint64_t create_event() noexcept override;
+    [[nodiscard]] uint64_t create_event() noexcept override;
     /**
      * @brief Destroy a event object
      * 
@@ -247,7 +247,7 @@ public:
      * @param hint mesh's build hint
      * @return handle of mesh
      */
-    uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept override;
+    [[nodiscard]] uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept override;
     /**
      * @brief Destroy a mesh object
      * 
@@ -260,21 +260,21 @@ public:
      * @param hint build hint
      * @return handle of accel structure
      */
-    uint64_t create_accel(AccelBuildHint hint) noexcept override;
+    [[nodiscard]] uint64_t create_accel(AccelBuildHint hint) noexcept override;
     /**
      * @brief Return the vertex buffer from mesh object
      * 
      * @param mesh_handle handle of mesh
      * @return handle of vertex buffer
      */
-    uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
+    [[nodiscard]] uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     /**
      * @brief Return the triangle buffer from mesh object
      * 
      * @param mesh_handle handle of mesh
      * @return handle of triangle buffer
      */
-    uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
+    [[nodiscard]] uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     /**
      * @brief Destroy a accel object 
      * 
@@ -299,7 +299,9 @@ public:
      * @param back_buffer_count number of backed buffers (for multiple buffering)
      * @return handle of the swap-chain
      */
-    uint64_t create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_count) noexcept override;
+    [[nodiscard]] uint64_t create_swap_chain(
+        uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
+        bool allow_hdr, uint back_buffer_count) noexcept override;
     /**
      * @brief Destroy the swap-chain
      *
@@ -311,7 +313,7 @@ public:
      * @param handle handle of the swap-chain
      * @return pixel storage of the swap-chain
      */
-    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
+    [[nodiscard]] PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
     /**
      * @brief Present display in the stream
      *

@@ -47,13 +47,14 @@ public:
     uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
     uint64_t create_accel(AccelBuildHint hint) noexcept override;
-    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool vis) noexcept override;
-    bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
-    bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
     uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
-    void pop_back_instance_in_accel(uint64_t accel) noexcept override;
+    void dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept override;
+    uint64_t create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept override;
+    void destroy_swap_chain(uint64_t handle) noexcept override;
+    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
+    void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
 };
 
 }
