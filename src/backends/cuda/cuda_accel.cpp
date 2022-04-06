@@ -62,7 +62,7 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream,
 
     // create instance buffer
     _heap = device->heap();
-    auto cuda_stream = stream->handle(true);
+    auto cuda_stream = stream->handle();
     if (auto instance_buffer_size = mesh_handles.size() * sizeof(OptixInstance);
         _instance_buffer_size < instance_buffer_size) {
         stream->emplace_callback(CUDAHeap::BufferFreeContext::create(
@@ -192,7 +192,7 @@ void CUDAAccel::update(CUDADevice *device, CUDAStream *stream,
                        luisa::span<const AccelUpdateRequest> requests) noexcept {
 
     // update instance buffer if dirty
-    auto cuda_stream = stream->handle(true);
+    auto cuda_stream = stream->handle();
     if (auto n = static_cast<uint>(requests.size())) {
         auto host_request_buffer = stream->upload_pool()->allocate(requests.size_bytes());
         std::memcpy(host_request_buffer->address(), requests.data(), requests.size_bytes());

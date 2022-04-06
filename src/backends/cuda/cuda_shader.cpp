@@ -24,9 +24,11 @@ class CUDAShaderNative final : public CUDAShader {
 private:
     CUmodule _module{};
     CUfunction _function{};
+    luisa::string _entry;
 
 public:
-    CUDAShaderNative(const char *ptx, const char *entry) noexcept {
+    CUDAShaderNative(const char *ptx, const char *entry) noexcept
+        : _entry{entry} {
         LUISA_CHECK_CUDA(cuModuleLoadData(&_module, ptx));
         LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
     }
@@ -86,9 +88,9 @@ public:
         auto block_size = command->kernel().block_size();
         auto blocks = (launch_size + block_size - 1u) / block_size;
         LUISA_VERBOSE_WITH_LOCATION(
-            "Dispatching native shader #{} with {} argument(s) "
+            "Dispatching native shader #{} ({}) with {} argument(s) "
             "in ({}, {}, {}) blocks of size ({}, {}, {}).",
-            command->handle(), arguments.size(),
+            command->handle(), _entry, arguments.size(),
             blocks.x, blocks.y, blocks.z,
             block_size.x, block_size.y, block_size.z);
         auto cuda_stream = stream->handle();
@@ -118,10 +120,12 @@ private:
     OptixProgramGroup _program_group_ch_any{};
     OptixProgramGroup _program_group_miss{};
     OptixPipeline _pipeline{};
+    luisa::string _entry;
     mutable OptixShaderBindingTable _sbt{};
 
 public:
-    CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept {
+    CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept
+        : _entry{entry} {
 
         // create argument buffer
         static constexpr auto pattern = "params[";
@@ -261,9 +265,8 @@ public:
     }
 
     void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept override {
-
-        auto cuda_stream = stream->handle(true);
-        if (_sbt.raygenRecord == 0u) {// create shader binding table if not
+        auto cuda_stream = stream->handle();
+        if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
             auto sbt_buffer_offset = (_argument_buffer_size + OPTIX_SBT_RECORD_ALIGNMENT - 1u) /
                                      OPTIX_SBT_RECORD_ALIGNMENT *
                                      OPTIX_SBT_RECORD_ALIGNMENT;
