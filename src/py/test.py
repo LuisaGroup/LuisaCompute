@@ -55,6 +55,29 @@ class Buffer:
 
 
 
+def is_swizzle_name(sw):
+    if len(sw) > 4:
+        return False
+    for ch in sw:
+        if not ch in {'x','y','z','w'}:
+            return False
+    return True
+
+def get_swizzle_code(sw, maxlen):
+    code = 0
+    codemap = {
+        'x': 0,
+        'y': 1,
+        'z': 2,
+        'w': 3,
+    }
+    for idx,ch in enumerate(sw):
+        c = codemap[ch]
+        if c >= maxlen:
+            raise Exception('swizzle index exceeding length of vector')
+        code |= c << (idx * 4)
+    return code
+
 class ASTVisitor:
     def __call__(self, node):
         method = getattr(self, 'build_' + node.__class__.__name__, None)
@@ -73,7 +96,6 @@ class ASTVisitor:
 
     @staticmethod
     def build_Expr(node):
-        print("!!!!!!!!!!!!!!!!!!!", isinstance(node.value, ast.Call))
         if isinstance(node.value, ast.Call):
             build(node.value)
         else:
@@ -85,6 +107,18 @@ class ASTVisitor:
             build(x)
         if node.func.__class__.__name__ == "Name": # static function
             # TODO check for builtins
+            if node.func.id == 'thread_id':
+                node.dtype = lcapi.Type.from_("vector<uint,3>")
+                node.ptr = lcapi.builder().thread_id()
+            if node.func.id == 'block_id':
+                node.dtype = lcapi.Type.from_("vector<uint,3>")
+                node.ptr = lcapi.builder().block_id()
+            if node.func.id == 'dispatch_id':
+                node.dtype = lcapi.Type.from_("vector<uint,3>")
+                node.ptr = lcapi.builder().dispatch_id()
+            if node.func.id == 'dispatch_size':
+                node.dtype = lcapi.Type.from_("vector<uint,3>")
+                node.ptr = lcapi.builder().dispatch_size()
             pass
         elif node.func.__class__.__name__ == "Attribute": # class method
             build(node.func.value)
@@ -107,6 +141,20 @@ class ASTVisitor:
                 node.ptr = lcapi.builder().call(return_type, builtin_op, [node.func.value.ptr] + [x.ptr for x in node.args])
         else:
             raise Exception('unrecognized call func type')
+
+    @staticmethod
+    def build_Attribute(node):
+        build(node.value)
+        if node.value.dtype.is_vector():
+            if is_swizzle_name(node.attr):
+                original_size = node.value.dtype.dimension()
+                swizzle_size = len(node.attr)
+                if swizzle_size == 1:
+                    node.dtype = node.value.dtype.element()
+                else:
+                    node.dtype = lcapi.Type.from_(f'vector<{node.value.dtype.element().description()},{swizzle_size}>')
+                swizzle_code = get_swizzle_code(node.attr, original_size)
+                node.ptr = lcapi.builder().swizzle(node.dtype, node.value.ptr, swizzle_size, swizzle_code)
 
     @staticmethod
     def build_Name(node):
@@ -284,8 +332,9 @@ def test_astgen():
 b = Buffer(100, int)
 
 def f():
-    a = b.read(0)
-    b.write(a+1, 42)
+    idx = dispatch_id().x
+    val = b.read(idx)
+    b.write(idx, val + 42)
 
 # generate AST
 tree = ast.parse(inspect.getsource(f))
@@ -318,7 +367,7 @@ func = builder.function()
 shader_handle = device.impl().create_shader(func)
 # call kernel
 command = lcapi.ShaderDispatchCommand.create(shader_handle, func)
-command.set_dispatch_size(1,1,1)
+command.set_dispatch_size(100,1,1)
 stream.add(command)
 
 # download command
