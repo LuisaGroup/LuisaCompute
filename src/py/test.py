@@ -27,6 +27,18 @@ local_variable = {}
 closure_variable = {}
 
 
+class Vector:
+    def __init__(self, data, dtype = float):
+        if not dtype in {int, float, bool}:
+            raise Exception('invalid vector dtype')
+        self.dtype = dtype
+        self.data = np.array(data, dtype={int:np.int32, float:np.float32, bool:bool}[dtype])
+        if len(self.data.shape) != 1:
+            raise Exception('invalid vector shape')
+        if not self.data.size in {2,3,4}:
+            raise Exception('vector len must be 2/3/4')
+        self.size = self.data.size
+    
 
 class Buffer:
     def __init__(self, size, dtype):
