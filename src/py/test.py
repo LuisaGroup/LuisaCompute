@@ -1,17 +1,31 @@
 import inspect
 import ast
 import astpretty
+import lcapi
 
 
-def deduce_literal_type(value):
-    if isinstance(value, int):
-        return lcapi.Type.from_("int")
-    if isinstance(value, float):
-        return lcapi.Type.from_("float")
-    if isinstance(value, bool):
-        return lcapi.Type.from_("bool")
-    raise Exception(f'unrecognized literal type: {value}')
-    
+scalar_types = {
+    int: lcapi.Type.from_("int"),
+    float: lcapi.Type.from_("float"),
+    bool: lcapi.Type.from_("bool")
+}
+
+basic_types = {
+    **scalar_types,
+    lcapi.int2: lcapi.Type.from_("vector<int,2>"),
+    lcapi.uint2: lcapi.Type.from_("vector<uint,2>"),
+    lcapi.bool2: lcapi.Type.from_("vector<bool,2>"),
+    lcapi.float2: lcapi.Type.from_("vector<float,2>"),
+    lcapi.int3: lcapi.Type.from_("vector<int,3>"),
+    lcapi.uint3: lcapi.Type.from_("vector<uint,3>"),
+    lcapi.bool3: lcapi.Type.from_("vector<bool,3>"),
+    lcapi.float3: lcapi.Type.from_("vector<float,3>"),
+    lcapi.int4: lcapi.Type.from_("vector<int,4>"),
+    lcapi.uint4: lcapi.Type.from_("vector<uint,4>"),
+    lcapi.bool4: lcapi.Type.from_("vector<bool,4>"),
+    lcapi.float4: lcapi.Type.from_("vector<float,4>")
+}
+
 def deduce_unary_type(op, dtype):
     # TODO: Type check
     return dtype
@@ -20,7 +34,6 @@ def deduce_binary_type(op, dtype1, dtype2):
     # TODO: Type check
     # TODO: upcast
     return dtype1
-
 
 
 
@@ -204,19 +217,22 @@ class ASTVisitor:
             if val is None:
                 node.ptr = None
                 return
-            if type(val) in {int, float, bool}:
-                node.dtype = deduce_literal_type(val)
+            if type(val) in basic_types:
+                node.dtype = basic_types[type(val)]
                 node.ptr = lcapi.builder().literal(node.dtype, val)
                 return
             if type(val) is Buffer:
                 node.dtype = lcapi.Type.from_("buffer<" + val.dtype.__name__ + ">")
                 node.ptr = lcapi.builder().buffer_binding(node.dtype, val.handle, 0)
                 return
+
             raise Exception("unrecognized closure var type")
 
     @staticmethod
     def build_Constant(node):
-        node.dtype = deduce_literal_type(node.value)
+        if type(node.value) is str:
+            raise Exception("String is not supported")
+        node.dtype = scalar_types[type(node.value)]
         node.ptr = lcapi.builder().literal(node.dtype, node.value)
 
     @staticmethod
@@ -355,7 +371,6 @@ build = ASTVisitor()
 # ============= test script ================
 
 import numpy as np
-import lcapi
 context = lcapi.Context(lcapi.FsPath(""))
 device = context.create_device("ispc")
 stream = device.create_stream()
@@ -376,11 +391,12 @@ def test_astgen():
 # user code
 
 b = Buffer(100, int)
+x1 = lcapi.make_float2(6,10)
 
 def f():
     idx = dispatch_id().x
     val = b.read(idx)
-    x = make_float2(3,5) * -1 + 1
+    x = make_float2(3,5) * -1 + x1
     b.write(idx, val + x.x * x.y + 42)
 
 # generate AST
@@ -397,6 +413,7 @@ def astgen():
     print(astpretty.pformat(tree.body[0]))
     lcapi.builder().set_block_size(256,1,1)
     build(tree.body[0])
+
 
 
 
