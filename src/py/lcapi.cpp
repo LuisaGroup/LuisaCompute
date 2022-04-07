@@ -11,6 +11,9 @@
 #include <nlohmann/json.hpp>
 
 #include "export_op.hpp"
+#include "export_vector2.hpp"
+#include "export_vector3.hpp"
+#include "export_vector4.hpp"
 
 namespace py = pybind11;
 using namespace luisa::compute;
@@ -158,5 +161,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
             return BufferDownloadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
         }, pyref);
+
+    export_vector2(m);
+    export_vector3(m);
+    export_vector4(m);
 
 }
