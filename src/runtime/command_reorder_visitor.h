@@ -2,6 +2,7 @@
 
 #include <runtime/device.h>
 #include <core/hash.h>
+#include <stdint.h>
 #include <vstl/Common.h>
 
 namespace luisa::compute {
@@ -24,16 +25,17 @@ class CommandReorderVisitor : public CommandVisitor {
         int64_t writeLayer = -1;
         ResourceType type;
     };
+
     vstd::Pool<ResourceHandle, true> handlePool;
     vstd::HashMap<uint64_t, ResourceHandle *> resMap;
     vstd::HashMap<uint64_t, ResourceHandle *> bindlessMap;
-    vstd::HashMap<uint64_t, ResourceHandle *> accelMap;
     int64_t bindlessMaxLayer = -1;
     int64_t maxMeshLevel = -1;
     int64_t maxAccelLevel = -1;
     luisa::vector<CommandList> commandLists;
     size_t layerCount = 0;
     bool useBindlessInPass;
+    bool useAccelInPass;
     ResourceHandle *GetHandle(
         uint64_t target_handle,
         ResourceType target_type);
@@ -68,11 +70,11 @@ class CommandReorderVisitor : public CommandVisitor {
 
 public:
     explicit CommandReorderVisitor(Device::Interface *device) noexcept;
-    ~CommandReorderVisitor() noexcept;
-
-    // public API
-    void clear();
-    auto command_lists() const noexcept { return luisa::span{commandLists.data(), layerCount}; }
+    ~CommandReorderVisitor() noexcept = default;
+    void clear() noexcept;
+    [[nodiscard]] auto command_lists() const noexcept {
+        return luisa::span{commandLists.data(), layerCount};
+    }
 
     // Buffer : resource
     void visit(const BufferUploadCommand *command) noexcept override;
