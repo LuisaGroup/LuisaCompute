@@ -347,7 +347,10 @@ using namespace luisa::compute;
 		.def_property_readonly("wwwy", &Vector<T,4>::wwwy) \
 		.def_property_readonly("wwwz", &Vector<T,4>::wwwz) \
 		.def_property_readonly("wwww", &Vector<T,4>::wwww) \
-		;
+		; \
+	m.def("make_"#T"4", [](T a){return make_##T##4(a);}); \
+	m.def("make_"#T"4", [](T a, T b, T c, T d){return make_##T##4(a,b,c,d);}); \
+	m.def("make_"#T"4", [](Vector<T,4> a){return make_##T##4(a);});
 
 void export_vector4(py::module &m) {
 	LUISA_EXPORT_VECTOR4(bool)

@@ -127,7 +127,10 @@ using namespace luisa::compute;
 		.def_property_readonly("zzzx", &Vector<T,3>::zzzx) \
 		.def_property_readonly("zzzy", &Vector<T,3>::zzzy) \
 		.def_property_readonly("zzzz", &Vector<T,3>::zzzz) \
-		;
+		; \
+	m.def("make_"#T"3", [](T a){return make_##T##3(a);}); \
+	m.def("make_"#T"3", [](T a, T b, T c){return make_##T##3(a,b,c);}); \
+	m.def("make_"#T"3", [](Vector<T,3> a){return make_##T##3(a);});
 
 void export_vector3(py::module &m) {
 	LUISA_EXPORT_VECTOR3(bool)
