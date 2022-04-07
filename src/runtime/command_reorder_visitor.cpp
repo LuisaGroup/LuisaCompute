@@ -46,6 +46,7 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) {
             layer = std::max<int64_t>(layer, maxMeshLevel + 1);
             maxAccelLevel = std::max<int64_t>(layer, maxAccelLevel);
             break;
+        default: break;
     }
     return layer;
 }
@@ -60,6 +61,7 @@ size_t CommandReorderVisitor::GetLastLayerRead(ResourceHandle *handle) {
             layer = std::max<int64_t>(layer, maxMeshLevel + 1);
             maxAccelLevel = std::max<int64_t>(layer, maxAccelLevel);
             break;
+        default: break;
     }
     return layer;
 }
