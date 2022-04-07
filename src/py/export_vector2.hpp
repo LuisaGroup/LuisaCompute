@@ -37,7 +37,10 @@ using namespace luisa::compute;
 		.def_property_readonly("yyxy", &Vector<T,2>::yyxy) \
 		.def_property_readonly("yyyx", &Vector<T,2>::yyyx) \
 		.def_property_readonly("yyyy", &Vector<T,2>::yyyy) \
-		;
+		; \
+	m.def("make_"#T"2", [](T a){return make_##T##2(a);}); \
+	m.def("make_"#T"2", [](T a, T b){return make_##T##2(a,b);}); \
+	m.def("make_"#T"2", [](Vector<T,2> a){return make_##T##2(a);});
 
 void export_vector2(py::module &m) {
 	LUISA_EXPORT_VECTOR2(bool)
