@@ -7,6 +7,7 @@ using namespace luisa::compute;
     py::class_<luisa::detail::VectorStorage<T, 2>>(m, "_vectorstorage_"#T"2"); \
     py::class_<Vector<T,2>, luisa::detail::VectorStorage<T, 2>>(m, #T"2") \
     	.def(py::init<T,T>()) \
+    	.def("__repr__", [](Vector<T,2>& self){return format(#T"2({},{})", self.x, self.y);}) \
     	.def_readwrite("x", &Vector<T,2>::x) \
     	.def_readwrite("y", &Vector<T,2>::y) \
 		.def_property_readonly("xx", &Vector<T,2>::xx) \
