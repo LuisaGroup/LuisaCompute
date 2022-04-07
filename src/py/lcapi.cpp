@@ -79,7 +79,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("binary", &FunctionBuilder::binary, pyref)
         .def("member", &FunctionBuilder::member, pyref)
         .def("access", &FunctionBuilder::access, pyref)
-        // .def("swizzle")
+        .def("swizzle", &FunctionBuilder::swizzle, pyref)
         // .def("cast")
         .def("call", [](FunctionBuilder& self, const Type *type, CallOp call_op, std::vector<const Expression *> args){return self.call(type, call_op, args);}, pyref)
         .def("call", [](FunctionBuilder& self, const Type *type, Function custom, std::vector<const Expression *> args){return self.call(type, custom, args);}, pyref)
@@ -136,7 +136,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def("is_texture", &Type::is_texture)
         .def("is_bindless_array", &Type::is_bindless_array)
         .def("is_accel", &Type::is_accel)
-        .def("element", &Type::element, pyref);
+        .def("element", &Type::element, pyref)
+        .def("description", &Type::description)
+        .def("dimension", &Type::dimension);
     // commands
     py::class_<Command>(m, "Command");
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand")
