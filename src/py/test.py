@@ -38,7 +38,7 @@ class Vector:
         if not self.data.size in {2,3,4}:
             raise Exception('vector len must be 2/3/4')
         self.size = self.data.size
-    
+
 
 class Buffer:
     def __init__(self, size, dtype):
@@ -119,19 +119,32 @@ class ASTVisitor:
             build(x)
         if node.func.__class__.__name__ == "Name": # static function
             # TODO check for builtins
+            # node.dtype, node.ptr = 
             if node.func.id == 'thread_id':
+                assert len(node.args) == 0
                 node.dtype = lcapi.Type.from_("vector<uint,3>")
                 node.ptr = lcapi.builder().thread_id()
             if node.func.id == 'block_id':
+                assert len(node.args) == 0
                 node.dtype = lcapi.Type.from_("vector<uint,3>")
                 node.ptr = lcapi.builder().block_id()
             if node.func.id == 'dispatch_id':
+                assert len(node.args) == 0
                 node.dtype = lcapi.Type.from_("vector<uint,3>")
                 node.ptr = lcapi.builder().dispatch_id()
             if node.func.id == 'dispatch_size':
+                assert len(node.args) == 0
                 node.dtype = lcapi.Type.from_("vector<uint,3>")
                 node.ptr = lcapi.builder().dispatch_size()
+
+            if node.func.id == 'make_float2':
+                # TODO: arg check
+                node.dtype = lcapi.Type.from_("vector<float,2>")
+                node.ptr = lcapi.builder().call(node.dtype, lcapi.CallOp.MAKE_FLOAT2, [x.ptr for x in node.args])
+
             pass
+
+
         elif node.func.__class__.__name__ == "Attribute": # class method
             build(node.func.value)
             builtin_op = None
@@ -211,6 +224,14 @@ class ASTVisitor:
     @staticmethod
     def build_UnaryOp(node):
         build(node.operand)
+        op = {
+            ast.UAdd: lcapi.UnaryOp.PLUS,
+            ast.USub: lcapi.UnaryOp.MINUS,
+            ast.Not: lcapi.UnaryOp.NOT,
+            ast.Invert: lcapi.UnaryOp.BIT_NOT
+        }.get(type(node.op))
+        if op is None:
+            raise Exception(f'Unsupported binary operation: {type(node.op)}')
         node.dtype = deduce_unary_type(node.op, node.operand.dtype)
         node.ptr = lcapi.builder().unary(node.dtype, op, node.operand.ptr)
 
@@ -346,7 +367,8 @@ b = Buffer(100, int)
 def f():
     idx = dispatch_id().x
     val = b.read(idx)
-    b.write(idx, val + 42)
+    x = make_float2(3,5) * -1 + 1
+    b.write(idx, val + x.x * x.y + 42)
 
 # generate AST
 tree = ast.parse(inspect.getsource(f))
