@@ -17,43 +17,22 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 
 }// namespace detail
 
-Accel Device::create_accel(AccelBuildHint hint) noexcept { return _create<Accel>(hint); }
+Accel Device::create_accel(AccelUsageHint hint) noexcept { return _create<Accel>(hint); }
 
-Accel::Accel(Device::Interface *device, AccelBuildHint hint) noexcept
+Accel::Accel(Device::Interface *device, AccelUsageHint hint) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(hint)},
       _mutex{luisa::make_unique<std::mutex>()} {}
 
-Command *Accel::update() noexcept {
-    std::scoped_lock lock{*_mutex};
-    if (_requires_build) [[unlikely]] {
-        LUISA_WARNING_WITH_LOCATION(
-            "Accel requires build. Update "
-            "command automatically promoted.");
-        return _build();
-    }
-    return AccelUpdateCommand::create(handle(), _get_update_requests());
-}
-
-luisa::vector<AccelUpdateRequest> Accel::_get_update_requests() noexcept {
-    eastl::vector<AccelUpdateRequest> requests;
-    requests.reserve(_update_requests.size());
-    for (auto [_, r] : _update_requests) { requests.emplace_back(r); }
-    _update_requests.clear();
-    return requests;
-}
-
-Command *Accel::_build() noexcept {
-    if (_mesh_handles.empty()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("No mesh found in accel.");
-    }
-    _requires_build = false;
-    return AccelBuildCommand::create(
-        handle(), _mesh_handles, _get_update_requests());
-}
-
-Command *Accel::build() noexcept {
-    std::scoped_lock lock{*_mutex};
-    return _build();
+Command *Accel::build(Accel::BuildRequest request) noexcept {
+    // collect modifications
+    luisa::vector<Accel::Modification> modifications(_modifications.size());
+    std::transform(_modifications.cbegin(), _modifications.cend(), modifications.begin(),
+                   [](auto &&pair) noexcept { return pair.second; });
+    _modifications.clear();
+    std::sort(modifications.begin(), modifications.end(),
+              [](auto &&lhs, auto &&rhs) noexcept { return lhs.index < rhs.index; });
+    return AccelBuildCommand::create(handle(), static_cast<uint>(_mesh_handles.size()),
+                                     request, std::move(modifications));
 }
 
 Var<Hit> Accel::trace_closest(Expr<Ray> ray) const noexcept {
@@ -91,17 +70,19 @@ void Accel::set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) cons
 void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noexcept {
     std::scoped_lock lock{*_mutex};
     auto index = static_cast<uint>(_mesh_handles.size());
-    _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
+    Modification modification{index};
+    modification.set_mesh(mesh.handle());
+    modification.set_transform(transform);
+    modification.set_visibility(visible);
+    _modifications[index] = modification;
     _mesh_handles.emplace_back(mesh.handle());
-    _requires_build = true;
 }
 
 void Accel::pop_back() noexcept {
     std::scoped_lock lock{*_mutex};
     if (auto n = _mesh_handles.size()) {
         _mesh_handles.pop_back();
-        _update_requests.erase(n - 1u);
-        _requires_build = true;
+        _modifications.erase(n - 1u);
     } else {
         LUISA_WARNING_WITH_LOCATION(
             "Ignoring pop-back operation on empty accel.");
@@ -115,11 +96,14 @@ void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible
             "Invalid index {} in accel #{}.",
             index, handle());
     } else {
-        _update_requests[index] = AccelUpdateRequest::encode(index, transform, visible);
+        Modification modification{static_cast<uint>(index)};
+        modification.set_transform(transform);
+        modification.set_visibility(visible);
         if (mesh.handle() != _mesh_handles[index]) [[likely]] {
+            modification.set_mesh(mesh.handle());
             _mesh_handles[index] = mesh.handle();
-            _requires_build = true;
         }
+        _modifications[index] = modification;
     }
 }
 
@@ -130,11 +114,9 @@ void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
             "Invalid index {} in accel #{}.",
             index, handle());
     } else {
-        auto r = AccelUpdateRequest::encode(index, transform);
-        if (auto [iter, success] = _update_requests.try_emplace(index, r);
-            !success) [[unlikely]] {// already exists
-            iter->second.set_transform(transform);
-        }
+        auto [iter, _] = _modifications.try_emplace(
+            index, Modification{static_cast<uint>(index)});
+        iter->second.set_transform(transform);
     }
 }
 
@@ -145,11 +127,9 @@ void Accel::set_visibility_on_update(size_t index, bool visible) noexcept {
             "Invalid index {} in accel #{}.",
             index, handle());
     } else {
-        auto r = AccelUpdateRequest::encode(index, visible);
-        if (auto [iter, success] = _update_requests.try_emplace(index, r);
-            !success) [[unlikely]] {// already exists
-            iter->second.set_visibility(visible);
-        }
+        auto [iter, _] = _modifications.try_emplace(
+            index, Modification{static_cast<uint>(index)});
+        iter->second.set_visibility(visible);
     }
 }
 

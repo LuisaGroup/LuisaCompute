@@ -162,21 +162,10 @@ void CommandReorderVisitor::visit(const BindlessArrayUpdateCommand *command) noe
 }
 
 // Accel : conclude meshes and their buffer
-void CommandReorderVisitor::visit(const AccelUpdateCommand *command) noexcept {
-    AddCommand(command, SetWrite(command->handle(), ResourceType::Accel));
-}
 void CommandReorderVisitor::visit(const AccelBuildCommand *command) noexcept {
     AddCommand(command, SetWrite(command->handle(), ResourceType::Accel));
 }
 
-// Mesh : conclude vertex and triangle buffers
-void CommandReorderVisitor::visit(const MeshUpdateCommand *command) noexcept {
-    AddCommand(
-        command,
-        SetMesh(command->handle(),
-                device->get_vertex_buffer_from_mesh(command->handle()),
-                device->get_triangle_buffer_from_mesh(command->handle())));
-}
 size_t CommandReorderVisitor::SetMesh(
     uint64_t handle,
     uint64_t vb,
@@ -201,13 +190,12 @@ size_t CommandReorderVisitor::SetMesh(
     maxMeshLevel = std::max<int64_t>(maxMeshLevel, layer);
     return layer;
 }
+
+// Mesh : conclude vertex and triangle buffers
 void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
-    AddCommand(
-        command,
-        SetMesh(command->handle(),
-                device->get_vertex_buffer_from_mesh(command->handle()),
-                device->get_triangle_buffer_from_mesh(command->handle())));
+    AddCommand(command, SetMesh(command->handle(), command->vertex_buffer(), command->triangle_buffer()));
 }
+
 void CommandReorderVisitor::clear() noexcept {
     for (auto &&i : resMap) {
         handlePool.Delete(i.second);

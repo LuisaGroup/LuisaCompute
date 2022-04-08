@@ -9,7 +9,7 @@ namespace luisa::compute::metal {
 
 MetalMesh::MetalMesh(
     id<MTLBuffer> v_buffer, size_t v_offset, size_t v_stride,
-    id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+    id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
 
     if (v_offset != 0u || t_offset != 0u) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
@@ -28,9 +28,9 @@ MetalMesh::MetalMesh(
     _descriptor = [MTLPrimitiveAccelerationStructureDescriptor descriptor];
     _descriptor.geometryDescriptors = @[mesh_desc];
     switch (hint) {
-        case AccelBuildHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
-        case AccelBuildHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;
-        case AccelBuildHint::FAST_REBUILD: _descriptor.usage = MTLAccelerationStructureUsagePreferFastBuild; break;
+        case AccelUsageHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
+        case AccelUsageHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;
+        case AccelUsageHint::FAST_BUILD: _descriptor.usage = MTLAccelerationStructureUsagePreferFastBuild; break;
     }
 }
 

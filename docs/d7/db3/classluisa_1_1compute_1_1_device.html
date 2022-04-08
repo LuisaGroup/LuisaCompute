@@ -123,9 +123,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a791fb8f0264679325441a6160de88f31"><td class="memItemLeft" align="right" valign="top"><a class="el" href="../../d0/d06/classluisa_1_1compute_1_1_event.html">Event</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d7/db3/classluisa_1_1compute_1_1_device.html#a791fb8f0264679325441a6160de88f31">create_event</a> () noexcept</td></tr>
 <tr class="separator:a791fb8f0264679325441a6160de88f31"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4d2ebc041b2fa98c14083918806a0677"><td class="memTemplParams" colspan="2">template&lt;typename VBuffer , typename TBuffer &gt; </td></tr>
-<tr class="memitem:a4d2ebc041b2fa98c14083918806a0677"><td class="memTemplItemLeft" align="right" valign="top">Mesh&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d7/db3/classluisa_1_1compute_1_1_device.html#a4d2ebc041b2fa98c14083918806a0677">create_mesh</a> (VBuffer &amp;&amp;vertices, TBuffer &amp;&amp;triangles, <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelBuildHint</a> hint=<a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelBuildHint::FAST_TRACE</a>) noexcept</td></tr>
+<tr class="memitem:a4d2ebc041b2fa98c14083918806a0677"><td class="memTemplItemLeft" align="right" valign="top">Mesh&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d7/db3/classluisa_1_1compute_1_1_device.html#a4d2ebc041b2fa98c14083918806a0677">create_mesh</a> (VBuffer &amp;&amp;vertices, TBuffer &amp;&amp;triangles, <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelUsageHint</a> hint=<a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelUsageHint::FAST_TRACE</a>) noexcept</td></tr>
 <tr class="separator:a4d2ebc041b2fa98c14083918806a0677"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a273ca83ad6197c7ba946c52fcf4c0ec9"><td class="memItemLeft" align="right" valign="top">Accel&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d7/db3/classluisa_1_1compute_1_1_device.html#a273ca83ad6197c7ba946c52fcf4c0ec9">create_accel</a> (<a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelBuildHint</a> hint=<a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelBuildHint::FAST_TRACE</a>) noexcept</td></tr>
+<tr class="memitem:a273ca83ad6197c7ba946c52fcf4c0ec9"><td class="memItemLeft" align="right" valign="top">Accel&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d7/db3/classluisa_1_1compute_1_1_device.html#a273ca83ad6197c7ba946c52fcf4c0ec9">create_accel</a> (<a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelUsageHint</a> hint=<a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelUsageHint::FAST_TRACE</a>) noexcept</td></tr>
 <tr class="separator:a273ca83ad6197c7ba946c52fcf4c0ec9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4b6e9d6a1245eebb93a41d0d9ae3de0a"><td class="memItemLeft" align="right" valign="top"><a class="el" href="../../d8/d18/classluisa_1_1compute_1_1_bindless_array.html">BindlessArray</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d7/db3/classluisa_1_1compute_1_1_device.html#a4b6e9d6a1245eebb93a41d0d9ae3de0a">create_bindless_array</a> (size_t slots=65536u) noexcept</td></tr>
 <tr class="separator:a4b6e9d6a1245eebb93a41d0d9ae3de0a"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -389,8 +389,8 @@ template&lt;typename T , typename... Args&gt; </div>
         <tr>
           <td class="memname">Accel luisa::compute::Device::create_accel </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelBuildHint</a>&#160;</td>
-          <td class="paramname"><em>hint</em> = <code><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelBuildHint::FAST_TRACE</a></code></td><td>)</td>
+          <td class="paramtype"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelUsageHint</a>&#160;</td>
+          <td class="paramname"><em>hint</em> = <code><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelUsageHint::FAST_TRACE</a></code></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -612,8 +612,8 @@ template&lt;typename VBuffer , typename TBuffer &gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelBuildHint</a>&#160;</td>
-          <td class="paramname"><em>hint</em> = <code><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelBuildHint::FAST_TRACE</a></code>&#160;</td>
+          <td class="paramtype"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelUsageHint</a>&#160;</td>
+          <td class="paramname"><em>hint</em> = <code><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelUsageHint::FAST_TRACE</a></code>&#160;</td>
         </tr>
         <tr>
           <td></td>

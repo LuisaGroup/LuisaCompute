@@ -93,7 +93,7 @@ struct alignas(16) Instance {
   uint mesh_index;
 };
 
-struct alignas(16) UpdateRequest {
+struct alignas(16) BuildRequest {
   uint index;
   uint flags;
   bool visible;
@@ -102,12 +102,12 @@ struct alignas(16) UpdateRequest {
 };
 
 static_assert(sizeof(Instance) == 64u);
-static_assert(sizeof(UpdateRequest) == 64u);
+static_assert(sizeof(BuildRequest) == 64u);
 
 [[kernel]]
 void update_instance_buffer(
     device Instance *__restrict__ instances,
-    device const UpdateRequest *__restrict__ requests,
+    device const BuildRequest *__restrict__ requests,
     constant uint &n,
     uint tid [[thread_position_in_grid]]) {
   if (tid < n) [[likely]] {
@@ -347,7 +347,7 @@ void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
 
 uint64_t MetalDevice::create_mesh(
     uint64_t v_buffer_handle, size_t v_offset, size_t v_stride, size_t,
-    uint64_t t_buffer_handle, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+    uint64_t t_buffer_handle, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
     check_raytracing_supported();
     Clock clock;
     auto v_buffer = (__bridge id<MTLBuffer>)(reinterpret_cast<void *>(v_buffer_handle));
@@ -375,7 +375,7 @@ uint64_t MetalDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const 
     return reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer()));
 }
 
-uint64_t MetalDevice::create_accel(AccelBuildHint hint) noexcept {
+uint64_t MetalDevice::create_accel(AccelUsageHint hint) noexcept {
     check_raytracing_supported();
     Clock clock;
     auto accel = new_with_allocator<MetalAccel>(_update_instances_shader, hint);

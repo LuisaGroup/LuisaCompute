@@ -218,20 +218,9 @@ void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
     });
 }
 
-void ISPCStream::visit(const AccelUpdateCommand *command) noexcept {
-    reinterpret_cast<ISPCAccel *>(command->handle())->update(
-        _pool, command->host_requests());
-}
-
 void ISPCStream::visit(const AccelBuildCommand *command) noexcept {
     reinterpret_cast<ISPCAccel *>(command->handle())->build(
-        _pool, command->meshes(), command->host_requests());
-}
-
-void ISPCStream::visit(const MeshUpdateCommand *command) noexcept {
-    _pool.async([mesh = reinterpret_cast<ISPCMesh *>(command->handle())] {
-        mesh->commit();
-    });
+        _pool, command->instance_count(), command->modifications());
 }
 
 void ISPCStream::visit(const MeshBuildCommand *command) noexcept {

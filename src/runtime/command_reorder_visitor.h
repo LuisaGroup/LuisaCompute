@@ -95,11 +95,9 @@ public:
     void visit(const BindlessArrayUpdateCommand *command) noexcept override;
 
     // Accel : conclude meshes and their buffer
-    void visit(const AccelUpdateCommand *command) noexcept override;
     void visit(const AccelBuildCommand *command) noexcept override;
 
     // Mesh : conclude vertex and triangle buffers
-    void visit(const MeshUpdateCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
 
     void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf);

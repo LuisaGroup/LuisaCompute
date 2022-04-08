@@ -105,14 +105,14 @@ void RemoteDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept 
 void RemoteDevice::synchronize_event(uint64_t handle) noexcept {
 }
 
-uint64_t RemoteDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+uint64_t RemoteDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
     return 0;
 }
 
 void RemoteDevice::destroy_mesh(uint64_t handle) noexcept {
 }
 
-uint64_t RemoteDevice::create_accel(AccelBuildHint hint) noexcept {
+uint64_t RemoteDevice::create_accel(AccelUsageHint hint) noexcept {
     return 0;
 }
 

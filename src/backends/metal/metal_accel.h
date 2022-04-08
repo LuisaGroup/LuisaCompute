@@ -35,7 +35,7 @@ private:
         luisa::span<const AccelUpdateRequest> requests) noexcept;
 
 public:
-    MetalAccel(id<MTLComputePipelineState> update_shader, AccelBuildHint hint) noexcept;
+    MetalAccel(id<MTLComputePipelineState> update_shader, AccelUsageHint hint) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] id<MTLCommandBuffer> build(
         MetalStream *stream, id<MTLCommandBuffer> command_buffer,

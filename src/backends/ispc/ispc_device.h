@@ -247,7 +247,7 @@ public:
      * @param hint mesh's build hint
      * @return handle of mesh
      */
-    [[nodiscard]] uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept override;
+    [[nodiscard]] uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept override;
     /**
      * @brief Destroy a mesh object
      * 
@@ -260,7 +260,7 @@ public:
      * @param hint build hint
      * @return handle of accel structure
      */
-    [[nodiscard]] uint64_t create_accel(AccelBuildHint hint) noexcept override;
+    [[nodiscard]] uint64_t create_accel(AccelUsageHint hint) noexcept override;
     /**
      * @brief Return the vertex buffer from mesh object
      * 

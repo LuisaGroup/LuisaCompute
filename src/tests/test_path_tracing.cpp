@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda", R"({"index": 1})");
+    auto device = context.create_device("ispc", R"({"index": 1})");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -317,7 +317,7 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 256u;
+        static constexpr auto spp_per_dispatch = 4u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                            << accumulate_shader(accum_image, framebuffer).dispatch(resolution);

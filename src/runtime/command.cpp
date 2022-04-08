@@ -220,40 +220,12 @@ namespace detail {
         static Pool<Cmd> pool;            \
         return pool;                      \
     }
-LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_ALL_COMMANDS)
+LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_IMPL
 
 }// namespace detail
 
-AccelUpdateRequest AccelUpdateRequest::encode(uint index, float4x4 m) noexcept {
-    return {.index = index,
-            .flags = update_flag_transform,
-            .visible = {},
-            .padding = {},
-            .affine = {m[0][0], m[1][0], m[2][0], m[3][0],
-                       m[0][1], m[1][1], m[2][1], m[3][1],
-                       m[0][2], m[1][2], m[2][2], m[3][2]}};
-}
-
-AccelUpdateRequest AccelUpdateRequest::encode(uint index, bool vis) noexcept {
-    return {.index = index,
-            .flags = update_flag_visibility,
-            .visible = vis,
-            .padding = {},
-            .affine = {}};
-}
-
-AccelUpdateRequest AccelUpdateRequest::encode(uint index, float4x4 m, bool vis) noexcept {
-    return {.index = index,
-            .flags = update_flag_transform_and_visibility,
-            .visible = vis,
-            .padding = {},
-            .affine = {m[0][0], m[1][0], m[2][0], m[3][0],
-                       m[0][1], m[1][1], m[2][1], m[3][1],
-                       m[0][2], m[1][2], m[2][2], m[3][2]}};
-}
-
-void AccelUpdateRequest::set_transform(float4x4 m) noexcept {
+void AccelBuildCommand::Modification::set_transform(float4x4 m) noexcept {
     affine[0] = m[0][0];
     affine[1] = m[1][0];
     affine[2] = m[2][0];
@@ -266,12 +238,17 @@ void AccelUpdateRequest::set_transform(float4x4 m) noexcept {
     affine[9] = m[1][2];
     affine[10] = m[2][2];
     affine[11] = m[3][2];
-    flags |= update_flag_transform;
+    flags |= flag_transform;
 }
 
-void AccelUpdateRequest::set_visibility(bool vis) noexcept {
-    visible = vis;
-    flags |= update_flag_visibility;
+void AccelBuildCommand::Modification::set_visibility(bool vis) noexcept {
+    flags &= ~flag_visibility;// clear old visibility flags
+    flags |= vis ? flag_visibility_on : flag_visibility_off;
+}
+
+void AccelBuildCommand::Modification::set_mesh(uint64_t handle) noexcept {
+    mesh = handle;
+    flags |= flag_mesh;
 }
 
 }// namespace luisa::compute

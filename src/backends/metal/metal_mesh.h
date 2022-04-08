@@ -21,7 +21,7 @@ private:
 
 public:
     MetalMesh(id<MTLBuffer> v_buffer, size_t v_offset, size_t v_stride,
-              id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept;
+              id<MTLBuffer> t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] id<MTLCommandBuffer> build(
         MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;

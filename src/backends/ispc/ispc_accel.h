@@ -50,7 +50,7 @@ public:
      * @param device RTCDevice where scene builds
      * @param hint scene build hint
      */
-    ISPCAccel(RTCDevice device, AccelBuildHint hint) noexcept;
+    ISPCAccel(RTCDevice device, AccelUsageHint hint) noexcept;
     ~ISPCAccel() noexcept;
     /**
      * @brief Generate handle for device usage
@@ -65,17 +65,11 @@ public:
      * @brief Build (or rebuild) the acceleration structure
      *
      * @param pool thread pool to perform the build
-     * @param mesh_handles handles of the meshes to emplace in the acceleration structure
-     * @param requests transform and visibility update requests from the host
+     * @param request requested build type
+     * @param mods mods to the scene from the host
      */
-    void build(ThreadPool &pool, luisa::span<const uint64_t> mesh_handles,
-               luisa::span<const AccelUpdateRequest> requests) noexcept;
-    /**
-     * @brief Update the acceleration structure
-     * @param pool thread pool to perform the build
-     * @param requests transform and visibility update requests from the host
-     */
-    void update(ThreadPool &pool, luisa::span<const AccelUpdateRequest> requests) noexcept;
+    void build(ThreadPool &pool, size_t instance_count,
+               luisa::span<const AccelBuildCommand::Modification> mods) noexcept;
 };
 
 }// namespace luisa::compute::ispc
