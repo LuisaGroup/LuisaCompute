@@ -232,10 +232,9 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                 "Encoding geometry #{} at index {}.",
                 argument.handle, buffer_index);
             auto accel = to_accel(argument.handle);
-            if (auto resources = accel->resources(); !resources.empty()) {
-                [compute_encoder useResources:resources.data()
-                                        count:resources.size()
-                                        usage:MTLResourceUsageRead];
+            for (auto resource : accel->resources()) {
+                [compute_encoder useResource:resource.handle
+                                       usage:MTLResourceUsageRead];
             }
             [compute_encoder setAccelerationStructure:accel->handle()
                                         atBufferIndex:buffer_index++];
@@ -290,28 +289,16 @@ void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexc
     array->update(_stream, _command_buffer);
 }
 
-void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
-    auto accel = to_accel(command->handle());
-    _command_buffer = accel->update(
-        _stream, _command_buffer,
-        command->host_requests());
-}
-
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = to_accel(command->handle());
     _command_buffer = accel->build(
-        _stream, _command_buffer,
-        command->meshes(), command->host_requests());
-}
-
-void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
-    auto mesh = to_mesh(command->handle());
-    _command_buffer = mesh->update(_stream, _command_buffer);
+        _stream, _command_buffer, command->instance_count(),
+        command->request(), command->modifications());
 }
 
 void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = to_mesh(command->handle());
-    _command_buffer = mesh->build(_stream, _command_buffer);
+    _command_buffer = mesh->build(_stream, _command_buffer, command->request());
 }
 
 }

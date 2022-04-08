@@ -96,8 +96,7 @@ struct alignas(16) Instance {
 struct alignas(16) BuildRequest {
   uint index;
   uint flags;
-  bool visible;
-  uint padding;
+  uint padding[2];
   float affine[12];
 };
 
@@ -115,8 +114,10 @@ void update_instance_buffer(
     instances[r.index].mesh_index = r.index;
     instances[r.index].options = 0x07u;
     instances[r.index].intersection_function_offset = 0u;
-    constexpr auto update_flag_transform = 0x01u;
-    constexpr auto update_flag_visibility = 0x02u;
+    constexpr auto update_flag_transform = 1u << 1u;
+    constexpr auto update_flag_visibility_on = 1u << 2u;
+    constexpr auto update_flag_visibility_off = 1u << 3u;
+    constexpr auto update_flag_visibility = update_flag_visibility_on | update_flag_visibility_off;
     if (r.flags & update_flag_transform) {
       auto p = instances[r.index].transform.data();
       p[0] = r.affine[0];
@@ -133,7 +134,7 @@ void update_instance_buffer(
       p[11] = r.affine[11];
     }
     if (r.flags & update_flag_visibility) {
-      instances[r.index].mask = r.visible ? ~0u : 0u;
+      instances[r.index].mask = (r.flags & update_flag_visibility_on) ? ~0u : 0u;
     }
   }
 }
