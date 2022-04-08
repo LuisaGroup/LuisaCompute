@@ -18,36 +18,9 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
         }
         return value;
     };
-    auto accelFunc = [&] {
-        auto tryResult = accelMap.TryEmplace(
-            tarGetHandle);
-        auto &&value = tryResult.first.Value();
-        if (tryResult.second) {
-            value = handlePool.New();
-            value->handle = tarGetHandle;
-            value->type = target_type;
-        }
-        return value;
-    };
-    auto meshFunc = [&] {
-        auto tryResult = resMap.TryEmplace(
-            tarGetHandle);
-        auto &&value = tryResult.first.Value();
-        if (tryResult.second) {
-            auto newMeshValue = handlePool.New();
-            value = newMeshValue;
-            value->handle = tarGetHandle;
-            value->type = target_type;
-        }
-        return value;
-    };
     switch (target_type) {
-        case ResourceType::Mesh:
-            return meshFunc();
         case ResourceType::Bindless:
             return func(bindlessMap);
-        case ResourceType::Accel:
-            return accelFunc();
         default:
             return func(resMap);
     }
@@ -56,18 +29,12 @@ size_t CommandReorderVisitor::GetLastLayerWrite(ResourceHandle *handle) {
     size_t layer = std::max<int64_t>(handle->readLayer + 1, handle->writeLayer + 1);
     switch (handle->type) {
         case ResourceType::Buffer:
+        case ResourceType::Texture:
             if (bindlessMaxLayer >= layer) {
                 for (auto &&i : bindlessMap) {
                     if (device->is_buffer_in_bindless_array(i.first, handle->handle)) {
                         layer = std::max<int64_t>(layer, i.second->readLayer + 1);
                     }
-                }
-            }
-            break;
-        case ResourceType::Texture:
-            for (auto &&i : bindlessMap) {
-                if (device->is_texture_in_bindless_array(i.first, handle->handle)) {
-                    layer = std::max<int64_t>(layer, i.second->readLayer + 1);
                 }
             }
             break;
@@ -99,10 +66,7 @@ size_t CommandReorderVisitor::GetLastLayerRead(ResourceHandle *handle) {
     return layer;
 }
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device) noexcept
-    : device(device), handlePool(256, true),
-      resMap(256), bindlessMap(256), accelMap(256) {}
-
-CommandReorderVisitor::~CommandReorderVisitor() noexcept = default;
+    : device(device), handlePool(256, true), resMap(256), bindlessMap(256) {}
 
 size_t CommandReorderVisitor::SetRead(
     uint64_t handle,
@@ -159,6 +123,7 @@ void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept
     dispatchReadHandle.clear();
     dispatchWriteHandle.clear();
     useBindlessInPass = false;
+    useAccelInPass = false;
     f = command->kernel();
     arg = command->kernel().arguments().data();
     dispatchLayer = 0;
@@ -172,6 +137,9 @@ void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept
     AddCommand(command, dispatchLayer);
     if (useBindlessInPass) {
         bindlessMaxLayer = std::max<int64_t>(bindlessMaxLayer, dispatchLayer);
+    }
+    if (useAccelInPass) {
+        maxAccelLevel = std::max<int64_t>(maxAccelLevel, dispatchLayer);
     }
 }
 // Texture : resource
@@ -240,19 +208,16 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
                 device->get_vertex_buffer_from_mesh(command->handle()),
                 device->get_triangle_buffer_from_mesh(command->handle())));
 }
-void CommandReorderVisitor::clear() {
+void CommandReorderVisitor::clear() noexcept {
     for (auto &&i : resMap) {
         handlePool.Delete(i.second);
     }
     for (auto &&i : bindlessMap) {
         handlePool.Delete(i.second);
     }
-    for (auto &&i : accelMap) {
-        handlePool.Delete(i.second);
-    }
+
     resMap.Clear();
     bindlessMap.Clear();
-    accelMap.Clear();
     bindlessMaxLayer = -1;
     maxMeshLevel = -1;
     maxAccelLevel = -1;
@@ -315,6 +280,7 @@ void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::Bindless
     arg++;
 }
 void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+    useAccelInPass = true;
     AddDispatchHandle(
         bf.handle,
         ResourceType::Accel,
