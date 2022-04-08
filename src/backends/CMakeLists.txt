@@ -17,10 +17,10 @@ endfunction()
 #    add_subdirectory(dx)
 #endif ()
 
-#if (LUISA_COMPUTE_ENABLE_METAL)
-#    add_subdirectory(metal)
-#endif ()
-#
+if (LUISA_COMPUTE_ENABLE_METAL)
+    add_subdirectory(metal)
+endif ()
+
 #if (LUISA_COMPUTE_ENABLE_CUDA)
 #    add_subdirectory(cuda)
 #endif ()
