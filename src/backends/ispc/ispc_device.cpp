@@ -163,14 +163,6 @@ uint64_t ISPCDevice::create_accel(AccelUsageHint hint) noexcept {
     return reinterpret_cast<uint64_t>(accel);
 }
 
-uint64_t ISPCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<const ISPCMesh *>(mesh_handle)->vertex_buffer();
-}
-
-uint64_t ISPCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<const ISPCMesh *>(mesh_handle)->triangle_buffer();
-}
-
 void ISPCDevice::destroy_accel(uint64_t handle) noexcept {
     luisa::delete_with_allocator(reinterpret_cast<ISPCAccel *>(handle));
 }

@@ -262,20 +262,6 @@ public:
      */
     [[nodiscard]] uint64_t create_accel(AccelUsageHint hint) noexcept override;
     /**
-     * @brief Return the vertex buffer from mesh object
-     * 
-     * @param mesh_handle handle of mesh
-     * @return handle of vertex buffer
-     */
-    [[nodiscard]] uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    /**
-     * @brief Return the triangle buffer from mesh object
-     * 
-     * @param mesh_handle handle of mesh
-     * @return handle of triangle buffer
-     */
-    [[nodiscard]] uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    /**
      * @brief Destroy a accel object 
      * 
      * @param handle handle of accel
