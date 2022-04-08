@@ -146,7 +146,7 @@ void ISPCDevice::synchronize_event(uint64_t handle) noexcept {
 
 uint64_t ISPCDevice::create_mesh(
     uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-    uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+    uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
     auto mesh = luisa::new_with_allocator<ISPCMesh>(
         _rtc_device, hint,
         v_buffer, v_offset, v_stride, v_count,
@@ -158,7 +158,7 @@ void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {
     luisa::delete_with_allocator(reinterpret_cast<ISPCMesh *>(handle));
 }
 
-uint64_t ISPCDevice::create_accel(AccelBuildHint hint) noexcept {
+uint64_t ISPCDevice::create_accel(AccelUsageHint hint) noexcept {
     auto accel = luisa::new_with_allocator<ISPCAccel>(_rtc_device, hint);
     return reinterpret_cast<uint64_t>(accel);
 }

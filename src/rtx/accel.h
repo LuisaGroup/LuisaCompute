@@ -15,18 +15,20 @@ namespace luisa::compute {
 
 class LC_RTX_API Accel final : public Resource {
 
+public:
+    using UsageHint = AccelUsageHint;
+    using BuildRequest = AccelBuildRequest;
+    using Modification = AccelBuildCommand::Modification;
+
 private:
-    luisa::map<size_t, AccelUpdateRequest> _update_requests;
+    luisa::unordered_map<size_t, Modification> _modifications;
     luisa::vector<uint64_t> _mesh_handles;
     luisa::unique_ptr<std::mutex> _mutex;
-    bool _requires_build{true};
 
 private:
     friend class Device;
     friend class Mesh;
-    explicit Accel(Device::Interface *device, AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;
-    [[nodiscard]] luisa::vector<AccelUpdateRequest> _get_update_requests() noexcept;
-    [[nodiscard]] Command *_build() noexcept;
+    explicit Accel(Device::Interface *device, UsageHint hint = UsageHint::FAST_TRACE) noexcept;
 
 public:
     Accel() noexcept = default;
@@ -39,8 +41,7 @@ public:
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, bool visible) noexcept;
-    [[nodiscard]] Command *update() noexcept;
-    [[nodiscard]] Command *build() noexcept;
+    [[nodiscard]] Command *build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
 
     // shader functions
     [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;

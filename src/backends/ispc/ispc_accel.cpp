@@ -9,18 +9,18 @@
 
 namespace luisa::compute::ispc {
 
-ISPCAccel::ISPCAccel(RTCDevice device, AccelBuildHint hint) noexcept
+ISPCAccel::ISPCAccel(RTCDevice device, AccelUsageHint hint) noexcept
     : _handle{rtcNewScene(device)} {
     switch (hint) {
-        case AccelBuildHint::FAST_TRACE:
+        case AccelUsageHint::FAST_TRACE:
             rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_HIGH);
             rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT);
             break;
-        case AccelBuildHint::FAST_UPDATE:
+        case AccelUsageHint::FAST_UPDATE:
             rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_MEDIUM);
             rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT | RTC_SCENE_FLAG_DYNAMIC);
             break;
-        case AccelBuildHint::FAST_REBUILD:
+        case AccelUsageHint::FAST_BUILD:
             rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_LOW);
             rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_DYNAMIC);
             break;
@@ -29,16 +29,18 @@ ISPCAccel::ISPCAccel(RTCDevice device, AccelBuildHint hint) noexcept
 
 ISPCAccel::~ISPCAccel() noexcept { rtcReleaseScene(_handle); }
 
-void ISPCAccel::build(ThreadPool &pool, luisa::span<const uint64_t> mesh_handles, luisa::span<const AccelUpdateRequest> requests) noexcept {
-    pool.async([this, meshes = luisa::vector<uint64_t>{mesh_handles.cbegin(), mesh_handles.cend()},
-                requests = luisa::vector<AccelUpdateRequest>{requests.cbegin(), requests.cend()}] {
-        if (meshes.size() < _instances.size()) {// remove redundant geometries
-            for (auto i = meshes.size(); i < _instances.size(); i++) { rtcDetachGeometry(_handle, i); }
-            _instances.resize(meshes.size());
+void ISPCAccel::build(ThreadPool &pool, size_t instance_count,
+                      luisa::span<const AccelBuildCommand::Modification> mods) noexcept {
+
+    using Mod = AccelBuildCommand::Modification;
+    pool.async([this, instance_count, mods = luisa::vector<Mod>{mods.cbegin(), mods.cend()}]() {
+        if (instance_count < _instances.size()) {// remove redundant geometries
+            for (auto i = instance_count; i < _instances.size(); i++) { rtcDetachGeometry(_handle, i); }
+            _instances.resize(instance_count);
         } else {// create new geometries
             auto device = rtcGetSceneDevice(_handle);
-            _instances.reserve(next_pow2(meshes.size()));
-            for (auto i = _instances.size(); i < meshes.size(); i++) {
+            _instances.reserve(next_pow2(instance_count));
+            for (auto i = _instances.size(); i < instance_count; i++) {
                 auto geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);
                 rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);
                 rtcAttachGeometryByID(_handle, geometry, i);
@@ -46,51 +48,21 @@ void ISPCAccel::build(ThreadPool &pool, luisa::span<const uint64_t> mesh_handles
                 _instances.emplace_back().geometry = geometry;
             }
         }
-        for (auto r : requests) {
-            if (r.flags & AccelUpdateRequest::update_flag_transform) {
-                std::memcpy(_instances[r.index].affine, r.affine, sizeof(r.affine));
-            }
-            if (r.flags & AccelUpdateRequest::update_flag_visibility) {
-                _instances[r.index].visible = r.visible;
-            }
-        }
-        for (auto i = 0u; i < _instances.size(); i++) {
-            auto geometry = _instances[i].geometry;
-            auto mesh = reinterpret_cast<const ISPCMesh *>(meshes[i]);
-            rtcSetGeometryInstancedScene(geometry, mesh->handle());
-            rtcSetGeometryTransform(geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR, _instances[i].affine);
-            if (_instances[i].visible) {
-                rtcEnableGeometry(geometry);
-            } else {
-                rtcDisableGeometry(geometry);
-            }
-            rtcCommitGeometry(geometry);
-            _instances[i].dirty = false;
-        }
-        rtcCommitScene(_handle);
-    });
-}
-
-void ISPCAccel::update(ThreadPool &pool, luisa::span<const AccelUpdateRequest> requests) noexcept {
-    pool.async([this, requests = luisa::vector<AccelUpdateRequest>{requests.cbegin(), requests.cend()}] {
-        for (auto r : requests) {
-            if (r.flags & AccelUpdateRequest::update_flag_transform) {
-                std::memcpy(_instances[r.index].affine, r.affine, sizeof(r.affine));
-            }
-            if (r.flags & AccelUpdateRequest::update_flag_visibility) {
-                _instances[r.index].visible = r.visible;
-            }
-            _instances[r.index].dirty = true;
+        for (auto m : mods) {
+            auto geometry = _instances[m.index].geometry;
+            if (m.flags & Mod::flag_mesh) { rtcSetGeometryInstancedScene(
+                geometry, reinterpret_cast<const ISPCMesh *>(m.mesh)->handle()); }
+            if (m.flags & Mod::flag_transform) { std::memcpy(
+                _instances[m.index].affine, m.affine, sizeof(m.affine)); }
+            if (m.flags & Mod::flag_visibility_on) { _instances[m.index].visible = true; }
+            if (m.flags & Mod::flag_visibility_off) { _instances[m.index].visible = false; }
+            _instances[m.index].dirty = true;
         }
         for (auto &&instance : _instances) {
             if (instance.dirty) {
                 auto geometry = instance.geometry;
                 rtcSetGeometryTransform(geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR, instance.affine);
-                if (instance.visible) {
-                    rtcEnableGeometry(geometry);
-                } else {
-                    rtcDisableGeometry(geometry);
-                }
+                instance.visible ? rtcEnableGeometry(geometry) : rtcDisableGeometry(geometry);
                 rtcCommitGeometry(geometry);
                 instance.dirty = false;
             }

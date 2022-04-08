@@ -62,9 +62,7 @@ public:
     void visit(const TextureDownloadCommand *command) noexcept override;
     void visit(const TextureCopyCommand *command) noexcept override;
     void visit(const TextureToBufferCopyCommand *command) noexcept override;
-    void visit(const AccelUpdateCommand *command) noexcept override;
     void visit(const AccelBuildCommand *command) noexcept override;
-    void visit(const MeshUpdateCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
     void visit(const BindlessArrayUpdateCommand *command) noexcept override;
 };

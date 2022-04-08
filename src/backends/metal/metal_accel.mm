@@ -7,13 +7,13 @@
 
 namespace luisa::compute::metal {
 
-MetalAccel::MetalAccel(id<MTLComputePipelineState> update_shader, AccelBuildHint hint) noexcept
+MetalAccel::MetalAccel(id<MTLComputePipelineState> update_shader, AccelUsageHint hint) noexcept
     : _update_shader{update_shader} {
     _descriptor = [MTLInstanceAccelerationStructureDescriptor descriptor];
     switch (hint) {
-        case AccelBuildHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
-        case AccelBuildHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;
-        case AccelBuildHint::FAST_REBUILD: _descriptor.usage = MTLAccelerationStructureUsagePreferFastBuild; break;
+        case AccelUsageHint::FAST_TRACE: _descriptor.usage = MTLAccelerationStructureUsageNone; break;
+        case AccelUsageHint::FAST_UPDATE: _descriptor.usage = MTLAccelerationStructureUsageRefit; break;
+        case AccelUsageHint::FAST_BUILD: _descriptor.usage = MTLAccelerationStructureUsagePreferFastBuild; break;
     }
 }
 
