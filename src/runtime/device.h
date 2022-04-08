@@ -148,8 +148,6 @@ public:
             uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
             uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept = 0;
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
-        [[nodiscard]] virtual uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
-        [[nodiscard]] virtual uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
         [[nodiscard]] virtual uint64_t create_accel(AccelUsageHint hint) noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
 

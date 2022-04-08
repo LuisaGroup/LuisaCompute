@@ -366,16 +366,6 @@ void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Destroyed mesh #{}.", handle);
 }
 
-uint64_t MetalDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    return reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer()));
-}
-
-uint64_t MetalDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    return reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer()));
-}
-
 uint64_t MetalDevice::create_accel(AccelUsageHint hint) noexcept {
     check_raytracing_supported();
     Clock clock;
