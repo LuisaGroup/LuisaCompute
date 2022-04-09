@@ -79,8 +79,8 @@ id<MTLCommandBuffer> MetalAccel::build(MetalStream *stream, id<MTLCommandBuffer>
     // check if any mesh resource has changed
     if (!requires_build) {
         for (auto i = 0u; i < instance_count; i++) {
-            if (_meshes[i]->handle() != _mesh_handles[i]) {
-                requires_build = true;
+            if ((requires_build |= _meshes[i]->handle() != _mesh_handles[i])) {
+                break;
             }
         }
     }
@@ -111,7 +111,7 @@ id<MTLCommandBuffer> MetalAccel::build(MetalStream *stream, id<MTLCommandBuffer>
                                 scratchBufferOffset:0u];
         for (auto resource : _resources) {
             [command_encoder useResource:resource.handle
-                               usage:MTLResourceUsageRead];
+                                   usage:MTLResourceUsageRead];
         }
         [command_encoder endEncoding];
         // TODO: compaction?
