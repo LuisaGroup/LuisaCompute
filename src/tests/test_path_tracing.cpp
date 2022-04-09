@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda", R"({"index": 1})");
+    auto device = context.create_device("metal", R"({"index": 1})");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -226,9 +226,11 @@ int main(int argc, char *argv[]) {
             auto ux_light = lcg(state);
             auto uy_light = lcg(state);
             auto p_light = light_position + ux_light * light_u + uy_light * light_v;
-            auto d_light = distance(p, p_light);
-            auto wi_light = normalize(p_light - p);
-            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+            auto pp = offset_ray_origin(p, n);
+            auto pp_light = offset_ray_origin(p_light, light_normal);
+            auto d_light = distance(pp, pp_light);
+            auto wi_light = normalize(pp_light - pp);
+            auto shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
             auto occluded = accel.trace_any(shadow_ray);
             auto cos_wi_light = dot(wi_light, n);
             auto cos_light = -dot(light_normal, wi_light);
@@ -245,7 +247,7 @@ int main(int argc, char *argv[]) {
             auto ux = lcg(state);
             auto uy = lcg(state);
             auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
-            ray = make_ray_robust(p, n, new_direction);
+            ray = make_ray(pp, new_direction);
             beta *= material.albedo;
             pdf_bsdf = cos_wi * inv_pi;
 
