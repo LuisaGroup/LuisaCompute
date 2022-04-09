@@ -114,6 +114,7 @@ using eastl::list;
 using eastl::monostate;
 using eastl::move_only_function;
 using eastl::nullopt;
+using eastl::make_optional;
 using eastl::optional;
 using eastl::queue;
 using eastl::slist;
