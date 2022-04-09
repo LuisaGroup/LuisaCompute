@@ -24,7 +24,7 @@ Float3 offset_ray_origin(Expr<float3> p, Expr<float3> n) noexcept {
     return ite(abs(p) < origin, p + float_scale * n, p_i);
 }
 
-Float3 compute::offset_ray_origin(Expr<float3> p, Expr<float3> n, Expr<float3> w) noexcept {
+Float3 offset_ray_origin(Expr<float3> p, Expr<float3> n, Expr<float3> w) noexcept {
     return offset_ray_origin(p, faceforward(n, -w, n));
 }
 
