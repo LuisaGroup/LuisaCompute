@@ -1,7 +1,7 @@
 var searchData=
 [
   ['pool_0',['Pool',['../d8/d71/classluisa_1_1_pool.html',1,'luisa']]],
-  ['pool_3c_20commandrelation_20_3e_1',['Pool&lt; CommandRelation &gt;',['../d8/d71/classluisa_1_1_pool.html',1,'luisa']]],
+  ['present_1',['Present',['../d4/d21/classluisa_1_1compute_1_1_swap_chain.html#d1/d48/structluisa_1_1compute_1_1_swap_chain_1_1_present',1,'luisa::compute::SwapChain']]],
   ['printer_2',['Printer',['../d2/d48/classluisa_1_1compute_1_1_printer.html',1,'luisa::compute']]],
   ['prototype_5fto_5fcallable_5finvocation_3',['prototype_to_callable_invocation',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#d5/db7/structluisa_1_1compute_1_1detail_1_1prototype__to__callable__invocation',1,'luisa::compute::detail']]],
   ['prototype_5fto_5fcallable_5finvocation_3c_20const_20t_20_26_20_3e_4',['prototype_to_callable_invocation&lt; const T &amp; &gt;',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#db/d48/structluisa_1_1compute_1_1detail_1_1prototype__to__callable__invocation_3_01const_01_t_01_6_01_4',1,'luisa::compute::detail']]],

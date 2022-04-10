@@ -27,11 +27,12 @@ var searchData=
   ['struct_5fmember_5ftuple_3c_20t_5bn_5d_3e_24',['struct_member_tuple&lt; T[N]&gt;',['../d8/d37/namespaceluisa_1_1compute.html#d5/d9a/structluisa_1_1compute_1_1struct__member__tuple_3_01_t_0f_n_0e_4',1,'luisa::compute']]],
   ['struct_5fmember_5ftuple_3c_20vector_3c_20t_2c_20n_20_3e_20_3e_25',['struct_member_tuple&lt; Vector&lt; T, N &gt; &gt;',['../d8/d37/namespaceluisa_1_1compute.html#d0/d26/structluisa_1_1compute_1_1struct__member__tuple_3_01_vector_3_01_t_00_01_n_01_4_01_4',1,'luisa::compute']]],
   ['subject_26',['Subject',['../d2/da4/classluisa_1_1_subject.html',1,'luisa']]],
-  ['switchcasestmt_27',['SwitchCaseStmt',['../d5/d68/classluisa_1_1compute_1_1_switch_case_stmt.html',1,'luisa::compute']]],
-  ['switchcasestmtbuilder_28',['SwitchCaseStmtBuilder',['../d4/d1d/classluisa_1_1compute_1_1detail_1_1_switch_case_stmt_builder.html',1,'luisa::compute::detail']]],
-  ['switchdefaultstmt_29',['SwitchDefaultStmt',['../d3/d30/classluisa_1_1compute_1_1_switch_default_stmt.html',1,'luisa::compute']]],
-  ['switchdefaultstmtbuilder_30',['SwitchDefaultStmtBuilder',['../d1/daf/classluisa_1_1compute_1_1detail_1_1_switch_default_stmt_builder.html',1,'luisa::compute::detail']]],
-  ['switchstmt_31',['SwitchStmt',['../d1/d43/classluisa_1_1compute_1_1_switch_stmt.html',1,'luisa::compute']]],
-  ['switchstmtbuilder_32',['SwitchStmtBuilder',['../d0/d1b/classluisa_1_1compute_1_1detail_1_1_switch_stmt_builder.html',1,'luisa::compute::detail']]],
-  ['synchronize_33',['Synchronize',['../d2/d41/classluisa_1_1compute_1_1_command_buffer.html#d1/d46/structluisa_1_1compute_1_1_command_buffer_1_1_synchronize',1,'luisa::compute::CommandBuffer']]]
+  ['swapchain_27',['SwapChain',['../d4/d21/classluisa_1_1compute_1_1_swap_chain.html',1,'luisa::compute']]],
+  ['switchcasestmt_28',['SwitchCaseStmt',['../d5/d68/classluisa_1_1compute_1_1_switch_case_stmt.html',1,'luisa::compute']]],
+  ['switchcasestmtbuilder_29',['SwitchCaseStmtBuilder',['../d4/d1d/classluisa_1_1compute_1_1detail_1_1_switch_case_stmt_builder.html',1,'luisa::compute::detail']]],
+  ['switchdefaultstmt_30',['SwitchDefaultStmt',['../d3/d30/classluisa_1_1compute_1_1_switch_default_stmt.html',1,'luisa::compute']]],
+  ['switchdefaultstmtbuilder_31',['SwitchDefaultStmtBuilder',['../d1/daf/classluisa_1_1compute_1_1detail_1_1_switch_default_stmt_builder.html',1,'luisa::compute::detail']]],
+  ['switchstmt_32',['SwitchStmt',['../d1/d43/classluisa_1_1compute_1_1_switch_stmt.html',1,'luisa::compute']]],
+  ['switchstmtbuilder_33',['SwitchStmtBuilder',['../d0/d1b/classluisa_1_1compute_1_1detail_1_1_switch_stmt_builder.html',1,'luisa::compute::detail']]],
+  ['synchronize_34',['Synchronize',['../d2/d41/classluisa_1_1compute_1_1_command_buffer.html#d1/d46/structluisa_1_1compute_1_1_command_buffer_1_1_synchronize',1,'luisa::compute::CommandBuffer']]]
 ];

@@ -97,6 +97,7 @@ $(document).ready(function(){initNavTree('functions_func_i.html',''); initResiza
 <li>index()&#160;:&#160;<a class="el" href="d0/d61/classluisa_1_1compute_1_1_access_expr.html#ad90954110ad8f9989f852435ef2a6a61">luisa::compute::AccessExpr</a>, <a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#a1dc186dd0d155d38c0d1c05d12e0d5fd">luisa::compute::Type</a></li>
 <li>info()&#160;:&#160;<a class="el" href="d1/d84/classluisa_1_1compute_1_1_meta_stmt.html#ab8e38869aada57531f002be4a43be9f2">luisa::compute::MetaStmt</a></li>
 <li>instance()&#160;:&#160;<a class="el" href="db/daa/classluisa_1_1compute_1_1detail_1_1_type_registry.html#aa189dd97aae37277be2425877f88f762">luisa::compute::detail::TypeRegistry</a></li>
+<li>instance_count()&#160;:&#160;<a class="el" href="d1/d28/classluisa_1_1compute_1_1_accel_build_command.html#aeada686ab21c1b6ac594ae9863d6617e">luisa::compute::AccelBuildCommand</a></li>
 <li>Interface()&#160;:&#160;<a class="el" href="d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#a31683c9b9492f3e55650194f8ca0628e">luisa::compute::Device::Interface</a></li>
 <li>invoke()&#160;:&#160;<a class="el" href="d9/dd5/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_module.html#abc3ecd1d018283b938b462c58b9ab944">luisa::compute::ispc::ISPCModule</a>, <a class="el" href="da/d24/classluisa_1_1_dynamic_module.html#add5f197a7ce1756f49b664993a30c856">luisa::DynamicModule</a></li>
 <li>is_accel()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#aa7e3e0588b265469dc84febe2c57c4bf">luisa::compute::Type</a></li>
@@ -104,23 +105,21 @@ $(document).ready(function(){initNavTree('functions_func_i.html',''); initResiza
 <li>is_basic()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#abe9d947106042e8e7b00337edb601510">luisa::compute::Type</a></li>
 <li>is_bindless_array()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#a3e8462d73d039e422fb60b9fa9b072fd">luisa::compute::Type</a></li>
 <li>is_buffer()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#a875c47775411bfbd24464d0ff823d49d">luisa::compute::Type</a></li>
-<li>is_buffer_in_accel()&#160;:&#160;<a class="el" href="d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#a561f9107f6392c55306ea29d234083d3">luisa::compute::Device::Interface</a>, <a class="el" href="d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#acc7abd0650c232b3951f2413b2a8f0e2">luisa::compute::ispc::ISPCDevice</a></li>
 <li>is_buffer_in_bindless_array()&#160;:&#160;<a class="el" href="d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#ae7569ba76f0da12f95d9faee6efebec7">luisa::compute::Device::Interface</a>, <a class="el" href="d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#ac28e66e9de1eceb515f90ec785074847">luisa::compute::ispc::ISPCDevice</a></li>
 <li>is_builtin()&#160;:&#160;<a class="el" href="df/d6f/classluisa_1_1compute_1_1_call_expr.html#a0bd85db806df56ec839ecbb1615404d3">luisa::compute::CallExpr</a></li>
 <li>is_matrix()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#a094333286af3e7e660c61350cc03fa37">luisa::compute::Type</a></li>
-<li>is_mesh_in_accel()&#160;:&#160;<a class="el" href="d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#abbefbe67d76f4fdbbf199d51e6bb20bc">luisa::compute::Device::Interface</a>, <a class="el" href="d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a6ede56c090fafbe32d3454d14d95d76d">luisa::compute::ispc::ISPCDevice</a></li>
 <li>is_scalar()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#a11dcd2b35173fe503c80b0d4ad15ad28">luisa::compute::Type</a></li>
 <li>is_structure()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#a26e1fffcb24eb1593ab7e60b4253215a">luisa::compute::Type</a></li>
 <li>is_swizzle()&#160;:&#160;<a class="el" href="d2/d6d/classluisa_1_1compute_1_1_member_expr.html#a2d34c71fa989b6c28ec112614a1ab4f5">luisa::compute::MemberExpr</a></li>
 <li>is_texture()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#a7460e8c588fa2e3ae764090614a038a2">luisa::compute::Type</a></li>
 <li>is_texture_in_bindless_array()&#160;:&#160;<a class="el" href="d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html#ab6c2672fbad947da8b694429a35024ae">luisa::compute::Device::Interface</a>, <a class="el" href="d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#af056999dda201f08f7fb5e7ca71bdd2b">luisa::compute::ispc::ISPCDevice</a></li>
 <li>is_vector()&#160;:&#160;<a class="el" href="da/dd7/classluisa_1_1compute_1_1_type.html#afb5f7f5d0863f992b912f5554a21eef6">luisa::compute::Type</a></li>
-<li>ISPCAccel()&#160;:&#160;<a class="el" href="dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a73d83a9f1fc30f93e5849878e544b2bb">luisa::compute::ispc::ISPCAccel</a></li>
+<li>ISPCAccel()&#160;:&#160;<a class="el" href="dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#aa9f222e2312cd9c8f33123b3c9a2f34f">luisa::compute::ispc::ISPCAccel</a></li>
 <li>ISPCBindlessArray()&#160;:&#160;<a class="el" href="d2/d16/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_bindless_array.html#a9f1558f84afd143e963797cb6d7b65d0">luisa::compute::ispc::ISPCBindlessArray</a></li>
 <li>ISPCCodegen()&#160;:&#160;<a class="el" href="d4/d30/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_codegen.html#a0cb50c79050c6d2aa6a822a585e6fa44">luisa::compute::ispc::ISPCCodegen</a></li>
 <li>ISPCDevice()&#160;:&#160;<a class="el" href="d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html#a49e29e7b2d7ca86eb8d527c698226474">luisa::compute::ispc::ISPCDevice</a></li>
 <li>ISPCJITModule()&#160;:&#160;<a class="el" href="d6/dff/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_j_i_t_module.html#a12c4eb9b818f9a34142a38d9c6979116">luisa::compute::ispc::ISPCJITModule</a></li>
-<li>ISPCMesh()&#160;:&#160;<a class="el" href="da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html#aa57b03c8c13ca7223456541d68593d12">luisa::compute::ispc::ISPCMesh</a></li>
+<li>ISPCMesh()&#160;:&#160;<a class="el" href="da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html#a80a7b4483f27f39c3450f2392542d5fe">luisa::compute::ispc::ISPCMesh</a></li>
 <li>ISPCModule()&#160;:&#160;<a class="el" href="d9/dd5/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_module.html#a27029cfe3a1886092a2eae3f47c7499d">luisa::compute::ispc::ISPCModule</a></li>
 <li>ISPCShader()&#160;:&#160;<a class="el" href="d3/d6a/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_shader.html#a3e7567d6642691739afcff3e739863f1">luisa::compute::ispc::ISPCShader</a></li>
 <li>ISPCStream()&#160;:&#160;<a class="el" href="df/de7/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_stream.html#afe9f9a23a1dac9a9e34abaf4dc4e0b1b">luisa::compute::ispc::ISPCStream</a></li>

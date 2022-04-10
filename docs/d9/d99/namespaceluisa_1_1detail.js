@@ -25,9 +25,9 @@ var namespaceluisa_1_1detail =
     [ "VectorStorage< T, 4 >", "df/d78/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_014_01_4.html", "df/d78/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_014_01_4" ],
     [ "hashable_with_hash_method", "d4/d5d/conceptluisa_1_1detail_1_1hashable__with__hash__method.html", null ],
     [ "hashable_with_hash_code_method", "df/d1e/conceptluisa_1_1detail_1_1hashable__with__hash__code__method.html", null ],
-    [ "allocator_allocate", "d9/d99/namespaceluisa_1_1detail.html#a426ba6e2281f6388801831d1cb6711fd", null ],
-    [ "allocator_deallocate", "d9/d99/namespaceluisa_1_1detail.html#a71ee75f04484da2ba18d068e158af41e", null ],
-    [ "allocator_reallocate", "d9/d99/namespaceluisa_1_1detail.html#a106d4bb3fc6fad7f5ce7d8a6bb3f3ed3", null ],
+    [ "allocator_allocate", "d9/d99/namespaceluisa_1_1detail.html#aca71aa1a23abfc3156a063382eb786a9", null ],
+    [ "allocator_deallocate", "d9/d99/namespaceluisa_1_1detail.html#a4fc707c4b43f4da990273d0e82a9df94", null ],
+    [ "allocator_reallocate", "d9/d99/namespaceluisa_1_1detail.html#a0c91ac18c33881c5f772b25772e6e54c", null ],
     [ "default_logger", "d9/d99/namespaceluisa_1_1detail.html#ad8315d0e760c5a35cbcf0071506aa903", null ],
     [ "xxh3_hash64", "d9/d99/namespaceluisa_1_1detail.html#a02c5020d661e55b09a40c50133605508", null ]
 ];

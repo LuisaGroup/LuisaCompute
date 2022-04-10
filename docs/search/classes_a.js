@@ -10,10 +10,10 @@ var searchData=
   ['matrix_5fdimension_5fimpl_3c_20matrix_3c_20n_20_3e_20_3e_7',['matrix_dimension_impl&lt; Matrix&lt; N &gt; &gt;',['../d7/d33/structluisa_1_1detail_1_1matrix__dimension__impl_3_01_matrix_3_01_n_01_4_01_4.html',1,'luisa::detail']]],
   ['memberexpr_8',['MemberExpr',['../d2/d6d/classluisa_1_1compute_1_1_member_expr.html',1,'luisa::compute']]],
   ['meshbuildcommand_9',['MeshBuildCommand',['../dc/d8d/classluisa_1_1compute_1_1_mesh_build_command.html',1,'luisa::compute']]],
-  ['meshupdatecommand_10',['MeshUpdateCommand',['../d4/d75/classluisa_1_1compute_1_1_mesh_update_command.html',1,'luisa::compute']]],
-  ['metastmt_11',['MetaStmt',['../d1/d84/classluisa_1_1compute_1_1_meta_stmt.html',1,'luisa::compute']]],
-  ['metastmtbuilder_12',['MetaStmtBuilder',['../dc/d56/classluisa_1_1compute_1_1detail_1_1_meta_stmt_builder.html',1,'luisa::compute::detail']]],
-  ['metavalue_13',['MetaValue',['../dd/db4/classluisa_1_1compute_1_1_literal_expr_1_1_meta_value.html',1,'luisa::compute::LiteralExpr']]],
-  ['mipmapview_14',['MipmapView',['../d3/d7e/classluisa_1_1compute_1_1detail_1_1_mipmap_view.html',1,'luisa::compute::detail']]],
-  ['mutablecommandvisitor_15',['MutableCommandVisitor',['../d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor.html',1,'luisa::compute']]]
+  ['metastmt_10',['MetaStmt',['../d1/d84/classluisa_1_1compute_1_1_meta_stmt.html',1,'luisa::compute']]],
+  ['metastmtbuilder_11',['MetaStmtBuilder',['../dc/d56/classluisa_1_1compute_1_1detail_1_1_meta_stmt_builder.html',1,'luisa::compute::detail']]],
+  ['metavalue_12',['MetaValue',['../dd/db4/classluisa_1_1compute_1_1_literal_expr_1_1_meta_value.html',1,'luisa::compute::LiteralExpr']]],
+  ['mipmapview_13',['MipmapView',['../d3/d7e/classluisa_1_1compute_1_1detail_1_1_mipmap_view.html',1,'luisa::compute::detail']]],
+  ['modification_14',['Modification',['../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html',1,'luisa::compute::AccelBuildCommand']]],
+  ['mutablecommandvisitor_15',['MutableCommandVisitor',['../d8/d37/namespaceluisa_1_1compute.html#d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor',1,'luisa::compute']]]
 ];

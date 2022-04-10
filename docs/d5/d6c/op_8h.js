@@ -124,6 +124,8 @@ var op_8h =
       [ "ASSUME", "d5/d6c/op_8h.html#ae06d2d95c37a4a56e1f650b9fabe3167ac919ba68ee2489bb9ca2cb6ba78cacdc", null ],
       [ "UNREACHABLE", "d5/d6c/op_8h.html#ae06d2d95c37a4a56e1f650b9fabe3167a58fd3b3b1f27606728077423eb21d8d6", null ],
       [ "INSTANCE_TO_WORLD_MATRIX", "d5/d6c/op_8h.html#ae06d2d95c37a4a56e1f650b9fabe3167acd8a05c30550025c83ae650453044293", null ],
+      [ "SET_INSTANCE_TRANSFORM", "d5/d6c/op_8h.html#ae06d2d95c37a4a56e1f650b9fabe3167a7839e036c33cb3fec182409b1c1c62ee", null ],
+      [ "SET_INSTANCE_VISIBILITY", "d5/d6c/op_8h.html#ae06d2d95c37a4a56e1f650b9fabe3167ad334bfd2f24a7fc8bad1d992d35ce031", null ],
       [ "TRACE_CLOSEST", "d5/d6c/op_8h.html#ae06d2d95c37a4a56e1f650b9fabe3167ae5fce3cb2b90901b5bd7253771ff248a", null ],
       [ "TRACE_ANY", "d5/d6c/op_8h.html#ae06d2d95c37a4a56e1f650b9fabe3167a938286c54ee899874ad0d10fcd764f0e", null ]
     ] ],

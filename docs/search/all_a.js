@@ -1,7 +1,7 @@
 var searchData=
 [
-  ['kernel_0',['kernel',['../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa86ad8b9cdceb16e74af9aeb357c86fd',1,'luisa::compute::ShaderDispatchCommand']]],
-  ['kernel_1',['Kernel',['../da/d62/classluisa_1_1compute_1_1_kernel.html#a28408dd479f481f5e41ca2334a984e13',1,'luisa::compute::Kernel']]],
+  ['kernel_0',['Kernel',['../da/d62/classluisa_1_1compute_1_1_kernel.html#a28408dd479f481f5e41ca2334a984e13',1,'luisa::compute::Kernel']]],
+  ['kernel_1',['kernel',['../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa86ad8b9cdceb16e74af9aeb357c86fd',1,'luisa::compute::ShaderDispatchCommand']]],
   ['kernel_2',['KERNEL',['../d0/d9d/classluisa_1_1compute_1_1_function.html#a5092620c57d7dae7365b098312bd65e4a35c10219c45ccfb5b07444fd7e17214c',1,'luisa::compute::Function']]],
   ['kernel_3',['Kernel',['../da/d62/classluisa_1_1compute_1_1_kernel.html',1,'luisa::compute']]],
   ['kernel1d_4',['Kernel1D',['../da/d62/classluisa_1_1compute_1_1_kernel.html#a94c58768337bb138574d4bc5285603b9',1,'luisa::compute::Kernel::Kernel1D()'],['../dc/d0f/structluisa_1_1compute_1_1_kernel1_d.html#a58a4d3db511d5c0df79676235bed1202',1,'luisa::compute::Kernel1D::Kernel1D()'],['../d9/dff/structluisa_1_1compute_1_1_kernel1_d_3_01void_07_args_8_8_8_08_4.html#a3a5c37791df9bbb40ead4c07dcb1fed4',1,'luisa::compute::Kernel1D&lt; void(Args...)&gt;::Kernel1D()'],['../d8/d37/namespaceluisa_1_1compute.html#ac6ea0ac2a892ff6a4767c3fffbc40252',1,'luisa::compute::Kernel1D(T &amp;&amp;) -&gt; Kernel1D&lt; detail::dsl_function_t&lt; std::remove_cvref_t&lt; T &gt; &gt; &gt;'],['../dc/d0f/structluisa_1_1compute_1_1_kernel1_d.html',1,'luisa::compute::Kernel1D&lt; Args &gt;']]],
@@ -13,6 +13,5 @@ var searchData=
   ['kernel_3c_201_2c_20args_2e_2e_2e_20_3e_10',['Kernel&lt; 1, Args... &gt;',['../da/d62/classluisa_1_1compute_1_1_kernel.html',1,'luisa::compute']]],
   ['kernel_3c_202_2c_20args_2e_2e_2e_20_3e_11',['Kernel&lt; 2, Args... &gt;',['../da/d62/classluisa_1_1compute_1_1_kernel.html',1,'luisa::compute']]],
   ['kernel_3c_203_2c_20args_2e_2e_2e_20_3e_12',['Kernel&lt; 3, Args... &gt;',['../da/d62/classluisa_1_1compute_1_1_kernel.html',1,'luisa::compute']]],
-  ['kernel_5fdefault_5fblock_5fsize_13',['kernel_default_block_size',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#ab5e7f7f8518d2eb6d3a80f8e30b05de1',1,'luisa::compute::detail']]],
-  ['kernel_5fmain_14',['kernel_main',['../db/d9c/ispc__test_8cpp.html#ada8402e0c504af8cafef5cc76c076003',1,'ispc_test.cpp']]]
+  ['kernel_5fdefault_5fblock_5fsize_13',['kernel_default_block_size',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#ab5e7f7f8518d2eb6d3a80f8e30b05de1',1,'luisa::compute::detail']]]
 ];

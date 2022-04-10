@@ -4,7 +4,7 @@ var searchData=
   ['_7ecommand_1',['~Command',['../db/d64/classluisa_1_1compute_1_1_command.html#a7989bb8b2b2ea98f2578a2abb9ea040b',1,'luisa::compute::Command']]],
   ['_7ecommandbuffer_2',['~CommandBuffer',['../d2/d41/classluisa_1_1compute_1_1_command_buffer.html#ab2969e4db084650cd745ce5f646bf3aa',1,'luisa::compute::CommandBuffer']]],
   ['_7ecommandlist_3',['~CommandList',['../d5/d6e/classluisa_1_1compute_1_1_command_list.html#a2fdb56bd8419f1ecaa7f2d672b1579ad',1,'luisa::compute::CommandList']]],
-  ['_7ecommandreordervisitor_4',['~CommandReorderVisitor',['../d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor.html#a8f69372509497eac785f388dc14e44ab',1,'luisa::compute::CommandReorderVisitor']]],
+  ['_7ecommandreordervisitor_4',['~CommandReorderVisitor',['../d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor.html#ae62794d356bb989a85da063b2d5e7c7a',1,'luisa::compute::CommandReorderVisitor']]],
   ['_7econtext_5',['~Context',['../d9/d3a/classluisa_1_1compute_1_1_context.html#afc2e153443e0523d1cc47b28ed37e1dd',1,'luisa::compute::Context']]],
   ['_7edelegate_6',['~Delegate',['../da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#ac89257069dcfb9453609e50bceb7942b',1,'luisa::compute::Stream::Delegate']]],
   ['_7edynamicmodule_7',['~DynamicModule',['../da/d24/classluisa_1_1_dynamic_module.html#ac222bc5f0a2703831233e409bad0ba01',1,'luisa::DynamicModule']]],
