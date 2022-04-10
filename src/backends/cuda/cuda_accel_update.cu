@@ -16,60 +16,42 @@ struct alignas(16) Instance {
     Property property;
 };
 
-struct alignas(16) Request {
+struct alignas(16) Modification {
     unsigned int index;
     unsigned int flags;
-    unsigned int visible;
-    unsigned int padding;
+    uint2 mesh;
     float4 affine[3];
 };
 
 static_assert(sizeof(Instance) == 80, "");
-static_assert(sizeof(Request) == 64, "");
-
-extern "C"
-__global__ void initialize_instances(
-    Instance *__restrict__ instances,
-    const uint2 *__restrict__ gas,
-    const Request *__restrict__ requests,
-    unsigned int n) {
-    auto tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < n) [[likely]] {
-        constexpr auto update_flag_transform = 0x01u;
-        constexpr auto update_flag_visibility = 0x02u;
-        auto r = requests[tid];
-        auto mask = instances[r.index].property.mask;
-        __builtin_assume(mask <= 0xffu);
-        if (r.flags & update_flag_visibility) { mask = r.visible ? 0xffu : 0x00u; }
-        Property p{r.index, 0u, mask, 5u, gas[r.index]};
-        instances[r.index].property = p;
-        if (r.flags & update_flag_transform) {
-            auto p = instances[r.index].affine;
-            p[0] = r.affine[0];
-            p[1] = r.affine[1];
-            p[2] = r.affine[2];
-        }
-    }
-}
+static_assert(sizeof(Modification) == 64, "");
 
 extern "C"
 __global__ void update_instances(
     Instance *__restrict__ instances,
-    const Request *__restrict__ requests,
+    const Modification *__restrict__ mods,
     unsigned int n) {
     auto tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid < n) [[likely]] {
-        constexpr auto update_flag_transform = 0x01u;
-        constexpr auto update_flag_visibility = 0x02u;
-        auto r = requests[tid];
-        if (r.flags & update_flag_visibility) {
-            instances[r.index].property.mask = r.visible ? 0xffu : 0x00u;
-        }
-        if (r.flags & update_flag_transform) {
-            auto p = instances[r.index].affine;
-            p[0] = r.affine[0];
-            p[1] = r.affine[1];
-            p[2] = r.affine[2];
+        constexpr auto update_flag_mesh = 1u << 0u;
+        constexpr auto update_flag_transform = 1u << 1u;
+        constexpr auto update_flag_visibility_on = 1u << 2u;
+        constexpr auto update_flag_visibility_off = 1u << 3u;
+        constexpr auto update_flag_visibility =
+            update_flag_visibility_on | update_flag_visibility_off;
+        auto m = mods[tid];
+        auto p = instances[m.index].property;
+        p.instance_id = m.index;
+        p.sbt_offset = 0u;
+        p.flags = 0x5u;
+        if (m.flags & update_flag_mesh) { p.traversable = m.mesh; }
+        if (m.flags & update_flag_visibility) { p.mask = (m.flags & update_flag_visibility_on) ? 0xffu : 0x00u; }
+        instances[m.index].property = p;
+        if (m.flags & update_flag_transform) {
+            auto t = instances[m.index].affine;
+            t[0] = m.affine[0];
+            t[1] = m.affine[1];
+            t[2] = m.affine[2];
         }
     }
 }

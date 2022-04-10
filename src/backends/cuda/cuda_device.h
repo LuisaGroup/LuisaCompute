@@ -102,7 +102,6 @@ private:
     Handle _handle;
     luisa::unique_ptr<CUDAHeap> _heap;
     CUmodule _accel_update_module{nullptr};
-    CUfunction _accel_initialize_function{nullptr};
     CUfunction _accel_update_function{nullptr};
 
 public:
@@ -248,7 +247,7 @@ public:
      * @param hint build hint
      * @return handle of CUDAMesh object
      */
-    uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint)  noexcept override;
+    uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint)  noexcept override;
     /**
      * @brief Destroy a mesh
      * 
@@ -256,26 +255,12 @@ public:
      */
     void destroy_mesh(uint64_t handle) noexcept override;
     /**
-     * @brief Get the vertex buffer from mesh object
-     * 
-     * @param mesh_handle handle of mesh
-     * @return handle of vertex buffer
-     */
-    uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    /**
-     * @brief Get the triangle buffer from mesh object
-     * 
-     * @param mesh_handle handle of mesh
-     * @return handle of triangle buffer
-     */
-    uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    /**
      * @brief Create an accel object
      * 
      * @param hint build hint
      * @return handle of CUDAAccel object
      */
-    uint64_t create_accel(AccelBuildHint hint) noexcept override;
+    uint64_t create_accel(AccelUsageHint hint) noexcept override;
     /**
      * @brief Destroy an accel
      * 
@@ -420,12 +405,6 @@ public:
      * @return pointer to the kernel function
      */
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
-    /**
-     * @brief Get pointer to the pre-defined acceleration structure initialize kernel function
-     *
-     * @return pointer to the kernel function
-     */
-    [[nodiscard]] auto accel_initialize_function() const noexcept { return _accel_initialize_function; }
     /**
      * @brief Dispatch a host function in the stream
      *

@@ -37,14 +37,19 @@ public:
 
 private:
     OptixTraversableHandle _handle{};
+    CUDAHeap *_heap{nullptr};
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
-    CUDAHeap *_heap{nullptr};
-    uint _instance_count{};
-    AccelBuildHint _build_hint;
+    luisa::vector<const CUDAMesh *> _meshes;
+    luisa::vector<uint64_t> _mesh_handles;
+    AccelUsageHint _build_hint;
+
+private:
+    void _build(CUDADevice *device, CUDAStream *stream, CUstream cuda_stream) noexcept;
+    void _update(CUDADevice *device, CUDAStream *stream, CUstream cuda_stream) noexcept;
 
 public:
     /**
@@ -52,7 +57,7 @@ public:
      * 
      * @param hint build hint
      */
-    explicit CUDAAccel(AccelBuildHint hint) noexcept;
+    CUDAAccel(AccelUsageHint hint, CUDAHeap *heap) noexcept;
     ~CUDAAccel() noexcept;
 
     /**
@@ -60,21 +65,9 @@ public:
      *
      * @param device pointer to the CUDA device
      * @param stream pointer to the CUDA stream
-     * @param mesh_handles handles of the meshes to emplace in the acceleration structure
-     * @param requests update requests from the host
+     * @param command command to build the acceleration structure
      */
-    void build(CUDADevice *device, CUDAStream *stream,
-               luisa::span<const uint64_t> mesh_handles,
-               luisa::span<const AccelUpdateRequest> requests) noexcept;
-    /**
-     * @brief Update the acceleration structure
-     * 
-     * @param device pointer to the CUDA device
-     * @param stream pointer to the CUDA stream
-     * @param requests update requests from the host
-     */
-    void update(CUDADevice *device, CUDAStream *stream,
-                luisa::span<const AccelUpdateRequest> requests) noexcept;
+    void build(CUDADevice *device, CUDAStream *stream, const AccelBuildCommand *command) noexcept;
     /**
      * @brief Return OptixTraversableHandle
      * 
