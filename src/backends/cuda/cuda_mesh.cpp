@@ -44,7 +44,6 @@ inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
     switch (hint) {
         case AccelUsageHint::FAST_TRACE:
             build_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION |
-                                       OPTIX_BUILD_FLAG_ALLOW_UPDATE |
                                        OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
             break;
         case AccelUsageHint::FAST_UPDATE:
@@ -62,7 +61,8 @@ inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
 void CUDAMesh::build(CUDADevice *device, CUDAStream *stream, const MeshBuildCommand *command) noexcept {
 
     auto build_input = _make_build_input();
-    if (_handle != 0u && command->request() == AccelBuildRequest::PREFER_UPDATE) {
+    if (_handle != 0u && _build_hint != AccelUsageHint::FAST_TRACE &&
+        command->request() == AccelBuildRequest::PREFER_UPDATE) {
         auto build_options = make_build_options(
             _build_hint, OPTIX_BUILD_OPERATION_UPDATE);
         auto update_buffer = _heap->allocate(_update_buffer_size);
@@ -143,7 +143,9 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream, const MeshBuildComm
         size_t compacted_size;
         LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), cuda_stream));
         LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
-        LUISA_INFO("Compacted size: {}.", compacted_size);
+        LUISA_INFO("CUDAMesh compaction sizes: before = {}B, after = {}B, ratio = {}.",
+                   sizes.outputSizeInBytes, compacted_size,
+                   compacted_size / static_cast<double>(sizes.outputSizeInBytes));
 
         if (_bvh_buffer_size < compacted_size) {
             stream->emplace_callback(

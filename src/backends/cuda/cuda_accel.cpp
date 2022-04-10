@@ -188,7 +188,9 @@ void CUDAAccel::_build(CUDADevice *device, CUDAStream *stream, CUstream cuda_str
         size_t compacted_size;
         LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), cuda_stream));
         LUISA_CHECK_CUDA(cuStreamSynchronize(cuda_stream));
-        LUISA_INFO("Compacted size: {}.", compacted_size);
+        LUISA_INFO("CUDAAccel compaction: before = {}B, after = {}B, ratio = {}.",
+                   sizes.outputSizeInBytes, compacted_size,
+                   compacted_size / static_cast<double>(sizes.outputSizeInBytes));
         // do compaction...
         if (_bvh_buffer_size < compacted_size) {
             stream->emplace_callback(
