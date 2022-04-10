@@ -21,9 +21,9 @@ if (LUISA_COMPUTE_ENABLE_METAL)
     add_subdirectory(metal)
 endif ()
 
-#if (LUISA_COMPUTE_ENABLE_CUDA)
-#    add_subdirectory(cuda)
-#endif ()
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    add_subdirectory(cuda)
+endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
     add_subdirectory(ispc)

@@ -292,7 +292,7 @@ void CUDADevice::synchronize_event(uint64_t handle) noexcept {
     });
 }
 
-uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
     return with_handle([=] {
         auto mesh = new_with_allocator<CUDAMesh>(
             v_buffer, v_offset, v_stride, v_count,
@@ -307,9 +307,9 @@ void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
     });
 }
 
-uint64_t CUDADevice::create_accel(AccelBuildHint hint) noexcept {
-    return with_handle([=] {
-        auto accel = new_with_allocator<CUDAAccel>(hint);
+uint64_t CUDADevice::create_accel(AccelUsageHint hint) noexcept {
+    return with_handle([=, this] {
+        auto accel = new_with_allocator<CUDAAccel>(hint, _heap.get());
         return reinterpret_cast<uint64_t>(accel);
     });
 }
@@ -330,9 +330,6 @@ CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_accel_update_function, _accel_update_module,
             "update_instances"));
-        LUISA_CHECK_CUDA(cuModuleGetFunction(
-            &_accel_initialize_function, _accel_update_module,
-            "initialize_instances"));
     });
 }
 
@@ -395,14 +392,6 @@ void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index] {
         array->remove_tex3d(index);
     });
-}
-
-uint64_t CUDADevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<CUDAMesh *>(mesh_handle)->vertex_buffer_handle();
-}
-
-uint64_t CUDADevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<CUDAMesh *>(mesh_handle)->triangle_buffer_handle();
 }
 
 CUDADevice::~CUDADevice() noexcept {

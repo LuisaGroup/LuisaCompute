@@ -6,29 +6,27 @@
 // Based on NVVM 7.0.1
 //
 
-.version 6.3
+.version 7.6
 .target sm_52
 .address_size 64
 
-	// .globl	initialize_instances
+	// .globl	update_instances
 
-.visible .entry initialize_instances(
-	.param .u64 initialize_instances_param_0,
-	.param .u64 initialize_instances_param_1,
-	.param .u64 initialize_instances_param_2,
-	.param .u32 initialize_instances_param_3
+.visible .entry update_instances(
+	.param .u64 update_instances_param_0,
+	.param .u64 update_instances_param_1,
+	.param .u32 update_instances_param_2
 )
 {
-	.reg .pred 	%p<8>;
+	.reg .pred 	%p<5>;
 	.reg .f32 	%f<25>;
-	.reg .b32 	%r<24>;
-	.reg .b64 	%rd<14>;
+	.reg .b32 	%r<37>;
+	.reg .b64 	%rd<10>;
 
 
-	ld.param.u64 	%rd2, [initialize_instances_param_0];
-	ld.param.u64 	%rd3, [initialize_instances_param_1];
-	ld.param.u64 	%rd4, [initialize_instances_param_2];
-	ld.param.u32 	%r2, [initialize_instances_param_3];
+	ld.param.u64 	%rd3, [update_instances_param_0];
+	ld.param.u64 	%rd4, [update_instances_param_1];
+	ld.param.u32 	%r2, [update_instances_param_2];
 	mov.u32 	%r3, %ntid.x;
 	mov.u32 	%r4, %ctaid.x;
 	mov.u32 	%r5, %tid.x;
@@ -38,98 +36,39 @@
 
 	cvta.to.global.u64 	%rd5, %rd4;
 	mul.wide.u32 	%rd6, %r1, 64;
-	add.s64 	%rd7, %rd5, %rd6;
-	ld.global.nc.v4.u32 	{%r6, %r7, %r8, %r9}, [%rd7];
-	ld.global.nc.v4.f32 	{%f13, %f14, %f15, %f16}, [%rd7+16];
-	ld.global.nc.v4.f32 	{%f17, %f18, %f19, %f20}, [%rd7+32];
-	ld.global.nc.v4.f32 	{%f21, %f22, %f23, %f24}, [%rd7+48];
-	cvta.to.global.u64 	%rd8, %rd2;
-	mul.wide.u32 	%rd9, %r6, 80;
-	add.s64 	%rd10, %rd8, %rd9;
-	add.s64 	%rd1, %rd10, 56;
-	ld.global.u32 	%r13, [%rd10+56];
-	and.b32  	%r14, %r7, 2;
-	setp.eq.s32 	%p2, %r14, 0;
-	setp.eq.s32 	%p3, %r8, 0;
-	selp.b32 	%r15, 0, 255, %p3;
-	cvta.to.global.u64 	%rd11, %rd3;
-	mul.wide.u32 	%rd12, %r6, 8;
-	add.s64 	%rd13, %rd11, %rd12;
-	ld.global.nc.v2.u32 	{%r16, %r17}, [%rd13];
-	selp.b32 	%r18, %r13, %r15, %p2;
-	mov.u32 	%r19, 5;
-	mov.u32 	%r20, 0;
-	st.global.v4.u32 	[%rd10+48], {%r6, %r20, %r18, %r19};
-	st.global.v4.u32 	[%rd10+64], {%r16, %r17, %r20, %r20};
-	and.b32  	%r23, %r7, 1;
-	setp.eq.b32 	%p4, %r23, 1;
-	mov.pred 	%p5, 0;
-	xor.pred  	%p6, %p4, %p5;
-	not.pred 	%p7, %p6;
-	@%p7 bra 	$L__BB0_3;
+	add.s64 	%rd1, %rd5, %rd6;
+	ld.global.nc.v4.u32 	{%r6, %r7, %r8, %r9}, [%rd1];
+	cvta.to.global.u64 	%rd7, %rd3;
+	mul.wide.u32 	%rd8, %r6, 80;
+	add.s64 	%rd9, %rd7, %rd8;
+	add.s64 	%rd2, %rd9, 48;
+	ld.global.v4.u32 	{%r14, %r15, %r16, %r17}, [%rd9+48];
+	ld.global.v4.u32 	{%r19, %r20, %r21, %r22}, [%rd9+64];
+	and.b32  	%r25, %r7, 1;
+	setp.eq.b32 	%p2, %r25, 1;
+	and.b32  	%r26, %r7, 12;
+	setp.eq.s32 	%p3, %r26, 0;
+	bfe.s32 	%r27, %r7, 2, 1;
+	and.b32  	%r28, %r27, 255;
+	selp.b32 	%r29, %r16, %r28, %p3;
+	mov.u32 	%r30, 5;
+	mov.u32 	%r31, 0;
+	st.global.v4.u32 	[%rd9+48], {%r6, %r31, %r29, %r30};
+	selp.b32 	%r32, %r9, %r20, %p2;
+	selp.b32 	%r33, %r8, %r19, %p2;
+	st.global.v4.u32 	[%rd9+64], {%r33, %r32, %r21, %r22};
+	and.b32  	%r36, %r7, 2;
+	setp.eq.s32 	%p4, %r36, 0;
+	@%p4 bra 	$L__BB0_3;
 
-	st.global.v4.f32 	[%rd1+-56], {%f13, %f14, %f15, %f16};
-	st.global.v4.f32 	[%rd1+-40], {%f17, %f18, %f19, %f20};
-	st.global.v4.f32 	[%rd1+-24], {%f21, %f22, %f23, %f24};
+	ld.global.nc.v4.f32 	{%f1, %f2, %f3, %f4}, [%rd1+16];
+	ld.global.nc.v4.f32 	{%f9, %f10, %f11, %f12}, [%rd1+32];
+	ld.global.nc.v4.f32 	{%f17, %f18, %f19, %f20}, [%rd1+48];
+	st.global.v4.f32 	[%rd2+-48], {%f1, %f2, %f3, %f4};
+	st.global.v4.f32 	[%rd2+-32], {%f9, %f10, %f11, %f12};
+	st.global.v4.f32 	[%rd2+-16], {%f17, %f18, %f19, %f20};
 
 $L__BB0_3:
-	ret;
-
-}
-	// .globl	update_instances
-.visible .entry update_instances(
-	.param .u64 update_instances_param_0,
-	.param .u64 update_instances_param_1,
-	.param .u32 update_instances_param_2
-)
-{
-	.reg .pred 	%p<8>;
-	.reg .f32 	%f<25>;
-	.reg .b32 	%r<18>;
-	.reg .b64 	%rd<9>;
-
-
-	ld.param.u64 	%rd2, [update_instances_param_0];
-	ld.param.u64 	%rd3, [update_instances_param_1];
-	ld.param.u32 	%r7, [update_instances_param_2];
-	mov.u32 	%r8, %ntid.x;
-	mov.u32 	%r9, %ctaid.x;
-	mov.u32 	%r10, %tid.x;
-	mad.lo.s32 	%r1, %r9, %r8, %r10;
-	setp.ge.u32 	%p1, %r1, %r7;
-	@%p1 bra 	$L__BB1_5;
-
-	cvta.to.global.u64 	%rd4, %rd3;
-	mul.wide.u32 	%rd5, %r1, 64;
-	add.s64 	%rd6, %rd4, %rd5;
-	ld.global.nc.v4.u32 	{%r11, %r12, %r13, %r14}, [%rd6];
-	ld.global.nc.v4.f32 	{%f13, %f14, %f15, %f16}, [%rd6+16];
-	ld.global.nc.v4.f32 	{%f17, %f18, %f19, %f20}, [%rd6+32];
-	ld.global.nc.v4.f32 	{%f21, %f22, %f23, %f24}, [%rd6+48];
-	and.b32  	%r15, %r12, 2;
-	setp.eq.s32 	%p2, %r15, 0;
-	cvta.to.global.u64 	%rd7, %rd2;
-	mul.wide.u32 	%rd8, %r11, 80;
-	add.s64 	%rd1, %rd7, %rd8;
-	@%p2 bra 	$L__BB1_3;
-
-	setp.eq.s32 	%p3, %r13, 0;
-	selp.b32 	%r16, 0, 255, %p3;
-	st.global.u32 	[%rd1+56], %r16;
-
-$L__BB1_3:
-	and.b32  	%r17, %r12, 1;
-	setp.eq.b32 	%p4, %r17, 1;
-	mov.pred 	%p5, 0;
-	xor.pred  	%p6, %p4, %p5;
-	not.pred 	%p7, %p6;
-	@%p7 bra 	$L__BB1_5;
-
-	st.global.v4.f32 	[%rd1], {%f13, %f14, %f15, %f16};
-	st.global.v4.f32 	[%rd1+16], {%f17, %f18, %f19, %f20};
-	st.global.v4.f32 	[%rd1+32], {%f21, %f22, %f23, %f24};
-
-$L__BB1_5:
 	ret;
 
 }

@@ -4,19 +4,14 @@
 
 #include <luisa-compute.h>
 #include <runtime/command_reorder_visitor.h>
+
 using namespace luisa;
 using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
-    Context context{argv[0]};
 
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
+    Context context{argv[0]};
     auto device = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device = context.create_device("metal");
-#else
-    auto device = context.create_device("ispc");
-#endif
 
     auto width = 1920u, height = 1080u;
 

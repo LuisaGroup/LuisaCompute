@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("metal");
+    auto device = context.create_device("cuda");
 
     std::array vertices{
         float3(-0.5f, -0.5f, 0.0f),
@@ -140,5 +140,5 @@ int main(int argc, char *argv[]) {
            << synchronize();
     auto time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_rtx_metal.png", width, height, 4, pixels.data(), 0);
+    stbi_write_png("test_rtx_cuda.png", width, height, 4, pixels.data(), 0);
 }
