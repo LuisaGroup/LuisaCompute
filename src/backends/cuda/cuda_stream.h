@@ -24,7 +24,7 @@ class CUDACallbackContext;
 class CUDAStream {
 
 public:
-    static constexpr auto backed_cuda_stream_count = 8u;
+    static constexpr auto backed_cuda_stream_count = 2u;
 
 private:
     CUDAHostBufferPool _upload_pool;
