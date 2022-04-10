@@ -71,14 +71,12 @@ var hierarchy =
     ] ],
     [ "luisa::compute::Command", "db/d64/classluisa_1_1compute_1_1_command.html", [
       [ "luisa::compute::AccelBuildCommand", "d1/d28/classluisa_1_1compute_1_1_accel_build_command.html", null ],
-      [ "luisa::compute::AccelUpdateCommand", "d3/d31/classluisa_1_1compute_1_1_accel_update_command.html", null ],
       [ "luisa::compute::BindlessArrayUpdateCommand", "df/d53/classluisa_1_1compute_1_1_bindless_array_update_command.html", null ],
       [ "luisa::compute::BufferCopyCommand", "dd/d1d/classluisa_1_1compute_1_1_buffer_copy_command.html", null ],
       [ "luisa::compute::BufferDownloadCommand", "d0/de2/classluisa_1_1compute_1_1_buffer_download_command.html", null ],
       [ "luisa::compute::BufferToTextureCopyCommand", "dc/db6/classluisa_1_1compute_1_1_buffer_to_texture_copy_command.html", null ],
       [ "luisa::compute::BufferUploadCommand", "d5/d1a/classluisa_1_1compute_1_1_buffer_upload_command.html", null ],
       [ "luisa::compute::MeshBuildCommand", "dc/d8d/classluisa_1_1compute_1_1_mesh_build_command.html", null ],
-      [ "luisa::compute::MeshUpdateCommand", "d4/d75/classluisa_1_1compute_1_1_mesh_update_command.html", null ],
       [ "luisa::compute::ShaderDispatchCommand", "d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html", null ],
       [ "luisa::compute::TextureCopyCommand", "d4/d2b/classluisa_1_1compute_1_1_texture_copy_command.html", null ],
       [ "luisa::compute::TextureDownloadCommand", "d0/de0/classluisa_1_1compute_1_1_texture_download_command.html", null ],
@@ -87,6 +85,7 @@ var hierarchy =
     ] ],
     [ "luisa::compute::CommandBuffer", "d2/d41/classluisa_1_1compute_1_1_command_buffer.html", null ],
     [ "luisa::compute::CommandVisitor", "de/d8f/structluisa_1_1compute_1_1_command_visitor.html", [
+      [ "luisa::compute::CommandReorderVisitor", "d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor.html", null ],
       [ "luisa::compute::ispc::ISPCStream", "df/de7/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_stream.html", null ]
     ] ],
     [ "luisa::compute::CommandBuffer::Commit", "d2/d41/classluisa_1_1compute_1_1_command_buffer.html#d1/da2/structluisa_1_1compute_1_1_command_buffer_1_1_commit", null ],
@@ -262,11 +261,11 @@ var hierarchy =
     [ "luisa::compute::ispc::ISPCAccel::Handle", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#d7/d82/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_handle", null ],
     [ "luisa::compute::ispc::ISPCBindlessArray::Handle", "d2/d16/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_bindless_array.html#d1/dec/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_bindless_array_1_1_handle", null ],
     [ "luisa::compute::ispc::ISPCTexture::Handle", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#d4/d3a/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture_1_1_handle", null ],
-    [ "luisa::compute::CommandReorderVisitor::CommandSource::Hash", "db/d7f/structluisa_1_1compute_1_1_command_reorder_visitor_1_1_command_source_1_1_hash.html", null ],
     [ "luisa::compute::Function::Hash", "d8/dc5/structluisa_1_1compute_1_1_function_1_1_hash.html", null ],
     [ "luisa::Hash64", "dd/d5d/classluisa_1_1_hash64.html", null ],
     [ "luisa::compute::detail::IfStmtBuilder", "de/d36/classluisa_1_1compute_1_1detail_1_1_if_stmt_builder.html", null ],
     [ "luisa::compute::ImageView< T >", "df/d98/classluisa_1_1compute_1_1_image_view.html", null ],
+    [ "luisa::compute::ImageView< float >", "df/d98/classluisa_1_1compute_1_1_image_view.html", null ],
     [ "luisa::compute::ispc::ISPCAccel::Instance", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#d7/dc6/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_instance", null ],
     [ "luisa::compute::detail::is_valid_reflection< S, std::tuple< M... >, std::integer_sequence< O, os... > >", "df/dba/structluisa_1_1compute_1_1detail_1_1is__valid__reflection_3_01_s_00_01std_1_1tuple_3_01_m_8_8_8_cce4856339aa46235ebc5f779c97484d.html", null ],
     [ "luisa::compute::ispc::ISPCAccel", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html", null ],
@@ -312,9 +311,8 @@ var hierarchy =
     [ "luisa::compute::detail::MetaStmtBuilder", "dc/d56/classluisa_1_1compute_1_1detail_1_1_meta_stmt_builder.html", null ],
     [ "luisa::compute::LiteralExpr::MetaValue", "dd/db4/classluisa_1_1compute_1_1_literal_expr_1_1_meta_value.html", null ],
     [ "luisa::compute::detail::MipmapView", "d3/d7e/classluisa_1_1compute_1_1detail_1_1_mipmap_view.html", null ],
-    [ "luisa::compute::MutableCommandVisitor", "d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor.html", [
-      [ "luisa::compute::CommandReorderVisitor", "d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor.html", null ]
-    ] ],
+    [ "luisa::compute::AccelBuildCommand::Modification", "da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html", null ],
+    [ "luisa::compute::MutableCommandVisitor", "d8/d37/namespaceluisa_1_1compute.html#d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor", null ],
     [ "luisa::FirstFit::Node", "d0/d07/classluisa_1_1_first_fit_1_1_node.html", null ],
     [ "luisa::concepts::Noncopyable", "d1/d82/structluisa_1_1concepts_1_1_noncopyable.html", [
       [ "luisa::DynamicModule", "da/d24/classluisa_1_1_dynamic_module.html", null ],
@@ -350,7 +348,7 @@ var hierarchy =
     [ "luisa::Observer", "da/d91/classluisa_1_1_observer.html", null ],
     [ "luisa::Subject::ObserverHash", "df/d80/structluisa_1_1_subject_1_1_observer_hash.html", null ],
     [ "luisa::Pool< T >", "d8/d71/classluisa_1_1_pool.html", null ],
-    [ "luisa::Pool< CommandRelation >", "d8/d71/classluisa_1_1_pool.html", null ],
+    [ "luisa::compute::SwapChain::Present", "d4/d21/classluisa_1_1compute_1_1_swap_chain.html#d1/d48/structluisa_1_1compute_1_1_swap_chain_1_1_present", null ],
     [ "luisa::compute::Printer", "d2/d48/classluisa_1_1compute_1_1_printer.html", null ],
     [ "luisa::compute::detail::prototype_to_callable_invocation< T >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#d5/db7/structluisa_1_1compute_1_1detail_1_1prototype__to__callable__invocation", null ],
     [ "luisa::compute::detail::prototype_to_callable_invocation< const T & >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#db/d48/structluisa_1_1compute_1_1detail_1_1prototype__to__callable__invocation_3_01const_01_t_01_6_01_4", null ],
@@ -407,6 +405,7 @@ var hierarchy =
       [ "luisa::compute::Image< T >", "d7/dc4/classluisa_1_1compute_1_1_image.html", null ],
       [ "luisa::compute::Shader< dimension, Args >", "d2/dbb/classluisa_1_1compute_1_1_shader.html", null ],
       [ "luisa::compute::Stream", "de/d37/classluisa_1_1compute_1_1_stream.html", null ],
+      [ "luisa::compute::SwapChain", "d4/d21/classluisa_1_1compute_1_1_swap_chain.html", null ],
       [ "luisa::compute::Volume< T >", "df/dea/classluisa_1_1compute_1_1_volume.html", null ]
     ] ],
     [ "luisa::compute::ResourceTracker", "dd/d82/classluisa_1_1compute_1_1_resource_tracker.html", null ],
@@ -548,7 +547,6 @@ var hierarchy =
     [ "enable_shared_from_this", null, [
       [ "luisa::Subject", "d2/da4/classluisa_1_1_subject.html", null ],
       [ "luisa::compute::Device::Interface", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html", [
-        [ "luisa::compute::DxDevice", "dc/dca/classluisa_1_1compute_1_1_dx_device.html", null ],
         [ "luisa::compute::ispc::ISPCDevice", "d2/dda/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_device.html", null ]
       ] ],
       [ "luisa::compute::detail::FunctionBuilder", "d3/de6/classluisa_1_1compute_1_1detail_1_1_function_builder.html", null ]

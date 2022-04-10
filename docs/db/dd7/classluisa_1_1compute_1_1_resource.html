@@ -108,7 +108,8 @@ Inheritance diagram for luisa::compute::Resource:</div>
 <area href="../../d7/dc4/classluisa_1_1compute_1_1_image.html" alt="luisa::compute::Image&lt; T &gt;" shape="rect" coords="264,280,518,304"/>
 <area href="../../d2/dbb/classluisa_1_1compute_1_1_shader.html" alt="luisa::compute::Shader&lt; dimension, Args &gt;" shape="rect" coords="264,336,518,360"/>
 <area href="../../de/d37/classluisa_1_1compute_1_1_stream.html" alt="luisa::compute::Stream" shape="rect" coords="264,392,518,416"/>
-<area href="../../df/dea/classluisa_1_1compute_1_1_volume.html" alt="luisa::compute::Volume&lt; T &gt;" shape="rect" coords="264,448,518,472"/>
+<area href="../../d4/d21/classluisa_1_1compute_1_1_swap_chain.html" alt="luisa::compute::SwapChain" shape="rect" coords="264,448,518,472"/>
+<area href="../../df/dea/classluisa_1_1compute_1_1_volume.html" alt="luisa::compute::Volume&lt; T &gt;" shape="rect" coords="264,504,518,528"/>
   </map>
 </div></div>
 <table class="memberdecls">
@@ -124,6 +125,8 @@ Public Types</h2></td></tr>
 , <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a3d72fc24a13e8e17d2284bf4f59a19d6a2f05998d2a71cdc19b7109549bbe2646">STREAM</a>
 , <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a3d72fc24a13e8e17d2284bf4f59a19d6a030d962d0faa148f02848881a3b4fdb6">EVENT</a>
 , <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a3d72fc24a13e8e17d2284bf4f59a19d6aa05d35337eb28027e70aef2ea40ff1df">SHADER</a>
+, <br />
+&#160;&#160;<a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a3d72fc24a13e8e17d2284bf4f59a19d6a22072dc598186d42ade002231e67a9f2">SWAP_CHAIN</a>
 <br />
  }</td></tr>
 <tr class="separator:a3d72fc24a13e8e17d2284bf4f59a19d6"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -132,6 +135,8 @@ Public Types</h2></td></tr>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a69c6ebc72258c101fa377a2fa62e3460"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a69c6ebc72258c101fa377a2fa62e3460">Resource</a> () noexcept=<a class="el" href="../../d1/dc0/sugar_8h.html#a6face89e97cccad5464dd9bb9c7efd23">default</a></td></tr>
 <tr class="separator:a69c6ebc72258c101fa377a2fa62e3460"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1d5a7e153670ea1577e54faeaa3b923f"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a1d5a7e153670ea1577e54faeaa3b923f">Resource</a> (<a class="el" href="../../d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html">Device::Interface</a> *<a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a80d70cb175660af12e01637de33f32bc">device</a>, <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a3d72fc24a13e8e17d2284bf4f59a19d6">Tag</a> <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#ad3025722466716cc1d77d89dfdcf2d87">tag</a>, uint64_t <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a00d6db28ea14237c5c3ee4f3c1afbd46">handle</a>) noexcept</td></tr>
+<tr class="separator:a1d5a7e153670ea1577e54faeaa3b923f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a60d43ebf6b120ee139c85e3ee434a419"><td class="memItemLeft" align="right" valign="top">virtual&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a60d43ebf6b120ee139c85e3ee434a419">~Resource</a> () noexcept</td></tr>
 <tr class="separator:a60d43ebf6b120ee139c85e3ee434a419"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4ba34b842a167ebc1e365a297923aa39"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a4ba34b842a167ebc1e365a297923aa39">Resource</a> (<a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html">Resource</a> &amp;&amp;) noexcept=<a class="el" href="../../d1/dc0/sugar_8h.html#a6face89e97cccad5464dd9bb9c7efd23">default</a></td></tr>
@@ -142,8 +147,6 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a39474fd56f64bdca83e6b723adf15d05"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2b0765ec766cd76f505427697a5699d1"><td class="memItemLeft" align="right" valign="top"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html">Resource</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a2b0765ec766cd76f505427697a5699d1">operator=</a> (const <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html">Resource</a> &amp;) noexcept=delete</td></tr>
 <tr class="separator:a2b0765ec766cd76f505427697a5699d1"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a0242ffa1bcb4e53b86d4bdc5b5a4c5c8"><td class="memItemLeft" align="right" valign="top">auto&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a0242ffa1bcb4e53b86d4bdc5b5a4c5c8">shared_device</a> () const noexcept</td></tr>
-<tr class="separator:a0242ffa1bcb4e53b86d4bdc5b5a4c5c8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a80d70cb175660af12e01637de33f32bc"><td class="memItemLeft" align="right" valign="top">auto&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a80d70cb175660af12e01637de33f32bc">device</a> () const noexcept</td></tr>
 <tr class="separator:a80d70cb175660af12e01637de33f32bc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a00d6db28ea14237c5c3ee4f3c1afbd46"><td class="memItemLeft" align="right" valign="top">auto&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a00d6db28ea14237c5c3ee4f3c1afbd46">handle</a> () const noexcept</td></tr>
@@ -155,12 +158,8 @@ Public Member Functions</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pro-methods" name="pro-methods"></a>
 Protected Member Functions</h2></td></tr>
-<tr class="memitem:a1d5a7e153670ea1577e54faeaa3b923f"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a1d5a7e153670ea1577e54faeaa3b923f">Resource</a> (<a class="el" href="../../d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html">Device::Interface</a> *<a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a80d70cb175660af12e01637de33f32bc">device</a>, <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a3d72fc24a13e8e17d2284bf4f59a19d6">Tag</a> <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#ad3025722466716cc1d77d89dfdcf2d87">tag</a>, uint64_t <a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a00d6db28ea14237c5c3ee4f3c1afbd46">handle</a>) noexcept</td></tr>
-<tr class="separator:a1d5a7e153670ea1577e54faeaa3b923f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a0e353e618b730878d9b58348c77cb218"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a0e353e618b730878d9b58348c77cb218">_destroy</a> () noexcept</td></tr>
 <tr class="separator:a0e353e618b730878d9b58348c77cb218"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3daed4bec9891df33f7fd8172bfd5e5e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/dd7/classluisa_1_1compute_1_1_resource.html#a3daed4bec9891df33f7fd8172bfd5e5e">_set_handle</a> (uint64_t h) noexcept</td></tr>
-<tr class="separator:a3daed4bec9891df33f7fd8172bfd5e5e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock">
@@ -194,6 +193,7 @@ Protected Member Functions</h2></td></tr>
 <tr><td class="fieldname"><a id="a3d72fc24a13e8e17d2284bf4f59a19d6a2f05998d2a71cdc19b7109549bbe2646" name="a3d72fc24a13e8e17d2284bf4f59a19d6a2f05998d2a71cdc19b7109549bbe2646"></a>STREAM&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a3d72fc24a13e8e17d2284bf4f59a19d6a030d962d0faa148f02848881a3b4fdb6" name="a3d72fc24a13e8e17d2284bf4f59a19d6a030d962d0faa148f02848881a3b4fdb6"></a>EVENT&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="a3d72fc24a13e8e17d2284bf4f59a19d6aa05d35337eb28027e70aef2ea40ff1df" name="a3d72fc24a13e8e17d2284bf4f59a19d6aa05d35337eb28027e70aef2ea40ff1df"></a>SHADER&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a3d72fc24a13e8e17d2284bf4f59a19d6a22072dc598186d42ade002231e67a9f2" name="a3d72fc24a13e8e17d2284bf4f59a19d6a22072dc598186d42ade002231e67a9f2"></a>SWAP_CHAIN&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 <p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00015">15</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
@@ -201,8 +201,33 @@ Protected Member Functions</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
+<a id="a69c6ebc72258c101fa377a2fa62e3460" name="a69c6ebc72258c101fa377a2fa62e3460"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a69c6ebc72258c101fa377a2fa62e3460">&#9670;&nbsp;</a></span>Resource() <span class="overload">[1/4]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">luisa::compute::Resource::Resource </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">default</span><span class="mlabel">noexcept</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a1d5a7e153670ea1577e54faeaa3b923f" name="a1d5a7e153670ea1577e54faeaa3b923f"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1d5a7e153670ea1577e54faeaa3b923f">&#9670;&nbsp;</a></span>Resource() <span class="overload">[1/4]</span></h2>
+<h2 class="memtitle"><span class="permalink"><a href="#a1d5a7e153670ea1577e54faeaa3b923f">&#9670;&nbsp;</a></span>Resource() <span class="overload">[2/4]</span></h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -236,37 +261,12 @@ Protected Member Functions</h2></td></tr>
       </table>
   </td>
   <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span><span class="mlabel">noexcept</span></span>  </td>
+<span class="mlabels"><span class="mlabel">noexcept</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d4/d01/resource_8cpp_source.html#l00034">34</a> of file <a class="el" href="../../d4/d01/resource_8cpp_source.html">resource.cpp</a>.</p>
-
-</div>
-</div>
-<a id="a69c6ebc72258c101fa377a2fa62e3460" name="a69c6ebc72258c101fa377a2fa62e3460"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a69c6ebc72258c101fa377a2fa62e3460">&#9670;&nbsp;</a></span>Resource() <span class="overload">[2/4]</span></h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">luisa::compute::Resource::Resource </td>
-          <td>(</td>
-          <td class="paramname"></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">default</span><span class="mlabel">noexcept</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
+<p class="definition">Definition at line <a class="el" href="../../d4/d01/resource_8cpp_source.html#l00035">35</a> of file <a class="el" href="../../d4/d01/resource_8cpp_source.html">resource.cpp</a>.</p>
 
 </div>
 </div>
@@ -377,34 +377,6 @@ Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a3daed4bec9891df33f7fd8172bfd5e5e" name="a3daed4bec9891df33f7fd8172bfd5e5e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3daed4bec9891df33f7fd8172bfd5e5e">&#9670;&nbsp;</a></span>_set_handle()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">void luisa::compute::Resource::_set_handle </td>
-          <td>(</td>
-          <td class="paramtype">uint64_t&#160;</td>
-          <td class="paramname"><em>h</em></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">protected</span><span class="mlabel">noexcept</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00034">34</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
-
-</div>
-</div>
 <a id="a80d70cb175660af12e01637de33f32bc" name="a80d70cb175660af12e01637de33f32bc"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a80d70cb175660af12e01637de33f32bc">&#9670;&nbsp;</a></span>device()</h2>
 
@@ -428,7 +400,7 @@ Protected Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00044">44</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00043">43</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
 
 </div>
 </div>
@@ -455,7 +427,7 @@ Protected Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00045">45</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00044">44</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
 
 </div>
 </div>
@@ -482,7 +454,7 @@ Protected Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00047">47</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00046">46</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
 
 </div>
 </div>
@@ -536,34 +508,7 @@ Protected Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d4/d01/resource_8cpp_source.html#l00024">24</a> of file <a class="el" href="../../d4/d01/resource_8cpp_source.html">resource.cpp</a>.</p>
-
-</div>
-</div>
-<a id="a0242ffa1bcb4e53b86d4bdc5b5a4c5c8" name="a0242ffa1bcb4e53b86d4bdc5b5a4c5c8"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a0242ffa1bcb4e53b86d4bdc5b5a4c5c8">&#9670;&nbsp;</a></span>shared_device()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">auto luisa::compute::Resource::shared_device </td>
-          <td>(</td>
-          <td class="paramname"></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">noexcept</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00043">43</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d4/d01/resource_8cpp_source.html#l00025">25</a> of file <a class="el" href="../../d4/d01/resource_8cpp_source.html">resource.cpp</a>.</p>
 
 </div>
 </div>
@@ -590,7 +535,7 @@ Protected Member Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00046">46</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d8/d01/resource_8h_source.html#l00045">45</a> of file <a class="el" href="../../d8/d01/resource_8h_source.html">resource.h</a>.</p>
 
 </div>
 </div>

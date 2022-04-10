@@ -25,6 +25,5 @@ var searchData=
   ['dsl_5ffunction_3c_20kernel1d_3c_20t_20_3e_20_3e_22',['dsl_function&lt; Kernel1D&lt; T &gt; &gt;',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#d4/d72/structluisa_1_1compute_1_1detail_1_1dsl__function_3_01_kernel1_d_3_01_t_01_4_01_4',1,'luisa::compute::detail']]],
   ['dsl_5ffunction_3c_20kernel2d_3c_20t_20_3e_20_3e_23',['dsl_function&lt; Kernel2D&lt; T &gt; &gt;',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#d0/d19/structluisa_1_1compute_1_1detail_1_1dsl__function_3_01_kernel2_d_3_01_t_01_4_01_4',1,'luisa::compute::detail']]],
   ['dsl_5ffunction_3c_20kernel3d_3c_20t_20_3e_20_3e_24',['dsl_function&lt; Kernel3D&lt; T &gt; &gt;',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#df/d8d/structluisa_1_1compute_1_1detail_1_1dsl__function_3_01_kernel3_d_3_01_t_01_4_01_4',1,'luisa::compute::detail']]],
-  ['dxdevice_25',['DxDevice',['../dc/dca/classluisa_1_1compute_1_1_dx_device.html',1,'luisa::compute']]],
-  ['dynamicmodule_26',['DynamicModule',['../da/d24/classluisa_1_1_dynamic_module.html',1,'luisa']]]
+  ['dynamicmodule_25',['DynamicModule',['../da/d24/classluisa_1_1_dynamic_module.html',1,'luisa']]]
 ];

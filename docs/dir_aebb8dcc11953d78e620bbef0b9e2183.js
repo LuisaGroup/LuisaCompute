@@ -12,6 +12,7 @@ var dir_aebb8dcc11953d78e620bbef0b9e2183 =
     [ "dirty_range.h", "d9/d0f/dirty__range_8h.html", [
       [ "luisa::compute::DirtyRange", "d2/db2/classluisa_1_1compute_1_1_dirty_range.html", "d2/db2/classluisa_1_1compute_1_1_dirty_range" ]
     ] ],
+    [ "dll_export.h", "da/d57/dll__export_8h.html", "da/d57/dll__export_8h" ],
     [ "dynamic_module.cpp", "df/d6d/dynamic__module_8cpp.html", null ],
     [ "dynamic_module.h", "db/dd1/dynamic__module_8h.html", [
       [ "luisa::DynamicModule", "da/d24/classluisa_1_1_dynamic_module.html", "da/d24/classluisa_1_1_dynamic_module" ]

@@ -1,6 +1,5 @@
 var dir_bf9f26469d00835ba20ff8d80ee5a804 =
 [
-    [ "ext", "dir_1b464fb06009608c496676aabb17f6cd.html", "dir_1b464fb06009608c496676aabb17f6cd" ],
     [ "bindless_array.cpp", "da/d7a/bindless__array_8cpp.html", null ],
     [ "bindless_array.h", "d5/dbd/bindless__array_8h.html", [
       [ "luisa::compute::BindlessArray", "d8/d18/classluisa_1_1compute_1_1_bindless_array.html", "d8/d18/classluisa_1_1compute_1_1_bindless_array" ]
@@ -16,8 +15,7 @@ var dir_bf9f26469d00835ba20ff8d80ee5a804 =
     ] ],
     [ "command_reorder_visitor.cpp", "d0/d00/command__reorder__visitor_8cpp.html", null ],
     [ "command_reorder_visitor.h", "dd/d7b/command__reorder__visitor_8h.html", [
-      [ "luisa::compute::CommandReorderVisitor", "d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor.html", "d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor" ],
-      [ "luisa::compute::CommandReorderVisitor::CommandSource::Hash", "db/d7f/structluisa_1_1compute_1_1_command_reorder_visitor_1_1_command_source_1_1_hash.html", "db/d7f/structluisa_1_1compute_1_1_command_reorder_visitor_1_1_command_source_1_1_hash" ]
+      [ "luisa::compute::CommandReorderVisitor", "d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor.html", "d6/d91/classluisa_1_1compute_1_1_command_reorder_visitor" ]
     ] ],
     [ "context.cpp", "db/d12/context_8cpp.html", "db/d12/context_8cpp" ],
     [ "context.h", "dc/d1e/context_8h.html", [
@@ -33,15 +31,7 @@ var dir_bf9f26469d00835ba20ff8d80ee5a804 =
       [ "luisa::compute::Device::Interface", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface.html", "d1/d9d/classluisa_1_1compute_1_1_device_1_1_interface" ]
     ] ],
     [ "event.cpp", "df/d1b/event_8cpp.html", null ],
-    [ "event.h", "dd/d20/event_8h.html", [
-      [ "luisa::compute::Event", "d0/d06/classluisa_1_1compute_1_1_event.html", "d0/d06/classluisa_1_1compute_1_1_event" ],
-      [ "luisa::compute::Event::Signal", "d0/d06/classluisa_1_1compute_1_1_event.html#dc/d70/structluisa_1_1compute_1_1_event_1_1_signal", [
-        [ "handle", "d0/d06/classluisa_1_1compute_1_1_event.html#a658370107708046044c89ba9945e5f0c", null ]
-      ] ],
-      [ "luisa::compute::Event::Wait", "d0/d06/classluisa_1_1compute_1_1_event.html#de/da7/structluisa_1_1compute_1_1_event_1_1_wait", [
-        [ "handle", "d0/d06/classluisa_1_1compute_1_1_event.html#a6dd515b8238eaca56109178463e43d0a", null ]
-      ] ]
-    ] ],
+    [ "event.h", "dd/d20/event_8h.html", "dd/d20/event_8h" ],
     [ "image.h", "d5/db2/image_8h.html", "d5/db2/image_8h" ],
     [ "mipmap.h", "da/d8b/mipmap_8h.html", "da/d8b/mipmap_8h" ],
     [ "pixel.h", "dd/dcd/pixel_8h.html", "dd/dcd/pixel_8h" ],
@@ -61,6 +51,14 @@ var dir_bf9f26469d00835ba20ff8d80ee5a804 =
     [ "stream.h", "d8/d95/stream_8h.html", [
       [ "luisa::compute::Stream", "de/d37/classluisa_1_1compute_1_1_stream.html", "de/d37/classluisa_1_1compute_1_1_stream" ],
       [ "luisa::compute::Stream::Delegate", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate" ]
+    ] ],
+    [ "swap_chain.cpp", "da/dec/swap__chain_8cpp.html", null ],
+    [ "swap_chain.h", "d9/d85/swap__chain_8h.html", [
+      [ "luisa::compute::SwapChain", "d4/d21/classluisa_1_1compute_1_1_swap_chain.html", "d4/d21/classluisa_1_1compute_1_1_swap_chain" ],
+      [ "luisa::compute::SwapChain::Present", "d4/d21/classluisa_1_1compute_1_1_swap_chain.html#d1/d48/structluisa_1_1compute_1_1_swap_chain_1_1_present", [
+        [ "chain", "d4/d21/classluisa_1_1compute_1_1_swap_chain.html#a3f84556b57c85ba5727c691cba71ef6f", null ],
+        [ "frame", "d4/d21/classluisa_1_1compute_1_1_swap_chain.html#a7a573a0f7965777efa69709c3e91d1e8", null ]
+      ] ]
     ] ],
     [ "volume.h", "da/de4/volume_8h.html", "da/de4/volume_8h" ]
 ];
