@@ -24,6 +24,7 @@ Accel::Accel(Device::Interface *device, AccelUsageHint hint) noexcept
       _mutex{luisa::make_unique<std::mutex>()} {}
 
 Command *Accel::build(Accel::BuildRequest request) noexcept {
+    std::scoped_lock lock{*_mutex};
     if (_mesh_handles.empty()) { LUISA_ERROR_WITH_LOCATION(
         "Building acceleration structure without instances."); }
     // collect modifications
