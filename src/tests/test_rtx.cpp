@@ -99,7 +99,8 @@ int main(int argc, char *argv[]) {
            << triangle_buffer.copy_from(indices.data());
 
     auto accel = device.create_accel();
-    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer,
+                                   AccelUsageHint::FAST_UPDATE);
     accel.emplace_back(mesh, scaling(1.5f));
     accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                  rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
