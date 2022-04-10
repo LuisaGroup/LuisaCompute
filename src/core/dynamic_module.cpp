@@ -1,4 +1,6 @@
 #include <core/dynamic_module.h>
+#include <core/clock.h>
+#include <core/logging.h>
 
 namespace luisa {
 
