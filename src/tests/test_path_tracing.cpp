@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda", R"({"index": 1})");
+    auto device = context.create_device("cuda");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -288,7 +288,7 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
-        auto ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
+        auto ldr = linear_to_srgb(hdr.xyz() * scale);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -319,7 +319,7 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 64u;
+        static constexpr auto spp_per_dispatch = 256u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution)
                                   .dispatch(resolution)
