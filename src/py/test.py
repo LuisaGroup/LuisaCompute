@@ -2,6 +2,8 @@ import inspect
 import ast
 import astpretty
 import lcapi
+import struct
+import array
 
 
 scalar_types = {
@@ -166,8 +168,8 @@ class ASTVisitor:
     def build_FunctionDef(node):
         if node.returns is not None:
             raise Exception('Return value is not supported')
-        if len(node.args.args)!=0 or node.args.vararg is not None or node.args.kwarg is not None:
-            raise Exception('Arguments are not supported')
+        # if len(node.args.args)!=0 or node.args.vararg is not None or node.args.kwarg is not None:
+        #     raise Exception('Arguments are not supported')
         for x in node.body: # build over a list
             build(x)
 
@@ -408,12 +410,12 @@ b = Buffer(100, int)
 x1 = lcapi.make_float2(6,10)
 m1 = lcapi.make_float2x2(1,2,3,4)
 
-def f():
+def f(a: int):
     idx = dispatch_id().x
-    val = b.read(idx)
-    x = make_float2(3,5) * -1 + x1
-    b.write(idx, val + x.x * x.y + 42)
-    m2 = make_float2x2(1,2,3,4,5,6,7)
+    # val = b.read(idx)
+    # x = make_float2(3,5) * -1 + x1
+    b.write(idx, a + 1)
+    # m2 = make_float2x2(1,2,3,4,5,6,7)
 
 # generate AST
 tree = ast.parse(inspect.getsource(f))
@@ -425,9 +427,23 @@ closure_variable = {
 }
 local_variable = {}
 
+
+
 def astgen():
     print(astpretty.pformat(tree.body[0]))
     lcapi.builder().set_block_size(256,1,1)
+
+    # get parameters
+    params = inspect.signature(f).parameters
+    for name in params:
+        anno = params[name].annotation
+        if anno == None:
+            raise Exception("arguments must be annotated")
+        if anno in scalar_types:
+            local_variable[name] = scalar_types[anno], lcapi.builder().argument(scalar_types[anno])
+        else:
+            raise Exception("argument unsupported")
+
     build(tree.body[0])
 
 
@@ -447,6 +463,12 @@ func = builder.function()
 shader_handle = device.impl().create_shader(func)
 # call kernel
 command = lcapi.ShaderDispatchCommand.create(shader_handle, func)
+# push arguments
+aa1 = struct.pack('i',42)
+
+command.encode_uniform(aa1,4,4)# TODO
+
+# dispatch
 command.set_dispatch_size(100,1,1)
 stream.add(command)
 
