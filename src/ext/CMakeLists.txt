@@ -105,7 +105,7 @@ if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(pybind11)
 endif ()
 
-if (WIN32)
+if (WIN32 AND MSVC)
     set(BUILD_SHARED_LIBS OFF)
 endif ()
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)

@@ -21,10 +21,11 @@ luisa::unique_ptr<Expression> Expression::create(Tag tag) noexcept {
             return luisa::make_unique<CastExpr>(nullptr, CastOp::BITWISE, nullptr);
         case Tag::CONSTANT:
             return luisa::make_unique<ConstantExpr>(nullptr, ConstantData());
-        case Tag::LITERAL:
+        // case Tag::LITERAL:
             // return luisa::make_unique<LiteralExpr>
-            return;
+            
     }
+    return nullptr;
 }
 
 void RefExpr::_mark(Usage usage) const noexcept {
