@@ -6,8 +6,6 @@
 #include <dsl/builtin.h>
 #include <dsl/syntax.h>
 #include <fstream>
-#include <cereal/archives/json.hpp>
-#include <cereal/types/polymorphic.hpp>
 #include <nlohmann/json.hpp>
 
 using namespace luisa::compute;
