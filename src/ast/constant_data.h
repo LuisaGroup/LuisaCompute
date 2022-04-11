@@ -38,6 +38,12 @@ struct constant_data_view<C, std::tuple<T...>, false> {
 template<template<typename> typename C, typename T, bool constify>
 using constant_data_view_t = typename constant_data_view<C, T, constify>::type;
 
+template<typename T>
+using to_span_t = luisa::span<T>;
+
+template<typename T>
+using to_vector_t = luisa::vector<T>;
+
 }// namespace detail
 
 class AstSerializer;
@@ -47,7 +53,7 @@ class LC_AST_API ConstantData {
 
 public:
     friend class AstSerializer;
-    using View = detail::constant_data_view_t<luisa::span, basic_types, true>;
+    using View = detail::constant_data_view_t<detail::to_span_t, basic_types, true>;
 
 protected:
     View _view;
@@ -75,7 +81,7 @@ public:
 
     template<typename S>
     void load(S& s) {
-        detail::constant_data_view_t<luisa::vector, basic_types, false> data;
+        detail::constant_data_view_t<detail::to_vector_t, basic_types, false> data;
         s.serialize(MAKE_NAME_PAIR(_hash), KeyValuePair{"_view", data});
         *this = luisa::visit([](auto &&v) noexcept { return create(v); }, data);
     }
