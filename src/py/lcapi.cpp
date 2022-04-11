@@ -77,6 +77,9 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("constant")
         .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
 
+        .def("argument", &FunctionBuilder::argument, pyref)
+        // ...
+
         .def("literal", &FunctionBuilder::literal, pyref)
         .def("unary", &FunctionBuilder::unary, pyref)
         .def("binary", &FunctionBuilder::binary, pyref)
@@ -149,7 +152,8 @@ PYBIND11_MODULE(lcapi, m) {
         .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});})
         .def("encode_buffer", &ShaderDispatchCommand::encode_buffer)
         .def("encode_texture", &ShaderDispatchCommand::encode_texture)
-        .def("encode_uniform", &ShaderDispatchCommand::encode_uniform)
+        // .def("encode_uniform", &ShaderDispatchCommand::encode_uniform)
+        .def("encode_uniform", [](ShaderDispatchCommand& self, char* buf, size_t size, size_t alignment){self.encode_uniform(buf,size,alignment);})
         .def("encode_bindless_array", &ShaderDispatchCommand::encode_bindless_array)
         .def("encode_accel", &ShaderDispatchCommand::encode_accel);
         
