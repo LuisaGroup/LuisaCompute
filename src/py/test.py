@@ -23,7 +23,11 @@ basic_types = {
     lcapi.int4: lcapi.Type.from_("vector<int,4>"),
     lcapi.uint4: lcapi.Type.from_("vector<uint,4>"),
     lcapi.bool4: lcapi.Type.from_("vector<bool,4>"),
-    lcapi.float4: lcapi.Type.from_("vector<float,4>")
+    lcapi.float4: lcapi.Type.from_("vector<float,4>"),
+
+    lcapi.float2x2: lcapi.Type.from_("matrix<2>"),
+    lcapi.float3x3: lcapi.Type.from_("matrix<3>"),
+    lcapi.float4x4: lcapi.Type.from_("matrix<4>")
 }
 
 def deduce_unary_type(op, dtype):
@@ -45,14 +49,24 @@ def builtin_func(name, args):
             assert len(args) == 0
             return lcapi.Type.from_("vector<uint,3>"), getattr(lcapi.builder(), func)()
 
-    # e.g. make_float4(x)
+    # e.g. make_float4(...)
     for T in 'uint','int','float','bool':
         for N in 2,3,4:
             if name == f'make_{T}{N}':
                 # TODO: check args
-                op = getattr(lcapi.CallOp, f'MAKE_{T.upper()}{N}')
+                op = getattr(lcapi.CallOp, name.upper())
                 rettype = lcapi.Type.from_(f'vector<{T},{N}>')
                 return rettype, lcapi.builder().call(rettype, op, [x.ptr for x in args])
+
+    # e.g. make_float2x2(...)
+    for N in 2,3,4:
+        if name == f'make_float{N}x{N}':
+            # TODO: check args
+            op = getattr(lcapi.CallOp, name.upper())
+            # NOTE: OP only supports from vectors;
+            # TODO: from scalar / matrix
+            rettype = lcapi.Type.from_(f'matrix<{N}>')
+            return rettype, lcapi.builder().call(rettype, op, [x.ptr for x in args])
 
     # TODO: atan2
 
@@ -392,12 +406,14 @@ def test_astgen():
 
 b = Buffer(100, int)
 x1 = lcapi.make_float2(6,10)
+m1 = lcapi.make_float2x2(1,2,3,4)
 
 def f():
     idx = dispatch_id().x
     val = b.read(idx)
     x = make_float2(3,5) * -1 + x1
     b.write(idx, val + x.x * x.y + 42)
+    m2 = make_float2x2(1,2,3,4,5,6,7)
 
 # generate AST
 tree = ast.parse(inspect.getsource(f))
