@@ -14,22 +14,29 @@
 #include <core/basic_types.h>
 #include <core/concepts.h>
 
+#include <serialize/key_value_pair.h>
+
 namespace luisa::compute {
 
 namespace detail {
 
-template<typename T>
+template<template<typename> typename C, typename T, bool constify>
 struct constant_data_view {
     static_assert(always_false_v<T>);
 };
 
-template<typename... T>
-struct constant_data_view<std::tuple<T...>> {
-    using type = luisa::variant<luisa::span<const T>...>;
+template<template<typename> typename C, typename... T>
+struct constant_data_view<C, std::tuple<T...>, true> {
+    using type = luisa::variant<C<const T>...>;
 };
 
-template<typename T>
-using constant_data_view_t = typename constant_data_view<T>::type;
+template<template<typename> typename C, typename... T>
+struct constant_data_view<C, std::tuple<T...>, false> {
+    using type = luisa::variant<C<T>...>;
+};
+
+template<template<typename> typename C, typename T, bool constify>
+using constant_data_view_t = typename constant_data_view<C, T, constify>::type;
 
 }// namespace detail
 
@@ -40,7 +47,7 @@ class ConstantData {
 
 public:
     friend class AstSerializer;
-    using View = detail::constant_data_view_t<basic_types>;
+    using View = detail::constant_data_view_t<luisa::span, basic_types, true>;
 
 protected:
     View _view;
@@ -60,6 +67,18 @@ public:
     [[nodiscard]] static ConstantData create(View data) noexcept;
     [[nodiscard]] auto hash() const noexcept { return _hash; }
     [[nodiscard]] auto view() const noexcept { return _view; }
+
+    template<typename S>
+    void save(S& s) {
+        s.serialize(MAKE_NAME_PAIR(_hash), MAKE_NAME_PAIR(_view));
+    }
+
+    template<typename S>
+    void load(S& s) {
+        detail::constant_data_view_t<luisa::vector, basic_types, false> data;
+        s.serialize(MAKE_NAME_PAIR(_hash), KeyValuePair{"_view", data});
+        *this = luisa::visit([](auto &&v) noexcept { return create(v); }, data);
+    }
 };
 
 }// namespace luisa::compute

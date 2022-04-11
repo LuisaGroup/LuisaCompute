@@ -40,6 +40,10 @@ public:
         META
     };
 
+    /// good
+    using is_polymorphically_serialized = void;
+    using polymorphic_tag_type = Tag;
+
 private:
     mutable uint64_t _hash{0u};
     mutable bool _hash_computed{false};
@@ -54,6 +58,7 @@ public:
     virtual void accept(StmtVisitor &) const = 0;
     virtual ~Statement() noexcept = default;
     [[nodiscard]] uint64_t hash() const noexcept;
+    [[nodiscard]] luisa::unique_ptr<Statement> create(Tag tag) noexcept;
 };
 
 struct BreakStmt;

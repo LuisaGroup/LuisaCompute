@@ -9,6 +9,24 @@
 
 namespace luisa::compute {
 
+luisa::unique_ptr<Expression> Expression::create(Tag tag) noexcept {
+    switch(tag){
+        case Tag::ACCESS:
+            return luisa::make_unique<AccessExpr>(nullptr, nullptr, nullptr);
+        case Tag::BINARY:
+            return luisa::make_unique<BinaryExpr>(nullptr, BinaryOp::ADD, nullptr, nullptr);
+        case Tag::CALL:
+            return luisa::make_unique<CallExpr>(nullptr, Function(), luisa::vector<const Expression*>());
+        case Tag::CAST:
+            return luisa::make_unique<CastExpr>(nullptr, CastOp::BITWISE, nullptr);
+        case Tag::CONSTANT:
+            return luisa::make_unique<ConstantExpr>(nullptr, ConstantData());
+        case Tag::LITERAL:
+            // return luisa::make_unique<LiteralExpr>
+            return;
+    }
+}
+
 void RefExpr::_mark(Usage usage) const noexcept {
     detail::FunctionBuilder::current()->mark_variable_usage(
         _variable.uid(), usage);

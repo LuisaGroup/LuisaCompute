@@ -73,3 +73,6 @@ target_link_libraries(test_playground PRIVATE luisa::compute)
 
 add_executable(test_radiative_bp test_radiative_bp.cpp)
 target_link_libraries(test_radiative_bp PRIVATE luisa::compute)
+
+add_executable(test_serialize test_serialize.cpp)
+target_link_libraries(test_serialize PRIVATE luisa::compute)

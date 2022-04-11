@@ -125,6 +125,8 @@ using eastl::monostate;
 using eastl::nullopt;
 using eastl::optional;
 using eastl::variant;
+using eastl::variant_alternative_t;
+using eastl::variant_size_v;
 
 using eastl::bit_cast;
 using eastl::get;

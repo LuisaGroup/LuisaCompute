@@ -8,6 +8,7 @@
 #include <ast/variable.h>
 #include <ast/op.h>
 #include <ast/constant_data.h>
+#include <serialize/key_value_pair.h>
 
 namespace luisa::compute {
 
@@ -43,6 +44,25 @@ public:
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
             return hash64(data.hash(), hash64(type->hash(), hash64("__hash_constant_binding")));
+        }
+
+        template<typename S>
+        void save(S& s) {
+            luisa::string description(type->description());
+            s.serialize(
+                MAKE_NAME_PAIR(data),
+                KeyValuePair{"type", description}
+            );
+        }
+
+        template<typename S>
+        void load(S& s) {
+            luisa::string description;
+            s.serialize(
+                MAKE_NAME_PAIR(data),
+                KeyValuePair{"type", description}
+            );
+            type = Type::from(description);
         }
     };
 

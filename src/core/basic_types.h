@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/basic_traits.h>
+#include <serialize/key_value_pair.h>
 
 namespace luisa {
 
@@ -42,6 +43,8 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     T x, y;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
+    template<typename S>
+    void serialize(S& s) { s.serialize(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y)); }
 #include <core/swizzle_2.inl.h>
 };
 
@@ -51,6 +54,8 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     T x, y, z;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
+    template<typename S>
+    void serialize(S& s) { s.serialize(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z)); }
 #include <core/swizzle_3.inl.h>
 };
 
@@ -60,6 +65,8 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     T x, y, z, w;
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
+    template<typename S>
+    void serialize(S& s) { s.serialize(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z), MAKE_NAME_PAIR(w)); }
 #include <core/swizzle_4.inl.h>
 };
 
@@ -89,6 +96,7 @@ struct Vector : public detail::VectorStorage<T, N> {
     using Storage::VectorStorage;
     [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
     [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
+    using detail::VectorStorage<T, N>::serialize;
 };
 
 /**
@@ -128,6 +136,14 @@ struct Matrix<2> {
 
     [[nodiscard]] constexpr float2 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float2 &operator[](size_t i) const noexcept { return cols[i]; }
+
+    template<typename S>
+    void serialize(S& s){
+        s.serialize(
+            MAKE_NAME_PAIR(cols[0]),
+            MAKE_NAME_PAIR(cols[1])
+        );
+    }
 };
 
 /// 3x3 matrix
@@ -144,6 +160,15 @@ struct Matrix<3> {
 
     [[nodiscard]] constexpr float3 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float3 &operator[](size_t i) const noexcept { return cols[i]; }
+
+    template<typename S>
+    void serialize(S& s){
+        s.serialize(
+            MAKE_NAME_PAIR(cols[0]),
+            MAKE_NAME_PAIR(cols[1]),
+            MAKE_NAME_PAIR(cols[2])
+        );
+    }
 };
 
 /// 4x4 matrix
@@ -163,6 +188,16 @@ struct Matrix<4> {
 
     [[nodiscard]] constexpr float4 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float4 &operator[](size_t i) const noexcept { return cols[i]; }
+
+    template<typename S>
+    void serialize(S& s){
+        s.serialize(
+            MAKE_NAME_PAIR(cols[0]),
+            MAKE_NAME_PAIR(cols[1]),
+            MAKE_NAME_PAIR(cols[2]),
+            MAKE_NAME_PAIR(cols[3])
+        );
+    }
 };
 
 using float2x2 = Matrix<2>;

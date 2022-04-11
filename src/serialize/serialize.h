@@ -1,110 +1,278 @@
 #pragma once
-#include <ast/type.h>
-#include <serde/IJsonObject.h>
-#include <ast/expression.h>
-#include <ast/statement.h>
-#include <ast/function.h>
-namespace luisa::compute {
-using namespace toolhub::db;
-class DeserVisitor {
+
+#include <serialize/traits.h>
+#include <serialize/key_value_pair.h>
+#include <nlohmann/json.hpp>
+#include <string_view>
+#include <core/stl.h>
+#include <iostream>
+#include <utility>
+#include <core/logging.h>
+
+namespace luisa::compute{
+
+template<typename T>
+struct VariantPack {
+    size_t index;
+    T& value;
+    VariantPack(size_t index, T& value) noexcept:index(index), value(value) {}
+    template<typename S>
+    void serialize(S& s) noexcept {
+        s.serialize(MAKE_NAME_PAIR(index), KeyValuePair<decltype("value"), T>{"value", value});
+    }
+};
+
+class Serializer{
 private:
-    template<typename T>
-    struct Ser {
-        IJsonDict *first;
-        T *second;
-        template<typename A, typename B>
-        Ser(A &&a, B &&b)
-            : first(a), second(b) {}
-        ~Ser() {
-            if (first)
-                vengine_delete(second);
+    nlohmann::json _data;
+    luisa::vector<nlohmann::json*> _currentJson;
+
+    auto& currentJson() const noexcept { return *_currentJson.back(); }
+
+    template<typename K>
+    auto enterScope(K key) noexcept {
+        _currentJson.push_back(&currentJson()[key]);
+    }
+
+    void popScope() noexcept {
+        _currentJson.pop_back();
+    }
+
+public:
+    Serializer():_data(nlohmann::json::object()) { _currentJson.push_back(&_data); }
+
+    template<typename K, typename Arg>
+        requires has_member_function_save_load<Arg>
+    void serialize(const KeyValuePair<K, Arg>& arg) {
+        enterScope(arg.key());
+        arg.value().save(*this);
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+        requires has_member_function_serialize<Arg>
+    void serialize(const KeyValuePair<K, Arg>& arg) {
+        enterScope(arg.key());
+        arg.value().serialize(*this);
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+        requires can_directly_serialize<Arg>
+    void serialize(const KeyValuePair<K, Arg>& arg) {
+        currentJson()[arg.key()] = arg.value();
+    }
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::vector<Arg>>& arg) {
+        enterScope(arg.key());
+        for(size_t i = 0; i < arg.value().size(); i++){
+            serialize(KeyValuePair{i, arg.value()[i]});
+        }
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::span<Arg>>& arg) {
+        enterScope(arg.key());
+        using ArgNoConst = std::remove_cvref_t<Arg>;
+        for(size_t i = 0; i < arg.value().size(); i++){
+            ArgNoConst data = arg.value()[i];
+            serialize(KeyValuePair{i, data});
+        }
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+        requires is_variant_v<std::remove_cvref_t<Arg>>
+    void serialize(const KeyValuePair<K, Arg> &arg) {
+        auto index = arg.value().index();
+        luisa::visit([index, &arg, this]<typename T>(T &t) noexcept {
+            auto pack = VariantPack<T>{index, t};
+            serialize(KeyValuePair{arg.key(), pack});
+        },
+        arg.value());
+    }
+
+    template<typename K>
+    void serialize(const KeyValuePair<K, luisa::monostate> &arg) {}
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::unique_ptr<Arg>>& arg) {
+        if(arg.value() == nullptr) {
+            enterScope(arg.key());
+            popScope();
+            return;
+        }
+        if constexpr (enable_polymorphic_serialization<Arg>){
+            static_assert(has_serialization_function<Arg>);
+            enterScope(arg.key());
+            if constexpr (has_member_function_save_load<Arg>)
+                arg.value()->save(*this);
+            else if constexpr (has_member_function_serialize<Arg>)
+                arg.value()->serialize(*this);
+            popScope();
+        } else
+            serialize(KeyValuePair{arg.key(), *(arg.value().get())});
+    }
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::shared_ptr<Arg>>& arg) {
+        if(arg.value() == nullptr) {
+            enterScope(arg.key());
+            popScope();
+            return;
+        }
+        serialize(KeyValuePair{arg.key(), *(arg.value().get())});
+    }
+
+    template<typename Arg, typename... Others>
+        requires (sizeof...(Others) > 0)
+    void serialize(const Arg& arg, const Others&... others) {
+        serialize(arg);
+        serialize(others...);
+    }
+
+    auto data() const noexcept {
+        return _data;
+    }
+};
+
+class Deserializer{
+private:
+    nlohmann::json _data;
+    luisa::vector<nlohmann::json*> _currentJson;
+
+    auto& currentJson() const noexcept { return *_currentJson.back(); }
+
+    template<typename K>
+    auto enterScope(K key) noexcept {
+        _currentJson.push_back(&currentJson()[key]);
+    }
+
+    void popScope() noexcept {
+        _currentJson.pop_back();
+    }
+
+    template<size_t I, typename K, typename Arg>
+        requires is_variant_v<Arg>
+    struct serializeVariant {
+        void operator()(size_t index, const KeyValuePair<K, Arg>& arg, Deserializer* d) {
+            if (I == index) {
+                using T = luisa::variant_alternative_t<I, Arg>;
+                T value;
+                VariantPack<T> pack(0, value);
+                d->serialize(KeyValuePair{arg.key(), pack});
+                arg.value() = pack.value;
+            }
+            else serializeVariant<I - 1, K, Arg>()(index, arg, d);
         }
     };
-    vstd::HashMap<uint64, Function> callables;
-    vstd::HashMap<uint64, Ser<Expression>> expr;
-    vstd::HashMap<uint64, Ser<Statement>> stmt;
+
+    template<typename K, typename Arg>
+        requires is_variant_v<Arg>
+    struct serializeVariant<0, K, Arg> {
+        void operator()(size_t index, const KeyValuePair<K, Arg>& arg, Deserializer* d) {
+            if (index == 0) {
+                using T = luisa::variant_alternative_t<0, Arg>;
+                T value;
+                VariantPack<T> pack(0, value);
+                d->serialize(KeyValuePair{arg.key(), pack});
+                arg.value() = pack.value;
+            }
+        }
+    };
 
 public:
-    DeserVisitor(
-        Function kernel,
-        IJsonArray *exprArr,
-        IJsonArray *stmtArr);
-    Expression const *GetExpr(uint64) const;
-    size_t exprCount() const { return expr.size(); }
-    size_t stmtCount() const { return stmt.size(); }
-    Statement const *GetStmt(uint64) const;
-    void *Allocate(size_t) const;
-    Function GetFunction(uint64) const;
-    ~DeserVisitor();
-    void GetExpr(vstd::function<void(Expression *)> const &func);
-    void GetStmt(vstd::function<void(Statement *)> const &func);
+    Deserializer(nlohmann::json data):_data(data) { _currentJson.push_back(&_data); }
+
+    template<typename K, typename Arg>
+        requires has_member_function_save_load<Arg>
+    void serialize(const KeyValuePair<K, Arg>& arg) {
+        enterScope(arg.key());
+        arg.value().load(*this);
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+        requires has_member_function_serialize<Arg>
+    void serialize(const KeyValuePair<K, Arg>& arg) {
+        enterScope(arg.key());
+        arg.value().serialize(*this);
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+        requires can_directly_serialize<Arg>
+    void serialize(const KeyValuePair<K, Arg>& arg) {
+        arg.value() = currentJson()[arg.key()];
+    }
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::vector<Arg>>& arg) {
+        enterScope(arg.key());
+        auto size = currentJson().size();
+        arg.value().resize(size);
+        for(auto i = 0; i < size; i++){
+            serialize(KeyValuePair{i, arg.value()[i]});
+        }
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::span<Arg>>& arg) {
+        enterScope(arg.key());
+        auto size = currentJson().size();
+        luisa::vector<std::remove_cvref_t<Arg>> data(size);
+        for(auto i = 0; i < size; i++){
+            serialize(KeyValuePair{i, data[i]});
+        }
+        arg.value() = luisa::span<Arg>(data.begin(), data.end());
+        popScope();
+    }
+
+    template<typename K, typename Arg>
+        requires is_variant_v<std::remove_cvref_t<Arg>>
+    void serialize(const KeyValuePair<K, Arg> &arg) {
+        auto index = currentJson()[arg.key()]["index"];
+        serializeVariant<luisa::variant_size_v<Arg> - 1, K, Arg>()(index, arg, this);
+    }
+
+    template<typename K>
+    void serialize(const KeyValuePair<K, luisa::monostate> &arg) {}
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::unique_ptr<Arg>>& arg) {
+        if(currentJson()[arg.key()] == nullptr) return;
+        if constexpr (enable_polymorphic_serialization<Arg>){
+            enterScope(arg.key());
+            static_assert(has_serialization_function<Arg>);
+            arg.value() = std::move(Arg::create(currentJson()["tag"]));
+            if constexpr (has_member_function_save_load<Arg>)
+                arg.value()->load(*this);
+            else if constexpr (has_member_function_serialize<Arg>)
+                arg.value()->serialize(*this);
+            popScope();
+        } else {
+            if(arg.value() == nullptr) arg.value() = std::move(luisa::make_unique<Arg>());
+            serialize(KeyValuePair{arg.key(), *(arg.value().get())});
+        }
+    }
+
+    template<typename K, typename Arg>
+    void serialize(const KeyValuePair<K, luisa::shared_ptr<Arg>>& arg) {
+        if(currentJson()[arg.key()] == nullptr) return;
+        if(arg.value() == nullptr) arg.value() = luisa::make_shared<Arg>();
+        serialize(KeyValuePair{arg.key(), *(arg.value().get())});
+    }
+
+    template<typename Arg, typename... Others>
+        requires (sizeof...(Others) > 0)
+    void serialize(const Arg& arg, const Others&... others) {
+        serialize(arg);
+        serialize(others...);
+    }
+
 };
 
-class AstSerializer {
-public:
-    //Expr
-    static vstd::unique_ptr<IJsonDict> Serialize(Expression const &t, IJsonDatabase *db);
-    static vstd::unique_ptr<IJsonDict> Serialize(UnaryExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(UnaryExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(BinaryExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(BinaryExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(AccessExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(AccessExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(MemberExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(MemberExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(LiteralExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(LiteralExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(RefExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(RefExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(Variable const &t, IJsonDatabase *db);
-    static void DeSerialize(Variable &t, IJsonDict *dict);
-    static vstd::unique_ptr<IJsonDict> Serialize(ConstantData const &t, IJsonDatabase *db);
-    static void DeSerialize(ConstantData &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(LiteralExpr::Value const &t, IJsonDatabase *db);
-    static void DeSerialize(LiteralExpr::Value &t, IJsonDict *dict);
-    static vstd::unique_ptr<IJsonDict> Serialize(ConstantExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(ConstantExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(CallExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(CallExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(CastExpr const &t, IJsonDatabase *db);
-    static void DeSerialize(CastExpr &t, IJsonDict *dict, DeserVisitor const &evt);
-    //Stmt
-    static vstd::unique_ptr<IJsonDict> Serialize(Statement const &stmt, IJsonDatabase *db);
-    static vstd::unique_ptr<IJsonDict> Serialize(BreakStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(BreakStmt &stmt, IJsonDict *dict, DeserVisitor const &evt) {}
-    static vstd::unique_ptr<IJsonDict> Serialize(ContinueStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(ContinueStmt &stmt, IJsonDict *dict, DeserVisitor const &evt) {}
-    static vstd::unique_ptr<IJsonDict> Serialize(ReturnStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(ReturnStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static void Serialize(ScopeStmt const &stmt, IJsonDict *dict, IJsonDatabase *db);
-    static vstd::unique_ptr<IJsonDict> Serialize(ScopeStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(ScopeStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(IfStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(IfStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(LoopStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(LoopStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(ExprStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(ExprStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(SwitchStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(SwitchStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(SwitchCaseStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(SwitchCaseStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(SwitchDefaultStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(SwitchDefaultStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(AssignStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(AssignStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(ForStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(ForStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static vstd::unique_ptr<IJsonDict> Serialize(CommentStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(CommentStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-
-    static vstd::unique_ptr<IJsonDict> Serialize(MetaStmt const &stmt, IJsonDatabase *db);
-    static void DeSerialize(MetaStmt &stmt, IJsonDict *dict, DeserVisitor const &evt);
-    static Expression *GenExpr(IJsonDict *dict, DeserVisitor &evt);
-    static void DeserExpr(IJsonDict *dict, Expression *expr, DeserVisitor &evt);
-    static vstd::unique_ptr<IJsonDict> SerExpr(IJsonDatabase *db, Expression const &expr);
-    static Statement *GenStmt(IJsonDict *dict, DeserVisitor &evt);
-    static void DeserStmt(IJsonDict *dict, Statement *stmt, DeserVisitor &evt);
-    static vstd::unique_ptr<IJsonDict> SerStmt(IJsonDatabase *db, Statement const &s);
-};
-}// namespace luisa::compute
+}
