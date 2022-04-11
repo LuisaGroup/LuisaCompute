@@ -212,6 +212,7 @@ class ASTVisitor:
     @staticmethod
     def build_Attribute(node):
         build(node.value)
+        # vector swizzle
         if node.value.dtype.is_vector():
             if is_swizzle_name(node.attr):
                 original_size = node.value.dtype.dimension()
@@ -222,6 +223,7 @@ class ASTVisitor:
                     node.dtype = lcapi.Type.from_(f'vector<{node.value.dtype.element().description()},{swizzle_size}>')
                 swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.ptr = lcapi.builder().swizzle(node.dtype, node.value.ptr, swizzle_size, swizzle_code)
+
 
     @staticmethod
     def build_Name(node):
@@ -265,6 +267,29 @@ class ASTVisitor:
             local_variable[node.targets[0].id] = (dtype, node.targets[0].ptr)
             # all local variables are function scope
         lcapi.builder().assign(node.targets[0].ptr, node.value.ptr)
+
+    @staticmethod
+    def build_AugAssign(node):
+        build(node.target)
+        build(node.value)
+        op = {
+            ast.Add: lcapi.BinaryOp.ADD,
+            ast.Sub: lcapi.BinaryOp.SUB,
+            ast.Mult: lcapi.BinaryOp.MUL,
+            ast.Div: lcapi.BinaryOp.DIV, # TODO type: int/int->float?
+            ast.FloorDiv: lcapi.BinaryOp.DIV, # TODO type check: int only
+            ast.Mod: lcapi.BinaryOp.MOD, # TODO support fmod using builtins
+            ast.LShift: lcapi.BinaryOp.SHL,
+            ast.RShift: lcapi.BinaryOp.SHR,
+            ast.BitOr: lcapi.BinaryOp.BIT_OR,
+            ast.BitXor: lcapi.BinaryOp.BIT_XOR,
+            ast.BitAnd: lcapi.BinaryOp.BIT_AND,
+        }.get(type(node.op))
+        # ast.Pow, ast.MatMult is not supported
+        if op is None:
+            raise Exception(f'Unsupported binary operation: {type(node.op)}')
+        x = lcapi.builder().binary(node.target.dtype, op, node.target.ptr, node.value.ptr)
+        lcapi.builder().assign(node.target.ptr, x)
 
     @staticmethod
     def build_UnaryOp(node):
@@ -414,7 +439,8 @@ def f(a: int):
     idx = dispatch_id().x
     # val = b.read(idx)
     # x = make_float2(3,5) * -1 + x1
-    b.write(idx, a + 1)
+    a += 2
+    b.write(idx, a)
     # m2 = make_float2x2(1,2,3,4,5,6,7)
 
 # generate AST
