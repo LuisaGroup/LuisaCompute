@@ -13,7 +13,7 @@ public:
 private:
     using CallbackEvent = vstd::variant<
         AllocatorPtr,
-        std::pair<LCEvent const*, uint64>>;
+        std::pair<LCEvent const *, uint64>>;
     Device *device;
     IGpuAllocator *resourceAllocator;
     D3D12_COMMAND_LIST_TYPE type;
@@ -40,6 +40,7 @@ public:
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
     void AddEvent(LCEvent const *evt);
     uint64 Execute(AllocatorPtr &&alloc);
+    uint64 ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3* swapChain);
     void Complete(uint64 fence);
     KILL_MOVE_CONSTRUCT(CommandQueue)
     KILL_COPY_CONSTRUCT(CommandQueue)

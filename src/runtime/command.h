@@ -19,40 +19,39 @@
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>
+#include <ast/function_builder.h>
 
 namespace luisa::compute {
 
-#define LUISA_ALL_COMMANDS          \
-    BufferUploadCommand,            \
-        BufferDownloadCommand,      \
-        BufferCopyCommand,          \
-        BufferToTextureCopyCommand, \
-        ShaderDispatchCommand,      \
-        TextureUploadCommand,       \
-        TextureDownloadCommand,     \
-        TextureCopyCommand,         \
-        TextureToBufferCopyCommand, \
-        AccelUpdateCommand,         \
-        AccelBuildCommand,          \
-        MeshUpdateCommand,          \
-        MeshBuildCommand,           \
+#define LUISA_COMPUTE_RUNTIME_COMMANDS \
+    BufferUploadCommand,               \
+        BufferDownloadCommand,         \
+        BufferCopyCommand,             \
+        BufferToTextureCopyCommand,    \
+        ShaderDispatchCommand,         \
+        TextureUploadCommand,          \
+        TextureDownloadCommand,        \
+        TextureCopyCommand,            \
+        TextureToBufferCopyCommand,    \
+        AccelBuildCommand,             \
+        MeshBuildCommand,              \
         BindlessArrayUpdateCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
-LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
+LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_FWD_DECL
 
 struct CommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
     virtual void visit(const CMD *) noexcept = 0;
-    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_ALL_COMMANDS)
+    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
 
 struct MutableCommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
     virtual void visit(CMD *) noexcept = 0;
-    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_ALL_COMMANDS)
+    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
 
@@ -63,7 +62,7 @@ namespace detail {
 
 #define LUISA_MAKE_COMMAND_POOL_DECL(Cmd) \
     [[nodiscard]] Pool<Cmd> &pool_##Cmd() noexcept;
-LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
+LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_DECL
 
 }// namespace detail
@@ -78,7 +77,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
         return command;                                                          \
     }
 
-#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+#define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)                                             \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
     void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
@@ -96,13 +95,13 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
     LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)
 
-class Command {
+class LC_RUNTIME_API Command {
 
 protected:
     virtual void _recycle() noexcept = 0;
-    ~Command() noexcept = default;
 
 public:
+    virtual ~Command() noexcept = default;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
     [[nodiscard]] virtual Command *clone() const noexcept = 0;
@@ -183,23 +182,20 @@ private:
     uint64_t _texture_handle;
     PixelStorage _pixel_storage;
     uint _texture_level;
-    uint _texture_offset[3];
     uint _texture_size[3];
 
 public:
     BufferToTextureCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
-                               uint level, uint3 offset, uint3 size) noexcept
+                               uint level, uint3 size) noexcept
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_offset{offset.x, offset.y, offset.z},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(BufferToTextureCopyCommand)
 };
@@ -212,23 +208,19 @@ private:
     uint64_t _texture_handle;
     PixelStorage _pixel_storage;
     uint _texture_level;
-    uint _texture_offset[3];
     uint _texture_size[3];
 
 public:
     TextureToBufferCopyCommand(uint64_t buffer, size_t buffer_offset,
-                               uint64_t texture, PixelStorage storage,
-                               uint level, uint3 offset, uint3 size) noexcept
+                               uint64_t texture, PixelStorage storage, uint level, uint3 size) noexcept
         : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
-          _texture_offset{offset.x, offset.y, offset.z},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
     [[nodiscard]] auto buffer_offset() const noexcept { return _buffer_offset; }
     [[nodiscard]] auto texture() const noexcept { return _texture_handle; }
     [[nodiscard]] auto storage() const noexcept { return _pixel_storage; }
     [[nodiscard]] auto level() const noexcept { return _texture_level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_texture_offset[0], _texture_offset[1], _texture_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_texture_size[0], _texture_size[1], _texture_size[2]); }
     LUISA_MAKE_COMMAND_COMMON(TextureToBufferCopyCommand)
 };
@@ -239,8 +231,6 @@ private:
     PixelStorage _storage;
     uint64_t _src_handle;
     uint64_t _dst_handle;
-    uint _src_offset[3];
-    uint _dst_offset[3];
     uint _size[3];
     uint _src_level;
     uint _dst_level;
@@ -252,20 +242,14 @@ public:
         uint64_t dst_handle,
         uint src_level,
         uint dst_level,
-        uint3 src_offset,
-        uint3 dst_offset,
         uint3 size) noexcept
         : _storage{storage},
           _src_handle{src_handle}, _dst_handle{dst_handle},
-          _src_offset{src_offset.x, src_offset.y, src_offset.z},
-          _dst_offset{dst_offset.x, dst_offset.y, dst_offset.z},
           _size{size.x, size.y, size.z},
           _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
-    [[nodiscard]] auto src_offset() const noexcept { return uint3(_src_offset[0], _src_offset[1], _src_offset[2]); }
-    [[nodiscard]] auto dst_offset() const noexcept { return uint3(_dst_offset[0], _dst_offset[1], _dst_offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto src_level() const noexcept { return _src_level; }
     [[nodiscard]] auto dst_level() const noexcept { return _dst_level; }
@@ -278,24 +262,20 @@ private:
     uint64_t _handle;
     PixelStorage _storage;
     uint _level;
-    uint _offset[3];
     uint _size[3];
     const void *_data;
 
 public:
-    TextureUploadCommand(
-        uint64_t handle, PixelStorage storage, uint level,
-        uint3 offset, uint3 size, const void *data) noexcept
+    TextureUploadCommand(uint64_t handle, PixelStorage storage,
+                         uint level, uint3 size, const void *data) noexcept
         : _handle{handle},
           _storage{storage},
           _level{level},
-          _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
           _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureUploadCommand)
@@ -307,24 +287,21 @@ private:
     uint64_t _handle;
     PixelStorage _storage;
     uint _level;
-    uint _offset[3];
     uint _size[3];
     void *_data;
 
 public:
     TextureDownloadCommand(
-        uint64_t handle, PixelStorage storage, uint level,
-        uint3 offset, uint3 size, void *data) noexcept
+        uint64_t handle, PixelStorage storage,
+        uint level, uint3 size, void *data) noexcept
         : _handle{handle},
           _storage{storage},
           _level{level},
-          _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
           _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
-    [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
@@ -334,7 +311,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class ShaderDispatchCommand final : public Command {
+class LC_RUNTIME_API ShaderDispatchCommand final : public Command {
 
 public:
     struct alignas(16) Argument {
@@ -411,6 +388,14 @@ private:
     uint32_t _argument_count{0u};
     ArgumentBuffer _argument_buffer{};
 
+private:
+    void _encode_pending_bindings() noexcept;
+    void _encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void _encode_texture(uint64_t handle, uint32_t level) noexcept;
+    void _encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void _encode_bindless_array(uint64_t handle) noexcept;
+    void _encode_accel(uint64_t handle) noexcept;
+
 public:
     explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
     void set_dispatch_size(uint3 launch_size) noexcept;
@@ -419,17 +404,11 @@ public:
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
     [[nodiscard]] auto dispatch_size() const noexcept { return uint3(_dispatch_size[0], _dispatch_size[1], _dispatch_size[2]); }
 
-    // Note: encode/decode order:
-    //   1. captured buffers
-    //   2. captured textures
-    //   3. captured texture heaps
-    //   4. captured acceleration structures
-    //   4. arguments
-    void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept;
-    void encode_texture(uint32_t variable_uid, uint64_t handle, uint32_t level, Usage usage) noexcept;
-    void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept;
-    void encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept;
-    void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept;
+    void encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void encode_texture(uint64_t handle, uint32_t level) noexcept;
+    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void encode_bindless_array(uint64_t handle) noexcept;
+    void encode_accel(uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
@@ -485,54 +464,81 @@ public:
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand)
 };
 
-enum struct AccelBuildHint {
+enum struct AccelUsageHint : uint32_t {
     FAST_TRACE, // build with best quality
     FAST_UPDATE,// optimize for frequent update, usually with compaction
-    FAST_REBUILD// optimize for frequent rebuild, maybe without compaction
+    FAST_BUILD  // optimize for frequent rebuild, maybe without compaction
+};
+
+enum struct AccelBuildRequest : uint32_t {
+    PREFER_UPDATE,
+    FORCE_BUILD,
 };
 
 class MeshBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
+    AccelBuildRequest _request;
+    uint64_t _vertex_buffer;
+    uint64_t _triangle_buffer;
 
 public:
-    MeshBuildCommand(uint64_t handle) noexcept
-        : _handle{handle} {}
+    MeshBuildCommand(uint64_t handle, AccelBuildRequest request,
+                     uint64_t vertex_buffer, uint64_t triangle_buffer) noexcept
+        : _handle{handle}, _request{request},
+          _vertex_buffer{vertex_buffer}, _triangle_buffer{triangle_buffer} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto request() const noexcept { return _request; }
+    [[nodiscard]] auto vertex_buffer() const noexcept { return _vertex_buffer; }
+    [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
-class MeshUpdateCommand final : public Command {
-
-private:
-    uint64_t _handle;
-
-public:
-    explicit MeshUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
-};
 class AccelBuildCommand final : public Command {
 
+public:
+    struct alignas(16) Modification {
+
+        // flags
+        static constexpr auto flag_mesh = 1u << 0u;
+        static constexpr auto flag_transform = 1u << 1u;
+        static constexpr auto flag_visibility_on = 1u << 2u;
+        static constexpr auto flag_visibility_off = 1u << 3u;
+        static constexpr auto flag_visibility = flag_visibility_on | flag_visibility_off;
+
+        // members
+        uint index{};
+        uint flags{};
+        uint64_t mesh{};
+        float affine[12]{};
+
+        // ctor
+        Modification() noexcept = default;
+        explicit Modification(uint index) noexcept : index{index} {}
+
+        // encode interfaces
+        void set_transform(float4x4 m) noexcept;
+        void set_visibility(bool vis) noexcept;
+        void set_mesh(uint64_t handle) noexcept;
+    };
+
 private:
     uint64_t _handle;
+    uint32_t _instance_count;
+    AccelBuildRequest _request;
+    luisa::vector<Modification> _modifications;
 
 public:
-    explicit AccelBuildCommand(uint64_t handle) noexcept : _handle{handle} {}
+    AccelBuildCommand(uint64_t handle, uint32_t instance_count,
+                      AccelBuildRequest request, luisa::vector<Modification> modifications) noexcept
+        : _handle{handle}, _instance_count{instance_count},
+          _request{request}, _modifications{std::move(modifications)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto request() const noexcept { return _request; }
+    [[nodiscard]] auto instance_count() const noexcept { return _instance_count; }
+    [[nodiscard]] auto modifications() const noexcept { return luisa::span{_modifications}; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
-};
-
-class AccelUpdateCommand final : public Command {
-
-private:
-    uint64_t _handle;
-
-public:
-    explicit AccelUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 
 class BindlessArrayUpdateCommand final : public Command {

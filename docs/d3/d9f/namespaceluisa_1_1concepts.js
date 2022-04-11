@@ -1,5 +1,6 @@
 var namespaceluisa_1_1concepts =
 [
+    [ "detail", "da/d34/namespaceluisa_1_1concepts_1_1detail.html", "da/d34/namespaceluisa_1_1concepts_1_1detail" ],
     [ "Noncopyable", "d1/d82/structluisa_1_1concepts_1_1_noncopyable.html", "d1/d82/structluisa_1_1concepts_1_1_noncopyable" ],
     [ "iterable", "da/d9d/conceptluisa_1_1concepts_1_1iterable.html", null ],
     [ "string_viewable", "d7/d3a/conceptluisa_1_1concepts_1_1string__viewable.html", null ],

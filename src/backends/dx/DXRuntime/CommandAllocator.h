@@ -38,6 +38,7 @@ private:
     //TODO: allocate commandbuffer
     CommandAllocator(Device *device, IGpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
     void Execute(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
+    void ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3* swapchain);
     void Complete(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
     vstd::StackAllocator::Chunk Allocate(vstd::StackAllocator &allocator, uint64 size, size_t align);
 
@@ -47,12 +48,12 @@ public:
     D3D12_COMMAND_LIST_TYPE Type() const { return type; }
     void Reset(CommandQueue *queue);
     template<typename Func>
-        requires(std::is_constructible_v<vstd::function<void()>, Func &&>)
+        requires(std::is_constructible_v<vstd::move_only_func<void()>, Func &&>)
     void ExecuteAfterComplete(Func &&func) {
         executeAfterComplete.Push(std::forward<Func>(func));
     }
     DefaultBuffer const *AllocateScratchBuffer(size_t targetSize);
-    CommandBuffer* GetBuffer() const;
+    CommandBuffer *GetBuffer() const;
     BufferView GetTempReadbackBuffer(uint64 size, size_t align = 0);
     BufferView GetTempUploadBuffer(uint64 size, size_t align = 0);
     BufferView GetTempDefaultBuffer(uint64 size, size_t align = 0);

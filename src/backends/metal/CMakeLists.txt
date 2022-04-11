@@ -4,10 +4,10 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
     enable_language(OBJC)
     enable_language(OBJCXX)
-
-    if (CMAKE_HOST_SYSTEM_VERSION VERSION_GREATER_EQUAL 20) # ray tracing enabled by default from big sur
-        option(LUISA_COMPUTE_ENABLE_METAL_RAYTRACING "Enable Metal raytracing functionality" ON)
-    endif ()
+    set(CMAKE_OBJC_STANDARD 11)
+    set(CMAKE_OBJCXX_STANDARD 20)
+    set(CMAKE_OBJC_STANDARD_REQUIRED ON)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 
     set(METAL_SOURCES
             metal_device.mm metal_device.h
@@ -19,24 +19,12 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_buffer_view.h
             metal_host_buffer_pool.mm metal_host_buffer_pool.h
             metal_bindless_array.mm metal_bindless_array.h
-            metal_shader.h)
+            metal_shader.h
+            metal_mesh.mm metal_mesh.h
+            metal_accel.mm metal_accel.h)
 
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
-    if (LUISA_COMPUTE_ENABLE_METAL_RAYTRACING)
-        message(STATUS "Build with Metal Ray Tracing")
-        target_sources(luisa-compute-backend-metal PRIVATE
-                metal_mesh.mm metal_mesh.h
-                metal_accel.mm metal_accel.h)
-        target_compile_definitions(luisa-compute-backend-metal PRIVATE LUISA_METAL_RAYTRACING_ENABLED=1)
-    endif ()
-    set_target_properties(luisa-compute-backend-metal PROPERTIES
-            OBJC_STANDARD 11
-            OBJCXX_STANDARD 20
-            OBJC_STANDARD_REQUIRED ON
-            OBJCXX_STANDARD_REQUIRED ON
-            OBJC_EXTENSIONS ON
-            OBJCXX_EXTENSIONS ON
-            UNITY_BUILD ON)
+    set_target_properties(luisa-compute-backend-metal PROPERTIES UNITY_BUILD ON)
     target_compile_options(luisa-compute-backend-metal PRIVATE -fobjc-arc)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
             "-framework Foundation"

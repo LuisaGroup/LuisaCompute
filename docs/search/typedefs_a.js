@@ -1,9 +1,7 @@
 var searchData=
 [
-  ['shader1d_0',['Shader1D',['../d8/d37/namespaceluisa_1_1compute.html#ab43fe1d38888c8fd0f6a2d7f8b0ebe7c',1,'luisa::compute']]],
-  ['shader2d_1',['Shader2D',['../d8/d37/namespaceluisa_1_1compute.html#aaaf1186d30a699e7288953418ee7fc4b',1,'luisa::compute']]],
-  ['shader3d_2',['Shader3D',['../d8/d37/namespaceluisa_1_1compute.html#ae3526b4637cf96b56131057a93e6dc2d',1,'luisa::compute']]],
-  ['storage_3',['Storage',['../d2/dc0/structluisa_1_1_vector.html#a62bf16a4955822d5d313f1d818f78ef6',1,'luisa::Vector']]],
-  ['string_4',['string',['../d0/d38/namespaceluisa.html#a789bee6b95081d89d062df88a0332760',1,'luisa']]],
-  ['struct_5fmember_5ftuple_5ft_5',['struct_member_tuple_t',['../d8/d37/namespaceluisa_1_1compute.html#a515a0e45a1c303bb11595223c8e02c31',1,'luisa::compute']]]
+  ['prototype_5fto_5fcallable_5finvocation_5ft_0',['prototype_to_callable_invocation_t',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#afbaddaf0a91b7083304f10cc50c5e3e6',1,'luisa::compute::detail']]],
+  ['prototype_5fto_5fcreation_5ft_1',['prototype_to_creation_t',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#aac09054697b0db1500f7ced3e71898dc',1,'luisa::compute::detail']]],
+  ['prototype_5fto_5fcreation_5ftag_5ft_2',['prototype_to_creation_tag_t',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#ac8d2d9125ab144e783225097c453f4c0',1,'luisa::compute::detail']]],
+  ['prototype_5fto_5fshader_5finvocation_5ft_3',['prototype_to_shader_invocation_t',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#a66f1e70f91642ac5a86fb91c0a3ee448',1,'luisa::compute::detail']]]
 ];

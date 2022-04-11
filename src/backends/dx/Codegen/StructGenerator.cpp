@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Codegen/StructGenerator.h>
 #include <Codegen/DxCodegen.h>
 #include <vstl/CommonIterator.h>

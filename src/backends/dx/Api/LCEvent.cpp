@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Api/LCEvent.h>
 #include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {

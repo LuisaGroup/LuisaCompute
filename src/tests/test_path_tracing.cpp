@@ -12,7 +12,6 @@
 #include <rtx/accel.h>
 #include <gui/window.h>
 #include <gui/framerate.h>
-#include <tests/fake_device.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
 
@@ -47,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("ispc", {{"index", 1}});
+    auto device = context.create_device("cuda");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -227,9 +226,11 @@ int main(int argc, char *argv[]) {
             auto ux_light = lcg(state);
             auto uy_light = lcg(state);
             auto p_light = light_position + ux_light * light_u + uy_light * light_v;
-            auto d_light = distance(p, p_light);
-            auto wi_light = normalize(p_light - p);
-            auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
+            auto pp = offset_ray_origin(p, n);
+            auto pp_light = offset_ray_origin(p_light, light_normal);
+            auto d_light = distance(pp, pp_light);
+            auto wi_light = normalize(pp_light - pp);
+            auto shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
             auto occluded = accel.trace_any(shadow_ray);
             auto cos_wi_light = dot(wi_light, n);
             auto cos_light = -dot(light_normal, wi_light);
@@ -246,7 +247,7 @@ int main(int argc, char *argv[]) {
             auto ux = lcg(state);
             auto uy = lcg(state);
             auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
-            ray = make_ray_robust(p, n, new_direction);
+            ray = make_ray(pp, new_direction);
             beta *= material.albedo;
             pdf_bsdf = cos_wi * inv_pi;
 
@@ -287,7 +288,7 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
-        auto ldr = linear_to_srgb(aces_tonemapping(hdr.xyz() * scale));
+        auto ldr = linear_to_srgb(hdr.xyz() * scale);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -320,8 +321,10 @@ int main(int argc, char *argv[]) {
         auto command_buffer = stream.command_buffer();
         static constexpr auto spp_per_dispatch = 256u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution).dispatch(resolution)
-                           << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
+            command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution)
+                                  .dispatch(resolution)
+                           << accumulate_shader(accum_image, framebuffer)
+                                  .dispatch(resolution);
         }
         command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
                        << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)

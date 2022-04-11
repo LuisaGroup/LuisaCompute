@@ -2,11 +2,11 @@
 #include <vstl/config.h>
 #include <vstl/vstring.h>
 #include <initializer_list>
-VENGINE_DLL_COMMON void VEngine_Log(std::string_view const &chunk);
-VENGINE_DLL_COMMON void VEngine_Log(std::string_view const *chunk, size_t chunkCount);
-VENGINE_DLL_COMMON void VEngine_Log(std::initializer_list<std::string_view> const &initList);
-VENGINE_DLL_COMMON void VEngine_Log(char const *chunk);
-VENGINE_DLL_COMMON void VEngine_Log_PureVirtual(vstd::Type tarType);
+LC_VSTL_API void VEngine_Log(std::string_view const &chunk);
+LC_VSTL_API void VEngine_Log(std::string_view const *chunk, size_t chunkCount);
+LC_VSTL_API void VEngine_Log(std::initializer_list<std::string_view> const &initList);
+LC_VSTL_API void VEngine_Log(char const *chunk);
+LC_VSTL_API void VEngine_Log_PureVirtual(vstd::Type tarType);
 #define VENGINE_PURE_VIRTUAL                    \
     {                                           \
         VEngine_Log_PureVirtual(typeid(*this)); \

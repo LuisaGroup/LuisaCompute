@@ -65,15 +65,29 @@ var type_8h =
     [ "luisa::compute::tuple_join< std::tuple< A... > >", "d8/d37/namespaceluisa_1_1compute.html#d6/ddf/structluisa_1_1compute_1_1tuple__join_3_01std_1_1tuple_3_01_a_8_8_8_01_4_01_4", [
       [ "type", "d8/d37/namespaceluisa_1_1compute.html#a63a95fb37eb4e0b20fb713062d2a8e94", null ]
     ] ],
+    [ "luisa::compute::detail::linear_layout_impl< L, T >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#d9/d1a/structluisa_1_1compute_1_1detail_1_1linear__layout__impl", [
+      [ "type", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#af4dab56ad3bf0b846c647e8e3d0cedd6", null ]
+    ] ],
+    [ "luisa::compute::detail::linear_layout_impl< std::tuple< L... >, std::tuple< T... > >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#df/de6/structluisa_1_1compute_1_1detail_1_1linear__layout__impl_3_01std_1_1tuple_3_01_l_8_8_8_01_4_00_00cb19354d66cab46fbf7e24dc0ebdf52", [
+      [ "type", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#a8d6875f0b456fa5ef18f44ebc0b98301", null ]
+    ] ],
+    [ "luisa::compute::detail::dimension_impl< T >", "d2/da4/structluisa_1_1compute_1_1detail_1_1dimension__impl.html", null ],
+    [ "luisa::compute::detail::dimension_impl< T[N]>", "de/dcb/structluisa_1_1compute_1_1detail_1_1dimension__impl_3_01_t_0f_n_0e_4.html", null ],
+    [ "luisa::compute::detail::dimension_impl< std::array< T, N > >", "d8/d6a/structluisa_1_1compute_1_1detail_1_1dimension__impl_3_01std_1_1array_3_01_t_00_01_n_01_4_01_4.html", null ],
+    [ "luisa::compute::detail::dimension_impl< Vector< T, N > >", "dd/d64/structluisa_1_1compute_1_1detail_1_1dimension__impl_3_01_vector_3_01_t_00_01_n_01_4_01_4.html", null ],
+    [ "luisa::compute::detail::dimension_impl< Matrix< N > >", "d0/d3e/structluisa_1_1compute_1_1detail_1_1dimension__impl_3_01_matrix_3_01_n_01_4_01_4.html", null ],
+    [ "luisa::compute::detail::dimension_impl< std::tuple< T... > >", "db/d3b/structluisa_1_1compute_1_1detail_1_1dimension__impl_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4.html", null ],
     [ "luisa::compute::TypeVisitor", "db/d3a/structluisa_1_1compute_1_1_type_visitor.html", "db/d3a/structluisa_1_1compute_1_1_type_visitor" ],
     [ "luisa::compute::Type", "da/dd7/classluisa_1_1compute_1_1_type.html", "da/dd7/classluisa_1_1compute_1_1_type" ],
     [ "array_element_t", "df/def/type_8h.html#a83bcd9f504a0bd315a7b86646f9ee773", null ],
+    [ "array_to_tuple_element_t", "df/def/type_8h.html#aa206f7947f143f50f8c80c7b6f64c450", null ],
     [ "canonical_layout_t", "df/def/type_8h.html#a49e59e5869ee5d96f8ac2329a9ddd1ca", null ],
     [ "dimension", "df/def/type_8h.html#af67a61bc3955e078aa01cab0b2ae5a0f", null ],
     [ "linear_layout", "df/def/type_8h.html#a403fd3731082176ad1875a856888780b", null ],
     [ "linear_layout_t", "df/def/type_8h.html#afd9bd4133decdfbb56a40d40c0a68f43", null ],
     [ "struct_member_tuple_t", "df/def/type_8h.html#a515a0e45a1c303bb11595223c8e02c31", null ],
     [ "tuple_join_t", "df/def/type_8h.html#a716c6162430f44409fd93a5e53ad9a93", null ],
+    [ "array_to_tuple_impl", "df/def/type_8h.html#a727c9795068e2f36f46edd7797c73a5d", null ],
     [ "array_dimension_v", "df/def/type_8h.html#a3e941c7e5d13b39bf672e792921bbf86", null ],
     [ "dimension_v", "df/def/type_8h.html#aa86bf73bcf857669d867d7e8620f5422", null ],
     [ "is_array_v", "df/def/type_8h.html#a6e93121bf33d7007f4d344e28c271289", null ],

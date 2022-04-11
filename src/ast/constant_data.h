@@ -43,7 +43,7 @@ using constant_data_view_t = typename constant_data_view<C, T, constify>::type;
 class AstSerializer;
 
 /// Constant data
-class ConstantData {
+class LC_AST_API ConstantData {
 
 public:
     friend class AstSerializer;

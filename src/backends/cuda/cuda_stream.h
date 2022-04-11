@@ -23,24 +23,29 @@ class CUDACallbackContext;
  */
 class CUDAStream {
 
-    // TODO: parallel compute/copy using multiple streams
+public:
+    static constexpr auto backed_cuda_stream_count = 3u;
 
 private:
-    CUstream _handle;
     CUDAHostBufferPool _upload_pool;
     luisa::queue<luisa::vector<CUDACallbackContext *>> _callback_lists;
     luisa::vector<CUDACallbackContext *> _current_callbacks;
     std::mutex _mutex;
+    std::array<CUstream, backed_cuda_stream_count> _worker_streams{};
+    std::array<CUevent, backed_cuda_stream_count> _worker_events{};
+    mutable std::bitset<backed_cuda_stream_count> _used_streams;
+    mutable uint _round{0u};
 
 public:
     CUDAStream() noexcept;
     ~CUDAStream() noexcept;
     /**
-     * @brief Return handle of stream on CUDA
-     * 
+     * @brief Return handle of a CUDA worker stream
+     *
+     * @param force_first_stream enforce to get the first (main) worker stream or not
      * @return CUstream
      */
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] CUstream handle(bool force_first_stream = false) const noexcept;
     /**
      * @brief Return CUDAHostBufferPool
      * 
@@ -54,8 +59,11 @@ public:
      */
     void emplace_callback(CUDACallbackContext *cb) noexcept;
     /**
+     * @brief Insert barrier into the main worker stream
+     */
+    void barrier() noexcept;
+    /**
      * @brief Dispatch callbacks
-     * 
      */
     void dispatch_callbacks() noexcept;
 };

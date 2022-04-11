@@ -106,6 +106,11 @@ void ISPCDevice::dispatch(uint64_t stream_handle, const CommandList &list) noexc
     stream->dispatch(list);
 }
 
+void ISPCDevice::dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept {
+    auto stream = reinterpret_cast<ISPCStream *>(stream_handle);
+    stream->dispatch(std::move(func));
+}
+
 void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
     return reinterpret_cast<void *>(handle);
 }
@@ -139,7 +144,9 @@ void ISPCDevice::synchronize_event(uint64_t handle) noexcept {
     reinterpret_cast<ISPCEvent *>(handle)->wait();
 }
 
-uint64_t ISPCDevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+uint64_t ISPCDevice::create_mesh(
+    uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
+    uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
     auto mesh = luisa::new_with_allocator<ISPCMesh>(
         _rtc_device, hint,
         v_buffer, v_offset, v_stride, v_count,
@@ -151,47 +158,9 @@ void ISPCDevice::destroy_mesh(uint64_t handle) noexcept {
     luisa::delete_with_allocator(reinterpret_cast<ISPCMesh *>(handle));
 }
 
-uint64_t ISPCDevice::create_accel(AccelBuildHint hint) noexcept {
+uint64_t ISPCDevice::create_accel(AccelUsageHint hint) noexcept {
     auto accel = luisa::new_with_allocator<ISPCAccel>(_rtc_device, hint);
     return reinterpret_cast<uint64_t>(accel);
-}
-
-void ISPCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->push_mesh(
-        reinterpret_cast<const ISPCMesh *>(mesh), transform, visible);
-}
-
-void ISPCDevice::pop_back_instance_from_accel(uint64_t accel) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->pop_mesh();
-}
-
-void ISPCDevice::set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->set_mesh(
-        index, reinterpret_cast<const ISPCMesh *>(mesh), transform, visible);
-}
-
-void ISPCDevice::set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->set_transform(index, transform);
-}
-
-void ISPCDevice::set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept {
-    reinterpret_cast<ISPCAccel *>(accel)->set_visibility(index, visible);
-}
-
-bool ISPCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    return reinterpret_cast<ISPCAccel *>(accel)->uses_resource(buffer);
-}
-
-bool ISPCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
-    return reinterpret_cast<ISPCAccel *>(accel)->uses_resource(mesh);
-}
-
-uint64_t ISPCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<const ISPCMesh *>(mesh_handle)->vertex_buffer();
-}
-
-uint64_t ISPCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<const ISPCMesh *>(mesh_handle)->triangle_buffer();
 }
 
 void ISPCDevice::destroy_accel(uint64_t handle) noexcept {
@@ -202,6 +171,25 @@ ISPCDevice::ISPCDevice(const Context &ctx) noexcept
     : Device::Interface{ctx}, _rtc_device{rtcNewDevice(nullptr)} {}
 
 ISPCDevice::~ISPCDevice() noexcept { rtcReleaseDevice(_rtc_device); }
+
+uint64_t ISPCDevice::create_swap_chain(
+    uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
+    bool allow_hdr, uint back_buffer_count) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void ISPCDevice::destroy_swap_chain(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+PixelStorage ISPCDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void ISPCDevice::present_display_in_stream(
+    uint64_t stream_handle, uint64_t swap_chain_handle, uint64_t image_handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
 
 }// namespace luisa::compute::ispc
 

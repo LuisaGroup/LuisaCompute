@@ -20,11 +20,8 @@
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_compiler.h>
 #import <backends/metal/metal_bindless_array.h>
-
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
 #import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_accel.h>
-#endif
 
 namespace luisa::compute::metal {
 
@@ -33,6 +30,7 @@ class MetalDevice final : public Device::Interface {
 private:
     id<MTLDevice> _handle{nullptr};
     id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
+    id<MTLComputePipelineState> _update_instances_shader{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
 public:
@@ -42,6 +40,7 @@ public:
     [[nodiscard]] MetalShader compiled_kernel(uint64_t handle) const noexcept;
     void check_raytracing_supported() const noexcept;
     [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
+    [[nodiscard]] auto instance_update_shader() const noexcept { return _update_instances_shader; }
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
@@ -62,11 +61,9 @@ public:
     void synchronize_event(uint64_t handle) noexcept override;
     uint64_t create_mesh(
         uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-        uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept override;
+        uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
-    uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    uint64_t create_accel(AccelBuildHint hint) noexcept override;
+    uint64_t create_accel(AccelUsageHint hint) noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
     uint64_t create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
@@ -82,14 +79,13 @@ public:
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
-    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
-    bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
-    bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
-    void pop_back_instance_from_accel(uint64_t accel) noexcept override;
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
     bool requires_command_reordering() const noexcept override;
+    void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept override;
+    uint64_t create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept override;
+    void destroy_swap_chain(uint64_t handle) noexcept override;
+    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
+    void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
+    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept override;
 };
 
 }// namespace luisa::compute::metal

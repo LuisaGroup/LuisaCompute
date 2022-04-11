@@ -6,11 +6,8 @@
 #import <core/clock.h>
 #import <ast/function.h>
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
 #import <backends/metal/metal_mesh.h>
 #import <backends/metal/metal_accel.h>
-#endif
-
 #import <backends/metal/metal_device.h>
 #import <backends/metal/metal_stream.h>
 #import <backends/metal/metal_bindless_array.h>
@@ -37,14 +34,12 @@ MetalCommandEncoder::MetalCommandEncoder(
     return reinterpret_cast<MetalBindlessArray *>(handle);
 }
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
 [[nodiscard]] inline static auto to_accel(uint64_t handle) noexcept {
     return reinterpret_cast<MetalAccel *>(handle);
 }
 [[nodiscard]] inline static auto to_mesh(uint64_t handle) noexcept {
     return reinterpret_cast<MetalMesh *>(handle);
 }
-#endif
 
 void MetalCommandEncoder::visit(const BufferCopyCommand *command) noexcept {
     auto blit_encoder = [_command_buffer blitCommandEncoder];
@@ -85,7 +80,6 @@ void MetalCommandEncoder::visit(const BufferToTextureCopyCommand *command) noexc
     auto buffer = to_buffer(command->buffer());
     auto texture = to_texture(command->texture());
     auto size = command->size();
-    auto offset = command->offset();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y;
@@ -98,26 +92,24 @@ void MetalCommandEncoder::visit(const BufferToTextureCopyCommand *command) noexc
                        toTexture:texture
                 destinationSlice:0u
                 destinationLevel:command->level()
-               destinationOrigin:MTLOriginMake(offset.x, offset.y, offset.z)];
+               destinationOrigin:MTLOriginMake(0u, 0u, 0u)];
     [blit_encoder endEncoding];
 }
 
 void MetalCommandEncoder::visit(const TextureCopyCommand *command) noexcept {
     auto src = to_texture(command->src_handle());
     auto dst = to_texture(command->dst_handle());
-    auto src_offset = command->src_offset();
-    auto dst_offset = command->dst_offset();
     auto size = command->size();
     auto blit_encoder = [_command_buffer blitCommandEncoder];
     [blit_encoder copyFromTexture:src
                       sourceSlice:0u
                       sourceLevel:command->src_level()
-                     sourceOrigin:MTLOriginMake(src_offset.x, src_offset.y, src_offset.z)
+                     sourceOrigin:MTLOriginMake(0u, 0u, 0u)
                        sourceSize:MTLSizeMake(size.x, size.y, size.z)
                         toTexture:dst
                  destinationSlice:0u
                  destinationLevel:command->dst_level()
-                destinationOrigin:MTLOriginMake(dst_offset.x, dst_offset.y, dst_offset.z)];
+                destinationOrigin:MTLOriginMake(0u, 0u, 0u)];
     [blit_encoder endEncoding];
 }
 
@@ -125,7 +117,6 @@ void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexc
     auto buffer = to_buffer(command->buffer());
     auto texture = to_texture(command->texture());
     auto size = command->size();
-    auto offset = command->offset();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
     auto image_bytes = pitch_bytes * size.y;
@@ -133,7 +124,7 @@ void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexc
     [blit_encoder copyFromTexture:texture
                       sourceSlice:0u
                       sourceLevel:command->level()
-                     sourceOrigin:MTLOriginMake(offset.x, offset.y, offset.z)
+                     sourceOrigin:MTLOriginMake(0u, 0u, 0u)
                        sourceSize:MTLSizeMake(size.x, size.y, size.z)
                          toBuffer:buffer
                 destinationOffset:command->buffer_offset()
@@ -143,7 +134,6 @@ void MetalCommandEncoder::visit(const TextureToBufferCopyCommand *command) noexc
 }
 
 void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
-    auto offset = command->offset();
     auto size = command->size();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
@@ -159,12 +149,11 @@ void MetalCommandEncoder::visit(const TextureUploadCommand *command) noexcept {
                        toTexture:texture
                 destinationSlice:0u
                 destinationLevel:command->level()
-               destinationOrigin:MTLOriginMake(offset.x, offset.y, offset.z)];
+               destinationOrigin:MTLOriginMake(0u, 0u, 0u)];
     [blit_encoder endEncoding];
 }
 
 void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
-    auto offset = command->offset();
     auto size = command->size();
     auto pixel_bytes = pixel_storage_size(command->storage());
     auto pitch_bytes = pixel_bytes * size.x;
@@ -175,7 +164,7 @@ void MetalCommandEncoder::visit(const TextureDownloadCommand *command) noexcept 
     [blit_encoder copyFromTexture:texture
                       sourceSlice:0u
                       sourceLevel:command->level()
-                     sourceOrigin:MTLOriginMake(offset.x, offset.y, offset.z)
+                     sourceOrigin:MTLOriginMake(0u, 0u, 0u)
                        sourceSize:MTLSizeMake(size.x, size.y, size.z)
                          toBuffer:buffer.handle()
                 destinationOffset:buffer.offset()
@@ -239,24 +228,19 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                                 offset:0u
                                atIndex:buffer_index++];
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding geometry #{} at index {}.",
                 argument.handle, buffer_index);
             auto accel = to_accel(argument.handle);
-            if (auto resources = accel->resources(); !resources.empty()) {
-                [compute_encoder useResources:resources.data()
-                                        count:resources.size()
-                                        usage:MTLResourceUsageRead];
+            for (auto resource : accel->resources()) {
+                [compute_encoder useResource:resource.handle
+                                       usage:MTLResourceUsageRead];
             }
             [compute_encoder setAccelerationStructure:accel->handle()
                                         atBufferIndex:buffer_index++];
             [compute_encoder setBuffer:accel->instance_buffer()
                                 offset:0u
                                atIndex:buffer_index++];
-#else
-            LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
         } else {// uniform
             LUISA_VERBOSE_WITH_LOCATION(
                 "Encoding uniform at index {}.",
@@ -305,46 +289,16 @@ void MetalCommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexc
     array->update(_stream, _command_buffer);
 }
 
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-
-void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
-    auto accel = to_accel(command->handle());
-    _command_buffer = accel->update(_stream, _command_buffer);
-}
-
 void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = to_accel(command->handle());
-    _command_buffer = accel->build(_stream, _command_buffer);
-}
-
-void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
-    auto mesh = to_mesh(command->handle());
-    _command_buffer = mesh->update(_stream, _command_buffer);
+    _command_buffer = accel->build(
+        _stream, _command_buffer, command->instance_count(),
+        command->request(), command->modifications());
 }
 
 void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = to_mesh(command->handle());
-    _command_buffer = mesh->build(_stream, _command_buffer);
+    _command_buffer = mesh->build(_stream, _command_buffer, command->request());
 }
-
-#else
-
-void MetalCommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-void MetalCommandEncoder::visit(const AccelBuildCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-void MetalCommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-void MetalCommandEncoder::visit(const MeshBuildCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-}
-
-#endif
 
 }

@@ -1,9 +1,11 @@
 var searchData=
 [
-  ['value_0',['value',['../d2/d5e/structluisa_1_1compute_1_1array__dimension.html#a6eebc7be080859525f4359fed261c3f0',1,'luisa::compute::array_dimension::value()'],['../d8/db8/structluisa_1_1compute_1_1array__dimension_3_01_t_0f_n_0e_4.html#a95365b8aa966759e688823cb48e134ba',1,'luisa::compute::array_dimension&lt; T[N]&gt;::value()'],['../d0/d65/structluisa_1_1compute_1_1array__dimension_3_01std_1_1array_3_01_t_00_01_n_01_4_01_4.html#a11d85db374afbb7275b8d0d72a380094',1,'luisa::compute::array_dimension&lt; std::array&lt; T, N &gt; &gt;::value()']]],
-  ['value_5ftags_1',['value_tags',['../da/d87/structluisa_1_1compute_1_1_printer_1_1_descriptor.html#a5e37ac55fd52d9dc29bd6fe8c30d765d',1,'luisa::compute::Printer::Descriptor']]],
-  ['variable_5fuid_2',['variable_uid',['../db/dc2/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_argument.html#aaa9d62ba5701cee017ba87ee4059a744',1,'luisa::compute::ShaderDispatchCommand::Argument']]],
-  ['vector_5fdimension_5fv_3',['vector_dimension_v',['../d0/d38/namespaceluisa.html#a3cce75e9214d65479d69d3390c7c6f01',1,'luisa']]],
-  ['vector_5fexpr_5fdimension_5fv_4',['vector_expr_dimension_v',['../d8/d37/namespaceluisa_1_1compute.html#ab115308866700957e4f6f5bcbc243ad5',1,'luisa::compute']]],
-  ['visible_5',['visible',['../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ab35c521bdbed917f2ef0766ecd605826',1,'luisa::compute::ispc::ISPCAccel::Instance']]]
+  ['sampler2d_0',['sampler2d',['../d2/d16/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_bindless_array.html#afcc40c6fa989efe12f5348c9c76f56b2',1,'luisa::compute::ispc::ISPCBindlessArray::Item::sampler2d()'],['../d2/d16/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_bindless_array.html#aae3ba0397e87118315c02ab06d665421',1,'luisa::compute::ispc::ISPCBindlessArray::Slot::sampler2d()']]],
+  ['sampler3d_1',['sampler3d',['../d2/d16/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_bindless_array.html#ab7f323410b8aa2d9e77d5fba060af221',1,'luisa::compute::ispc::ISPCBindlessArray::Item::sampler3d()'],['../d2/d16/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_bindless_array.html#a0c8bcd0f4f2f9b607d8318f572d3604c',1,'luisa::compute::ispc::ISPCBindlessArray::Slot::sampler3d()']]],
+  ['scene_2',['scene',['../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#add7b5222b3245790bf6e375c4dc22ca8',1,'luisa::compute::ispc::ISPCAccel::Handle']]],
+  ['size_3',['size',['../d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument.html#a340a4958bbdeca21fd5d2d8f2809397f',1,'luisa::compute::ShaderDispatchCommand::UniformArgument::size()'],['../d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a16aa7e29f96e80f75aed7b5de829613e',1,'luisa::compute::ispc::ISPCTexture::size()']]],
+  ['sqrt_5ftwo_4',['sqrt_two',['../d4/db9/namespaceluisa_1_1constants.html#a92ee1dfde16d6c178582801323ea5700',1,'luisa::sqrt_two()'],['../d4/db9/namespaceluisa_1_1constants.html#a92ee1dfde16d6c178582801323ea5700',1,'luisa::constants::sqrt_two()']]],
+  ['storage_5',['storage',['../d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a8e6c35a57c03998bc1d17fd71648b221',1,'luisa::compute::ispc::ISPCTexture']]],
+  ['swizzle_5fmask_6',['swizzle_mask',['../d2/d6d/classluisa_1_1compute_1_1_member_expr.html#ae3a1d2d5e71b023913d6eeb0761fabc8',1,'luisa::compute::MemberExpr']]],
+  ['swizzle_5fshift_7',['swizzle_shift',['../d2/d6d/classluisa_1_1compute_1_1_member_expr.html#aee3cbeaa7d7180a5e57c6a65ccf2ff10',1,'luisa::compute::MemberExpr']]]
 ];

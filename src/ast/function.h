@@ -23,7 +23,7 @@ class Expression;
  * @brief Function class
  * 
  */
-class Function {
+class LC_AST_API Function {
 
 public:
     struct Hash {

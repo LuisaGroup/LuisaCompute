@@ -606,7 +606,7 @@ LUISA_MAKE_TYPE_N(uint)
 [[nodiscard]] constexpr auto make_float3x3(float2x2 m) noexcept {
     return float3x3{make_float3(m[0], 0.0f),
                     make_float3(m[1], 0.0f),
-                    make_float3(m[2], 1.0f)};
+                    make_float3(0.f, 0.f, 1.0f)};
 }
 
 /// make float3x3

@@ -88,6 +88,7 @@ $(document).ready(function(){initNavTree('db/dfb/hash_8h.html','../../'); initRe
   <div class="summary">
 <a href="#nested-classes">Classes</a> &#124;
 <a href="#namespaces">Namespaces</a> &#124;
+<a href="#concepts">Concepts</a> &#124;
 <a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">hash.h File Reference</div></div>
 </div><!--header-->
@@ -113,11 +114,25 @@ Classes</h2></td></tr>
 Namespaces</h2></td></tr>
 <tr class="memitem:d0/d38/namespaceluisa"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html">luisa</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:d9/d99/namespaceluisa_1_1detail"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d9/d99/namespaceluisa_1_1detail.html">luisa::detail</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="concepts" name="concepts"></a>
+Concepts</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">concept &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d4/d5d/conceptluisa_1_1detail_1_1hashable__with__hash__method.html">luisa::detail::hashable_with_hash_method</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Type T has method hash() <br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">concept &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../df/d1e/conceptluisa_1_1detail_1_1hashable__with__hash__code__method.html">luisa::detail::hashable_with_hash_code_method</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Type T has method hash_code() <br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:a1224831c1173ec4c5604065e5922f6c6"><td class="memItemLeft" align="right" valign="top">std::string_view&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a1224831c1173ec4c5604065e5922f6c6">luisa::hash_to_string</a> (uint64_t hash) noexcept</td></tr>
-<tr class="separator:a1224831c1173ec4c5604065e5922f6c6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a02c5020d661e55b09a40c50133605508"><td class="memItemLeft" align="right" valign="top">auto&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d9/d99/namespaceluisa_1_1detail.html#a02c5020d661e55b09a40c50133605508">luisa::detail::xxh3_hash64</a> (const void *data, size_t size, uint64_t seed) noexcept</td></tr>
+<tr class="memdesc:a02c5020d661e55b09a40c50133605508"><td class="mdescLeft">&#160;</td><td class="mdescRight">xxh3_hash64  <a href="../../d9/d99/namespaceluisa_1_1detail.html#a02c5020d661e55b09a40c50133605508">More...</a><br /></td></tr>
+<tr class="separator:a02c5020d661e55b09a40c50133605508"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a48256c66a8f60df753a8fe223a1a4120"><td class="memItemLeft" align="right" valign="top">std::string_view&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a48256c66a8f60df753a8fe223a1a4120">luisa::hash_to_string</a> (uint64_t hash) noexcept</td></tr>
+<tr class="separator:a48256c66a8f60df753a8fe223a1a4120"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aed4a90c54b8f09bf1269868fbd5767e2"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
 <tr class="memitem:aed4a90c54b8f09bf1269868fbd5767e2"><td class="memTemplItemLeft" align="right" valign="top">auto&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#aed4a90c54b8f09bf1269868fbd5767e2">luisa::hash64</a> (T &amp;&amp;v, uint64_t seed=Hash64::default_seed) noexcept -&gt; uint64_t</td></tr>
 <tr class="memdesc:aed4a90c54b8f09bf1269868fbd5767e2"><td class="mdescLeft">&#160;</td><td class="mdescRight">Calculate hash.  <a href="../../d0/d38/namespaceluisa.html#aed4a90c54b8f09bf1269868fbd5767e2">More...</a><br /></td></tr>

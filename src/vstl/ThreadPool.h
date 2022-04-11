@@ -3,7 +3,7 @@
 #include <vstl/LockFreeStepQueue.h>
 #include <vstl/ThreadTaskHandle.h>
 #include <EASTL/shared_ptr.h>
-class VENGINE_DLL_COMMON ThreadPool final {
+class LC_VSTL_API ThreadPool final {
 	friend class ThreadTaskHandle;
 	vstd::vector<std::thread> threads;
 	vstd::vector<std::thread> backupThreads;

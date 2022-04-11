@@ -6,11 +6,10 @@ var classluisa_1_1compute_1_1_volume_view =
     [ "format", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#ab0079576593b4f6fcabacf40d2782a30", null ],
     [ "handle", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#a271f42e97656b9720bcc53d5fbfa082c", null ],
     [ "level", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#ac3f8a395d0c58ced93f454dd08daf228", null ],
-    [ "offset", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#a571d3b287b09f209f3fd7cf158e7539e", null ],
     [ "read", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#a45b24bdaaad406153f13c75a15531496", null ],
-    [ "region", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#a6652a60b6a027062214ce59d264defc1", null ],
     [ "size", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#a4e8a73533902f3a94bc4a207da594055", null ],
     [ "storage", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#a81d7957a5ef7e4aa59919bcda4d9ceb8", null ],
     [ "write", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#ac3ba6b1ab2a081a16b227bc4b79bbdcf", null ],
+    [ "detail::MipmapView", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#abe2c8fd78ad562e2a06802e6b7fa859a", null ],
     [ "Volume< T >", "d8/d47/classluisa_1_1compute_1_1_volume_view.html#a16a9f75d0ed210ab9a75ebcc09224796", null ]
 ];

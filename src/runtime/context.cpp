@@ -6,6 +6,7 @@
 #include <core/platform.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
+#include <nlohmann/json.hpp>
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>
@@ -42,9 +43,6 @@ Context::Context(const std::filesystem::path &program) noexcept
         std::filesystem::create_directories(_impl->cache_directory);
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
-#ifdef LUISA_PLATFORM_WINDOWS
-    SetDllDirectoryW((_impl->runtime_directory / "backends").wstring().c_str());
-#endif
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {
@@ -55,12 +53,7 @@ const std::filesystem::path &Context::cache_directory() const noexcept {
     return _impl->cache_directory;
 }
 
-Device Context::create_device(std::string_view backend_name, const nlohmann::json &properties) noexcept {
-    if (!properties.is_object()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid device properties: {}.",
-            properties.dump());
-    }
+Device Context::create_device(std::string_view backend_name, luisa::string_view property_json) noexcept {
     auto [create, destroy] = [backend_name, this] {
         if (auto iter = std::find(_impl->device_identifiers.cbegin(),
                                   _impl->device_identifiers.cend(),
@@ -72,7 +65,7 @@ Device Context::create_device(std::string_view backend_name, const nlohmann::jso
             return std::make_pair(c, d);
         }
         auto &&m = _impl->loaded_modules.emplace_back(
-            _impl->runtime_directory / "backends",
+            _impl->runtime_directory,
             fmt::format("luisa-compute-backend-{}", backend_name));
         auto c = m.function<Device::Creator>("create");
         auto d = m.function<Device::Deleter>("destroy");
@@ -81,7 +74,7 @@ Device Context::create_device(std::string_view backend_name, const nlohmann::jso
         _impl->device_deleters.emplace_back(d);
         return std::make_pair(c, d);
     }();
-    return Device{Device::Handle{create(*this, properties.dump()), destroy}};
+    return Device{Device::Handle{create(*this, property_json), destroy}};
 }
 
 Context::~Context() noexcept {

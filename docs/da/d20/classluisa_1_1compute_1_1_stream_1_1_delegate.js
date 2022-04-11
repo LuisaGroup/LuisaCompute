@@ -9,6 +9,9 @@ var classluisa_1_1compute_1_1_stream_1_1_delegate =
     [ "operator<<", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#ae5b2bfba212e58aaed29a51b30a33a41", null ],
     [ "operator<<", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#a4e85311b84c87773b52d4f2844cf382c", null ],
     [ "operator<<", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#abe3a6bab8da4493e56f9de1dd6d425cd", null ],
+    [ "operator<<", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#a06bc7dae6056c794518368cb8b3907a1", null ],
+    [ "operator<<", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#a1c87d92c0d46dcd01e13989f3cca3bc8", null ],
+    [ "operator<<", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#a486340f9b04704b844da336ea7c46114", null ],
     [ "operator=", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#ac8702328fe11e27287ac55dcab836bc7", null ],
     [ "operator=", "da/d20/classluisa_1_1compute_1_1_stream_1_1_delegate.html#aab405195b6fc6af19b3a53591fd7c281", null ]
 ];

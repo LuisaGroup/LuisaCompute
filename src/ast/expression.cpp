@@ -36,6 +36,8 @@ void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         if (_op == CallOp::BUFFER_WRITE ||
             _op == CallOp::TEXTURE_WRITE ||
+            _op == CallOp::SET_INSTANCE_TRANSFORM ||
+            _op == CallOp::SET_INSTANCE_VISIBILITY ||
             _op == CallOp::ATOMIC_EXCHANGE ||
             _op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
             _op == CallOp::ATOMIC_FETCH_ADD ||
@@ -61,6 +63,7 @@ void CallExpr::_mark() const noexcept {
             _arguments[i]->mark(
                 arg.tag() == Variable::Tag::REFERENCE ||
                         arg.tag() == Variable::Tag::BUFFER ||
+                        arg.tag() == Variable::Tag::ACCEL ||
                         arg.tag() == Variable::Tag::TEXTURE ?
                     _custom.variable_usage(arg.uid()) :
                     Usage::READ);

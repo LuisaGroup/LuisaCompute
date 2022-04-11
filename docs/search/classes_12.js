@@ -15,6 +15,21 @@ var searchData=
   ['vector_3c_20float_2c_204_20_3e_12',['Vector&lt; float, 4 &gt;',['../d2/dc0/structluisa_1_1_vector.html',1,'luisa']]],
   ['vector_3c_20uint_2c_202_20_3e_13',['Vector&lt; uint, 2 &gt;',['../d2/dc0/structluisa_1_1_vector.html',1,'luisa']]],
   ['vector_3c_20uint_2c_203_20_3e_14',['Vector&lt; uint, 3 &gt;',['../d2/dc0/structluisa_1_1_vector.html',1,'luisa']]],
-  ['volume_15',['Volume',['../df/dea/classluisa_1_1compute_1_1_volume.html',1,'luisa::compute']]],
-  ['volumeview_16',['VolumeView',['../d8/d47/classluisa_1_1compute_1_1_volume_view.html',1,'luisa::compute']]]
+  ['vector_5fdimension_5fimpl_15',['vector_dimension_impl',['../dc/dca/structluisa_1_1detail_1_1vector__dimension__impl.html',1,'luisa::detail']]],
+  ['vector_5fdimension_5fimpl_3c_20vector_3c_20t_2c_20n_20_3e_20_3e_16',['vector_dimension_impl&lt; Vector&lt; T, N &gt; &gt;',['../db/df7/structluisa_1_1detail_1_1vector__dimension__impl_3_01_vector_3_01_t_00_01_n_01_4_01_4.html',1,'luisa::detail']]],
+  ['vector_5felement_5fimpl_17',['vector_element_impl',['../d9/d99/namespaceluisa_1_1detail.html#d7/d5e/structluisa_1_1detail_1_1vector__element__impl',1,'luisa::detail']]],
+  ['vector_5felement_5fimpl_3c_20vector_3c_20t_2c_20n_20_3e_20_3e_18',['vector_element_impl&lt; Vector&lt; T, N &gt; &gt;',['../d9/d99/namespaceluisa_1_1detail.html#d1/d5a/structluisa_1_1detail_1_1vector__element__impl_3_01_vector_3_01_t_00_01_n_01_4_01_4',1,'luisa::detail']]],
+  ['vectorized_19',['vectorized',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#da/dc8/structluisa_1_1compute_1_1detail_1_1vectorized',1,'luisa::compute::detail']]],
+  ['vectorized_3c_20t_2c_201u_20_3e_20',['vectorized&lt; T, 1u &gt;',['../d3/df7/namespaceluisa_1_1compute_1_1detail.html#d3/d75/structluisa_1_1compute_1_1detail_1_1vectorized_3_01_t_00_011u_01_4',1,'luisa::compute::detail']]],
+  ['vectorized_5fdimension_21',['vectorized_dimension',['../d9/ddb/structluisa_1_1compute_1_1detail_1_1vectorized__dimension.html',1,'luisa::compute::detail']]],
+  ['vectorized_5fdimension_3c_20first_2c_20other_2e_2e_2e_20_3e_22',['vectorized_dimension&lt; First, Other... &gt;',['../de/df2/structluisa_1_1compute_1_1detail_1_1vectorized__dimension_3_01_first_00_01_other_8_8_8_01_4.html',1,'luisa::compute::detail']]],
+  ['vectorized_5fdimension_3c_20t_20_3e_23',['vectorized_dimension&lt; T &gt;',['../d6/d1a/structluisa_1_1compute_1_1detail_1_1vectorized__dimension_3_01_t_01_4.html',1,'luisa::compute::detail']]],
+  ['vectorstorage_24',['VectorStorage',['../d1/d8c/structluisa_1_1detail_1_1_vector_storage.html',1,'luisa::detail']]],
+  ['vectorstorage_3c_20float_2c_20n_20_3e_25',['VectorStorage&lt; float, N &gt;',['../d1/d8c/structluisa_1_1detail_1_1_vector_storage.html',1,'luisa::detail']]],
+  ['vectorstorage_3c_20t_2c_202_20_3e_26',['VectorStorage&lt; T, 2 &gt;',['../da/d9f/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_012_01_4.html',1,'luisa::detail']]],
+  ['vectorstorage_3c_20t_2c_203_20_3e_27',['VectorStorage&lt; T, 3 &gt;',['../d6/d47/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_013_01_4.html',1,'luisa::detail']]],
+  ['vectorstorage_3c_20t_2c_204_20_3e_28',['VectorStorage&lt; T, 4 &gt;',['../df/d78/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_014_01_4.html',1,'luisa::detail']]],
+  ['vectorstorage_3c_20uint_2c_20n_20_3e_29',['VectorStorage&lt; uint, N &gt;',['../d1/d8c/structluisa_1_1detail_1_1_vector_storage.html',1,'luisa::detail']]],
+  ['volume_30',['Volume',['../df/dea/classluisa_1_1compute_1_1_volume.html',1,'luisa::compute']]],
+  ['volumeview_31',['VolumeView',['../d8/d47/classluisa_1_1compute_1_1_volume_view.html',1,'luisa::compute']]]
 ];

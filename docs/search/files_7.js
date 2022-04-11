@@ -24,7 +24,6 @@ var searchData=
   ['ispc_5fshader_2eh_21',['ispc_shader.h',['../db/d17/ispc__shader_8h.html',1,'']]],
   ['ispc_5fstream_2ecpp_22',['ispc_stream.cpp',['../d5/dd2/ispc__stream_8cpp.html',1,'']]],
   ['ispc_5fstream_2eh_23',['ispc_stream.h',['../df/d98/ispc__stream_8h.html',1,'']]],
-  ['ispc_5ftest_2ecpp_24',['ispc_test.cpp',['../db/d9c/ispc__test_8cpp.html',1,'']]],
-  ['ispc_5ftexture_2ecpp_25',['ispc_texture.cpp',['../d7/d7c/ispc__texture_8cpp.html',1,'']]],
-  ['ispc_5ftexture_2eh_26',['ispc_texture.h',['../da/d0e/ispc__texture_8h.html',1,'']]]
+  ['ispc_5ftexture_2ecpp_24',['ispc_texture.cpp',['../d7/d7c/ispc__texture_8cpp.html',1,'']]],
+  ['ispc_5ftexture_2eh_25',['ispc_texture.h',['../da/d0e/ispc__texture_8h.html',1,'']]]
 ];

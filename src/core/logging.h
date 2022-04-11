@@ -49,13 +49,13 @@ template<typename... Args>
 }
 
 /// Set log level as verbose
-void log_level_verbose() noexcept;
+LC_CORE_API void log_level_verbose() noexcept;
 /// Set log level as info
-void log_level_info() noexcept;
+LC_CORE_API void log_level_info() noexcept;
 /// Set log level as warning
-void log_level_warning() noexcept;
+LC_CORE_API void log_level_warning() noexcept;
 /// Set log level as error
-void log_level_error() noexcept;
+LC_CORE_API void log_level_error() noexcept;
 
 }// namespace luisa
 

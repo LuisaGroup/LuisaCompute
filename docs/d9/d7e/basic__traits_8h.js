@@ -2,6 +2,28 @@ var basic__traits_8h =
 [
     [ "luisa::always_false< T >", "dd/dfc/structluisa_1_1always__false.html", null ],
     [ "luisa::always_true< T >", "d6/dda/structluisa_1_1always__true.html", null ],
+    [ "luisa::detail::is_vector_impl< T, N >", "d3/df1/structluisa_1_1detail_1_1is__vector__impl.html", null ],
+    [ "luisa::detail::is_vector_impl< Vector< T, N >, N >", "d6/d89/structluisa_1_1detail_1_1is__vector__impl_3_01_vector_3_01_t_00_01_n_01_4_00_01_n_01_4.html", null ],
+    [ "luisa::detail::is_vector_impl< Vector< T, N >, 0u >", "d6/d16/structluisa_1_1detail_1_1is__vector__impl_3_01_vector_3_01_t_00_01_n_01_4_00_010u_01_4.html", null ],
+    [ "luisa::detail::is_matrix_impl< T, N >", "d9/d40/structluisa_1_1detail_1_1is__matrix__impl.html", null ],
+    [ "luisa::detail::is_matrix_impl< Matrix< N >, N >", "d5/d0b/structluisa_1_1detail_1_1is__matrix__impl_3_01_matrix_3_01_n_01_4_00_01_n_01_4.html", null ],
+    [ "luisa::detail::is_matrix_impl< Matrix< N >, 0u >", "d0/d44/structluisa_1_1detail_1_1is__matrix__impl_3_01_matrix_3_01_n_01_4_00_010u_01_4.html", null ],
+    [ "luisa::detail::vector_element_impl< T >", "d9/d99/namespaceluisa_1_1detail.html#d7/d5e/structluisa_1_1detail_1_1vector__element__impl", [
+      [ "type", "d9/d99/namespaceluisa_1_1detail.html#af10ee66f8ae58b956f8923ac3543311e", null ]
+    ] ],
+    [ "luisa::detail::vector_element_impl< Vector< T, N > >", "d9/d99/namespaceluisa_1_1detail.html#d1/d5a/structluisa_1_1detail_1_1vector__element__impl_3_01_vector_3_01_t_00_01_n_01_4_01_4", [
+      [ "type", "d9/d99/namespaceluisa_1_1detail.html#afee772ab78f74fcaaa03125cd693f8ac", null ]
+    ] ],
+    [ "luisa::detail::vector_dimension_impl< T >", "dc/dca/structluisa_1_1detail_1_1vector__dimension__impl.html", null ],
+    [ "luisa::detail::vector_dimension_impl< Vector< T, N > >", "db/df7/structluisa_1_1detail_1_1vector__dimension__impl_3_01_vector_3_01_t_00_01_n_01_4_01_4.html", null ],
+    [ "luisa::detail::matrix_dimension_impl< T >", "d6/d22/structluisa_1_1detail_1_1matrix__dimension__impl.html", null ],
+    [ "luisa::detail::matrix_dimension_impl< Matrix< N > >", "d7/d33/structluisa_1_1detail_1_1matrix__dimension__impl_3_01_matrix_3_01_n_01_4_01_4.html", null ],
+    [ "luisa::detail::is_vector_same_dimension_impl< U, V >", "d8/d0e/structluisa_1_1detail_1_1is__vector__same__dimension__impl.html", null ],
+    [ "luisa::detail::is_vector_same_dimension_impl< Vector< U, N >, Vector< V, N > >", "df/d2a/structluisa_1_1detail_1_1is__vector__same__dimension__impl_3_01_vector_3_01_u_00_01_n_01_4_00_01240d6950216ebd20c6f4561f96d738de.html", null ],
+    [ "luisa::detail::is_vector_all_same_dimension_impl< T >", "de/ded/structluisa_1_1detail_1_1is__vector__all__same__dimension__impl.html", null ],
+    [ "luisa::detail::is_vector_all_same_dimension_impl<>", "dc/db6/structluisa_1_1detail_1_1is__vector__all__same__dimension__impl_3_4.html", null ],
+    [ "luisa::detail::is_vector_all_same_dimension_impl< T >", "d1/db6/structluisa_1_1detail_1_1is__vector__all__same__dimension__impl_3_01_t_01_4.html", null ],
+    [ "luisa::detail::is_vector_all_same_dimension_impl< First, Other... >", "d7/d33/structluisa_1_1detail_1_1is__vector__all__same__dimension__impl_3_01_first_00_01_other_8_8_8_01_4.html", null ],
     [ "is_basic", "d9/d7e/basic__traits_8h.html#aad5a63321937da472e6259604879c67d", null ],
     [ "is_bool_vector", "d9/d7e/basic__traits_8h.html#a2d4cf5339f3bd26974df4f2339168bba", null ],
     [ "is_boolean", "d9/d7e/basic__traits_8h.html#a5f4eee9b853f589ab48b0daa23fc51e2", null ],

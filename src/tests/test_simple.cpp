@@ -12,7 +12,6 @@
 #include <runtime/stream.h>
 #include <runtime/buffer.h>
 #include <dsl/syntax.h>
-#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -30,14 +29,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-
-#if defined(LUISA_BACKEND_METAL_ENABLED)
     auto device = context.create_device("metal");
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device = context.create_device("dx");
-#else
-    auto device = FakeDevice::create(context);
-#endif
 
     Callable load = [](BufferVar<float> buffer, Var<uint> index) noexcept {
         return buffer.read(index);

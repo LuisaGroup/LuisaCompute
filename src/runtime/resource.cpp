@@ -17,6 +17,7 @@ void Resource::_destroy() noexcept {
             case Tag::STREAM: _device->destroy_stream(_handle); break;
             case Tag::EVENT: _device->destroy_event(_handle); break;
             case Tag::SHADER: _device->destroy_shader(_handle); break;
+            case Tag::SWAP_CHAIN: _device->destroy_swap_chain(_handle); break;
         }
     }
 }

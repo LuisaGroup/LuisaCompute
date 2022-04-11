@@ -103,6 +103,8 @@ Namespaces</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:d4/db9/namespaceluisa_1_1constants"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d4/db9/namespaceluisa_1_1constants.html">constants</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:d9/d99/namespaceluisa_1_1detail"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d9/d99/namespaceluisa_1_1detail.html">detail</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:d4/d40/namespaceluisa_1_1size__literals"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d4/d40/namespaceluisa_1_1size__literals.html">size_literals</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
@@ -180,22 +182,22 @@ Typedefs</h2></td></tr>
 <tr class="memitem:a5275b4c46c019d5b7dda0ad5538d38a2"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a5275b4c46c019d5b7dda0ad5538d38a2">is_scalar</a> = std::disjunction&lt; <a class="el" href="../../d0/d38/namespaceluisa.html#a845774615db0e6f0cad93772f5eac58c">is_integral</a>&lt; T &gt;, <a class="el" href="../../d0/d38/namespaceluisa.html#a5f4eee9b853f589ab48b0daa23fc51e2">is_boolean</a>&lt; T &gt;, <a class="el" href="../../d0/d38/namespaceluisa.html#a2922bccbd160d5996d7d93e1b1f87bdd">is_floating_point</a>&lt; T &gt; &gt;</td></tr>
 <tr class="separator:a5275b4c46c019d5b7dda0ad5538d38a2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab9afe00d3ad65494374e2a2944bd4731"><td class="memTemplParams" colspan="2">template&lt;typename... T&gt; </td></tr>
-<tr class="memitem:ab9afe00d3ad65494374e2a2944bd4731"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#ab9afe00d3ad65494374e2a2944bd4731">is_vector_same_dimension</a> = detail::is_vector_all_same_dimension_impl&lt; std::remove_cvref_t&lt; T &gt;... &gt;</td></tr>
+<tr class="memitem:ab9afe00d3ad65494374e2a2944bd4731"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#ab9afe00d3ad65494374e2a2944bd4731">is_vector_same_dimension</a> = <a class="el" href="../../de/ded/structluisa_1_1detail_1_1is__vector__all__same__dimension__impl.html">detail::is_vector_all_same_dimension_impl</a>&lt; std::remove_cvref_t&lt; T &gt;... &gt;</td></tr>
 <tr class="separator:ab9afe00d3ad65494374e2a2944bd4731"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a96f502f6507aaa391fb2007c1beafe66"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
-<tr class="memitem:a96f502f6507aaa391fb2007c1beafe66"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a96f502f6507aaa391fb2007c1beafe66">vector_dimension</a> = detail::vector_dimension_impl&lt; std::remove_cvref_t&lt; T &gt; &gt;</td></tr>
+<tr class="memitem:a96f502f6507aaa391fb2007c1beafe66"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a96f502f6507aaa391fb2007c1beafe66">vector_dimension</a> = <a class="el" href="../../dc/dca/structluisa_1_1detail_1_1vector__dimension__impl.html">detail::vector_dimension_impl</a>&lt; std::remove_cvref_t&lt; T &gt; &gt;</td></tr>
 <tr class="separator:a96f502f6507aaa391fb2007c1beafe66"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a67052ddb9817fcae3da305b41a6d52a8"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
-<tr class="memitem:a67052ddb9817fcae3da305b41a6d52a8"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a67052ddb9817fcae3da305b41a6d52a8">matrix_dimension</a> = detail::matrix_dimension_impl&lt; std::remove_cvref_t&lt; T &gt; &gt;</td></tr>
+<tr class="memitem:a67052ddb9817fcae3da305b41a6d52a8"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a67052ddb9817fcae3da305b41a6d52a8">matrix_dimension</a> = <a class="el" href="../../d6/d22/structluisa_1_1detail_1_1matrix__dimension__impl.html">detail::matrix_dimension_impl</a>&lt; std::remove_cvref_t&lt; T &gt; &gt;</td></tr>
 <tr class="separator:a67052ddb9817fcae3da305b41a6d52a8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4adb8e33b15ba103a5a0e895f4ff0202"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
-<tr class="memitem:a4adb8e33b15ba103a5a0e895f4ff0202"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a4adb8e33b15ba103a5a0e895f4ff0202">vector_element</a> = detail::vector_element_impl&lt; std::remove_cvref_t&lt; T &gt; &gt;</td></tr>
+<tr class="memitem:a4adb8e33b15ba103a5a0e895f4ff0202"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a4adb8e33b15ba103a5a0e895f4ff0202">vector_element</a> = <a class="el" href="../../d9/d99/namespaceluisa_1_1detail.html#d7/d5e/structluisa_1_1detail_1_1vector__element__impl">detail::vector_element_impl</a>&lt; std::remove_cvref_t&lt; T &gt; &gt;</td></tr>
 <tr class="separator:a4adb8e33b15ba103a5a0e895f4ff0202"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af7ccc6131ab9d7ceff50e7bd1caf6d3a"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
 <tr class="memitem:af7ccc6131ab9d7ceff50e7bd1caf6d3a"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#af7ccc6131ab9d7ceff50e7bd1caf6d3a">vector_element_t</a> = typename <a class="el" href="../../d0/d38/namespaceluisa.html#a4adb8e33b15ba103a5a0e895f4ff0202">vector_element</a>&lt; T &gt;::type</td></tr>
 <tr class="separator:af7ccc6131ab9d7ceff50e7bd1caf6d3a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a96ce5db244d335a342d5be21d80b83ff"><td class="memTemplParams" colspan="2">template&lt;typename T , size_t N = 0u&gt; </td></tr>
-<tr class="memitem:a96ce5db244d335a342d5be21d80b83ff"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a96ce5db244d335a342d5be21d80b83ff">is_vector</a> = detail::is_vector_impl&lt; std::remove_cvref_t&lt; T &gt;, N &gt;</td></tr>
+<tr class="memitem:a96ce5db244d335a342d5be21d80b83ff"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a96ce5db244d335a342d5be21d80b83ff">is_vector</a> = <a class="el" href="../../d3/df1/structluisa_1_1detail_1_1is__vector__impl.html">detail::is_vector_impl</a>&lt; std::remove_cvref_t&lt; T &gt;, N &gt;</td></tr>
 <tr class="separator:a96ce5db244d335a342d5be21d80b83ff"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4a8935f63be17f363bf895ad9241dc84"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
 <tr class="memitem:a4a8935f63be17f363bf895ad9241dc84"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a4a8935f63be17f363bf895ad9241dc84">is_vector2</a> = <a class="el" href="../../d0/d38/namespaceluisa.html#a96ce5db244d335a342d5be21d80b83ff">is_vector</a>&lt; T, 2u &gt;</td></tr>
@@ -219,7 +221,7 @@ Typedefs</h2></td></tr>
 <tr class="memitem:ad02fc09330f775dadc6b312867ce627e"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#ad02fc09330f775dadc6b312867ce627e">is_uint_vector</a> = std::conjunction&lt; <a class="el" href="../../d0/d38/namespaceluisa.html#a96ce5db244d335a342d5be21d80b83ff">is_vector</a>&lt; T &gt;, std::is_same&lt; <a class="el" href="../../d0/d38/namespaceluisa.html#af7ccc6131ab9d7ceff50e7bd1caf6d3a">vector_element_t</a>&lt; T &gt;, <a class="el" href="../../d0/d38/namespaceluisa.html#a90ac072d2b2da3d3a56611cc4f34849f">uint</a> &gt; &gt;</td></tr>
 <tr class="separator:ad02fc09330f775dadc6b312867ce627e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa389fa353e880cdcde1059aa26214c89"><td class="memTemplParams" colspan="2">template&lt;typename T , size_t N = 0u&gt; </td></tr>
-<tr class="memitem:aa389fa353e880cdcde1059aa26214c89"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#aa389fa353e880cdcde1059aa26214c89">is_matrix</a> = detail::is_matrix_impl&lt; std::remove_cvref_t&lt; T &gt;, N &gt;</td></tr>
+<tr class="memitem:aa389fa353e880cdcde1059aa26214c89"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#aa389fa353e880cdcde1059aa26214c89">is_matrix</a> = <a class="el" href="../../d9/d40/structluisa_1_1detail_1_1is__matrix__impl.html">detail::is_matrix_impl</a>&lt; std::remove_cvref_t&lt; T &gt;, N &gt;</td></tr>
 <tr class="separator:aa389fa353e880cdcde1059aa26214c89"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1e0285b26c5ce31eb6ea221150571a4c"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
 <tr class="memitem:a1e0285b26c5ce31eb6ea221150571a4c"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a1e0285b26c5ce31eb6ea221150571a4c">is_matrix2</a> = <a class="el" href="../../d0/d38/namespaceluisa.html#aa389fa353e880cdcde1059aa26214c89">is_matrix</a>&lt; T, 2u &gt;</td></tr>
@@ -267,6 +269,24 @@ Typedefs</h2></td></tr>
 <tr class="separator:abc15c305a1c9289b94dae831c2b02110"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a789bee6b95081d89d062df88a0332760"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a789bee6b95081d89d062df88a0332760">string</a> = std::basic_string&lt; char, std::char_traits&lt; char &gt;, <a class="el" href="../../d7/d06/structluisa_1_1allocator.html">allocator</a>&lt; char &gt; &gt;</td></tr>
 <tr class="separator:a789bee6b95081d89d062df88a0332760"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a435abea454fb169c41b5071ec2c7c96c"><td class="memTemplParams" colspan="2">template&lt;typename K , typename V , typename Hash  = absl::container_internal::hash_default_hash&lt;K&gt;, typename Eq  = absl::container_internal::hash_default_eq&lt;K&gt;, typename Allocator  = luisa::allocator&lt;std::pair&lt;const K, V&gt;&gt;&gt; </td></tr>
+<tr class="memitem:a435abea454fb169c41b5071ec2c7c96c"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a435abea454fb169c41b5071ec2c7c96c">unordered_map</a> = absl::flat_hash_map&lt; K, V, Hash, Eq, Allocator &gt;</td></tr>
+<tr class="separator:a435abea454fb169c41b5071ec2c7c96c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae3805a76f7a889454684b8b99ce42c3f"><td class="memTemplParams" colspan="2">template&lt;typename K , typename Hash  = absl::container_internal::hash_default_hash&lt;K&gt;, typename Eq  = absl::container_internal::hash_default_eq&lt;K&gt;, typename Allocator  = luisa::allocator&lt;const K&gt;&gt; </td></tr>
+<tr class="memitem:ae3805a76f7a889454684b8b99ce42c3f"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#ae3805a76f7a889454684b8b99ce42c3f">unordered_set</a> = absl::flat_hash_set&lt; K, Hash, Eq, Allocator &gt;</td></tr>
+<tr class="separator:ae3805a76f7a889454684b8b99ce42c3f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aab8832695d3e73dcdab20a2ca6a7e0e0"><td class="memTemplParams" colspan="2">template&lt;typename K , typename V , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;std::pair&lt;const K, V&gt;&gt;&gt; </td></tr>
+<tr class="memitem:aab8832695d3e73dcdab20a2ca6a7e0e0"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#aab8832695d3e73dcdab20a2ca6a7e0e0">map</a> = absl::btree_map&lt; K, V, Compare, Alloc &gt;</td></tr>
+<tr class="separator:aab8832695d3e73dcdab20a2ca6a7e0e0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aefc7e312aca8f028f9ee2118857b70cd"><td class="memTemplParams" colspan="2">template&lt;typename K , typename V , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;std::pair&lt;const K, V&gt;&gt;&gt; </td></tr>
+<tr class="memitem:aefc7e312aca8f028f9ee2118857b70cd"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#aefc7e312aca8f028f9ee2118857b70cd">multimap</a> = absl::btree_multimap&lt; K, V, Compare, Alloc &gt;</td></tr>
+<tr class="separator:aefc7e312aca8f028f9ee2118857b70cd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac405f6d3e25f318667f86a7bebe2648d"><td class="memTemplParams" colspan="2">template&lt;typename K , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;K&gt;&gt; </td></tr>
+<tr class="memitem:ac405f6d3e25f318667f86a7bebe2648d"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#ac405f6d3e25f318667f86a7bebe2648d">set</a> = absl::btree_set&lt; K, Compare, Alloc &gt;</td></tr>
+<tr class="separator:ac405f6d3e25f318667f86a7bebe2648d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a165b980f6e3e5eaa03dd0279d8740dd8"><td class="memTemplParams" colspan="2">template&lt;typename K , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;K&gt;&gt; </td></tr>
+<tr class="memitem:a165b980f6e3e5eaa03dd0279d8740dd8"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a165b980f6e3e5eaa03dd0279d8740dd8">multiset</a> = absl::btree_multiset&lt; K, Compare, Alloc &gt;</td></tr>
+<tr class="separator:a165b980f6e3e5eaa03dd0279d8740dd8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -535,24 +555,24 @@ Functions</h2></td></tr>
 <tr class="memitem:aef1d1a341f4a6b530908fffa02224181"><td class="memItemLeft" align="right" valign="top">constexpr auto&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#aef1d1a341f4a6b530908fffa02224181">make_float4x4</a> (<a class="el" href="../../d0/d38/namespaceluisa.html#ad29224eb0098dd5c8c753b69f3a5b43d">float4x4</a> m) noexcept</td></tr>
 <tr class="memdesc:aef1d1a341f4a6b530908fffa02224181"><td class="mdescLeft">&#160;</td><td class="mdescRight">make float4x4  <a href="../../d0/d38/namespaceluisa.html#aef1d1a341f4a6b530908fffa02224181">More...</a><br /></td></tr>
 <tr class="separator:aef1d1a341f4a6b530908fffa02224181"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1224831c1173ec4c5604065e5922f6c6"><td class="memItemLeft" align="right" valign="top">std::string_view&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a1224831c1173ec4c5604065e5922f6c6">hash_to_string</a> (uint64_t hash) noexcept</td></tr>
-<tr class="separator:a1224831c1173ec4c5604065e5922f6c6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a48256c66a8f60df753a8fe223a1a4120"><td class="memItemLeft" align="right" valign="top">std::string_view&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a48256c66a8f60df753a8fe223a1a4120">hash_to_string</a> (uint64_t hash) noexcept</td></tr>
+<tr class="separator:a48256c66a8f60df753a8fe223a1a4120"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aed4a90c54b8f09bf1269868fbd5767e2"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
 <tr class="memitem:aed4a90c54b8f09bf1269868fbd5767e2"><td class="memTemplItemLeft" align="right" valign="top">auto&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#aed4a90c54b8f09bf1269868fbd5767e2">hash64</a> (T &amp;&amp;v, uint64_t seed=<a class="el" href="../../dd/d5d/classluisa_1_1_hash64.html#a5806ac56797a419101ceac8c4587ea49">Hash64::default_seed</a>) noexcept -&gt; uint64_t</td></tr>
 <tr class="memdesc:aed4a90c54b8f09bf1269868fbd5767e2"><td class="mdescLeft">&#160;</td><td class="mdescRight">Calculate hash.  <a href="../../d0/d38/namespaceluisa.html#aed4a90c54b8f09bf1269868fbd5767e2">More...</a><br /></td></tr>
 <tr class="separator:aed4a90c54b8f09bf1269868fbd5767e2"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ada9dc77cae838c5a31cbea4e7d48d928"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#ada9dc77cae838c5a31cbea4e7d48d928">log_level_verbose</a> () noexcept</td></tr>
-<tr class="memdesc:ada9dc77cae838c5a31cbea4e7d48d928"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as verbose.  <a href="../../d0/d38/namespaceluisa.html#ada9dc77cae838c5a31cbea4e7d48d928">More...</a><br /></td></tr>
-<tr class="separator:ada9dc77cae838c5a31cbea4e7d48d928"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a88551f0b901f3fa2f8607a6c373110be"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a88551f0b901f3fa2f8607a6c373110be">log_level_info</a> () noexcept</td></tr>
-<tr class="memdesc:a88551f0b901f3fa2f8607a6c373110be"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as info.  <a href="../../d0/d38/namespaceluisa.html#a88551f0b901f3fa2f8607a6c373110be">More...</a><br /></td></tr>
-<tr class="separator:a88551f0b901f3fa2f8607a6c373110be"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a7f32d60caf43068e5b07d6fbe6cf4004"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a7f32d60caf43068e5b07d6fbe6cf4004">log_level_warning</a> () noexcept</td></tr>
-<tr class="memdesc:a7f32d60caf43068e5b07d6fbe6cf4004"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as warning.  <a href="../../d0/d38/namespaceluisa.html#a7f32d60caf43068e5b07d6fbe6cf4004">More...</a><br /></td></tr>
-<tr class="separator:a7f32d60caf43068e5b07d6fbe6cf4004"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a4edb109285ed77b021428bc3a5d680cb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a4edb109285ed77b021428bc3a5d680cb">log_level_error</a> () noexcept</td></tr>
-<tr class="memdesc:a4edb109285ed77b021428bc3a5d680cb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as error.  <a href="../../d0/d38/namespaceluisa.html#a4edb109285ed77b021428bc3a5d680cb">More...</a><br /></td></tr>
-<tr class="separator:a4edb109285ed77b021428bc3a5d680cb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a579a8caeb9141d3fdd569ceb89158227"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a579a8caeb9141d3fdd569ceb89158227">log_level_verbose</a> () noexcept</td></tr>
+<tr class="memdesc:a579a8caeb9141d3fdd569ceb89158227"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as verbose.  <a href="../../d0/d38/namespaceluisa.html#a579a8caeb9141d3fdd569ceb89158227">More...</a><br /></td></tr>
+<tr class="separator:a579a8caeb9141d3fdd569ceb89158227"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4aade5c266ccb7f14ee188d035007fff"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a4aade5c266ccb7f14ee188d035007fff">log_level_info</a> () noexcept</td></tr>
+<tr class="memdesc:a4aade5c266ccb7f14ee188d035007fff"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as info.  <a href="../../d0/d38/namespaceluisa.html#a4aade5c266ccb7f14ee188d035007fff">More...</a><br /></td></tr>
+<tr class="separator:a4aade5c266ccb7f14ee188d035007fff"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3621dacb4611c1a20224ea463ad609c5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a3621dacb4611c1a20224ea463ad609c5">log_level_warning</a> () noexcept</td></tr>
+<tr class="memdesc:a3621dacb4611c1a20224ea463ad609c5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as warning.  <a href="../../d0/d38/namespaceluisa.html#a3621dacb4611c1a20224ea463ad609c5">More...</a><br /></td></tr>
+<tr class="separator:a3621dacb4611c1a20224ea463ad609c5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9f42335840f528d158a6afe789a0ed86"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a9f42335840f528d158a6afe789a0ed86">log_level_error</a> () noexcept</td></tr>
+<tr class="memdesc:a9f42335840f528d158a6afe789a0ed86"><td class="mdescLeft">&#160;</td><td class="mdescRight">Set log level as error.  <a href="../../d0/d38/namespaceluisa.html#a9f42335840f528d158a6afe789a0ed86">More...</a><br /></td></tr>
+<tr class="separator:a9f42335840f528d158a6afe789a0ed86"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a409557eab9d997a1100a7d069ef9c227"><td class="memTemplParams" colspan="2">template&lt;typename... Args&gt; </td></tr>
 <tr class="memitem:a409557eab9d997a1100a7d069ef9c227"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d0/d38/namespaceluisa.html#a409557eab9d997a1100a7d069ef9c227">log_verbose</a> (Args &amp;&amp;...args) noexcept</td></tr>
 <tr class="separator:a409557eab9d997a1100a7d069ef9c227"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -971,7 +991,7 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <div class="textblock">
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00150">150</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00176">176</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 </div>
 </div>
 </div>
@@ -1337,7 +1357,7 @@ template&lt;typename T &gt; </div>
 template&lt;typename T , size_t N = 0u&gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#aa389fa353e880cdcde1059aa26214c89">luisa::is_matrix</a> = typedef detail::is_matrix_impl&lt;std::remove_cvref_t&lt;T&gt;, N&gt;</td>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#aa389fa353e880cdcde1059aa26214c89">luisa::is_matrix</a> = typedef <a class="el" href="../../d9/d40/structluisa_1_1detail_1_1is__matrix__impl.html">detail::is_matrix_impl</a>&lt;std::remove_cvref_t&lt;T&gt;, N&gt;</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1481,7 +1501,7 @@ template&lt;typename T &gt; </div>
 template&lt;typename T , size_t N = 0u&gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a96ce5db244d335a342d5be21d80b83ff">luisa::is_vector</a> = typedef detail::is_vector_impl&lt;std::remove_cvref_t&lt;T&gt;, N&gt;</td>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a96ce5db244d335a342d5be21d80b83ff">luisa::is_vector</a> = typedef <a class="el" href="../../d3/df1/structluisa_1_1detail_1_1is__vector__impl.html">detail::is_vector_impl</a>&lt;std::remove_cvref_t&lt;T&gt;, N&gt;</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1553,12 +1573,30 @@ template&lt;typename T &gt; </div>
 template&lt;typename... T&gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#ab9afe00d3ad65494374e2a2944bd4731">luisa::is_vector_same_dimension</a> = typedef detail::is_vector_all_same_dimension_impl&lt;std::remove_cvref_t&lt;T&gt;...&gt;</td>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#ab9afe00d3ad65494374e2a2944bd4731">luisa::is_vector_same_dimension</a> = typedef <a class="el" href="../../de/ded/structluisa_1_1detail_1_1is__vector__all__same__dimension__impl.html">detail::is_vector_all_same_dimension_impl</a>&lt;std::remove_cvref_t&lt;T&gt;...&gt;</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
 <p class="definition">Definition at line <a class="el" href="../../d9/d7e/basic__traits_8h_source.html#l00153">153</a> of file <a class="el" href="../../d9/d7e/basic__traits_8h_source.html">basic_traits.h</a>.</p>
+
+</div>
+</div>
+<a id="aab8832695d3e73dcdab20a2ca6a7e0e0" name="aab8832695d3e73dcdab20a2ca6a7e0e0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aab8832695d3e73dcdab20a2ca6a7e0e0">&#9670;&nbsp;</a></span>map</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename K , typename V , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;std::pair&lt;const K, V&gt;&gt;&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#aab8832695d3e73dcdab20a2ca6a7e0e0">luisa::map</a> = typedef absl::btree_map&lt;K, V, Compare, Alloc&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00138">138</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -1571,12 +1609,66 @@ template&lt;typename... T&gt; </div>
 template&lt;typename T &gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a67052ddb9817fcae3da305b41a6d52a8">luisa::matrix_dimension</a> = typedef detail::matrix_dimension_impl&lt;std::remove_cvref_t&lt;T&gt; &gt;</td>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a67052ddb9817fcae3da305b41a6d52a8">luisa::matrix_dimension</a> = typedef <a class="el" href="../../d6/d22/structluisa_1_1detail_1_1matrix__dimension__impl.html">detail::matrix_dimension_impl</a>&lt;std::remove_cvref_t&lt;T&gt; &gt;</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
 <p class="definition">Definition at line <a class="el" href="../../d9/d7e/basic__traits_8h_source.html#l00165">165</a> of file <a class="el" href="../../d9/d7e/basic__traits_8h_source.html">basic_traits.h</a>.</p>
+
+</div>
+</div>
+<a id="aefc7e312aca8f028f9ee2118857b70cd" name="aefc7e312aca8f028f9ee2118857b70cd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aefc7e312aca8f028f9ee2118857b70cd">&#9670;&nbsp;</a></span>multimap</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename K , typename V , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;std::pair&lt;const K, V&gt;&gt;&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#aefc7e312aca8f028f9ee2118857b70cd">luisa::multimap</a> = typedef absl::btree_multimap&lt;K, V, Compare, Alloc&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00143">143</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+
+</div>
+</div>
+<a id="a165b980f6e3e5eaa03dd0279d8740dd8" name="a165b980f6e3e5eaa03dd0279d8740dd8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a165b980f6e3e5eaa03dd0279d8740dd8">&#9670;&nbsp;</a></span>multiset</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename K , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;K&gt;&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a165b980f6e3e5eaa03dd0279d8740dd8">luisa::multiset</a> = typedef absl::btree_multiset&lt;K, Compare, Alloc&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00153">153</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+
+</div>
+</div>
+<a id="ac405f6d3e25f318667f86a7bebe2648d" name="ac405f6d3e25f318667f86a7bebe2648d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac405f6d3e25f318667f86a7bebe2648d">&#9670;&nbsp;</a></span>set</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename K , typename Compare  = std::less&lt;K&gt;, typename Alloc  = luisa::allocator&lt;K&gt;&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#ac405f6d3e25f318667f86a7bebe2648d">luisa::set</a> = typedef absl::btree_set&lt;K, Compare, Alloc&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00148">148</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -1592,7 +1684,7 @@ template&lt;typename T &gt; </div>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00105">105</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00106">106</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -1660,6 +1752,42 @@ template&lt;typename T &gt; </div>
 
 </div>
 </div>
+<a id="a435abea454fb169c41b5071ec2c7c96c" name="a435abea454fb169c41b5071ec2c7c96c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a435abea454fb169c41b5071ec2c7c96c">&#9670;&nbsp;</a></span>unordered_map</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename K , typename V , typename Hash  = absl::container_internal::hash_default_hash&lt;K&gt;, typename Eq  = absl::container_internal::hash_default_eq&lt;K&gt;, typename Allocator  = luisa::allocator&lt;std::pair&lt;const K, V&gt;&gt;&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a435abea454fb169c41b5071ec2c7c96c">luisa::unordered_map</a> = typedef absl::flat_hash_map&lt;K, V, Hash, Eq, Allocator&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00127">127</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+
+</div>
+</div>
+<a id="ae3805a76f7a889454684b8b99ce42c3f" name="ae3805a76f7a889454684b8b99ce42c3f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae3805a76f7a889454684b8b99ce42c3f">&#9670;&nbsp;</a></span>unordered_set</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename K , typename Hash  = absl::container_internal::hash_default_hash&lt;K&gt;, typename Eq  = absl::container_internal::hash_default_eq&lt;K&gt;, typename Allocator  = luisa::allocator&lt;const K&gt;&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#ae3805a76f7a889454684b8b99ce42c3f">luisa::unordered_set</a> = typedef absl::flat_hash_set&lt;K, Hash, Eq, Allocator&gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00133">133</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+
+</div>
+</div>
 <a id="a96f502f6507aaa391fb2007c1beafe66" name="a96f502f6507aaa391fb2007c1beafe66"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a96f502f6507aaa391fb2007c1beafe66">&#9670;&nbsp;</a></span>vector_dimension</h2>
 
@@ -1669,7 +1797,7 @@ template&lt;typename T &gt; </div>
 template&lt;typename T &gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a96f502f6507aaa391fb2007c1beafe66">luisa::vector_dimension</a> = typedef detail::vector_dimension_impl&lt;std::remove_cvref_t&lt;T&gt; &gt;</td>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a96f502f6507aaa391fb2007c1beafe66">luisa::vector_dimension</a> = typedef <a class="el" href="../../dc/dca/structluisa_1_1detail_1_1vector__dimension__impl.html">detail::vector_dimension_impl</a>&lt;std::remove_cvref_t&lt;T&gt; &gt;</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1687,7 +1815,7 @@ template&lt;typename T &gt; </div>
 template&lt;typename T &gt; </div>
       <table class="memname">
         <tr>
-          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a4adb8e33b15ba103a5a0e895f4ff0202">luisa::vector_element</a> = typedef detail::vector_element_impl&lt;std::remove_cvref_t&lt;T&gt; &gt;</td>
+          <td class="memname">using <a class="el" href="../../d0/d38/namespaceluisa.html#a4adb8e33b15ba103a5a0e895f4ff0202">luisa::vector_element</a> = typedef <a class="el" href="../../d9/d99/namespaceluisa_1_1detail.html#d7/d5e/structluisa_1_1detail_1_1vector__element__impl">detail::vector_element_impl</a>&lt;std::remove_cvref_t&lt;T&gt; &gt;</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -2089,7 +2217,7 @@ template&lt;typename T &gt; </div>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00070">70</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00071">71</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -2920,7 +3048,7 @@ template&lt;typename T &gt; </div>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00075">75</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00076">76</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -3064,7 +3192,7 @@ template&lt;typename T &gt; </div>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00085">85</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00086">86</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -3510,7 +3638,7 @@ template&lt;typename FMT , typename... Args&gt; </div>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00177">177</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00203">203</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -3556,8 +3684,8 @@ template&lt;typename T &gt; </div>
 
 </div>
 </div>
-<a id="a1224831c1173ec4c5604065e5922f6c6" name="a1224831c1173ec4c5604065e5922f6c6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1224831c1173ec4c5604065e5922f6c6">&#9670;&nbsp;</a></span>hash_to_string()</h2>
+<a id="a48256c66a8f60df753a8fe223a1a4120" name="a48256c66a8f60df753a8fe223a1a4120"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a48256c66a8f60df753a8fe223a1a4120">&#9670;&nbsp;</a></span>hash_to_string()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -3566,7 +3694,7 @@ template&lt;typename T &gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">std::string_view luisa::hash_to_string </td>
+          <td class="memname"><a class="el" href="../../da/d57/dll__export_8h.html#a993a305a4a1179e115e5545134448362">LC_CORE_API</a> std::string_view luisa::hash_to_string </td>
           <td>(</td>
           <td class="paramtype">uint64_t&#160;</td>
           <td class="paramname"><em>hash</em></td><td>)</td>
@@ -3694,7 +3822,7 @@ template&lt;typename F &gt; </div>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00168">168</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00194">194</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -4216,8 +4344,8 @@ template&lt;typename... Args&gt; </div>
 
 </div>
 </div>
-<a id="a4edb109285ed77b021428bc3a5d680cb" name="a4edb109285ed77b021428bc3a5d680cb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4edb109285ed77b021428bc3a5d680cb">&#9670;&nbsp;</a></span>log_level_error()</h2>
+<a id="a9f42335840f528d158a6afe789a0ed86" name="a9f42335840f528d158a6afe789a0ed86"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9f42335840f528d158a6afe789a0ed86">&#9670;&nbsp;</a></span>log_level_error()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -4226,7 +4354,7 @@ template&lt;typename... Args&gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void luisa::log_level_error </td>
+          <td class="memname"><a class="el" href="../../da/d57/dll__export_8h.html#a993a305a4a1179e115e5545134448362">LC_CORE_API</a> void luisa::log_level_error </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td></td>
@@ -4245,8 +4373,8 @@ template&lt;typename... Args&gt; </div>
 
 </div>
 </div>
-<a id="a88551f0b901f3fa2f8607a6c373110be" name="a88551f0b901f3fa2f8607a6c373110be"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a88551f0b901f3fa2f8607a6c373110be">&#9670;&nbsp;</a></span>log_level_info()</h2>
+<a id="a4aade5c266ccb7f14ee188d035007fff" name="a4aade5c266ccb7f14ee188d035007fff"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4aade5c266ccb7f14ee188d035007fff">&#9670;&nbsp;</a></span>log_level_info()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -4255,7 +4383,7 @@ template&lt;typename... Args&gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void luisa::log_level_info </td>
+          <td class="memname"><a class="el" href="../../da/d57/dll__export_8h.html#a993a305a4a1179e115e5545134448362">LC_CORE_API</a> void luisa::log_level_info </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td></td>
@@ -4274,8 +4402,8 @@ template&lt;typename... Args&gt; </div>
 
 </div>
 </div>
-<a id="ada9dc77cae838c5a31cbea4e7d48d928" name="ada9dc77cae838c5a31cbea4e7d48d928"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ada9dc77cae838c5a31cbea4e7d48d928">&#9670;&nbsp;</a></span>log_level_verbose()</h2>
+<a id="a579a8caeb9141d3fdd569ceb89158227" name="a579a8caeb9141d3fdd569ceb89158227"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a579a8caeb9141d3fdd569ceb89158227">&#9670;&nbsp;</a></span>log_level_verbose()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -4284,7 +4412,7 @@ template&lt;typename... Args&gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void luisa::log_level_verbose </td>
+          <td class="memname"><a class="el" href="../../da/d57/dll__export_8h.html#a993a305a4a1179e115e5545134448362">LC_CORE_API</a> void luisa::log_level_verbose </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td></td>
@@ -4303,8 +4431,8 @@ template&lt;typename... Args&gt; </div>
 
 </div>
 </div>
-<a id="a7f32d60caf43068e5b07d6fbe6cf4004" name="a7f32d60caf43068e5b07d6fbe6cf4004"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7f32d60caf43068e5b07d6fbe6cf4004">&#9670;&nbsp;</a></span>log_level_warning()</h2>
+<a id="a3621dacb4611c1a20224ea463ad609c5" name="a3621dacb4611c1a20224ea463ad609c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3621dacb4611c1a20224ea463ad609c5">&#9670;&nbsp;</a></span>log_level_warning()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -4313,7 +4441,7 @@ template&lt;typename... Args&gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void luisa::log_level_warning </td>
+          <td class="memname"><a class="el" href="../../da/d57/dll__export_8h.html#a993a305a4a1179e115e5545134448362">LC_CORE_API</a> void luisa::log_level_warning </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td></td>
@@ -8742,7 +8870,7 @@ template&lt;typename T , typename... Args&gt; </div>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00080">80</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00081">81</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>
@@ -9974,7 +10102,7 @@ template&lt;typename... T&gt; </div>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00151">151</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d5/d51/stl_8h_source.html#l00177">177</a> of file <a class="el" href="../../d5/d51/stl_8h_source.html">stl.h</a>.</p>
 
 </div>
 </div>

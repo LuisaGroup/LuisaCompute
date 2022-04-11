@@ -107,6 +107,7 @@ $(document).ready(function(){initNavTree('d0/d09/command_8h.html','../../'); ini
 <code>#include &lt;<a class="el" href="../../da/d89/variable_8h_source.html">ast/variable.h</a>&gt;</code><br />
 <code>#include &lt;<a class="el" href="../../dd/d67/function_8h_source.html">ast/function.h</a>&gt;</code><br />
 <code>#include &lt;<a class="el" href="../../dd/dcd/pixel_8h_source.html">runtime/pixel.h</a>&gt;</code><br />
+<code>#include &lt;<a class="el" href="../../df/d12/function__builder_8h_source.html">ast/function_builder.h</a>&gt;</code><br />
 </div>
 <p><a href="../../d0/d09/command_8h_source.html">Go to the source code of this file.</a></p>
 <table class="memberdecls">
@@ -114,8 +115,8 @@ $(document).ready(function(){initNavTree('d0/d09/command_8h.html','../../'); ini
 Classes</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../de/d8f/structluisa_1_1compute_1_1_command_visitor.html">luisa::compute::CommandVisitor</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor.html">luisa::compute::MutableCommandVisitor</a></td></tr>
-<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor">luisa::compute::MutableCommandVisitor</a></td></tr>
+<tr class="separator:d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../db/d64/classluisa_1_1compute_1_1_command.html">luisa::compute::Command</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d5/d1a/classluisa_1_1compute_1_1_buffer_upload_command.html">luisa::compute::BufferUploadCommand</a></td></tr>
@@ -152,11 +153,9 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../dc/d8d/classluisa_1_1compute_1_1_mesh_build_command.html">luisa::compute::MeshBuildCommand</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d4/d75/classluisa_1_1compute_1_1_mesh_update_command.html">luisa::compute::MeshUpdateCommand</a></td></tr>
-<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d1/d28/classluisa_1_1compute_1_1_accel_build_command.html">luisa::compute::AccelBuildCommand</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d3/d31/classluisa_1_1compute_1_1_accel_update_command.html">luisa::compute::AccelUpdateCommand</a></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html">luisa::compute::AccelBuildCommand::Modification</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../df/d53/classluisa_1_1compute_1_1_bindless_array_update_command.html">luisa::compute::BindlessArrayUpdateCommand</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -167,11 +166,13 @@ Namespaces</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:d8/d37/namespaceluisa_1_1compute"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html">luisa::compute</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:d3/df7/namespaceluisa_1_1compute_1_1detail"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d3/df7/namespaceluisa_1_1compute_1_1detail.html">luisa::compute::detail</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
 Macros</h2></td></tr>
-<tr class="memitem:a47e8f628c7916593914151a93158f21c"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d09/command_8h.html#a47e8f628c7916593914151a93158f21c">LUISA_ALL_COMMANDS</a></td></tr>
-<tr class="separator:a47e8f628c7916593914151a93158f21c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4c9aecbaacc53d7127d0978492e082b1"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d09/command_8h.html#a4c9aecbaacc53d7127d0978492e082b1">LUISA_COMPUTE_RUNTIME_COMMANDS</a></td></tr>
+<tr class="separator:a4c9aecbaacc53d7127d0978492e082b1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a42a59cf78ef4153d5fbebf9fc9c03f04"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d09/command_8h.html#a42a59cf78ef4153d5fbebf9fc9c03f04">LUISA_MAKE_COMMAND_FWD_DECL</a>(CMD)&#160;&#160;&#160;class CMD;</td></tr>
 <tr class="separator:a42a59cf78ef4153d5fbebf9fc9c03f04"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a722da897505cece6e4a5da692633ea85"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d0/d09/command_8h.html#a722da897505cece6e4a5da692633ea85">LUISA_MAKE_COMMAND_VISITOR_INTERFACE</a>(CMD)&#160;&#160;&#160;    virtual void visit(const CMD *) noexcept = 0;</td></tr>
@@ -193,40 +194,59 @@ Macros</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="enum-members" name="enum-members"></a>
 Enumerations</h2></td></tr>
-<tr class="memitem:a47ec3d1dbbeeb43c3c6b14c70eae0fc7"><td class="memItemLeft" align="right" valign="top">enum struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">luisa::compute::AccelBuildHint</a> { <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">luisa::compute::FAST_TRACE</a>
-, <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3ee04c55cf26a4490634a531edf2ae5e">luisa::compute::FAST_UPDATE</a>
-, <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7aec875e59af66c8fffc6d99f66ebdaad3">luisa::compute::FAST_REBUILD</a>
+<tr class="memitem:ab6205269570440af8831ce5496c902f0"><td class="memItemLeft" align="right" valign="top">enum struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0">luisa::compute::AccelUsageHint</a> : uint32_t { <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a3f684dca71b75eb53a8a25920db6a67f">luisa::compute::FAST_TRACE</a>
+, <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a3ee04c55cf26a4490634a531edf2ae5e">luisa::compute::FAST_UPDATE</a>
+, <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a8f43d2d9234f74c301bb1cb64f947505">luisa::compute::FAST_BUILD</a>
  }</td></tr>
-<tr class="separator:a47ec3d1dbbeeb43c3c6b14c70eae0fc7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="separator:ab6205269570440af8831ce5496c902f0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a64463a2984ce24f41388a1cf382ead11"><td class="memItemLeft" align="right" valign="top">enum struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a64463a2984ce24f41388a1cf382ead11">luisa::compute::AccelBuildRequest</a> : uint32_t { <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a64463a2984ce24f41388a1cf382ead11a51c5ea1e50025d8780628e8894a6635f">luisa::compute::PREFER_UPDATE</a>
+, <a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html#a64463a2984ce24f41388a1cf382ead11a76fabdc94c260a1ad41b2c180ecc1cba">luisa::compute::FORCE_BUILD</a>
+ }</td></tr>
+<tr class="separator:a64463a2984ce24f41388a1cf382ead11"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
-<h2 class="groupheader">Macro Definition Documentation</h2>
-<a id="a47e8f628c7916593914151a93158f21c" name="a47e8f628c7916593914151a93158f21c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a47e8f628c7916593914151a93158f21c">&#9670;&nbsp;</a></span>LUISA_ALL_COMMANDS</h2>
+<hr/><h2 class="groupheader">Class Documentation</h2>
+<a name="d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor" id="d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor">&#9670;&nbsp;</a></span>luisa::compute::MutableCommandVisitor</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define LUISA_ALL_COMMANDS</td>
+          <td class="memname">struct luisa::compute::MutableCommandVisitor</td>
         </tr>
       </table>
 </div><div class="memdoc">
-<b>Value:</b><div class="fragment"><div class="line">    BufferUploadCommand,            \</div>
-<div class="line">        BufferDownloadCommand,      \</div>
-<div class="line">        BufferCopyCommand,          \</div>
-<div class="line">        BufferToTextureCopyCommand, \</div>
-<div class="line">        ShaderDispatchCommand,      \</div>
-<div class="line">        TextureUploadCommand,       \</div>
-<div class="line">        TextureDownloadCommand,     \</div>
-<div class="line">        TextureCopyCommand,         \</div>
-<div class="line">        TextureToBufferCopyCommand, \</div>
-<div class="line">        AccelUpdateCommand,         \</div>
-<div class="line">        AccelBuildCommand,          \</div>
-<div class="line">        MeshUpdateCommand,          \</div>
-<div class="line">        MeshBuildCommand,           \</div>
+<div class="textblock">
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00051">51</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+</div>
+</div>
+</div>
+<h2 class="groupheader">Macro Definition Documentation</h2>
+<a id="a4c9aecbaacc53d7127d0978492e082b1" name="a4c9aecbaacc53d7127d0978492e082b1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4c9aecbaacc53d7127d0978492e082b1">&#9670;&nbsp;</a></span>LUISA_COMPUTE_RUNTIME_COMMANDS</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define LUISA_COMPUTE_RUNTIME_COMMANDS</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<b>Value:</b><div class="fragment"><div class="line">    BufferUploadCommand,               \</div>
+<div class="line">        BufferDownloadCommand,         \</div>
+<div class="line">        BufferCopyCommand,             \</div>
+<div class="line">        BufferToTextureCopyCommand,    \</div>
+<div class="line">        ShaderDispatchCommand,         \</div>
+<div class="line">        TextureUploadCommand,          \</div>
+<div class="line">        TextureDownloadCommand,        \</div>
+<div class="line">        TextureCopyCommand,            \</div>
+<div class="line">        TextureToBufferCopyCommand,    \</div>
+<div class="line">        AccelBuildCommand,             \</div>
+<div class="line">        MeshBuildCommand,              \</div>
 <div class="line">        BindlessArrayUpdateCommand</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00025">25</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00026">26</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -249,9 +269,9 @@ Enumerations</h2></td></tr>
 <div class="line">    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)  \</div>
 <div class="line">    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \</div>
 <div class="line">    LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)</div>
-<div class="ttc" id="acommand_8h_html_ac8dfc852d8d114a36c130faa38d59cc6"><div class="ttname"><a href="../../d0/d09/command_8h.html#ac8dfc852d8d114a36c130faa38d59cc6">LUISA_MAKE_COMMAND_COMMON_CREATE</a></div><div class="ttdeci">#define LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)</div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00071">command.h:71</a></div></div>
+<div class="ttc" id="acommand_8h_html_ac8dfc852d8d114a36c130faa38d59cc6"><div class="ttname"><a href="../../d0/d09/command_8h.html#ac8dfc852d8d114a36c130faa38d59cc6">LUISA_MAKE_COMMAND_COMMON_CREATE</a></div><div class="ttdeci">#define LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)</div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00070">command.h:70</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00093">93</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00092">92</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -273,7 +293,7 @@ Enumerations</h2></td></tr>
 <b>Value:</b><div class="fragment"><div class="line">    <span class="keywordtype">void</span> accept(CommandVisitor &amp;visitor) <span class="keyword">const</span> <span class="keyword">noexcept</span> <span class="keyword">override</span> { visitor.visit(<span class="keyword">this</span>); } \</div>
 <div class="line">    void accept(MutableCommandVisitor &amp;visitor) <span class="keyword">noexcept</span> <span class="keyword">override</span> { visitor.visit(<span class="keyword">this</span>); }</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00081">81</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00080">80</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -295,9 +315,9 @@ Enumerations</h2></td></tr>
 <b>Value:</b><div class="fragment"><div class="line">    [[nodiscard]] Command *clone() const noexcept<span class="keyword"> override </span>{ \</div>
 <div class="line">        return <a class="code hl_function" href="../../dd/d2c/ispc__device_8cpp.html#a195197a7abf3aa9856747bfd09f576bd">Cmd::create</a>(*<span class="keyword">this</span>);                           \</div>
 <div class="line">    }</div>
-<div class="ttc" id="aispc__device_8cpp_html_a195197a7abf3aa9856747bfd09f576bd"><div class="ttname"><a href="../../dd/d2c/ispc__device_8cpp.html#a195197a7abf3aa9856747bfd09f576bd">create</a></div><div class="ttdeci">LUISA_EXPORT_API luisa::compute::Device::Interface * create(const luisa::compute::Context &amp;ctx, std::string_view) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../dd/d2c/ispc__device_8cpp_source.html#l00208">ispc_device.cpp:208</a></div></div>
+<div class="ttc" id="aispc__device_8cpp_html_a195197a7abf3aa9856747bfd09f576bd"><div class="ttname"><a href="../../dd/d2c/ispc__device_8cpp.html#a195197a7abf3aa9856747bfd09f576bd">create</a></div><div class="ttdeci">LUISA_EXPORT_API luisa::compute::Device::Interface * create(const luisa::compute::Context &amp;ctx, std::string_view) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../dd/d2c/ispc__device_8cpp_source.html#l00196">ispc_device.cpp:196</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00088">88</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00087">87</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -325,7 +345,7 @@ Enumerations</h2></td></tr>
 <div class="line">        return command;                                                          \</div>
 <div class="line">    }</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00071">71</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00070">70</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -345,7 +365,7 @@ Enumerations</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00085">85</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00084">84</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -365,7 +385,7 @@ Enumerations</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00041">41</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00040">40</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -385,7 +405,7 @@ Enumerations</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00064">64</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00063">63</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -405,7 +425,7 @@ Enumerations</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00053">53</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00052">52</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>
@@ -425,7 +445,7 @@ Enumerations</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00053">53</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="../../d0/d09/command_8h_source.html#l00052">52</a> of file <a class="el" href="../../d0/d09/command_8h_source.html">command.h</a>.</p>
 
 </div>
 </div>

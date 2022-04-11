@@ -9,7 +9,7 @@ var classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture =
       [ "ptr", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a828470add0a1d1f6c8900cfcbd01597f", null ]
     ] ],
     [ "ISPCTexture", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a7ddb2ea363814c867345689377fa20c4", null ],
-    [ "~ISPCTexture", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a1931f349d4811d9bc18cd334865419e3", null ],
+    [ "~ISPCTexture", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a77f67af51ccda692d70cb31b9999d92a", null ],
     [ "handle", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#ac4a0e8ea9cf701eb49d09e1e6d469c1a", null ],
     [ "dim", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a56f48e6a9032e6a5b9bc18ffa84ef742", null ],
     [ "lodLevel", "d5/d3d/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_texture.html#a8baa9750b036f9a1a77022f75bf81fc8", null ],
