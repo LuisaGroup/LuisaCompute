@@ -1,10 +1,9 @@
 set(LUISA_COMPUTE_SERIALIZE_SOURCES
-astserializer.cpp
-funcserializer.cpp
-config.h
-funcserializer.h
 serialize.h
+traits.h
+serialize.cpp
+key_value_pair.h
 )
-add_library(luisa-compute-serialize SHARED ${LUISA_COMPUTE_SERIALIZE_SOURCES})
-target_link_libraries(luisa-compute-serialize PUBLIC luisa-compute-vstl luisa-compute-ast)
+add_library(luisa-compute-serialize INTERFACE ${LUISA_COMPUTE_SERIALIZE_SOURCES})
+target_link_libraries(luisa-compute-serialize INTERFACE luisa-compute-vstl luisa-compute-ast)
 

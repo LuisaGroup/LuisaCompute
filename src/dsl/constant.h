@@ -6,6 +6,7 @@
 
 #include <ast/constant_data.h>
 #include <dsl/expr.h>
+#include <serialize/key_value_pair.h>
 
 namespace luisa::compute {
 
@@ -20,6 +21,9 @@ private:
     ConstantData _data;
 
 public:
+    /// Default constructor for serialization
+    Constant() noexcept = default;
+
     /// Construct constant from span
     Constant(luisa::span<const T> data) noexcept
         : _type{Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), data.size()))},
@@ -55,6 +59,25 @@ public:
     template<typename I>
     [[nodiscard]] auto read(I &&index) const noexcept {
         return (*this)[std::forward<I>(index)];
+    }
+
+    template<typename S>
+    void save(S& s) {
+        luisa::string description(_type->description());
+        s.serialize(
+            MAKE_NAME_PAIR(_data),
+            KeyValuePair{"_type", description}
+        );
+    }
+
+    template<typename S>
+    void load(S& s) {
+        luisa::string description;
+        s.serialize(
+            MAKE_NAME_PAIR(_data),
+            KeyValuePair{"_type", description}
+        );
+        _type = Type::from(description);
     }
 };
 
