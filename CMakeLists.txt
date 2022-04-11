@@ -31,7 +31,8 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET 12)
 set(BUILD_SHARED_LIBS ON)
 
 if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(STATUS "sizeof(void *) = ${CMAKE_SIZEOF_VOID_P}")
+    # FIXME: cmake has trouble detecting this on some platforms
+    message(WARNING "LuisaCompute only supports 64-bit platforms (this can be false-positive)")
     #message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
 endif ()
 
