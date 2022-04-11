@@ -6,13 +6,14 @@
 
 #include <runtime/event.h>
 #include <runtime/command_list.h>
+#include <runtime/swap_chain.h>
 
 namespace luisa::compute {
 
 class Command;
 class Stream;
 
-class CommandBuffer {
+class LC_RUNTIME_API CommandBuffer {
 
 public:
     struct Commit {};
@@ -34,11 +35,23 @@ public:
     CommandBuffer &operator<<(Command *cmd) &noexcept;
     CommandBuffer &operator<<(Event::Signal) &noexcept;
     CommandBuffer &operator<<(Event::Wait) &noexcept;
+    CommandBuffer &operator<<(SwapChain::Present p) &noexcept;
     CommandBuffer &operator<<(Commit) &noexcept;
     CommandBuffer &operator<<(Synchronize) &noexcept;
+    CommandBuffer &operator<<(luisa::move_only_function<void()> &&f) &noexcept;
+
     void commit() &noexcept { _commit(); }
     void synchronize() &noexcept;
     [[nodiscard]] auto &stream() noexcept { return *_stream; }
+
+    // compound commands
+    template<typename... T>
+    decltype(auto) operator<<(std::tuple<T...> args) &noexcept {
+        auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
+            return (*this << ... << std::get<i>(a));
+        };
+        return encode(std::move(args));
+    }
 };
 
 [[nodiscard]] constexpr auto commit() noexcept { return CommandBuffer::Commit{}; }

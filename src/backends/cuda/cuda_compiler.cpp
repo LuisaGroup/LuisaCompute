@@ -44,10 +44,12 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     auto opt_hash = Hash64::default_seed;
     for (auto o : options) { opt_hash = hash64(o, opt_hash); }
 
-    auto ptx_file_name = fmt::format(
-        "func_{:016x}.lib_{:016x}.opt_{:016x}.ptx",
+    auto file_name = fmt::format(
+        "func_{:016x}.lib_{:016x}.opt_{:016x}",
         function.hash(), library_hash, opt_hash);
     auto &&cache_dir = ctx.cache_directory();
+    auto ptx_file_name = file_name + ".ptx";
+    auto cu_file_name = file_name + ".cu";
     auto ptx_file_path = cache_dir / ptx_file_name;
 
     // try disk cache
@@ -71,6 +73,12 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
 
     auto source = scratch.view();
     LUISA_VERBOSE_WITH_LOCATION("Generated CUDA source:\n{}", source);
+
+    // save the source for debugging
+    {
+        std::ofstream cu_file{cache_dir / cu_file_name};
+        cu_file << source;
+    }
 
     std::array header_names{"device_math.h", "device_resource.h"};
     std::array header_sources{cuda_device_math_source, cuda_device_resource_source};
@@ -99,7 +107,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     _cache->update(hash, ptx);
 
     // save cache
-    std::ofstream ptx_file{ctx.cache_directory() / ptx_file_name};
+    std::ofstream ptx_file{ptx_file_path};
     ptx_file << ptx;
     return ptx;
 }

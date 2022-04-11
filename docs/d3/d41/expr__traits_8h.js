@@ -1,10 +1,30 @@
 var expr__traits_8h =
 [
+    [ "luisa::compute::detail::expr_value_impl< T >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#d8/deb/structluisa_1_1compute_1_1detail_1_1expr__value__impl", [
+      [ "type", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#a27873f7fbd85cc02f5c6339d4e8f447e", null ]
+    ] ],
+    [ "luisa::compute::detail::expr_value_impl< Expr< T > >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#dc/d57/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_expr_3_01_t_01_4_01_4", [
+      [ "type", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#ace992ec0f7d27f6d22c7843d661b7c60", null ]
+    ] ],
+    [ "luisa::compute::detail::expr_value_impl< Ref< T > >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#dd/d05/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_ref_3_01_t_01_4_01_4", [
+      [ "type", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#a5222efe619d21b6deeefce8cf727f80b", null ]
+    ] ],
+    [ "luisa::compute::detail::expr_value_impl< Var< T > >", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#dd/df8/structluisa_1_1compute_1_1detail_1_1expr__value__impl_3_01_var_3_01_t_01_4_01_4", [
+      [ "type", "d3/df7/namespaceluisa_1_1compute_1_1detail.html#a1005e37a98336fd0f3b6584dd8b86106", null ]
+    ] ],
+    [ "luisa::compute::detail::is_dsl_impl< T >", "d7/d9e/structluisa_1_1compute_1_1detail_1_1is__dsl__impl.html", null ],
+    [ "luisa::compute::detail::is_dsl_impl< Expr< T > >", "da/d1e/structluisa_1_1compute_1_1detail_1_1is__dsl__impl_3_01_expr_3_01_t_01_4_01_4.html", null ],
+    [ "luisa::compute::detail::is_dsl_impl< Ref< T > >", "d9/df7/structluisa_1_1compute_1_1detail_1_1is__dsl__impl_3_01_ref_3_01_t_01_4_01_4.html", null ],
+    [ "luisa::compute::detail::is_dsl_impl< Var< T > >", "d6/d77/structluisa_1_1compute_1_1detail_1_1is__dsl__impl_3_01_var_3_01_t_01_4_01_4.html", null ],
     [ "any_dsl", "d3/d41/expr__traits_8h.html#acacde5ad635895c976939852660cd4cd", null ],
+    [ "array_expr_dimension", "d3/d41/expr__traits_8h.html#ab920468a197d28efd10739ef58c2557c", null ],
+    [ "array_expr_element", "d3/d41/expr__traits_8h.html#a88f60b597767721fb9f5e3aa02614cab", null ],
+    [ "array_expr_element_t", "d3/d41/expr__traits_8h.html#a4d160860b46a56432018020b67009448", null ],
     [ "buffer_expr_element", "d3/d41/expr__traits_8h.html#a6b08e9f904cf5688a6e0c5cff1433cfc", null ],
     [ "buffer_expr_element_t", "d3/d41/expr__traits_8h.html#af4501cfac085d5f38f882e602f0bef03", null ],
     [ "expr_value", "d3/d41/expr__traits_8h.html#ad61c22f4cbc86bc2925f194e950aa952", null ],
     [ "expr_value_t", "d3/d41/expr__traits_8h.html#a6602f48a05e52b308d34151f23f137e3", null ],
+    [ "is_array_expr", "d3/d41/expr__traits_8h.html#a998320a59f67c1b0970e8d0ce75da9de", null ],
     [ "is_bool_or_vector_expr", "d3/d41/expr__traits_8h.html#a9733e722cfc7a72b2a2dddae7160785f", null ],
     [ "is_bool_vector_expr", "d3/d41/expr__traits_8h.html#a718072d38d32a07faaa340d6fab25960", null ],
     [ "is_boolean_expr", "d3/d41/expr__traits_8h.html#afef91ca0adfe35be9a01086bf2649338", null ],
@@ -35,6 +55,8 @@ var expr__traits_8h =
     [ "vector_expr_element", "d3/d41/expr__traits_8h.html#ada7827bd791bdbcacc9579e7462cc45d", null ],
     [ "vector_expr_element_t", "d3/d41/expr__traits_8h.html#a5c0d49a10dca9236ebdf7958a35a560a", null ],
     [ "any_dsl_v", "d3/d41/expr__traits_8h.html#a89874f92249c728674ee00b5a88e6bc7", null ],
+    [ "array_expr_dimension_v", "d3/d41/expr__traits_8h.html#a4fd7575bef9cee9723ceb64f685b40a7", null ],
+    [ "is_array_expr_v", "d3/d41/expr__traits_8h.html#ae6168c9f62f5bea2931ea554a5df17c0", null ],
     [ "is_bool_or_vector_expr_v", "d3/d41/expr__traits_8h.html#ad781b2f9c988e509d76c5565b9400541", null ],
     [ "is_bool_vector_expr_v", "d3/d41/expr__traits_8h.html#ac9b8ac79f3db71ae9a2059f29cf3ff6e", null ],
     [ "is_boolean_expr_v", "d3/d41/expr__traits_8h.html#ac49a6593475a39e08589ea58ddcba4a9", null ],

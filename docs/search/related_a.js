@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['volume_3c_20t_20_3e_0',['Volume&lt; T &gt;',['../d8/d47/classluisa_1_1compute_1_1_volume_view.html#a16a9f75d0ed210ab9a75ebcc09224796',1,'luisa::compute::VolumeView']]]
+  ['stream_0',['Stream',['../d2/d41/classluisa_1_1compute_1_1_command_buffer.html#ad8c01c67eaeefab6268f2f0872b47035',1,'luisa::compute::CommandBuffer']]]
 ];

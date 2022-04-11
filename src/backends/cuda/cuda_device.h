@@ -101,6 +101,8 @@ public:
 private:
     Handle _handle;
     luisa::unique_ptr<CUDAHeap> _heap;
+    CUmodule _accel_update_module{nullptr};
+    CUfunction _accel_update_function{nullptr};
 
 public:
     /**
@@ -245,7 +247,7 @@ public:
      * @param hint build hint
      * @return handle of CUDAMesh object
      */
-    uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint)  noexcept override;
+    uint64_t create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint)  noexcept override;
     /**
      * @brief Destroy a mesh
      * 
@@ -253,61 +255,12 @@ public:
      */
     void destroy_mesh(uint64_t handle) noexcept override;
     /**
-     * @brief Get the vertex buffer from mesh object
-     * 
-     * @param mesh_handle handle of mesh
-     * @return handle of vertex buffer
-     */
-    uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    /**
-     * @brief Get the triangle buffer from mesh object
-     * 
-     * @param mesh_handle handle of mesh
-     * @return handle of triangle buffer
-     */
-    uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept override;
-    /**
      * @brief Create an accel object
      * 
      * @param hint build hint
      * @return handle of CUDAAccel object
      */
-    uint64_t create_accel(AccelBuildHint hint) noexcept override;
-    /**
-     * @brief Emplace back an instnce in accel
-     * 
-     * @param accel handle of accel
-     * @param mesh handle of mesh
-     * @param transform mesh's transform
-     * @param visible mesh's visibility 
-     */
-    void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    /**
-     * @brief Set tranfrom of instance
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param transform new transform
-     */
-    void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept override;
-    /**
-     * @brief If buffer is in accel
-     * 
-     * @param accel handle of accel
-     * @param buffer handle of buffer
-     * @return true 
-     * @return false 
-     */
-    bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept override;
-    /**
-     * @brief If mesh is in accel
-     * 
-     * @param accel handle of accel
-     * @param mesh handle of mesh
-     * @return true 
-     * @return false 
-     */
-    bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept override;
+    uint64_t create_accel(AccelUsageHint hint) noexcept override;
     /**
      * @brief Destroy an accel
      * 
@@ -425,7 +378,7 @@ public:
      * @return void* 
      */
     void *stream_native_handle(uint64_t handle) const noexcept override {
-        return reinterpret_cast<CUDAStream *>(handle)->handle();
+        return reinterpret_cast<CUDAStream *>(handle)->handle(true);
     }
 
     /**
@@ -441,35 +394,58 @@ public:
         return f();
     }
     /**
-     * @brief Pop back instance from accel
-     * 
-     * @param accel handle of accel
-     */
-    void pop_back_instance_from_accel(uint64_t accel) noexcept override;
-    /**
-     * @brief Set instance in accel
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param mesh new mesh
-     * @param transform new transform
-     * @param visible new visibility
-     */
-    void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept override;
-    /**
-     * @brief Set instance visibility in accel
-     * 
-     * @param accel handle of accel
-     * @param index place to set
-     * @param visible new visibility
-     */
-    void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept override;
-    /**
      * @brief If requires command reordering
      * 
      * @return true
      */
-    bool requires_command_reordering() const noexcept override { return true; }
+    bool requires_command_reordering() const noexcept override;
+    /**
+     * @brief Get pointer to the pre-defined acceleration structure update kernel function
+     *
+     * @return pointer to the kernel function
+     */
+    [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
+    /**
+     * @brief Dispatch a host function in the stream
+     *
+     * @param stream_handle handle of the stream
+     * @param func host function to dispatch
+     */
+    void dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept override;
+    /**
+     * @brief Create a swap-chain for the window
+     *
+     * @param window_handle handle of the window
+     * @param stream_handle handle of the stream
+     * @param width frame width
+     * @param height frame height
+     * @param allow_hdr should support HDR content o not
+     * @param back_buffer_count number of backed buffers (for multiple buffering)
+     * @return handle of the swap-chain
+     */
+    uint64_t create_swap_chain(
+        uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
+        bool allow_hdr, uint back_buffer_count) noexcept override;
+    /**
+     * @brief Destroy the swap-chain
+     *
+     * @param handle handle of the swap-chain
+     */
+    void destroy_swap_chain(uint64_t handle) noexcept override;
+    /**
+     * @brief Query pixel storage of the swap-chain
+     * @param handle handle of the swap-chain
+     * @return pixel storage of the swap-chain
+     */
+    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
+    /**
+     * @brief Present display in the stream
+     *
+     * @param stream_handle handle of the stream
+     * @param swap_chain_handle handle of the swap-chain
+     * @param image_handle handle of the 2D texture to display
+     */
+    void present_display_in_stream(uint64_t stream_handle, uint64_t swap_chain_handle, uint64_t image_handle) noexcept override;
 };
 
 }// namespace luisa::compute::cuda

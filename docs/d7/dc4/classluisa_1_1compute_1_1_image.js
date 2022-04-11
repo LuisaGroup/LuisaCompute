@@ -7,7 +7,6 @@ var classluisa_1_1compute_1_1_image =
     [ "mip_levels", "d7/dc4/classluisa_1_1compute_1_1_image.html#a9d2e45a791d374277608e0a88b84fca9", null ],
     [ "native_handle", "d7/dc4/classluisa_1_1compute_1_1_image.html#a8d028cc10a34506aa2ff5684b39b5a58", null ],
     [ "read", "d7/dc4/classluisa_1_1compute_1_1_image.html#a5e57111ef4438b45887dd348cb814858", null ],
-    [ "region", "d7/dc4/classluisa_1_1compute_1_1_image.html#acd42ed7425fbf675bb59770b6915cd89", null ],
     [ "size", "d7/dc4/classluisa_1_1compute_1_1_image.html#aa5fee63faf68df03efd1f8b72d428288", null ],
     [ "storage", "d7/dc4/classluisa_1_1compute_1_1_image.html#a1623e3088a8825a5e2557ed7ab3c1398", null ],
     [ "view", "d7/dc4/classluisa_1_1compute_1_1_image.html#a629b0f0478660016ea7669a730e93047", null ],

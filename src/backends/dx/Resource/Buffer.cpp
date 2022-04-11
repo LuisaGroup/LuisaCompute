@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/Buffer.h>
 namespace toolhub::directx {
 BufferView::BufferView(Buffer const *buffer)

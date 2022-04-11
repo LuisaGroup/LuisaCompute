@@ -466,40 +466,29 @@ struct Expr<Image<T>> {
 
 private:
     const RefExpr *_expression{nullptr};
-    const Expression *_offset{nullptr};
-
-    [[nodiscard]] auto _offset_uv(const Expression *uv) const noexcept -> const Expression * {
-        if (_offset == nullptr) { return uv; }
-        auto f = detail::FunctionBuilder::current();
-        return f->binary(Type::of<uint2>(), BinaryOp::ADD, uv, _offset);
-    }
 
 public:
-    /// Construct from RefExpr and offset Expression
-    explicit Expr(const RefExpr *expr, const Expression *offset) noexcept
-        : _expression{expr}, _offset{offset} {}
+    /// Construct from RefExpr
+    explicit Expr(const RefExpr *expr) noexcept : _expression{expr} {}
     /// Construct from ImageView. Will create texture binding.
     explicit Expr(ImageView<T> image) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
-              Type::of<Image<T>>(), image.handle(), image.level())},
-          _offset{any(image.offset() != 0u) ? detail::FunctionBuilder::current()->literal(Type::of<uint2>(), image.offset()) : nullptr} {}
-
+              Type::of<Image<T>>(), image.handle(), image.level())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
+
     /// Read at (u, v)
     [[nodiscard]] auto read(Expr<uint2> uv) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<Vector<T, 4>>(
-            f->call(
-                Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
-                {_expression, _offset_uv(uv.expression())}));
+            f->call(Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
+                    {_expression, uv.expression()}));
     };
 
     /// Write T4 at (u, v)
     void write(Expr<uint2> uv, Expr<Vector<T, 4>> value) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
-            {_expression, _offset_uv(uv.expression()), value.expression()});
+            {_expression, uv.expression(), value.expression()});
     }
 };
 
@@ -515,40 +504,30 @@ struct Expr<Volume<T>> {
 
 private:
     const RefExpr *_expression{nullptr};
-    const Expression *_offset{nullptr};
-
-    [[nodiscard]] auto _offset_uvw(const Expression *uvw) const noexcept -> const Expression * {
-        if (_offset == nullptr) { return uvw; }
-        auto f = detail::FunctionBuilder::current();
-        return f->binary(Type::of<uint3>(), BinaryOp::ADD, uvw, _offset);
-    }
 
 public:
-    /// Construct from RefExpr and offset Expression
-    explicit Expr(const RefExpr *expr, const Expression *offset) noexcept
-        : _expression{expr}, _offset{offset} {}
+    /// Construct from RefExpr
+    explicit Expr(const RefExpr *expr, const Expression *offset) noexcept : _expression{expr} {}
     /// Construct from VolumeView. Will create texture binding.
     explicit Expr(VolumeView<T> volume) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
-              Type::of<Volume<T>>(), volume.handle(), volume.level())},
-          _offset{any(volume.offset() != 0u) ? detail::FunctionBuilder::current()->literal(Type::of<uint3>(), volume.offset()) : nullptr} {}
+              Type::of<Volume<T>>(), volume.handle(), volume.level())} {}
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
-    [[nodiscard]] auto offset() const noexcept { return _offset; }
 
     /// Read at (u, v, w)
     [[nodiscard]] auto read(Expr<uint3> uvw) const noexcept {
         return def<Vector<T, 4>>(
             detail::FunctionBuilder::current()->call(
                 Type::of<Vector<T, 4>>(), CallOp::TEXTURE_READ,
-                {_expression, _offset_uvw(uvw.expression())}));
+                {_expression, uvw.expression()}));
     };
 
     /// Write T4 at (u, v, w)
     void write(Expr<uint3> uvw, Expr<Vector<T, 4>> value) const noexcept {
         detail::FunctionBuilder::current()->call(
             CallOp::TEXTURE_WRITE,
-            {_expression, _offset_uvw(uvw.expression()), value.expression()});
+            {_expression, uvw.expression(), value.expression()});
     }
 };
 
@@ -587,7 +566,7 @@ public:
 };
 
 /// Class of bindless 2D texture
-class BindlessTexture2D {
+class LC_DSL_API BindlessTexture2D {
 
 private:
     const RefExpr *_array{nullptr};
@@ -626,7 +605,7 @@ public:
 };
 
 /// Class of bindless 3D texture
-class BindlessTexture3D {
+class LC_DSL_API BindlessTexture3D {
 
 private:
     const RefExpr *_array{nullptr};
@@ -697,7 +676,7 @@ public:
         return BindlessTexture3D{_expression, i.expression()};
     }
 
-    /// Get buffer at index 
+    /// Get buffer at index
     template<typename T, typename I>
         requires is_integral_expr_v<I>
     [[nodiscard]] auto buffer(I &&index) const noexcept {

@@ -1,6 +1,10 @@
 var concepts_8h =
 [
     [ "luisa::concepts::Noncopyable", "d1/d82/structluisa_1_1concepts_1_1_noncopyable.html", "d1/d82/structluisa_1_1concepts_1_1_noncopyable" ],
+    [ "luisa::concepts::detail::all_same_impl< T >", "d6/d1d/structluisa_1_1concepts_1_1detail_1_1all__same__impl.html", null ],
+    [ "luisa::concepts::detail::all_same_impl<>", "df/d4c/structluisa_1_1concepts_1_1detail_1_1all__same__impl_3_4.html", null ],
+    [ "luisa::concepts::detail::all_same_impl< T >", "d1/d8d/structluisa_1_1concepts_1_1detail_1_1all__same__impl_3_01_t_01_4.html", null ],
+    [ "luisa::concepts::detail::all_same_impl< First, Other... >", "d4/df1/structluisa_1_1concepts_1_1detail_1_1all__same__impl_3_01_first_00_01_other_8_8_8_01_4.html", null ],
     [ "luisa::concepts::iterable", "da/d9d/conceptluisa_1_1concepts_1_1iterable.html", null ],
     [ "luisa::concepts::string_viewable", "d7/d3a/conceptluisa_1_1concepts_1_1string__viewable.html", null ],
     [ "luisa::concepts::span_convertible", "d5/db3/conceptluisa_1_1concepts_1_1span__convertible.html", null ],

@@ -36,5 +36,6 @@ var classluisa_1_1compute_1_1_type =
     [ "operator==", "da/dd7/classluisa_1_1compute_1_1_type.html#a16c1b3706f21744b630a870dd8b5e1e6", null ],
     [ "size", "da/dd7/classluisa_1_1compute_1_1_type.html#a4903461a66a129e53da1ff0628786761", null ],
     [ "tag", "da/dd7/classluisa_1_1compute_1_1_type.html#a611bde2cdfa434e5a6f195151e37f47a", null ],
-    [ "AstSerializer", "da/dd7/classluisa_1_1compute_1_1_type.html#a321da1c0dbd4d8cc9bac530cb44b984f", null ]
+    [ "AstSerializer", "da/dd7/classluisa_1_1compute_1_1_type.html#a321da1c0dbd4d8cc9bac530cb44b984f", null ],
+    [ "detail::TypeRegistry", "da/dd7/classluisa_1_1compute_1_1_type.html#a244e319ca7488f94e9b519224610c2a0", null ]
 ];

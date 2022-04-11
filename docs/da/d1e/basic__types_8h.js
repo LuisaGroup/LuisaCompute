@@ -1,5 +1,9 @@
 var basic__types_8h =
 [
+    [ "luisa::detail::VectorStorage< T, N >", "d1/d8c/structluisa_1_1detail_1_1_vector_storage.html", null ],
+    [ "luisa::detail::VectorStorage< T, 2 >", "da/d9f/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_012_01_4.html", "da/d9f/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_012_01_4" ],
+    [ "luisa::detail::VectorStorage< T, 3 >", "d6/d47/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_013_01_4.html", "d6/d47/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_013_01_4" ],
+    [ "luisa::detail::VectorStorage< T, 4 >", "df/d78/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_014_01_4.html", "df/d78/structluisa_1_1detail_1_1_vector_storage_3_01_t_00_014_01_4" ],
     [ "luisa::Vector< T, N >", "d2/dc0/structluisa_1_1_vector.html", "d2/dc0/structluisa_1_1_vector" ],
     [ "luisa::Matrix< N >", "d0/d38/namespaceluisa.html#d4/d78/structluisa_1_1_matrix", null ],
     [ "luisa::Matrix< 2 >", "dc/d3d/structluisa_1_1_matrix_3_012_01_4.html", "dc/d3d/structluisa_1_1_matrix_3_012_01_4" ],

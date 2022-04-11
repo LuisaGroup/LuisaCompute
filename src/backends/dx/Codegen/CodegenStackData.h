@@ -19,12 +19,14 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     uint64 funcCount = 0;
     uint64 tempCount = 0;
     uint64 bindlessBufferCount = 0;
+    uint64 structCount = 0;
     
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;
     vstd::HashMap<vstd::string, vstd::string> structReplaceName;
     vstd::HashMap<uint64_t> generatedConstants;
+    vstd::vector<Variable> sharedVariable;
     CodegenStackData();
     void Clear();
     uint AddBindlessType(Type const *type);

@@ -25,6 +25,7 @@ class Event;
 class Stream;
 class Mesh;
 class Accel;
+class SwapChain;
 class BindlessArray;
 
 template<typename T>
@@ -72,7 +73,7 @@ struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
 }// namespace detail
 
-class Device {
+class LC_RUNTIME_API Device {
 
 public:
     class Interface : public luisa::enable_shared_from_this<Interface> {
@@ -122,8 +123,15 @@ public:
         virtual void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
             for (auto &&list : lists) { dispatch(stream_handle, list); }
         }
+        virtual void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept = 0;
         [[nodiscard]] virtual void *stream_native_handle(uint64_t handle) const noexcept = 0;
-
+        // swap chain
+        [[nodiscard]] virtual uint64_t create_swap_chain(
+            uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
+            bool allow_hdr, uint back_buffer_size) noexcept = 0;
+        virtual void destroy_swap_chain(uint64_t handle) noexcept = 0;
+        virtual PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept = 0;
+        virtual void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept = 0;
         // kernel
         [[nodiscard]] virtual uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept = 0;
         virtual void destroy_shader(uint64_t handle) noexcept = 0;
@@ -138,20 +146,12 @@ public:
         // accel
         [[nodiscard]] virtual uint64_t create_mesh(
             uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-            uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept = 0;
+            uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept = 0;
         virtual void destroy_mesh(uint64_t handle) noexcept = 0;
-
-        [[nodiscard]] virtual uint64_t create_accel(AccelBuildHint hint) noexcept = 0;
-        virtual void emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, float4x4 transform, bool visible) noexcept = 0;
-        virtual void pop_back_instance_from_accel(uint64_t accel) noexcept = 0;
-        virtual void set_instance_in_accel(uint64_t accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) noexcept = 0;
-        virtual void set_instance_transform_in_accel(uint64_t accel, size_t index, float4x4 transform) noexcept = 0;
-        virtual void set_instance_visibility_in_accel(uint64_t accel, size_t index, bool visible) noexcept = 0;
-        [[nodiscard]] virtual bool is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept = 0;
-        [[nodiscard]] virtual bool is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept = 0;
-        [[nodiscard]] virtual uint64_t get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
-        [[nodiscard]] virtual uint64_t get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_accel(AccelUsageHint hint) noexcept = 0;
         virtual void destroy_accel(uint64_t handle) noexcept = 0;
+
+        // query
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
         [[nodiscard]] virtual bool requires_command_reordering() const noexcept { return true; }
     };
@@ -169,8 +169,7 @@ private:
     }
 
 public:
-    explicit Device(Handle handle) noexcept
-        : _impl{std::move(handle)} {}
+    explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
 
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
@@ -178,11 +177,16 @@ public:
     [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp
     [[nodiscard]] Event create_event() noexcept;  // see definition in runtime/event.cpp
 
+    [[nodiscard]] SwapChain create_swapchain(
+        uint64_t window_handle, const Stream &stream, uint width, uint height,
+        bool allow_hdr = true, uint back_buffer_count = 1) noexcept;
+
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(
         VBuffer &&vertices, TBuffer &&triangles,
-        AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
-    [[nodiscard]] Accel create_accel(AccelBuildHint hint = AccelBuildHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
+        AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
+                                                                                                // see definition in rtx/mesh.h
+    [[nodiscard]] Accel create_accel(AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
 
     template<typename T>

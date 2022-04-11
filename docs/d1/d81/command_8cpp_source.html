@@ -101,149 +101,263 @@ $(document).ready(function(){initNavTree('d1/d81/command_8cpp_source.html','../.
 <div class="line"><a id="l00011" name="l00011"></a><span class="lineno">   11</span>    <a class="code hl_function" href="../../db/d64/classluisa_1_1compute_1_1_command.html#a718e2c73f7540b51d1c68c66eb914281">_recycle</a>();</div>
 <div class="line"><a id="l00012" name="l00012"></a><span class="lineno">   12</span>}</div>
 <div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span> </div>
-<div class="line"><a id="l00014" name="l00014"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a7fd5c23212b0f49640bf54a5c718338d">   14</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a7fd5c23212b0f49640bf54a5c718338d">ShaderDispatchCommand::encode_buffer</a>(</div>
-<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span>    uint32_t variable_uid,</div>
-<div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span>    uint64_t handle,</div>
-<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span>    <span class="keywordtype">size_t</span> offset,</div>
-<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span>    <a class="code hl_enumeration" href="../../d8/d37/namespaceluisa_1_1compute.html#a8d7cf4ef050b50b3f6a4cb4c8dfe4dfd">Usage</a> usage) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span> </div>
-<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../de/d51/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument.html">BufferArgument</a>) &gt; _argument_buffer.size()) [[unlikely]] {</div>
+<div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span><span class="keyword">inline</span> <span class="keywordtype">void</span> ShaderDispatchCommand::_encode_buffer(uint64_t handle, <span class="keywordtype">size_t</span> offset) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span>    <span class="keywordflow">if</span> (_argument_count &gt;= _kernel.arguments().size()) [[unlikely]] {</div>
+<div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span>            <span class="stringliteral">&quot;Invalid buffer argument at index {}.&quot;</span>,</div>
+<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span>            _argument_count);</div>
+<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span>    }</div>
+<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(BufferArgument) &gt; _argument_buffer.size()) [[unlikely]] {</div>
 <div class="line"><a id="l00021" name="l00021"></a><span class="lineno">   21</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
 <div class="line"><a id="l00022" name="l00022"></a><span class="lineno">   22</span>            <span class="stringliteral">&quot;Failed to encode buffer. &quot;</span></div>
 <div class="line"><a id="l00023" name="l00023"></a><span class="lineno">   23</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
 <div class="line"><a id="l00024" name="l00024"></a><span class="lineno">   24</span>            _argument_buffer.size());</div>
 <div class="line"><a id="l00025" name="l00025"></a><span class="lineno">   25</span>    }</div>
-<div class="line"><a id="l00026" name="l00026"></a><span class="lineno">   26</span> </div>
-<div class="line"><a id="l00027" name="l00027"></a><span class="lineno">   27</span>    <a class="code hl_struct" href="../../de/d51/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument.html">BufferArgument</a> argument{variable_uid, handle, offset};</div>
-<div class="line"><a id="l00028" name="l00028"></a><span class="lineno">   28</span>    std::memcpy(</div>
-<div class="line"><a id="l00029" name="l00029"></a><span class="lineno">   29</span>        _argument_buffer.data() + _argument_buffer_size,</div>
-<div class="line"><a id="l00030" name="l00030"></a><span class="lineno">   30</span>        &amp;argument, <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../de/d51/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument.html">BufferArgument</a>));</div>
-<div class="line"><a id="l00031" name="l00031"></a><span class="lineno">   31</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../de/d51/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument.html">BufferArgument</a>);</div>
-<div class="line"><a id="l00032" name="l00032"></a><span class="lineno">   32</span>    _argument_count++;</div>
-<div class="line"><a id="l00033" name="l00033"></a><span class="lineno">   33</span>}</div>
-<div class="line"><a id="l00034" name="l00034"></a><span class="lineno">   34</span> </div>
-<div class="line"><a id="l00035" name="l00035"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa867af9e19255648ee0a21908f81ff59">   35</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa867af9e19255648ee0a21908f81ff59">ShaderDispatchCommand::encode_texture</a>(</div>
-<div class="line"><a id="l00036" name="l00036"></a><span class="lineno">   36</span>    uint32_t variable_uid,</div>
-<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span>    uint64_t handle,</div>
-<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span>    uint32_t level,</div>
-<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span>    <a class="code hl_enumeration" href="../../d8/d37/namespaceluisa_1_1compute.html#a8d7cf4ef050b50b3f6a4cb4c8dfe4dfd">Usage</a> usage) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span> </div>
-<div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d7/dba/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument.html">TextureArgument</a>) &gt; _argument_buffer.size()) [[unlikely]] {</div>
-<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
-<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span>            <span class="stringliteral">&quot;Failed to encode texture. &quot;</span></div>
-<div class="line"><a id="l00044" name="l00044"></a><span class="lineno">   44</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
-<div class="line"><a id="l00045" name="l00045"></a><span class="lineno">   45</span>            _argument_buffer.size());</div>
-<div class="line"><a id="l00046" name="l00046"></a><span class="lineno">   46</span>    }</div>
-<div class="line"><a id="l00047" name="l00047"></a><span class="lineno">   47</span> </div>
-<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span>    <a class="code hl_struct" href="../../d7/dba/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument.html">TextureArgument</a> argument{variable_uid, handle, level};</div>
-<div class="line"><a id="l00049" name="l00049"></a><span class="lineno">   49</span>    std::memcpy(</div>
-<div class="line"><a id="l00050" name="l00050"></a><span class="lineno">   50</span>        _argument_buffer.data() + _argument_buffer_size,</div>
-<div class="line"><a id="l00051" name="l00051"></a><span class="lineno">   51</span>        &amp;argument, <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d7/dba/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument.html">TextureArgument</a>));</div>
-<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d7/dba/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument.html">TextureArgument</a>);</div>
-<div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span>    _argument_count++;</div>
-<div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span>}</div>
-<div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span> </div>
-<div class="line"><a id="l00056" name="l00056"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#ab12453635dfe5defe40140549f380e8e">   56</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#ab12453635dfe5defe40140549f380e8e">ShaderDispatchCommand::encode_uniform</a>(</div>
-<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span>    uint32_t variable_uid,</div>
-<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>    <span class="keyword">const</span> <span class="keywordtype">void</span> *data,</div>
-<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>    <span class="keywordtype">size_t</span> size,</div>
-<div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span>    <span class="keywordtype">size_t</span> alignment) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span> </div>
-<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument.html">UniformArgument</a>) + size &gt; _argument_buffer.size()) [[unlikely]] {</div>
-<div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
-<div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>            <span class="stringliteral">&quot;Failed to encode argument with size {}. &quot;</span></div>
-<div class="line"><a id="l00065" name="l00065"></a><span class="lineno">   65</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
-<div class="line"><a id="l00066" name="l00066"></a><span class="lineno">   66</span>            size, _argument_buffer.size());</div>
-<div class="line"><a id="l00067" name="l00067"></a><span class="lineno">   67</span>    }</div>
-<div class="line"><a id="l00068" name="l00068"></a><span class="lineno">   68</span> </div>
-<div class="line"><a id="l00069" name="l00069"></a><span class="lineno">   69</span>    <a class="code hl_struct" href="../../d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument.html">UniformArgument</a> argument{variable_uid, size, alignment};</div>
-<div class="line"><a id="l00070" name="l00070"></a><span class="lineno">   70</span>    std::memcpy(</div>
-<div class="line"><a id="l00071" name="l00071"></a><span class="lineno">   71</span>        _argument_buffer.data() + _argument_buffer_size,</div>
-<div class="line"><a id="l00072" name="l00072"></a><span class="lineno">   72</span>        &amp;argument, <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument.html">UniformArgument</a>));</div>
-<div class="line"><a id="l00073" name="l00073"></a><span class="lineno">   73</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument.html">UniformArgument</a>);</div>
-<div class="line"><a id="l00074" name="l00074"></a><span class="lineno">   74</span>    std::memcpy(</div>
-<div class="line"><a id="l00075" name="l00075"></a><span class="lineno">   75</span>        _argument_buffer.data() + _argument_buffer_size,</div>
-<div class="line"><a id="l00076" name="l00076"></a><span class="lineno">   76</span>        data, size);</div>
-<div class="line"><a id="l00077" name="l00077"></a><span class="lineno">   77</span>    _argument_buffer_size += size;</div>
-<div class="line"><a id="l00078" name="l00078"></a><span class="lineno">   78</span>    _argument_count++;</div>
-<div class="line"><a id="l00079" name="l00079"></a><span class="lineno">   79</span>}</div>
-<div class="line"><a id="l00080" name="l00080"></a><span class="lineno">   80</span> </div>
-<div class="line"><a id="l00081" name="l00081"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a82431291a6e1a7be4c69ff05fdb93cc2">   81</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a82431291a6e1a7be4c69ff05fdb93cc2">ShaderDispatchCommand::set_dispatch_size</a>(<a class="code hl_class" href="../../d2/dc0/structluisa_1_1_vector.html">uint3</a> launch_size) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00082" name="l00082"></a><span class="lineno">   82</span>    _dispatch_size[0] = launch_size.x;</div>
-<div class="line"><a id="l00083" name="l00083"></a><span class="lineno">   83</span>    _dispatch_size[1] = launch_size.y;</div>
-<div class="line"><a id="l00084" name="l00084"></a><span class="lineno">   84</span>    _dispatch_size[2] = launch_size.z;</div>
-<div class="line"><a id="l00085" name="l00085"></a><span class="lineno">   85</span>}</div>
-<div class="line"><a id="l00086" name="l00086"></a><span class="lineno">   86</span> </div>
-<div class="line"><a id="l00087" name="l00087"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa000d8145da2860ac65d475723b3a18d">   87</a></span><a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa000d8145da2860ac65d475723b3a18d">ShaderDispatchCommand::ShaderDispatchCommand</a>(uint64_t handle, <a class="code hl_class" href="../../d0/d9d/classluisa_1_1compute_1_1_function.html">Function</a> kernel) noexcept</div>
-<div class="line"><a id="l00088" name="l00088"></a><span class="lineno">   88</span>    : _handle{handle},</div>
-<div class="line"><a id="l00089" name="l00089"></a><span class="lineno">   89</span>      _kernel{kernel} {}</div>
-<div class="line"><a id="l00090" name="l00090"></a><span class="lineno">   90</span> </div>
-<div class="line"><a id="l00091" name="l00091"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a64b58801b8ca820add857d20e91e278c">   91</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a64b58801b8ca820add857d20e91e278c">ShaderDispatchCommand::encode_bindless_array</a>(uint32_t variable_uid, uint64_t handle) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00092" name="l00092"></a><span class="lineno">   92</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d3/d84/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument.html">BindlessArrayArgument</a>) &gt; _argument_buffer.size()) [[unlikely]] {</div>
-<div class="line"><a id="l00093" name="l00093"></a><span class="lineno">   93</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
-<div class="line"><a id="l00094" name="l00094"></a><span class="lineno">   94</span>            <span class="stringliteral">&quot;Failed to encode texture heap. &quot;</span></div>
-<div class="line"><a id="l00095" name="l00095"></a><span class="lineno">   95</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
-<div class="line"><a id="l00096" name="l00096"></a><span class="lineno">   96</span>            _argument_buffer.size());</div>
-<div class="line"><a id="l00097" name="l00097"></a><span class="lineno">   97</span>    }</div>
-<div class="line"><a id="l00098" name="l00098"></a><span class="lineno">   98</span>    <a class="code hl_struct" href="../../d3/d84/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument.html">BindlessArrayArgument</a> argument{variable_uid, handle};</div>
-<div class="line"><a id="l00099" name="l00099"></a><span class="lineno">   99</span>    std::memcpy(</div>
-<div class="line"><a id="l00100" name="l00100"></a><span class="lineno">  100</span>        _argument_buffer.data() + _argument_buffer_size,</div>
-<div class="line"><a id="l00101" name="l00101"></a><span class="lineno">  101</span>        &amp;argument, <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d3/d84/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument.html">BindlessArrayArgument</a>));</div>
-<div class="line"><a id="l00102" name="l00102"></a><span class="lineno">  102</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d3/d84/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument.html">BindlessArrayArgument</a>);</div>
-<div class="line"><a id="l00103" name="l00103"></a><span class="lineno">  103</span>    _argument_count++;</div>
-<div class="line"><a id="l00104" name="l00104"></a><span class="lineno">  104</span>}</div>
-<div class="line"><a id="l00105" name="l00105"></a><span class="lineno">  105</span> </div>
-<div class="line"><a id="l00106" name="l00106"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a5228c64beda1e721812d53e9bf75385d">  106</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a5228c64beda1e721812d53e9bf75385d">ShaderDispatchCommand::encode_accel</a>(uint32_t variable_uid, uint64_t handle) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00107" name="l00107"></a><span class="lineno">  107</span>    <span class="keyword">constexpr</span> <span class="keyword">auto</span> size = <span class="keyword">sizeof</span>(<a class="code hl_struct" href="../../d3/dd3/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_accel_argument.html">AccelArgument</a>);</div>
-<div class="line"><a id="l00108" name="l00108"></a><span class="lineno">  108</span>    <span class="keywordflow">if</span> (_argument_buffer_size + size &gt; _argument_buffer.size()) [[unlikely]] {</div>
-<div class="line"><a id="l00109" name="l00109"></a><span class="lineno">  109</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
-<div class="line"><a id="l00110" name="l00110"></a><span class="lineno">  110</span>            <span class="stringliteral">&quot;Failed to encode accel. &quot;</span></div>
-<div class="line"><a id="l00111" name="l00111"></a><span class="lineno">  111</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
-<div class="line"><a id="l00112" name="l00112"></a><span class="lineno">  112</span>            _argument_buffer.size());</div>
-<div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span>    }</div>
-<div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span>    <a class="code hl_struct" href="../../d3/dd3/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_accel_argument.html">AccelArgument</a> argument{variable_uid, handle};</div>
-<div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span>    std::memcpy(_argument_buffer.data() + _argument_buffer_size, &amp;argument, size);</div>
-<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span>    _argument_buffer_size += size;</div>
-<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>    _argument_count++;</div>
-<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>}</div>
-<div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span> </div>
-<div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span><span class="keyword">namespace </span>detail {</div>
-<div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span> </div>
-<div class="line"><a id="l00122" name="l00122"></a><span class="lineno"><a class="line" href="../../d1/d81/command_8cpp.html#aefdf080829b4b5f1be6db72f34c3f0c2">  122</a></span><span class="preprocessor">#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd) \</span></div>
-<div class="line"><a id="l00123" name="l00123"></a><span class="lineno">  123</span><span class="preprocessor">    Pool&lt;Cmd&gt; &amp;pool_##Cmd() noexcept {    \</span></div>
-<div class="line"><a id="l00124" name="l00124"></a><span class="lineno">  124</span><span class="preprocessor">        static Pool&lt;Cmd&gt; pool;            \</span></div>
-<div class="line"><a id="l00125" name="l00125"></a><span class="lineno">  125</span><span class="preprocessor">        return pool;                      \</span></div>
-<div class="line"><a id="l00126" name="l00126"></a><span class="lineno">  126</span><span class="preprocessor">    }</span></div>
-<div class="line"><a id="l00127" name="l00127"></a><span class="lineno">  127</span><a class="code hl_define" href="../../d4/d9e/macro_8h.html#a288cb55045142c2aaa32a544b8218f51">LUISA_MAP</a>(<a class="code hl_define" href="../../d1/d81/command_8cpp.html#aefdf080829b4b5f1be6db72f34c3f0c2">LUISA_MAKE_COMMAND_POOL_IMPL</a>, <a class="code hl_define" href="../../d0/d09/command_8h.html#a47e8f628c7916593914151a93158f21c">LUISA_ALL_COMMANDS</a>)</div>
-<div class="line"><a id="l00128" name="l00128"></a><span class="lineno">  128</span><span class="preprocessor">#undef LUISA_MAKE_COMMAND_POOL_IMPL</span></div>
-<div class="line"><a id="l00129" name="l00129"></a><span class="lineno">  129</span> </div>
-<div class="line"><a id="l00130" name="l00130"></a><span class="lineno">  130</span>}<span class="comment">// namespace detail</span></div>
-<div class="line"><a id="l00131" name="l00131"></a><span class="lineno">  131</span> </div>
-<div class="line"><a id="l00132" name="l00132"></a><span class="lineno">  132</span>}<span class="comment">// namespace luisa::compute</span></div>
+<div class="line"><a id="l00026" name="l00026"></a><span class="lineno">   26</span>    <span class="keywordflow">if</span> (<span class="keyword">auto</span> t = _kernel.arguments()[_argument_count].type();</div>
+<div class="line"><a id="l00027" name="l00027"></a><span class="lineno">   27</span>        !t-&gt;is_buffer()) {</div>
+<div class="line"><a id="l00028" name="l00028"></a><span class="lineno">   28</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00029" name="l00029"></a><span class="lineno">   29</span>            <span class="stringliteral">&quot;Expected {} but got buffer for argument {}.&quot;</span>,</div>
+<div class="line"><a id="l00030" name="l00030"></a><span class="lineno">   30</span>            t-&gt;description(), _argument_count);</div>
+<div class="line"><a id="l00031" name="l00031"></a><span class="lineno">   31</span>    }</div>
+<div class="line"><a id="l00032" name="l00032"></a><span class="lineno">   32</span>    <span class="keyword">auto</span> variable_uid = _kernel.arguments()[_argument_count].uid();</div>
+<div class="line"><a id="l00033" name="l00033"></a><span class="lineno">   33</span>    <span class="keyword">auto</span> usage = _kernel.variable_usage(variable_uid);</div>
+<div class="line"><a id="l00034" name="l00034"></a><span class="lineno">   34</span>    BufferArgument argument{variable_uid, handle, offset};</div>
+<div class="line"><a id="l00035" name="l00035"></a><span class="lineno">   35</span>    std::memcpy(</div>
+<div class="line"><a id="l00036" name="l00036"></a><span class="lineno">   36</span>        _argument_buffer.data() + _argument_buffer_size,</div>
+<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span>        &amp;argument, <span class="keyword">sizeof</span>(BufferArgument));</div>
+<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(BufferArgument);</div>
+<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span>    _argument_count++;</div>
+<div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span>}</div>
+<div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span> </div>
+<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span><span class="keyword">inline</span> <span class="keywordtype">void</span> ShaderDispatchCommand::_encode_texture(uint64_t handle, uint32_t level) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span>    <span class="keywordflow">if</span> (_argument_count &gt;= _kernel.arguments().size()) [[unlikely]] {</div>
+<div class="line"><a id="l00044" name="l00044"></a><span class="lineno">   44</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00045" name="l00045"></a><span class="lineno">   45</span>            <span class="stringliteral">&quot;Invalid texture argument at index {}.&quot;</span>,</div>
+<div class="line"><a id="l00046" name="l00046"></a><span class="lineno">   46</span>            _argument_count);</div>
+<div class="line"><a id="l00047" name="l00047"></a><span class="lineno">   47</span>    }</div>
+<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(TextureArgument) &gt; _argument_buffer.size()) [[unlikely]] {</div>
+<div class="line"><a id="l00049" name="l00049"></a><span class="lineno">   49</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00050" name="l00050"></a><span class="lineno">   50</span>            <span class="stringliteral">&quot;Failed to encode texture. &quot;</span></div>
+<div class="line"><a id="l00051" name="l00051"></a><span class="lineno">   51</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
+<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span>            _argument_buffer.size());</div>
+<div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span>    }</div>
+<div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span>    <span class="keywordflow">if</span> (<span class="keyword">auto</span> t = _kernel.arguments()[_argument_count].type();</div>
+<div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span>        !t-&gt;is_texture()) [[unlikely]] {</div>
+<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span>            <span class="stringliteral">&quot;Expected {} but got image for argument {}.&quot;</span>,</div>
+<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>            t-&gt;description(), _argument_count);</div>
+<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>    }</div>
+<div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span>    <span class="keyword">auto</span> variable_uid = _kernel.arguments()[_argument_count].uid();</div>
+<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>    <span class="keyword">auto</span> usage = _kernel.variable_usage(variable_uid);</div>
+<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>    TextureArgument argument{variable_uid, handle, level};</div>
+<div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>    std::memcpy(</div>
+<div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>        _argument_buffer.data() + _argument_buffer_size,</div>
+<div class="line"><a id="l00065" name="l00065"></a><span class="lineno">   65</span>        &amp;argument, <span class="keyword">sizeof</span>(TextureArgument));</div>
+<div class="line"><a id="l00066" name="l00066"></a><span class="lineno">   66</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(TextureArgument);</div>
+<div class="line"><a id="l00067" name="l00067"></a><span class="lineno">   67</span>    _argument_count++;</div>
+<div class="line"><a id="l00068" name="l00068"></a><span class="lineno">   68</span>}</div>
+<div class="line"><a id="l00069" name="l00069"></a><span class="lineno">   69</span> </div>
+<div class="line"><a id="l00070" name="l00070"></a><span class="lineno">   70</span><span class="keyword">inline</span> <span class="keywordtype">void</span> ShaderDispatchCommand::_encode_uniform(<span class="keyword">const</span> <span class="keywordtype">void</span> *data, <span class="keywordtype">size_t</span> size, <span class="keywordtype">size_t</span> alignment) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00071" name="l00071"></a><span class="lineno">   71</span>    <span class="keywordflow">if</span> (_argument_count &gt;= _kernel.arguments().size()) [[unlikely]] {</div>
+<div class="line"><a id="l00072" name="l00072"></a><span class="lineno">   72</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00073" name="l00073"></a><span class="lineno">   73</span>            <span class="stringliteral">&quot;Invalid uniform argument at index {}.&quot;</span>,</div>
+<div class="line"><a id="l00074" name="l00074"></a><span class="lineno">   74</span>            _argument_count);</div>
+<div class="line"><a id="l00075" name="l00075"></a><span class="lineno">   75</span>    }</div>
+<div class="line"><a id="l00076" name="l00076"></a><span class="lineno">   76</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(UniformArgument) + size &gt; _argument_buffer.size()) [[unlikely]] {</div>
+<div class="line"><a id="l00077" name="l00077"></a><span class="lineno">   77</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00078" name="l00078"></a><span class="lineno">   78</span>            <span class="stringliteral">&quot;Failed to encode argument with size {}. &quot;</span></div>
+<div class="line"><a id="l00079" name="l00079"></a><span class="lineno">   79</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
+<div class="line"><a id="l00080" name="l00080"></a><span class="lineno">   80</span>            size, _argument_buffer.size());</div>
+<div class="line"><a id="l00081" name="l00081"></a><span class="lineno">   81</span>    }</div>
+<div class="line"><a id="l00082" name="l00082"></a><span class="lineno">   82</span>    <span class="keywordflow">if</span> (<span class="keyword">auto</span> t = _kernel.arguments()[_argument_count].type();</div>
+<div class="line"><a id="l00083" name="l00083"></a><span class="lineno">   83</span>        (!t-&gt;is_basic() &amp;&amp; !t-&gt;is_structure() &amp;&amp; !t-&gt;is_array()) ||</div>
+<div class="line"><a id="l00084" name="l00084"></a><span class="lineno">   84</span>        t-&gt;size() != size) [[unlikely]] {</div>
+<div class="line"><a id="l00085" name="l00085"></a><span class="lineno">   85</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00086" name="l00086"></a><span class="lineno">   86</span>            <span class="stringliteral">&quot;Invalid uniform (size = {}) at index {}, &quot;</span></div>
+<div class="line"><a id="l00087" name="l00087"></a><span class="lineno">   87</span>            <span class="stringliteral">&quot;expected {} (size = {}).&quot;</span>,</div>
+<div class="line"><a id="l00088" name="l00088"></a><span class="lineno">   88</span>            size, _argument_count,</div>
+<div class="line"><a id="l00089" name="l00089"></a><span class="lineno">   89</span>            t-&gt;description(), t-&gt;size());</div>
+<div class="line"><a id="l00090" name="l00090"></a><span class="lineno">   90</span>    }</div>
+<div class="line"><a id="l00091" name="l00091"></a><span class="lineno">   91</span>    <span class="keyword">auto</span> variable_uid = _kernel.arguments()[_argument_count].uid();</div>
+<div class="line"><a id="l00092" name="l00092"></a><span class="lineno">   92</span>    UniformArgument argument{variable_uid, size, alignment};</div>
+<div class="line"><a id="l00093" name="l00093"></a><span class="lineno">   93</span>    std::memcpy(</div>
+<div class="line"><a id="l00094" name="l00094"></a><span class="lineno">   94</span>        _argument_buffer.data() + _argument_buffer_size,</div>
+<div class="line"><a id="l00095" name="l00095"></a><span class="lineno">   95</span>        &amp;argument, <span class="keyword">sizeof</span>(UniformArgument));</div>
+<div class="line"><a id="l00096" name="l00096"></a><span class="lineno">   96</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(UniformArgument);</div>
+<div class="line"><a id="l00097" name="l00097"></a><span class="lineno">   97</span>    std::memcpy(_argument_buffer.data() + _argument_buffer_size, data, size);</div>
+<div class="line"><a id="l00098" name="l00098"></a><span class="lineno">   98</span>    _argument_buffer_size += size;</div>
+<div class="line"><a id="l00099" name="l00099"></a><span class="lineno">   99</span>    _argument_count++;</div>
+<div class="line"><a id="l00100" name="l00100"></a><span class="lineno">  100</span>}</div>
+<div class="line"><a id="l00101" name="l00101"></a><span class="lineno">  101</span> </div>
+<div class="line"><a id="l00102" name="l00102"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a82431291a6e1a7be4c69ff05fdb93cc2">  102</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a82431291a6e1a7be4c69ff05fdb93cc2">ShaderDispatchCommand::set_dispatch_size</a>(<a class="code hl_class" href="../../d2/dc0/structluisa_1_1_vector.html">uint3</a> launch_size) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00103" name="l00103"></a><span class="lineno">  103</span>    <span class="comment">//    if (_argument_count != _kernel.arguments().size()) [[unlikely]] {</span></div>
+<div class="line"><a id="l00104" name="l00104"></a><span class="lineno">  104</span>    <span class="comment">//        LUISA_ERROR_WITH_LOCATION(</span></div>
+<div class="line"><a id="l00105" name="l00105"></a><span class="lineno">  105</span>    <span class="comment">//            &quot;Not all arguments are encoded (expected {}, got {}).&quot;,</span></div>
+<div class="line"><a id="l00106" name="l00106"></a><span class="lineno">  106</span>    <span class="comment">//            _kernel.arguments().size(), _argument_count);</span></div>
+<div class="line"><a id="l00107" name="l00107"></a><span class="lineno">  107</span>    <span class="comment">//    }</span></div>
+<div class="line"><a id="l00108" name="l00108"></a><span class="lineno">  108</span>    _dispatch_size[0] = launch_size.x;</div>
+<div class="line"><a id="l00109" name="l00109"></a><span class="lineno">  109</span>    _dispatch_size[1] = launch_size.y;</div>
+<div class="line"><a id="l00110" name="l00110"></a><span class="lineno">  110</span>    _dispatch_size[2] = launch_size.z;</div>
+<div class="line"><a id="l00111" name="l00111"></a><span class="lineno">  111</span>}</div>
+<div class="line"><a id="l00112" name="l00112"></a><span class="lineno">  112</span> </div>
+<div class="line"><a id="l00113" name="l00113"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa000d8145da2860ac65d475723b3a18d">  113</a></span><a class="code hl_function" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa000d8145da2860ac65d475723b3a18d">ShaderDispatchCommand::ShaderDispatchCommand</a>(uint64_t handle, <a class="code hl_class" href="../../d0/d9d/classluisa_1_1compute_1_1_function.html">Function</a> kernel) noexcept</div>
+<div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span>    : _handle{handle}, _kernel{kernel} { _encode_pending_bindings(); }</div>
+<div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span> </div>
+<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span><span class="keyword">inline</span> <span class="keywordtype">void</span> ShaderDispatchCommand::_encode_bindless_array(uint64_t handle) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>    <span class="keywordflow">if</span> (_argument_count &gt;= _kernel.arguments().size()) [[unlikely]] {</div>
+<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span>            <span class="stringliteral">&quot;Invalid bindless array argument at index {}.&quot;</span>,</div>
+<div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span>            _argument_count);</div>
+<div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span>    }</div>
+<div class="line"><a id="l00122" name="l00122"></a><span class="lineno">  122</span>    <span class="keywordflow">if</span> (_argument_buffer_size + <span class="keyword">sizeof</span>(BindlessArrayArgument) &gt; _argument_buffer.size()) [[unlikely]] {</div>
+<div class="line"><a id="l00123" name="l00123"></a><span class="lineno">  123</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00124" name="l00124"></a><span class="lineno">  124</span>            <span class="stringliteral">&quot;Failed to encode bindless array. &quot;</span></div>
+<div class="line"><a id="l00125" name="l00125"></a><span class="lineno">  125</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
+<div class="line"><a id="l00126" name="l00126"></a><span class="lineno">  126</span>            _argument_buffer.size());</div>
+<div class="line"><a id="l00127" name="l00127"></a><span class="lineno">  127</span>    }</div>
+<div class="line"><a id="l00128" name="l00128"></a><span class="lineno">  128</span>    <span class="keywordflow">if</span> (<span class="keyword">auto</span> t = _kernel.arguments()[_argument_count].type();</div>
+<div class="line"><a id="l00129" name="l00129"></a><span class="lineno">  129</span>        !t-&gt;is_bindless_array()) {</div>
+<div class="line"><a id="l00130" name="l00130"></a><span class="lineno">  130</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00131" name="l00131"></a><span class="lineno">  131</span>            <span class="stringliteral">&quot;Expected {} but got bindless array for argument {}.&quot;</span>,</div>
+<div class="line"><a id="l00132" name="l00132"></a><span class="lineno">  132</span>            t-&gt;description(), _argument_count);</div>
+<div class="line"><a id="l00133" name="l00133"></a><span class="lineno">  133</span>    }</div>
+<div class="line"><a id="l00134" name="l00134"></a><span class="lineno">  134</span>    <span class="keyword">auto</span> v = _kernel.arguments()[_argument_count].uid();</div>
+<div class="line"><a id="l00135" name="l00135"></a><span class="lineno">  135</span>    BindlessArrayArgument argument{v, handle};</div>
+<div class="line"><a id="l00136" name="l00136"></a><span class="lineno">  136</span>    std::memcpy(</div>
+<div class="line"><a id="l00137" name="l00137"></a><span class="lineno">  137</span>        _argument_buffer.data() + _argument_buffer_size,</div>
+<div class="line"><a id="l00138" name="l00138"></a><span class="lineno">  138</span>        &amp;argument, <span class="keyword">sizeof</span>(BindlessArrayArgument));</div>
+<div class="line"><a id="l00139" name="l00139"></a><span class="lineno">  139</span>    _argument_buffer_size += <span class="keyword">sizeof</span>(BindlessArrayArgument);</div>
+<div class="line"><a id="l00140" name="l00140"></a><span class="lineno">  140</span>    _argument_count++;</div>
+<div class="line"><a id="l00141" name="l00141"></a><span class="lineno">  141</span>}</div>
+<div class="line"><a id="l00142" name="l00142"></a><span class="lineno">  142</span> </div>
+<div class="line"><a id="l00143" name="l00143"></a><span class="lineno">  143</span><span class="keyword">inline</span> <span class="keywordtype">void</span> ShaderDispatchCommand::_encode_accel(uint64_t handle) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00144" name="l00144"></a><span class="lineno">  144</span>    <span class="keywordflow">if</span> (_argument_count &gt;= _kernel.arguments().size()) [[unlikely]] {</div>
+<div class="line"><a id="l00145" name="l00145"></a><span class="lineno">  145</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00146" name="l00146"></a><span class="lineno">  146</span>            <span class="stringliteral">&quot;Invalid accel argument at index {}.&quot;</span>,</div>
+<div class="line"><a id="l00147" name="l00147"></a><span class="lineno">  147</span>            _argument_count);</div>
+<div class="line"><a id="l00148" name="l00148"></a><span class="lineno">  148</span>    }</div>
+<div class="line"><a id="l00149" name="l00149"></a><span class="lineno">  149</span>    <span class="keyword">constexpr</span> <span class="keyword">auto</span> size = <span class="keyword">sizeof</span>(AccelArgument);</div>
+<div class="line"><a id="l00150" name="l00150"></a><span class="lineno">  150</span>    <span class="keywordflow">if</span> (_argument_buffer_size + size &gt; _argument_buffer.size()) [[unlikely]] {</div>
+<div class="line"><a id="l00151" name="l00151"></a><span class="lineno">  151</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00152" name="l00152"></a><span class="lineno">  152</span>            <span class="stringliteral">&quot;Failed to encode accel. &quot;</span></div>
+<div class="line"><a id="l00153" name="l00153"></a><span class="lineno">  153</span>            <span class="stringliteral">&quot;Shader argument buffer exceeded size limit {}.&quot;</span>,</div>
+<div class="line"><a id="l00154" name="l00154"></a><span class="lineno">  154</span>            _argument_buffer.size());</div>
+<div class="line"><a id="l00155" name="l00155"></a><span class="lineno">  155</span>    }</div>
+<div class="line"><a id="l00156" name="l00156"></a><span class="lineno">  156</span>    <span class="keywordflow">if</span> (<span class="keyword">auto</span> t = _kernel.arguments()[_argument_count].type();</div>
+<div class="line"><a id="l00157" name="l00157"></a><span class="lineno">  157</span>        !t-&gt;is_accel()) {</div>
+<div class="line"><a id="l00158" name="l00158"></a><span class="lineno">  158</span>        <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(</div>
+<div class="line"><a id="l00159" name="l00159"></a><span class="lineno">  159</span>            <span class="stringliteral">&quot;Expected {} but got accel for argument {}.&quot;</span>,</div>
+<div class="line"><a id="l00160" name="l00160"></a><span class="lineno">  160</span>            t-&gt;description(), _argument_count);</div>
+<div class="line"><a id="l00161" name="l00161"></a><span class="lineno">  161</span>    }</div>
+<div class="line"><a id="l00162" name="l00162"></a><span class="lineno">  162</span>    <span class="keyword">auto</span> v = _kernel.arguments()[_argument_count].uid();</div>
+<div class="line"><a id="l00163" name="l00163"></a><span class="lineno">  163</span>    AccelArgument argument{v, handle};</div>
+<div class="line"><a id="l00164" name="l00164"></a><span class="lineno">  164</span>    std::memcpy(_argument_buffer.data() + _argument_buffer_size, &amp;argument, size);</div>
+<div class="line"><a id="l00165" name="l00165"></a><span class="lineno">  165</span>    _argument_buffer_size += size;</div>
+<div class="line"><a id="l00166" name="l00166"></a><span class="lineno">  166</span>    _argument_count++;</div>
+<div class="line"><a id="l00167" name="l00167"></a><span class="lineno">  167</span>}</div>
+<div class="line"><a id="l00168" name="l00168"></a><span class="lineno">  168</span> </div>
+<div class="line"><a id="l00169" name="l00169"></a><span class="lineno">  169</span><span class="keyword">inline</span> <span class="keywordtype">void</span> ShaderDispatchCommand::_encode_pending_bindings() noexcept {</div>
+<div class="line"><a id="l00170" name="l00170"></a><span class="lineno">  170</span>    <span class="keyword">auto</span> bindings = _kernel.<a class="code hl_function" href="../../d0/d9d/classluisa_1_1compute_1_1_function.html#aed515b96d62a533f1eda93e0d36ef5b2">builder</a>()-&gt;argument_bindings();</div>
+<div class="line"><a id="l00171" name="l00171"></a><span class="lineno">  171</span>    <span class="keywordflow">while</span> (_argument_count &lt; _kernel.<a class="code hl_function" href="../../d0/d9d/classluisa_1_1compute_1_1_function.html#a7f232317f7b8db6a36d9651e8a5fc652">arguments</a>().size() &amp;&amp;</div>
+<div class="line"><a id="l00172" name="l00172"></a><span class="lineno">  172</span>           !luisa::holds_alternative&lt;luisa::monostate&gt;(bindings[_argument_count])) {</div>
+<div class="line"><a id="l00173" name="l00173"></a><span class="lineno">  173</span>        luisa::visit(</div>
+<div class="line"><a id="l00174" name="l00174"></a><span class="lineno">  174</span>            [&amp;, arg = _kernel.<a class="code hl_function" href="../../d0/d9d/classluisa_1_1compute_1_1_function.html#a7f232317f7b8db6a36d9651e8a5fc652">arguments</a>()[_argument_count]]&lt;<span class="keyword">typename</span> T&gt;(T binding) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00175" name="l00175"></a><span class="lineno">  175</span>                if constexpr (std::is_same_v&lt;T, detail::FunctionBuilder::BufferBinding&gt;) {</div>
+<div class="line"><a id="l00176" name="l00176"></a><span class="lineno">  176</span>                    _encode_buffer(binding.handle, binding.offset_bytes);</div>
+<div class="line"><a id="l00177" name="l00177"></a><span class="lineno">  177</span>                } <span class="keywordflow">else</span> <span class="keywordflow">if</span> constexpr (std::is_same_v&lt;T, detail::FunctionBuilder::TextureBinding&gt;) {</div>
+<div class="line"><a id="l00178" name="l00178"></a><span class="lineno">  178</span>                    _encode_texture(binding.handle, binding.level);</div>
+<div class="line"><a id="l00179" name="l00179"></a><span class="lineno">  179</span>                } <span class="keywordflow">else</span> <span class="keywordflow">if</span> <span class="keyword">constexpr</span> (std::is_same_v&lt;T, detail::FunctionBuilder::BindlessArrayBinding&gt;) {</div>
+<div class="line"><a id="l00180" name="l00180"></a><span class="lineno">  180</span>                    _encode_bindless_array(binding.handle);</div>
+<div class="line"><a id="l00181" name="l00181"></a><span class="lineno">  181</span>                } <span class="keywordflow">else</span> <span class="keywordflow">if</span> <span class="keyword">constexpr</span> (std::is_same_v&lt;T, detail::FunctionBuilder::AccelBinding&gt;) {</div>
+<div class="line"><a id="l00182" name="l00182"></a><span class="lineno">  182</span>                    _encode_accel(binding.handle);</div>
+<div class="line"><a id="l00183" name="l00183"></a><span class="lineno">  183</span>                } <span class="keywordflow">else</span> {</div>
+<div class="line"><a id="l00184" name="l00184"></a><span class="lineno">  184</span>                    <a class="code hl_define" href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a>(<span class="stringliteral">&quot;Invalid argument binding type.&quot;</span>);</div>
+<div class="line"><a id="l00185" name="l00185"></a><span class="lineno">  185</span>                }</div>
+<div class="line"><a id="l00186" name="l00186"></a><span class="lineno">  186</span>            },</div>
+<div class="line"><a id="l00187" name="l00187"></a><span class="lineno">  187</span>            bindings[_argument_count]);</div>
+<div class="line"><a id="l00188" name="l00188"></a><span class="lineno">  188</span>    }</div>
+<div class="line"><a id="l00189" name="l00189"></a><span class="lineno">  189</span>}</div>
+<div class="line"><a id="l00190" name="l00190"></a><span class="lineno">  190</span> </div>
+<div class="line"><a id="l00191" name="l00191"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a7caf01f42618c7f3deb17d9a3772b504">  191</a></span><span class="keywordtype">void</span> ShaderDispatchCommand::encode_buffer(uint64_t handle, <span class="keywordtype">size_t</span> offset) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00192" name="l00192"></a><span class="lineno">  192</span>    _encode_buffer(handle, offset);</div>
+<div class="line"><a id="l00193" name="l00193"></a><span class="lineno">  193</span>    _encode_pending_bindings();</div>
+<div class="line"><a id="l00194" name="l00194"></a><span class="lineno">  194</span>}</div>
+<div class="line"><a id="l00195" name="l00195"></a><span class="lineno">  195</span> </div>
+<div class="line"><a id="l00196" name="l00196"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a6c8bda7a455bf5ba499f0abfcfd327f5">  196</a></span><span class="keywordtype">void</span> ShaderDispatchCommand::encode_texture(uint64_t handle, uint32_t level) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00197" name="l00197"></a><span class="lineno">  197</span>    _encode_texture(handle, level);</div>
+<div class="line"><a id="l00198" name="l00198"></a><span class="lineno">  198</span>    _encode_pending_bindings();</div>
+<div class="line"><a id="l00199" name="l00199"></a><span class="lineno">  199</span>}</div>
+<div class="line"><a id="l00200" name="l00200"></a><span class="lineno">  200</span> </div>
+<div class="line"><a id="l00201" name="l00201"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#ae8f7c46bddeef5691b4e2009a955e415">  201</a></span><span class="keywordtype">void</span> ShaderDispatchCommand::encode_uniform(<span class="keyword">const</span> <span class="keywordtype">void</span> *data, <span class="keywordtype">size_t</span> size, <span class="keywordtype">size_t</span> alignment) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00202" name="l00202"></a><span class="lineno">  202</span>    _encode_uniform(data, size, alignment);</div>
+<div class="line"><a id="l00203" name="l00203"></a><span class="lineno">  203</span>    _encode_pending_bindings();</div>
+<div class="line"><a id="l00204" name="l00204"></a><span class="lineno">  204</span>}</div>
+<div class="line"><a id="l00205" name="l00205"></a><span class="lineno">  205</span> </div>
+<div class="line"><a id="l00206" name="l00206"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a031fd69ac73a097929fca365d2d74471">  206</a></span><span class="keywordtype">void</span> ShaderDispatchCommand::encode_bindless_array(uint64_t handle) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00207" name="l00207"></a><span class="lineno">  207</span>    _encode_bindless_array(handle);</div>
+<div class="line"><a id="l00208" name="l00208"></a><span class="lineno">  208</span>    _encode_pending_bindings();</div>
+<div class="line"><a id="l00209" name="l00209"></a><span class="lineno">  209</span>}</div>
+<div class="line"><a id="l00210" name="l00210"></a><span class="lineno">  210</span> </div>
+<div class="line"><a id="l00211" name="l00211"></a><span class="lineno"><a class="line" href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#ad857b3d9b4375186c461545257293450">  211</a></span><span class="keywordtype">void</span> ShaderDispatchCommand::encode_accel(uint64_t handle) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00212" name="l00212"></a><span class="lineno">  212</span>    _encode_accel(handle);</div>
+<div class="line"><a id="l00213" name="l00213"></a><span class="lineno">  213</span>    _encode_pending_bindings();</div>
+<div class="line"><a id="l00214" name="l00214"></a><span class="lineno">  214</span>}</div>
+<div class="line"><a id="l00215" name="l00215"></a><span class="lineno">  215</span> </div>
+<div class="line"><a id="l00216" name="l00216"></a><span class="lineno">  216</span><span class="keyword">namespace </span>detail {</div>
+<div class="line"><a id="l00217" name="l00217"></a><span class="lineno">  217</span> </div>
+<div class="line"><a id="l00218" name="l00218"></a><span class="lineno"><a class="line" href="../../d1/d81/command_8cpp.html#aefdf080829b4b5f1be6db72f34c3f0c2">  218</a></span><span class="preprocessor">#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd) \</span></div>
+<div class="line"><a id="l00219" name="l00219"></a><span class="lineno">  219</span><span class="preprocessor">    Pool&lt;Cmd&gt; &amp;pool_##Cmd() noexcept {    \</span></div>
+<div class="line"><a id="l00220" name="l00220"></a><span class="lineno">  220</span><span class="preprocessor">        static Pool&lt;Cmd&gt; pool;            \</span></div>
+<div class="line"><a id="l00221" name="l00221"></a><span class="lineno">  221</span><span class="preprocessor">        return pool;                      \</span></div>
+<div class="line"><a id="l00222" name="l00222"></a><span class="lineno">  222</span><span class="preprocessor">    }</span></div>
+<div class="line"><a id="l00223" name="l00223"></a><span class="lineno">  223</span><a class="code hl_define" href="../../d4/d9e/macro_8h.html#a288cb55045142c2aaa32a544b8218f51">LUISA_MAP</a>(<a class="code hl_define" href="../../d1/d81/command_8cpp.html#aefdf080829b4b5f1be6db72f34c3f0c2">LUISA_MAKE_COMMAND_POOL_IMPL</a>, <a class="code hl_define" href="../../d0/d09/command_8h.html#a4c9aecbaacc53d7127d0978492e082b1">LUISA_COMPUTE_RUNTIME_COMMANDS</a>)</div>
+<div class="line"><a id="l00224" name="l00224"></a><span class="lineno">  224</span><span class="preprocessor">#undef LUISA_MAKE_COMMAND_POOL_IMPL</span></div>
+<div class="line"><a id="l00225" name="l00225"></a><span class="lineno">  225</span> </div>
+<div class="line"><a id="l00226" name="l00226"></a><span class="lineno">  226</span>}<span class="comment">// namespace detail</span></div>
+<div class="line"><a id="l00227" name="l00227"></a><span class="lineno">  227</span> </div>
+<div class="line"><a id="l00228" name="l00228"></a><span class="lineno"><a class="line" href="../../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html#ae59785a3d52701d5ea4a2d7a63284432">  228</a></span><span class="keywordtype">void</span> AccelBuildCommand::Modification::set_transform(<a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> m) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00229" name="l00229"></a><span class="lineno">  229</span>    affine[0] = m[0][0];</div>
+<div class="line"><a id="l00230" name="l00230"></a><span class="lineno">  230</span>    affine[1] = m[1][0];</div>
+<div class="line"><a id="l00231" name="l00231"></a><span class="lineno">  231</span>    affine[2] = m[2][0];</div>
+<div class="line"><a id="l00232" name="l00232"></a><span class="lineno">  232</span>    affine[3] = m[3][0];</div>
+<div class="line"><a id="l00233" name="l00233"></a><span class="lineno">  233</span>    affine[4] = m[0][1];</div>
+<div class="line"><a id="l00234" name="l00234"></a><span class="lineno">  234</span>    affine[5] = m[1][1];</div>
+<div class="line"><a id="l00235" name="l00235"></a><span class="lineno">  235</span>    affine[6] = m[2][1];</div>
+<div class="line"><a id="l00236" name="l00236"></a><span class="lineno">  236</span>    affine[7] = m[3][1];</div>
+<div class="line"><a id="l00237" name="l00237"></a><span class="lineno">  237</span>    affine[8] = m[0][2];</div>
+<div class="line"><a id="l00238" name="l00238"></a><span class="lineno">  238</span>    affine[9] = m[1][2];</div>
+<div class="line"><a id="l00239" name="l00239"></a><span class="lineno">  239</span>    affine[10] = m[2][2];</div>
+<div class="line"><a id="l00240" name="l00240"></a><span class="lineno">  240</span>    affine[11] = m[3][2];</div>
+<div class="line"><a id="l00241" name="l00241"></a><span class="lineno">  241</span>    flags |= flag_transform;</div>
+<div class="line"><a id="l00242" name="l00242"></a><span class="lineno">  242</span>}</div>
+<div class="line"><a id="l00243" name="l00243"></a><span class="lineno">  243</span> </div>
+<div class="line"><a id="l00244" name="l00244"></a><span class="lineno"><a class="line" href="../../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html#ac6aa836302362bf10a178023ad1d06a9">  244</a></span><span class="keywordtype">void</span> AccelBuildCommand::Modification::set_visibility(<span class="keywordtype">bool</span> vis) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00245" name="l00245"></a><span class="lineno">  245</span>    flags &amp;= ~flag_visibility;<span class="comment">// clear old visibility flags</span></div>
+<div class="line"><a id="l00246" name="l00246"></a><span class="lineno">  246</span>    flags |= vis ? flag_visibility_on : flag_visibility_off;</div>
+<div class="line"><a id="l00247" name="l00247"></a><span class="lineno">  247</span>}</div>
+<div class="line"><a id="l00248" name="l00248"></a><span class="lineno">  248</span> </div>
+<div class="line"><a id="l00249" name="l00249"></a><span class="lineno"><a class="line" href="../../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html#a4327f583c26ce9194b4359cc52bc787f">  249</a></span><span class="keywordtype">void</span> AccelBuildCommand::Modification::set_mesh(uint64_t handle) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00250" name="l00250"></a><span class="lineno">  250</span>    mesh = handle;</div>
+<div class="line"><a id="l00251" name="l00251"></a><span class="lineno">  251</span>    flags |= flag_mesh;</div>
+<div class="line"><a id="l00252" name="l00252"></a><span class="lineno">  252</span>}</div>
+<div class="line"><a id="l00253" name="l00253"></a><span class="lineno">  253</span> </div>
+<div class="line"><a id="l00254" name="l00254"></a><span class="lineno">  254</span>}<span class="comment">// namespace luisa::compute</span></div>
 <div class="ttc" id="aclassluisa_1_1compute_1_1_command_html_a5ed7e62c9a269ae48379d26e78c5fd15"><div class="ttname"><a href="../../db/d64/classluisa_1_1compute_1_1_command.html#a5ed7e62c9a269ae48379d26e78c5fd15">luisa::compute::Command::recycle</a></div><div class="ttdeci">void recycle()</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00010">command.cpp:10</a></div></div>
 <div class="ttc" id="aclassluisa_1_1compute_1_1_command_html_a718e2c73f7540b51d1c68c66eb914281"><div class="ttname"><a href="../../db/d64/classluisa_1_1compute_1_1_command.html#a718e2c73f7540b51d1c68c66eb914281">luisa::compute::Command::_recycle</a></div><div class="ttdeci">virtual void _recycle() noexcept=0</div></div>
 <div class="ttc" id="aclassluisa_1_1compute_1_1_function_html"><div class="ttname"><a href="../../d0/d9d/classluisa_1_1compute_1_1_function.html">luisa::compute::Function</a></div><div class="ttdoc">Function class.</div><div class="ttdef"><b>Definition:</b> <a href="../../dd/d67/function_8h_source.html#l00025">function.h:25</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_a5228c64beda1e721812d53e9bf75385d"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a5228c64beda1e721812d53e9bf75385d">luisa::compute::ShaderDispatchCommand::encode_accel</a></div><div class="ttdeci">void encode_accel(uint32_t variable_uid, uint64_t handle) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00106">command.cpp:106</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_a64b58801b8ca820add857d20e91e278c"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a64b58801b8ca820add857d20e91e278c">luisa::compute::ShaderDispatchCommand::encode_bindless_array</a></div><div class="ttdeci">void encode_bindless_array(uint32_t variable_uid, uint64_t handle) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00091">command.cpp:91</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_a7fd5c23212b0f49640bf54a5c718338d"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a7fd5c23212b0f49640bf54a5c718338d">luisa::compute::ShaderDispatchCommand::encode_buffer</a></div><div class="ttdeci">void encode_buffer(uint32_t variable_uid, uint64_t handle, size_t offset, Usage usage) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00014">command.cpp:14</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_a82431291a6e1a7be4c69ff05fdb93cc2"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a82431291a6e1a7be4c69ff05fdb93cc2">luisa::compute::ShaderDispatchCommand::set_dispatch_size</a></div><div class="ttdeci">void set_dispatch_size(uint3 launch_size) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00081">command.cpp:81</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_aa000d8145da2860ac65d475723b3a18d"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa000d8145da2860ac65d475723b3a18d">luisa::compute::ShaderDispatchCommand::ShaderDispatchCommand</a></div><div class="ttdeci">ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00087">command.cpp:87</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_aa867af9e19255648ee0a21908f81ff59"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa867af9e19255648ee0a21908f81ff59">luisa::compute::ShaderDispatchCommand::encode_texture</a></div><div class="ttdeci">void encode_texture(uint32_t variable_uid, uint64_t handle, uint32_t level, Usage usage) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00035">command.cpp:35</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_ab12453635dfe5defe40140549f380e8e"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#ab12453635dfe5defe40140549f380e8e">luisa::compute::ShaderDispatchCommand::encode_uniform</a></div><div class="ttdeci">void encode_uniform(uint32_t variable_uid, const void *data, size_t size, size_t alignment) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00056">command.cpp:56</a></div></div>
-<div class="ttc" id="acommand_8cpp_html_aefdf080829b4b5f1be6db72f34c3f0c2"><div class="ttname"><a href="../../d1/d81/command_8cpp.html#aefdf080829b4b5f1be6db72f34c3f0c2">LUISA_MAKE_COMMAND_POOL_IMPL</a></div><div class="ttdeci">#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd)</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00122">command.cpp:122</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1_function_html_a7f232317f7b8db6a36d9651e8a5fc652"><div class="ttname"><a href="../../d0/d9d/classluisa_1_1compute_1_1_function.html#a7f232317f7b8db6a36d9651e8a5fc652">luisa::compute::Function::arguments</a></div><div class="ttdeci">luisa::span&lt; const Variable &gt; arguments() const noexcept</div><div class="ttdoc">Return arguments.</div><div class="ttdef"><b>Definition:</b> <a href="../../de/dea/function_8cpp_source.html#l00019">function.cpp:19</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1_function_html_aed515b96d62a533f1eda93e0d36ef5b2"><div class="ttname"><a href="../../d0/d9d/classluisa_1_1compute_1_1_function.html#aed515b96d62a533f1eda93e0d36ef5b2">luisa::compute::Function::builder</a></div><div class="ttdeci">auto builder() const noexcept</div><div class="ttdoc">Return function builder.</div><div class="ttdef"><b>Definition:</b> <a href="../../dd/d67/function_8h_source.html#l00084">function.h:84</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_a82431291a6e1a7be4c69ff05fdb93cc2"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#a82431291a6e1a7be4c69ff05fdb93cc2">luisa::compute::ShaderDispatchCommand::set_dispatch_size</a></div><div class="ttdeci">void set_dispatch_size(uint3 launch_size) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00102">command.cpp:102</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1_shader_dispatch_command_html_aa000d8145da2860ac65d475723b3a18d"><div class="ttname"><a href="../../d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html#aa000d8145da2860ac65d475723b3a18d">luisa::compute::ShaderDispatchCommand::ShaderDispatchCommand</a></div><div class="ttdeci">ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00113">command.cpp:113</a></div></div>
+<div class="ttc" id="acommand_8cpp_html_aefdf080829b4b5f1be6db72f34c3f0c2"><div class="ttname"><a href="../../d1/d81/command_8cpp.html#aefdf080829b4b5f1be6db72f34c3f0c2">LUISA_MAKE_COMMAND_POOL_IMPL</a></div><div class="ttdeci">#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd)</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/d81/command_8cpp_source.html#l00218">command.cpp:218</a></div></div>
 <div class="ttc" id="acommand_8h_html"><div class="ttname"><a href="../../d0/d09/command_8h.html">command.h</a></div></div>
-<div class="ttc" id="acommand_8h_html_a47e8f628c7916593914151a93158f21c"><div class="ttname"><a href="../../d0/d09/command_8h.html#a47e8f628c7916593914151a93158f21c">LUISA_ALL_COMMANDS</a></div><div class="ttdeci">#define LUISA_ALL_COMMANDS</div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00025">command.h:25</a></div></div>
+<div class="ttc" id="acommand_8h_html_a4c9aecbaacc53d7127d0978492e082b1"><div class="ttname"><a href="../../d0/d09/command_8h.html#a4c9aecbaacc53d7127d0978492e082b1">LUISA_COMPUTE_RUNTIME_COMMANDS</a></div><div class="ttdeci">#define LUISA_COMPUTE_RUNTIME_COMMANDS</div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00026">command.h:26</a></div></div>
 <div class="ttc" id="alogging_8h_html"><div class="ttname"><a href="../../d5/d77/logging_8h.html">logging.h</a></div></div>
 <div class="ttc" id="alogging_8h_html_ad38f639729ea4c666c9ca9d4f181ccb6"><div class="ttname"><a href="../../d5/d77/logging_8h.html#ad38f639729ea4c666c9ca9d4f181ccb6">LUISA_ERROR_WITH_LOCATION</a></div><div class="ttdeci">#define LUISA_ERROR_WITH_LOCATION(fmt,...)</div><div class="ttdoc">LUISA_ERROR with file and line information.</div><div class="ttdef"><b>Definition:</b> <a href="../../d5/d77/logging_8h_source.html#l00102">logging.h:102</a></div></div>
 <div class="ttc" id="amacro_8h_html_a288cb55045142c2aaa32a544b8218f51"><div class="ttname"><a href="../../d4/d9e/macro_8h.html#a288cb55045142c2aaa32a544b8218f51">LUISA_MAP</a></div><div class="ttdeci">#define LUISA_MAP(f,...)</div><div class="ttdef"><b>Definition:</b> <a href="../../d4/d9e/macro_8h_source.html#l00064">macro.h:64</a></div></div>
 <div class="ttc" id="anamespaceluisa_1_1compute_html"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html">luisa::compute</a></div><div class="ttdef"><b>Definition:</b> <a href="../../d9/dc8/dirty__range_8cpp_source.html#l00008">dirty_range.cpp:8</a></div></div>
-<div class="ttc" id="anamespaceluisa_1_1compute_html_a8d7cf4ef050b50b3f6a4cb4c8dfe4dfd"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#a8d7cf4ef050b50b3f6a4cb4c8dfe4dfd">luisa::compute::Usage</a></div><div class="ttdeci">Usage</div><div class="ttdoc">Flags of usage.</div><div class="ttdef"><b>Definition:</b> <a href="../../d6/d02/usage_8h_source.html#l00013">usage.h:13</a></div></div>
+<div class="ttc" id="astructluisa_1_1_matrix_3_014_01_4_html"><div class="ttname"><a href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">luisa::Matrix&lt; 4 &gt;</a></div><div class="ttdoc">4x4 matrix</div><div class="ttdef"><b>Definition:</b> <a href="../../da/d1e/basic__types_8h_source.html#l00151">basic_types.h:151</a></div></div>
 <div class="ttc" id="astructluisa_1_1_vector_html"><div class="ttname"><a href="../../d2/dc0/structluisa_1_1_vector.html">luisa::Vector&lt; uint, 3 &gt;</a></div></div>
-<div class="ttc" id="astructluisa_1_1compute_1_1_shader_dispatch_command_1_1_accel_argument_html"><div class="ttname"><a href="../../d3/dd3/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_accel_argument.html">luisa::compute::ShaderDispatchCommand::AccelArgument</a></div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00396">command.h:396</a></div></div>
-<div class="ttc" id="astructluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument_html"><div class="ttname"><a href="../../d3/d84/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument.html">luisa::compute::ShaderDispatchCommand::BindlessArrayArgument</a></div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00388">command.h:388</a></div></div>
-<div class="ttc" id="astructluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument_html"><div class="ttname"><a href="../../de/d51/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument.html">luisa::compute::ShaderDispatchCommand::BufferArgument</a></div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00358">command.h:358</a></div></div>
-<div class="ttc" id="astructluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument_html"><div class="ttname"><a href="../../d7/dba/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument.html">luisa::compute::ShaderDispatchCommand::TextureArgument</a></div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00368">command.h:368</a></div></div>
-<div class="ttc" id="astructluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument_html"><div class="ttname"><a href="../../d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument.html">luisa::compute::ShaderDispatchCommand::UniformArgument</a></div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00378">command.h:378</a></div></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->

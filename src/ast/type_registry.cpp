@@ -13,9 +13,15 @@ inline uint64_t compute::detail::TypeRegistry::_hash(std::string_view desc) noex
 
 const Type *TypeRegistry::_decode(std::string_view desc) noexcept {
 
+    // TYPE := BASIC | ARRAY | VECTOR | MATRIX | STRUCT
+    // BASIC := int | uint | bool | float
+    // ARRAY := array<BASIC,N>
+    // VECTOR := vector<BASIC,2> | vector<BASIC,3> | vector<BASIC,4>
+    // MATRIX := matrix<2> | matrix<3> | matrix<4>
+    // STRUCT := struct<4,TYPE...> | struct<8,TYPE...> | struct<16,TYPE...>
+
     auto hash = _hash(desc);
-    if (auto iter = _type_set.find_as(hash, TypePtrHash{}, TypePtrEqual{});
-        iter != _type_set.cend()) {
+    if (auto iter = _type_set.find(hash); iter != _type_set.cend()) {
         return *iter;
     }
 
@@ -241,7 +247,7 @@ const Type *TypeRegistry::type_from(luisa::string_view desc) noexcept {
 
 const Type *TypeRegistry::type_from(uint64_t hash) noexcept {
     std::unique_lock lock{_mutex};
-    auto iter = _type_set.find_as(hash, TypePtrHash{}, TypePtrEqual{});
+    auto iter = _type_set.find(hash);
     if (iter == _type_set.end()) {
         LUISA_ERROR_WITH_LOCATION("Invalid type hash: {}.", hash);
     }

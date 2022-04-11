@@ -34,3 +34,10 @@
 [submodule "src/ext/doxygen-awesome-css"]
 	path = src/ext/doxygen-awesome-css
 	url = https://github.com/jothepro/doxygen-awesome-css.git
+[submodule "src/ext/pybind11"]
+	path = src/ext/pybind11
+	url = https://github.com/pybind/pybind11
+	branch = stable
+[submodule "src/ext/abseil-cpp"]
+	path = src/ext/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git

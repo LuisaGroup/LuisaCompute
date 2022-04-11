@@ -1201,13 +1201,48 @@ struct LCHit {
     uint m1;
     float2 m2;
 };
+
+struct LCInstance {
+    float affine[12];
+    uint8 visible;
+    uint8 dirty;
+    uint pad[3];
+};
+
 struct LCAccel {
     void *uniform handle;
-    const uniform float4x4 *uniform transforms;
+    uniform LCInstance *uniform instances;
 };
 
 LUISA_INLINE float4x4 accel_instance_transform(uniform LCAccel accel, uint index) {
-    return accel.transforms[index];
+    LCInstance i = accel.instances[index];
+    return make_float4x4(
+      i.affine[0], i.affine[4], i.affine[8], 0.f,
+      i.affine[1], i.affine[5], i.affine[9], 0.f,
+      i.affine[2], i.affine[6], i.affine[10], 0.f,
+      i.affine[3], i.affine[7], i.affine[11], 1.f);
+}
+
+LUISA_INLINE void accel_set_instance_transform(uniform LCAccel accel, uint index, float4x4 m) {
+    LCInstance *i = &accel.instances[index];
+    i->affine[0] = m.cols[0].v[0];
+    i->affine[1] = m.cols[1].v[0];
+    i->affine[2] = m.cols[2].v[0];
+    i->affine[3] = m.cols[3].v[0];
+    i->affine[4] = m.cols[0].v[1];
+    i->affine[5] = m.cols[1].v[1];
+    i->affine[6] = m.cols[2].v[1];
+    i->affine[7] = m.cols[3].v[1];
+    i->affine[8] = m.cols[0].v[2];
+    i->affine[9] = m.cols[1].v[2];
+    i->affine[10] = m.cols[2].v[2];
+    i->affine[11] = m.cols[3].v[2];
+    i->dirty = true;
+}
+
+LUISA_INLINE void accel_set_instance_visibility(uniform LCAccel accel, uint index, uint8 visible) {
+    accel.instances[index].visible = visible;
+    accel.instances[index].dirty = true;
 }
 
 // pixel format
@@ -1589,16 +1624,14 @@ LUISA_INLINE float4 bindless_texture_sample3d_intlevel(uniform LCBindlessArray a
     float fx = max(0, min(1, x-x0));
     float fy = max(0, min(1, y-y0));
     float fz = max(0, min(1, z-z0));
-    return
-    binary_add(binary_mul((1-fx)*(1-fy)*(1-fz), texture3d_read_float(tex, make_uint3(x0,y0,z0), level)),
-    binary_add(binary_mul((1-fx)*(1-fy)*(  fz), texture3d_read_float(tex, make_uint3(x0,y0,z1), level)),
-    binary_add(binary_mul((1-fx)*(  fy)*(1-fz), texture3d_read_float(tex, make_uint3(x0,y1,z0), level)),
-    binary_add(binary_mul((1-fx)*(  fy)*(  fz), texture3d_read_float(tex, make_uint3(x0,y1,z1), level)),
-    binary_add(binary_mul((  fx)*(1-fy)*(1-fz), texture3d_read_float(tex, make_uint3(x1,y0,z0), level)),
-    binary_add(binary_mul((  fx)*(1-fy)*(  fz), texture3d_read_float(tex, make_uint3(x1,y0,z1), level)),
-    binary_add(binary_mul((  fx)*(  fy)*(1-fz), texture3d_read_float(tex, make_uint3(x1,y1,z0), level)),
-               binary_mul((  fx)*(  fy)*(  fz), texture3d_read_float(tex, make_uint3(x1,y1,z1), level))
-    )))))));
+    return binary_add(binary_mul((1-fx)*(1-fy)*(1-fz), texture3d_read_float(tex, make_uint3(x0,y0,z0), level)),
+           binary_add(binary_mul((1-fx)*(1-fy)*(  fz), texture3d_read_float(tex, make_uint3(x0,y0,z1), level)),
+           binary_add(binary_mul((1-fx)*(  fy)*(1-fz), texture3d_read_float(tex, make_uint3(x0,y1,z0), level)),
+           binary_add(binary_mul((1-fx)*(  fy)*(  fz), texture3d_read_float(tex, make_uint3(x0,y1,z1), level)),
+           binary_add(binary_mul((  fx)*(1-fy)*(1-fz), texture3d_read_float(tex, make_uint3(x1,y0,z0), level)),
+           binary_add(binary_mul((  fx)*(1-fy)*(  fz), texture3d_read_float(tex, make_uint3(x1,y0,z1), level)),
+           binary_add(binary_mul((  fx)*(  fy)*(1-fz), texture3d_read_float(tex, make_uint3(x1,y1,z0), level)),
+                      binary_mul((  fx)*(  fy)*(  fz), texture3d_read_float(tex, make_uint3(x1,y1,z1), level)))))))));
 }
 
 LUISA_INLINE float4 bindless_texture_sample2d(uniform LCBindlessArray array, uint index, float2 uv)
@@ -1653,7 +1686,6 @@ LUISA_INLINE float4 bindless_texture_read3d_level(uniform LCBindlessArray array,
     uniform const LCTexture * tex = array.items[index].tex3d;
     return texture3d_read_float(tex, coord, level);
 }
-
 
 uint2 bindless_texture_size2d(uniform LCBindlessArray array, uint index);
 uint2 bindless_texture_size2d_level(uniform LCBindlessArray array, uint index, uint level);

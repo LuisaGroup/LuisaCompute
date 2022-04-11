@@ -58,7 +58,7 @@ private:
 
 public:
     template<typename... Elem>
-    __device__ constexpr lc_array(Elem... elem) noexcept: _data{elem...} {}
+    __device__ constexpr lc_array(Elem... elem) noexcept : _data{elem...} {}
     __device__ constexpr lc_array(lc_array &&) noexcept = default;
     __device__ constexpr lc_array(const lc_array &) noexcept = default;
     __device__ constexpr lc_array &operator=(lc_array &&) noexcept = default;
@@ -196,97 +196,97 @@ template<typename T>
     switch (surf.storage) {
         case LCPixelStorage::BYTE1: {
             auto v = surf2Dread<char>(surf.handle, p.x * sizeof(char), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, char>(v);
             break;
         }
         case LCPixelStorage::BYTE2: {
             auto v = surf2Dread<char2>(surf.handle, p.x * sizeof(char2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, char>(v.x);
+            result.y = lc_texel_read_convert<T, char>(v.y);
             break;
         }
         case LCPixelStorage::BYTE4: {
             auto v = surf2Dread<char4>(surf.handle, p.x * sizeof(char4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, char>(v.x);
+            result.y = lc_texel_read_convert<T, char>(v.y);
+            result.z = lc_texel_read_convert<T, char>(v.z);
+            result.w = lc_texel_read_convert<T, char>(v.w);
             break;
         }
         case LCPixelStorage::SHORT1: {
             auto v = surf2Dread<short>(surf.handle, p.x * sizeof(short), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, short>(v);
             break;
         }
         case LCPixelStorage::SHORT2: {
             auto v = surf2Dread<short2>(surf.handle, p.x * sizeof(short2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, short>(v.x);
+            result.y = lc_texel_read_convert<T, short>(v.y);
             break;
         }
         case LCPixelStorage::SHORT4: {
             auto v = surf2Dread<short4>(surf.handle, p.x * sizeof(short4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, short>(v.x);
+            result.y = lc_texel_read_convert<T, short>(v.y);
+            result.z = lc_texel_read_convert<T, short>(v.z);
+            result.w = lc_texel_read_convert<T, short>(v.w);
             break;
         }
         case LCPixelStorage::INT1: {
             auto v = surf2Dread<int>(surf.handle, p.x * sizeof(int), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, int>(v);
             break;
         }
         case LCPixelStorage::INT2: {
             auto v = surf2Dread<int2>(surf.handle, p.x * sizeof(int2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, int>(v.x);
+            result.y = lc_texel_read_convert<T, int>(v.y);
             break;
         }
         case LCPixelStorage::INT4: {
             auto v = surf2Dread<int4>(surf.handle, p.x * sizeof(int4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, int>(v.x);
+            result.y = lc_texel_read_convert<T, int>(v.y);
+            result.z = lc_texel_read_convert<T, int>(v.z);
+            result.w = lc_texel_read_convert<T, int>(v.w);
             break;
         }
         case LCPixelStorage::HALF1: {
             auto v = surf2Dread<unsigned short>(surf.handle, p.x * sizeof(unsigned short), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, unsigned short>(v);
             break;
         }
         case LCPixelStorage::HALF2: {
             auto v = surf2Dread<ushort2>(surf.handle, p.x * sizeof(ushort2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
+            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
             break;
         }
         case LCPixelStorage::HALF4: {
             auto v = surf2Dread<ushort4>(surf.handle, p.x * sizeof(ushort4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
+            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
+            result.z = lc_texel_read_convert<T, unsigned short>(v.z);
+            result.w = lc_texel_read_convert<T, unsigned short>(v.w);
             break;
         }
         case LCPixelStorage::FLOAT1: {
             auto v = surf2Dread<float>(surf.handle, p.x * sizeof(float), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, float>(v);
             break;
         }
         case LCPixelStorage::FLOAT2: {
             auto v = surf2Dread<float2>(surf.handle, p.x * sizeof(float2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, float>(v.x);
+            result.y = lc_texel_read_convert<T, float>(v.y);
             break;
         }
         case LCPixelStorage::FLOAT4: {
             auto v = surf2Dread<float4>(surf.handle, p.x * sizeof(float4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, float>(v.x);
+            result.y = lc_texel_read_convert<T, float>(v.y);
+            result.z = lc_texel_read_convert<T, float>(v.z);
+            result.w = lc_texel_read_convert<T, float>(v.w);
             break;
         }
         default: __builtin_unreachable();
@@ -402,97 +402,97 @@ template<typename T>
     switch (surf.storage) {
         case LCPixelStorage::BYTE1: {
             auto v = surf3Dread<char>(surf.handle, p.x * sizeof(char), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, char>(v);
             break;
         }
         case LCPixelStorage::BYTE2: {
             auto v = surf3Dread<char2>(surf.handle, p.x * sizeof(char2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert < T, char(v.x);
+            result.y = lc_texel_read_convert < T, char(v.y);
             break;
         }
         case LCPixelStorage::BYTE4: {
             auto v = surf3Dread<char4>(surf.handle, p.x * sizeof(char4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, char>(v.x);
+            result.y = lc_texel_read_convert<T, char>(v.y);
+            result.z = lc_texel_read_convert<T, char>(v.z);
+            result.w = lc_texel_read_convert<T, char>(v.w);
             break;
         }
         case LCPixelStorage::SHORT1: {
             auto v = surf3Dread<short>(surf.handle, p.x * sizeof(short), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, short>(v);
             break;
         }
         case LCPixelStorage::SHORT2: {
             auto v = surf3Dread<short2>(surf.handle, p.x * sizeof(short2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, short>(v.x);
+            result.y = lc_texel_read_convert<T, short>(v.y);
             break;
         }
         case LCPixelStorage::SHORT4: {
             auto v = surf3Dread<short4>(surf.handle, p.x * sizeof(short4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, short>(v.x);
+            result.y = lc_texel_read_convert<T, short>(v.y);
+            result.z = lc_texel_read_convert<T, short>(v.z);
+            result.w = lc_texel_read_convert<T, short>(v.w);
             break;
         }
         case LCPixelStorage::INT1: {
             auto v = surf3Dread<int>(surf.handle, p.x * sizeof(int), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, int>(v);
             break;
         }
         case LCPixelStorage::INT2: {
             auto v = surf3Dread<int2>(surf.handle, p.x * sizeof(int2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, int>(v.x);
+            result.y = lc_texel_read_convert<T, int>(v.y);
             break;
         }
         case LCPixelStorage::INT4: {
             auto v = surf3Dread<int4>(surf.handle, p.x * sizeof(int4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, int>(v.x);
+            result.y = lc_texel_read_convert<T, int>(v.y);
+            result.z = lc_texel_read_convert<T, int>(v.z);
+            result.w = lc_texel_read_convert<T, int>(v.w);
             break;
         }
         case LCPixelStorage::HALF1: {
             auto v = surf3Dread<unsigned short>(surf.handle, p.x * sizeof(unsigned short), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, unsigned short>(v);
             break;
         }
         case LCPixelStorage::HALF2: {
             auto v = surf3Dread<ushort2>(surf.handle, p.x * sizeof(ushort2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
+            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
             break;
         }
         case LCPixelStorage::HALF4: {
             auto v = surf3Dread<ushort4>(surf.handle, p.x * sizeof(ushort4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
+            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
+            result.z = lc_texel_read_convert<T, unsigned short>(v.z);
+            result.w = lc_texel_read_convert<T, unsigned short>(v.w);
             break;
         }
         case LCPixelStorage::FLOAT1: {
             auto v = surf3Dread<float>(surf.handle, p.x * sizeof(float), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v);
+            result.x = lc_texel_read_convert<T, float>(v);
             break;
         }
         case LCPixelStorage::FLOAT2: {
             auto v = surf3Dread<float2>(surf.handle, p.x * sizeof(float2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
+            result.x = lc_texel_read_convert<T, float>(v.x);
+            result.y = lc_texel_read_convert<T, float>(v.y);
             break;
         }
         case LCPixelStorage::FLOAT4: {
             auto v = surf3Dread<float4>(surf.handle, p.x * sizeof(float4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T>(v.x);
-            result.y = lc_texel_read_convert<T>(v.y);
-            result.z = lc_texel_read_convert<T>(v.z);
-            result.w = lc_texel_read_convert<T>(v.w);
+            result.x = lc_texel_read_convert<T, float>(v.x);
+            result.y = lc_texel_read_convert<T, float>(v.y);
+            result.z = lc_texel_read_convert<T, float>(v.z);
+            result.w = lc_texel_read_convert<T, float>(v.w);
             break;
         }
         default: __builtin_unreachable();
@@ -704,55 +704,88 @@ struct alignas(16) LCRay {
 };
 
 struct alignas(16) LCHit {
-    lc_uint m0;    // instance index
-    lc_uint m1;    // primitive index
-    lc_float2 m2;  // barycentric coordinates
+    lc_uint m0;  // instance index
+    lc_uint m1;  // primitive index
+    lc_float2 m2;// barycentric coordinates
     LCHit() noexcept : m0{~0u}, m1{~0u}, m2{0.0f, 0.0f} {}
     LCHit(lc_uint inst, lc_uint prim, lc_float2 bary) noexcept
         : m0{inst}, m1{prim}, m2{bary} {}
 };
 
 struct alignas(16) LCAccelInstance {
-    lc_float4x4 m;
-    float pad[4];
+    lc_float m[12];
+    lc_uint instance_id;
+    lc_uint sbt_offset;
+    lc_uint mask;
+    lc_uint flags;
+    lc_uint pad[4];
 };
 
 struct alignas(16u) LCAccel {
     unsigned long long handle;
-    const LCAccelInstance *instances;
+    LCAccelInstance *instances;
 };
 
 [[nodiscard]] inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
     auto m = accel.instances[instance_id].m;
     return lc_make_float4x4(
-        m[0].x, m[1].x, m[2].x, 0.0f,
-        m[0].y, m[1].y, m[2].y, 0.0f,
-        m[0].z, m[1].z, m[2].z, 0.0f,
-        m[0].w, m[1].w, m[2].w, 1.0f);
+        m[0], m[4], m[8], 0.0f,
+        m[1], m[5], m[9], 0.0f,
+        m[2], m[6], m[10], 0.0f,
+        m[3], m[7], m[11], 1.0f);
+}
+
+inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint index, lc_float4x4 m) noexcept {
+    auto p = accel.instances[index].m;
+    p[0] = m[0][0];
+    p[1] = m[1][0];
+    p[2] = m[2][0];
+    p[3] = m[3][0];
+    p[4] = m[0][1];
+    p[5] = m[1][1];
+    p[6] = m[2][1];
+    p[7] = m[3][1];
+    p[8] = m[0][2];
+    p[9] = m[1][2];
+    p[10] = m[2][2];
+    p[11] = m[3][2];
+}
+
+inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, bool v) noexcept {
+    accel.instances[index].mask = v ? 0xffu : 0x00u;
 }
 
 #if LC_RAYTRACING_KERNEL
 
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
-    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"(i), "r"(x) : );
+    asm volatile("call _optix_set_payload, (%0, %1);"
+                 :
+                 : "r"(i), "r"(x)
+                 :);
 }
 
 [[nodiscard]] inline auto lc_get_primitive_index() noexcept {
     lc_uint u0;
-    asm( "call (%0), _optix_read_primitive_idx, ();" : "=r"(u0) : );
+    asm("call (%0), _optix_read_primitive_idx, ();"
+        : "=r"(u0)
+        :);
     return u0;
 }
 
 [[nodiscard]] inline auto lc_get_instance_index() noexcept {
     lc_uint u0;
-    asm( "call (%0), _optix_read_instance_idx, ();" : "=r"(u0) : );
+    asm("call (%0), _optix_read_instance_idx, ();"
+        : "=r"(u0)
+        :);
     return u0;
 }
 
 [[nodiscard]] inline auto lc_get_bary_coords() noexcept {
     float f0, f1;
-    asm( "call (%0, %1), _optix_get_triangle_barycentrics, ();" : "=f"(f0), "=f"(f1) : );
+    asm("call (%0, %1), _optix_get_triangle_barycentrics, ();"
+        : "=f"(f0), "=f"(f1)
+        :);
     return lc_make_float2(f0, f1);
 }
 
@@ -783,7 +816,8 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto t_min = ray.m1;
     auto t_max = ray.m3;
     [[maybe_unused]] unsigned int
-        p4, p5, p6, p7, p8, p9, p10, p11, p12, p13,
+        p4,
+        p5, p6, p7, p8, p9, p10, p11, p12, p13,
         p14, p15, p16, p17, p18, p19, p20, p21, p22,
         p23, p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
@@ -804,7 +838,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
           "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
           "r"(p25), "r"(p26), "r"(p27), "r"(p28), "r"(p29), "r"(p30), "r"(p31)
-        : );
+        :);
 }
 
 [[nodiscard]] inline auto lc_trace_closest(LCAccel accel, LCRay ray) noexcept {
@@ -815,8 +849,8 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto r3 = 0u;
     lc_trace_impl<0u, 4u, flags>(accel, ray, r0, r1, r2, r3);
     return r0 == ~0u ?
-        LCHit{} :
-        LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
+               LCHit{} :
+               LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
 }
 
 [[nodiscard]] inline auto lc_trace_any(LCAccel accel, LCRay ray) noexcept {
@@ -831,17 +865,29 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 
 [[nodiscard]] inline auto lc_rtx_dispatch_id() noexcept {
     lc_uint u0, u1, u2;
-    asm( "call (%0), _optix_get_launch_index_x, ();" : "=r"(u0) : );
-    asm( "call (%0), _optix_get_launch_index_y, ();" : "=r"(u1) : );
-    asm( "call (%0), _optix_get_launch_index_z, ();" : "=r"(u2) : );
+    asm("call (%0), _optix_get_launch_index_x, ();"
+        : "=r"(u0)
+        :);
+    asm("call (%0), _optix_get_launch_index_y, ();"
+        : "=r"(u1)
+        :);
+    asm("call (%0), _optix_get_launch_index_z, ();"
+        : "=r"(u2)
+        :);
     return lc_make_uint3(u0, u1, u2);
 }
 
 [[nodiscard]] inline auto lc_rtx_dispatch_size() noexcept {
     lc_uint u0, u1, u2;
-    asm( "call (%0), _optix_get_launch_dimension_x, ();" : "=r"(u0) : );
-    asm( "call (%0), _optix_get_launch_dimension_y, ();" : "=r"(u1) : );
-    asm( "call (%0), _optix_get_launch_dimension_z, ();" : "=r"(u2) : );
+    asm("call (%0), _optix_get_launch_dimension_x, ();"
+        : "=r"(u0)
+        :);
+    asm("call (%0), _optix_get_launch_dimension_y, ();"
+        : "=r"(u1)
+        :);
+    asm("call (%0), _optix_get_launch_dimension_z, ();"
+        : "=r"(u2)
+        :);
     return lc_make_uint3(u0, u1, u2);
 }
 

@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/UploadBuffer.h>
 namespace toolhub::directx {
 UploadBuffer::UploadBuffer(

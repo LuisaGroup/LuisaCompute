@@ -23,5 +23,6 @@ var classluisa_1_1compute_1_1_function =
     [ "return_type", "d0/d9d/classluisa_1_1compute_1_1_function.html#ad5c0ffdf7948748f7cbe4fbcd4e325b1", null ],
     [ "shared_builder", "d0/d9d/classluisa_1_1compute_1_1_function.html#a1f91d1a0352c20af94645aead93961d7", null ],
     [ "tag", "d0/d9d/classluisa_1_1compute_1_1_function.html#a04887dbfb675ba78c63c143bef64147c", null ],
-    [ "variable_usage", "d0/d9d/classluisa_1_1compute_1_1_function.html#a7aa4dd1c13af9085a2207a745e56cfa6", null ]
+    [ "variable_usage", "d0/d9d/classluisa_1_1compute_1_1_function.html#a7aa4dd1c13af9085a2207a745e56cfa6", null ],
+    [ "detail::FunctionBuilder", "d0/d9d/classluisa_1_1compute_1_1_function.html#a4fdd88e1fde074b5e868958677b68da1", null ]
 ];

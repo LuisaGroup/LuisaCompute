@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class Device;
+class LC_RUNTIME_API Device;
 
 class Event final : public Resource {
 

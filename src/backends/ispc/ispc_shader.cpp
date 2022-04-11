@@ -4,6 +4,7 @@
 
 #include <fstream>
 
+#include <core/clock.h>
 #include <runtime/context.h>
 #include <backends/ispc/ispc_codegen.h>
 #include <backends/ispc/ispc_shader.h>
@@ -22,15 +23,20 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
     ISPCCodegen codegen{scratch};
     codegen.emit(func);
 
+    std::cout << "================= ISPC ===================\n";
+    std::cout << scratch.view() << "\n";
+    std::cout << "==========================================\n";
+
+
     auto name = fmt::format("func_{:016x}", func.hash());
     auto cache_dir_str = ctx.cache_directory().string();
     auto source_path = ctx.cache_directory() / fmt::format("{}.ispc", name);
 
     // compile
 #ifdef LUISA_PLATFORM_WINDOWS
-    auto ispc_exe = ctx.runtime_directory() / "backends" / "ispc_support" / "ispc.exe";
+    auto ispc_exe = ctx.runtime_directory() / "ispc.exe";
 #else
-    auto ispc_exe = ctx.runtime_directory() / "backends" / "ispc_support" / "ispc";
+    auto ispc_exe = ctx.runtime_directory() / "ispc";
 #endif
 
 #ifdef LUISA_COMPUTE_ISPC_LLVM_JIT
@@ -53,10 +59,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
 
     // options
     auto include_opt = fmt::format(
-        "-I\"{}\"",
-        std::filesystem::canonical(
-            ctx.runtime_directory() / "backends" / "ispc_support")
-            .string());
+        "-I\"{}\"", ctx.runtime_directory().string());
     std::array ispc_options {
         "-woff",
             "--addressing=32",

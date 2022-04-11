@@ -8,12 +8,10 @@
 #include <cmath>
 #include <memory>
 #include <string>
-
+#include <core/dll_export.h>
 #include <fmt/format.h>
 
 #include <EASTL/bit.h>
-#include <EASTL/map.h>
-#include <EASTL/set.h>
 #include <EASTL/span.h>
 #include <EASTL/list.h>
 #include <EASTL/slist.h>
@@ -32,20 +30,23 @@
 #include <EASTL/vector_map.h>
 #include <EASTL/vector_set.h>
 #include <EASTL/shared_array.h>
-#include <EASTL/unordered_map.h>
-#include <EASTL/unordered_set.h>
 #include <EASTL/fixed_hash_map.h>
 #include <EASTL/fixed_hash_set.h>
 #include <EASTL/vector_multimap.h>
 #include <EASTL/vector_multiset.h>
 #include <EASTL/bonus/lru_cache.h>
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
+#include <absl/container/btree_map.h>
+#include <absl/container/btree_set.h>
+
 namespace luisa {
 
 namespace detail {
-void *allocator_allocate(size_t size, size_t alignment) noexcept;
-void allocator_deallocate(void *p, size_t alignment) noexcept;
-void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept;
+LC_CORE_API void *allocator_allocate(size_t size, size_t alignment) noexcept;
+LC_CORE_API void allocator_deallocate(void *p, size_t alignment) noexcept;
+LC_CORE_API void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept;
 }// namespace detail
 
 template<typename T = std::byte>
@@ -96,11 +97,11 @@ using eastl::function;
 using eastl::make_shared;
 using eastl::make_unique;
 using eastl::reinterpret_pointer_cast;
+using eastl::shared_array;
 using eastl::shared_ptr;
 using eastl::static_pointer_cast;
 using eastl::unique_ptr;
 using eastl::weak_ptr;
-using eastl::shared_array;
 
 using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
 using std::string_view;
@@ -110,23 +111,48 @@ using eastl::vector;
 
 using eastl::deque;
 using eastl::list;
-using eastl::map;
-using eastl::multimap;
-using eastl::multiset;
-using eastl::queue;
-using eastl::set;
-using eastl::slist;
-using eastl::unordered_map;
-using eastl::unordered_multimap;
-using eastl::unordered_multiset;
-using eastl::unordered_set;
-
 using eastl::monostate;
+using eastl::move_only_function;
 using eastl::nullopt;
+using eastl::make_optional;
 using eastl::optional;
+using eastl::queue;
+using eastl::slist;
 using eastl::variant;
 using eastl::variant_alternative_t;
 using eastl::variant_size_v;
+
+template<typename K, typename V,
+         typename Hash = absl::container_internal::hash_default_hash<K>,
+         typename Eq = absl::container_internal::hash_default_eq<K>,
+         typename Allocator = luisa::allocator<std::pair<const K, V>>>
+using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
+
+template<typename K,
+         typename Hash = absl::container_internal::hash_default_hash<K>,
+         typename Eq = absl::container_internal::hash_default_eq<K>,
+         typename Allocator = luisa::allocator<const K>>
+using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
+
+template<typename K, typename V,
+         typename Compare = std::less<K>,
+         typename Alloc = luisa::allocator<std::pair<const K, V>>>
+using map = absl::btree_map<K, V, Compare, Alloc>;
+
+template<typename K, typename V,
+         typename Compare = std::less<K>,
+         typename Alloc = luisa::allocator<std::pair<const K, V>>>
+using multimap = absl::btree_multimap<K, V, Compare, Alloc>;
+
+template<typename K,
+         typename Compare = std::less<K>,
+         typename Alloc = luisa::allocator<K>>
+using set = absl::btree_set<K, Compare, Alloc>;
+
+template<typename K,
+         typename Compare = std::less<K>,
+         typename Alloc = luisa::allocator<K>>
+using multiset = absl::btree_multiset<K, Compare, Alloc>;
 
 using eastl::bit_cast;
 using eastl::get;

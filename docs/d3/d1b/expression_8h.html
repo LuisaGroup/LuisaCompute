@@ -89,6 +89,7 @@ $(document).ready(function(){initNavTree('d3/d1b/expression_8h.html','../../'); 
 <a href="#nested-classes">Classes</a> &#124;
 <a href="#namespaces">Namespaces</a> &#124;
 <a href="#define-members">Macros</a> &#124;
+<a href="#typedef-members">Typedefs</a> &#124;
 <a href="#enum-members">Enumerations</a>  </div>
   <div class="headertitle"><div class="title">expression.h File Reference</div></div>
 </div><!--header-->
@@ -129,6 +130,10 @@ Classes</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d2/d6d/classluisa_1_1compute_1_1_member_expr.html">luisa::compute::MemberExpr</a></td></tr>
 <tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Member expression.  <a href="../../d2/d6d/classluisa_1_1compute_1_1_member_expr.html#details">More...</a><br /></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:d4/d71/structluisa_1_1compute_1_1detail_1_1make__literal__value"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d3/df7/namespaceluisa_1_1compute_1_1detail.html#d4/d71/structluisa_1_1compute_1_1detail_1_1make__literal__value">luisa::compute::detail::make_literal_value&lt; T &gt;</a></td></tr>
+<tr class="separator:d4/d71/structluisa_1_1compute_1_1detail_1_1make__literal__value"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:df/d62/structluisa_1_1compute_1_1detail_1_1make__literal__value_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d3/df7/namespaceluisa_1_1compute_1_1detail.html#df/d62/structluisa_1_1compute_1_1detail_1_1make__literal__value_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4">luisa::compute::detail::make_literal_value&lt; std::tuple&lt; T... &gt; &gt;</a></td></tr>
+<tr class="separator:df/d62/structluisa_1_1compute_1_1detail_1_1make__literal__value_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d3/d5b/classluisa_1_1compute_1_1_literal_expr.html">luisa::compute::LiteralExpr</a></td></tr>
 <tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">TODO.  <a href="../../d3/d5b/classluisa_1_1compute_1_1_literal_expr.html#details">More...</a><br /></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -154,11 +159,19 @@ Namespaces</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:d8/d37/namespaceluisa_1_1compute"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d8/d37/namespaceluisa_1_1compute.html">luisa::compute</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:d3/df7/namespaceluisa_1_1compute_1_1detail"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d3/df7/namespaceluisa_1_1compute_1_1detail.html">luisa::compute::detail</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
 Macros</h2></td></tr>
 <tr class="memitem:acabac6301306e5de235d2f6035e6d05c"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="../../d3/d1b/expression_8h.html#acabac6301306e5de235d2f6035e6d05c">LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR</a>()&#160;&#160;&#160;    void accept(ExprVisitor &amp;visitor) const override { visitor.visit(this); }</td></tr>
 <tr class="separator:acabac6301306e5de235d2f6035e6d05c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="typedef-members" name="typedef-members"></a>
+Typedefs</h2></td></tr>
+<tr class="memitem:ade299eb6831456bf306ec98e5d6cf953"><td class="memTemplParams" colspan="2">template&lt;typename T &gt; </td></tr>
+<tr class="memitem:ade299eb6831456bf306ec98e5d6cf953"><td class="memTemplItemLeft" align="right" valign="top">using&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="../../d3/df7/namespaceluisa_1_1compute_1_1detail.html#ade299eb6831456bf306ec98e5d6cf953">luisa::compute::detail::make_literal_value_t</a> = typename make_literal_value&lt; T &gt;::type</td></tr>
+<tr class="separator:ade299eb6831456bf306ec98e5d6cf953"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="enum-members" name="enum-members"></a>
 Enumerations</h2></td></tr>
@@ -167,6 +180,50 @@ Enumerations</h2></td></tr>
  }</td></tr>
 <tr class="separator:a02209199649184aa3216bb281625eb51"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
+<hr/><h2 class="groupheader">Class Documentation</h2>
+<a name="d4/d71/structluisa_1_1compute_1_1detail_1_1make__literal__value" id="d4/d71/structluisa_1_1compute_1_1detail_1_1make__literal__value"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#d4/d71/structluisa_1_1compute_1_1detail_1_1make__literal__value">&#9670;&nbsp;</a></span>luisa::compute::detail::make_literal_value</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">struct luisa::compute::detail::make_literal_value</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<div class="textblock"><div class="compoundTemplParams">template&lt;typename T&gt;<br />
+struct luisa::compute::detail::make_literal_value&lt; T &gt;</div>
+<p class="definition">Definition at line <a class="el" href="../../d3/d1b/expression_8h_source.html#l00287">287</a> of file <a class="el" href="../../d3/d1b/expression_8h_source.html">expression.h</a>.</p>
+</div>
+</div>
+</div>
+<a name="df/d62/structluisa_1_1compute_1_1detail_1_1make__literal__value_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4" id="df/d62/structluisa_1_1compute_1_1detail_1_1make__literal__value_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#df/d62/structluisa_1_1compute_1_1detail_1_1make__literal__value_3_01std_1_1tuple_3_01_t_8_8_8_01_4_01_4">&#9670;&nbsp;</a></span>luisa::compute::detail::make_literal_value&lt; std::tuple&lt; T... &gt; &gt;</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">struct luisa::compute::detail::make_literal_value&lt; std::tuple&lt; T... &gt; &gt;</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<div class="textblock"><div class="compoundTemplParams">template&lt;typename... T&gt;<br />
+struct luisa::compute::detail::make_literal_value&lt; std::tuple&lt; T... &gt; &gt;</div>
+<p class="definition">Definition at line <a class="el" href="../../d3/d1b/expression_8h_source.html#l00292">292</a> of file <a class="el" href="../../d3/d1b/expression_8h_source.html">expression.h</a>.</p>
+</div><table class="fieldtable">
+<tr><th colspan="3">Class Members</th></tr>
+<tr><td class="fieldtype">
+<a id="a042facf08b213e506e732b94ec11de32" name="a042facf08b213e506e732b94ec11de32"></a>typedef variant&lt; T... &gt;</td>
+<td class="fieldname">
+type</td>
+<td class="fielddoc">
+</td></tr>
+</table>
+
+</div>
+</div>
 <h2 class="groupheader">Macro Definition Documentation</h2>
 <a id="acabac6301306e5de235d2f6035e6d05c" name="acabac6301306e5de235d2f6035e6d05c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#acabac6301306e5de235d2f6035e6d05c">&#9670;&nbsp;</a></span>LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR</h2>

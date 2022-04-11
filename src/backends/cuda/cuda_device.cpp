@@ -25,6 +25,8 @@
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_shader.h>
 
+#include <backends/cuda/cuda_accel_update_embedded.inl.h>
+
 namespace luisa::compute::cuda {
 
 uint64_t CUDADevice::create_buffer(size_t size_bytes) noexcept {
@@ -196,7 +198,21 @@ void CUDADevice::destroy_stream(uint64_t handle) noexcept {
 
 void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
     with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
-        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle()));
+        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle(true)));
+    });
+}
+
+void CUDADevice::dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept {
+    auto ptr = new_with_allocator<luisa::move_only_function<void()>>(std::move(func));
+    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), ptr] {
+        // TODO: move into CUDAStream::dispatch()?
+        LUISA_CHECK_CUDA(cuLaunchHostFunc(
+            stream->handle(true), [](void *ptr) noexcept {
+                auto func = static_cast<luisa::move_only_function<void()> *>(ptr);
+                (*func)();
+                luisa::delete_with_allocator(func);
+            },
+            ptr));
     });
 }
 
@@ -204,6 +220,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, const CommandList &list) noexc
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), &list] {
         CUDACommandEncoder encoder{this, stream};
         for (auto cmd : list) { cmd->accept(encoder); }
+        stream->barrier();
         stream->dispatch_callbacks();
     });
 }
@@ -213,6 +230,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList>
         for (auto &&list : lists) {
             CUDACommandEncoder encoder{this, stream};
             for (auto cmd : list) { cmd->accept(encoder); }
+            stream->barrier();
         }
         stream->dispatch_callbacks();
     });
@@ -257,14 +275,14 @@ void CUDADevice::destroy_event(uint64_t handle) noexcept {
 void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
     with_handle([event = reinterpret_cast<CUevent>(handle),
                  stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
-        LUISA_CHECK_CUDA(cuEventRecord(event, stream->handle()));
+        LUISA_CHECK_CUDA(cuEventRecord(event, stream->handle(true)));
     });
 }
 
 void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
     with_handle([event = reinterpret_cast<CUevent>(handle),
                  stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
-        LUISA_CHECK_CUDA(cuStreamWaitEvent(stream->handle(), event, CU_EVENT_WAIT_DEFAULT));
+        LUISA_CHECK_CUDA(cuStreamWaitEvent(stream->handle(true), event, CU_EVENT_WAIT_DEFAULT));
     });
 }
 
@@ -274,7 +292,7 @@ void CUDADevice::synchronize_event(uint64_t handle) noexcept {
     });
 }
 
-uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
+uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
     return with_handle([=] {
         auto mesh = new_with_allocator<CUDAMesh>(
             v_buffer, v_offset, v_stride, v_count,
@@ -289,9 +307,9 @@ void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
     });
 }
 
-uint64_t CUDADevice::create_accel(AccelBuildHint hint) noexcept {
-    return with_handle([=] {
-        auto accel = new_with_allocator<CUDAAccel>(hint);
+uint64_t CUDADevice::create_accel(AccelUsageHint hint) noexcept {
+    return with_handle([=, this] {
+        auto accel = new_with_allocator<CUDAAccel>(hint, _heap.get());
         return reinterpret_cast<uint64_t>(accel);
     });
 }
@@ -305,7 +323,15 @@ void CUDADevice::destroy_accel(uint64_t handle) noexcept {
 CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
     : Device::Interface{ctx},
       _handle{device_id},
-      _heap{luisa::make_unique<CUDAHeap>()} {}
+      _heap{luisa::make_unique<CUDAHeap>()} {
+    with_handle([this] {
+        LUISA_CHECK_CUDA(cuModuleLoadData(
+            &_accel_update_module, cuda_accel_update_source));
+        LUISA_CHECK_CUDA(cuModuleGetFunction(
+            &_accel_update_function, _accel_update_module,
+            "update_instances"));
+    });
+}
 
 uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
     return with_handle([size] {
@@ -368,54 +394,32 @@ void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     });
 }
 
-void CUDADevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
-    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
-    auto mesh = reinterpret_cast<CUDAMesh *>(mesh_handle);
-    accel->add_instance(mesh, transform, visible);
-}
-
-void CUDADevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
-    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
-    accel->pop_instance();
-}
-
-void CUDADevice::set_instance_in_accel(uint64_t accel_handle, size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
-    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
-    auto mesh = reinterpret_cast<CUDAMesh *>(mesh_handle);
-    accel->set_instance(index, mesh, transform, visible);
-}
-
-void CUDADevice::set_instance_visibility_in_accel(uint64_t accel_handle, size_t index, bool visible) noexcept {
-    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
-    accel->set_visibility(index, visible);
-}
-
-void CUDADevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {
-    auto accel = reinterpret_cast<CUDAAccel *>(accel_handle);
-    accel->set_transform(index, transform);
-}
-
-bool CUDADevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    return reinterpret_cast<CUDAAccel *>(accel)->uses_resource(buffer);
-}
-
-bool CUDADevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
-    return reinterpret_cast<CUDAAccel *>(accel)->uses_resource(mesh);
-}
-
-uint64_t CUDADevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<CUDAMesh *>(mesh_handle)->vertex_buffer_handle();
-}
-
-uint64_t CUDADevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    return reinterpret_cast<CUDAMesh *>(mesh_handle)->triangle_buffer_handle();
-}
-
 CUDADevice::~CUDADevice() noexcept {
     with_handle([this] {
         LUISA_CHECK_CUDA(cuCtxSynchronize());
-        _heap.reset();
+        LUISA_CHECK_CUDA(cuModuleUnload(_accel_update_module));
+        _heap = nullptr;// needs to dispose right here; depends on current CUDA device
     });
+}
+
+uint64_t CUDADevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+PixelStorage CUDADevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+bool CUDADevice::requires_command_reordering() const noexcept {
+    return CUDAStream::backed_cuda_stream_count > 1u;
 }
 
 CUDADevice::Handle::Handle(uint index) noexcept {

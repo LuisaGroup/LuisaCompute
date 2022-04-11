@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/Common.h>
 namespace vstd {
-class VENGINE_DLL_COMMON PoolAllocator {
+class LC_VSTL_API PoolAllocator {
 public:
     class Visitor {
     public:

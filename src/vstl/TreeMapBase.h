@@ -3,7 +3,7 @@
 #include <vstl/Pool.h>
 namespace vstd {
 namespace detail {
-class VENGINE_DLL_COMMON TreeMapUtility {
+class LC_VSTL_API TreeMapUtility {
 public:
     static void fixInsert(void *k, void *&root);
     static void *getNext(void *ptr);

@@ -13,7 +13,7 @@ class DefinitionAnalysis final : public StmtVisitor, public ExprVisitor {
 
 public:
     struct VariableHash {
-        [[nodiscard]] auto operator()(Variable v) const noexcept { return v.uid(); }
+        [[nodiscard]] uint64_t operator()(Variable v) const noexcept { return v.uid(); }
     };
 
     using VariableSet = luisa::unordered_set<Variable, VariableHash>;

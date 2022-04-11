@@ -19,5 +19,6 @@ var classluisa_1_1compute_1_1_variable =
     [ "tag", "d6/d1f/classluisa_1_1compute_1_1_variable.html#a0450ef2bdba64f9d690253880c722944", null ],
     [ "type", "d6/d1f/classluisa_1_1compute_1_1_variable.html#a47037f45f57a0f670f6b576de07d98aa", null ],
     [ "uid", "d6/d1f/classluisa_1_1compute_1_1_variable.html#a1cd18fe2a209dc574cca551a2c18f885", null ],
-    [ "AstSerializer", "d6/d1f/classluisa_1_1compute_1_1_variable.html#a321da1c0dbd4d8cc9bac530cb44b984f", null ]
+    [ "AstSerializer", "d6/d1f/classluisa_1_1compute_1_1_variable.html#a321da1c0dbd4d8cc9bac530cb44b984f", null ],
+    [ "detail::FunctionBuilder", "d6/d1f/classluisa_1_1compute_1_1_variable.html#a4fdd88e1fde074b5e868958677b68da1", null ]
 ];

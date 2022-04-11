@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Shader/ShaderSerializer.h>
 #include <Shader/ComputeShader.h>
 #include <Shader/RTShader.h>

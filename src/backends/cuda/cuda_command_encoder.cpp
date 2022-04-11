@@ -63,9 +63,6 @@ void CUDACommandEncoder::visit(const BufferToTextureCopyCommand *command) noexce
     copy.WidthInBytes = pitch;
     copy.Height = command->size().y;
     copy.Depth = command->size().z;
-    copy.dstXInBytes = command->offset().x * pixel_size;
-    copy.dstY = command->offset().y;
-    copy.dstZ = command->offset().z;
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
 }
 
@@ -89,9 +86,6 @@ void CUDACommandEncoder::visit(const TextureUploadCommand *command) noexcept {
         copy.srcHeight = command->size().y;
         copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
         copy.dstArray = array;
-        copy.dstXInBytes = command->offset().x * pixel_size;
-        copy.dstY = command->offset().y;
-        copy.dstZ = command->offset().z;
         copy.WidthInBytes = pitch;
         copy.Height = command->size().y;
         copy.Depth = command->size().z;
@@ -110,9 +104,6 @@ void CUDACommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
     copy.WidthInBytes = pitch;
     copy.Height = command->size().y;
     copy.Depth = command->size().z;
-    copy.srcXInBytes = command->offset().x * pixel_size;
-    copy.srcY = command->offset().y;
-    copy.srcZ = command->offset().z;
     copy.dstMemoryType = CU_MEMORYTYPE_HOST;
     copy.dstHost = command->data();
     copy.dstPitch = pitch;
@@ -131,12 +122,6 @@ void CUDACommandEncoder::visit(const TextureCopyCommand *command) noexcept {
     copy.srcArray = src_array;
     copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.dstArray = dst_array;
-    copy.srcXInBytes = command->src_offset().x * pixel_size;
-    copy.srcY = command->src_offset().y;
-    copy.srcZ = command->src_offset().z;
-    copy.dstXInBytes = command->dst_offset().x * pixel_size;
-    copy.dstY = command->dst_offset().y;
-    copy.dstZ = command->dst_offset().z;
     copy.WidthInBytes = command->size().x * pixel_size;
     copy.Height = command->size().y;
     copy.Depth = command->size().z;
@@ -155,33 +140,20 @@ void CUDACommandEncoder::visit(const TextureToBufferCopyCommand *command) noexce
     copy.dstDevice = CUDAHeap::buffer_address(command->buffer()) + command->buffer_offset();
     copy.dstPitch = pitch;
     copy.dstHeight = command->size().y;
-    copy.srcXInBytes = command->offset().x * pixel_size;
-    copy.srcY = command->offset().y;
-    copy.srcZ = command->offset().z;
     copy.WidthInBytes = pitch;
     copy.Height = command->size().y;
     copy.Depth = command->size().z;
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
 }
 
-void CUDACommandEncoder::visit(const AccelUpdateCommand *command) noexcept {
-    auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
-    accel->update(_device, _stream);
-}
-
 void CUDACommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
-    accel->build(_device, _stream);
-}
-
-void CUDACommandEncoder::visit(const MeshUpdateCommand *command) noexcept {
-    auto mesh = reinterpret_cast<CUDAMesh *>(command->handle());
-    mesh->update(_device, _stream);
+    accel->build(_device, _stream, command);
 }
 
 void CUDACommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = reinterpret_cast<CUDAMesh *>(command->handle());
-    mesh->build(_device, _stream);
+    mesh->build(_device, _stream, command);
 }
 
 void CUDACommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {

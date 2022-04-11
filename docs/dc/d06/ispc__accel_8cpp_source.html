@@ -92,160 +92,108 @@ $(document).ready(function(){initNavTree('dc/d06/ispc__accel_8cpp_source.html','
 <div class="line"><a id="l00002" name="l00002"></a><span class="lineno">    2</span><span class="comment">// Created by Mike Smith on 2022/2/11.</span></div>
 <div class="line"><a id="l00003" name="l00003"></a><span class="lineno">    3</span><span class="comment">//</span></div>
 <div class="line"><a id="l00004" name="l00004"></a><span class="lineno">    4</span> </div>
-<div class="line"><a id="l00005" name="l00005"></a><span class="lineno">    5</span><span class="preprocessor">#include &lt;<a class="code" href="../../db/d56/ispc__mesh_8h.html">backends/ispc/ispc_mesh.h</a>&gt;</span></div>
-<div class="line"><a id="l00006" name="l00006"></a><span class="lineno">    6</span><span class="preprocessor">#include &lt;<a class="code" href="../../db/d86/ispc__accel_8h.html">backends/ispc/ispc_accel.h</a>&gt;</span></div>
-<div class="line"><a id="l00007" name="l00007"></a><span class="lineno">    7</span> </div>
-<div class="line"><a id="l00008" name="l00008"></a><span class="lineno"><a class="line" href="../../d9/df8/namespaceluisa_1_1compute_1_1ispc.html">    8</a></span><span class="keyword">namespace </span><a class="code hl_namespace" href="../../d9/df8/namespaceluisa_1_1compute_1_1ispc.html">luisa::compute::ispc</a> {</div>
+<div class="line"><a id="l00005" name="l00005"></a><span class="lineno">    5</span><span class="preprocessor">#include &lt;<a class="code" href="../../d5/d51/stl_8h.html">core/stl.h</a>&gt;</span></div>
+<div class="line"><a id="l00006" name="l00006"></a><span class="lineno">    6</span> </div>
+<div class="line"><a id="l00007" name="l00007"></a><span class="lineno">    7</span><span class="preprocessor">#include &lt;<a class="code" href="../../db/d56/ispc__mesh_8h.html">backends/ispc/ispc_mesh.h</a>&gt;</span></div>
+<div class="line"><a id="l00008" name="l00008"></a><span class="lineno">    8</span><span class="preprocessor">#include &lt;<a class="code" href="../../db/d86/ispc__accel_8h.html">backends/ispc/ispc_accel.h</a>&gt;</span></div>
 <div class="line"><a id="l00009" name="l00009"></a><span class="lineno">    9</span> </div>
-<div class="line"><a id="l00010" name="l00010"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a73d83a9f1fc30f93e5849878e544b2bb">   10</a></span><a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a73d83a9f1fc30f93e5849878e544b2bb">ISPCAccel::ISPCAccel</a>(RTCDevice device, <a class="code hl_enumeration" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">AccelBuildHint</a> hint) noexcept</div>
-<div class="line"><a id="l00011" name="l00011"></a><span class="lineno">   11</span>    : _handle{rtcNewScene(device)} {</div>
-<div class="line"><a id="l00012" name="l00012"></a><span class="lineno">   12</span>    <span class="keywordflow">switch</span> (hint) {</div>
-<div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span>        <span class="keywordflow">case</span> <a class="code hl_enumvalue" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">AccelBuildHint::FAST_TRACE</a>:</div>
-<div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span>            rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_HIGH);</div>
-<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span>            rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT);</div>
-<div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span>            <span class="keywordflow">break</span>;</div>
-<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span>        <span class="keywordflow">case</span> <a class="code hl_enumvalue" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3ee04c55cf26a4490634a531edf2ae5e">AccelBuildHint::FAST_UPDATE</a>:</div>
-<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span>            rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_MEDIUM);</div>
-<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span>            rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT | RTC_SCENE_FLAG_DYNAMIC);</div>
-<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span>            <span class="keywordflow">break</span>;</div>
-<div class="line"><a id="l00021" name="l00021"></a><span class="lineno">   21</span>        <span class="keywordflow">case</span> <a class="code hl_enumvalue" href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7aec875e59af66c8fffc6d99f66ebdaad3">AccelBuildHint::FAST_REBUILD</a>:</div>
-<div class="line"><a id="l00022" name="l00022"></a><span class="lineno">   22</span>            rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_LOW);</div>
-<div class="line"><a id="l00023" name="l00023"></a><span class="lineno">   23</span>            rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_DYNAMIC);</div>
-<div class="line"><a id="l00024" name="l00024"></a><span class="lineno">   24</span>            <span class="keywordflow">break</span>;</div>
-<div class="line"><a id="l00025" name="l00025"></a><span class="lineno">   25</span>    }</div>
-<div class="line"><a id="l00026" name="l00026"></a><span class="lineno">   26</span>}</div>
-<div class="line"><a id="l00027" name="l00027"></a><span class="lineno">   27</span> </div>
-<div class="line"><a id="l00028" name="l00028"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae12eff50c4f72822f0fe3384228f6f6a">   28</a></span><a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae12eff50c4f72822f0fe3384228f6f6a">ISPCAccel::~ISPCAccel</a>() noexcept {</div>
-<div class="line"><a id="l00029" name="l00029"></a><span class="lineno">   29</span>    rtcReleaseScene(_handle);</div>
-<div class="line"><a id="l00030" name="l00030"></a><span class="lineno">   30</span>    <span class="keywordflow">for</span> (<span class="keyword">auto</span> geometry : _committed_geometries) {</div>
-<div class="line"><a id="l00031" name="l00031"></a><span class="lineno">   31</span>        rtcReleaseGeometry(geometry);</div>
-<div class="line"><a id="l00032" name="l00032"></a><span class="lineno">   32</span>    }</div>
-<div class="line"><a id="l00033" name="l00033"></a><span class="lineno">   33</span>}</div>
+<div class="line"><a id="l00010" name="l00010"></a><span class="lineno"><a class="line" href="../../d9/df8/namespaceluisa_1_1compute_1_1ispc.html">   10</a></span><span class="keyword">namespace </span><a class="code hl_namespace" href="../../d9/df8/namespaceluisa_1_1compute_1_1ispc.html">luisa::compute::ispc</a> {</div>
+<div class="line"><a id="l00011" name="l00011"></a><span class="lineno">   11</span> </div>
+<div class="line"><a id="l00012" name="l00012"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#aa9f222e2312cd9c8f33123b3c9a2f34f">   12</a></span><a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#aa9f222e2312cd9c8f33123b3c9a2f34f">ISPCAccel::ISPCAccel</a>(RTCDevice device, <a class="code hl_enumeration" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0">AccelUsageHint</a> hint) noexcept</div>
+<div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span>    : _handle{rtcNewScene(device)} {</div>
+<div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span>    <span class="keywordflow">switch</span> (hint) {</div>
+<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span>        <span class="keywordflow">case</span> <a class="code hl_enumvalue" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a3f684dca71b75eb53a8a25920db6a67f">AccelUsageHint::FAST_TRACE</a>:</div>
+<div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span>            rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_HIGH);</div>
+<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span>            rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT);</div>
+<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span>            <span class="keywordflow">break</span>;</div>
+<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span>        <span class="keywordflow">case</span> <a class="code hl_enumvalue" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a3ee04c55cf26a4490634a531edf2ae5e">AccelUsageHint::FAST_UPDATE</a>:</div>
+<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span>            rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_MEDIUM);</div>
+<div class="line"><a id="l00021" name="l00021"></a><span class="lineno">   21</span>            rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_COMPACT | RTC_SCENE_FLAG_DYNAMIC);</div>
+<div class="line"><a id="l00022" name="l00022"></a><span class="lineno">   22</span>            <span class="keywordflow">break</span>;</div>
+<div class="line"><a id="l00023" name="l00023"></a><span class="lineno">   23</span>        <span class="keywordflow">case</span> <a class="code hl_enumvalue" href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a8f43d2d9234f74c301bb1cb64f947505">AccelUsageHint::FAST_BUILD</a>:</div>
+<div class="line"><a id="l00024" name="l00024"></a><span class="lineno">   24</span>            rtcSetSceneBuildQuality(_handle, RTC_BUILD_QUALITY_LOW);</div>
+<div class="line"><a id="l00025" name="l00025"></a><span class="lineno">   25</span>            rtcSetSceneFlags(_handle, RTC_SCENE_FLAG_DYNAMIC);</div>
+<div class="line"><a id="l00026" name="l00026"></a><span class="lineno">   26</span>            <span class="keywordflow">break</span>;</div>
+<div class="line"><a id="l00027" name="l00027"></a><span class="lineno">   27</span>    }</div>
+<div class="line"><a id="l00028" name="l00028"></a><span class="lineno">   28</span>}</div>
+<div class="line"><a id="l00029" name="l00029"></a><span class="lineno">   29</span> </div>
+<div class="line"><a id="l00030" name="l00030"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae12eff50c4f72822f0fe3384228f6f6a">   30</a></span><a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae12eff50c4f72822f0fe3384228f6f6a">ISPCAccel::~ISPCAccel</a>() noexcept { rtcReleaseScene(_handle); }</div>
+<div class="line"><a id="l00031" name="l00031"></a><span class="lineno">   31</span> </div>
+<div class="line"><a id="l00032" name="l00032"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a3ba0ed7928e39e45269fc1453e3f58b8">   32</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a3ba0ed7928e39e45269fc1453e3f58b8">ISPCAccel::build</a>(<a class="code hl_class" href="../../d4/df2/classluisa_1_1_thread_pool.html">ThreadPool</a> &amp;pool, <span class="keywordtype">size_t</span> instance_count,</div>
+<div class="line"><a id="l00033" name="l00033"></a><span class="lineno">   33</span>                      luisa::span&lt;const AccelBuildCommand::Modification&gt; mods) <span class="keyword">noexcept</span> {</div>
 <div class="line"><a id="l00034" name="l00034"></a><span class="lineno">   34</span> </div>
-<div class="line"><a id="l00035" name="l00035"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a6c4299b8e002784d6b0e65e232f91d9f">   35</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a6c4299b8e002784d6b0e65e232f91d9f">ISPCAccel::build</a>(<a class="code hl_class" href="../../d4/df2/classluisa_1_1_thread_pool.html">ThreadPool</a> &amp;pool) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00036" name="l00036"></a><span class="lineno">   36</span>    _dirty.clear();</div>
-<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span>    _resources.clear();</div>
-<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span>    <span class="keywordflow">for</span> (<span class="keyword">auto</span> &amp;_instance : _instances) {</div>
-<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span>        <span class="keyword">auto</span> mesh = _instance.mesh;</div>
-<div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span>        _resources.emplace(mesh-&gt;vertex_buffer());</div>
-<div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span>        _resources.emplace(mesh-&gt;triangle_buffer());</div>
-<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span>        _resources.emplace(<span class="keyword">reinterpret_cast&lt;</span>uint64_t<span class="keyword">&gt;</span>(mesh));</div>
-<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span>    }</div>
-<div class="line"><a id="l00044" name="l00044"></a><span class="lineno">   44</span>    pool.async([<span class="keyword">this</span>, instances = _instances] {</div>
-<div class="line"><a id="l00045" name="l00045"></a><span class="lineno">   45</span>        <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = 0u; i &lt; _committed_geometries.size(); i++) {</div>
-<div class="line"><a id="l00046" name="l00046"></a><span class="lineno">   46</span>            rtcDetachGeometry(_handle, i);</div>
-<div class="line"><a id="l00047" name="l00047"></a><span class="lineno">   47</span>            rtcReleaseGeometry(_committed_geometries[i]);</div>
-<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span>        }</div>
-<div class="line"><a id="l00049" name="l00049"></a><span class="lineno">   49</span>        <span class="keyword">auto</span> device = rtcGetSceneDevice(_handle);</div>
-<div class="line"><a id="l00050" name="l00050"></a><span class="lineno">   50</span>        _committed_transforms.resize(instances.size());</div>
-<div class="line"><a id="l00051" name="l00051"></a><span class="lineno">   51</span>        _committed_geometries.resize(instances.size());</div>
-<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span>        <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = 0u; i &lt; instances.size(); i++) {</div>
-<div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span>            <span class="keyword">auto</span> transform = instances[i].transform;</div>
-<div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span>            _committed_transforms[i] = _decompress(transform);</div>
-<div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span>            <span class="keyword">auto</span> geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);</div>
-<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span>            _committed_geometries[i] = geometry;</div>
-<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span>            rtcSetGeometryInstancedScene(geometry, instances[i].mesh-&gt;handle());</div>
-<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>            rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);</div>
-<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>            rtcSetGeometryTransform(</div>
-<div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span>                geometry, 0.f,</div>
-<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>                RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR,</div>
-<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>                &amp;_committed_transforms[i]);</div>
-<div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>            <span class="keywordflow">if</span> (!instances[i].visible) { rtcDisableGeometry(geometry); }</div>
-<div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>            rtcCommitGeometry(geometry);</div>
-<div class="line"><a id="l00065" name="l00065"></a><span class="lineno">   65</span>            rtcAttachGeometryByID(_handle, geometry, i);</div>
-<div class="line"><a id="l00066" name="l00066"></a><span class="lineno">   66</span>        }</div>
-<div class="line"><a id="l00067" name="l00067"></a><span class="lineno">   67</span>        rtcCommitScene(_handle);</div>
-<div class="line"><a id="l00068" name="l00068"></a><span class="lineno">   68</span>    });</div>
-<div class="line"><a id="l00069" name="l00069"></a><span class="lineno">   69</span>}</div>
-<div class="line"><a id="l00070" name="l00070"></a><span class="lineno">   70</span> </div>
-<div class="line"><a id="l00071" name="l00071"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a999920e8ad6788b614b8d9c82d27e7ab">   71</a></span><span class="keywordtype">void</span> <a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a999920e8ad6788b614b8d9c82d27e7ab">ISPCAccel::update</a>(<a class="code hl_class" href="../../d4/df2/classluisa_1_1_thread_pool.html">ThreadPool</a> &amp;pool) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00072" name="l00072"></a><span class="lineno">   72</span>    <span class="keyword">auto</span> s = luisa::span{_instances}.subspan(_dirty.offset(), _dirty.size());</div>
-<div class="line"><a id="l00073" name="l00073"></a><span class="lineno">   73</span>    pool.async([<span class="keyword">this</span>, offset = _dirty.offset(),</div>
-<div class="line"><a id="l00074" name="l00074"></a><span class="lineno">   74</span>                instances = luisa::vector&lt;Instance&gt;{s.cbegin(), s.cend()}] {</div>
-<div class="line"><a id="l00075" name="l00075"></a><span class="lineno">   75</span>        for (auto i = 0u; i &lt; instances.size(); i++) {</div>
-<div class="line"><a id="l00076" name="l00076"></a><span class="lineno">   76</span>            auto geometry = _committed_geometries[i + offset];</div>
-<div class="line"><a id="l00077" name="l00077"></a><span class="lineno">   77</span>            if (instances[i].visible) {</div>
-<div class="line"><a id="l00078" name="l00078"></a><span class="lineno">   78</span>                rtcEnableGeometry(geometry);</div>
-<div class="line"><a id="l00079" name="l00079"></a><span class="lineno">   79</span>            } else {</div>
-<div class="line"><a id="l00080" name="l00080"></a><span class="lineno">   80</span>                rtcDisableGeometry(geometry);</div>
-<div class="line"><a id="l00081" name="l00081"></a><span class="lineno">   81</span>            }</div>
-<div class="line"><a id="l00082" name="l00082"></a><span class="lineno">   82</span>            auto transform = instances[i].transform;</div>
-<div class="line"><a id="l00083" name="l00083"></a><span class="lineno">   83</span>            _committed_transforms[i + offset] = _decompress(transform);</div>
-<div class="line"><a id="l00084" name="l00084"></a><span class="lineno">   84</span>            rtcSetGeometryTransform(</div>
-<div class="line"><a id="l00085" name="l00085"></a><span class="lineno">   85</span>                geometry, 0.f, RTC_FORMAT_FLOAT4X4_COLUMN_MAJOR,</div>
-<div class="line"><a id="l00086" name="l00086"></a><span class="lineno">   86</span>                &amp;_committed_transforms[i + offset]);</div>
-<div class="line"><a id="l00087" name="l00087"></a><span class="lineno">   87</span>            rtcCommitGeometry(geometry);</div>
-<div class="line"><a id="l00088" name="l00088"></a><span class="lineno">   88</span>        }</div>
-<div class="line"><a id="l00089" name="l00089"></a><span class="lineno">   89</span>        rtcCommitScene(_handle);</div>
-<div class="line"><a id="l00090" name="l00090"></a><span class="lineno">   90</span>    });</div>
-<div class="line"><a id="l00091" name="l00091"></a><span class="lineno">   91</span>    _dirty.clear();</div>
-<div class="line"><a id="l00092" name="l00092"></a><span class="lineno">   92</span>}</div>
-<div class="line"><a id="l00093" name="l00093"></a><span class="lineno">   93</span> </div>
-<div class="line"><a id="l00094" name="l00094"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#adac75f868b78a81b03970610b6403519">   94</a></span><span class="keywordtype">void</span> ISPCAccel::push_mesh(<span class="keyword">const</span> <a class="code hl_class" href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html">ISPCMesh</a> *mesh, <a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> transform, <span class="keywordtype">bool</span> visible) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00095" name="l00095"></a><span class="lineno">   95</span>    <a class="code hl_struct" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#d7/dc6/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_instance">Instance</a> instance{</div>
-<div class="line"><a id="l00096" name="l00096"></a><span class="lineno">   96</span>        .<a class="code hl_variable" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a138533f983796a8a668af3c53b4ad59b">mesh</a> = mesh,</div>
-<div class="line"><a id="l00097" name="l00097"></a><span class="lineno">   97</span>        .transform = _compress(transform),</div>
-<div class="line"><a id="l00098" name="l00098"></a><span class="lineno">   98</span>        .visible = visible};</div>
-<div class="line"><a id="l00099" name="l00099"></a><span class="lineno">   99</span>    _instances.emplace_back(instance);</div>
-<div class="line"><a id="l00100" name="l00100"></a><span class="lineno">  100</span>    _resources.emplace(mesh-&gt;vertex_buffer());</div>
-<div class="line"><a id="l00101" name="l00101"></a><span class="lineno">  101</span>    _resources.emplace(mesh-&gt;triangle_buffer());</div>
-<div class="line"><a id="l00102" name="l00102"></a><span class="lineno">  102</span>    _resources.emplace(<span class="keyword">reinterpret_cast&lt;</span>uint64_t<span class="keyword">&gt;</span>(mesh));</div>
-<div class="line"><a id="l00103" name="l00103"></a><span class="lineno">  103</span>}</div>
-<div class="line"><a id="l00104" name="l00104"></a><span class="lineno">  104</span> </div>
-<div class="line"><a id="l00105" name="l00105"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a060c4a2eae8449db906d5576771ddd5c">  105</a></span><span class="keywordtype">void</span> ISPCAccel::pop_mesh() noexcept { _instances.pop_back(); }</div>
-<div class="line"><a id="l00106" name="l00106"></a><span class="lineno">  106</span> </div>
-<div class="line"><a id="l00107" name="l00107"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a78cbd0d950b5bf9a48bd0dcb4120c6b8">  107</a></span><span class="keywordtype">void</span> ISPCAccel::set_mesh(<span class="keywordtype">size_t</span> index, <span class="keyword">const</span> <a class="code hl_class" href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html">ISPCMesh</a> *mesh, <a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> transform, <span class="keywordtype">bool</span> visible) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00108" name="l00108"></a><span class="lineno">  108</span>    _instances[index] = {</div>
-<div class="line"><a id="l00109" name="l00109"></a><span class="lineno">  109</span>        .mesh = mesh,</div>
-<div class="line"><a id="l00110" name="l00110"></a><span class="lineno">  110</span>        .transform = _compress(transform),</div>
-<div class="line"><a id="l00111" name="l00111"></a><span class="lineno">  111</span>        .visible = visible};</div>
-<div class="line"><a id="l00112" name="l00112"></a><span class="lineno">  112</span>    _resources.emplace(mesh-&gt;vertex_buffer());</div>
-<div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span>    _resources.emplace(mesh-&gt;triangle_buffer());</div>
-<div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span>    _resources.emplace(<span class="keyword">reinterpret_cast&lt;</span>uint64_t<span class="keyword">&gt;</span>(mesh));</div>
-<div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span>}</div>
-<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span> </div>
-<div class="line"><a id="l00117" name="l00117"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ab8c0c24b19191e9177c346d143ae49d6">  117</a></span><span class="keywordtype">void</span> ISPCAccel::set_visibility(<span class="keywordtype">size_t</span> index, <span class="keywordtype">bool</span> visible) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>    _instances[index].visible = visible;</div>
-<div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span>    _dirty.mark(index);</div>
-<div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span>}</div>
-<div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span> </div>
-<div class="line"><a id="l00122" name="l00122"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae521fa2bf5b51bee1eac3ebc133b4cf6">  122</a></span><span class="keywordtype">void</span> ISPCAccel::set_transform(<span class="keywordtype">size_t</span> index, <a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> transform) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00123" name="l00123"></a><span class="lineno">  123</span>    _instances[index].transform = _compress(transform);</div>
-<div class="line"><a id="l00124" name="l00124"></a><span class="lineno">  124</span>    _dirty.mark(index);</div>
-<div class="line"><a id="l00125" name="l00125"></a><span class="lineno">  125</span>}</div>
-<div class="line"><a id="l00126" name="l00126"></a><span class="lineno">  126</span> </div>
-<div class="line"><a id="l00127" name="l00127"></a><span class="lineno">  127</span>std::array&lt;float, 12&gt; ISPCAccel::_compress(<a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> m) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00128" name="l00128"></a><span class="lineno">  128</span>    <span class="keywordflow">return</span> {m[0].x, m[1].x, m[2].x, m[3].x,</div>
-<div class="line"><a id="l00129" name="l00129"></a><span class="lineno">  129</span>            m[0].y, m[1].y, m[2].y, m[3].y,</div>
-<div class="line"><a id="l00130" name="l00130"></a><span class="lineno">  130</span>            m[0].z, m[1].z, m[2].z, m[3].z};</div>
-<div class="line"><a id="l00131" name="l00131"></a><span class="lineno">  131</span>}</div>
-<div class="line"><a id="l00132" name="l00132"></a><span class="lineno">  132</span> </div>
-<div class="line"><a id="l00133" name="l00133"></a><span class="lineno">  133</span><a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> ISPCAccel::_decompress(std::array&lt;float, 12&gt; m) <span class="keyword">noexcept</span> {</div>
-<div class="line"><a id="l00134" name="l00134"></a><span class="lineno">  134</span>    <span class="keywordflow">return</span> <a class="code hl_function" href="../../d0/d38/namespaceluisa.html#a5a2dbdc7f836f21eb648fa848abf7035">luisa::make_float4x4</a>(</div>
-<div class="line"><a id="l00135" name="l00135"></a><span class="lineno">  135</span>        m[0], m[4], m[8], 0.f,</div>
-<div class="line"><a id="l00136" name="l00136"></a><span class="lineno">  136</span>        m[1], m[5], m[9], 0.f,</div>
-<div class="line"><a id="l00137" name="l00137"></a><span class="lineno">  137</span>        m[2], m[6], m[10], 0.f,</div>
-<div class="line"><a id="l00138" name="l00138"></a><span class="lineno">  138</span>        m[3], m[7], m[11], 1.f);</div>
-<div class="line"><a id="l00139" name="l00139"></a><span class="lineno">  139</span>}</div>
-<div class="line"><a id="l00140" name="l00140"></a><span class="lineno">  140</span> </div>
-<div class="line"><a id="l00141" name="l00141"></a><span class="lineno">  141</span>}<span class="comment">// namespace luisa::compute::ispc</span></div>
+<div class="line"><a id="l00035" name="l00035"></a><span class="lineno">   35</span>    <span class="keyword">using</span> Mod = <a class="code hl_struct" href="../../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html">AccelBuildCommand::Modification</a>;</div>
+<div class="line"><a id="l00036" name="l00036"></a><span class="lineno">   36</span>    pool.async([<span class="keyword">this</span>, instance_count, mods = luisa::vector&lt;Mod&gt;{mods.cbegin(), mods.cend()}]() {</div>
+<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span>        <span class="keywordflow">if</span> (instance_count &lt; _instances.size()) {<span class="comment">// remove redundant geometries</span></div>
+<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span>            <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = instance_count; i &lt; _instances.size(); i++) { rtcDetachGeometry(_handle, i); }</div>
+<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span>            _instances.resize(instance_count);</div>
+<div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span>        } <span class="keywordflow">else</span> {<span class="comment">// create new geometries</span></div>
+<div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span>            <span class="keyword">auto</span> device = rtcGetSceneDevice(_handle);</div>
+<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span>            _instances.reserve(<a class="code hl_function" href="../../d0/d38/namespaceluisa.html#a126aec1ef45bd8dd50e8b1a00a9e5cb0">next_pow2</a>(instance_count));</div>
+<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span>            <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = _instances.size(); i &lt; instance_count; i++) {</div>
+<div class="line"><a id="l00044" name="l00044"></a><span class="lineno">   44</span>                <span class="keyword">auto</span> geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);</div>
+<div class="line"><a id="l00045" name="l00045"></a><span class="lineno">   45</span>                rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);</div>
+<div class="line"><a id="l00046" name="l00046"></a><span class="lineno">   46</span>                rtcAttachGeometryByID(_handle, geometry, i);</div>
+<div class="line"><a id="l00047" name="l00047"></a><span class="lineno">   47</span>                rtcReleaseGeometry(geometry);<span class="comment">// already moved into the scene</span></div>
+<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span>                _instances.emplace_back().geometry = geometry;</div>
+<div class="line"><a id="l00049" name="l00049"></a><span class="lineno">   49</span>            }</div>
+<div class="line"><a id="l00050" name="l00050"></a><span class="lineno">   50</span>        }</div>
+<div class="line"><a id="l00051" name="l00051"></a><span class="lineno">   51</span>        <span class="keywordflow">for</span> (<span class="keyword">auto</span> m : mods) {</div>
+<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span>            <span class="keyword">auto</span> geometry = _instances[m.index].geometry;</div>
+<div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_mesh) { rtcSetGeometryInstancedScene(</div>
+<div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span>                geometry, <span class="keyword">reinterpret_cast&lt;</span><span class="keyword">const </span><a class="code hl_class" href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html">ISPCMesh</a> *<span class="keyword">&gt;</span>(m.mesh)-&gt;<a class="code hl_function" href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html#abff1bccdb5dbcb44dc5d2768221e3f53">handle</a>()); }</div>
+<div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_transform) { std::memcpy(</div>
+<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span>                _instances[m.index].affine, m.affine, <span class="keyword">sizeof</span>(m.affine)); }</div>
+<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_visibility_on) { _instances[m.index].visible = <span class="keyword">true</span>; }</div>
+<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_visibility_off) { _instances[m.index].visible = <span class="keyword">false</span>; }</div>
+<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>            _instances[m.index].dirty = <span class="keyword">true</span>;</div>
+<div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span>        }</div>
+<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>        <span class="keywordflow">for</span> (<span class="keyword">auto</span> &amp;&amp;instance : _instances) {</div>
+<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>            <span class="keywordflow">if</span> (instance.dirty) {</div>
+<div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>                <span class="keyword">auto</span> geometry = instance.geometry;</div>
+<div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>                rtcSetGeometryTransform(geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR, instance.affine);</div>
+<div class="line"><a id="l00065" name="l00065"></a><span class="lineno">   65</span>                instance.visible ? rtcEnableGeometry(geometry) : rtcDisableGeometry(geometry);</div>
+<div class="line"><a id="l00066" name="l00066"></a><span class="lineno">   66</span>                rtcCommitGeometry(geometry);</div>
+<div class="line"><a id="l00067" name="l00067"></a><span class="lineno">   67</span>                instance.dirty = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00068" name="l00068"></a><span class="lineno">   68</span>            }</div>
+<div class="line"><a id="l00069" name="l00069"></a><span class="lineno">   69</span>        }</div>
+<div class="line"><a id="l00070" name="l00070"></a><span class="lineno">   70</span>        rtcCommitScene(_handle);</div>
+<div class="line"><a id="l00071" name="l00071"></a><span class="lineno">   71</span>    });</div>
+<div class="line"><a id="l00072" name="l00072"></a><span class="lineno">   72</span>}</div>
+<div class="line"><a id="l00073" name="l00073"></a><span class="lineno">   73</span> </div>
+<div class="line"><a id="l00074" name="l00074"></a><span class="lineno">   74</span>std::array&lt;float, 12&gt; ISPCAccel::_compress(<a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> m) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00075" name="l00075"></a><span class="lineno">   75</span>    <span class="keywordflow">return</span> {m[0].x, m[1].x, m[2].x, m[3].x,</div>
+<div class="line"><a id="l00076" name="l00076"></a><span class="lineno">   76</span>            m[0].y, m[1].y, m[2].y, m[3].y,</div>
+<div class="line"><a id="l00077" name="l00077"></a><span class="lineno">   77</span>            m[0].z, m[1].z, m[2].z, m[3].z};</div>
+<div class="line"><a id="l00078" name="l00078"></a><span class="lineno">   78</span>}</div>
+<div class="line"><a id="l00079" name="l00079"></a><span class="lineno">   79</span> </div>
+<div class="line"><a id="l00080" name="l00080"></a><span class="lineno">   80</span><a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> ISPCAccel::_decompress(std::array&lt;float, 12&gt; m) <span class="keyword">noexcept</span> {</div>
+<div class="line"><a id="l00081" name="l00081"></a><span class="lineno">   81</span>    <span class="keywordflow">return</span> <a class="code hl_function" href="../../d0/d38/namespaceluisa.html#a5a2dbdc7f836f21eb648fa848abf7035">luisa::make_float4x4</a>(</div>
+<div class="line"><a id="l00082" name="l00082"></a><span class="lineno">   82</span>        m[0], m[4], m[8], 0.f,</div>
+<div class="line"><a id="l00083" name="l00083"></a><span class="lineno">   83</span>        m[1], m[5], m[9], 0.f,</div>
+<div class="line"><a id="l00084" name="l00084"></a><span class="lineno">   84</span>        m[2], m[6], m[10], 0.f,</div>
+<div class="line"><a id="l00085" name="l00085"></a><span class="lineno">   85</span>        m[3], m[7], m[11], 1.f);</div>
+<div class="line"><a id="l00086" name="l00086"></a><span class="lineno">   86</span>}</div>
+<div class="line"><a id="l00087" name="l00087"></a><span class="lineno">   87</span> </div>
+<div class="line"><a id="l00088" name="l00088"></a><span class="lineno">   88</span>}<span class="comment">// namespace luisa::compute::ispc</span></div>
 <div class="ttc" id="aclassluisa_1_1_thread_pool_html"><div class="ttname"><a href="../../d4/df2/classluisa_1_1_thread_pool.html">luisa::ThreadPool</a></div><div class="ttdoc">Thread pool class.</div><div class="ttdef"><b>Definition:</b> <a href="../../d3/dec/thread__pool_8h_source.html#l00023">thread_pool.h:23</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_a138533f983796a8a668af3c53b4ad59b"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a138533f983796a8a668af3c53b4ad59b">luisa::compute::ispc::ISPCAccel::Instance::mesh</a></div><div class="ttdeci">const ISPCMesh * mesh</div><div class="ttdef"><b>Definition:</b> <a href="../../db/d86/ispc__accel_8h_source.html#l00029">ispc_accel.h:29</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_a6c4299b8e002784d6b0e65e232f91d9f"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a6c4299b8e002784d6b0e65e232f91d9f">luisa::compute::ispc::ISPCAccel::build</a></div><div class="ttdeci">void build(ThreadPool &amp;pool) noexcept</div><div class="ttdoc">Build the accel structure.</div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00035">ispc_accel.cpp:35</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_a73d83a9f1fc30f93e5849878e544b2bb"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a73d83a9f1fc30f93e5849878e544b2bb">luisa::compute::ispc::ISPCAccel::ISPCAccel</a></div><div class="ttdeci">ISPCAccel(RTCDevice device, AccelBuildHint hint) noexcept</div><div class="ttdoc">Construct a new ISPCAccel object.</div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00010">ispc_accel.cpp:10</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_a999920e8ad6788b614b8d9c82d27e7ab"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a999920e8ad6788b614b8d9c82d27e7ab">luisa::compute::ispc::ISPCAccel::update</a></div><div class="ttdeci">void update(ThreadPool &amp;pool) noexcept</div><div class="ttdoc">Update the accel structure.</div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00071">ispc_accel.cpp:71</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_ae12eff50c4f72822f0fe3384228f6f6a"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae12eff50c4f72822f0fe3384228f6f6a">luisa::compute::ispc::ISPCAccel::~ISPCAccel</a></div><div class="ttdeci">~ISPCAccel() noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00028">ispc_accel.cpp:28</a></div></div>
-<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_d7/dc6/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_instance"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#d7/dc6/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_instance">luisa::compute::ispc::ISPCAccel::Instance</a></div><div class="ttdoc">Instance.</div><div class="ttdef"><b>Definition:</b> <a href="../../db/d86/ispc__accel_8h_source.html#l00028">ispc_accel.h:28</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_a3ba0ed7928e39e45269fc1453e3f58b8"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a3ba0ed7928e39e45269fc1453e3f58b8">luisa::compute::ispc::ISPCAccel::build</a></div><div class="ttdeci">void build(ThreadPool &amp;pool, size_t instance_count, luisa::span&lt; const AccelBuildCommand::Modification &gt; mods) noexcept</div><div class="ttdoc">Build (or rebuild) the acceleration structure.</div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00032">ispc_accel.cpp:32</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_aa9f222e2312cd9c8f33123b3c9a2f34f"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#aa9f222e2312cd9c8f33123b3c9a2f34f">luisa::compute::ispc::ISPCAccel::ISPCAccel</a></div><div class="ttdeci">ISPCAccel(RTCDevice device, AccelUsageHint hint) noexcept</div><div class="ttdoc">Construct a new ISPCAccel object.</div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00012">ispc_accel.cpp:12</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_html_ae12eff50c4f72822f0fe3384228f6f6a"><div class="ttname"><a href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae12eff50c4f72822f0fe3384228f6f6a">luisa::compute::ispc::ISPCAccel::~ISPCAccel</a></div><div class="ttdeci">~ISPCAccel() noexcept</div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00030">ispc_accel.cpp:30</a></div></div>
 <div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh_html"><div class="ttname"><a href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html">luisa::compute::ispc::ISPCMesh</a></div><div class="ttdoc">Mesh object of ispc.</div><div class="ttdef"><b>Definition:</b> <a href="../../db/d56/ispc__mesh_8h_source.html#l00015">ispc_mesh.h:15</a></div></div>
+<div class="ttc" id="aclassluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh_html_abff1bccdb5dbcb44dc5d2768221e3f53"><div class="ttname"><a href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html#abff1bccdb5dbcb44dc5d2768221e3f53">luisa::compute::ispc::ISPCMesh::handle</a></div><div class="ttdeci">auto handle() const noexcept</div><div class="ttdoc">Return handle of mesh's singleton scene.</div><div class="ttdef"><b>Definition:</b> <a href="../../db/d56/ispc__mesh_8h_source.html#l00066">ispc_mesh.h:66</a></div></div>
 <div class="ttc" id="aispc__accel_8h_html"><div class="ttname"><a href="../../db/d86/ispc__accel_8h.html">ispc_accel.h</a></div></div>
 <div class="ttc" id="aispc__mesh_8h_html"><div class="ttname"><a href="../../db/d56/ispc__mesh_8h.html">ispc_mesh.h</a></div></div>
-<div class="ttc" id="anamespaceluisa_1_1compute_1_1ispc_html"><div class="ttname"><a href="../../d9/df8/namespaceluisa_1_1compute_1_1ispc.html">luisa::compute::ispc</a></div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00008">ispc_accel.cpp:8</a></div></div>
-<div class="ttc" id="anamespaceluisa_1_1compute_html_a47ec3d1dbbeeb43c3c6b14c70eae0fc7"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7">luisa::compute::AccelBuildHint</a></div><div class="ttdeci">AccelBuildHint</div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00488">command.h:488</a></div></div>
-<div class="ttc" id="anamespaceluisa_1_1compute_html_a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3ee04c55cf26a4490634a531edf2ae5e"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3ee04c55cf26a4490634a531edf2ae5e">luisa::compute::AccelBuildHint::FAST_UPDATE</a></div><div class="ttdeci">@ FAST_UPDATE</div></div>
-<div class="ttc" id="anamespaceluisa_1_1compute_html_a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7a3f684dca71b75eb53a8a25920db6a67f">luisa::compute::AccelBuildHint::FAST_TRACE</a></div><div class="ttdeci">@ FAST_TRACE</div></div>
-<div class="ttc" id="anamespaceluisa_1_1compute_html_a47ec3d1dbbeeb43c3c6b14c70eae0fc7aec875e59af66c8fffc6d99f66ebdaad3"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#a47ec3d1dbbeeb43c3c6b14c70eae0fc7aec875e59af66c8fffc6d99f66ebdaad3">luisa::compute::AccelBuildHint::FAST_REBUILD</a></div><div class="ttdeci">@ FAST_REBUILD</div></div>
+<div class="ttc" id="anamespaceluisa_1_1compute_1_1ispc_html"><div class="ttname"><a href="../../d9/df8/namespaceluisa_1_1compute_1_1ispc.html">luisa::compute::ispc</a></div><div class="ttdef"><b>Definition:</b> <a href="../../dc/d06/ispc__accel_8cpp_source.html#l00010">ispc_accel.cpp:10</a></div></div>
+<div class="ttc" id="anamespaceluisa_1_1compute_html_ab6205269570440af8831ce5496c902f0"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0">luisa::compute::AccelUsageHint</a></div><div class="ttdeci">AccelUsageHint</div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00467">command.h:467</a></div></div>
+<div class="ttc" id="anamespaceluisa_1_1compute_html_ab6205269570440af8831ce5496c902f0a3ee04c55cf26a4490634a531edf2ae5e"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a3ee04c55cf26a4490634a531edf2ae5e">luisa::compute::AccelUsageHint::FAST_UPDATE</a></div><div class="ttdeci">@ FAST_UPDATE</div></div>
+<div class="ttc" id="anamespaceluisa_1_1compute_html_ab6205269570440af8831ce5496c902f0a3f684dca71b75eb53a8a25920db6a67f"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a3f684dca71b75eb53a8a25920db6a67f">luisa::compute::AccelUsageHint::FAST_TRACE</a></div><div class="ttdeci">@ FAST_TRACE</div></div>
+<div class="ttc" id="anamespaceluisa_1_1compute_html_ab6205269570440af8831ce5496c902f0a8f43d2d9234f74c301bb1cb64f947505"><div class="ttname"><a href="../../d8/d37/namespaceluisa_1_1compute.html#ab6205269570440af8831ce5496c902f0a8f43d2d9234f74c301bb1cb64f947505">luisa::compute::AccelUsageHint::FAST_BUILD</a></div><div class="ttdeci">@ FAST_BUILD</div></div>
+<div class="ttc" id="anamespaceluisa_html_a126aec1ef45bd8dd50e8b1a00a9e5cb0"><div class="ttname"><a href="../../d0/d38/namespaceluisa.html#a126aec1ef45bd8dd50e8b1a00a9e5cb0">luisa::next_pow2</a></div><div class="ttdeci">constexpr auto next_pow2(T v) noexcept</div><div class="ttdoc">Find next 2^n of v.</div><div class="ttdef"><b>Definition:</b> <a href="../../d1/dbe/mathematics_8h_source.html#l00023">mathematics.h:23</a></div></div>
 <div class="ttc" id="anamespaceluisa_html_a5a2dbdc7f836f21eb648fa848abf7035"><div class="ttname"><a href="../../d0/d38/namespaceluisa.html#a5a2dbdc7f836f21eb648fa848abf7035">luisa::make_float4x4</a></div><div class="ttdeci">constexpr auto make_float4x4(float s=1.0f) noexcept</div><div class="ttdoc">make float4x4</div><div class="ttdef"><b>Definition:</b> <a href="../../da/d1e/basic__types_8h_source.html#l00590">basic_types.h:590</a></div></div>
+<div class="ttc" id="astl_8h_html"><div class="ttname"><a href="../../d5/d51/stl_8h.html">stl.h</a></div></div>
 <div class="ttc" id="astructluisa_1_1_matrix_3_014_01_4_html"><div class="ttname"><a href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">luisa::Matrix&lt; 4 &gt;</a></div><div class="ttdoc">4x4 matrix</div><div class="ttdef"><b>Definition:</b> <a href="../../da/d1e/basic__types_8h_source.html#l00151">basic_types.h:151</a></div></div>
+<div class="ttc" id="astructluisa_1_1compute_1_1_accel_build_command_1_1_modification_html"><div class="ttname"><a href="../../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html">luisa::compute::AccelBuildCommand::Modification</a></div><div class="ttdef"><b>Definition:</b> <a href="../../d0/d09/command_8h_source.html#l00501">command.h:501</a></div></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->

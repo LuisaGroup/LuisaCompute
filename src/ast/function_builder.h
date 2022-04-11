@@ -34,7 +34,7 @@ namespace luisa::compute::detail {
  * 
  * Build kernel or callable function
  */
-class FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
+class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
     friend class luisa::compute::FuncSerializer;
 
 private:
@@ -242,6 +242,7 @@ public:
     FunctionBuilder(const FunctionBuilder &) noexcept = delete;
     FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
     FunctionBuilder &operator=(const FunctionBuilder &) noexcept = delete;
+    ~FunctionBuilder() noexcept;
 
     /**
      * @brief Return current function builder on function stack.

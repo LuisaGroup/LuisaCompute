@@ -1,6 +1,11 @@
 var concepts =
 [
     [ "luisa", "d0/d38/namespaceluisa.html", [
+      [ "compute", "d8/d37/namespaceluisa_1_1compute.html", [
+        [ "detail", "d3/df7/namespaceluisa_1_1compute_1_1detail.html", [
+          [ "vector_expr_compatible", "da/d5d/conceptluisa_1_1compute_1_1detail_1_1vector__expr__compatible.html", null ]
+        ] ]
+      ] ],
       [ "concepts", "d3/d9f/namespaceluisa_1_1concepts.html", [
         [ "iterable", "da/d9d/conceptluisa_1_1concepts_1_1iterable.html", null ],
         [ "string_viewable", "d7/d3a/conceptluisa_1_1concepts_1_1string__viewable.html", null ],
@@ -68,6 +73,10 @@ var concepts =
         [ "same", "d1/dc1/conceptluisa_1_1concepts_1_1same.html", null ],
         [ "different", "de/d9b/conceptluisa_1_1concepts_1_1different.html", null ],
         [ "vector_same_dimension", "d6/d78/conceptluisa_1_1concepts_1_1vector__same__dimension.html", null ]
+      ] ],
+      [ "detail", "d9/d99/namespaceluisa_1_1detail.html", [
+        [ "hashable_with_hash_method", "d4/d5d/conceptluisa_1_1detail_1_1hashable__with__hash__method.html", null ],
+        [ "hashable_with_hash_code_method", "df/d1e/conceptluisa_1_1detail_1_1hashable__with__hash__code__method.html", null ]
       ] ]
     ] ]
 ];

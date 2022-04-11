@@ -12,10 +12,12 @@
 #include <runtime/command_list.h>
 #include <runtime/command_buffer.h>
 #include <runtime/command_reorder_visitor.h>
+#include <runtime/image.h>
+#include <runtime/swap_chain.h>
 
 namespace luisa::compute {
 
-class Stream final : public Resource {
+class LC_RUNTIME_API Stream final : public Resource {
 
 public:
     friend class CommandBuffer;
@@ -39,8 +41,19 @@ public:
         Delegate &&operator<<(Command *cmd) &&noexcept;
         Delegate &&operator<<(Event::Signal signal) &&noexcept;
         Delegate &&operator<<(Event::Wait wait) &&noexcept;
+        Delegate &&operator<<(luisa::move_only_function<void()> &&f) &&noexcept;
         Delegate &&operator<<(CommandBuffer::Commit) &&noexcept;
         Delegate &&operator<<(CommandBuffer::Synchronize) &&noexcept;
+        Delegate &&operator<<(SwapChain::Present present) &&noexcept;
+
+        // compound commands
+        template<typename... T>
+        decltype(auto) operator<<(std::tuple<T...> args) noexcept {
+            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
+                return (*this << ... << std::get<i>(a));
+            };
+            return encode(std::move(args));
+        }
     };
 
 private:
@@ -57,10 +70,21 @@ public:
     Stream &operator<<(Event::Wait wait) noexcept;
     Stream &operator<<(CommandBuffer::Synchronize) noexcept;
     Stream &operator<<(CommandBuffer::Commit) noexcept { return *this; }
+    Stream &operator<<(luisa::move_only_function<void()> &&f) noexcept;
     Delegate operator<<(Command *cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
     [[nodiscard]] auto native_handle() const noexcept { return device()->stream_native_handle(handle()); }
     void synchronize() noexcept { _synchronize(); }
+    Stream &operator<<(SwapChain::Present p) noexcept;
+
+    // compound commands
+    template<typename... T>
+    decltype(auto) operator<<(std::tuple<T...> args) noexcept {
+        auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
+            return (*this << ... << std::get<i>(a));
+        };
+        return encode(std::move(args));
+    }
 };
 
 }// namespace luisa::compute

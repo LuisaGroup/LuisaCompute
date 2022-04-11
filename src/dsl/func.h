@@ -297,42 +297,19 @@ private:
 
 public:
     CallableInvoke() noexcept = default;
-    /// Add an argument
+    /// Add an argument.
     template<typename T>
-    requires std::negation_v<std::disjunction<is_image_or_view<T>, is_volume_or_view<T>>>
-        CallableInvoke &operator<<(Expr<T> arg) noexcept {
+    CallableInvoke &operator<<(Expr<T> arg) noexcept {
         if (_arg_count == max_argument_count) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
         }
         _args[_arg_count++] = arg.expression();
         return *this;
     }
-    /// Add an argument
+    /// Add an argument.
     template<typename T>
     decltype(auto) operator<<(Ref<T> arg) noexcept {
         return (*this << Expr{arg});
-    }
-    /// Add an image or view argument. Will actually add two arguments.
-    template<typename T>
-    requires is_image_or_view_v<T>
-        CallableInvoke &operator<<(Expr<T> arg) noexcept {
-        if (_arg_count == max_argument_count - 1u) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
-        }
-        _args[_arg_count++] = arg.expression();
-        _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint2(0u)) : arg.offset();
-        return *this;
-    }
-    /// Add a volume or view argument. Will actually add two arguments.
-    template<typename T>
-    requires is_volume_or_view_v<T>
-        CallableInvoke &operator<<(Expr<T> arg) noexcept {
-        if (_arg_count == max_argument_count - 1u) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
-        }
-        _args[_arg_count++] = arg.expression();
-        _args[_arg_count++] = arg.offset() == nullptr ? detail::extract_expression(uint3(0u)) : arg.offset();
-        return *this;
     }
     [[nodiscard]] auto args() const noexcept { return luisa::span{_args.data(), _arg_count}; }
 };

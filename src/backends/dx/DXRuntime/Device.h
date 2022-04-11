@@ -3,6 +3,7 @@
 #include <vstl/PoolAllocator.h>
 #include <Resource/BufferView.h>
 #include <vstl/VGuid.h>
+#include <dxgi1_4.h>
 class ElementAllocator;
 using Microsoft::WRL::ComPtr;
 namespace toolhub::directx {
@@ -10,6 +11,7 @@ class IGpuAllocator;
 class DescriptorHeap;
 class ComputeShader;
 class PipelineLibrary;
+class DXShaderCompiler;
 class Device {
     HANDLE eventHandle;
 
@@ -17,13 +19,15 @@ public:
     HANDLE EventHandle() const { return eventHandle; }
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
     Microsoft::WRL::ComPtr<ID3D12Device5> device;
-    Microsoft::WRL::ComPtr<IDXGIFactory1> dxgiFactory;
+    Microsoft::WRL::ComPtr<IDXGIFactory4> dxgiFactory;
     IGpuAllocator *defaultAllocator = nullptr;
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
+    ComputeShader const *setAccelKernel;
     Device();
     Device(Device const &) = delete;
     Device(Device &&) = delete;
     ~Device();
+    static DXShaderCompiler *Compiler();
 };
 }// namespace toolhub::directx

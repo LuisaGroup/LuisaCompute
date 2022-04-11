@@ -13,7 +13,7 @@ namespace luisa {
  * @brief Dynamic module loader
  * 
  */
-class DynamicModule : concepts::Noncopyable {
+class LC_CORE_API DynamicModule : concepts::Noncopyable {
 
 private:
     void *_handle{nullptr};

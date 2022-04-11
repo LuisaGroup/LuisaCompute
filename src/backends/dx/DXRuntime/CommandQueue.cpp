@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <DXRuntime/CommandQueue.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
@@ -24,7 +24,7 @@ CommandQueue::CommandQueue(
 CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
     if (maxAllocCount != std::numeric_limits<size_t>::max()) {
         std::unique_lock lck(mtx);
-        while (lastFrame - executedFrame >= maxAllocCount) {
+        while (lastFrame - executedFrame > maxAllocCount) {
             mainCv.wait(lck);
         }
     }
@@ -56,7 +56,7 @@ void CommandQueue::ExecuteThread() {
                 std::lock_guard lck(evt->globalMtx);
                 evt->finishedEvent = tarFrame;
             }
-            evt->cv.notify_one();
+            evt->cv.notify_all();
         };
         while (auto b = executedAllocators.Pop()) {
             b->multi_visit(
@@ -87,6 +87,17 @@ uint64 CommandQueue::Execute(AllocatorPtr &&alloc) {
     waitCv.notify_one();
     return lastFrame;
 }
+uint64 CommandQueue::ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain) {
+    alloc->ExecuteAndPresent(this, cmdFence.Get(), lastFrame + 1, swapChain);
+    executedAllocators.Push(std::move(alloc));
+    {
+        std::lock_guard lck(mtx);
+        lastFrame++;
+    }
+    waitCv.notify_one();
+    return lastFrame;
+}
+
 void CommandQueue::Complete(uint64 fence) {
     std::unique_lock lck(mtx);
     while (executedFrame < fence) {

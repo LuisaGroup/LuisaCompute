@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/Resource.h>
 namespace toolhub::directx {
 uint64 Resource::GetTextureSize(

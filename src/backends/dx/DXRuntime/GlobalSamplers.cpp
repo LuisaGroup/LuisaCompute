@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <DXRuntime/GlobalSamplers.h>
 namespace vstd {
 template<>

@@ -4,16 +4,16 @@
 
 #pragma once
 
-#include <core/basic_types.h>
 #include <core/stl.h>
+#include <core/hash.h>
 
 namespace luisa::compute {
 
-class ResourceTracker {
+class LC_RUNTIME_API ResourceTracker {
 
 private:
-    luisa::unordered_map<uint64_t, size_t> _buffer_ref_count;
-    luisa::unordered_map<uint64_t, size_t> _texture_ref_count;
+    luisa::unordered_map<uint64_t, size_t, Hash64> _buffer_ref_count;
+    luisa::unordered_map<uint64_t, size_t, Hash64> _texture_ref_count;
     luisa::vector<uint64_t> _buffers_to_remove;
     luisa::vector<uint64_t> _textures_to_remove;
 

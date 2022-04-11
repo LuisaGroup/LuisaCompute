@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/Device.h>
@@ -106,10 +106,10 @@ CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
     auto pureLineSize = width * Resource::GetTexturePixelSize(texture->Format());
     auto lineSize = CalcConstantBufferByteSize(pureLineSize);
     return {
-        pureLineSize * height * depth,
-        lineSize * height * depth,
-        lineSize,
-        pureLineSize};
+        size_t(pureLineSize * height * depth),
+        size_t(lineSize * height * depth),
+        size_t(lineSize),
+        size_t(pureLineSize)};
 }
 void CommandBufferBuilder::CopyBufferTexture(
     BufferView const &buffer,

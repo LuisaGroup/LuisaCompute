@@ -582,8 +582,8 @@ struct lc_float{i}x{i} {{
 }
 """, file=file)
 
-    def src2c(lib):
-        with open(f"{curr_dir}/{lib}.h", "r") as fin:
+    def src2c(lib, postfix):
+        with open(f"{curr_dir}/{lib}.{postfix}", "r") as fin:
             chars = [c for c in "".join(fin.readlines())] + ['\0']
         with open(f"{curr_dir}/{lib}_embedded.inl.h", "w") as fout:
             print(f"static const char {lib}_source[{len(chars) + 1}] = {{", file=fout)
@@ -596,5 +596,6 @@ struct lc_float{i}x{i} {{
                 print(f"    {line}{'' if row + 1 == rows else ','}", file=fout)
             print("};", file=fout)
 
-    src2c(math_library_name)
-    src2c(surf_library_name)
+    src2c(math_library_name, "h")
+    src2c(surf_library_name, "h")
+    src2c("cuda_accel_update", "ptx")

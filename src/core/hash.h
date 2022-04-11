@@ -37,7 +37,7 @@ concept hashable_with_hash_code_method = requires(T x) {
 
 }// namespace detail
 
-[[nodiscard]] std::string_view hash_to_string(uint64_t hash) noexcept;
+[[nodiscard]] LC_CORE_API std::string_view hash_to_string(uint64_t hash) noexcept;
 
 /// Hash 64 calculator
 class Hash64 {

@@ -3,6 +3,7 @@
 //
 
 #pragma once
+#include <core/dll_export.h>
 
 #ifdef __cplusplus
 #define LUISA_EXTERN_C extern "C"
@@ -13,7 +14,7 @@
 #endif
 
 #ifdef _MSC_VER
-#define LUISA_FORCE_INLINE __forceinline
+#define LUISA_FORCE_INLINE inline
 #define LUISA_NEVER_INLINE __declspec(noinline)
 #define LUISA_DLL
 #define LUISA_EXPORT_API LUISA_EXTERN_C __declspec(dllexport)
@@ -27,6 +28,7 @@
 #endif
 
 #if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
+
 #define LUISA_PLATFORM_WINDOWS
 #elif defined(__unix__) || defined(__unix) || defined(__APPLE__)
 #define LUISA_PLATFORM_UNIX

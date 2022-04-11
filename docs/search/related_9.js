@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['stream_0',['Stream',['../d2/d41/classluisa_1_1compute_1_1_command_buffer.html#ad8c01c67eaeefab6268f2f0872b47035',1,'luisa::compute::CommandBuffer']]]
+  ['observer_0',['Observer',['../d2/da4/classluisa_1_1_subject.html#a1bc1613ca5d6d0e8b2fbce5ef15dd38f',1,'luisa::Subject']]]
 ];

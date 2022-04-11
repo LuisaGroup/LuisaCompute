@@ -1,18 +1,19 @@
 var dir_990309150e550912c51f491806985127 =
 [
-    [ "compile_test", "dir_b810ece1f80ebbc6faa29f59eed93752.html", "dir_b810ece1f80ebbc6faa29f59eed93752" ],
     [ "ispc_support", "dir_4bcbceecc2efcafc1f221abbf819c043.html", "dir_4bcbceecc2efcafc1f221abbf819c043" ],
     [ "ispc_accel.cpp", "dc/d06/ispc__accel_8cpp.html", null ],
     [ "ispc_accel.h", "db/d86/ispc__accel_8h.html", [
       [ "luisa::compute::ispc::ISPCAccel", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel" ],
       [ "luisa::compute::ispc::ISPCAccel::Instance", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#d7/dc6/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_instance", [
-        [ "mesh", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a138533f983796a8a668af3c53b4ad59b", null ],
-        [ "transform", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a60ea24785addc4334d8399ff6f9a7b67", null ],
+        [ "affine", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a245408aaccebcbb26d156f67a5c37217", null ],
+        [ "dirty", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a6c4e692511eef9490d68e7fdd25ecede", null ],
+        [ "geometry", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ac5ddf6a97b60e837f10e3b363fec17e0", null ],
+        [ "pad", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ab2808bd957d012434ae087e6c8e3c682", null ],
         [ "visible", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ab35c521bdbed917f2ef0766ecd605826", null ]
       ] ],
       [ "luisa::compute::ispc::ISPCAccel::Handle", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#d7/d82/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_handle", [
-        [ "scene", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#add7b5222b3245790bf6e375c4dc22ca8", null ],
-        [ "transforms", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a2b83b71694802becd195b36e4264c105", null ]
+        [ "instances", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#af1f7cd86d4256eda7ce77d02f2b0d4bf", null ],
+        [ "scene", "dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#add7b5222b3245790bf6e375c4dc22ca8", null ]
       ] ]
     ] ],
     [ "ispc_bindless_array.cpp", "df/d41/ispc__bindless__array_8cpp.html", null ],
