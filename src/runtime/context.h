@@ -29,9 +29,9 @@ public:
     ~Context() noexcept;
     [[nodiscard]] const std::filesystem::path &runtime_directory() const noexcept;
     [[nodiscard]] const std::filesystem::path &cache_directory() const noexcept;
-    [[nodiscard]] Device create_device(
-        luisa::string_view backend_name,
-        luisa::string_view property_json = "{}") noexcept;
+    [[nodiscard]] Device create_device(luisa::string_view backend_name, luisa::string_view property_json = "{}") noexcept;
+    [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;
+    [[nodiscard]] Device create_default_device() noexcept;
 };
 
 }// namespace luisa::compute

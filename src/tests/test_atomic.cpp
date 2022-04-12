@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    auto device = context.create_device("metal");
 
     auto buffer = device.create_buffer<uint>(4u);
     Kernel1D count_kernel = [&]() noexcept {
