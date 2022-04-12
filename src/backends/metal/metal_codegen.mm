@@ -625,25 +625,6 @@ void MetalCodegen::_emit_type_name(const Type *type) noexcept {
 
 void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
     switch (v.tag()) {
-        case Variable::Tag::LOCAL:
-            if (_function.tag() == Function::Tag::KERNEL) {
-                _scratch << "constant ";
-                _emit_type_name(v.type());
-                _scratch << " &";
-                if (auto usage = _function.variable_usage(v.uid());
-                    usage == Usage::WRITE || usage == Usage::READ_WRITE) {
-                    _scratch << "u";
-                }
-            } else {
-                if (auto usage = _function.variable_usage(v.uid());
-                    usage == Usage::NONE || usage == Usage::READ) {
-                    _scratch << "const ";
-                }
-                _emit_type_name(v.type());
-                _scratch << " ";
-            }
-            _emit_variable_name(v);
-            break;
         case Variable::Tag::REFERENCE:
             if (_function.tag() == Function::Tag::KERNEL) {
                 LUISA_ERROR_WITH_LOCATION(
@@ -689,8 +670,24 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         default:
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid argument type.");
+            if (_function.tag() == Function::Tag::KERNEL) {
+                _scratch << "constant ";
+                _emit_type_name(v.type());
+                _scratch << " &";
+                if (auto usage = _function.variable_usage(v.uid());
+                    usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                    _scratch << "u";
+                }
+            } else {
+                if (auto usage = _function.variable_usage(v.uid());
+                    usage == Usage::NONE || usage == Usage::READ) {
+                    _scratch << "const ";
+                }
+                _emit_type_name(v.type());
+                _scratch << " ";
+            }
+            _emit_variable_name(v);
+            break;
     }
 }
 
@@ -1301,7 +1298,6 @@ struct Accel {
 }
 
 )";
-
 }
 
 }

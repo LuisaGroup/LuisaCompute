@@ -690,13 +690,10 @@ void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _scratch << "const LCAccel ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::LOCAL:
-//            if (readonly || force_const) { _scratch << "const "; }
+        default:
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
-            break;
-        default:
             break;
     }
 }

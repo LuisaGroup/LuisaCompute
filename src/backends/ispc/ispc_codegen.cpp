@@ -815,12 +815,10 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _scratch << "uniform const LCAccel ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::LOCAL:
+        default:
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
-            break;
-        default:
             break;
     }
 }
