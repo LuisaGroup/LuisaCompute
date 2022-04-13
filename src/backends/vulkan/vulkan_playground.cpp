@@ -10,7 +10,7 @@
 #include <vulkan/vulkan.h>
 #include <shaderc/shaderc.hpp>
 
-inline std::string vulkan_error_string(VkResult code) noexcept {
+inline std::string vulkan_result_code_string(VkResult code) noexcept {
     switch (code) {
         case VK_SUCCESS: return "SUCCESS";
         case VK_NOT_READY: return "NOT_READY";
@@ -30,37 +30,24 @@ inline std::string vulkan_error_string(VkResult code) noexcept {
         case VK_ERROR_TOO_MANY_OBJECTS: return "ERROR_TOO_MANY_OBJECTS";
         case VK_ERROR_FORMAT_NOT_SUPPORTED: return "ERROR_FORMAT_NOT_SUPPORTED";
         case VK_ERROR_FRAGMENTED_POOL: return "ERROR_FRAGMENTED_POOL";
-        case VK_ERROR_SURFACE_LOST_KHR: return "ERROR_SURFACE_LOST_KHR";
-        case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR: return "ERROR_NATIVE_WINDOW_IN_USE_KHR";
-        case VK_SUBOPTIMAL_KHR: return "SUBOPTIMAL_KHR";
-        case VK_ERROR_OUT_OF_DATE_KHR: return "ERROR_OUT_OF_DATE_KHR";
-        case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR: return "ERROR_INCOMPATIBLE_DISPLAY_KHR";
         case VK_ERROR_UNKNOWN: return "ERROR_UNKNOWN";
         case VK_ERROR_OUT_OF_POOL_MEMORY: return "ERROR_OUT_OF_POOL_MEMORY";
         case VK_ERROR_INVALID_EXTERNAL_HANDLE: return "ERROR_INVALID_EXTERNAL_HANDLE";
         case VK_ERROR_FRAGMENTATION: return "ERROR_FRAGMENTATION";
         case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS: return "ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS";
         case VK_ERROR_VALIDATION_FAILED_EXT: return "ERROR_VALIDATION_FAILED_EXT";
-        case VK_ERROR_INVALID_SHADER_NV: return "ERROR_INVALID_SHADER_NV";
-        case VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT: return "ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT";
-        case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: return "ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT";
-        case VK_THREAD_IDLE_KHR: return "THREAD_IDLE_KHR";
-        case VK_THREAD_DONE_KHR: return "THREAD_DONE_KHR";
-        case VK_OPERATION_DEFERRED_KHR: return "OPERATION_DEFERRED_KHR";
-        case VK_OPERATION_NOT_DEFERRED_KHR: return "OPERATION_NOT_DEFERRED_KHR";
-        case VK_RESULT_MAX_ENUM: return "RESULT_MAX_ENUM";
         default: break;
     }
-    return "UNKNOWN_ERROR(" + std::to_string(code) + ")";
+    return "UNKNOWN_RESULT_CODE(" + std::to_string(code) + ")";
 }
 
 inline void check_vulkan_impl(VkResult code, const char *file, int line) noexcept {
     if (code == VK_SUCCESS) { return; }
     if (code > 0) {// warning
-        std::cerr << "Vulkan warning: " << vulkan_error_string(code)
+        std::cerr << "Vulkan warning: " << vulkan_result_code_string(code)
                   << " [" << file << ":" << line << "]" << std::endl;
     } else {
-        std::cerr << "Vulkan error: " << vulkan_error_string(code)
+        std::cerr << "Vulkan error: " << vulkan_result_code_string(code)
                   << " [" << file << ":" << line << "]" << std::endl;
         std::exit(1);
     }
