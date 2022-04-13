@@ -88,7 +88,7 @@ int main() {
     messengerCreateInfo.pfnUserCallback = [](VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                              VkDebugUtilsMessageTypeFlagsEXT type,
                                              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
-                                             void *) noexcept {
+                                             void *userData [[maybe_unused]]) noexcept -> VkBool32 {
         using namespace std::string_view_literals;
         auto severity_desc = [severity] {
             switch (severity) {
