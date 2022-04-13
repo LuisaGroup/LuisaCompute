@@ -85,7 +85,10 @@ int main() {
                                       VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                                       VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     messengerCreateInfo.pUserData = nullptr;
-    messengerCreateInfo.pfnUserCallback = [](auto severity, auto type, auto pCallbackData, auto) noexcept {
+    messengerCreateInfo.pfnUserCallback = [](VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                             VkDebugUtilsMessageTypeFlagsEXT type,
+                                             const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+                                             void *) noexcept {
         using namespace std::string_view_literals;
         auto severity_desc = [severity] {
             switch (severity) {
@@ -261,6 +264,7 @@ void main() {
     shaderc::CompileOptions options;
     options.SetOptimizationLevel(shaderc_optimization_level_performance);
     options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1);
+    options.SetSourceLanguage(shaderc_source_language_glsl);
     auto compilationResult = compiler.CompileGlslToSpv(
         shaderSource.data(), shaderSource.size(),
         shaderc_glsl_compute_shader, "shader.comp", options);
