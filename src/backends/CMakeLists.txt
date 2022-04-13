@@ -29,6 +29,10 @@ if (LUISA_COMPUTE_ENABLE_ISPC)
     add_subdirectory(ispc)
 endif ()
 
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    add_subdirectory(vulkan)
+endif ()
+
 #if (LUISA_COMPUTE_ENABLE_REMOTE)
 #    add_subdirectory(remote)
 #endif ()
