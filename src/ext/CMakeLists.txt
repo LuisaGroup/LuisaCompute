@@ -2,6 +2,26 @@ add_library(luisa-compute-ext SHARED dummy.cpp)
 set_target_properties(luisa-compute-ext PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    find_package(Vulkan)
+    if (NOT Vulkan_FOUND)
+        message(WARNING "Vulkan is not found. Vulkan backend will be disabled.")
+        set(LUISA_COMPUTE_ENABLE_VULKAN OFF CACHE BOOL "" FORCE)
+    else ()
+        set(ENABLE_PCH OFF CACHE BOOL "" FORCE) # CMake generates -Xarch_* flags that leads to build errors on macOS
+        add_subdirectory(glslang)
+        add_subdirectory(SPIRV-Headers)
+        add_subdirectory(SPIRV-Tools)
+        set(SHADERC_SKIP_TESTS ON CACHE BOOL "" FORCE)
+        set(SHADERC_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
+        set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
+        set(SHADERC_ENABLE_SHARED_CRT ON CACHE BOOL "" FORCE)
+        add_subdirectory(shaderc)
+        set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
+        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan shaderc_shared)
+    endif ()
+endif ()
+
 set(FMT_OS OFF CACHE BOOL "" FORCE)
 add_subdirectory(fmt)
 target_compile_definitions(fmt-header-only INTERFACE
