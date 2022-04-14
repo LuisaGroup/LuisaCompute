@@ -134,9 +134,12 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<Type>(m, "Type")
         .def_static("from_", &Type::from, pyref)
         .def("size", &Type::size)
-        .def("is_array", &Type::is_array)
+        .def("alignment", &Type::alignment)
+        .def("is_scalar", &Type::is_scalar)
         .def("is_vector", &Type::is_vector)
         .def("is_matrix", &Type::is_matrix)
+        .def("is_basic", &Type::is_basic)
+        .def("is_array", &Type::is_array)
         .def("is_structure", &Type::is_structure)
         .def("is_buffer", &Type::is_buffer)
         .def("is_texture", &Type::is_texture)
@@ -207,6 +210,9 @@ PYBIND11_MODULE(lcapi, m) {
     // TODO export matrix operators
 
 
+    m.def("to_bytes", [](LiteralExpr::Value value){
+        return luisa::visit([](auto x) noexcept { return py::bytes(std::string(reinterpret_cast<char*>(&x), sizeof(x))); }, value);
+    });
 
 
 }
