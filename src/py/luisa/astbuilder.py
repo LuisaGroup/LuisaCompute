@@ -1,6 +1,9 @@
+import ast
 import lcapi
 from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
+from .types import scalar_types, basic_types
 from .vector import Vector
+from .buffer import Buffer
 
 class ASTVisitor:
     def __call__(self, ctx, node):
@@ -46,11 +49,10 @@ class ASTVisitor:
                     builtin_op = lcapi.CallOp.BUFFER_WRITE
             if builtin_op is None:
                 raise Exception('unsupported method')
+            node.dtype = return_type
             if return_type is None:
-                node.dtype = None
                 lcapi.builder().call(builtin_op, [node.func.value.expr] + [x.expr for x in node.args])
             else: # function call has return value
-                node.dtype = return_type
                 node.expr = lcapi.builder().call(return_type, builtin_op, [node.func.value.expr] + [x.expr for x in node.args])
         else:
             raise Exception('unrecognized call func type')
