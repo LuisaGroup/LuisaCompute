@@ -10,15 +10,23 @@ class Buffer:
         self.bytesize = size * lcapi.Type.from_(dtype.__name__).size()
         self.handle = globalvars.device.impl().create_buffer(self.bytesize)
 
-    def async_copy_from(self, arr): # arr: numpy array
+    def copy_from(self, arr, sync = True, stream = None): # arr: numpy array
+        if stream is None:
+            stream = globalvars.stream
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, arr)
-        globalvars.stream.add(ulcmd)
+        stream.add(ulcmd)
+        if sync:
+            stream.synchronize()
 
-    def async_copy_to(self, arr): # arr: numpy array
+    def copy_to(self, arr, sync = True, stream = None): # arr: numpy array
+        if stream is None:
+            stream = globalvars.stream
         assert arr.size * arr.itemsize == self.bytesize
         dlcmd = lcapi.BufferDownloadCommand.create(self.handle, 0, self.bytesize, arr)
-        globalvars.stream.add(dlcmd)
+        stream.add(dlcmd)
+        if sync:
+            stream.synchronize()
 
     def read(self, idx):
         raise Exception("Method can only be called in Luisa kernel / callable")

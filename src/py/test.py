@@ -41,9 +41,9 @@ def f(a: int):
 arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
-b.async_copy_from(arr)
+b.copy_from(arr)
 f(42, dispatch_size = (100,1,1))
-b.async_copy_to(arr1)
+b.copy_to(arr1)
 
 
 print(arr1)
