@@ -74,7 +74,7 @@ class kernel:
         self.builder = lcapi.FunctionBuilder.define_kernel(astgen)
         self.func = self.builder.function()
         # compile shader
-        self.shader_handle = _global_device.impl().create_shader(self.func)
+        self.shader_handle = globalvars.device.impl().create_shader(self.func)
 
 
     # dispatch shader to stream
@@ -85,10 +85,16 @@ class kernel:
         # push arguments
         for idx, arg in enumerate(args):
             # TODO check arg types
-            if type(args) is int:
-                aa1 = struct.pack('i',42)
+            if type(arg) is int:
+                aa1 = struct.pack('i',arg)
                 command.encode_uniform(aa1,4,4)# TODO
-
+        command.set_dispatch_size(*dispatch_size)
+        stream.add(command)
         if sync:
             stream.synchronize()
+
+def synchronize(stream = None):
+    if stream is None:
+        stream = globalvars.stream
+    stream.synchronize()
 
