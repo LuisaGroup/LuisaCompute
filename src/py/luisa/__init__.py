@@ -5,7 +5,7 @@ import struct
 
 import lcapi
 from . import globalvars
-from .types import scalar_types
+from .types import basic_types, types
 from .buffer import Buffer
 from . import astbuilder
 
@@ -27,8 +27,8 @@ def create_param_exprs(params):
         elif type(anno) is lcapi.Type:
             l.append((name, anno, lcapi.builder().argument(anno)))
         # TODO: elif type(anno) is ref:
-        elif anno in scalar_types:
-            dtype = scalar_types[anno]
+        elif anno in basic_types:
+            dtype = basic_types[anno]
             l.append((name, dtype, lcapi.builder().argument(dtype)))
         elif type(anno) is str:
             dtype = lcapi.Type.from_(anno)
@@ -82,12 +82,24 @@ class kernel:
         if stream is None:
             stream = globalvars.stream
         command = lcapi.ShaderDispatchCommand.create(self.shader_handle, self.func)
-        # push arguments
-        for idx, arg in enumerate(args):
-            # TODO check arg types
-            if type(arg) is int:
-                aa1 = struct.pack('i',arg)
-                command.encode_uniform(aa1,4,4)# TODO
+        # check & push arguments
+        if len(args) != len(self.params):
+            raise Exception("")
+        for argid, arg in enumerate(args):
+            dtype = self.params[argid][1]
+            if dtype.is_basic():
+                # TODO argument type cast? (e.g. int to uint)
+                assert basic_types[type(arg)] == dtype
+                # command.encode_literal(arg)
+                command.encode_uniform(lcapi.to_bytes(arg), dtype.size(), dtype.alignment())
+            elif dtype.is_array():
+                assert len(arg) == dtype.dimension()
+                packed_bytes = b''
+                for x in arg:
+                    assert basic_types[type(x)] == dtype.element()
+                    packed_bytes += lcapi.to_bytes(x)
+                command.encode_uniform(packed_bytes, dtype.size(), dtype.alignment())
+
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
         if sync:

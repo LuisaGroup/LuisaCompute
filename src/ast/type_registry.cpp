@@ -20,6 +20,12 @@ const Type *TypeRegistry::_decode(std::string_view desc) noexcept {
     // MATRIX := matrix<2> | matrix<3> | matrix<4>
     // STRUCT := struct<4,TYPE...> | struct<8,TYPE...> | struct<16,TYPE...>
 
+    // buffer<Type>
+    // texture<n,int|uint|float>
+    // bindless_array
+    // accel
+
+
     auto hash = _hash(desc);
     if (auto iter = _type_set.find_as(hash, TypePtrHash{}, TypePtrEqual{});
         iter != _type_set.cend()) {

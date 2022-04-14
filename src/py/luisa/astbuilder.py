@@ -1,9 +1,24 @@
 import ast
+import astpretty
 import lcapi
 from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
 from .types import scalar_types, basic_types
-from .vector import Vector
+from .vector import is_swizzle_name, get_swizzle_code
 from .buffer import Buffer
+
+def dsl_local_array(node_dtype, node_size):
+    # Note: arguments are AST nodes
+    assert type(node_dtype) == ast.Name
+    if node_dtype.id in ('int','uint','float','bool'):
+        dtype = lcapi.Type.from_(node_dtype.id)
+    else:
+        raise Exception("array of vector/matrix not supported yet")
+    assert type(node_size) == ast.Constant
+    size = node_size.value
+
+    # TODO: support direct initialization from list / np array 
+    rettype = lcapi.Type.from_(f'array<{dtype.description()},{size}>')
+    return rettype, lcapi.builder().local(rettype)
 
 class ASTVisitor:
     def __call__(self, ctx, node):
@@ -31,12 +46,19 @@ class ASTVisitor:
 
     @staticmethod
     def build_Call(ctx, node):
-        for x in node.args:
-            build(ctx, x)
         if node.func.__class__.__name__ == "Name": # static function
             # check for builtins
-            node.dtype, node.expr = builtin_func(node.func.id, node.args)
+            if node.func.id == 'Array':
+                node.dtype, node.expr = dsl_local_array(*node.args)
+            elif node.func.id == 'Struct':
+                raise Exception("struct not supported")
+            else: # builtin functions
+                for x in node.args:
+                    build(ctx, x)
+                node.dtype, node.expr = builtin_func(node.func.id, node.args)
         elif node.func.__class__.__name__ == "Attribute": # class method
+            for x in node.args:
+                build(ctx, x)
             build(ctx, node.func.value)
             builtin_op = None
             return_type = None
@@ -62,16 +84,23 @@ class ASTVisitor:
         build(ctx, node.value)
         # vector swizzle
         if node.value.dtype.is_vector():
-            if Vector.is_swizzle_name(node.attr):
+            if is_swizzle_name(node.attr):
                 original_size = node.value.dtype.dimension()
                 swizzle_size = len(node.attr)
                 if swizzle_size == 1:
                     node.dtype = node.value.dtype.element()
                 else:
                     node.dtype = lcapi.Type.from_(f'vector<{node.value.dtype.element().description()},{swizzle_size}>')
-                swizzle_code = Vector.get_swizzle_code(node.attr, original_size)
+                swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.expr = lcapi.builder().swizzle(node.dtype, node.value.expr, swizzle_size, swizzle_code)
 
+    @staticmethod
+    def build_Subscript(ctx, node):
+        build(ctx, node.value)
+        build(ctx, node.slice)
+        assert node.value.dtype.is_array() # TODO: atomic
+        node.dtype = node.value.dtype.element()
+        node.expr = lcapi.builder().access(node.dtype, node.value.expr, node.slice.expr)
 
     @staticmethod
     def build_Name(ctx, node):
@@ -92,7 +121,7 @@ class ASTVisitor:
                 node.expr = lcapi.builder().buffer_binding(node.dtype, val.handle, 0)
                 return
 
-            raise Exception("unrecognized closure var type")
+            raise Exception("unrecognized closure var type:", type(val), node.id)
 
     @staticmethod
     def build_Constant(ctx, node):
