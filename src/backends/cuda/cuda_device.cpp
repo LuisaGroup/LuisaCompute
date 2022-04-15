@@ -4,7 +4,6 @@
 
 #include <cstring>
 #include <fstream>
-#include <omp.h>
 #include <future>
 #include <thread>
 
