@@ -1,5 +1,7 @@
 import ast
 import astpretty
+import inspect
+import sys
 import lcapi
 from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
 from .types import scalar_types, basic_types
@@ -13,7 +15,34 @@ class ASTVisitor:
         method = getattr(self, 'build_' + node.__class__.__name__, None)
         if method is None:
             raise Exception(f'Unsupported node {node}:\n{astpretty.pformat(node)}')
-        return method(ctx, node)
+        try:
+            # print(astpretty.pformat(node))
+            return method(ctx, node)
+        except Exception as e:
+            final_message = "error when building AST"
+            if str(e) != final_message:
+                self.print_error(ctx, node, e)
+            raise Exception(final_message)
+
+    @staticmethod
+    def print_error(ctx, node, e):
+        if sys.stdout.isatty():
+            red = "\x1b[31;1m"
+            green = "\x1b[32;1m"
+            bold = "\x1b[1m"
+            clr = "\x1b[0m"
+        else:
+            red = ""
+            green = ""
+            bold = ""
+            clr = ""
+        print(f"{bold}({ctx.__class__.__name__}){ctx.original_func.__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+        source = inspect.getsourcelines(ctx.original_func)[0][node.lineno-1: node.end_lineno]
+        for idx,line in enumerate(source):
+            print(line.rstrip('\n'))
+            startcol = node.col_offset if idx==0 else 0
+            endcol = node.end_col_offset if idx==len(source)-1 else len(line)
+            print(green + ' '*(startcol-1) + '~' * (endcol - startcol + 1) + clr)
 
     @staticmethod
     def build_FunctionDef(ctx, node):
@@ -37,7 +66,7 @@ class ASTVisitor:
         for x in node.args:
             build(ctx, x)
         if type(node.func) is ast.Name: # static function
-            build(ctx, node.func)
+            build.build_Name(ctx, node.func, allow_none = True)
             if type(node.func.expr) is ArrayType:
                 node.dtype = node.func.expr.luisa_type()
                 node.expr = lcapi.builder().local(node.dtype)
@@ -93,7 +122,7 @@ class ASTVisitor:
         node.expr = lcapi.builder().access(node.dtype, node.value.expr, node.slice.expr)
 
     @staticmethod
-    def build_Name(ctx, node):
+    def build_Name(ctx, node, allow_none = False):
         # Note: in Python all local variables are function-scoped
         if node.id in ctx.local_variable:
             node.dtype, node.expr = ctx.local_variable[node.id]
@@ -101,6 +130,8 @@ class ASTVisitor:
             val = ctx.closure_variable.get(node.id)
             # print("NAME:", node.id, "VALUE:", val)
             if val is None:
+                if not allow_none:
+                    raise Exception(f"undeclared idenfitier '{node.id}'")
                 node.expr = None
                 return
             if type(val) in basic_types:
@@ -129,7 +160,9 @@ class ASTVisitor:
     def build_Assign(ctx, node):
         if len(node.targets)!=1:
             raise Exception('Tuple assignment not supported')
-        build(ctx, node.targets[0])
+        # allows left hand side to be undefined
+        assert type(node.targets[0]) is ast.Name
+        build.build_Name(ctx, node.targets[0], allow_none = True)
         build(ctx, node.value)
         # create local variable if it doesn't exist yet
         if node.targets[0].expr is None:
