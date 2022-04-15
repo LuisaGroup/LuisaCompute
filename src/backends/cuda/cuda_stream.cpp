@@ -59,15 +59,9 @@ CUstream CUDAStream::handle(bool force_first_stream) const noexcept {
         return _worker_streams.front();
     }
     auto index = _round;
-    auto stream = _worker_streams[index];
-    if (index != 0u && !_used_streams.test(index)) {
-        LUISA_CHECK_CUDA(cuStreamWaitEvent(
-            stream, _worker_events.front(),
-            CU_EVENT_WAIT_DEFAULT));
-    }
     _used_streams.set(index);
     _round = (_round + 1u) % backed_cuda_stream_count;
-    return stream;
+    return _worker_streams[index];
 }
 
 void CUDAStream::dispatch_callbacks() noexcept {

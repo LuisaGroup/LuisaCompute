@@ -261,7 +261,7 @@ public:
     }
 
     void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept override {
-        auto cuda_stream = stream->handle();
+        auto cuda_stream = stream->handle(true);
         if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
             constexpr auto sbt_buffer_size = sizeof(SBTRecord) * 4u;
             auto sbt_record_buffer = stream->upload_pool()->allocate(sbt_buffer_size);
