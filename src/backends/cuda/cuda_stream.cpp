@@ -35,7 +35,7 @@ void CUDAStream::emplace_callback(CUDACallbackContext *cb) noexcept {
 
 void CUDAStream::barrier() noexcept {
     auto count = 0u;
-    for (auto i = 0u; i < backed_cuda_stream_count; i++) {
+    for (auto i = 1u; i < backed_cuda_stream_count; i++) {
         if (_used_streams.test(i)) {
             count++;
             auto event = _worker_events[i];
@@ -44,9 +44,10 @@ void CUDAStream::barrier() noexcept {
             LUISA_CHECK_CUDA(cuStreamWaitEvent(_worker_streams.front(), event, flags));
         }
     }
-    if (count > 1u) {
+    if (count > 0u) {
         LUISA_VERBOSE_WITH_LOCATION(
-            "Active concurrent CUDA streams: {}.", count);
+            "Active concurrent CUDA streams: {}.",
+            count + 1u);
     }
     _round = 0u;
     _used_streams.reset();
@@ -55,7 +56,6 @@ void CUDAStream::barrier() noexcept {
 CUstream CUDAStream::handle(bool force_first_stream) const noexcept {
     if (force_first_stream) {
         if (_round == 0u) { _round = 1u % backed_cuda_stream_count; }
-        _used_streams.set(0u);
         return _worker_streams.front();
     }
     auto index = _round;
