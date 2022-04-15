@@ -8,6 +8,7 @@ from . import globalvars
 from .types import basic_types, types
 from .buffer import Buffer
 from .arraytype import ArrayType
+from .structtype import StructType, _Struct
 from . import astbuilder
 
 
@@ -31,7 +32,7 @@ def create_param_exprs(params):
             dtype = basic_types[anno]
             l.append((name, dtype, lcapi.builder().argument(dtype)))
         elif type(anno) is ArrayType:
-            dtype = anno.luisa_type()
+            dtype = anno.luisa_type
             l.append((name, dtype, lcapi.builder().argument(dtype)))
         elif type(anno) is str:
             dtype = lcapi.Type.from_(anno)
@@ -94,15 +95,12 @@ class kernel:
             if dtype.is_basic():
                 # TODO argument type cast? (e.g. int to uint)
                 assert basic_types[type(arg)] == dtype
-                # command.encode_literal(arg)
                 command.encode_uniform(lcapi.to_bytes(arg), dtype.size(), dtype.alignment())
             elif dtype.is_array():
-                assert len(arg) == dtype.dimension()
-                packed_bytes = b''
-                for x in arg:
-                    assert basic_types[type(x)] == dtype.element()
-                    packed_bytes += lcapi.to_bytes(x)
-                command.encode_uniform(packed_bytes, dtype.size(), dtype.alignment())
+                command.encode_uniform(ArrayType(dtype)(arg).to_bytes(), dtype.size(), dtype.alignment())
+            elif dtype.is_structure():
+                assert type(arg) is _Struct
+                command.encode_uniform(arg.to_bytes(), dtype.size(), dtype.alignment())
             elif dtype.is_buffer():
                 print(type(arg), dtype.element().description(), arg.dtype.description())
                 assert type(arg) is Buffer and dtype.element() == arg.dtype

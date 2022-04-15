@@ -68,7 +68,7 @@ class ASTVisitor:
         if type(node.func) is ast.Name: # static function
             build.build_Name(ctx, node.func, allow_none = True)
             if type(node.func.expr) is ArrayType:
-                node.dtype = node.func.expr.luisa_type()
+                node.dtype = node.func.expr.luisa_type
                 node.expr = lcapi.builder().local(node.dtype)
                 assert len(node.args) == 0
                 # TODO: support initialization with arguments?
