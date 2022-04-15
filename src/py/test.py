@@ -26,8 +26,10 @@ b = luisa.Buffer(100, int)
 # x1 = lcapi.make_float2(6,10)
 # m1 = lcapi.make_float2x2(1,2,3,4)
 
+Arr = luisa.ArrayType(int,3)
+
 @luisa.kernel
-def f(a: int, arr: "array<int,3>"):
+def f(a: int, arr: Arr):
     idx = dispatch_id().x
     a += arr[0] * arr[1] + arr[2]
     # val = b.read(idx)
@@ -42,7 +44,7 @@ arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
 b.copy_from(arr)
-f(42, [123,456,987], dispatch_size = (100,1,1))
+f(42, [10,20,30], dispatch_size = (100,1,1))
 b.copy_to(arr1)
 
 
