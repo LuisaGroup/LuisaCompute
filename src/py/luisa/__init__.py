@@ -11,7 +11,6 @@ from .arraytype import ArrayType
 from . import astbuilder
 
 
-
 def init(backend_name):
     globalvars.context = lcapi.Context(lcapi.FsPath(""))
     globalvars.device = globalvars.context.create_device(backend_name)
@@ -103,6 +102,12 @@ class kernel:
                     assert basic_types[type(x)] == dtype.element()
                     packed_bytes += lcapi.to_bytes(x)
                 command.encode_uniform(packed_bytes, dtype.size(), dtype.alignment())
+            elif dtype.is_buffer():
+                print(type(arg), dtype.element().description(), arg.dtype.description())
+                assert type(arg) is Buffer and dtype.element() == arg.dtype
+                command.encode_buffer(arg.handle, 0)
+            else:
+                assert False
 
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)

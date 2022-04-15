@@ -21,7 +21,6 @@ import numpy as np
 
 
 luisa.init('ispc')
-b = luisa.Buffer(100, int)
 
 # x1 = lcapi.make_float2(6,10)
 # m1 = lcapi.make_float2x2(1,2,3,4)
@@ -29,7 +28,7 @@ b = luisa.Buffer(100, int)
 Arr = luisa.ArrayType(int,3)
 
 @luisa.kernel
-def f(a: int, arr: Arr):
+def f(a: int, arr: Arr, b: "buffer<int>"):
     idx = dispatch_id().x
     a += arr[0] * arr[1] + arr[2]
     # val = b.read(idx)
@@ -38,13 +37,15 @@ def f(a: int, arr: Arr):
     # m2 = make_float2x2(1,2,3,4,5,6,7)
 
 
+b = luisa.Buffer(100, int)
+
 
 
 arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
 b.copy_from(arr)
-f(42, [10,20,30], dispatch_size = (100,1,1))
+f(42, [10,20,30], b, dispatch_size = (100,1,1))
 b.copy_to(arr1)
 
 

@@ -5,9 +5,9 @@ class Buffer:
     def __init__(self, size, dtype):
         if not dtype in {int, float, bool}:
             raise Exception('invalid buffer dtype')
-        self.dtype = dtype
+        self.dtype = lcapi.Type.from_(dtype.__name__)
         self.size = size
-        self.bytesize = size * lcapi.Type.from_(dtype.__name__).size()
+        self.bytesize = size * self.dtype.size()
         self.handle = globalvars.device.impl().create_buffer(self.bytesize)
 
     def copy_from(self, arr, sync = True, stream = None): # arr: numpy array
