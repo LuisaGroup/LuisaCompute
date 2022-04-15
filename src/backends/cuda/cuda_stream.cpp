@@ -2,6 +2,8 @@
 // Created by Mike on 8/1/2021.
 //
 
+#include "backends/cuda/cuda_error.h"
+#include "core/logging.h"
 #include <mutex>
 
 #include <backends/cuda/cuda_stream.h>
@@ -16,6 +18,7 @@ CUDAStream::CUDAStream() noexcept
             &_worker_streams[i], CU_STREAM_NON_BLOCKING));
         LUISA_CHECK_CUDA(cuEventCreate(
             &_worker_events[i], CU_EVENT_DISABLE_TIMING));
+        LUISA_INFO("Event #{}: {}", i, static_cast<void *>(_worker_events[i]));
     }
 }
 
@@ -32,7 +35,7 @@ void CUDAStream::emplace_callback(CUDACallbackContext *cb) noexcept {
 
 void CUDAStream::barrier() noexcept {
     auto count = 0u;
-    for (auto i = 1u; i < backed_cuda_stream_count; i++) {
+    for (auto i = 0u; i < backed_cuda_stream_count; i++) {
         if (_used_streams.test(i)) {
             count++;
             auto event = _worker_events[i];
@@ -41,10 +44,9 @@ void CUDAStream::barrier() noexcept {
             LUISA_CHECK_CUDA(cuStreamWaitEvent(_worker_streams.front(), event, flags));
         }
     }
-    if (count > 0u) {
+    if (count > 1u) {
         LUISA_VERBOSE_WITH_LOCATION(
-            "Active concurrent CUDA streams: {}.",
-            count + 1u);
+            "Active concurrent CUDA streams: {}.", count);
     }
     _round = 0u;
     _used_streams.reset();
@@ -53,6 +55,7 @@ void CUDAStream::barrier() noexcept {
 CUstream CUDAStream::handle(bool force_first_stream) const noexcept {
     if (force_first_stream) {
         if (_round == 0u) { _round = 1u % backed_cuda_stream_count; }
+        _used_streams.set(0u);
         return _worker_streams.front();
     }
     auto index = _round;
@@ -93,11 +96,6 @@ void CUDAStream::dispatch_callbacks() noexcept {
             }
         },
         this));
-    // TODO: This is a hack to make sure the callback is executed
-    if constexpr (backed_cuda_stream_count > 1u) {
-        LUISA_CHECK_CUDA(cuEventRecord(
-            _worker_events.front(), _worker_streams.front()));
-    }
 }
 
 }// namespace luisa::compute::cuda
