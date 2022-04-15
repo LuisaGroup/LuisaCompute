@@ -78,7 +78,10 @@ PYBIND11_MODULE(lcapi, m) {
         .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
 
         .def("argument", &FunctionBuilder::argument, pyref)
-        // ...
+        .def("buffer", &FunctionBuilder::buffer, pyref)
+        .def("texture", &FunctionBuilder::texture, pyref)
+        .def("bindless_array", &FunctionBuilder::bindless_array, pyref)
+        .def("accel", &FunctionBuilder::accel, pyref)
 
         .def("literal", &FunctionBuilder::literal, pyref)
         .def("unary", &FunctionBuilder::unary, pyref)
