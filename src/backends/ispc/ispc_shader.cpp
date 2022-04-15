@@ -22,9 +22,9 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
     ISPCCodegen codegen{scratch};
     codegen.emit(func);
 
-    std::cout << "================= ISPC ===================\n";
-    std::cout << scratch.view() << "\n";
-    std::cout << "==========================================\n";
+    // std::cout << "================= ISPC ===================\n";
+    // std::cout << scratch.view() << "\n";
+    // std::cout << "==========================================\n";
 
 
     auto name = fmt::format("func_{:016x}", func.hash());

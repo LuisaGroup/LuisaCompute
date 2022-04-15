@@ -65,7 +65,7 @@ class kernel:
         param_list = inspect.signature(func).parameters
 
         def astgen():
-            print(astpretty.pformat(self.tree.body[0]))
+            # print(astpretty.pformat(self.tree.body[0]))
             lcapi.builder().set_block_size(256,1,1)
             # get parameters
             self.params = create_param_exprs(param_list)
@@ -87,7 +87,7 @@ class kernel:
         command = lcapi.ShaderDispatchCommand.create(self.shader_handle, self.func)
         # check & push arguments
         if len(args) != len(self.params):
-            raise Exception("")
+            raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
         for argid, arg in enumerate(args):
             dtype = self.params[argid][1]
             if dtype.is_basic():

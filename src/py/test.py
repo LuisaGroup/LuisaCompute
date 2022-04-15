@@ -37,9 +37,8 @@ def f(a: int, arr: Arr, b: "buffer<int>"):
     # m2 = make_float2x2(1,2,3,4,5,6,7)
 
 
+
 b = luisa.Buffer(100, int)
-
-
 
 arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
