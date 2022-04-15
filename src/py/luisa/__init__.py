@@ -54,6 +54,7 @@ class kernel:
     def __init__(self, func):
         # get python AST & context
         self.tree = ast.parse(inspect.getsource(func))
+        self.original_func = func
         _closure_vars = inspect.getclosurevars(func)
         self.closure_variable = {
             **_closure_vars.globals,

@@ -30,7 +30,7 @@ Arr = luisa.ArrayType(int,3)
 @luisa.kernel
 def f(a: int, arr: Arr, b: "buffer<int>"):
     idx = dispatch_id().x
-    a += arr[0] * arr[1] + arr[2]
+    a += arr[x] * arr[1] + arr[2]
     # val = b.read(idx)
     # x = make_float2(3,5) * -1 + x1
     b.write(idx, a)
