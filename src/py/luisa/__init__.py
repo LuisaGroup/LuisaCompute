@@ -7,6 +7,7 @@ import lcapi
 from . import globalvars
 from .types import basic_types, types
 from .buffer import Buffer
+from .arraytype import ArrayType
 from . import astbuilder
 
 
@@ -29,6 +30,9 @@ def create_param_exprs(params):
         # TODO: elif type(anno) is ref:
         elif anno in basic_types:
             dtype = basic_types[anno]
+            l.append((name, dtype, lcapi.builder().argument(dtype)))
+        elif type(anno) is ArrayType:
+            dtype = anno.luisa_type()
             l.append((name, dtype, lcapi.builder().argument(dtype)))
         elif type(anno) is str:
             dtype = lcapi.Type.from_(anno)

@@ -5,20 +5,8 @@ from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
 from .types import scalar_types, basic_types
 from .vector import is_swizzle_name, get_swizzle_code
 from .buffer import Buffer
+from .arraytype import ArrayType
 
-def dsl_local_array(node_dtype, node_size):
-    # Note: arguments are AST nodes
-    assert type(node_dtype) == ast.Name
-    if node_dtype.id in ('int','uint','float','bool'):
-        dtype = lcapi.Type.from_(node_dtype.id)
-    else:
-        raise Exception("array of vector/matrix not supported yet")
-    assert type(node_size) == ast.Constant
-    size = node_size.value
-
-    # TODO: support direct initialization from list / np array 
-    rettype = lcapi.Type.from_(f'array<{dtype.description()},{size}>')
-    return rettype, lcapi.builder().local(rettype)
 
 class ASTVisitor:
     def __call__(self, ctx, node):
@@ -46,19 +34,21 @@ class ASTVisitor:
 
     @staticmethod
     def build_Call(ctx, node):
-        if node.func.__class__.__name__ == "Name": # static function
-            # check for builtins
-            if node.func.id == 'Array':
-                node.dtype, node.expr = dsl_local_array(*node.args)
-            elif node.func.id == 'Struct':
-                raise Exception("struct not supported")
-            else: # builtin functions
-                for x in node.args:
-                    build(ctx, x)
+        for x in node.args:
+            build(ctx, x)
+        if type(node.func) is ast.Name: # static function
+            build(ctx, node.func)
+            if type(node.func.expr) is ArrayType:
+                node.dtype = node.func.expr.luisa_type()
+                node.expr = lcapi.builder().local(node.dtype)
+                assert len(node.args) == 0
+                # TODO: support initialization with arguments?
+            elif node.func.expr is None:
+                # name is not defined. check for builtins
                 node.dtype, node.expr = builtin_func(node.func.id, node.args)
-        elif node.func.__class__.__name__ == "Attribute": # class method
-            for x in node.args:
-                build(ctx, x)
+            else:
+                raise Exception(f"calling non-callable variable: {node.func.id}")
+        elif type(node.func) is ast.Attribute: # class method
             build(ctx, node.func.value)
             builtin_op = None
             return_type = None
@@ -109,6 +99,7 @@ class ASTVisitor:
             node.dtype, node.expr = ctx.local_variable[node.id]
         else:
             val = ctx.closure_variable.get(node.id)
+            # print("NAME:", node.id, "VALUE:", val)
             if val is None:
                 node.expr = None
                 return
@@ -119,6 +110,10 @@ class ASTVisitor:
             if type(val) is Buffer:
                 node.dtype = lcapi.Type.from_("buffer<" + val.dtype.__name__ + ">")
                 node.expr = lcapi.builder().buffer_binding(node.dtype, val.handle, 0)
+                return
+            if type(val) is ArrayType:
+                node.dtype = None # function type
+                node.expr = val
                 return
 
             raise Exception("unrecognized closure var type:", type(val), node.id)
