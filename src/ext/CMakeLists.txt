@@ -18,14 +18,16 @@ set(SPDLOG_NO_THREAD_ID ON CACHE BOOL "" FORCE)
 set(SPDLOG_FMT_EXTERNAL_HO ON CACHE BOOL "" FORCE)
 set(SPDLOG_DISABLE_DEFAULT_LOGGER ON CACHE BOOL "" FORCE)
 add_subdirectory(spdlog)
-set_target_properties(spdlog PROPERTIES UNITY_BUILD ON)
+set_target_properties(spdlog PROPERTIES
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 target_link_libraries(spdlog PUBLIC fmt::fmt-header-only)
 target_link_libraries(luisa-compute-ext PUBLIC spdlog)
 
 add_library(xxhash INTERFACE)
 target_include_directories(xxhash INTERFACE xxHash)
 target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
-set_target_properties(xxhash PROPERTIES UNITY_BUILD ON)
+set_target_properties(xxhash PROPERTIES
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 target_link_libraries(luisa-compute-ext PUBLIC xxhash)
 
 add_library(asio INTERFACE dummy.cpp)
@@ -60,7 +62,8 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
         set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "" FORCE)
         add_subdirectory(glfw)
-        set_target_properties(glfw PROPERTIES UNITY_BUILD ON)
+        set_target_properties(glfw PROPERTIES
+                UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
     endif ()
     target_link_libraries(luisa-compute-ext PUBLIC glfw)
 
