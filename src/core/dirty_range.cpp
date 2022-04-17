@@ -4,6 +4,7 @@
 
 #include <utility>
 #include <cmath>
+#include <algorithm>
 
 #include <core/dirty_range.h>
 
