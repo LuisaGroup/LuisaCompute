@@ -3,6 +3,8 @@
 //
 
 #include <utility>
+#include <cmath>
+
 #include <core/dirty_range.h>
 
 namespace luisa::compute {

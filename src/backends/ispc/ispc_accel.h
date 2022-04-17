@@ -9,6 +9,7 @@
 #include <core/stl.h>
 #include <core/thread_pool.h>
 #include <core/dirty_range.h>
+#include <rtx/accel.h>
 
 namespace luisa::compute::ispc {
 
