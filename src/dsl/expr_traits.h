@@ -8,6 +8,8 @@
 #include <concepts>
 #include <core/basic_types.h>
 #include <core/concepts.h>
+#include <ast/type.h>
+#include <runtime/buffer.h>
 
 namespace luisa::compute {
 

@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/12/31.
 //
 
+#include <charconv>
 #include <ast/type_registry.h>
 
 namespace luisa::compute::detail {
