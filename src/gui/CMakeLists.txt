@@ -6,7 +6,9 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     add_library(luisa-compute-gui SHARED ${LUISA_COMPUTE_GUI_SOURCES})
     target_link_libraries(luisa-compute-gui PUBLIC luisa-compute-core luisa-compute-ext)
     target_compile_definitions(luisa-compute-gui PUBLIC LUISA_GUI_ENABLED=1)
-    set_target_properties(luisa-compute-gui PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    set_target_properties(luisa-compute-gui PROPERTIES
+            WINDOWS_EXPORT_ALL_SYMBOLS ON
+            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 else ()
     add_library(luisa-compute-gui INTERFACE)
 endif ()

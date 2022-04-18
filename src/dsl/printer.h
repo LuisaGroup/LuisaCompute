@@ -12,6 +12,7 @@
 #include <runtime/event.h>
 #include <dsl/expr.h>
 #include <dsl/var.h>
+#include <dsl/operators.h>
 
 namespace luisa::compute {
 

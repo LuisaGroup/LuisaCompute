@@ -9,7 +9,7 @@ function(luisa_compute_add_backend name)
             luisa-compute-vstl)
     add_dependencies(luisa-compute-backends luisa-compute-backend-${name})
     set_target_properties(luisa-compute-backend-${name} PROPERTIES
-            UNITY_BUILD ON
+            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             DEBUG_POSTFIX "")
 endfunction()
 
@@ -27,6 +27,10 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC)
     add_subdirectory(ispc)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    add_subdirectory(vulkan)
 endif ()
 
 #if (LUISA_COMPUTE_ENABLE_REMOTE)

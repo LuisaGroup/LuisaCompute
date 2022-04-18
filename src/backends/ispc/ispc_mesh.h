@@ -5,6 +5,7 @@
 #pragma once
 
 #include <embree3/rtcore.h>
+#include <rtx/mesh.h>
 
 namespace luisa::compute::ispc {
 

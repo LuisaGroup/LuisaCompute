@@ -9,4 +9,4 @@ target_link_libraries(luisa-compute-rtx PUBLIC luisa-compute-runtime luisa-compu
 target_compile_definitions(luisa-compute-rtx PRIVATE LC_RTX_EXPORT_DLL=1)
 set_target_properties(luisa-compute-rtx PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
-        UNITY_BUILD ON)
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})

@@ -1,17 +1,23 @@
-cmake_minimum_required(VERSION 3.18...3.21)
+cmake_minimum_required(VERSION 3.18...3.23)
 cmake_policy(VERSION 3.18)
 
+cmake_policy(SET CMP0042 NEW)
+cmake_policy(SET CMP0048 NEW)
 cmake_policy(SET CMP0069 NEW)
 cmake_policy(SET CMP0072 NEW)
+cmake_policy(SET CMP0077 NEW)
 cmake_policy(SET CMP0091 NEW)
 
+set(CMAKE_POLICY_DEFAULT_CMP0042 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0072 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-project(LuisaCompute LANGUAGES C CXX VERSION 0.2)
+project(LuisaCompute LANGUAGES C CXX VERSION 0.3.0)
 
 if (NOT DEFINED LUISA_COMPUTE_MASTER_PROJECT)
     if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
@@ -35,7 +41,6 @@ if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif ()
 
 if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-
     option(LUISA_COMPUTE_ENABLE_SCCACHE "Enable sccache to speed up compilation" ON)
     if (LUISA_COMPUTE_ENABLE_SCCACHE)
         find_program(SCCACHE_EXE sccache)
@@ -49,21 +54,10 @@ if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
             message(STATUS "Could not find sccache")
         endif ()
     endif ()
-
-    option(LUISA_COMPUTE_ENABLE_IPO "Enable IPO/LTO" ON)
-    if (LUISA_COMPUTE_ENABLE_IPO)
-        include(CheckIPOSupported)
-        check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT CHECK_IPO_SUPPORTED_OUTPUT LANGUAGES C CXX)
-        if (IPO_SUPPORTED)
-            message(STATUS "Build with IPO/LTO")
-            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-        else ()
-            message(STATUS "Build without IPO/LTO: ${CHECK_IPO_SUPPORTED_OUTPUT}")
-        endif ()
-    endif ()
 endif ()
 
 option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
+option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build" OFF)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
