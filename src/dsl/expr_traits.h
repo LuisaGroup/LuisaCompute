@@ -271,4 +271,10 @@ using array_expr_dimension = array_dimension<expr_value_t<T>>;
 template<typename T>
 constexpr auto array_expr_dimension_v = array_expr_dimension<T>::value;
 
+template<typename T>
+using is_basic_expr = is_basic<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto is_basic_expr_v = is_basic_expr<T>::value;
+
 }// namespace luisa::compute
