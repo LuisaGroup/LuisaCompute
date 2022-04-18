@@ -1,8 +1,7 @@
 #pragma once
 
-#include <runtime/device.h>
 #include <core/hash.h>
-#include <stdint.h>
+#include <runtime/device.h>
 #include <vstl/Common.h>
 
 namespace luisa::compute {
@@ -27,8 +26,8 @@ class CommandReorderVisitor : public CommandVisitor {
     };
 
     vstd::Pool<ResourceHandle, true> handlePool;
-    vstd::HashMap<uint64_t, ResourceHandle *> resMap;
-    vstd::HashMap<uint64_t, ResourceHandle *> bindlessMap;
+    luisa::unordered_map<uint64_t, ResourceHandle *> resMap;
+    luisa::unordered_map<uint64_t, ResourceHandle *> bindlessMap;
     int64_t bindlessMaxLayer = -1;
     int64_t maxMeshLevel = -1;
     int64_t maxAccelLevel = -1;
@@ -103,7 +102,7 @@ public:
     void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf);
     void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf);
     void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf);
-    void operator()(uint uid, vstd::span<std::byte const> bf);
+    void operator()(uint uid, luisa::span<std::byte const> bf);
     void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf);
 };
 

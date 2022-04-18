@@ -6,7 +6,6 @@
 #include <runtime/resource.h>
 #include <runtime/event.h>
 #include <runtime/command_list.h>
-#include <runtime/command_buffer.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/image.h>
 
