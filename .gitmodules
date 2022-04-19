@@ -38,3 +38,18 @@
 	path = src/ext/pybind11
 	url = https://github.com/pybind/pybind11
 	branch = stable
+[submodule "src/ext/abseil-cpp"]
+	path = src/ext/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git
+[submodule "src/ext/SPIRV-Headers"]
+	path = src/ext/SPIRV-Headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers
+[submodule "src/ext/SPIRV-Tools"]
+	path = src/ext/SPIRV-Tools
+	url = https://github.com/KhronosGroup/SPIRV-Tools.git
+[submodule "src/ext/glslang"]
+	path = src/ext/glslang
+	url = https://github.com/KhronosGroup/glslang.git
+[submodule "src/ext/shaderc"]
+	path = src/ext/shaderc
+	url = https://github.com/google/shaderc.git

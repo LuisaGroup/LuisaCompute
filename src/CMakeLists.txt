@@ -17,7 +17,10 @@ option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
 option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" ON)
+option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" ON)
 option(LUISA_COMPUTE_ENABLE_REMOTE "Enable remote backend" ON)
+
+option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" OFF)
 
 add_subdirectory(ext)
 
@@ -41,12 +44,10 @@ add_subdirectory(vstl)
 add_subdirectory(meta)
 add_subdirectory(ast)
 add_subdirectory(runtime)
-#add_subdirectory(serialize)
+add_subdirectory(serialize)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
-#add_subdirectory(api)
-#add_subdirectory(serde)
 add_subdirectory(gui)
 add_subdirectory(backends)
 
@@ -62,14 +63,12 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-rtx
         luisa-compute-gui
         luisa-compute-backends)
-
-#add_dependencies(luisa-compute
-#        luisa-compute-api
-#        luisa-compute-serialize
-#        luisa-compute-serde)
 add_library(luisa::compute ALIAS luisa-compute)
 
-add_subdirectory(py)
+if (LUISA_COMPUTE_ENABLE_PYTHON)
+    add_subdirectory(py)
+endif ()
+
 if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(tests)
 endif ()

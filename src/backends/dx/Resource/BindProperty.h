@@ -10,6 +10,7 @@ struct BindProperty {
 		DescriptorHeapView,
 		TopAccel const*>
 		prop;
+    BindProperty() {}
 	template<typename A, typename B>
 	requires(
 		std::is_constructible_v<decltype(name), A&&> || std::is_constructible_v<decltype(prop), B&&>)

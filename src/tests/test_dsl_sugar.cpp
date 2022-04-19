@@ -6,7 +6,6 @@
 
 #include <runtime/device.h>
 #include <dsl/sugar.h>
-#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -22,7 +21,7 @@ using $Test = Var<Test>;
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    auto device = FakeDevice::create(context);
+    auto device = context.create_device("cuda");
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
 

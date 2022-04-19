@@ -24,9 +24,11 @@ class CUDAShaderNative final : public CUDAShader {
 private:
     CUmodule _module{};
     CUfunction _function{};
+    luisa::string _entry;
 
 public:
-    CUDAShaderNative(const char *ptx, const char *entry) noexcept {
+    CUDAShaderNative(const char *ptx, const char *entry) noexcept
+        : _entry{entry} {
         LUISA_CHECK_CUDA(cuModuleLoadData(&_module, ptx));
         LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
     }
@@ -86,16 +88,17 @@ public:
         auto block_size = command->kernel().block_size();
         auto blocks = (launch_size + block_size - 1u) / block_size;
         LUISA_VERBOSE_WITH_LOCATION(
-            "Dispatching native shader #{} with {} argument(s) "
+            "Dispatching native shader #{} ({}) with {} argument(s) "
             "in ({}, {}, {}) blocks of size ({}, {}, {}).",
-            command->handle(), arguments.size(),
+            command->handle(), _entry, arguments.size(),
             blocks.x, blocks.y, blocks.z,
             block_size.x, block_size.y, block_size.z);
+        auto cuda_stream = stream->handle();
         LUISA_CHECK_CUDA(cuLaunchKernel(
             _function,
             blocks.x, blocks.y, blocks.z,
             block_size.x, block_size.y, block_size.z,
-            0u, stream->handle(),
+            0u, cuda_stream,
             arguments.data(), nullptr));
     }
 };
@@ -109,7 +112,8 @@ public:
     };
 
 private:
-    CUdeviceptr _argument_and_sbt_buffer{};
+    CUDADevice *_device;
+    CUdeviceptr _sbt_buffer{};
     size_t _argument_buffer_size{};
     OptixModule _module{};
     OptixProgramGroup _program_group_rg{};
@@ -117,10 +121,12 @@ private:
     OptixProgramGroup _program_group_ch_any{};
     OptixProgramGroup _program_group_miss{};
     OptixPipeline _pipeline{};
+    luisa::string _entry;
     mutable OptixShaderBindingTable _sbt{};
 
 public:
-    CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept {
+    CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept
+        : _device{device}, _entry{entry} {
 
         // create argument buffer
         static constexpr auto pattern = "params[";
@@ -141,12 +147,7 @@ public:
         LUISA_VERBOSE_WITH_LOCATION(
             "Argument buffer size for {}: {}.",
             entry, _argument_buffer_size);
-        auto sbt_buffer_offset = (_argument_buffer_size + OPTIX_SBT_RECORD_ALIGNMENT - 1u) /
-                                 OPTIX_SBT_RECORD_ALIGNMENT *
-                                 OPTIX_SBT_RECORD_ALIGNMENT;
-        auto argument_and_sbt_buffer_size = sbt_buffer_offset + sizeof(SBTRecord) * 4u;
-        LUISA_CHECK_CUDA(cuMemAlloc(
-            &_argument_and_sbt_buffer, argument_and_sbt_buffer_size));
+        LUISA_CHECK_CUDA(cuMemAlloc(&_sbt_buffer, sizeof(SBTRecord) * 4u));
 
         // create module
         OptixModuleCompileOptions module_compile_options{};
@@ -250,7 +251,7 @@ public:
     }
 
     ~CUDAShaderOptiX() noexcept override {
-        LUISA_CHECK_CUDA(cuMemFree(_argument_and_sbt_buffer));
+        LUISA_CHECK_CUDA(cuMemFree(_sbt_buffer));
         LUISA_CHECK_OPTIX(optixPipelineDestroy(_pipeline));
         LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_rg));
         LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_ch_any));
@@ -260,12 +261,8 @@ public:
     }
 
     void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept override {
-
-        if (_sbt.raygenRecord == 0u) {// create shader binding table if not
-            auto sbt_buffer_offset = (_argument_buffer_size + OPTIX_SBT_RECORD_ALIGNMENT - 1u) /
-                                     OPTIX_SBT_RECORD_ALIGNMENT *
-                                     OPTIX_SBT_RECORD_ALIGNMENT;
-            auto sbt_buffer = _argument_and_sbt_buffer + sbt_buffer_offset;
+        auto cuda_stream = stream->handle();
+        if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
             constexpr auto sbt_buffer_size = sizeof(SBTRecord) * 4u;
             auto sbt_record_buffer = stream->upload_pool()->allocate(sbt_buffer_size);
             auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer->address());
@@ -274,20 +271,19 @@ public:
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_any, &sbt_records[2]));
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-                sbt_buffer, sbt_record_buffer->address(),
-                sbt_buffer_size, stream->handle()));
+                _sbt_buffer, sbt_record_buffer->address(),
+                sbt_buffer_size, cuda_stream));
             stream->emplace_callback(sbt_record_buffer);
-            _sbt.raygenRecord = sbt_buffer;
-            _sbt.hitgroupRecordBase = sbt_buffer + sizeof(SBTRecord);
+            _sbt.raygenRecord = _sbt_buffer;
+            _sbt.hitgroupRecordBase = _sbt_buffer + sizeof(SBTRecord);
             _sbt.hitgroupRecordCount = 2u;
             _sbt.hitgroupRecordStrideInBytes = sizeof(SBTRecord);
-            _sbt.missRecordBase = sbt_buffer + sizeof(SBTRecord) * 3u;
+            _sbt.missRecordBase = _sbt_buffer + sizeof(SBTRecord) * 3u;
             _sbt.missRecordCount = 1u;
             _sbt.missRecordStrideInBytes = sizeof(SBTRecord);
         }
-
         // encode arguments
-        auto argument_buffer = stream->upload_pool()->allocate(_argument_buffer_size);
+        auto host_argument_buffer = stream->upload_pool()->allocate(_argument_buffer_size);
         auto argument_buffer_offset = static_cast<size_t>(0u);
         auto allocate_argument = [&](size_t bytes) noexcept {
             static constexpr auto alignment = 16u;
@@ -297,9 +293,8 @@ public:
                 LUISA_ERROR_WITH_LOCATION(
                     "Too many arguments in ShaderDispatchCommand");
             }
-            return argument_buffer->address() + offset;
+            return host_argument_buffer->address() + offset;
         };
-
         command->decode([&](auto, auto argument) noexcept -> void {
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
@@ -328,16 +323,19 @@ public:
                 std::memcpy(ptr, argument.data(), argument.size_bytes());
             }
         });
+        auto heap = _device->heap();
+        auto argument_buffer = heap->allocate(_argument_buffer_size);
+        auto argument_buffer_address = CUDAHeap::buffer_address(argument_buffer);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            _argument_and_sbt_buffer, argument_buffer->address(),
-            _argument_buffer_size, stream->handle()));
-        stream->emplace_callback(argument_buffer);
+            argument_buffer_address, host_argument_buffer->address(),
+            _argument_buffer_size, cuda_stream));
+        stream->emplace_callback(host_argument_buffer);
+        stream->emplace_callback(CUDAHeap::BufferFreeContext::create(
+            heap, argument_buffer));
+        auto s = command->dispatch_size();
         LUISA_CHECK_OPTIX(optixLaunch(
-            _pipeline, stream->handle(),
-            _argument_and_sbt_buffer, _argument_buffer_size, &_sbt,
-            command->dispatch_size().x,
-            command->dispatch_size().y,
-            command->dispatch_size().z));
+            _pipeline, cuda_stream, argument_buffer_address,
+            _argument_buffer_size, &_sbt, s.x, s.y, s.z));
     }
 };
 

@@ -182,7 +182,8 @@ enum struct CallOp : uint32_t {
     UNREACHABLE,
 
     INSTANCE_TO_WORLD_MATRIX,
-
+    SET_INSTANCE_TRANSFORM,
+    SET_INSTANCE_VISIBILITY,
     TRACE_CLOSEST,
     TRACE_ANY
 };
@@ -193,7 +194,7 @@ static constexpr size_t call_op_count = to_underlying(CallOp::TRACE_ANY) + 1u;
  * @brief Set of call operations.
  * 
  */
-class CallOpSet {
+class LC_AST_API CallOpSet {
 
 public:
     using Bitset = std::bitset<call_op_count>;

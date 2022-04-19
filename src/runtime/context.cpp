@@ -6,6 +6,7 @@
 #include <core/platform.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
+#include <nlohmann/json.hpp>
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>
@@ -20,6 +21,7 @@ struct Context::Impl {
     luisa::vector<luisa::string> device_identifiers;
     luisa::vector<Device::Creator *> device_creators;
     luisa::vector<Device::Deleter *> device_deleters;
+    luisa::vector<luisa::string> installed_backends;
 };
 
 namespace detail {
@@ -42,9 +44,32 @@ Context::Context(const std::filesystem::path &program) noexcept
         std::filesystem::create_directories(_impl->cache_directory);
     }
     DynamicModule::add_search_path(_impl->runtime_directory);
-#ifdef LUISA_PLATFORM_WINDOWS
-    SetDllDirectoryW((_impl->runtime_directory / "backends").wstring().c_str());
-#endif
+    for (auto &&p : std::filesystem::directory_iterator{_impl->runtime_directory}) {
+        if (auto path = p.path();
+            p.is_regular_file() &&
+            (path.extension() == ".so" ||
+             path.extension() == ".dll" ||
+             path.extension() == ".dylib")) {
+            using namespace std::string_view_literals;
+            constexpr std::array possible_prefixes{
+                "luisa-compute-backend-"sv,
+                "libluisa-compute-backend-"sv};
+            auto filename = path.stem().string();
+            for (auto prefix : possible_prefixes) {
+                if (filename.starts_with(prefix)) {
+                    auto name = filename.substr(prefix.size());
+                    for (auto &c : name) { c = static_cast<char>(std::tolower(c)); }
+                    LUISA_VERBOSE_WITH_LOCATION("Found backend: {}.", name);
+                    _impl->installed_backends.emplace_back(std::move(name));
+                    break;
+                }
+            }
+        }
+    }
+    std::sort(_impl->installed_backends.begin(), _impl->installed_backends.end());
+    _impl->installed_backends.erase(
+        std::unique(_impl->installed_backends.begin(), _impl->installed_backends.end()),
+        _impl->installed_backends.end());
 }
 
 const std::filesystem::path &Context::runtime_directory() const noexcept {
@@ -55,11 +80,13 @@ const std::filesystem::path &Context::cache_directory() const noexcept {
     return _impl->cache_directory;
 }
 
-Device Context::create_device(std::string_view backend_name, const nlohmann::json &properties) noexcept {
-    if (!properties.is_object()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid device properties: {}.",
-            properties.dump());
+Device Context::create_device(std::string_view backend_name_in, luisa::string_view property_json) noexcept {
+    luisa::string backend_name{backend_name_in};
+    for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
+    if (std::find(_impl->installed_backends.cbegin(),
+                  _impl->installed_backends.cend(),
+                  backend_name) == _impl->installed_backends.cend()) {
+        LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
     }
     auto [create, destroy] = [backend_name, this] {
         if (auto iter = std::find(_impl->device_identifiers.cbegin(),
@@ -72,7 +99,7 @@ Device Context::create_device(std::string_view backend_name, const nlohmann::jso
             return std::make_pair(c, d);
         }
         auto &&m = _impl->loaded_modules.emplace_back(
-            _impl->runtime_directory / "backends",
+            _impl->runtime_directory,
             fmt::format("luisa-compute-backend-{}", backend_name));
         auto c = m.function<Device::Creator>("create");
         auto d = m.function<Device::Deleter>("destroy");
@@ -81,7 +108,7 @@ Device Context::create_device(std::string_view backend_name, const nlohmann::jso
         _impl->device_deleters.emplace_back(d);
         return std::make_pair(c, d);
     }();
-    return Device{Device::Handle{create(*this, properties.dump()), destroy}};
+    return Device{Device::Handle{create(*this, property_json), destroy}};
 }
 
 Context::~Context() noexcept {
@@ -89,6 +116,15 @@ Context::~Context() noexcept {
         DynamicModule::remove_search_path(
             _impl->runtime_directory);
     }
+}
+
+luisa::span<const luisa::string> Context::installed_backends() const noexcept {
+    return _impl->installed_backends;
+}
+
+Device Context::create_default_device() noexcept {
+    LUISA_ASSERT(!installed_backends().empty(), "No backends installed.");
+    return create_device(installed_backends().front());
 }
 
 }// namespace luisa::compute

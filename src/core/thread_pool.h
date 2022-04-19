@@ -20,7 +20,7 @@ namespace luisa {
 class Barrier;
 
 /// Thread pool class
-class ThreadPool {
+class LC_CORE_API ThreadPool {
 
 private:
     luisa::vector<std::thread> _threads;

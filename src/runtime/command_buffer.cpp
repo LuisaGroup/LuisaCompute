@@ -45,6 +45,12 @@ CommandBuffer &CommandBuffer::operator<<(Event::Wait wait) &noexcept {
     return *this;
 }
 
+CommandBuffer &CommandBuffer::operator<<(SwapChain::Present p) &noexcept {
+    _commit();
+    *_stream << p;
+    return *this;
+}
+
 CommandBuffer &CommandBuffer::operator<<(CommandBuffer::Commit) &noexcept {
     _commit();
     return *this;
@@ -58,6 +64,12 @@ CommandBuffer &CommandBuffer::operator<<(CommandBuffer::Synchronize) &noexcept {
 void CommandBuffer::synchronize() &noexcept {
     _commit();
     _stream->synchronize();
+}
+
+CommandBuffer &CommandBuffer::operator<<(luisa::move_only_function<void()> &&f) &noexcept {
+    _commit();
+    *_stream << std::move(f);
+    return *this;
 }
 
 }// namespace luisa::compute

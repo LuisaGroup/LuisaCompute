@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class Resource {
+class LC_RUNTIME_API Resource {
 
 public:
     enum struct Tag : uint32_t {
@@ -20,7 +20,8 @@ public:
         ACCEL,
         STREAM,
         EVENT,
-        SHADER
+        SHADER,
+        SWAP_CHAIN
     };
 
 private:
@@ -29,18 +30,16 @@ private:
     Tag _tag{};
 
 protected:
-    Resource(Device::Interface *device, Tag tag, uint64_t handle) noexcept;
     void _destroy() noexcept;
-    void _set_handle(uint64_t h) noexcept { _handle = h; }
 
 public:
     Resource() noexcept = default;
+    Resource(Device::Interface *device, Tag tag, uint64_t handle) noexcept;
     virtual ~Resource() noexcept { _destroy(); }
     Resource(Resource &&) noexcept = default;
     Resource(const Resource &) noexcept = delete;
     Resource &operator=(Resource &&) noexcept;
     Resource &operator=(const Resource &) noexcept = delete;
-    [[nodiscard]] auto shared_device() const noexcept { return _device; }
     [[nodiscard]] auto device() const noexcept { return _device.get(); }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }

@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 
-class CommandList : concepts::Noncopyable {
+class LC_RUNTIME_API CommandList : concepts::Noncopyable {
 
 private:
     luisa::vector<Command *> _commands;
@@ -23,6 +23,7 @@ public:
     CommandList(CommandList &&) noexcept;
     CommandList &operator=(CommandList &&rhs) noexcept;
     void append(Command *cmd) noexcept;
+    void clear() noexcept { _commands.clear(); }
     [[nodiscard]] luisa::vector<Command *> steal_commands() noexcept;
     [[nodiscard]] auto begin() const noexcept { return _commands.begin(); }
     [[nodiscard]] auto end() const noexcept { return _commands.end(); }

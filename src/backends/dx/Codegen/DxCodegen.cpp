@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 
 #include <Codegen/DxCodegen.h>
 #include <Codegen/StructGenerator.h>
@@ -135,25 +135,43 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
     auto t = expr->range()->type();
-    if (t->is_buffer() || t->is_vector()) {
-        expr->range()->accept(*this);
-        str << '[';
-        expr->index()->accept(*this);
-        str << ']';
-    } else if (t->is_matrix()) {
-        expr->range()->accept(*this);
-        str << '[';
-        expr->index()->accept(*this);
-        str << ']';
-        if (t->dimension() == 3u) {
-            str << ".xyz";
+    if (expr->range()->tag() == Expression::Tag::REF) {
+        auto variable = static_cast<RefExpr const *>(expr->range())->variable();
+        if (variable.tag() == Variable::Tag::SHARED) {
+            expr->range()->accept(*this);
+            str << '[';
+            expr->index()->accept(*this);
+            str << ']';
+            return;
         }
-    } else {
-        expr->range()->accept(*this);
-        str << ".v[";
-        expr->index()->accept(*this);
-        str << ']';
     }
+    switch (t->tag()) {
+        case Type::Tag::BUFFER:
+        case Type::Tag::VECTOR: {
+            expr->range()->accept(*this);
+            str << '[';
+            expr->index()->accept(*this);
+            str << ']';
+        }
+            break;
+        case Type::Tag::MATRIX: {
+            expr->range()->accept(*this);
+            str << '[';
+            expr->index()->accept(*this);
+            str << ']';
+            if (t->dimension() == 3u) {
+                str << ".xyz";
+            }
+        }
+            break;
+        default: {
+            expr->range()->accept(*this);
+            str << ".v[";
+            expr->index()->accept(*this);
+            str << ']';
+        } break;
+    }
+
 }
 void StringStateVisitor::visit(const RefExpr *expr) {
 
@@ -305,20 +323,33 @@ StringStateVisitor::StringStateVisitor(
     : str(str), f(f) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
-    for (auto &&v : stmt->variables()) {
-        if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
-            vstd::string typeName;
-            CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-            str << typeName << ' ';
-            CodegenUtility::GetVariableName(v, str);
-            str << "=("sv << typeName << ")0;\n";
-        } else {
-            CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
-            str << ' ';
-            CodegenUtility::GetVariableName(v, str);
-            str << ";\n";
+    auto func = [&]<bool collectShared>() {
+        for (auto &&v : stmt->variables()) {
+            if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
+                vstd::string typeName;
+                CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+                str << typeName << ' ';
+                CodegenUtility::GetVariableName(v, str);
+                str << "=("sv << typeName << ")0;\n";
+            } else {
+                CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
+                str << ' ';
+                CodegenUtility::GetVariableName(v, str);
+                str << ";\n";
+            }
+            if constexpr (collectShared) {
+                if (v.tag() == Variable::Tag::SHARED) {
+                    sharedVariables->emplace_back(v);
+                }
+            }
         }
+    };
+    if (sharedVariables) {
+        func.operator()<true>();
+    } else {
+        func.operator()<false>(); 
     }
+
     stmt->scope()->accept(*this);
 }
 StringStateVisitor::~StringStateVisitor() = default;

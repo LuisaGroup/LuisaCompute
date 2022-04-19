@@ -6,6 +6,7 @@
 #include <ast/expression.h>
 #include <ast/statement.h>
 #include <Shader/Shader.h>
+#include <vstl/MD5.h>
 using namespace luisa;
 using namespace luisa::compute;
 namespace toolhub::directx {
@@ -17,10 +18,13 @@ struct CodegenResult {
     vstd::string result;
     Properties properties;
     uint64 bdlsBufferCount;
+    vstd::MD5 md5;
+    CodegenResult() {}
     template<typename A, typename B>
-    CodegenResult(A &&a, B &&b, uint64 c)
+    CodegenResult(A &&a, B &&b, uint64 c, vstd::MD5 md5)
         : result(std::forward<A>(a)),
-          properties(std::forward<B>(b)), bdlsBufferCount(c) {}
+          properties(std::forward<B>(b)), bdlsBufferCount(c),
+          md5(md5) {}
 };
 class CodegenUtility {
 
@@ -63,6 +67,7 @@ class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
 
 public:
+    vstd::vector<Variable> *sharedVariables = nullptr;
     void visit(const UnaryExpr *expr) override;
     void visit(const BinaryExpr *expr) override;
     void visit(const MemberExpr *expr) override;

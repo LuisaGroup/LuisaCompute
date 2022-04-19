@@ -22,12 +22,14 @@ class Shared : public detail::SharedAsAtomic<T> {
 
 private:
     const RefExpr *_expression;
+    size_t _size;
 
 public:
     /// Create a shared array of size n
     explicit Shared(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->shared(
-              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))} {}
+              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))},
+          _size{n} {}
 
     Shared(Shared &&) noexcept = default;
     Shared(const Shared &) noexcept = delete;
@@ -35,6 +37,7 @@ public:
     Shared &operator=(const Shared &) noexcept = delete;
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
+    [[nodiscard]] auto size() const noexcept { return _size; }
 
     /// Access at index
     template<typename U>

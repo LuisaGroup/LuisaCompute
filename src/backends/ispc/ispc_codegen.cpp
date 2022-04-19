@@ -286,7 +286,10 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "transpose"; break;
         case CallOp::INVERSE: _scratch << "inverse"; break;
-        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "barrier"; break;
+        case CallOp::SYNCHRONIZE_BLOCK:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            _scratch << "barrier";
+            break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomic_swap_global";
             is_atomic = true;
@@ -372,6 +375,8 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
+        case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
+        case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
     _scratch << "(";
     auto args = expr->arguments();
@@ -646,7 +651,10 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
 void ISPCCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
-        case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
+        case Variable::Tag::SHARED:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
+            _scratch << "s" << v.uid();
+            break;
         case Variable::Tag::REFERENCE: _scratch << "r" << v.uid(); break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
@@ -776,6 +784,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
         case Variable::Tag::SHARED:
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
             // TODO: support shared
             _scratch << "__shared__ ";
             _emit_type_name(v.type());
@@ -806,12 +815,10 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _scratch << "uniform const LCAccel ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::LOCAL:
+        default:
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
-            break;
-        default:
             break;
     }
 }
@@ -1017,7 +1024,7 @@ void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
     if (auto iter = _definition_analysis.scoped_variables().find(scope);
         iter != _definition_analysis.scoped_variables().cend()) {
         for (auto v : iter->second) {
-            if (_defined_variables.try_emplace(v).second) {
+            if (_defined_variables.emplace(v).second) {
                 _scratch << "\n  ";
                 _emit_indent();
                 _emit_variable_decl(v, false);

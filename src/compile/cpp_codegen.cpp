@@ -259,9 +259,11 @@ void CppCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT4X4: _scratch << "float4x4"; break;
         case CallOp::ASSUME: _scratch << "assume"; break;
         case CallOp::UNREACHABLE: _scratch << "unreachable"; break;
-        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "instance_to_world"; break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
+        case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "set_instance_transform"; break;
+        case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "set_instance_visibility"; break;
     }
     _scratch << "(";
     if (!expr->arguments().empty()) {

@@ -13,8 +13,6 @@
 #include <compile/cpp_codegen.h>
 #include <dsl/syntax.h>
 
-#include <tests/fake_device.h>
-
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -28,7 +26,7 @@ LUISA_STRUCT(Test, something, a) {};
 int main(int argc, char *argv[]) {
 
     Context ctx{argv[0]};
-    auto device = FakeDevice::create(ctx);
+    auto device = ctx.create_device("cuda");
     auto buffer = device.create_buffer<float4>(1024u);
     auto float_buffer = device.create_buffer<float>(1024u);
 

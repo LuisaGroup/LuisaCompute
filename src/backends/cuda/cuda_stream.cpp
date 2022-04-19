@@ -2,6 +2,8 @@
 // Created by Mike on 8/1/2021.
 //
 
+#include "backends/cuda/cuda_error.h"
+#include "core/logging.h"
 #include <mutex>
 
 #include <backends/cuda/cuda_stream.h>
@@ -10,19 +12,56 @@
 namespace luisa::compute::cuda {
 
 CUDAStream::CUDAStream() noexcept
-    : _handle{nullptr},
-      _upload_pool{64_mb, true} {
-    int lo, hi;
-    LUISA_CHECK_CUDA(cuCtxGetStreamPriorityRange(&lo, &hi));
-    LUISA_CHECK_CUDA(cuStreamCreateWithPriority(&_handle, CU_STREAM_NON_BLOCKING, hi));
+    : _upload_pool{64_mb, true} {
+    for (auto i = 0u; i < backed_cuda_stream_count; i++) {
+        LUISA_CHECK_CUDA(cuStreamCreate(
+            &_worker_streams[i], CU_STREAM_NON_BLOCKING));
+        LUISA_CHECK_CUDA(cuEventCreate(
+            &_worker_events[i], CU_EVENT_DISABLE_TIMING));
+        LUISA_INFO("Event #{}: {}", i, static_cast<void *>(_worker_events[i]));
+    }
 }
 
 CUDAStream::~CUDAStream() noexcept {
-    LUISA_CHECK_CUDA(cuStreamDestroy(_handle));
+    for (auto i = 0u; i < backed_cuda_stream_count; i++) {
+        LUISA_CHECK_CUDA(cuStreamDestroy(_worker_streams[i]));
+        LUISA_CHECK_CUDA(cuEventDestroy(_worker_events[i]));
+    }
 }
 
 void CUDAStream::emplace_callback(CUDACallbackContext *cb) noexcept {
     if (cb != nullptr) { _current_callbacks.emplace_back(cb); }
+}
+
+void CUDAStream::barrier() noexcept {
+    auto count = 0u;
+    for (auto i = 1u; i < backed_cuda_stream_count; i++) {
+        if (_used_streams.test(i)) {
+            count++;
+            auto event = _worker_events[i];
+            constexpr auto flags = CU_EVENT_WAIT_DEFAULT;
+            LUISA_CHECK_CUDA(cuEventRecord(event, _worker_streams[i]));
+            LUISA_CHECK_CUDA(cuStreamWaitEvent(_worker_streams.front(), event, flags));
+        }
+    }
+    if (count > 0u) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Active concurrent CUDA streams: {}.",
+            count + 1u);
+    }
+    _round = 0u;
+    _used_streams.reset();
+}
+
+CUstream CUDAStream::handle(bool force_first_stream) const noexcept {
+    if (force_first_stream) {
+        if (_round == 0u) { _round = 1u % backed_cuda_stream_count; }
+        return _worker_streams.front();
+    }
+    auto index = _round;
+    _used_streams.set(index);
+    _round = (_round + 1u) % backed_cuda_stream_count;
+    return _worker_streams[index];
 }
 
 void CUDAStream::dispatch_callbacks() noexcept {
@@ -32,7 +71,7 @@ void CUDAStream::dispatch_callbacks() noexcept {
     std::scoped_lock lock{_mutex};
     _callback_lists.emplace(std::move(callbacks));
     LUISA_CHECK_CUDA(cuLaunchHostFunc(
-        _handle, [](void *p) noexcept {
+        _worker_streams.front(), [](void *p) noexcept {
             constexpr auto pop = [](auto stream) -> luisa::vector<CUDACallbackContext *> {
                 std::scoped_lock lock{stream->_mutex};
                 if (stream->_callback_lists.empty()) [[unlikely]] {

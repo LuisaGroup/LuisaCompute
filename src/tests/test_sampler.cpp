@@ -11,7 +11,6 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/syntax.h>
-#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;

@@ -9,6 +9,7 @@
 #import <chrono>
 #import <numeric>
 
+#import <nlohmann/json.hpp>
 #import <core/platform.h>
 #import <core/hash.h>
 #import <core/clock.h>
@@ -78,19 +79,82 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
         index, [_handle.name cStringUsingEncoding:NSUTF8StringEncoding]);
     _compiler = luisa::make_unique<MetalCompiler>(this);
 
-    // initialize bindless array encoder
-    // TODO: use SoA
-    static constexpr auto src = @"#include <metal_stdlib>\n"
-                                 "struct alignas(16) BindlessItem {"
-                                 "  device const void *buffer;\n"
-                                 "  metal::uint sampler2d;\n"
-                                 "  metal::uint sampler3d;\n"
-                                 "  metal::texture2d<float> tex2d;\n"
-                                 "  metal::texture3d<float> tex3d;\n"
-                                 "};\n"
-                                 "[[kernel]] void k(device const BindlessItem *array) {}\n";
+    // initialize instance buffer shader
+    static constexpr auto src = R"(
+#include <metal_stdlib>
+
+using namespace metal;
+
+struct alignas(16) Instance {
+  array<float, 12> transform;
+  uint options;
+  uint mask;
+  uint intersection_function_offset;
+  uint mesh_index;
+};
+
+struct alignas(16) BuildRequest {
+  uint index;
+  uint flags;
+  uint padding[2];
+  float affine[12];
+};
+
+static_assert(sizeof(Instance) == 64u);
+static_assert(sizeof(BuildRequest) == 64u);
+
+[[kernel]]
+void update_instance_buffer(
+    device Instance *__restrict__ instances,
+    device const BuildRequest *__restrict__ requests,
+    constant uint &n,
+    uint tid [[thread_position_in_grid]]) {
+  if (tid < n) [[likely]] {
+    auto r = requests[tid];
+    instances[r.index].mesh_index = r.index;
+    instances[r.index].options = 0x07u;
+    instances[r.index].intersection_function_offset = 0u;
+    constexpr auto update_flag_transform = 1u << 1u;
+    constexpr auto update_flag_visibility_on = 1u << 2u;
+    constexpr auto update_flag_visibility_off = 1u << 3u;
+    constexpr auto update_flag_visibility = update_flag_visibility_on | update_flag_visibility_off;
+    if (r.flags & update_flag_transform) {
+      auto p = instances[r.index].transform.data();
+      p[0] = r.affine[0];
+      p[1] = r.affine[4];
+      p[2] = r.affine[8];
+      p[3] = r.affine[1];
+      p[4] = r.affine[5];
+      p[5] = r.affine[9];
+      p[6] = r.affine[2];
+      p[7] = r.affine[6];
+      p[8] = r.affine[10];
+      p[9] = r.affine[3];
+      p[10] = r.affine[7];
+      p[11] = r.affine[11];
+    }
+    if (r.flags & update_flag_visibility) {
+      instances[r.index].mask = (r.flags & update_flag_visibility_on) ? ~0u : 0u;
+    }
+  }
+}
+
+struct alignas(16) BindlessItem {
+  device const void *buffer;
+  metal::uint sampler2d;
+  metal::uint sampler3d;
+  metal::texture2d<float> tex2d;
+  metal::texture3d<float> tex3d;
+};
+
+[[kernel]]
+void k(device const BindlessItem *array) {}
+)";
+
     NSError *error;
-    auto library = [_handle newLibraryWithSource:src options:nullptr error:&error];
+    auto library = [_handle newLibraryWithSource:@(src)
+                                         options:nullptr
+                                           error:&error];
     if (error) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to create bindless array encoder: {}.",
@@ -103,6 +167,21 @@ MetalDevice::MetalDevice(const Context &ctx, uint32_t index) noexcept
             "Invalid bindless array buffer encoded size: {} (expected {}).",
             _bindless_array_encoder.encodedLength,
             MetalBindlessArray::buffer_slot_size);
+    }
+    auto update_instance_function = [library newFunctionWithName:@"update_instance_buffer"];
+    auto desc = [[MTLComputePipelineDescriptor alloc] init];
+    desc.computeFunction = update_instance_function;
+    desc.threadGroupSizeIsMultipleOfThreadExecutionWidth = YES;
+    desc.maxTotalThreadsPerThreadgroup = 256u;
+    desc.label = @"update_instances";
+    _update_instances_shader = [_handle newComputePipelineStateWithDescriptor:desc
+                                                                      options:0u
+                                                                   reflection:nullptr
+                                                                        error:&error];
+    if (error) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to create instance update shader: {}.",
+            [[error description] cStringUsingEncoding:NSUTF8StringEncoding]);
     }
 }
 
@@ -230,6 +309,23 @@ void MetalDevice::dispatch(uint64_t stream_handle, const CommandList &list) noex
     }
 }
 
+void MetalDevice::dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept {
+    @autoreleasepool {
+        auto s = reinterpret_cast<MetalStream *>(stream_handle);
+        auto command_buffer = s->command_buffer();
+        auto ptr = new_with_allocator<move_only_function<void()>>(std::move(func));
+        [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          (*ptr)();
+          delete_with_allocator(ptr);
+        }];
+        s->dispatch(command_buffer);
+    }
+}
+
+void MetalDevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Should not be called.");
+}
+
 void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
     @autoreleasepool {
         auto e = reinterpret_cast<MetalEvent *>(handle);
@@ -252,9 +348,7 @@ void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
 
 uint64_t MetalDevice::create_mesh(
     uint64_t v_buffer_handle, size_t v_offset, size_t v_stride, size_t,
-    uint64_t t_buffer_handle, size_t t_offset, size_t t_count, AccelBuildHint hint) noexcept {
-
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
+    uint64_t t_buffer_handle, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
     check_raytracing_supported();
     Clock clock;
     auto v_buffer = (__bridge id<MTLBuffer>)(reinterpret_cast<void *>(v_buffer_handle));
@@ -264,124 +358,26 @@ uint64_t MetalDevice::create_mesh(
         t_buffer, v_offset, t_count, hint);
     LUISA_VERBOSE_WITH_LOCATION("Created mesh in {} ms.", clock.toc());
     return reinterpret_cast<uint64_t>(mesh);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
 }
 
 void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
     auto mesh = reinterpret_cast<MetalMesh *>(handle);
     delete_with_allocator(mesh);
     LUISA_VERBOSE_WITH_LOCATION("Destroyed mesh #{}.", handle);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
 }
 
-uint64_t MetalDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    return reinterpret_cast<uint64_t>((__bridge void *)(mesh->vertex_buffer()));
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-uint64_t MetalDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    return reinterpret_cast<uint64_t>((__bridge void *)(mesh->triangle_buffer()));
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-uint64_t MetalDevice::create_accel(AccelBuildHint hint) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
+uint64_t MetalDevice::create_accel(AccelUsageHint hint) noexcept {
     check_raytracing_supported();
     Clock clock;
-    auto accel = new_with_allocator<MetalAccel>(hint);
+    auto accel = new_with_allocator<MetalAccel>(_update_instances_shader, hint);
     LUISA_VERBOSE_WITH_LOCATION("Created accel in {} ms.", clock.toc());
     return reinterpret_cast<uint64_t>(accel);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
 }
 
 void MetalDevice::destroy_accel(uint64_t handle) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
     auto accel = reinterpret_cast<MetalAccel *>(handle);
     delete_with_allocator(accel);
     LUISA_VERBOSE_WITH_LOCATION("Destroyed accel #{}.", handle);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::emplace_back_instance_in_accel(uint64_t accel_handle, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    accel->add_instance(mesh, transform, visible);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::set_instance_transform_in_accel(uint64_t accel_handle, size_t index, float4x4 transform) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    accel->set_transform(index, transform);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::pop_back_instance_from_accel(uint64_t accel_handle) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    accel->pop_instance();
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::set_instance_in_accel(uint64_t accel_handle, size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    auto mesh = reinterpret_cast<MetalMesh *>(mesh_handle);
-    accel->set_instance(index, mesh, transform, visible);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-void MetalDevice::set_instance_visibility_in_accel(uint64_t accel_handle, size_t index, bool visible) noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    accel->set_visibility(index, visible);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-bool MetalDevice::is_buffer_in_accel(uint64_t accel_handle, uint64_t buffer_handle) const noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    return accel->uses_resource(buffer_handle);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
-}
-
-bool MetalDevice::is_mesh_in_accel(uint64_t accel_handle, uint64_t mesh_handle) const noexcept {
-#ifdef LUISA_METAL_RAYTRACING_ENABLED
-    auto accel = reinterpret_cast<MetalAccel *>(accel_handle);
-    return accel->uses_resource(mesh_handle);
-#else
-    LUISA_ERROR_WITH_LOCATION("Raytracing is not enabled for Metal backend.");
-#endif
 }
 
 uint64_t MetalDevice::create_bindless_array(size_t size) noexcept {
@@ -470,6 +466,22 @@ bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) 
 
 bool MetalDevice::requires_command_reordering() const noexcept {
     return false;
+}
+
+uint64_t MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void MetalDevice::destroy_swap_chain(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+PixelStorage MetalDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 }

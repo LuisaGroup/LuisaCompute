@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/12/31.
 //
 
+#include <charconv>
 #include <ast/type_registry.h>
 
 namespace luisa::compute::detail {
@@ -27,8 +28,7 @@ const Type *TypeRegistry::_decode(std::string_view desc) noexcept {
 
 
     auto hash = _hash(desc);
-    if (auto iter = _type_set.find_as(hash, TypePtrHash{}, TypePtrEqual{});
-        iter != _type_set.cend()) {
+    if (auto iter = _type_set.find(hash); iter != _type_set.cend()) {
         return *iter;
     }
 
@@ -254,7 +254,7 @@ const Type *TypeRegistry::type_from(luisa::string_view desc) noexcept {
 
 const Type *TypeRegistry::type_from(uint64_t hash) noexcept {
     std::unique_lock lock{_mutex};
-    auto iter = _type_set.find_as(hash, TypePtrHash{}, TypePtrEqual{});
+    auto iter = _type_set.find(hash);
     if (iter == _type_set.end()) {
         LUISA_ERROR_WITH_LOCATION("Invalid type hash: {}.", hash);
     }

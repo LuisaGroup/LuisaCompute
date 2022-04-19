@@ -220,9 +220,35 @@ namespace detail {
         static Pool<Cmd> pool;            \
         return pool;                      \
     }
-LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_ALL_COMMANDS)
+LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_IMPL
 
 }// namespace detail
+
+void AccelBuildCommand::Modification::set_transform(float4x4 m) noexcept {
+    affine[0] = m[0][0];
+    affine[1] = m[1][0];
+    affine[2] = m[2][0];
+    affine[3] = m[3][0];
+    affine[4] = m[0][1];
+    affine[5] = m[1][1];
+    affine[6] = m[2][1];
+    affine[7] = m[3][1];
+    affine[8] = m[0][2];
+    affine[9] = m[1][2];
+    affine[10] = m[2][2];
+    affine[11] = m[3][2];
+    flags |= flag_transform;
+}
+
+void AccelBuildCommand::Modification::set_visibility(bool vis) noexcept {
+    flags &= ~flag_visibility;// clear old visibility flags
+    flags |= vis ? flag_visibility_on : flag_visibility_off;
+}
+
+void AccelBuildCommand::Modification::set_mesh(uint64_t handle) noexcept {
+    mesh = handle;
+    flags |= flag_mesh;
+}
 
 }// namespace luisa::compute

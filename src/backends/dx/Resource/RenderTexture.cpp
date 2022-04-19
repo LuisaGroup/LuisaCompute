@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/RenderTexture.h>
 #include <Resource/DescriptorHeap.h>
 namespace toolhub::directx {
@@ -113,7 +113,7 @@ RenderTexture::RenderTexture(
             propPtr,
             D3D12_HEAP_FLAG_NONE,
             &texDesc,
-            VEngineShaderResourceRTState,
+            GetInitState(),
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     } else {
@@ -134,7 +134,7 @@ RenderTexture::RenderTexture(
             heap,
             offset,
             &texDesc,
-            VEngineShaderResourceRTState,
+            GetInitState(),
             nullptr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }

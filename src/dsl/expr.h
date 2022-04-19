@@ -566,7 +566,7 @@ public:
 };
 
 /// Class of bindless 2D texture
-class BindlessTexture2D {
+class LC_DSL_API BindlessTexture2D {
 
 private:
     const RefExpr *_array{nullptr};
@@ -605,7 +605,7 @@ public:
 };
 
 /// Class of bindless 3D texture
-class BindlessTexture3D {
+class LC_DSL_API BindlessTexture3D {
 
 private:
     const RefExpr *_array{nullptr};

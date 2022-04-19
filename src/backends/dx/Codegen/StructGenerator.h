@@ -53,9 +53,12 @@ public:
     static void ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc);
     vstd::string_view GetStructDesc() const { return structDesc; }
     vstd::string_view GetStructName() const { return structName; }
+    void SetStructName(vstd::string &&name) {
+        structName = std::move(name);
+    }
     size_t Index() const { return idx; }
     size_t AlignCount() const { return alignCount; }
-    Type const* GetType() const noexcept { return structureType; }
+    Type const *GetType() const noexcept { return structureType; }
     StructGenerator(
         Type const *structureType,
         size_t structIdx,
