@@ -355,8 +355,32 @@ class ASTVisitor:
 
     @staticmethod
     def build_For(ctx, node):
-        raise Exception('for loop not supported yet')
-        pass
+        assert type(node.target) is ast.Name
+        assert type(node.iter) is ast.Call and type(node.iter.func) is ast.Name
+        assert node.iter.func.id == "range" and len(node.iter.args) in {1,2,3}
+        for x in node.iter.args:
+            build(ctx, x)
+            assert x.dtype is int
+        if len(node.iter.args) == 1:
+            range_start = lcapi.builder().literal(to_lctype(int), 0)
+            range_stop = node.iter.args[0]
+            range_step = lcapi.builder().literal(to_lctype(int), 1)
+        if len(node.iter.args) == 2:
+            range_start, range_stop = [x.expr for x in node.iter.args]
+            range_step = lcapi.builder().literal(to_lctype(int), 1)
+        if len(node.iter.args) == 3:
+            range_start, range_stop, range_step = [x.expr for x in node.iter.args]
+        # loop variable
+        varexpr = lcapi.builder().local(to_lctype(int))
+        lcapi.builder().assign(varexpr, range_start)
+        ctx.local_variable[node.target.id] = (int, varexpr)
+        # build for statement
+        condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, varexpr, range_stop)
+        forstmt = lcapi.builder().for_(varexpr, condition, range_step)
+        lcapi.builder().push_scope(forstmt.body())
+        for x in node.body:
+            build(ctx, x)
+        lcapi.builder().pop_scope(forstmt.body())
 
     @staticmethod
     def build_While(ctx, node):

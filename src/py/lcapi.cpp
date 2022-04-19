@@ -108,7 +108,7 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("switch_")
         // .def("case_")
         // .def("default_")
-        // .def("for_")
+        .def("for_", &FunctionBuilder::for_, pyref)
         // .def("meta") // ???
 
         // .def("case_")
@@ -133,6 +133,8 @@ PYBIND11_MODULE(lcapi, m) {
         .def("false_branch", py::overload_cast<>(&IfStmt::false_branch), pyref);
     py::class_<LoopStmt>(m, "LoopStmt")
         .def("body", py::overload_cast<>(&LoopStmt::body), pyref);
+    py::class_<ForStmt>(m, "ForStmt")
+        .def("body", py::overload_cast<>(&ForStmt::body), pyref);
 
     export_op(m); // UnaryOp, BinaryOp, CallOp. def at export_op.hpp
 

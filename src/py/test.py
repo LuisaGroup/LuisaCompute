@@ -42,8 +42,11 @@ def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     a1 = Arr()
     # a2[4] = 5
     idx = dispatch_id().x
+    aaa = 0
+    for xxx in range(100, 200, 3):
+        aaa += xxx
     a += g(arr) if True else -1
-    b.write(idx, a)
+    b.write(idx, aaa)
 
 
 b = luisa.Buffer(100, int)
