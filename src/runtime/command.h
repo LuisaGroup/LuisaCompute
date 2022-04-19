@@ -370,7 +370,7 @@ public:
               handle{handle} {}
     };
 
-    struct ArgumentBuffer : std::array<std::byte, 2048u> {};
+    struct ArgumentBuffer : std::array<std::byte, 2000u> {};
 
 private:
     uint64_t _handle;
