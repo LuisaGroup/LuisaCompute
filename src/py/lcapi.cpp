@@ -98,7 +98,7 @@ PYBIND11_MODULE(lcapi, m) {
 
         .def("break_", &FunctionBuilder::break_)
         .def("continue_", &FunctionBuilder::continue_)
-        // .def("return_")
+        .def("return_", &FunctionBuilder::return_)
         // .def("comment_")
         .def("assign", &FunctionBuilder::assign, pyref)
 

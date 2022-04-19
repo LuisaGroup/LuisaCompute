@@ -26,22 +26,22 @@ Arr = luisa.ArrayType(int, 3)
 
 
 @luisa.callable
-def g(a: int, arr: Arr, b: luisa.BufferType(int)):
+def g(arr: Arr):
 
-    idx = dispatch_id().x
-    a += arr[0] * arr[1] + arr[2]
+    return arr[0] * arr[1] + arr[2]
     # t = make_float2x2(1, 2, 3, 4)
     # t1 = make_float2(1, 2)
     # t = make_float4(1, 2, t1)
     # t_error = make_float4(1, 2, 3, t1)
     # val = b.read(idx)
     # x = make_float2(3,5) * -1 + x1
-    b.write(idx, a)
     # m2 = make_float2x2(1,2,3,4,5,6,7)
 
 @luisa.kernel
 def f(a: int, arr: Arr, b: luisa.BufferType(int)):
-    g(a,arr,b)
+    idx = dispatch_id().x
+    a += g(arr)
+    b.write(idx, a)
 
 
 b = luisa.Buffer(100, int)
