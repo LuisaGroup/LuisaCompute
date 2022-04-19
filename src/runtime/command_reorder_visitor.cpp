@@ -249,24 +249,24 @@ void CommandReorderVisitor::AddDispatchHandle(
         dispatchReadHandle.emplace_back(h);
     }
 }
-void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
+void CommandReorderVisitor::operator()(ShaderDispatchCommand::TextureArgument const &bf) {
     AddDispatchHandle(
         bf.handle,
         ResourceType::Texture,
         ((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0);
     arg++;
 }
-void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
+void CommandReorderVisitor::operator()(ShaderDispatchCommand::BufferArgument const &bf) {
     AddDispatchHandle(
         bf.handle,
         ResourceType::Buffer,
         ((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0);
     arg++;
 }
-void CommandReorderVisitor::operator()(uint uid, luisa::span<std::byte const> bf) {
+void CommandReorderVisitor::operator()(ShaderDispatchCommand::UniformArgument bf) {
     arg++;
 }
-void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+void CommandReorderVisitor::operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf) {
     useBindlessInPass = true;
     AddDispatchHandle(
         bf.handle,
@@ -274,7 +274,7 @@ void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::Bindless
         false);
     arg++;
 }
-void CommandReorderVisitor::operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+void CommandReorderVisitor::operator()(ShaderDispatchCommand::AccelArgument const &bf) {
     useAccelInPass = true;
     AddDispatchHandle(
         bf.handle,

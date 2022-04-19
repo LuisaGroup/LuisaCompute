@@ -99,11 +99,11 @@ public:
     // Mesh : conclude vertex and triangle buffers
     void visit(const MeshBuildCommand *command) noexcept override;
 
-    void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf);
-    void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf);
-    void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf);
-    void operator()(uint uid, luisa::span<std::byte const> bf);
-    void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf);
+    void operator()(ShaderDispatchCommand::BufferArgument const &bf);
+    void operator()(ShaderDispatchCommand::TextureArgument const &bf);
+    void operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf);
+    void operator()(ShaderDispatchCommand::UniformArgument bf);
+    void operator()(ShaderDispatchCommand::AccelArgument const &bf);
 };
 
 }// namespace luisa::compute
