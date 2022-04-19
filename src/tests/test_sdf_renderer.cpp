@@ -181,7 +181,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-    auto device = context.create_device("ispc");
+    auto device = context.create_device("metal");
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
