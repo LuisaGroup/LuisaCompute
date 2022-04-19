@@ -207,4 +207,8 @@ nlohmann::json CommandList::dump_json() const noexcept {
     return visitor.dump(*this);
 }
 
+void CommandList::reserve(size_t size) noexcept {
+    _commands.reserve(size);
+}
+
 }// namespace luisa::compute

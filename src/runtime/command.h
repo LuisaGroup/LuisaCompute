@@ -91,14 +91,26 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 
 class LC_RUNTIME_API Command {
 
+public:
+    enum struct Tag {
+#define LUISA_MAKE_COMMAND_TAG(Cmd) E##Cmd,
+        LUISA_MAP(LUISA_MAKE_COMMAND_TAG, LUISA_COMPUTE_RUNTIME_COMMANDS)
+#undef LUISA_MAKE_COMMAND_TAG
+    };
+
+private:
+    Tag _tag;
+
 protected:
     virtual void _recycle() noexcept = 0;
 
 public:
+    explicit Command(Tag tag) noexcept : _tag(tag) {}
     virtual ~Command() noexcept = default;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
     void recycle();
+    [[nodiscard]] auto tag() const noexcept { return _tag; }
 };
 
 class BufferUploadCommand final : public Command {
@@ -111,10 +123,8 @@ private:
 
 public:
     BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
-        : _handle{handle},
-          _offset{offset_bytes},
-          _size{size_bytes},
-          _data{data} {}
+        : Command{Command::Tag::EBufferUploadCommand},
+          _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -132,10 +142,8 @@ private:
 
 public:
     BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
-        : _handle{handle},
-          _offset{offset_bytes},
-          _size{size_bytes},
-          _data{data} {}
+        : Command{Command::Tag::EBufferDownloadCommand},
+          _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -154,11 +162,8 @@ private:
 
 public:
     BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
-        : _src_handle{src},
-          _dst_handle{dst},
-          _src_offset{src_offset},
-          _dst_offset{dst_offset},
-          _size{size} {}
+        : Command{Command::Tag::EBufferCopyCommand},
+          _src_handle{src}, _dst_handle{dst}, _src_offset{src_offset}, _dst_offset{dst_offset}, _size{size} {}
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
@@ -181,7 +186,8 @@ public:
     BufferToTextureCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
                                uint level, uint3 size) noexcept
-        : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
+        : Command{Command::Tag::EBufferToTextureCopyCommand},
+          _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
@@ -206,7 +212,8 @@ private:
 public:
     TextureToBufferCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage, uint level, uint3 size) noexcept
-        : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
+        : Command{Command::Tag::ETextureToBufferCopyCommand},
+          _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
@@ -229,17 +236,11 @@ private:
     uint _dst_level;
 
 public:
-    TextureCopyCommand(
-        PixelStorage storage,
-        uint64_t src_handle,
-        uint64_t dst_handle,
-        uint src_level,
-        uint dst_level,
-        uint3 size) noexcept
-        : _storage{storage},
-          _src_handle{src_handle}, _dst_handle{dst_handle},
-          _size{size.x, size.y, size.z},
-          _src_level{src_level}, _dst_level{dst_level} {}
+    TextureCopyCommand(PixelStorage storage, uint64_t src_handle, uint64_t dst_handle,
+                       uint src_level, uint dst_level, uint3 size) noexcept
+        : Command{Command::Tag::ETextureCopyCommand},
+          _storage{storage}, _src_handle{src_handle}, _dst_handle{dst_handle},
+          _size{size.x, size.y, size.z}, _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
@@ -261,11 +262,9 @@ private:
 public:
     TextureUploadCommand(uint64_t handle, PixelStorage storage,
                          uint level, uint3 size, const void *data) noexcept
-        : _handle{handle},
-          _storage{storage},
-          _level{level},
-          _size{size.x, size.y, size.z},
-          _data{data} {}
+        : Command{Command::Tag::ETextureUploadCommand},
+          _handle{handle}, _storage{storage}, _level{level},
+          _size{size.x, size.y, size.z}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
@@ -284,14 +283,11 @@ private:
     void *_data;
 
 public:
-    TextureDownloadCommand(
-        uint64_t handle, PixelStorage storage,
-        uint level, uint3 size, void *data) noexcept
-        : _handle{handle},
-          _storage{storage},
-          _level{level},
-          _size{size.x, size.y, size.z},
-          _data{data} {}
+    TextureDownloadCommand(uint64_t handle, PixelStorage storage,
+                           uint level, uint3 size, void *data) noexcept
+        : Command{Command::Tag::ETextureDownloadCommand},
+          _handle{handle}, _storage{storage}, _level{level},
+          _size{size.x, size.y, size.z}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
@@ -299,10 +295,6 @@ public:
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
 };
-
-namespace detail {
-class FunctionBuilder;
-}
 
 class LC_RUNTIME_API ShaderDispatchCommand final : public Command {
 
@@ -478,7 +470,7 @@ public:
     MeshBuildCommand(uint64_t handle, AccelBuildRequest request,
                      uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size,
                      uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size) noexcept
-        : _handle{handle}, _request{request},
+        : Command{Command::Tag::EMeshBuildCommand}, _handle{handle}, _request{request},
           _vertex_buffer{vertex_buffer}, _vertex_buffer_offset{vertex_buffer_offset}, _vertex_buffer_size{vertex_buffer_size},
           _triangle_buffer{triangle_buffer}, _triangle_buffer_offset{triangle_buffer_offset}, _triangle_buffer_size{triangle_buffer_size} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -529,7 +521,8 @@ private:
 public:
     AccelBuildCommand(uint64_t handle, uint32_t instance_count,
                       AccelBuildRequest request, luisa::vector<Modification> modifications) noexcept
-        : _handle{handle}, _instance_count{instance_count},
+        : Command{Command::Tag::EAccelBuildCommand},
+          _handle{handle}, _instance_count{instance_count},
           _request{request}, _modifications{std::move(modifications)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
@@ -544,7 +537,8 @@ private:
     uint64_t _handle;
 
 public:
-    explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
+    explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept
+        : Command{Command::Tag::EBindlessArrayUpdateCommand}, _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand)
 };
