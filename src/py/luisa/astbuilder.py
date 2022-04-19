@@ -49,8 +49,7 @@ class ASTVisitor:
         traceback.print_tb(tb) # Fixed format
         tb_info = traceback.extract_tb(tb)
         filename, line, func, text = tb_info[-1]
-
-            # print('An error occurred on line {} in statement {}'.format(line, text))
+        print('An error occurred on line {} in statement {}'.format(line, text))
 
     @staticmethod
     def build_FunctionDef(ctx, node):
@@ -209,7 +208,8 @@ class ASTVisitor:
             # all local variables are function scope
         else:
             # must assign with same type; no implicit casting is allowed.
-            assert node.targets[0].dtype == node.value.dtype
+            if node.targets[0].dtype != node.value.dtype:
+                raise Exception(f"Can't assign to {node.targets[0].id} ({node.targets[0].dtype}) with {node.value.dtype} ")
         lcapi.builder().assign(node.targets[0].expr, node.value.expr)
 
     @staticmethod
