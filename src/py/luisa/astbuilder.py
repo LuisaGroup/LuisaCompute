@@ -5,7 +5,7 @@ import sys
 import traceback
 import lcapi
 from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
-from .types import dtype_of, to_lctype
+from .types import dtype_of, to_lctype, CallableType
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .buffer import BufferType
 from .arraytype import ArrayType
@@ -74,13 +74,26 @@ class ASTVisitor:
             build(ctx, x)
         if type(node.func) is ast.Name: # static function
             build.build_Name(ctx, node.func, allow_none = True)
-            # TODO
-            if node.func.dtype is None: # name not found
+            if node.func.dtype is CallableType: # custom callable
+                # check args
+                signature = node.func.expr.signature
+                assert len(node.args) == len(signature.parameters)
+                for idx, param_name in enumerate(signature.parameters):
+                    assert node.args[idx].dtype == signature.parameters[param_name].annotation
+                # call
+                if signature.return_annotation == inspect._empty:
+                    node.dtype = None
+                    node.expr = lcapi.builder().call(node.func.expr.func, [x.expr for x in node.args])
+                else:
+                    node.dtype = signature.return_annotation
+                    node.expr = lcapi.builder().call(to_lctype(node.dtype), node.func.expr.func, [x.expr for x in node.args])
+            elif node.func.dtype is None: # name not found
                 node.dtype, node.expr = builtin_func(node.func.id, node.args)
             elif node.func.dtype is type: # type case / construct
                 raise Exception("not supported")
             else:
                 raise Exception(f"calling non-callable variable: {node.func.id}")
+            # TODO
 
             # if type(node.func.expr) is ArrayType:
             #     node.dtype = node.func.expr.luisa_type
@@ -143,6 +156,8 @@ class ASTVisitor:
     def captured_expr(val):
         dtype = dtype_of(val)
         if dtype == type:
+            return dtype, val
+        if dtype == CallableType:
             return dtype, val
         lctype = to_lctype(dtype)
         if lctype.is_basic():
