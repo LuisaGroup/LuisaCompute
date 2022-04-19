@@ -44,7 +44,7 @@ class ASTVisitor:
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' '*(startcol-1) + '~' * (endcol - startcol + 1) + clr)
-        print("traceback:")
+        print("Traceback:")
         _, _, tb = sys.exc_info()
         traceback.print_tb(tb) # Fixed format
         tb_info = traceback.extract_tb(tb)
@@ -83,9 +83,11 @@ class ASTVisitor:
     def build_Call(ctx, node):
         for x in node.args:
             build(ctx, x)
-        if type(node.func) is ast.Name: # static function
+        # static function
+        if type(node.func) is ast.Name:
             build.build_Name(ctx, node.func, allow_none = True)
-            if node.func.dtype is CallableType: # custom callable
+            # custom callable
+            if node.func.dtype is CallableType:
                 # check args
                 parameters = node.func.expr.parameters
                 assert len(node.args) == len(parameters)
@@ -98,24 +100,18 @@ class ASTVisitor:
                 else:
                     node.dtype = node.func.expr.return_type
                     node.expr = lcapi.builder().call(to_lctype(node.dtype), node.func.expr.func, [x.expr for x in node.args])
-            elif node.func.dtype is None: # name not found
+            # funciton name undefined: look into builtin functions
+            elif node.func.dtype is None:
                 node.dtype, node.expr = builtin_func(node.func.id, node.args)
-            elif node.func.dtype is type: # type case / construct
-                raise Exception("not supported")
+            # type: cast / construct
+            elif node.func.dtype is type:
+                if len(node.args)>0:
+                    raise Exception("type cast / initializing with arguments are not supported yet")
+                node.dtype = node.func.expr
+                node.expr = lcapi.builder().local(to_lctype(node.dtype))
             else:
                 raise Exception(f"calling non-callable variable: {node.func.id}")
-            # TODO
-
-            # if type(node.func.expr) is ArrayType:
-            #     node.dtype = node.func.expr.luisa_type
-            #     node.expr = lcapi.builder().local(node.dtype)
-            #     assert len(node.args) == 0
-            #     # TODO: support initialization with arguments?
-            # elif node.func.expr is None:
-            #     # name is not defined. check for builtins
-            #     node.dtype, node.expr = builtin_func(node.func.id, node.args)
-            # else:
-            #     raise Exception(f"calling non-callable variable: {node.func.id}")
+        # class method
         elif type(node.func) is ast.Attribute: # class method
             build(ctx, node.func.value)
             builtin_op = None
@@ -222,8 +218,10 @@ class ASTVisitor:
         if len(node.targets)!=1:
             raise Exception('Tuple assignment not supported')
         # allows left hand side to be undefined
-        assert type(node.targets[0]) is ast.Name
-        build.build_Name(ctx, node.targets[0], allow_none = True)
+        if type(node.targets[0]) is ast.Name:
+            build.build_Name(ctx, node.targets[0], allow_none = True)
+        else:
+            build(ctx, node.targets[0])
         build(ctx, node.value)
         # create local variable if it doesn't exist yet
         if node.targets[0].dtype is None:
