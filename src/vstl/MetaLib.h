@@ -24,8 +24,8 @@ inline void vengine_free(void *ptr) {
 inline void *vengine_realloc(void *ptr, size_t size) {
     return luisa::detail::allocator_reallocate(ptr, size, 0);
 }
-VENGINE_DLL_COMMON void VEngine_Log(std::type_info const &t);
-VENGINE_DLL_COMMON void VEngine_Log(char const *chunk);
+LC_VSTL_API void VEngine_Log(std::type_info const &t);
+LC_VSTL_API void VEngine_Log(char const *chunk);
 #define VE_SUB_TEMPLATE template<typename...> \
 class
 namespace vstd {
@@ -467,12 +467,26 @@ protected:
 public:
     virtual void Dispose() = 0;
 };
+namespace detail {
+class SBOInterface {
+public:
+    virtual void Copy(void *dstPtr, void *srcPtr) const = 0;
+    virtual void Move(void *dstPtr, void *srcPtr) const = 0;
+    virtual void *GetOffset(void *src) const = 0;
+    virtual void *GetFallback(void *src) const = 0;
+    virtual void *Malloc(void *src) const = 0;
+};
+}// namespace detail
 template<typename I, size_t sboSize = 48, size_t align = sizeof(size_t)>
 class SBO {
     std::aligned_storage_t<sboSize, align> buffer;
     I *ptr;
     //void(Src, Dest)
-    funcPtr_t<void *(void *, void *)> moveFunc;
+    using InterfaceStorage = std::aligned_storage_t<sizeof(detail::SBOInterface), alignof(detail::SBOInterface)>;
+    InterfaceStorage storage;
+    detail::SBOInterface const *GetInterface() const {
+        return reinterpret_cast<detail::SBOInterface const *>(&storage);
+    }
 
 public:
     template<typename Func>
@@ -505,45 +519,69 @@ public:
         }
         func(originPtr);
         ptr = reinterpret_cast<T *>(originPtr);
-        if constexpr (std::is_move_constructible_v<T>) {
-            moveFunc = [](void *src, void *dst) -> void * {
-                if (dst)
-                    return new (dst) T(std::move(*reinterpret_cast<T *>(src)));
-                else {
-                    I *ptr = reinterpret_cast<I *>(src);
-                    T *offsetPtr = static_cast<T *>(ptr);
-                    return offsetPtr;
-                }
-            };
-        } else {
-            moveFunc = [](void *src, void *dst) -> void * {
-                if (dst)
+        class Inter : public detail::SBOInterface {
+        public:
+            void Copy(void *dstPtr, void *srcPtr) const override {
+                if constexpr (std::is_copy_constructible_v<T>) {
+                    new (dstPtr) T(*reinterpret_cast<T const *>(srcPtr));
+                } else {
                     VEngine_Log(typeid(T));
-                else {
-                    I *ptr = reinterpret_cast<I *>(0);
-                    T *offsetPtr = static_cast<T *>(ptr);
-                    return offsetPtr;
                 }
-            };
-        }
+            }
+            void Move(void *dstPtr, void *srcPtr) const override {
+                if constexpr (std::is_move_constructible_v<T>) {
+                    new (dstPtr) T(std::move(*reinterpret_cast<T *>(srcPtr)));
+                } else {
+                    VEngine_Log(typeid(T));
+                }
+            }
+            void *GetFallback(void *src) const override {
+                T *ptr = reinterpret_cast<T *>(src);
+                I *offsetPtr = static_cast<I *>(ptr);
+                return offsetPtr;
+            }
+            void *GetOffset(void *src) const override {
+                I *ptr = reinterpret_cast<I *>(src);
+                T *offsetPtr = static_cast<T *>(ptr);
+                return offsetPtr;
+            }
+            void *Malloc(void *src) const override {
+                void *originPtr = vengine_malloc(sz);
+                Copy(originPtr, src);
+                return static_cast<I *>(reinterpret_cast<T *>(originPtr));
+            }
+        };
+        new (&storage) Inter();
     }
-    SBO(SBO const &) = delete;
     SBO(SBO &&sbo)
-        : moveFunc(sbo.moveFunc) {
-        auto sboOriginPtr = moveFunc(sbo.ptr, nullptr);
+        : storage(sbo.storage) {
+        auto it = GetInterface();
+        auto sboOriginPtr = it->GetOffset(sbo.ptr);
         if (sboOriginPtr == &sbo.buffer) {
             auto originPtr = &buffer;
-            moveFunc(sboOriginPtr, originPtr);
-            ptr = reinterpret_cast<I *>(reinterpret_cast<size_t>(sbo.ptr) - reinterpret_cast<size_t>(sboOriginPtr) + reinterpret_cast<size_t>(originPtr));
+            it->Move(originPtr, sboOriginPtr);
+            ptr = reinterpret_cast<I *>(it->GetFallback(originPtr));
         } else {
             ptr = sbo.ptr;
         }
         sbo.ptr = nullptr;
     }
+    SBO(SBO const &sbo)
+        : storage(sbo.storage) {
+        auto it = GetInterface();
+        auto sboOriginPtr = it->GetOffset(sbo.ptr);
+        if (sboOriginPtr == &sbo.buffer) {
+            auto originPtr = &buffer;
+            it->Copy(originPtr, sboOriginPtr);
+            ptr = reinterpret_cast<I *>(it->GetFallback(originPtr));
+        } else {
+            ptr = reinterpret_cast<I *>(it->Malloc(sboOriginPtr));
+        }
+    }
     ~SBO() {
         if (!ptr) return;
         ptr->~I();
-        auto originPtr = moveFunc(ptr, nullptr);
+        auto originPtr = GetInterface()->GetOffset(ptr);
         if (originPtr != &buffer) {
             vengine_free(originPtr);
         }

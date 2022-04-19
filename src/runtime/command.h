@@ -23,37 +23,35 @@
 
 namespace luisa::compute {
 
-#define LUISA_ALL_COMMANDS          \
-    BufferUploadCommand,            \
-        BufferDownloadCommand,      \
-        BufferCopyCommand,          \
-        BufferToTextureCopyCommand, \
-        ShaderDispatchCommand,      \
-        TextureUploadCommand,       \
-        TextureDownloadCommand,     \
-        TextureCopyCommand,         \
-        TextureToBufferCopyCommand, \
-        AccelUpdateCommand,         \
-        AccelBuildCommand,          \
-        MeshUpdateCommand,          \
-        MeshBuildCommand,           \
+#define LUISA_COMPUTE_RUNTIME_COMMANDS \
+    BufferUploadCommand,               \
+        BufferDownloadCommand,         \
+        BufferCopyCommand,             \
+        BufferToTextureCopyCommand,    \
+        ShaderDispatchCommand,         \
+        TextureUploadCommand,          \
+        TextureDownloadCommand,        \
+        TextureCopyCommand,            \
+        TextureToBufferCopyCommand,    \
+        AccelBuildCommand,             \
+        MeshBuildCommand,              \
         BindlessArrayUpdateCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
-LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_ALL_COMMANDS)
+LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_FWD_DECL
 
 struct CommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
     virtual void visit(const CMD *) noexcept = 0;
-    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_ALL_COMMANDS)
+    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
 
 struct MutableCommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
     virtual void visit(CMD *) noexcept = 0;
-    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_ALL_COMMANDS)
+    LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
 
@@ -64,7 +62,7 @@ namespace detail {
 
 #define LUISA_MAKE_COMMAND_POOL_DECL(Cmd) \
     [[nodiscard]] Pool<Cmd> &pool_##Cmd() noexcept;
-LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
+LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_POOL_DECL
 
 }// namespace detail
@@ -97,7 +95,7 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_ALL_COMMANDS)
     LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)
 
-class Command {
+class LC_RUNTIME_API Command {
 
 protected:
     virtual void _recycle() noexcept = 0;
@@ -313,7 +311,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class ShaderDispatchCommand final : public Command {
+class LC_RUNTIME_API ShaderDispatchCommand final : public Command {
 
 public:
     struct alignas(16) Argument {
@@ -466,54 +464,81 @@ public:
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand)
 };
 
-enum struct AccelBuildHint {
+enum struct AccelUsageHint : uint32_t {
     FAST_TRACE, // build with best quality
     FAST_UPDATE,// optimize for frequent update, usually with compaction
-    FAST_REBUILD// optimize for frequent rebuild, maybe without compaction
+    FAST_BUILD  // optimize for frequent rebuild, maybe without compaction
+};
+
+enum struct AccelBuildRequest : uint32_t {
+    PREFER_UPDATE,
+    FORCE_BUILD,
 };
 
 class MeshBuildCommand final : public Command {
 
 private:
     uint64_t _handle;
+    AccelBuildRequest _request;
+    uint64_t _vertex_buffer;
+    uint64_t _triangle_buffer;
 
 public:
-    MeshBuildCommand(uint64_t handle) noexcept
-        : _handle{handle} {}
+    MeshBuildCommand(uint64_t handle, AccelBuildRequest request,
+                     uint64_t vertex_buffer, uint64_t triangle_buffer) noexcept
+        : _handle{handle}, _request{request},
+          _vertex_buffer{vertex_buffer}, _triangle_buffer{triangle_buffer} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto request() const noexcept { return _request; }
+    [[nodiscard]] auto vertex_buffer() const noexcept { return _vertex_buffer; }
+    [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
-class MeshUpdateCommand final : public Command {
-
-private:
-    uint64_t _handle;
-
-public:
-    explicit MeshUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    LUISA_MAKE_COMMAND_COMMON(MeshUpdateCommand)
-};
 class AccelBuildCommand final : public Command {
 
+public:
+    struct alignas(16) Modification {
+
+        // flags
+        static constexpr auto flag_mesh = 1u << 0u;
+        static constexpr auto flag_transform = 1u << 1u;
+        static constexpr auto flag_visibility_on = 1u << 2u;
+        static constexpr auto flag_visibility_off = 1u << 3u;
+        static constexpr auto flag_visibility = flag_visibility_on | flag_visibility_off;
+
+        // members
+        uint index{};
+        uint flags{};
+        uint64_t mesh{};
+        float affine[12]{};
+
+        // ctor
+        Modification() noexcept = default;
+        explicit Modification(uint index) noexcept : index{index} {}
+
+        // encode interfaces
+        void set_transform(float4x4 m) noexcept;
+        void set_visibility(bool vis) noexcept;
+        void set_mesh(uint64_t handle) noexcept;
+    };
+
 private:
     uint64_t _handle;
+    uint32_t _instance_count;
+    AccelBuildRequest _request;
+    luisa::vector<Modification> _modifications;
 
 public:
-    explicit AccelBuildCommand(uint64_t handle) noexcept : _handle{handle} {}
+    AccelBuildCommand(uint64_t handle, uint32_t instance_count,
+                      AccelBuildRequest request, luisa::vector<Modification> modifications) noexcept
+        : _handle{handle}, _instance_count{instance_count},
+          _request{request}, _modifications{std::move(modifications)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto request() const noexcept { return _request; }
+    [[nodiscard]] auto instance_count() const noexcept { return _instance_count; }
+    [[nodiscard]] auto modifications() const noexcept { return luisa::span{_modifications}; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand)
-};
-
-class AccelUpdateCommand final : public Command {
-
-private:
-    uint64_t _handle;
-
-public:
-    explicit AccelUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    LUISA_MAKE_COMMAND_COMMON(AccelUpdateCommand)
 };
 
 class BindlessArrayUpdateCommand final : public Command {

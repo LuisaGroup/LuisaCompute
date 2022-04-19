@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Count: {} {}, Time: {} ms", host_buffer.x, host_buffer.w, time);
 
     auto atomic_float_buffer = device.create_buffer<uint>(1u);
-    Kernel1D add_kernel = [](BufferUInt buffer) noexcept {
+    Callable atomic_float_add = [](BufferUInt buffer) noexcept {
         auto gid = dispatch_x();
         auto x = 0.1f * cast<float>(gid);
         $loop {
@@ -54,6 +54,9 @@ int main(int argc, char *argv[]) {
                 $break;
             };
         };
+    };
+    Kernel1D add_kernel = [&](BufferUInt buffer) noexcept {
+        atomic_float_add(buffer);
     };
     auto add_shader = device.compile(add_kernel);
 

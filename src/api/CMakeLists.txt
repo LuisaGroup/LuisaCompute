@@ -11,7 +11,8 @@ target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-compile
         luisa-compute-backends)
 add_dependencies(luisa-compute-api luisa-compute-serialize)
-set_target_properties(luisa-compute-api PROPERTIES UNITY_BUILD ON)
+set_target_properties(luisa-compute-api PROPERTIES
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 
 find_package(Python3 COMPONENTS Interpreter)
 if (Python3_Interpreter_FOUND AND Python3_VERSION VERSION_GREATER_EQUAL 3.6)

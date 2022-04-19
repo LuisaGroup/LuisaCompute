@@ -1,0 +1,45 @@
+var command_8h =
+[
+    [ "luisa::compute::CommandVisitor", "de/d8f/structluisa_1_1compute_1_1_command_visitor.html", null ],
+    [ "luisa::compute::MutableCommandVisitor", "d8/d37/namespaceluisa_1_1compute.html#d1/dd6/structluisa_1_1compute_1_1_mutable_command_visitor", null ],
+    [ "luisa::compute::Command", "db/d64/classluisa_1_1compute_1_1_command.html", "db/d64/classluisa_1_1compute_1_1_command" ],
+    [ "luisa::compute::BufferUploadCommand", "d5/d1a/classluisa_1_1compute_1_1_buffer_upload_command.html", "d5/d1a/classluisa_1_1compute_1_1_buffer_upload_command" ],
+    [ "luisa::compute::BufferDownloadCommand", "d0/de2/classluisa_1_1compute_1_1_buffer_download_command.html", "d0/de2/classluisa_1_1compute_1_1_buffer_download_command" ],
+    [ "luisa::compute::BufferCopyCommand", "dd/d1d/classluisa_1_1compute_1_1_buffer_copy_command.html", "dd/d1d/classluisa_1_1compute_1_1_buffer_copy_command" ],
+    [ "luisa::compute::BufferToTextureCopyCommand", "dc/db6/classluisa_1_1compute_1_1_buffer_to_texture_copy_command.html", "dc/db6/classluisa_1_1compute_1_1_buffer_to_texture_copy_command" ],
+    [ "luisa::compute::TextureToBufferCopyCommand", "d0/dcd/classluisa_1_1compute_1_1_texture_to_buffer_copy_command.html", "d0/dcd/classluisa_1_1compute_1_1_texture_to_buffer_copy_command" ],
+    [ "luisa::compute::TextureCopyCommand", "d4/d2b/classluisa_1_1compute_1_1_texture_copy_command.html", "d4/d2b/classluisa_1_1compute_1_1_texture_copy_command" ],
+    [ "luisa::compute::TextureUploadCommand", "df/d35/classluisa_1_1compute_1_1_texture_upload_command.html", "df/d35/classluisa_1_1compute_1_1_texture_upload_command" ],
+    [ "luisa::compute::TextureDownloadCommand", "d0/de0/classluisa_1_1compute_1_1_texture_download_command.html", "d0/de0/classluisa_1_1compute_1_1_texture_download_command" ],
+    [ "luisa::compute::ShaderDispatchCommand", "d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command.html", "d0/d6b/classluisa_1_1compute_1_1_shader_dispatch_command" ],
+    [ "luisa::compute::ShaderDispatchCommand::Argument", "db/dc2/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_argument.html", "db/dc2/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_argument" ],
+    [ "luisa::compute::ShaderDispatchCommand::BufferArgument", "de/d51/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument.html", "de/d51/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_buffer_argument" ],
+    [ "luisa::compute::ShaderDispatchCommand::TextureArgument", "d7/dba/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument.html", "d7/dba/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_texture_argument" ],
+    [ "luisa::compute::ShaderDispatchCommand::UniformArgument", "d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument.html", "d8/dab/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_uniform_argument" ],
+    [ "luisa::compute::ShaderDispatchCommand::BindlessArrayArgument", "d3/d84/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument.html", "d3/d84/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_bindless_array_argument" ],
+    [ "luisa::compute::ShaderDispatchCommand::AccelArgument", "d3/dd3/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_accel_argument.html", "d3/dd3/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_accel_argument" ],
+    [ "luisa::compute::ShaderDispatchCommand::ArgumentBuffer", "da/db2/structluisa_1_1compute_1_1_shader_dispatch_command_1_1_argument_buffer.html", null ],
+    [ "luisa::compute::MeshBuildCommand", "dc/d8d/classluisa_1_1compute_1_1_mesh_build_command.html", "dc/d8d/classluisa_1_1compute_1_1_mesh_build_command" ],
+    [ "luisa::compute::AccelBuildCommand", "d1/d28/classluisa_1_1compute_1_1_accel_build_command.html", "d1/d28/classluisa_1_1compute_1_1_accel_build_command" ],
+    [ "luisa::compute::AccelBuildCommand::Modification", "da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html", "da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification" ],
+    [ "luisa::compute::BindlessArrayUpdateCommand", "df/d53/classluisa_1_1compute_1_1_bindless_array_update_command.html", "df/d53/classluisa_1_1compute_1_1_bindless_array_update_command" ],
+    [ "LUISA_COMPUTE_RUNTIME_COMMANDS", "d0/d09/command_8h.html#a4c9aecbaacc53d7127d0978492e082b1", null ],
+    [ "LUISA_MAKE_COMMAND_COMMON", "d0/d09/command_8h.html#a17382cc2778656d73445083ad4ee99d3", null ],
+    [ "LUISA_MAKE_COMMAND_COMMON_ACCEPT", "d0/d09/command_8h.html#ab5361deb50af4683aa04707b35f1ad4b", null ],
+    [ "LUISA_MAKE_COMMAND_COMMON_CLONE", "d0/d09/command_8h.html#a4d3059ec5d9071e455e68759046ee739", null ],
+    [ "LUISA_MAKE_COMMAND_COMMON_CREATE", "d0/d09/command_8h.html#ac8dfc852d8d114a36c130faa38d59cc6", null ],
+    [ "LUISA_MAKE_COMMAND_COMMON_RECYCLE", "d0/d09/command_8h.html#a1d16de4473f5a569589520f72258de88", null ],
+    [ "LUISA_MAKE_COMMAND_FWD_DECL", "d0/d09/command_8h.html#a42a59cf78ef4153d5fbebf9fc9c03f04", null ],
+    [ "LUISA_MAKE_COMMAND_POOL_DECL", "d0/d09/command_8h.html#aab05c2d330d3202e0b33d2d04459c07e", null ],
+    [ "LUISA_MAKE_COMMAND_VISITOR_INTERFACE", "d0/d09/command_8h.html#a722da897505cece6e4a5da692633ea85", null ],
+    [ "LUISA_MAKE_COMMAND_VISITOR_INTERFACE", "d0/d09/command_8h.html#a722da897505cece6e4a5da692633ea85", null ],
+    [ "AccelBuildRequest", "d0/d09/command_8h.html#a64463a2984ce24f41388a1cf382ead11", [
+      [ "PREFER_UPDATE", "d0/d09/command_8h.html#a64463a2984ce24f41388a1cf382ead11a51c5ea1e50025d8780628e8894a6635f", null ],
+      [ "FORCE_BUILD", "d0/d09/command_8h.html#a64463a2984ce24f41388a1cf382ead11a76fabdc94c260a1ad41b2c180ecc1cba", null ]
+    ] ],
+    [ "AccelUsageHint", "d0/d09/command_8h.html#ab6205269570440af8831ce5496c902f0", [
+      [ "FAST_TRACE", "d0/d09/command_8h.html#ab6205269570440af8831ce5496c902f0a3f684dca71b75eb53a8a25920db6a67f", null ],
+      [ "FAST_UPDATE", "d0/d09/command_8h.html#ab6205269570440af8831ce5496c902f0a3ee04c55cf26a4490634a531edf2ae5e", null ],
+      [ "FAST_BUILD", "d0/d09/command_8h.html#ab6205269570440af8831ce5496c902f0a8f43d2d9234f74c301bb1cb64f947505", null ]
+    ] ]
+];

@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 //#endif
 #include <Resource/IGpuAllocator.h>
 #include <Resource/Resource.h>

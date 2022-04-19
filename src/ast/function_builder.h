@@ -17,6 +17,8 @@
 #include <ast/constant_data.h>
 #include <ast/type_registry.h>
 
+#include <serialize/key_value_pair.h>
+
 namespace luisa::compute {
 
 class Statement;
@@ -32,7 +34,7 @@ namespace luisa::compute::detail {
  * 
  * Build kernel or callable function
  */
-class FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
+class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
     friend class luisa::compute::FuncSerializer;
 
 private:
@@ -82,11 +84,16 @@ public:
     struct BufferBinding {
         uint64_t handle;
         size_t offset_bytes;
+        BufferBinding() noexcept = default;
         BufferBinding(uint64_t handle, size_t offset_bytes) noexcept
             : handle{handle}, offset_bytes{offset_bytes} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
             return hash64(offset_bytes, hash64(handle, hash64("__hash_buffer_binding")));
+        }
+        template<typename S>
+        void serialize(S& s) noexcept{
+            s.serialize(MAKE_NAME_PAIR(handle), MAKE_NAME_PAIR(offset_bytes));
         }
     };
 
@@ -98,11 +105,16 @@ public:
     struct TextureBinding {
         uint64_t handle;
         uint32_t level;
+        TextureBinding() noexcept = default;
         TextureBinding(uint64_t handle, uint32_t level) noexcept
             : handle{handle}, level{level} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
             return hash64(level, hash64(handle, hash64("__hash_texture_binding")));
+        }
+        template<typename S>
+        void serialize(S& s) noexcept{
+            s.serialize(MAKE_NAME_PAIR(handle), MAKE_NAME_PAIR(level));
         }
     };
 
@@ -113,11 +125,16 @@ public:
      */
     struct BindlessArrayBinding {
         uint64_t handle;
+        BindlessArrayBinding() noexcept = default;
         explicit BindlessArrayBinding(uint64_t handle) noexcept
             : handle{handle} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
             return hash64(handle, hash64("__hash_bindless_array_binding"));
+        }
+        template<typename S>
+        void serialize(S& s) noexcept{
+            s.serialize(MAKE_NAME_PAIR(handle));
         }
     };
 
@@ -128,11 +145,16 @@ public:
      */
     struct AccelBinding {
         uint64_t handle;
+        AccelBinding() noexcept = default;
         explicit AccelBinding(uint64_t handle) noexcept
             : handle{handle} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
             return hash64(handle, hash64("__hash_accel_binding"));
+        }
+        template<typename S>
+        void serialize(S& s) noexcept{
+            s.serialize(MAKE_NAME_PAIR(handle));
         }
     };
 
@@ -148,15 +170,15 @@ private:
     const Type *_ret{nullptr};
     luisa::vector<luisa::unique_ptr<Expression>> _all_expressions;
     luisa::vector<luisa::unique_ptr<Statement>> _all_statements;
-    luisa::vector<MetaStmt *> _meta_stack;
-    luisa::vector<ScopeStmt *> _scope_stack;
+    luisa::vector<MetaStmt *> _meta_stack;//
+    luisa::vector<ScopeStmt *> _scope_stack;//
     luisa::vector<Variable> _builtin_variables;
     luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
     luisa::vector<Binding> _argument_bindings;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Usage> _variable_usages;
-    luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
+    luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;//
     CallOpSet _used_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
@@ -215,7 +237,7 @@ public:
      * 
      * @param tag type of function(Tag::KERNEL, Tag::CALLABLE)
      */
-    explicit FunctionBuilder(Tag tag) noexcept;
+    explicit FunctionBuilder(Tag tag = Tag::CALLABLE) noexcept;
     FunctionBuilder(FunctionBuilder &&) noexcept = delete;
     FunctionBuilder(const FunctionBuilder &) noexcept = delete;
     FunctionBuilder &operator=(FunctionBuilder &&) noexcept = delete;
@@ -420,6 +442,22 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
+
+    template<typename S>
+    void serialize(S& s){
+        s.serialize(
+            MAKE_NAME_PAIR(_builtin_variables),
+            MAKE_NAME_PAIR(_captured_constants),
+            MAKE_NAME_PAIR(_arguments),
+            MAKE_NAME_PAIR(_argument_bindings),
+            MAKE_NAME_PAIR(_variable_usages),
+            MAKE_NAME_PAIR(_hash),
+            MAKE_NAME_PAIR(_block_size),
+            MAKE_NAME_PAIR(_tag),
+            MAKE_NAME_PAIR(_using_shared_storage),
+            MAKE_NAME_PAIR(_raytracing)
+        );
+    }
 
     /// Return a Function object constructed from this
     [[nodiscard]] auto function() const noexcept { return Function{this}; }

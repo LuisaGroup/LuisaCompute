@@ -32,7 +32,7 @@ class FunctionBuilder;
  * @brief Base expression class
  * 
  */
-class Expression : public concepts::Noncopyable {
+class LC_AST_API Expression : public concepts::Noncopyable {
     friend class AstSerializer;
 
 public:
@@ -75,6 +75,11 @@ public:
     virtual void accept(ExprVisitor &) const = 0;
     void mark(Usage usage) const noexcept;
     [[nodiscard]] uint64_t hash() const noexcept;
+
+    /// Allow serializetion
+    using is_polymorphically_serialized = void;
+    using polymorphic_tag_type = Tag;
+    static luisa::unique_ptr<Expression> create(Tag tag) noexcept;
 };
 
 class UnaryExpr;

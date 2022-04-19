@@ -3,7 +3,7 @@
 #include <vstl/Serializer.h>
 #include <vstl/MD5.h>
 namespace vstd {
-class VENGINE_DLL_COMMON Guid {
+class LC_VSTL_API Guid {
 	friend class StackObject<Guid, false>;
 
 public:
@@ -17,7 +17,7 @@ private:
 	Guid() {}
 
 public:
-	friend VENGINE_DLL_COMMON std::ostream& operator<<(std::ostream& out, const Guid& obj) noexcept;
+	friend LC_VSTL_API std::ostream& operator<<(std::ostream& out, const Guid& obj) noexcept;
 
 	explicit Guid(bool generate);
 	Guid(std::string_view strv);

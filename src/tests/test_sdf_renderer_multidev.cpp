@@ -14,7 +14,6 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/sugar.h>
-#include <tests/fake_device.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -184,20 +183,8 @@ int main(int argc, char *argv[]) {
     };
 
     Context context{argv[0]};
-
-#if defined(LUISA_BACKEND_CUDA_ENABLED)
     auto device_upper = context.create_device("cuda");
     auto device_lower = context.create_device("cuda");
-#elif defined(LUISA_BACKEND_METAL_ENABLED)
-    auto device_upper = context.create_device("metal");
-    auto device_lower = context.create_device("metal");
-#elif defined(LUISA_BACKEND_DX_ENABLED)
-    auto device_upper = context.create_device("dx");
-    auto device_lower = context.create_device("dx");
-#else
-    auto device_upper = FakeDevice::create(context);
-    auto device_lower = FakeDevice::create(context);
-#endif
 
     static constexpr auto height_upper = 400u;
     static constexpr auto height_lower = height - height_upper;

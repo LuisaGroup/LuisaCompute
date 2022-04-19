@@ -25,7 +25,7 @@ MetalShader MetalCompiler::compile(
     MetalCodegen codegen{scratch};
     codegen.emit(kernel);
 
-        // compile from source
+    // compile from source
     auto source = scratch.view();
     auto src = [[NSString alloc] initWithBytes:source.data()
                                         length:source.size()

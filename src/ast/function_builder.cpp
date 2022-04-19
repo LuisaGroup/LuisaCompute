@@ -27,13 +27,6 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
     if (func != nullptr && f != func) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid function on stack top.");
     }
-    if (f->tag() == Function::Tag::CALLABLE &&
-        !f->builtin_variables().empty()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Custom callables may not use builtin "
-            "variables. Pass them as arguments "
-            "if you want to use their values.");
-    }
     if (f->_raytracing &&
         (f->_using_shared_storage ||
          f->_used_builtin_callables.test(
@@ -160,14 +153,18 @@ const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Varia
 
 const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
-            _builtin_variables.cbegin(),
-            _builtin_variables.cend(),
+            _builtin_variables.cbegin(), _builtin_variables.cend(),
             [tag](auto &&v) noexcept { return v.tag() == tag; });
         iter != _builtin_variables.cend()) {
         return _ref(*iter);
     }
     Variable v{Type::of<uint3>(), tag, _next_variable_uid()};
     _builtin_variables.emplace_back(v);
+    // for callables, builtin variables are treated like arguments
+    if (_tag != Function::Tag::KERNEL) [[unlikely]] {
+        _arguments.emplace_back(v);
+        _argument_bindings.emplace_back();
+    }
     return _ref(v);
 }
 
@@ -313,33 +310,13 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
-    if (call_op == CallOp::CUSTOM) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Custom functions are not allowed to "
-            "be called with enum CallOp.");
-    }
-    if (call_op == CallOp::TRACE_ANY ||
-        call_op == CallOp::TRACE_CLOSEST) {
-        _raytracing = true;
-    }
-    _used_builtin_callables.mark(call_op);
-    return _create_expression<CallExpr>(type, call_op, args);
+    luisa::vector<const Expression *> arg_list{args};
+    return call(type, call_op, arg_list);
 }
 
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::initializer_list<const Expression *> args) noexcept {
-    if (custom.tag() != Function::Tag::CALLABLE) {
-        LUISA_ERROR_WITH_LOCATION("Calling non-callable function in device code.");
-    }
-    if (custom.raytracing()) { _raytracing = true; }
-    auto expr = _create_expression<CallExpr>(type, custom, args);
-    if (auto iter = std::find_if(
-            _used_custom_callables.cbegin(),
-            _used_custom_callables.cend(),
-            [c = custom.builder()](auto &&p) noexcept { return c == p.get(); });
-        iter == _used_custom_callables.cend()) {
-        _used_custom_callables.emplace_back(custom.shared_builder());
-    }
-    return expr;
+    luisa::vector<const Expression *> arg_list{args};
+    return call(type, custom, arg_list);
 }
 
 void FunctionBuilder::call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
@@ -412,6 +389,7 @@ const RefExpr *FunctionBuilder::accel() noexcept {
     return _ref(v);
 }
 
+// call builtin functions
 const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::span<const Expression *const> args) noexcept {
     if (call_op == CallOp::CUSTOM) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
@@ -429,6 +407,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
             args.end()});
 }
 
+// call custom functions
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::span<const Expression *const> args) noexcept {
     if (custom.tag() != Function::Tag::CALLABLE) {
         LUISA_ERROR_WITH_LOCATION(
@@ -439,21 +418,29 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
-        call_args[i] = luisa::visit(
-            [&]<typename T>(T binding) noexcept -> const Expression * {
-                if constexpr (std::is_same_v<T, BufferBinding>) {
-                    return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes);
-                } else if constexpr (std::is_same_v<T, TextureBinding>) {
-                    return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
-                } else if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
-                    return bindless_array_binding(binding.handle);
-                } else if constexpr (std::is_same_v<T, AccelBinding>) {
-                    return accel_binding(binding.handle);
-                } else {
-                    return *(in_iter++);
-                }
-            },
-            f->_argument_bindings[i]);
+        if (auto v_tag = f->_arguments[i].tag();
+            v_tag == Variable::Tag::THREAD_ID ||
+            v_tag == Variable::Tag::BLOCK_ID ||
+            v_tag == Variable::Tag::DISPATCH_ID ||
+            v_tag == Variable::Tag::DISPATCH_SIZE) {
+            call_args[i] = _builtin(v_tag);
+        } else {
+            call_args[i] = luisa::visit(
+                [&]<typename T>(T binding) noexcept -> const Expression * {
+                    if constexpr (std::is_same_v<T, BufferBinding>) {
+                        return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes);
+                    } else if constexpr (std::is_same_v<T, TextureBinding>) {
+                        return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
+                    } else if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
+                        return bindless_array_binding(binding.handle);
+                    } else if constexpr (std::is_same_v<T, AccelBinding>) {
+                        return accel_binding(binding.handle);
+                    } else {
+                        return *(in_iter++);
+                    }
+                },
+                f->_argument_bindings[i]);
+        }
     }
     if (in_iter != args.end()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
@@ -462,8 +449,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     }
     auto expr = _create_expression<CallExpr>(type, custom, std::move(call_args));
     if (auto iter = std::find_if(
-            _used_custom_callables.cbegin(),
-            _used_custom_callables.cend(),
+            _used_custom_callables.cbegin(), _used_custom_callables.cend(),
             [c = custom.builder()](auto &&p) noexcept { return c == p.get(); });
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom.shared_builder());

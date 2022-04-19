@@ -212,15 +212,14 @@ void CUDABindlessArray::upload(CUDAStream *stream) noexcept {
     auto upload_buffer_size = align(tex3d_sizes_upload_offset + sizeof(std::array<uint16_t, 4u>) * _tex3d_dirty_range.size());
     if (upload_buffer_size != 0u) {
         auto upload_buffer = stream->upload_pool()->allocate(upload_buffer_size);
-        constexpr auto do_upload = []<typename T>(
-                                       CUdeviceptr device_buffer, const T *host_buffer,
-                                       std::byte *upload_buffer, DirtyRange range) noexcept {
+        auto do_upload = [stream]<typename T>(CUdeviceptr device_buffer, const T *host_buffer,
+                                                   std::byte *upload_buffer, DirtyRange range) noexcept {
             if (!range.empty()) {
                 auto size_bytes = sizeof(T) * range.size();
                 std::memcpy(upload_buffer, host_buffer + range.offset(), size_bytes);
-                LUISA_CHECK_CUDA(cuMemcpyHtoD(
+                LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                     device_buffer + sizeof(T) * range.offset(),
-                    upload_buffer, size_bytes));
+                    upload_buffer, size_bytes, stream->handle()));
             }
         };
         do_upload(_handle._buffer_slots, _buffer_slots.data(), upload_buffer->address() + buffer_slots_upload_offset, _buffer_dirty_range);

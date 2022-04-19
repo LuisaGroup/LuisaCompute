@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/TextureBase.h>
 namespace toolhub::directx {
 TextureBase::TextureBase(

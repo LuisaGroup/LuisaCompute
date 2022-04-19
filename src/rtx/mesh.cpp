@@ -7,21 +7,8 @@
 
 namespace luisa::compute {
 
-Command *Mesh::update() noexcept {
-    if (_requires_rebuild) [[unlikely]] {
-        LUISA_WARNING_WITH_LOCATION(
-            "Mesh #{} requires rebuild rather than update. "
-            "Automatically replacing with MeshRebuildCommand.",
-            handle());
-        return build();
-    }
-    return MeshUpdateCommand::create(handle());
-}
-
-Command *Mesh::build() noexcept {
-    _subject->notify_all();
-    _requires_rebuild = false;
-    return MeshBuildCommand::create(handle());
+Command *Mesh::build(Mesh::BuildRequest request) noexcept {
+    return MeshBuildCommand::create(handle(), request, _v_buffer, _t_buffer);
 }
 
 }// namespace luisa::compute

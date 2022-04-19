@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Codegen/ArgumentPacker.h>
 #include <vstl/Serializer.h>
 namespace toolhub::directx {

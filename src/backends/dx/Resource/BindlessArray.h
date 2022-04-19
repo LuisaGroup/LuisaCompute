@@ -15,11 +15,13 @@ public:
         Tex2D,
         Tex3D
     };
+    using Map = vstd::HashMap<size_t, size_t>;
+    using MapIndex = typename Map::Index;
     struct BindlessStruct {
         static constexpr uint n_pos = std::numeric_limits<uint>::max();
-        uint buffer;
-        uint tex2D;
-        uint tex3D;
+        uint buffer = n_pos;
+        uint tex2D = n_pos;
+        uint tex3D = n_pos;
         uint16_t tex2DX;
         uint16_t tex2DY;
         uint16_t tex3DX;
@@ -28,20 +30,21 @@ public:
         vbyte samp2D;
         vbyte samp3D;
     };
+    struct MapIndicies {
+        MapIndex buffer;
+        MapIndex tex2D;
+        MapIndex tex3D;
+    };
 
 private:
-    vstd::vector<BindlessStruct> binded;
+    vstd::vector<std::pair<BindlessStruct, MapIndicies>> binded;
     mutable vstd::HashMap<uint, BindlessStruct> updateMap;
-    using Map = vstd::HashMap<size_t, size_t>;
-    vstd::HashMap<std::pair<uint, BindTag>, typename Map::Index> indexMap;
     Map ptrMap;
     DefaultBuffer buffer;
-    mutable std::mutex globalMtx;
     uint GetNewIndex();
-    void TryReturnIndex(uint originValue);
+    void TryReturnIndex(MapIndex& index, uint& originValue);
+    MapIndex AddIndex(size_t ptr);
     mutable vstd::LockFreeArrayQueue<uint> freeQueue;
-    void AddDepend(uint idx, BindTag tag, size_t ptr);
-    void RemoveDepend(uint idx, BindTag tag);
 
 public:
     using Property = vstd::variant<

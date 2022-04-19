@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/Common.h>
 #include <EASTL/vector.h>
-class VENGINE_DLL_COMMON BinaryReader
+class LC_VSTL_API BinaryReader
 {
 private:
 	struct FileSystemData
@@ -20,7 +20,7 @@ private:
 	uint64 currentPos;
 public:
 	BinaryReader(vstd::string const& path);
-	void Read(char* ptr, uint64 len);
+	void Read(void* ptr, uint64 len);
 	eastl::vector<uint8_t> Read(bool addNullEnd = false);
 	inline operator bool() const {
 		return isAvaliable;

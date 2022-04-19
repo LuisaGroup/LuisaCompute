@@ -8,6 +8,8 @@
 #include <concepts>
 #include <core/basic_types.h>
 #include <core/concepts.h>
+#include <ast/type.h>
+#include <runtime/buffer.h>
 
 namespace luisa::compute {
 
@@ -252,5 +254,29 @@ using buffer_expr_element = buffer_element<expr_value_t<T>>;
 
 template<typename T>
 using buffer_expr_element_t = typename buffer_expr_element<T>::type;
+
+template<typename T>
+using is_array_expr = is_array<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto is_array_expr_v = is_array_expr<T>::value;
+
+template<typename T>
+using array_expr_element = array_element<expr_value_t<T>>;
+
+template<typename T>
+using array_expr_element_t = typename array_expr_element<T>::type;
+
+template<typename T>
+using array_expr_dimension = array_dimension<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto array_expr_dimension_v = array_expr_dimension<T>::value;
+
+template<typename T>
+using is_basic_expr = is_basic<expr_value_t<T>>;
+
+template<typename T>
+constexpr auto is_basic_expr_v = is_basic_expr<T>::value;
 
 }// namespace luisa::compute

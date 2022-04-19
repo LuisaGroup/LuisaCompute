@@ -1,4 +1,4 @@
-#pragma vengine_package vengine_directx
+
 #include <Resource/DescriptorHeap.h>
 namespace toolhub::directx {
 DescriptorHeap::DescriptorHeap(

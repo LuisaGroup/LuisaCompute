@@ -12,6 +12,7 @@
 #include <runtime/event.h>
 #include <dsl/expr.h>
 #include <dsl/var.h>
+#include <dsl/operators.h>
 
 namespace luisa::compute {
 
@@ -19,7 +20,7 @@ class Device;
 class Stream;
 
 /// Printer in kernel
-class Printer {
+class LC_DSL_API Printer {
 
 public:
     struct Descriptor {
@@ -43,7 +44,7 @@ public:
     };
 
     struct DescriptorHash {
-        [[nodiscard]] auto operator()(const Descriptor &desc) const noexcept {
+        [[nodiscard]] uint64_t operator()(const Descriptor &desc) const noexcept {
             return luisa::detail::xxh3_hash64(
                 desc.value_tags.data(),
                 desc.value_tags.size() * sizeof(Descriptor),
@@ -54,7 +55,7 @@ public:
 private:
     Buffer<uint> _buffer;// count & records (desc_id, arg0, arg1, ...)
     luisa::vector<uint> _host_buffer;
-    luisa::unordered_map<Descriptor, uint, DescriptorHash, std::equal_to<>> _desc_id;
+    luisa::unordered_map<Descriptor, uint, DescriptorHash> _desc_id;
     luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
     luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
     luisa::vector<luisa::string_view> _strings;

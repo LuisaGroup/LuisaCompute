@@ -297,6 +297,8 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
         case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
         case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
+        case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
+        case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
 
     _scratch << "(";
@@ -380,7 +382,6 @@ void MetalCodegen::visit(const ReturnStmt *stmt) {
 
 void MetalCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
-    _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
     _scratch << "}";
 }
@@ -392,7 +393,12 @@ void MetalCodegen::visit(const IfStmt *stmt) {
     stmt->true_branch()->accept(*this);
     if (auto fb = stmt->false_branch(); !fb->statements().empty()) {
         _scratch << " else ";
+        //        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
+        //            fb->statements().size() == 1u && elif != nullptr) {
+        //            elif->accept(*this);
+        //        } else {
         fb->accept(*this);
+        //        }
     }
 }
 
@@ -449,7 +455,6 @@ void MetalCodegen::_emit_function(Function f) noexcept {
 
     _function = f;
     _indent = 0u;
-    _definition_analysis.analyze(f);
 
     // constants
     if (!f.constants().empty()) {
@@ -535,13 +540,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
     // emit body
     _scratch << "\n";
     _emit_declarations(f.body());
-    _emit_scoped_variables(f.body()->scope());
     _scratch << "\n";
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
-
-    _definition_analysis.reset();
-    _defined_variables.clear();
 }
 
 void MetalCodegen::_emit_variable_name(Variable v) noexcept {
@@ -624,25 +625,6 @@ void MetalCodegen::_emit_type_name(const Type *type) noexcept {
 
 void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
     switch (v.tag()) {
-        case Variable::Tag::LOCAL:
-            if (_function.tag() == Function::Tag::KERNEL) {
-                _scratch << "constant ";
-                _emit_type_name(v.type());
-                _scratch << " &";
-                if (auto usage = _function.variable_usage(v.uid());
-                    usage == Usage::WRITE || usage == Usage::READ_WRITE) {
-                    _scratch << "u";
-                }
-            } else {
-                if (auto usage = _function.variable_usage(v.uid());
-                    usage == Usage::NONE || usage == Usage::READ) {
-                    _scratch << "const ";
-                }
-                _emit_type_name(v.type());
-                _scratch << " ";
-            }
-            _emit_variable_name(v);
-            break;
         case Variable::Tag::REFERENCE:
             if (_function.tag() == Function::Tag::KERNEL) {
                 LUISA_ERROR_WITH_LOCATION(
@@ -688,8 +670,24 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
             _emit_variable_name(v);
             break;
         default:
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid argument type.");
+            if (_function.tag() == Function::Tag::KERNEL) {
+                _scratch << "constant ";
+                _emit_type_name(v.type());
+                _scratch << " &";
+                if (auto usage = _function.variable_usage(v.uid());
+                    usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                    _scratch << "u";
+                }
+            } else {
+                if (auto usage = _function.variable_usage(v.uid());
+                    usage == Usage::NONE || usage == Usage::READ) {
+                    _scratch << "const ";
+                }
+                _emit_type_name(v.type());
+                _scratch << " ";
+            }
+            _emit_variable_name(v);
+            break;
     }
 }
 
@@ -788,41 +786,24 @@ void MetalCodegen::visit(const MetaStmt *stmt) {
 
 void MetalCodegen::_emit_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        if (v.tag() != Variable::Tag::LOCAL) {
-            _scratch << "\n  ";
-            if (v.tag() == Variable::Tag::SHARED) {
-                if (_function.tag() != Function::Tag::KERNEL) [[unlikely]] {
-                    LUISA_ERROR_WITH_LOCATION(
-                        "Non-kernel functions are not allowed to have shared variables.");
-                }
-                _scratch << "threadgroup ";
+        _scratch << "\n  ";
+        if (v.tag() == Variable::Tag::SHARED) {
+            if (_function.tag() != Function::Tag::KERNEL) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Non-kernel functions are not allowed to have shared variables.");
             }
-            _emit_type_name(v.type());
-            _scratch << " ";
-            _emit_variable_name(v);
-            _scratch << ";";
+            _scratch << "threadgroup ";
         }
+        _emit_type_name(v.type());
+        _scratch << " ";
+        _emit_variable_name(v);
+        if (v.tag() == Variable::Tag::LOCAL) {
+            _scratch << "{}";
+        }
+        _scratch << ";";
     }
     for (auto child : meta->children()) {
         _emit_declarations(child);
-    }
-}
-
-void MetalCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
-    if (auto iter = _definition_analysis.scoped_variables().find(scope);
-        iter != _definition_analysis.scoped_variables().cend()) {
-        for (auto v : iter->second) {
-            if (_defined_variables.try_emplace(v).second) {
-                _scratch << "\n  ";
-                _emit_type_name(v.type());
-                _scratch << " ";
-                _emit_variable_name(v);
-                if (v.tag() == Variable::Tag::LOCAL) {
-                    _scratch << "{}";
-                }
-                _scratch << ";";
-            }
-        }
     }
 }
 
@@ -1238,14 +1219,17 @@ using namespace metal::raytracing;
 
 struct alignas(16) Instance {
   array<float, 12> transform;
-  uint pad[4];
+  uint options;
+  uint mask;
+  uint intersection_function_offset;
+  uint mesh_index;
 };
 
 static_assert(sizeof(Instance) == 64u);
 
 struct Accel {
   instance_acceleration_structure handle;
-  device const Instance *__restrict__ instances;
+  device Instance *__restrict__ instances;
 };
 
 [[nodiscard, gnu::always_inline]] constexpr auto intersector_closest() {
@@ -1293,8 +1277,27 @@ struct Accel {
     m[9], m[10], m[11], 1.0f);
 }
 
-)";
+[[gnu::always_inline]] inline void accel_set_instance_transform(Accel accel, uint i, float4x4 m) {
+  auto p = accel.instances[i].transform.data();
+  p[0] = m[0][0];
+  p[1] = m[0][1];
+  p[2] = m[0][2];
+  p[3] = m[1][0];
+  p[4] = m[1][1];
+  p[5] = m[1][2];
+  p[6] = m[2][0];
+  p[7] = m[2][1];
+  p[8] = m[2][2];
+  p[9] = m[3][0];
+  p[10] = m[3][1];
+  p[11] = m[3][2];
+}
 
+[[gnu::always_inline]] inline void accel_set_instance_visibility(Accel accel, uint i, bool v) {
+  accel.instances[i].mask = v ? ~0u : 0u;
+}
+
+)";
 }
 
 }
