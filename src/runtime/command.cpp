@@ -11,7 +11,7 @@ void Command::recycle() {
     _recycle();
 }
 
-inline void ShaderDispatchCommand::_encode_buffer(uint64_t handle, size_t offset) noexcept {
+inline void ShaderDispatchCommand::_encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
     if (_argument_count >= _kernel.arguments().size()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid buffer argument at index {}.",
@@ -31,7 +31,7 @@ inline void ShaderDispatchCommand::_encode_buffer(uint64_t handle, size_t offset
     }
     auto variable_uid = _kernel.arguments()[_argument_count].uid();
     auto usage = _kernel.variable_usage(variable_uid);
-    BufferArgument argument{variable_uid, handle, offset};
+    BufferArgument argument{variable_uid, handle, offset, size};
     std::memcpy(
         _argument_buffer->data() + _argument_buffer_size,
         &argument, sizeof(BufferArgument));
@@ -99,11 +99,11 @@ inline void ShaderDispatchCommand::_encode_uniform(const void *data, size_t size
 }
 
 void ShaderDispatchCommand::set_dispatch_size(uint3 launch_size) noexcept {
-    //    if (_argument_count != _kernel.arguments().size()) [[unlikely]] {
-    //        LUISA_ERROR_WITH_LOCATION(
-    //            "Not all arguments are encoded (expected {}, got {}).",
-    //            _kernel.arguments().size(), _argument_count);
-    //    }
+    if (_argument_count != _kernel.arguments().size()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Not all arguments are encoded (expected {}, got {}).",
+            _kernel.arguments().size(), _argument_count);
+    }
     _dispatch_size[0] = launch_size.x;
     _dispatch_size[1] = launch_size.y;
     _dispatch_size[2] = launch_size.z;
@@ -174,7 +174,7 @@ inline void ShaderDispatchCommand::_encode_pending_bindings() noexcept {
         luisa::visit(
             [&, arg = _kernel.arguments()[_argument_count]]<typename T>(T binding) noexcept {
                 if constexpr (std::is_same_v<T, detail::FunctionBuilder::BufferBinding>) {
-                    _encode_buffer(binding.handle, binding.offset_bytes);
+                    _encode_buffer(binding.handle, binding.offset_bytes, binding.size_bytes);
                 } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::TextureBinding>) {
                     _encode_texture(binding.handle, binding.level);
                 } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::BindlessArrayBinding>) {
@@ -189,8 +189,8 @@ inline void ShaderDispatchCommand::_encode_pending_bindings() noexcept {
     }
 }
 
-void ShaderDispatchCommand::encode_buffer(uint64_t handle, size_t offset) noexcept {
-    _encode_buffer(handle, offset);
+void ShaderDispatchCommand::encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
+    _encode_buffer(handle, offset, size);
     _encode_pending_bindings();
 }
 

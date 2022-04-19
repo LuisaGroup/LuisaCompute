@@ -328,11 +328,10 @@ public:
     struct BufferArgument : Argument {
         uint64_t handle{};
         size_t offset{};
+        size_t size{};
         BufferArgument() noexcept : Argument{Tag::BUFFER, 0u} {}
-        BufferArgument(uint32_t vid, uint64_t handle, size_t offset) noexcept
-            : Argument{Tag::BUFFER, vid},
-              handle{handle},
-              offset{offset} {}
+        BufferArgument(uint32_t vid, uint64_t handle, size_t offset, size_t size) noexcept
+            : Argument{Tag::BUFFER, vid}, handle{handle}, offset{offset}, size{size} {}
     };
 
     struct TextureArgument : Argument {
@@ -340,9 +339,7 @@ public:
         uint32_t level{};
         TextureArgument() noexcept : Argument{Tag::TEXTURE, 0u} {}
         TextureArgument(uint32_t vid, uint64_t handle, uint32_t level) noexcept
-            : Argument{Tag::TEXTURE, vid},
-              handle{handle},
-              level{level} {}
+            : Argument{Tag::TEXTURE, vid}, handle{handle}, level{level} {}
     };
 
     struct UniformArgument : Argument {
@@ -358,19 +355,17 @@ public:
         uint64_t handle{};
         BindlessArrayArgument() noexcept : Argument{Tag::BINDLESS_ARRAY, 0u} {}
         BindlessArrayArgument(uint32_t vid, uint64_t handle) noexcept
-            : Argument{Tag::BINDLESS_ARRAY, vid},
-              handle{handle} {}
+            : Argument{Tag::BINDLESS_ARRAY, vid}, handle{handle} {}
     };
 
     struct AccelArgument : Argument {
         uint64_t handle{};
         AccelArgument() noexcept : Argument{Tag::ACCEL, 0u} {}
         AccelArgument(uint32_t vid, uint64_t handle) noexcept
-            : Argument{Tag::ACCEL, vid},
-              handle{handle} {}
+            : Argument{Tag::ACCEL, vid}, handle{handle} {}
     };
 
-    struct ArgumentBuffer : std::array<std::byte, 2000u> {};
+    using ArgumentBuffer = std::array<std::byte, 4000u>;
 
 private:
     uint64_t _handle;
@@ -382,7 +377,7 @@ private:
 
 private:
     void _encode_pending_bindings() noexcept;
-    void _encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void _encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
     void _encode_texture(uint64_t handle, uint32_t level) noexcept;
     void _encode_uniform(const void *data, size_t size) noexcept;
     void _encode_bindless_array(uint64_t handle) noexcept;
@@ -398,7 +393,7 @@ public:
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
     [[nodiscard]] auto dispatch_size() const noexcept { return uint3(_dispatch_size[0], _dispatch_size[1], _dispatch_size[2]); }
 
-    void encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
     void encode_texture(uint64_t handle, uint32_t level) noexcept;
     void encode_uniform(const void *data, size_t size) noexcept;
     void encode_bindless_array(uint64_t handle) noexcept;
@@ -473,17 +468,27 @@ private:
     uint64_t _handle;
     AccelBuildRequest _request;
     uint64_t _vertex_buffer;
+    size_t _vertex_buffer_offset;
+    size_t _vertex_buffer_size;
     uint64_t _triangle_buffer;
+    size_t _triangle_buffer_offset;
+    size_t _triangle_buffer_size;
 
 public:
     MeshBuildCommand(uint64_t handle, AccelBuildRequest request,
-                     uint64_t vertex_buffer, uint64_t triangle_buffer) noexcept
+                     uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size,
+                     uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size) noexcept
         : _handle{handle}, _request{request},
-          _vertex_buffer{vertex_buffer}, _triangle_buffer{triangle_buffer} {}
+          _vertex_buffer{vertex_buffer}, _vertex_buffer_offset{vertex_buffer_offset}, _vertex_buffer_size{vertex_buffer_size},
+          _triangle_buffer{triangle_buffer}, _triangle_buffer_offset{triangle_buffer_offset}, _triangle_buffer_size{triangle_buffer_size} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto vertex_buffer() const noexcept { return _vertex_buffer; }
     [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
+    [[nodiscard]] auto vertex_buffer_offset() const noexcept { return _vertex_buffer_offset; }
+    [[nodiscard]] auto vertex_buffer_size() const noexcept { return _vertex_buffer_size; }
+    [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
+    [[nodiscard]] auto triangle_buffer_size() const noexcept { return _triangle_buffer_size; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
