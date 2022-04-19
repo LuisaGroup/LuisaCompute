@@ -40,9 +40,9 @@ def g(arr: Arr):
 @luisa.kernel
 def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     a1 = Arr()
-    a2[4] = 5
+    # a2[4] = 5
     idx = dispatch_id().x
-    a += g(arr)
+    a += g(arr) if True else -1
     b.write(idx, a)
 
 
