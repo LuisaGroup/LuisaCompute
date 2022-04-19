@@ -5,6 +5,10 @@ using namespace luisa::compute;
 
 void export_op(py::module &m) {
 
+    py::enum_<CastOp>(m, "CastOp")
+        .value("STATIC", CastOp::STATIC)
+        .value("BITWISE", CastOp::BITWISE);
+
     py::enum_<UnaryOp>(m, "UnaryOp")
         .value("PLUS", UnaryOp::PLUS)
         .value("MINUS", UnaryOp::MINUS)

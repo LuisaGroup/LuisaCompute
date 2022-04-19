@@ -1,13 +1,16 @@
 import lcapi
 from . import globalvars
+from .types import to_lctype
 
 class Buffer:
     def __init__(self, size, dtype):
         if not dtype in {int, float, bool}:
-            raise Exception('invalid buffer dtype')
-        self.dtype = lcapi.Type.from_(dtype.__name__)
+            raise Exception('buffer only supports scalar yet')
+        self.bufferType = BufferType(dtype)
+        self.dtype = dtype
         self.size = size
-        self.bytesize = size * self.dtype.size()
+        self.bytesize = size * to_lctype(self.dtype).size()
+        # instantiate buffer on device
         self.handle = globalvars.device.impl().create_buffer(self.bytesize)
 
     def copy_from(self, arr, sync = True, stream = None): # arr: numpy array
@@ -33,3 +36,12 @@ class Buffer:
 
     def write(self, idx):
         raise Exception("Method can only be called in Luisa kernel / callable")
+
+
+class BufferType:
+    def __init__(self, dtype):
+        self.dtype = dtype
+        self.luisa_type = lcapi.Type.from_("buffer<" + to_lctype(dtype).description() + ">")
+
+    def __eq__(self, other):
+        return type(other) is BufferType and self.dtype == other.dtype

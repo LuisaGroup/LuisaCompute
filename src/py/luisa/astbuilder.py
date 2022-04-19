@@ -2,11 +2,12 @@ import ast
 import astpretty
 import inspect
 import sys
+import traceback
 import lcapi
 from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
-from .types import scalar_types, basic_types
-from .vector import is_swizzle_name, get_swizzle_code
-from .buffer import Buffer
+from .types import dtype_of, to_lctype
+from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
+from .buffer import BufferType
 from .arraytype import ArrayType
 
 
@@ -43,6 +44,13 @@ class ASTVisitor:
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' '*(startcol-1) + '~' * (endcol - startcol + 1) + clr)
+        print("traceback:")
+        _, _, tb = sys.exc_info()
+        traceback.print_tb(tb) # Fixed format
+        tb_info = traceback.extract_tb(tb)
+        filename, line, func, text = tb_info[-1]
+
+            # print('An error occurred on line {} in statement {}'.format(line, text))
 
     @staticmethod
     def build_FunctionDef(ctx, node):
@@ -67,25 +75,33 @@ class ASTVisitor:
             build(ctx, x)
         if type(node.func) is ast.Name: # static function
             build.build_Name(ctx, node.func, allow_none = True)
-            if type(node.func.expr) is ArrayType:
-                node.dtype = node.func.expr.luisa_type
-                node.expr = lcapi.builder().local(node.dtype)
-                assert len(node.args) == 0
-                # TODO: support initialization with arguments?
-            elif node.func.expr is None:
-                # name is not defined. check for builtins
+            # TODO
+            if node.func.dtype is None: # name not found
                 node.dtype, node.expr = builtin_func(node.func.id, node.args)
+            elif node.func.dtype is type: # type case / construct
+                raise Exception("not supported")
             else:
                 raise Exception(f"calling non-callable variable: {node.func.id}")
+
+            # if type(node.func.expr) is ArrayType:
+            #     node.dtype = node.func.expr.luisa_type
+            #     node.expr = lcapi.builder().local(node.dtype)
+            #     assert len(node.args) == 0
+            #     # TODO: support initialization with arguments?
+            # elif node.func.expr is None:
+            #     # name is not defined. check for builtins
+            #     node.dtype, node.expr = builtin_func(node.func.id, node.args)
+            # else:
+            #     raise Exception(f"calling non-callable variable: {node.func.id}")
         elif type(node.func) is ast.Attribute: # class method
             build(ctx, node.func.value)
             builtin_op = None
             return_type = None
             # check for builtin methods (buffer, etc.)
-            if node.func.value.dtype.is_buffer():
+            if type(node.func.value.dtype) is BufferType:
                 if node.func.attr == "read":
                     builtin_op = lcapi.CallOp.BUFFER_READ
-                    return_type = node.func.value.dtype.element()
+                    return_type = node.func.value.dtype.dtype
                 if node.func.attr == "write":
                     builtin_op = lcapi.CallOp.BUFFER_WRITE
             if builtin_op is None:
@@ -94,7 +110,7 @@ class ASTVisitor:
             if return_type is None:
                 lcapi.builder().call(builtin_op, [node.func.value.expr] + [x.expr for x in node.args])
             else: # function call has return value
-                node.expr = lcapi.builder().call(return_type, builtin_op, [node.func.value.expr] + [x.expr for x in node.args])
+                node.expr = lcapi.builder().call(to_lctype(return_type), builtin_op, [node.func.value.expr] + [x.expr for x in node.args])
         else:
             raise Exception('unrecognized call func type')
 
@@ -102,24 +118,57 @@ class ASTVisitor:
     def build_Attribute(ctx, node):
         build(ctx, node.value)
         # vector swizzle
-        if node.value.dtype.is_vector():
+        lctype = to_lctype(node.value.dtype)
+        if lctype.is_vector():
             if is_swizzle_name(node.attr):
-                original_size = node.value.dtype.dimension()
+                original_size = lctype.dimension()
                 swizzle_size = len(node.attr)
-                if swizzle_size == 1:
-                    node.dtype = node.value.dtype.element()
-                else:
-                    node.dtype = lcapi.Type.from_(f'vector<{node.value.dtype.element().description()},{swizzle_size}>')
                 swizzle_code = get_swizzle_code(node.attr, original_size)
-                node.expr = lcapi.builder().swizzle(node.dtype, node.value.expr, swizzle_size, swizzle_code)
+                node.dtype = get_swizzle_resulttype(node.value.dtype, swizzle_size)
+                node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
+        elif lctype.is_structure():
+            idx = structType.idx_dict[node.attr]
+
+
 
     @staticmethod
     def build_Subscript(ctx, node):
         build(ctx, node.value)
         build(ctx, node.slice)
-        assert node.value.dtype.is_array() # TODO: atomic
-        node.dtype = node.value.dtype.element()
-        node.expr = lcapi.builder().access(node.dtype, node.value.expr, node.slice.expr)
+        assert type(node.value.dtype) is ArrayType # TODO: atomic
+        node.dtype = node.value.dtype.dtype
+        node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
+
+    # external variable captured in kernel -> type + expression
+    @staticmethod
+    def captured_expr(val):
+        dtype = dtype_of(val)
+        if dtype == type:
+            return dtype, val
+        lctype = to_lctype(dtype)
+        if lctype.is_basic():
+            return dtype, lcapi.builder().literal(lctype, val)
+        if lctype.is_buffer():
+            return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0)
+        if lctype.is_array():
+            # create array and assign each element
+            expr = lcapi.builder().local(lctype)
+            for idx,x in enumerate(val.values):
+                sliceexpr = lcapi.builder().literal(to_lctype(int), idx)
+                lhs = lcapi.builder().access(lctype, expr, sliceexpr)
+                rhs = lcapi.builder().literal(lctype.element(), x)
+                lcapi.builder().assign(lhs, rhs)
+            return dtype, expr
+        if lctype.is_structure():
+            # create struct and assign each element
+            expr = lcapi.builder().local(lctype)
+            for idx,x in enumerate(val.values):
+                lhs = lcapi.builder().member(to_lctype(dtype.membertype[idx]), expr, idx)
+                rhs = captured_expr(x)
+                assert rhs.dtype == dtype.membertype[idx]
+                lcapi.builder().assign(lhs, rhs.expr)
+            return dtype, expr
+        raise Exception("unrecognized closure var type:", type(val), node.id)
 
     @staticmethod
     def build_Name(ctx, node, allow_none = False):
@@ -132,29 +181,16 @@ class ASTVisitor:
             if val is None:
                 if not allow_none:
                     raise Exception(f"undeclared idenfitier '{node.id}'")
-                node.expr = None
+                node.dtype = None
                 return
-            if type(val) in basic_types:
-                node.dtype = basic_types[type(val)]
-                node.expr = lcapi.builder().literal(node.dtype, val)
-                return
-            if type(val) is Buffer:
-                node.dtype = lcapi.Type.from_("buffer<" + val.dtype.__name__ + ">")
-                node.expr = lcapi.builder().buffer_binding(node.dtype, val.handle, 0)
-                return
-            if type(val) is ArrayType:
-                node.dtype = None # function type
-                node.expr = val
-                return
-
-            raise Exception("unrecognized closure var type:", type(val), node.id)
+            node.dtype, node.expr = build.captured_expr(val)
 
     @staticmethod
     def build_Constant(ctx, node):
         if type(node.value) is str:
             raise Exception("String is not supported")
-        node.dtype = scalar_types[type(node.value)]
-        node.expr = lcapi.builder().literal(node.dtype, node.value)
+        node.dtype = dtype_of(node.value)
+        node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
 
     @staticmethod
     def build_Assign(ctx, node):
@@ -165,12 +201,15 @@ class ASTVisitor:
         build.build_Name(ctx, node.targets[0], allow_none = True)
         build(ctx, node.value)
         # create local variable if it doesn't exist yet
-        if node.targets[0].expr is None:
-            dtype = node.value.dtype # deduced data type
-            node.targets[0].expr = lcapi.builder().local(dtype)
+        if node.targets[0].dtype is None:
+            dtype = node.value.dtype # craete variable with same type as rhs
+            node.targets[0].expr = lcapi.builder().local(to_lctype(dtype))
             # store type & ptr info into name
             ctx.local_variable[node.targets[0].id] = (dtype, node.targets[0].expr)
             # all local variables are function scope
+        else:
+            # must assign with same type; no implicit casting is allowed.
+            assert node.targets[0].dtype == node.value.dtype
         lcapi.builder().assign(node.targets[0].expr, node.value.expr)
 
     @staticmethod
@@ -192,8 +231,8 @@ class ASTVisitor:
         }.get(type(node.op))
         # ast.Pow, ast.MatMult is not supported
         if op is None:
-            raise Exception(f'Unsupported binary operation: {type(node.op)}')
-        x = lcapi.builder().binary(node.target.dtype, op, node.target.expr, node.value.expr)
+            raise Exception(f'Unsupported augassign operation: {type(node.op)}')
+        x = lcapi.builder().binary(to_lctype(node.target.dtype), op, node.target.expr, node.value.expr)
         lcapi.builder().assign(node.target.expr, x)
 
     @staticmethod
@@ -208,7 +247,7 @@ class ASTVisitor:
         if op is None:
             raise Exception(f'Unsupported binary operation: {type(node.op)}')
         node.dtype = deduce_unary_type(node.op, node.operand.dtype)
-        node.expr = lcapi.builder().unary(node.dtype, op, node.operand.expr)
+        node.expr = lcapi.builder().unary(to_lctype(node.dtype), op, node.operand.expr)
 
     @staticmethod
     def build_BinOp(ctx, node):
@@ -231,7 +270,7 @@ class ASTVisitor:
         if op is None:
             raise Exception(f'Unsupported binary operation: {type(node.op)}')
         node.dtype = deduce_binary_type(node.op, node.left.dtype, node.right.dtype)
-        node.expr = lcapi.builder().binary(node.dtype, op, node.left.expr, node.right.expr)
+        node.expr = lcapi.builder().binary(to_lctype(node.dtype), op, node.left.expr, node.right.expr)
 
     @staticmethod
     def build_Compare(ctx, node):
@@ -250,8 +289,7 @@ class ASTVisitor:
         if op is None:
             raise Exception(f'Unsupported compare operation: {type(node.op)}')
         # TODO support chained comparison
-        node.dtype = lcapi.Type.from_("bool")
-        node.expr = lcapi.builder().binary(node.dtype, op, node.left.expr, node.comparators[0].expr)
+        node.expr = lcapi.builder().binary(to_lctype(bool), op, node.left.expr, node.comparators[0].expr)
 
     @staticmethod
     def build_BoolOp(ctx, node):
@@ -264,8 +302,7 @@ class ASTVisitor:
             ast.And: lcapi.BinaryOp.AND,
             ast.Or:  lcapi.BinaryOp.OR
         }.get(type(node.op))
-        node.dtype = lcapi.Type.from_("bool")
-        node.expr = lcapi.builder().binary(node.dtype, op, node.values[0].expr, node.values[1].expr)
+        node.expr = lcapi.builder().binary(to_lctype(bool), op, node.values[0].expr, node.values[1].expr)
 
     @staticmethod
     def build_If(ctx, node):

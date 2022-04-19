@@ -5,10 +5,10 @@ import struct
 
 import lcapi
 from . import globalvars
-from .types import basic_types, types
-from .buffer import Buffer
+from .types import dtype_of, to_lctype
+from .buffer import Buffer, BufferType
 from .arraytype import ArrayType
-from .structtype import StructType, _Struct
+from .structtype import StructType
 from . import astbuilder
 
 
@@ -25,29 +25,20 @@ def create_param_exprs(params):
         anno = params[name].annotation
         if anno == None:
             raise Exception("arguments must be annotated")
-        elif type(anno) is lcapi.Type:
-            l.append((name, anno, lcapi.builder().argument(anno)))
-        # TODO: elif type(anno) is ref:
-        elif anno in basic_types:
-            dtype = basic_types[anno]
-            l.append((name, dtype, lcapi.builder().argument(dtype)))
-        elif type(anno) is ArrayType:
-            dtype = anno.luisa_type
-            l.append((name, dtype, lcapi.builder().argument(dtype)))
-        elif type(anno) is str:
-            dtype = lcapi.Type.from_(anno)
-            if dtype.is_buffer():
-                l.append((name, dtype, lcapi.builder().buffer(dtype)))
-            elif dtype.is_texture():
-                l.append((name, dtype, lcapi.builder().texture(dtype)))
-            elif dtype.is_bindless_array():
-                l.append((name, dtype, lcapi.builder().bindless_array()))
-            elif dtype.is_accel():
-                l.append((name, dtype, lcapi.builder().accel()))
-            else:
-                l.append((name, dtype, lcapi.builder().argument(dtype)))
+        lctype = to_lctype(anno) # also checking that it's valid dtype
+        if lctype.is_basic() or lctype.is_array() or lctype.is_structure():
+            # uniform argument
+            l.append((name, anno, lcapi.builder().argument(lctype)))
+        elif lctype.is_buffer():
+            l.append((name, anno, lcapi.builder().buffer(lctype)))
+        elif lctype.is_texture():
+            l.append((name, anno, lcapi.builder().texture(lctype)))
+        elif lctype.is_bindless_array():
+            l.append((name, anno, lcapi.builder().bindless_array()))
+        elif lctype.is_accel():
+            l.append((name, anno, lcapi.builder().accel()))
         else:
-            raise Exception("argument unsupported")
+            raise Exception("unsupported argument annotation")
     return l
 
 class kernel:
@@ -62,7 +53,7 @@ class kernel:
             **_closure_vars.nonlocals,
             **_closure_vars.builtins
         }
-        self.local_variable = {}
+        self.local_variable = {} # dict: name -> (dtype, expr)
 
         param_list = inspect.signature(func).parameters
 
@@ -92,18 +83,14 @@ class kernel:
             raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
         for argid, arg in enumerate(args):
             dtype = self.params[argid][1]
-            if dtype.is_basic():
+            assert dtype_of(arg) == dtype
+            lctype = to_lctype(dtype)
+            if lctype.is_basic():
                 # TODO argument type cast? (e.g. int to uint)
-                assert basic_types[type(arg)] == dtype
-                command.encode_uniform(lcapi.to_bytes(arg), dtype.size(), dtype.alignment())
-            elif dtype.is_array():
-                command.encode_uniform(ArrayType(dtype)(arg).to_bytes(), dtype.size(), dtype.alignment())
-            elif dtype.is_structure():
-                assert type(arg) is _Struct
-                command.encode_uniform(arg.to_bytes(), dtype.size(), dtype.alignment())
-            elif dtype.is_buffer():
-                print(type(arg), dtype.element().description(), arg.dtype.description())
-                assert type(arg) is Buffer and dtype.element() == arg.dtype
+                command.encode_uniform(lcapi.to_bytes(arg), lctype.size(), lctype.alignment())
+            elif lctype.is_array() or lctype.is_structure():
+                command.encode_uniform(arg.to_bytes(), lctype.size(), lctype.alignment())
+            elif lctype.is_buffer():
                 command.encode_buffer(arg.handle, 0)
             else:
                 assert False

@@ -89,7 +89,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("member", &FunctionBuilder::member, pyref)
         .def("access", &FunctionBuilder::access, pyref)
         .def("swizzle", &FunctionBuilder::swizzle, pyref)
-        // .def("cast")
+        .def("cast", &FunctionBuilder::cast, pyref)
         .def("call", [](FunctionBuilder& self, const Type *type, CallOp call_op, std::vector<const Expression *> args){return self.call(type, call_op, args);}, pyref)
         .def("call", [](FunctionBuilder& self, const Type *type, Function custom, std::vector<const Expression *> args){return self.call(type, custom, args);}, pyref)
         .def("call", [](FunctionBuilder& self, CallOp call_op, std::vector<const Expression *> args){self.call(call_op, args);})
@@ -124,6 +124,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<BinaryExpr, Expression>(m, "BinaryExpr");
     py::class_<MemberExpr, Expression>(m, "MemberExpr");
     py::class_<AccessExpr, Expression>(m, "AccessExpr");
+    py::class_<CastExpr, Expression>(m, "CastExpr");
 
     py::class_<ScopeStmt>(m, "ScopeStmt"); // not yet exporting base class (Statement)
     py::class_<IfStmt>(m, "IfStmt")

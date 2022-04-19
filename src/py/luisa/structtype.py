@@ -1,5 +1,5 @@
 import lcapi
-from .types import basic_types
+from .types import dtype_of, to_lctype
 from .arraytype import ArrayType, _Array
 
 
@@ -17,20 +17,11 @@ class _Struct:
 
     @staticmethod
     def cast(dtype, value):
-        if dtype.is_basic():
-            assert basic_types[type(value)] == dtype
-        elif dtype.is_array():
-            if type(value) is not _Array:
-                assert len(value) == dtype.dimension() and basic_types[type(value[0])] == dtype.element()
-                value = _Array(dtype, value)
-        elif dtype.is_structure():
-            assert type(value) is _Struct and value.structType.luisa_type == dtype
-        else:
-            assert False
+        assert dtype_of(value) == dtype
         return value
 
-    def __init__(self, basetype, **kwargs):
-        self.structType = basetype
+    def __init__(self, structType, **kwargs):
+        self.structType = structType
         self.values = []
         assert len(kwargs.items()) == len(self.structType.membertype)
         for name, value in kwargs.items():
@@ -43,14 +34,15 @@ class _Struct:
         packed_bytes = b''
         for idx, value in enumerate(self.values):
             dtype = self.structType.membertype[idx]
-            curr_align = dtype.alignment()
+            lctype = to_lctype(dtype)
+            curr_align = lctype.alignment()
             while len(packed_bytes) % curr_align != 0:
                 packed_bytes += b'\0'
-            if dtype.is_basic():
+            if lctype.is_basic():
                 packed_bytes += lcapi.to_bytes(value)
-            elif dtype.is_array():
+            elif lctype.is_array():
                 packed_bytes += value.to_bytes()
-            elif dtype.is_structure():
+            elif lctype.is_structure():
                 packed_bytes += value.to_bytes()
             else:
                 assert False
@@ -69,18 +61,17 @@ class StructType:
         self.alignment = 1
         for idx, (name, dtype) in enumerate(kwargs.items()):
             self.idx_dict[name] = idx
-            if dtype in basic_types:
-                self.membertype.append(basic_types[dtype])
-            elif type(dtype) in (ArrayType, StructType):
-                self.membertype.append(dtype.luisa_type)
-            else:
-                raise Exception("unrecognized struct member data type")
-            self.alignment = max(self.alignment, self.membertype[idx].alignment())
+            lctype = to_lctype(dtype) # also checks if it's valid dtype
+            self.membertype.append(dtype)
+            self.alignment = max(self.alignment, lctype.alignment())
         # compute lcapi.Type
-        type_string = f'struct<{self.alignment},' +  ','.join([x.description() for x in self.membertype]) + '>'
+        type_string = f'struct<{self.alignment},' +  ','.join([to_lctype(x).description() for x in self.membertype]) + '>'
         self.luisa_type = lcapi.Type.from_(type_string)
 
     def __call__(self, **kwargs):
         return _Struct(self, **kwargs)
+
+    def __eq__(self, other):
+        return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment
 
 
