@@ -10,6 +10,7 @@ from .buffer import Buffer, BufferType
 from .arraytype import ArrayType
 from .structtype import StructType
 from . import astbuilder
+from .mathtypes import *
 
 
 def init(backend_name):
