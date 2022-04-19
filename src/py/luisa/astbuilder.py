@@ -3,6 +3,7 @@ import astpretty
 import inspect
 import sys
 import lcapi
+import traceback
 from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
 from .types import scalar_types, basic_types
 from .vector import is_swizzle_name, get_swizzle_code
@@ -43,6 +44,13 @@ class ASTVisitor:
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' '*(startcol-1) + '~' * (endcol - startcol + 1) + clr)
+        print("traceback:")
+        _, _, tb = sys.exc_info()
+        traceback.print_tb(tb) # Fixed format
+        tb_info = traceback.extract_tb(tb)
+        filename, line, func, text = tb_info[-1]
+
+        print('An error occurred on line {} in statement {}'.format(line, text))
 
     @staticmethod
     def build_FunctionDef(ctx, node):

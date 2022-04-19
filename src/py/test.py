@@ -1,9 +1,6 @@
 import luisa
 import numpy as np
-
-
-
-
+from luisa.builtin import builtin_func
 
 # ============= test script ================
 
@@ -25,17 +22,21 @@ luisa.init('ispc')
 # x1 = lcapi.make_float2(6,10)
 # m1 = lcapi.make_float2x2(1,2,3,4)
 
-Arr = luisa.ArrayType(int,3)
+Arr = luisa.ArrayType(int, 3)
+
 
 @luisa.kernel
 def f(a: int, arr: Arr, b: "buffer<int>"):
     idx = dispatch_id().x
     a += arr[x] * arr[1] + arr[2]
+    t = make_float2x2(1, 2, 3, 4)
+    t1 = make_float2(1, 2)
+    t = make_float4(1, 2, t1)
+    t_error = make_float4(1, 2, 3, t1)
     # val = b.read(idx)
     # x = make_float2(3,5) * -1 + x1
     b.write(idx, a)
     # m2 = make_float2x2(1,2,3,4,5,6,7)
-
 
 
 b = luisa.Buffer(100, int)
@@ -44,8 +45,7 @@ arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
 b.copy_from(arr)
-f(42, [10,20,30], b, dispatch_size = (100,1,1))
+f(42, [10, 20, 30], b, dispatch_size=(100, 1, 1))
 b.copy_to(arr1)
-
 
 print(arr1)
