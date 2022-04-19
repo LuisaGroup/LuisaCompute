@@ -110,9 +110,8 @@ void ShaderDispatchCommand::set_dispatch_size(uint3 launch_size) noexcept {
 }
 
 ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept
-    : _handle{handle}, _kernel{kernel}, _argument_buffer{luisa::make_unique<ArgumentBuffer>()} {
-    _encode_pending_bindings();
-}
+    : Command{Command::Tag::EShaderDispatchCommand}, _handle{handle}, _kernel{kernel},
+      _argument_buffer{luisa::make_unique<ArgumentBuffer>()} { _encode_pending_bindings(); }
 
 inline void ShaderDispatchCommand::_encode_bindless_array(uint64_t handle) noexcept {
     if (_argument_count >= _kernel.arguments().size()) [[unlikely]] {
