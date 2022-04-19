@@ -64,7 +64,7 @@ def dtype_of(val):
         return CallableType
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
-    if val in basic_type_dict or type(val).__name__ in {"ArrayType", "StructType", "BufferType"}:
+    if type(val).__name__ in {"ArrayType", "StructType", "BufferType"} or val in basic_type_dict:
         return type
     raise Exception(f"dtype_of ({val}): unrecognized type")
 
