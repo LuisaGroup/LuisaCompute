@@ -22,7 +22,8 @@ void Stream::_dispatch(CommandList list) noexcept {
         CommandGraph graph{device()};
         for (auto cmd : commands) { graph.add(cmd); }
         auto reordered_lists = graph.schedule();
-        LUISA_INFO("Command reordering time: {} ms.", clock.toc());
+        LUISA_INFO("Reordered {} commands into {} list(s) in {} ms.",
+                   commands.size(), reordered_lists.size(), clock.toc());
         device()->dispatch(handle(), reordered_lists);
 //        auto commands = list.steal_commands();
 //        for (auto command : commands) {
