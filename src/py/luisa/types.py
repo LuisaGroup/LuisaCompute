@@ -47,6 +47,9 @@ basic_lctype_dict = {
 # dtype: {int, ..., int3, ..., ArrayType(...), StructType(...), BufferType(...), type}
 # type annotation should be in the form of dtype
 
+class CallableType:
+    pass
+
 def dtype_of(val):
     if type(val) in basic_type_dict:
         return type(val)
@@ -56,6 +59,9 @@ def dtype_of(val):
         return val.structType
     if type(val).__name__ == "Buffer":
         return val.bufferType
+    if type(val).__name__ == "kernel":
+        assert val.is_device_callable
+        return CallableType
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
     if val in basic_type_dict or type(val).__name__ in {"ArrayType", "StructType", "BufferType"}:

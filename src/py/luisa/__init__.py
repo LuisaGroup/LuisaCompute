@@ -43,7 +43,7 @@ def create_param_exprs(params):
 
 class kernel:
     # creates a luisa kernel with given function
-    def __init__(self, func):
+    def __init__(self, func, is_device_callable = False):
         # get python AST & context
         self.tree = ast.parse(inspect.getsource(func))
         self.original_func = func
@@ -54,20 +54,29 @@ class kernel:
             **_closure_vars.builtins
         }
         self.local_variable = {} # dict: name -> (dtype, expr)
+        self.is_device_callable = is_device_callable
 
-        param_list = inspect.signature(func).parameters
+        self.signature = inspect.signature(func)
+        if not is_device_callable:
+            assert self.signature.return_annotation == inspect._empty
 
         def astgen():
             # print(astpretty.pformat(self.tree.body[0]))
-            lcapi.builder().set_block_size(256,1,1)
+            if not self.is_device_callable:
+                lcapi.builder().set_block_size(256,1,1)
             # get parameters
-            self.params = create_param_exprs(param_list)
+            self.params = create_param_exprs(self.signature.parameters)
             for name, dtype, expr in self.params:
                 self.local_variable[name] = dtype, expr
             # build function body AST
             astbuilder.build(self, self.tree.body[0])
 
-        self.builder = lcapi.FunctionBuilder.define_kernel(astgen)
+        if is_device_callable:
+            self.builder = lcapi.FunctionBuilder.define_callable(astgen)
+        else:
+            self.builder = lcapi.FunctionBuilder.define_kernel(astgen)
+        # Note: self.params[*][2] (expr) is invalidated
+
         self.func = self.builder.function()
         # compile shader
         self.shader_handle = globalvars.device.impl().create_shader(self.func)
@@ -75,6 +84,8 @@ class kernel:
 
     # dispatch shader to stream
     def __call__(self, *args, dispatch_size, sync = True, stream = None):
+        if self.is_device_callable:
+            raise Exception("callable can't be called on host")
         if stream is None:
             stream = globalvars.stream
         command = lcapi.ShaderDispatchCommand.create(self.shader_handle, self.func)
@@ -99,6 +110,9 @@ class kernel:
         stream.add(command)
         if sync:
             stream.synchronize()
+
+def callable(func):
+    return kernel(func, is_device_callable = True)
 
 def synchronize(stream = None):
     if stream is None:

@@ -65,6 +65,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<Function>(m, "Function");
     py::class_<FunctionBuilder, eastl::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
         .def("define_kernel", &FunctionBuilder::define_kernel<const std::function<void()> &>)
+        .def("define_callable", &FunctionBuilder::define_callable<const std::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder& self, uint sx, uint sy, uint sz){self.set_block_size(uint3{sx,sy,sz});})
 
         .def("thread_id", &FunctionBuilder::thread_id, pyref)
