@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <nlohmann/json.hpp>
+
 #include <core/stl.h>
 #include <runtime/command.h>
 
@@ -29,6 +31,9 @@ public:
     [[nodiscard]] auto end() const noexcept { return _commands.end(); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }
     [[nodiscard]] auto size() const noexcept { return _commands.size(); }
+
+    // for debug
+    [[nodiscard]] nlohmann::json dump_json() const noexcept;
 };
 
 }// namespace luisa::compute

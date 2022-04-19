@@ -91,7 +91,7 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {
-        _command->encode_uniform(&data, sizeof(T), alignof(T));
+        _command->encode_uniform(&data, sizeof(T));
         return *this;
     }
 

@@ -84,16 +84,10 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
 
-#define LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)                 \
-    [[nodiscard]] Command *clone() const noexcept override { \
-        return Cmd::create(*this);                           \
-    }
-
-#define LUISA_MAKE_COMMAND_COMMON(Cmd)     \
-    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)  \
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)  \
-    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)
+#define LUISA_MAKE_COMMAND_COMMON(Cmd)    \
+    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd)
 
 class LC_RUNTIME_API Command {
 
@@ -104,7 +98,6 @@ public:
     virtual ~Command() noexcept = default;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
-    [[nodiscard]] virtual Command *clone() const noexcept = 0;
     void recycle();
 };
 
@@ -314,7 +307,7 @@ class FunctionBuilder;
 class LC_RUNTIME_API ShaderDispatchCommand final : public Command {
 
 public:
-    struct alignas(16) Argument {
+    struct alignas(8) Argument {
 
         enum struct Tag : uint32_t {
             BUFFER,
@@ -354,12 +347,11 @@ public:
 
     struct UniformArgument : Argument {
         size_t size{};
-        size_t alignment{};
+        const std::byte *data{};
         UniformArgument() noexcept : Argument{Tag::UNIFORM, 0u} {}
-        UniformArgument(uint32_t vid, size_t size, size_t alignment) noexcept
-            : Argument{Tag::UNIFORM, vid},
-              size{size},
-              alignment{alignment} {}
+        UniformArgument(uint32_t vid, const std::byte *data, size_t size) noexcept
+            : Argument{Tag::UNIFORM, vid}, size{size}, data{data} {}
+        [[nodiscard]] auto span() const noexcept { return luisa::span{data, size}; }
     };
 
     struct BindlessArrayArgument : Argument {
@@ -386,18 +378,20 @@ private:
     size_t _argument_buffer_size{0u};
     uint _dispatch_size[3]{};
     uint32_t _argument_count{0u};
-    ArgumentBuffer _argument_buffer{};
+    luisa::unique_ptr<ArgumentBuffer> _argument_buffer;
 
 private:
     void _encode_pending_bindings() noexcept;
     void _encode_buffer(uint64_t handle, size_t offset) noexcept;
     void _encode_texture(uint64_t handle, uint32_t level) noexcept;
-    void _encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void _encode_uniform(const void *data, size_t size) noexcept;
     void _encode_bindless_array(uint64_t handle) noexcept;
     void _encode_accel(uint64_t handle) noexcept;
 
 public:
     explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
+    ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept = default;
+    ShaderDispatchCommand &operator=(ShaderDispatchCommand &&) noexcept = default;
     void set_dispatch_size(uint3 launch_size) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto kernel() const noexcept { return _kernel; }
@@ -406,51 +400,49 @@ public:
 
     void encode_buffer(uint64_t handle, size_t offset) noexcept;
     void encode_texture(uint64_t handle, uint32_t level) noexcept;
-    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void encode_uniform(const void *data, size_t size) noexcept;
     void encode_bindless_array(uint64_t handle) noexcept;
     void encode_accel(uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
-        auto p = _argument_buffer.data();
-        while (p < _argument_buffer.data() + _argument_buffer_size) {
+        auto p = _argument_buffer->data();
+        while (p < _argument_buffer->data() + _argument_buffer_size) {
             Argument argument{};
             std::memcpy(&argument, p, sizeof(Argument));
             switch (argument.tag) {
                 case Argument::Tag::BUFFER: {
                     BufferArgument buffer_argument{};
                     std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
-                    visit(argument.variable_uid, buffer_argument);
+                    visit(buffer_argument);
                     p += sizeof(BufferArgument);
                     break;
                 }
                 case Argument::Tag::TEXTURE: {
                     TextureArgument texture_argument{};
                     std::memcpy(&texture_argument, p, sizeof(TextureArgument));
-                    visit(argument.variable_uid, texture_argument);
+                    visit(texture_argument);
                     p += sizeof(TextureArgument);
                     break;
                 }
                 case Argument::Tag::UNIFORM: {
                     UniformArgument uniform_argument{};
                     std::memcpy(&uniform_argument, p, sizeof(UniformArgument));
-                    p += sizeof(UniformArgument);
-                    luisa::span data{p, uniform_argument.size};
-                    visit(argument.variable_uid, data);
-                    p += uniform_argument.size;
+                    visit(uniform_argument);
+                    p += sizeof(UniformArgument) + uniform_argument.size;
                     break;
                 }
                 case Argument::Tag::BINDLESS_ARRAY: {
                     BindlessArrayArgument bindless_array_argument;
                     std::memcpy(&bindless_array_argument, p, sizeof(BindlessArrayArgument));
-                    visit(argument.variable_uid, bindless_array_argument);
+                    visit(bindless_array_argument);
                     p += sizeof(BindlessArrayArgument);
                     break;
                 }
                 case Argument::Tag::ACCEL: {
                     AccelArgument accel_argument;
                     std::memcpy(&accel_argument, p, sizeof(AccelArgument));
-                    visit(argument.variable_uid, accel_argument);
+                    visit(accel_argument);
                     p += sizeof(AccelArgument);
                     break;
                 }
@@ -555,7 +547,6 @@ public:
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE
 #undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
 #undef LUISA_MAKE_COMMAND_COMMON_RECYCLE
-#undef LUISA_MAKE_COMMAND_COMMON_CLONE
 #undef LUISA_MAKE_COMMAND_COMMON
 
 }// namespace luisa::compute

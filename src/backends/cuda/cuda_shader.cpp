@@ -53,7 +53,7 @@ public:
         };
         arguments.clear();
         arguments.reserve(32u);
-        command->decode([&](auto, auto argument) noexcept -> void {
+        command->decode([&](auto argument) noexcept -> void {
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
@@ -76,9 +76,9 @@ public:
                     .instances = CUDAHeap::buffer_address(accel->instance_buffer())};
                 std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
             } else {// uniform
-                static_assert(std::same_as<T, luisa::span<const std::byte>>);
-                auto ptr = allocate_argument(argument.size_bytes());
-                std::memcpy(ptr, argument.data(), argument.size_bytes());
+                static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);
+                auto ptr = allocate_argument(argument.size);
+                std::memcpy(ptr, argument.data, argument.size);
             }
         });
         // the last one is always the launch size
@@ -295,7 +295,7 @@ public:
             }
             return host_argument_buffer->address() + offset;
         };
-        command->decode([&](auto, auto argument) noexcept -> void {
+        command->decode([&](auto argument) noexcept -> void {
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
@@ -318,9 +318,9 @@ public:
                     .instances = CUDAHeap::buffer_address(accel->instance_buffer())};
                 std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
             } else {// uniform
-                static_assert(std::same_as<T, luisa::span<const std::byte>>);
-                auto ptr = allocate_argument(argument.size_bytes());
-                std::memcpy(ptr, argument.data(), argument.size_bytes());
+                static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);
+                auto ptr = allocate_argument(argument.size);
+                std::memcpy(ptr, argument.data, argument.size);
             }
         });
         auto heap = _device->heap();
