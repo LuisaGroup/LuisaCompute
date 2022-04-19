@@ -18,9 +18,11 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
+        Clock clock;
         CommandGraph graph{device()};
         for (auto cmd : commands) { graph.add(cmd); }
         auto reordered_lists = graph.schedule();
+        LUISA_INFO("Command reordering time: {} ms.", clock.toc());
         device()->dispatch(handle(), reordered_lists);
 //        auto commands = list.steal_commands();
 //        for (auto command : commands) {
