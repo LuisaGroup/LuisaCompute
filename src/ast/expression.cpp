@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2021/3/13.
 //
 
-#include "ast/variable.h"
+#include <ast/variable.h>
 #include <core/logging.h>
 #include <ast/expression.h>
 #include <ast/function_builder.h>
@@ -21,9 +21,8 @@ luisa::unique_ptr<Expression> Expression::create(Tag tag) noexcept {
             return luisa::make_unique<CastExpr>(nullptr, CastOp::BITWISE, nullptr);
         case Tag::CONSTANT:
             return luisa::make_unique<ConstantExpr>(nullptr, ConstantData());
-            // case Tag::LITERAL:
-            // return luisa::make_unique<LiteralExpr>
-            // TODO: other expressions?
+        default:// TODO
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     return nullptr;
 }
