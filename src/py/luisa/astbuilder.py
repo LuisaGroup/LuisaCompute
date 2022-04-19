@@ -345,6 +345,15 @@ class ASTVisitor:
         lcapi.builder().pop_scope(ifstmt.false_branch())
 
     @staticmethod
+    def build_IfExp(ctx, node):
+        build(ctx, node.body)
+        build(ctx, node.test)
+        build(ctx, node.orelse)
+        assert node.test.dtype == bool and node.body.dtype == node.orelse.dtype
+        node.dtype = node.body.dtype
+        node.expr = lcapi.builder().call(to_lctype(node.dtype), lcapi.CallOp.SELECT, [node.orelse.expr, node.body.expr, node.test.expr])
+
+    @staticmethod
     def build_For(ctx, node):
         raise Exception('for loop not supported yet')
         pass
