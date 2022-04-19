@@ -1,4 +1,4 @@
-# from .types import types
+from .types import to_lctype
 import lcapi
 
 def deduce_unary_type(op, dtype):
@@ -16,7 +16,14 @@ def builtin_func(name, args):
     for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
         if name == func:
             assert len(args) == 0
-            return lcapi.Type.from_("vector<uint,3>"), getattr(lcapi.builder(), func)()
+            # return lcapi.uint3, getattr(lcapi.builder(), func)()
+            # NOTE: cast to signed int by default
+            expr = getattr(lcapi.builder(), func)()
+            dtype = lcapi.int3
+            expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
+            tmp = lcapi.builder().local(to_lctype(dtype))
+            lcapi.builder().assign(tmp, expr1)
+            return dtype, tmp
 
     # e.g. make_float4(...)
     for T in 'uint','int','float','bool':
@@ -24,8 +31,8 @@ def builtin_func(name, args):
             if name == f'make_{T}{N}':
                 # TODO: check args
                 op = getattr(lcapi.CallOp, name.upper())
-                rettype = lcapi.Type.from_(f'vector<{T},{N}>')
-                return rettype, lcapi.builder().call(rettype, op, [x.ptr for x in args])
+                dtype = getattr(lcapi, f'{T}{N}')
+                return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     # e.g. make_float2x2(...)
     for N in 2,3,4:
@@ -35,7 +42,8 @@ def builtin_func(name, args):
             # NOTE: OP only supports from vectors;
             # TODO: from scalar / matrix
             rettype = lcapi.Type.from_(f'matrix<{N}>')
-            return rettype, lcapi.builder().call(rettype, op, [x.ptr for x in args])
+            dtype = getattr(lcapi, f'{T}{N}x{N}')
+            return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     # TODO: atan2
 
@@ -45,10 +53,10 @@ def builtin_func(name, args):
                 'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round'):
         # type check: arg must be float / float vector
         assert len(args) == 1
-        assert args[0].dtype == lcapi.Type.from_('float') or args[0].dtype.is_vector() and args[0].dtype.element() == lcapi.Type.from_('float')
+        assert args[0].dtype == float or to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
         op = getattr(lcapi.CallOp, name.upper())
-        rettype = args[0].type
-        return rettype, lcapi.builder().call(rettype, op, [x.ptr for x in args])
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.ptr for x in args])
 
     raise Exception('unrecognized function call')
 

@@ -28,9 +28,9 @@ luisa.init('ispc')
 Arr = luisa.ArrayType(int,3)
 
 @luisa.kernel
-def f(a: int, arr: Arr, b: "buffer<int>"):
+def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     idx = dispatch_id().x
-    a += arr[x] * arr[1] + arr[2]
+    a += arr[0] * arr[1] + arr[2]
     # val = b.read(idx)
     # x = make_float2(3,5) * -1 + x1
     b.write(idx, a)
@@ -44,7 +44,7 @@ arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
 b.copy_from(arr)
-f(42, [10,20,30], b, dispatch_size = (100,1,1))
+f(42, Arr([10,20,30]), b, dispatch_size = (100,1,1))
 b.copy_to(arr1)
 
 

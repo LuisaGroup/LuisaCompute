@@ -1,3 +1,5 @@
+from .types import to_lctype, from_lctype
+
 # Note: vector & matrix types are directly imported from lcapi
 
 # class Vector:
@@ -36,3 +38,10 @@ def get_swizzle_code(sw, maxlen):
             raise Exception('swizzle index exceeding length of vector')
         code |= c << (idx * 4)
     return code
+
+def get_swizzle_resulttype(dtype, len):
+    lctype = to_lctype(dtype)
+    if len == 1:
+        return from_lctype(lctype.element())
+    else:
+        return from_lctype(lcapi.Type.from_(f'vector<{dtype.element().description()},{len}>'))
