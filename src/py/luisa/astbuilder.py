@@ -53,10 +53,6 @@ class ASTVisitor:
 
     @staticmethod
     def build_FunctionDef(ctx, node):
-        if node.returns is not None:
-            raise Exception('Return value is not supported')
-        # if len(node.args.args)!=0 or node.args.vararg is not None or node.args.kwarg is not None:
-        #     raise Exception('Arguments are not supported')
         for x in node.body: # build over a list
             build(ctx, x)
 
@@ -67,6 +63,21 @@ class ASTVisitor:
         else:
             print("WARNING: Expr discarded")
 
+    @staticmethod
+    def build_Return(ctx, node):
+        if node.value != None:
+            build(ctx, node.value)
+        # deduce & check type of return value
+        return_type = None if node.value == None else node.value.dtype
+        if hasattr(ctx, "return_type"):
+            if ctx.return_type != return_type:
+                raise Exception("inconsistent return type in multiple return statements")
+        else:
+            ctx.return_type = return_type
+        if not ctx.is_device_callable and return_type != None:
+            raise Exception("only callable can return non-void value")
+        # build return statement
+        lcapi.builder().return_(node.value.expr)
 
     @staticmethod
     def build_Call(ctx, node):
@@ -76,16 +87,16 @@ class ASTVisitor:
             build.build_Name(ctx, node.func, allow_none = True)
             if node.func.dtype is CallableType: # custom callable
                 # check args
-                signature = node.func.expr.signature
-                assert len(node.args) == len(signature.parameters)
-                for idx, param_name in enumerate(signature.parameters):
-                    assert node.args[idx].dtype == signature.parameters[param_name].annotation
+                parameters = node.func.expr.parameters
+                assert len(node.args) == len(parameters)
+                for idx, param_name in enumerate(parameters):
+                    assert node.args[idx].dtype == parameters[param_name].annotation
                 # call
-                if signature.return_annotation == inspect._empty:
+                if not hasattr(node.func.expr, "return_type") or node.func.expr.return_type == None:
                     node.dtype = None
                     node.expr = lcapi.builder().call(node.func.expr.func, [x.expr for x in node.args])
                 else:
-                    node.dtype = signature.return_annotation
+                    node.dtype = node.func.expr.return_type
                     node.expr = lcapi.builder().call(to_lctype(node.dtype), node.func.expr.func, [x.expr for x in node.args])
             elif node.func.dtype is None: # name not found
                 node.dtype, node.expr = builtin_func(node.func.id, node.args)

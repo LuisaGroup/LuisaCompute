@@ -56,16 +56,14 @@ class kernel:
         self.local_variable = {} # dict: name -> (dtype, expr)
         self.is_device_callable = is_device_callable
 
-        self.signature = inspect.signature(func)
-        if not is_device_callable:
-            assert self.signature.return_annotation == inspect._empty
+        self.parameters = inspect.signature(func).parameters
 
         def astgen():
             # print(astpretty.pformat(self.tree.body[0]))
             if not self.is_device_callable:
                 lcapi.builder().set_block_size(256,1,1)
             # get parameters
-            self.params = create_param_exprs(self.signature.parameters)
+            self.params = create_param_exprs(self.parameters)
             for name, dtype, expr in self.params:
                 self.local_variable[name] = dtype, expr
             # build function body AST
