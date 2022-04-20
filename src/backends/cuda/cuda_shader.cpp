@@ -113,7 +113,6 @@ public:
 
 private:
     CUDADevice *_device;
-    CUdeviceptr _sbt_buffer{};
     size_t _argument_buffer_size{};
     OptixModule _module{};
     OptixProgramGroup _program_group_rg{};
@@ -122,6 +121,7 @@ private:
     OptixProgramGroup _program_group_miss{};
     OptixPipeline _pipeline{};
     luisa::string _entry;
+    mutable CUdeviceptr _sbt_buffer{};
     mutable luisa::spin_mutex _mutex;
     mutable CUevent _sbt_event{};
     mutable OptixShaderBindingTable _sbt{};
@@ -153,7 +153,6 @@ public:
         LUISA_VERBOSE_WITH_LOCATION(
             "Argument buffer size for {}: {}.",
             entry, _argument_buffer_size);
-        LUISA_CHECK_CUDA(cuMemAlloc(&_sbt_buffer, sizeof(SBTRecord) * 4u));
 
         // create module
         OptixModuleCompileOptions module_compile_options{};
@@ -272,6 +271,7 @@ private:
         std::scoped_lock lock{_mutex};
         if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
             constexpr auto sbt_buffer_size = sizeof(SBTRecord) * 4u;
+            LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
             auto sbt_record_buffer = stream->upload_pool()->allocate(sbt_buffer_size);
             auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer->address());
             LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
@@ -304,9 +304,15 @@ public:
         _prepare_sbt(stream, cuda_stream);
 
         // encode arguments
-        auto argument_buffer = 0ull;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&argument_buffer, _argument_buffer_size, cuda_stream));
         auto host_argument_buffer = stream->upload_pool()->allocate(_argument_buffer_size);
+        auto argument_buffer = 0ull;
+        if (host_argument_buffer->is_pooled()) {
+            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
+                &argument_buffer, host_argument_buffer->address(), 0u));
+        } else {
+            LUISA_CHECK_CUDA(cuMemAllocAsync(
+                &argument_buffer, _argument_buffer_size, cuda_stream));
+        }
         auto argument_buffer_offset = static_cast<size_t>(0u);
         auto allocate_argument = [&](size_t bytes) noexcept {
             static constexpr auto alignment = 16u;
@@ -344,15 +350,21 @@ public:
                 std::memcpy(ptr, argument.data, argument.size);
             }
         });
-        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            argument_buffer, host_argument_buffer->address(),
-            _argument_buffer_size, cuda_stream));
-        stream->emplace_callback(host_argument_buffer);
         auto s = command->dispatch_size();
-        LUISA_CHECK_OPTIX(optixLaunch(
-            _pipeline, cuda_stream, argument_buffer,
-            _argument_buffer_size, &_sbt, s.x, s.y, s.z));
-        LUISA_CHECK_CUDA(cuMemFreeAsync(argument_buffer, cuda_stream));
+        if (host_argument_buffer->is_pooled()) {
+            LUISA_CHECK_OPTIX(optixLaunch(
+                _pipeline, cuda_stream, argument_buffer,
+                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
+        } else {
+            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
+                argument_buffer, host_argument_buffer->address(),
+                _argument_buffer_size, cuda_stream));
+            LUISA_CHECK_OPTIX(optixLaunch(
+                _pipeline, cuda_stream, argument_buffer,
+                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
+            LUISA_CHECK_CUDA(cuMemFreeAsync(argument_buffer, cuda_stream));
+        }
+        stream->emplace_callback(host_argument_buffer);
     }
 };
 
