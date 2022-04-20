@@ -1,9 +1,8 @@
 # Python-Luisa 用户文档
-### 编译与运行
+## 编译与运行
 
 ```bash
 cmake -S . -B build_debug -G Ninja -D CMAKE_BUILD_TYPE=Debug -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_PYTHON=ON -D LUISA_COMPUTE_ENABLE_LLVM=OFF -D LUISA_COMPUTE_ENABLE_ISPC=ON -D LUISA_COMPUTE_ENABLE_METAL=OFF
-
 cmake --build build_debug
 ```
 此编译命令会在`build_debug`下生成可被python引入的luisa库。
@@ -15,12 +14,12 @@ cd build_debug/bin
 python3 test.py
 ```
 
-### 语言用例
+## 语言用例
 
 **注意：** 在 Python 终端交互模式（REPL）下不可使用（见[#10](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。在 Jupyter notebook 中出错时可能导致崩溃（见[#11](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。建议使用文件脚本，如`python3 a.py`。
 
 ```python
-import luisa
+import luisa # 引入Luisa库，初始化
 import numpy as np
 
 b = luisa.Buffer(100, dtype=int)
@@ -37,21 +36,21 @@ res = np.ones(100, dtype='int32')
 b.copy_to(res)
 print(res)
 ```
-### 参数列表
+## 参数列表
 
 参数列表可为空，由逗号隔开，每一项为`name: type`
 
 `name`参数名字，`type` 为类型标记，见下
 
-### 类型
+## 类型
 
-##### 标量类型
+### 标量类型
 
 `int`, `float`, `bool`
 
 分别为32位有符号整形、单精度浮点数、布尔值。
 
-##### 向量、矩阵类型
+### 向量、矩阵类型
 
 `luisa.float3`, `luisa.float3x3` , ...
 
@@ -63,7 +62,7 @@ print(res)
 from luisa.mathtypes import *
 ```
 
-##### 数组类型
+### 数组类型
 
 ```python3
 arr_t = luisa.ArrayType(dtype, size)
@@ -71,7 +70,7 @@ arr_t = luisa.ArrayType(dtype, size)
 
 其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
 
-##### 结构体类型
+### 结构体类型
 
 ```python
 struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
@@ -79,7 +78,7 @@ struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
 
 其中dtype为标量/向量/矩阵/数组/结构体类型
 
-##### Buffer类型
+### Buffer类型
 
 暂时只支持标量Buffer
 
@@ -91,19 +90,19 @@ struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
 
 TODO
 
-### 函数调用
+## 函数调用
 
-##### 自定义函数
+### 自定义函数
 
 callable 是自定义的可被kernel调用的函数，其不可在python中直接调用。
 
 callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
 
-##### 内建函数
+### 内建函数
 
-##### 内建方法
+### 内建方法
 
-### 变量
+## 变量
 
 在kernel/callable中初次出现（请勿与外部变量重名，TODO）的变量为局部变量。局部变量的类型在整个函数中保持不变。例如：
 
@@ -115,7 +114,7 @@ def fill():
     a = 1.5 # 禁止这么做，因为改变了类型
 ```
 
-### 调试
+## 调试
 
 TODO
 
@@ -123,7 +122,21 @@ TODO
 
 # Python-Luisa 开发者文档
 
-`src/py/lcapi.cpp` 导出PyBind接口
+`src/py/lcapi.cpp` 导出PyBind接口到名为 lcapi 的库
 
 `src/py/luisa` python库
+
+`src/py/luisa/astbuilder` 遍历Python AST，调用FunctionBuilder
+
+## LuisaCompute API
+
+
+
+## AST变换
+
+对AST的表达式节点维护两个属性：
+
+`node.dtype` 表达式值的类型，见用户文档“类型”一节。调用 `luisa.types.to_lctype(node.dtype)` 可转换为 `lcapi.Types`
+
+`node.expr` 表达式，类型为 `lcapi.Expression`
 
