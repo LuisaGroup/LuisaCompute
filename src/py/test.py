@@ -5,6 +5,8 @@ from luisa.builtin import builtin_func
 # ============= test script ================
 
 
+luisa.init("cuda")
+
 # def test_astgen():
 #     lcapi.builder().set_block_size(256,1,1)
 #     int_type = lcapi.Type.from_("int")

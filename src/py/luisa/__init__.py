@@ -13,8 +13,8 @@ from . import astbuilder
 from .mathtypes import *
 
 
-def _init(backend_name = None):
-    globalvars.context = lcapi.Context(lcapi.FsPath(""))
+def init(backend_name = None):
+    globalvars.context = lcapi.Context(lcapi.FsPath("."))
     # auto select backend if not specified
     if backend_name == None:
         backends = globalvars.context.installed_backends()
@@ -23,8 +23,6 @@ def _init(backend_name = None):
         backend_name = backends[0]
     globalvars.device = globalvars.context.create_device(backend_name)
     globalvars.stream = globalvars.device.create_stream()
-
-_init()
 
 
 def create_param_exprs(params):
@@ -86,7 +84,8 @@ class kernel:
 
         self.func = self.builder.function()
         # compile shader
-        self.shader_handle = globalvars.device.impl().create_shader(self.func)
+        if not is_device_callable:
+            self.shader_handle = globalvars.device.impl().create_shader(self.func)
 
 
     # dispatch shader to stream

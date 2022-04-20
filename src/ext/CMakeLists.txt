@@ -81,7 +81,8 @@ if (LUISA_COMPUTE_ENABLE_ISPC)
         set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
         set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
         set(EMBREE_ISA_SSE42 OFF CACHE BOOL "" FORCE)
-        set(EMBREE_ISA_AVX OFF CACHE BOOL "" FORCE)
+        set(EMBREE_ISA_AVX ON CACHE BOOL "" FORCE)
+        set(EMBREE_ISA_AVX2 ON CACHE BOOL "" FORCE)
         set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
         set(EMBREE_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
         set(EMBREE_RAY_MASK ON CACHE BOOL "" FORCE)
@@ -100,8 +101,15 @@ if (LUISA_COMPUTE_ENABLE_ISPC)
     endif ()
     target_link_libraries(luisa-compute-ext PUBLIC embree)
     add_custom_command(TARGET luisa-compute-ext POST_BUILD
+            DEPENDS "$<TARGET_FILE:embree>"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+            "$<TARGET_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>"
+            VERBATIM)
+    add_custom_command(TARGET luisa-compute-ext POST_BUILD
+            DEPENDS "$<TARGET_LINKER_FILE:embree>"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>"
+            VERBATIM)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)
