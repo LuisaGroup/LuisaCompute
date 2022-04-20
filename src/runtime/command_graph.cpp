@@ -44,6 +44,14 @@ luisa::vector<CommandList> CommandGraph::schedule() noexcept {
         indices.swap(next_indices);
         next_indices.clear();
     }
+    auto total = 0u;
+    for (auto &list : lists) { total += list.size(); }
+    if (total != _commands.size()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "CommandGraph::schedule: command count "
+            "mismatch (expected {}, got {})",
+            _commands.size(), total);
+    }
     return lists;
 }
 
