@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
+#include "core/logging.h"
 #include <utility>
 
 #include <runtime/device.h>
@@ -18,7 +19,7 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
-        Clock clock;
+        // Clock clock;
         // CommandGraph graph{device()};
         // for (auto cmd : commands) { graph.add(cmd); }
         // auto lists = graph.schedule();
@@ -26,12 +27,12 @@ void Stream::_dispatch(CommandList list) noexcept {
         //     "Reordered {} commands into {} list(s) in {} ms.",
         //     commands.size(), lists.size(), clock.toc());
         // device()->dispatch(handle(), lists);
-        // Clock clock;
+        Clock clock;
         for (auto command : commands) {
             command->accept(*reorder_visitor);
         }
         auto lists = reorder_visitor->command_lists();
-        LUISA_INFO(
+        LUISA_VERBOSE_WITH_LOCATION(
             "Reordered {} commands into {} list(s) in {} ms.",
             commands.size(), lists.size(), clock.toc());
         device()->dispatch(handle(), lists);
