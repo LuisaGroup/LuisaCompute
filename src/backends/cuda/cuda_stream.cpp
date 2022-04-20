@@ -2,6 +2,8 @@
 // Created by Mike on 8/1/2021.
 //
 
+#include "backends/cuda/cuda_error.h"
+#include "core/logging.h"
 #include <mutex>
 
 #include <backends/cuda/cuda_stream.h>
@@ -16,6 +18,7 @@ CUDAStream::CUDAStream() noexcept
             &_worker_streams[i], CU_STREAM_NON_BLOCKING));
         LUISA_CHECK_CUDA(cuEventCreate(
             &_worker_events[i], CU_EVENT_DISABLE_TIMING));
+        LUISA_INFO("Event #{}: {}", i, static_cast<void *>(_worker_events[i]));
     }
 }
 
@@ -56,15 +59,9 @@ CUstream CUDAStream::handle(bool force_first_stream) const noexcept {
         return _worker_streams.front();
     }
     auto index = _round;
-    auto stream = _worker_streams[index];
-    if (index != 0u && !_used_streams.test(index)) {
-        LUISA_CHECK_CUDA(cuStreamWaitEvent(
-            stream, _worker_events.front(),
-            CU_EVENT_WAIT_DEFAULT));
-    }
     _used_streams.set(index);
     _round = (_round + 1u) % backed_cuda_stream_count;
-    return stream;
+    return _worker_streams[index];
 }
 
 void CUDAStream::dispatch_callbacks() noexcept {
@@ -93,11 +90,6 @@ void CUDAStream::dispatch_callbacks() noexcept {
             }
         },
         this));
-    // TODO: This is a hack to make sure the callback is executed
-    if constexpr (backed_cuda_stream_count > 1u) {
-        LUISA_CHECK_CUDA(cuEventRecord(
-            _worker_events.front(), _worker_streams.front()));
-    }
 }
 
 }// namespace luisa::compute::cuda

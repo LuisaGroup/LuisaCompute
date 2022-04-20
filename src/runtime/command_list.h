@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <nlohmann/json.hpp>
+
 #include <core/stl.h>
 #include <runtime/command.h>
 
@@ -22,6 +24,7 @@ public:
     ~CommandList() noexcept;
     CommandList(CommandList &&) noexcept;
     CommandList &operator=(CommandList &&rhs) noexcept;
+    void reserve(size_t size) noexcept;
     void append(Command *cmd) noexcept;
     void clear() noexcept { _commands.clear(); }
     [[nodiscard]] luisa::vector<Command *> steal_commands() noexcept;
@@ -29,6 +32,9 @@ public:
     [[nodiscard]] auto end() const noexcept { return _commands.end(); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }
     [[nodiscard]] auto size() const noexcept { return _commands.size(); }
+
+    // for debug
+    [[nodiscard]] nlohmann::json dump_json() const noexcept;
 };
 
 }// namespace luisa::compute

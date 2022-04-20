@@ -305,15 +305,15 @@ void CUDACodegen::visit(const CallExpr *expr) {
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
-#define LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(type, tag)                     \
+#define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)                      \
     case CallOp::MAKE_##tag##2: _scratch << "lc_make_" << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << "lc_make_" << #type "3"; break; \
     case CallOp::MAKE_##tag##4: _scratch << "lc_make_" << #type "4"; break;
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(int, INT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
-            LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
-#undef LUISA_METAL_CODEGEN_MAKE_VECTOR_CALL
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(int, INT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(uint, UINT)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
+#undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
         case CallOp::MAKE_FLOAT2X2: _scratch << "lc_make_float2x2"; break;
         case CallOp::MAKE_FLOAT3X3: _scratch << "lc_make_float3x3"; break;
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
@@ -383,7 +383,6 @@ void CUDACodegen::visit(const ReturnStmt *stmt) {
 
 void CUDACodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
-    _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
     _scratch << "}";
 }
@@ -455,7 +454,6 @@ void CUDACodegen::_emit_function(Function f) noexcept {
 
     _indent = 0u;
     _function = f;
-    _definition_analysis.analyze(f);
 
     // constants
     if (!f.constants().empty()) {
@@ -559,26 +557,8 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     _indent = 1;
     _emit_variable_declarations(f.body());
     _indent = 0;
-    _emit_scoped_variables(f.body()->scope());
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
-
-    _definition_analysis.reset();
-    _defined_variables.clear();
-}
-
-void CUDACodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
-    if (auto iter = _definition_analysis.scoped_variables().find(scope);
-        iter != _definition_analysis.scoped_variables().cend()) {
-        for (auto v : iter->second) {
-            if (_defined_variables.emplace(v).second) {
-                _scratch << "\n  ";
-                _emit_indent();
-                _emit_variable_decl(v, false);
-                _scratch << ";";
-            }
-        }
-    }
 }
 
 void CUDACodegen::_emit_variable_name(Variable v) noexcept {
@@ -690,13 +670,10 @@ void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _scratch << "const LCAccel ";
             _emit_variable_name(v);
             break;
-        case Variable::Tag::LOCAL:
-//            if (readonly || force_const) { _scratch << "const "; }
+        default:
             _emit_type_name(v.type());
             _scratch << " ";
             _emit_variable_name(v);
-            break;
-        default:
             break;
     }
 }
@@ -784,8 +761,7 @@ void CUDACodegen::visit(const MetaStmt *stmt) {
 
 void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
     for (auto v : meta->variables()) {
-        if (v.tag() != Variable::Tag::LOCAL &&
-            _function.variable_usage(v.uid()) != Usage::NONE) {
+        if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(v, false);

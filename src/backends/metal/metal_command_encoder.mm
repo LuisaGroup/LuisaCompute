@@ -192,7 +192,7 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
     // encode compute shader
     auto compute_encoder = [_command_buffer computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
     [compute_encoder setComputePipelineState:compiled_kernel.handle()];
-    command->decode([&](auto, auto argument) noexcept -> void {
+    command->decode([&](auto argument) noexcept -> void {
         using T = decltype(argument);
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             LUISA_VERBOSE_WITH_LOCATION(
@@ -242,11 +242,10 @@ void MetalCommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
                                 offset:0u
                                atIndex:buffer_index++];
         } else {// uniform
-            LUISA_VERBOSE_WITH_LOCATION(
-                "Encoding uniform at index {}.",
-                buffer_index);
-            [compute_encoder setBytes:argument.data()
-                               length:argument.size_bytes()
+            static_assert(std::is_same_v<T, ShaderDispatchCommand::UniformArgument>);
+            LUISA_VERBOSE_WITH_LOCATION("Encoding uniform at index {}.", buffer_index);
+            [compute_encoder setBytes:argument.data
+                               length:argument.size
                               atIndex:buffer_index++];
         }
     });

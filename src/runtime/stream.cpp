@@ -3,8 +3,10 @@
 //
 
 #include <utility>
+
 #include <runtime/device.h>
 #include <runtime/stream.h>
+#include <runtime/command_graph.h>
 
 namespace luisa::compute {
 
@@ -16,15 +18,20 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
-        for (auto command : commands) {
-            command->accept(*reorder_visitor);
-        }
-        auto lists = reorder_visitor->command_lists();
-        device()->dispatch(handle(), lists);
-        reorder_visitor->clear();
-        for (auto command : commands) {
-            command->recycle();
-        }
+        Clock clock;
+        CommandGraph graph{device()};
+        for (auto cmd : commands) { graph.add(cmd); }
+        auto reordered_lists = graph.schedule();
+        LUISA_INFO("Reordered {} commands into {} list(s) in {} ms.",
+                   commands.size(), reordered_lists.size(), clock.toc());
+        device()->dispatch(handle(), reordered_lists);
+//        auto commands = list.steal_commands();
+//        for (auto command : commands) {
+//            command->accept(*reorder_visitor);
+//        }
+//        auto lists = reorder_visitor->command_lists();
+//        device()->dispatch(handle(), lists);
+//        reorder_visitor->clear();
     } else {
         device()->dispatch(handle(), list);
     }
