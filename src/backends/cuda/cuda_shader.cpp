@@ -2,7 +2,9 @@
 // Created by Mike on 2021/12/4.
 //
 
+#include "core/spin_mutex.h"
 #include <cuda.h>
+#include <mutex>
 #include <optix.h>
 #include <optix_stubs.h>
 #include <optix_stack_size.h>
@@ -120,11 +122,17 @@ private:
     OptixProgramGroup _program_group_miss{};
     OptixPipeline _pipeline{};
     luisa::string _entry;
+    mutable luisa::spin_mutex _mutex;
+    mutable CUevent _sbt_event{};
     mutable OptixShaderBindingTable _sbt{};
+    mutable luisa::unordered_set<CUstream> _sbt_recoreded_streams;
 
 public:
     CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept
         : _device{device}, _entry{entry} {
+
+        // create SBT event
+        LUISA_CHECK_CUDA(cuEventCreate(&_sbt_event, CU_EVENT_DISABLE_TIMING));
 
         // create argument buffer
         static constexpr auto pattern = "params[";
@@ -250,6 +258,7 @@ public:
 
     ~CUDAShaderOptiX() noexcept override {
         LUISA_CHECK_CUDA(cuMemFree(_sbt_buffer));
+        LUISA_CHECK_CUDA(cuEventDestroy(_sbt_event));
         LUISA_CHECK_OPTIX(optixPipelineDestroy(_pipeline));
         LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_rg));
         LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_ch_any));
@@ -258,10 +267,9 @@ public:
         LUISA_CHECK_OPTIX(optixModuleDestroy(_module));
     }
 
-    void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept override {
-        auto cuda_stream = stream->handle();
-        auto argument_buffer = 0ull;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&argument_buffer, _argument_buffer_size, cuda_stream));
+private:
+    void _prepare_sbt(CUDAStream *stream, CUstream cuda_stream) const noexcept {
+        std::scoped_lock lock{_mutex};
         if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
             constexpr auto sbt_buffer_size = sizeof(SBTRecord) * 4u;
             auto sbt_record_buffer = stream->upload_pool()->allocate(sbt_buffer_size);
@@ -273,6 +281,7 @@ public:
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 _sbt_buffer, sbt_record_buffer->address(),
                 sbt_buffer_size, cuda_stream));
+            LUISA_CHECK_CUDA(cuEventRecord(_sbt_event, cuda_stream));
             stream->emplace_callback(sbt_record_buffer);
             _sbt.raygenRecord = _sbt_buffer;
             _sbt.hitgroupRecordBase = _sbt_buffer + sizeof(SBTRecord);
@@ -281,8 +290,22 @@ public:
             _sbt.missRecordBase = _sbt_buffer + sizeof(SBTRecord) * 3u;
             _sbt.missRecordCount = 1u;
             _sbt.missRecordStrideInBytes = sizeof(SBTRecord);
+            _sbt_recoreded_streams.emplace(cuda_stream);
+        } else {
+            if (_sbt_recoreded_streams.emplace(cuda_stream).second) {
+                LUISA_CHECK_CUDA(cuStreamWaitEvent(cuda_stream, _sbt_event, 0u));
+            }
         }
+    }
+
+public:
+    void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept override {
+        auto cuda_stream = stream->handle();
+        _prepare_sbt(stream, cuda_stream);
+
         // encode arguments
+        auto argument_buffer = 0ull;
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&argument_buffer, _argument_buffer_size, cuda_stream));
         auto host_argument_buffer = stream->upload_pool()->allocate(_argument_buffer_size);
         auto argument_buffer_offset = static_cast<size_t>(0u);
         auto allocate_argument = [&](size_t bytes) noexcept {
