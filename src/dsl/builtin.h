@@ -1017,11 +1017,8 @@ template<typename Tx>
 template<typename Tf, typename Tt, typename Tp>
     requires any_dsl_v<Tf, Tt, Tp> &&
         is_bool_or_vector_expr_v<Tp> &&
-        std::disjunction_v<
-            is_scalar_expr<Tf>,
-            is_scalar_expr<Tt>,
-            is_vector_expr<Tf>,
-            is_vector_expr<Tt>> &&
+        std::disjunction_v<is_scalar_expr<Tf>, is_vector_expr<Tf>> &&
+        std::disjunction_v<is_scalar_expr<Tt>, is_vector_expr<Tt>> &&
         is_vector_expr_same_element_v<Tf, Tt>
 [[nodiscard]] inline auto select(Tf &&f, Tt &&t, Tp &&p) noexcept {
     return detail::make_vector_call<vector_expr_element_t<Tf>>(
@@ -1051,7 +1048,10 @@ template<typename Tf, typename Tt, typename Tp>
 
 /// If-then-else. If p then t else f.
 template<typename Tp, typename Tt, typename Tf>
-    requires any_dsl_v<Tp, Tt, Tf>
+    requires any_dsl_v<Tp, Tt, Tf> &&
+        is_bool_or_vector_expr_v<Tp> &&
+        std::disjunction_v<is_dsl<Tt>, is_basic<Tt>> &&
+        std::disjunction_v<is_dsl<Tf>, is_basic<Tf>>
 [[nodiscard]] inline auto ite(Tp &&p, Tt &&t, Tf &&f) noexcept {
     return select(std::forward<Tf>(f),
                   std::forward<Tt>(t),
@@ -1538,7 +1538,7 @@ template<typename T>
 
 /// Return face forward vector.
 /// faceforward orients a vector to point away from a surface as defined by its normal.
-/// If dot(Nref, I) < 0 faceforward returns N, otherwise it returns -N. 
+/// If dot(Nref, I) < 0 faceforward returns N, otherwise it returns -N.
 template<typename N, typename I, typename NRef>
     requires any_dsl_v<N, I, NRef> && is_same_expr_v<N, I, NRef, float3>
 [[nodiscard]] inline auto faceforward(N &&n, I &&i, NRef &&n_ref) noexcept {

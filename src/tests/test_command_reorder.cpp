@@ -11,7 +11,7 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    auto device = context.create_device("metal");
 
     auto width = 1920u, height = 1080u;
 
@@ -30,6 +30,12 @@ int main(int argc, char *argv[]) {
     };
     auto shader = device.compile(kernel);
 
+    auto dump = [](auto &&lists) noexcept {
+        for (auto i = 0u; i < lists.size(); ++i) {
+            LUISA_INFO("List #{}:\n{}", i, lists[i].dump_json().dump(2));
+        }
+    };
+
     CommandReorderVisitor commandReorderVisitor(device.impl());
     commandReorderVisitor.clear();
     {
@@ -47,6 +53,7 @@ int main(int argc, char *argv[]) {
         auto reordered_lists = commandReorderVisitor.command_lists();
         LUISA_INFO("Size: {}.", reordered_lists.size());
         assert(reordered_lists.size() == 2u);
+        dump(reordered_lists);
     }
 
     commandReorderVisitor.clear();

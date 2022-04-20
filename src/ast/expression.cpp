@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2021/3/13.
 //
 
-#include "ast/variable.h"
+#include <ast/variable.h>
 #include <core/logging.h>
 #include <ast/expression.h>
 #include <ast/function_builder.h>
@@ -10,26 +10,28 @@
 namespace luisa::compute {
 
 luisa::unique_ptr<Expression> Expression::create(Tag tag) noexcept {
-    switch(tag){
-        case Tag::ACCESS:
-            return luisa::make_unique<AccessExpr>(nullptr, nullptr, nullptr);
-        case Tag::BINARY:
-            return luisa::make_unique<BinaryExpr>(nullptr, BinaryOp::ADD, nullptr, nullptr);
-        case Tag::CALL:
-            return luisa::make_unique<CallExpr>(nullptr, Function(), luisa::vector<const Expression*>());
-        case Tag::CAST:
-            return luisa::make_unique<CastExpr>(nullptr, CastOp::BITWISE, nullptr);
-        case Tag::CONSTANT:
-            return luisa::make_unique<ConstantExpr>(nullptr, ConstantData());
+    switch (tag) {
+        // case Tag::ACCESS:
+        //     return luisa::make_unique<AccessExpr>(nullptr, nullptr, nullptr);
+        // case Tag::BINARY:
+        //     return luisa::make_unique<BinaryExpr>(nullptr, BinaryOp::ADD, nullptr, nullptr);
+        // case Tag::CALL:
+        //     return luisa::make_unique<CallExpr>(nullptr, Function(), luisa::vector<const Expression *>());
+        // case Tag::CAST:
+        //     return luisa::make_unique<CastExpr>(nullptr, CastOp::BITWISE, nullptr);
+        // case Tag::CONSTANT:
+        //     return luisa::make_unique<ConstantExpr>(nullptr, ConstantData());
         // case Tag::LITERAL:
         //     return luisa::make_unique<LiteralExpr>
-        case Tag::MEMBER:
-            return luisa::make_unique<MemberExpr>(nullptr, nullptr, 0);
-        case Tag::REF:
-            return luisa::make_unique<RefExpr>(Variable());
-        case Tag::UNARY:
-            return luisa::make_unique<UnaryExpr>(nullptr, UnaryOp::BIT_NOT, nullptr);
+        // case Tag::MEMBER:
+        //     return luisa::make_unique<MemberExpr>(nullptr, nullptr, 0);
+        // case Tag::REF:
+        //     return luisa::make_unique<RefExpr>(Variable());
+        // case Tag::UNARY:
+        //     return luisa::make_unique<UnaryExpr>(nullptr, UnaryOp::BIT_NOT, nullptr);
             
+        default:// TODO
+            LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     return nullptr;
 }
