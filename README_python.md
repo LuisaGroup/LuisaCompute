@@ -17,7 +17,7 @@ python3 test.py
 
 ### 语言用例
 
-注意：在 Python 终端交互模式（REPL）下不可使用（见[#10](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。在 Jupyter notebook 中可以使用。
+**注意：**在 Python 终端交互模式（REPL）下不可使用（见[#10](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。在 Jupyter notebook 中出错时可能导致崩溃（见[#11](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。建议使用文件脚本，如`python3 a.py`。
 
 ```python
 import luisa
@@ -37,8 +37,6 @@ res = np.ones(100, dtype='int32')
 b.copy_to(res)
 print(res)
 ```
-
-
 ### 参数列表
 
 参数列表可为空，由逗号隔开，每一项为`name: type`
