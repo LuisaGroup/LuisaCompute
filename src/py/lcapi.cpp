@@ -10,14 +10,14 @@
 #include <luisa-compute.h>
 #include <nlohmann/json.hpp>
 
-#include "export_op.hpp"
-#include "export_vector2.hpp"
-#include "export_vector3.hpp"
-#include "export_vector4.hpp"
-
 namespace py = pybind11;
 using namespace luisa::compute;
 using luisa::compute::detail::FunctionBuilder;
+
+void export_op(py::module &m);
+void export_vector2(py::module &m);
+void export_vector3(py::module &m);
+void export_vector4(py::module &m);
 
 int add(int i, int j) {
     return i + j;
