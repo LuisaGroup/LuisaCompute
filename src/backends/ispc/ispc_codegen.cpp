@@ -381,7 +381,9 @@ void ISPCCodegen::visit(const CallExpr *expr) {
     _scratch << "(";
     auto args = expr->arguments();
     if (is_atomic) {
-        _scratch << "&(";
+        _scratch << "(";
+        _emit_type_name(args.front()->type());
+        _scratch << " *varying)&(";
         args.front()->accept(*this);
         _scratch << ")";
         for (auto arg : args.subspan(1u)) {
