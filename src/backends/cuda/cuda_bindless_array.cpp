@@ -98,7 +98,7 @@ void CUDABindlessArray::emplace_buffer(size_t index, uint64_t buffer, size_t off
     if (auto o = _buffer_resources[index]) {
         _resource_tracker.release_buffer(o);
     }
-    _buffer_slots[index] = CUDAHeap::buffer_address(buffer) + offset;
+    _buffer_slots[index] = buffer + offset;
     _buffer_resources[index] = buffer;
     _buffer_dirty_range.mark(index);
     _resource_tracker.retain_buffer(buffer);

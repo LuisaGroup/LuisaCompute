@@ -30,13 +30,15 @@ namespace luisa::compute::cuda {
 
 uint64_t CUDADevice::create_buffer(size_t size_bytes) noexcept {
     return with_handle([size = size_bytes, this] {
-        return _heap->allocate(size);
+        auto buffer = 0ull;
+        LUISA_CHECK_CUDA(cuMemAlloc(&buffer, size));
+        return buffer;
     });
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     with_handle([buffer = handle, this] {
-        _heap->free(buffer);
+        LUISA_CHECK_CUDA(cuMemFree(buffer));
     });
 }
 
@@ -308,7 +310,7 @@ void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
 
 uint64_t CUDADevice::create_accel(AccelUsageHint hint) noexcept {
     return with_handle([=, this] {
-        auto accel = new_with_allocator<CUDAAccel>(hint, _heap.get());
+        auto accel = new_with_allocator<CUDAAccel>(hint);
         return reinterpret_cast<uint64_t>(accel);
     });
 }
@@ -320,9 +322,7 @@ void CUDADevice::destroy_accel(uint64_t handle) noexcept {
 }
 
 CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
-    : Device::Interface{ctx},
-      _handle{device_id},
-      _heap{luisa::make_unique<CUDAHeap>()} {
+    : Device::Interface{ctx}, _handle{device_id} {
     with_handle([this] {
         LUISA_CHECK_CUDA(cuModuleLoadData(
             &_accel_update_module, cuda_accel_update_source));
@@ -397,7 +397,6 @@ CUDADevice::~CUDADevice() noexcept {
     with_handle([this] {
         LUISA_CHECK_CUDA(cuCtxSynchronize());
         LUISA_CHECK_CUDA(cuModuleUnload(_accel_update_module));
-        _heap = nullptr;// needs to dispose right here; depends on current CUDA device
     });
 }
 

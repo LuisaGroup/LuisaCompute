@@ -57,7 +57,7 @@ public:
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
-                auto buffer = CUDAHeap::buffer_address(argument.handle) + argument.offset;
+                auto buffer = argument.handle + argument.offset;
                 std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                 auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
@@ -71,9 +71,7 @@ public:
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
                 auto ptr = allocate_argument(sizeof(CUDAAccel::Binding));
                 auto accel = reinterpret_cast<CUDAAccel *>(argument.handle);
-                CUDAAccel::Binding binding{
-                    .handle = accel->handle(),
-                    .instances = CUDAHeap::buffer_address(accel->instance_buffer())};
+                CUDAAccel::Binding binding{.handle = accel->handle(), .instances = accel->instance_buffer()};
                 std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
             } else {// uniform
                 static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);
@@ -299,7 +297,7 @@ public:
             using T = decltype(argument);
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 auto ptr = allocate_argument(sizeof(CUdeviceptr));
-                auto buffer = CUDAHeap::buffer_address(argument.handle) + argument.offset;
+                auto buffer = argument.handle + argument.offset;
                 std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                 auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
@@ -313,9 +311,7 @@ public:
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
                 auto ptr = allocate_argument(sizeof(CUDAAccel::Binding));
                 auto accel = reinterpret_cast<CUDAAccel *>(argument.handle);
-                CUDAAccel::Binding binding{
-                    .handle = accel->handle(),
-                    .instances = CUDAHeap::buffer_address(accel->instance_buffer())};
+                CUDAAccel::Binding binding{.handle = accel->handle(), .instances = accel->instance_buffer()};
                 std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
             } else {// uniform
                 static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);
@@ -323,19 +319,17 @@ public:
                 std::memcpy(ptr, argument.data, argument.size);
             }
         });
-        auto heap = _device->heap();
-        auto argument_buffer = heap->allocate(_argument_buffer_size);
-        auto argument_buffer_address = CUDAHeap::buffer_address(argument_buffer);
+        auto argument_buffer = 0ull;
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&argument_buffer, _argument_buffer_size, cuda_stream));
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            argument_buffer_address, host_argument_buffer->address(),
+            argument_buffer, host_argument_buffer->address(),
             _argument_buffer_size, cuda_stream));
         stream->emplace_callback(host_argument_buffer);
-        stream->emplace_callback(CUDAHeap::BufferFreeContext::create(
-            heap, argument_buffer));
         auto s = command->dispatch_size();
         LUISA_CHECK_OPTIX(optixLaunch(
-            _pipeline, cuda_stream, argument_buffer_address,
+            _pipeline, cuda_stream, argument_buffer,
             _argument_buffer_size, &_sbt, s.x, s.y, s.z));
+        LUISA_CHECK_CUDA(cuMemFreeAsync(argument_buffer, cuda_stream));
     }
 };
 

@@ -11,7 +11,6 @@
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_heap.h>
 
 namespace luisa::compute::cuda {
 
@@ -100,7 +99,6 @@ public:
 
 private:
     Handle _handle;
-    luisa::unique_ptr<CUDAHeap> _heap;
     CUmodule _accel_update_module{nullptr};
     CUfunction _accel_update_function{nullptr};
 
@@ -119,12 +117,6 @@ public:
      * @return Handle
      */
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
-    /**
-     * @brief Return address of CUDAHeap
-     * 
-     * @return CUDAHeap*
-     */
-    [[nodiscard]] auto heap() noexcept { return _heap.get(); }
     /**
      * @brief Create a buffer on device
      * 
