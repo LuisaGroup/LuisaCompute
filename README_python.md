@@ -80,13 +80,23 @@ struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
 
 ### Buffer类型
 
-暂时只支持标量Buffer
+在设备上的数组，不能直接在python中访问其元素。暂时只支持标量Buffer
 
-方法：
+类型标记：`luisa.BufferType(dtype)`
+
+创建buffer：`luisa.Buffer(size, dtype)`
+
+kernel方法：
 
 `read(idx)`
 
 `write(idx, value)`
+
+python方法：
+
+`copy_to(arr)`
+
+`copy_from(arr)`
 
 TODO
 
