@@ -25,32 +25,30 @@ luisa.init()
 Arr = luisa.ArrayType(int, 3)
 
 
-# @luisa.callable
-# def g(arr: Arr):
+@luisa.callable
+def g(arr: Arr):
 
-#     return arr[0] * arr[1] + arr[2]
-#     # t = make_float2x2(1, 2, 3, 4)
-#     # t1 = make_float2(1, 2)
-#     # t = make_float4(1, 2, t1)
-#     # t_error = make_float4(1, 2, 3, t1)
-#     # val = b.read(idx)
-#     # x = make_float2(3,5) * -1 + x1
-#     # m2 = make_float2x2(1,2,3,4,5,6,7)
-
-# @luisa.kernel
-# def f(a: int, arr: Arr, b: luisa.BufferType(int)):
-#     a1 = Arr()
-#     # a2[4] = 5
-#     idx = dispatch_id().x
-#     aaa = 0
-#     for xxx in range(100, 200, 3):
-#         aaa += xxx
-#     a += g(arr) if True else -1
-#     b.write(idx, aaa)
+    return arr[0] * arr[1] + arr[2]
+    # t = make_float2x2(1, 2, 3, 4)
+    # t1 = make_float2(1, 2)
+    # t = make_float4(1, 2, t1)
+    # t_error = make_float4(1, 2, 3, t1)
+    # val = b.read(idx)
+    # x = make_float2(3,5) * -1 + x1
+    # m2 = make_float2x2(1,2,3,4,5,6,7)
 
 @luisa.kernel
-def test_print():
-    print("blah", dispatch_id().x, True, 3.14, dispatch_id())
+def f(a: int, arr: Arr, b: luisa.BufferType(int)):
+    a1 = Arr()
+    # a2[4] = 5
+    idx = dispatch_id().x
+    aaa = 0
+    for xxx in range(100, 200, 3):
+        aaa += xxx
+    a += g(arr) if True else -1
+    b.write(idx, aaa)
+    if dispatch_id().x < 5:
+        print("blah", aaa, True, 3.14, dispatch_id())
 
 
 b = luisa.Buffer(100, int)
@@ -58,9 +56,8 @@ b = luisa.Buffer(100, int)
 arr = np.ones(100, dtype='int32')
 arr1 = np.zeros(100, dtype='int32')
 
-# b.copy_from(arr)
-# f(42, Arr([10,20,30]), b, dispatch_size = (100,1,1))
-test_print(dispatch_size = (10,1,1))
-# b.copy_to(arr1)
+b.copy_from(arr)
+f(42, Arr([10,20,30]), b, dispatch_size = (100,1,1))
+b.copy_to(arr1)
 
 print(arr1)
