@@ -22,7 +22,13 @@ luisa::unique_ptr<Expression> Expression::create(Tag tag) noexcept {
         case Tag::CONSTANT:
             return luisa::make_unique<ConstantExpr>(nullptr, ConstantData());
         // case Tag::LITERAL:
-            // return luisa::make_unique<LiteralExpr>
+        //     return luisa::make_unique<LiteralExpr>
+        case Tag::MEMBER:
+            return luisa::make_unique<MemberExpr>(nullptr, nullptr, 0);
+        case Tag::REF:
+            return luisa::make_unique<RefExpr>(Variable());
+        case Tag::UNARY:
+            return luisa::make_unique<UnaryExpr>(nullptr, UnaryOp::BIT_NOT, nullptr);
             
     }
     return nullptr;
