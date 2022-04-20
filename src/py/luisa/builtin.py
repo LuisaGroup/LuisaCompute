@@ -1,6 +1,7 @@
 import lcapi
 from .types import to_lctype
 from functools import reduce
+from . import globalvars
 
 
 
@@ -119,5 +120,10 @@ def builtin_func(name, args):
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    if name == 'print':
+        globalvars.printer.kernel_print(args)
+        return None, None
+
 
     raise Exception('unrecognized function call')

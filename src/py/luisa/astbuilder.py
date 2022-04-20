@@ -155,6 +155,7 @@ class ASTVisitor:
         build(ctx, node.value)
         build(ctx, node.slice)
         assert type(node.value.dtype) is ArrayType # TODO: atomic
+        # TODO matrix?
         node.dtype = node.value.dtype.dtype
         node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
 
@@ -199,7 +200,7 @@ class ASTVisitor:
         else:
             val = ctx.closure_variable.get(node.id)
             # print("NAME:", node.id, "VALUE:", val)
-            if val is None:
+            if val is None or val == print: # do not capture python builtin print
                 if not allow_none:
                     raise Exception(f"undeclared idenfitier '{node.id}'")
                 node.dtype = None
@@ -208,10 +209,11 @@ class ASTVisitor:
 
     @staticmethod
     def build_Constant(ctx, node):
-        if type(node.value) is str:
-            raise Exception("String is not supported")
         node.dtype = dtype_of(node.value)
-        node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
+        if node.dtype is str:
+            node.expr = node.value
+        else:
+            node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
 
     @staticmethod
     def build_Assign(ctx, node):
