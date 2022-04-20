@@ -11,9 +11,9 @@ from .arraytype import ArrayType
 from .structtype import StructType
 from . import astbuilder
 from .mathtypes import *
+from .printer import Printer
 
-
-def _init(backend_name = None):
+def init(backend_name = None):
     globalvars.context = lcapi.Context(lcapi.FsPath(""))
     # auto select backend if not specified
     if backend_name == None:
@@ -23,8 +23,8 @@ def _init(backend_name = None):
         backend_name = backends[0]
     globalvars.device = globalvars.context.create_device(backend_name)
     globalvars.stream = globalvars.device.create_stream()
+    globalvars.printer = Printer()
 
-_init()
 
 
 def create_param_exprs(params):
@@ -113,10 +113,13 @@ class kernel:
             else:
                 assert False
 
+        globalvars.printer.reset()
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
         if sync:
             stream.synchronize()
+        globalvars.printer.final_print()
+
 
 def callable(func):
     return kernel(func, is_device_callable = True)
