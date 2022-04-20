@@ -13,10 +13,18 @@ from . import astbuilder
 from .mathtypes import *
 
 
-def init(backend_name):
+def _init(backend_name = None):
     globalvars.context = lcapi.Context(lcapi.FsPath(""))
+    # auto select backend if not specified
+    if backend_name == None:
+        backends = globalvars.context.installed_backends()
+        assert len(backends) > 0
+        print("detected backends:", backends, "selecting first one.")
+        backend_name = backends[0]
     globalvars.device = globalvars.context.create_device(backend_name)
     globalvars.stream = globalvars.device.create_stream()
+
+_init()
 
 
 def create_param_exprs(params):

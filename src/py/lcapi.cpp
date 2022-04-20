@@ -48,7 +48,12 @@ PYBIND11_MODULE(lcapi, m) {
         .def(py::init<std::string>());
     py::class_<Context>(m, "Context")
         .def(py::init<const std::filesystem::path &>())
-        .def("create_device", [](Context& self, std::string_view backend_name){ return self.create_device(backend_name); }); // TODO: support properties
+        .def("create_device", [](Context& self, std::string_view backend_name){ return self.create_device(backend_name); }) // TODO: support properties
+        .def("installed_backends", [](Context& self){
+            std::vector<std::string> strs;
+            for (auto s: self.installed_backends()) strs.push_back(s.c_str());
+            return strs;
+        });
     py::class_<Device>(m, "Device")
         .def("create_stream", &Device::create_stream)
         .def("impl", &Device::impl, pyref);

@@ -17,7 +17,6 @@ from luisa.builtin import builtin_func
 #     lcapi.builder().call(lcapi.CallOp.BUFFER_WRITE, [buf, idx, idx])
 
 
-luisa.init('ispc')
 
 # x1 = lcapi.make_float2(6,10)
 # m1 = lcapi.make_float2x2(1,2,3,4)
