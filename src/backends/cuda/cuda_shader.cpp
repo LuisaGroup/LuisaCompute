@@ -319,17 +319,19 @@ public:
                 std::memcpy(ptr, argument.data, argument.size);
             }
         });
+        auto argument_buffer_device = host_argument_buffer->address();
         auto argument_buffer = 0ull;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&argument_buffer, _argument_buffer_size, cuda_stream));
-        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            argument_buffer, host_argument_buffer->address(),
-            _argument_buffer_size, cuda_stream));
+        LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&argument_buffer, argument_buffer_device, 0u));
+        // LUISA_CHECK_CUDA(cuMemAllocAsync(&argument_buffer, _argument_buffer_size, cuda_stream));
+        // LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
+        //     argument_buffer, host_argument_buffer->address(),
+        //     _argument_buffer_size, cuda_stream));
         stream->emplace_callback(host_argument_buffer);
         auto s = command->dispatch_size();
         LUISA_CHECK_OPTIX(optixLaunch(
             _pipeline, cuda_stream, argument_buffer,
             _argument_buffer_size, &_sbt, s.x, s.y, s.z));
-        LUISA_CHECK_CUDA(cuMemFreeAsync(argument_buffer, cuda_stream));
+        // LUISA_CHECK_CUDA(cuMemFreeAsync(argument_buffer, cuda_stream));
     }
 };
 
