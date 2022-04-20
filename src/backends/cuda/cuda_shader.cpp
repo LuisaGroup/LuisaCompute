@@ -305,14 +305,6 @@ public:
 
         // encode arguments
         auto host_argument_buffer = stream->upload_pool()->allocate(_argument_buffer_size);
-        auto argument_buffer = 0ull;
-        if (host_argument_buffer->is_pooled()) {
-            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
-                &argument_buffer, host_argument_buffer->address(), 0u));
-        } else {
-            LUISA_CHECK_CUDA(cuMemAllocAsync(
-                &argument_buffer, _argument_buffer_size, cuda_stream));
-        }
         auto argument_buffer_offset = static_cast<size_t>(0u);
         auto allocate_argument = [&](size_t bytes) noexcept {
             static constexpr auto alignment = 16u;
@@ -352,10 +344,16 @@ public:
         });
         auto s = command->dispatch_size();
         if (host_argument_buffer->is_pooled()) {
+            auto argument_buffer = 0ull;
+            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
+                &argument_buffer, host_argument_buffer->address(), 0u));
             LUISA_CHECK_OPTIX(optixLaunch(
                 _pipeline, cuda_stream, argument_buffer,
                 _argument_buffer_size, &_sbt, s.x, s.y, s.z));
         } else {
+            auto argument_buffer = 0ull;
+            LUISA_CHECK_CUDA(cuMemAllocAsync(
+                &argument_buffer, _argument_buffer_size, cuda_stream));
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 argument_buffer, host_argument_buffer->address(),
                 _argument_buffer_size, cuda_stream));
