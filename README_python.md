@@ -36,19 +36,21 @@ res = np.ones(100, dtype='int32')
 b.copy_to(res)
 print(res)
 ```
-## 参数列表
+## Kernel 与 Callable
 
-参数列表可为空，由逗号隔开，每一项为`name: type`
+kernel 是可由python(host)中并行调用的函数，并行度由 `dispatch_size` 参数指定。
 
-`name`参数名字，`type` 为类型标记，见下
+callable是可由kernel/callable调用的函数，其不可在python中直接调用。callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
+
+kernel/callable可以接受参数。参数列表可为空，由逗号隔开，每一项必须标记类型，形为`name: type`。其中，`name`为参数名字，`type` 为类型标记（见“类型”一节）。
 
 ## 类型
 
 ### 标量类型
 
-`int`, `float`, `bool`
-
-分别为32位有符号整形、单精度浮点数、布尔值。
+- 32位有符号整形 `int`
+- 单精度浮点数 `float`
+- 逻辑类型 `bool`
 
 ### 向量、矩阵类型
 
@@ -62,21 +64,37 @@ print(res)
 from luisa.mathtypes import *
 ```
 
+向量类型具有一类swizzle成员，可以以任意顺序将其成员组成新的向量，例如
+
+```python
+v1 = int3(7,8,9)
+v1.x # 7，可读可写
+v1.xzzy # int4(7,9,9,8)，只读
+```
+
 ### 数组类型
 
 ```python3
+# 声明了一个类型
+# 其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
 arr_t = luisa.ArrayType(dtype, size)
+# 生成一个实例
+a1 = arr_t() # 暂时只在kernel中支持
+a2 = arr_t([value1, ...]) # 暂时只在python(host)中支持
+a1[idx] = value1 # python/kernel 都支持
 ```
-
-其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
 
 ### 结构体类型
 
 ```python
+# 声明了一个类型
+# 其中dtype为标量/向量/矩阵/数组/结构体类型
 struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
+# 生成一个实例
+a1 = struct_t() # 暂时只在kernel中支持
+a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
+a1.name1 = value1 # python/kernel 都支持
 ```
-
-其中dtype为标量/向量/矩阵/数组/结构体类型
 
 ### Buffer类型
 
@@ -100,17 +118,33 @@ python方法：
 
 TODO
 
-## 函数调用
+## 内建函数与方法
 
-### 自定义函数
+kernel/callable中可以调用内置的函数。
 
-callable 是自定义的可被kernel调用的函数，其不可在python中直接调用。
+```python
+# 线程信息
+dispatch_id(), dispatch_size() # 返回int3
+# 打印
+print(value1, "wow", ...) # 暂时不支持 formatted string
+# 数学函数
+isinf(x), isnan(x)
+acos(x), acosh(x), asin(x), asinh(x), atan(x), atanh(x)
+cos(x), cosh(x), sin(x), sinh(x), tan(x), tanh(x)
+exp(x), exp2(x), exp10(x), log(x), log2(x), log10(x)
+sqrt(x), rsqrt(x)
+ceil(x), floor(x), fract(x), trunc(x), round(x)
+# 向量矩阵创建
+make_bool3(x,y,z), ...
+make_float2x2(...)
+```
 
-callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
+一些类型具有可调用的方法；自定义类暂不支持方法。
 
-### 内建函数
-
-### 内建方法
+```
+Buffer.read(idx)
+Buffer.write(idx, value)
+```
 
 ## 变量
 
@@ -124,10 +158,6 @@ def fill():
     a = 1.5 # 禁止这么做，因为改变了类型
 ```
 
-## 调试
-
-TODO
-
 
 
 # Python-Luisa 开发者文档
@@ -140,7 +170,7 @@ TODO
 
 ## LuisaCompute API
 
-
+暂无文档。见`src/py/lcapi.cpp` 指向的c++函数
 
 ## AST变换
 
