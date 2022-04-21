@@ -1,4 +1,6 @@
 # Python-Luisa 用户文档
+多后端高性能计算库。
+
 ## 编译与运行
 
 ```bash
@@ -72,15 +74,19 @@ v1.x # 7，可读可写
 v1.xzzy # int4(7,9,9,8)，只读
 ```
 
+矩阵类型暂不支持访问元素。
+
 ### 数组类型
 
 ```python3
 # 声明了一个类型
 # 其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
 arr_t = luisa.ArrayType(dtype, size)
+# arr_t 可以作为kernel/callable参数列表中的类型标记
 # 生成一个实例
 a1 = arr_t() # 暂时只在kernel中支持
 a2 = arr_t([value1, ...]) # 暂时只在python(host)中支持
+# 访问成员
 a1[idx] = value1 # python/kernel 都支持
 ```
 
@@ -90,9 +96,11 @@ a1[idx] = value1 # python/kernel 都支持
 # 声明了一个类型
 # 其中dtype为标量/向量/矩阵/数组/结构体类型
 struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
+# struct_t 可以作为kernel/callable参数列表中的类型标记
 # 生成一个实例
 a1 = struct_t() # 暂时只在kernel中支持
 a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
+# 访问成员
 a1.name1 = value1 # python/kernel 都支持
 ```
 
@@ -116,7 +124,7 @@ python方法：
 
 `copy_from(arr)`
 
-TODO
+元素为标量的buffer可以上传/下载到对应类型的numpy.array，注意必须使用int32/float32，而不是默认的64位类型。
 
 ## 内建函数与方法
 
@@ -158,7 +166,9 @@ def fill():
     a = 1.5 # 禁止这么做，因为改变了类型
 ```
 
+## 语法参考
 
+...
 
 # Python-Luisa 开发者文档
 
