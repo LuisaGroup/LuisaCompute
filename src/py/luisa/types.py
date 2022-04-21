@@ -51,6 +51,8 @@ class CallableType:
     pass
 
 def dtype_of(val):
+    if type(val) is str:
+        return str
     if type(val) in basic_type_dict:
         return type(val)
     if type(val).__name__ == "_Array":

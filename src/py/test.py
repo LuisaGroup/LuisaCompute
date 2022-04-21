@@ -2,6 +2,7 @@ import luisa
 import numpy as np
 from luisa.builtin import builtin_func
 
+luisa.init()
 # ============= test script ================
 
 
@@ -48,6 +49,8 @@ def f(a: int, arr: Arr, b: luisa.BufferType(int)):
         aaa += xxx
     a += g(arr) if True else -1
     b.write(idx, aaa)
+    if dispatch_id().x < 5:
+        print("blah", aaa, True, 3.14, dispatch_id())
 
 
 b = luisa.Buffer(100, int)
