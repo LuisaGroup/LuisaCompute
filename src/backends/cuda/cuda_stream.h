@@ -25,7 +25,7 @@ class CUDACallbackContext;
 class CUDAStream {
 
 public:
-    static constexpr auto backed_cuda_stream_count = 1u;
+    static constexpr auto backed_cuda_stream_count = 8u;
     static_assert(backed_cuda_stream_count <= 32u);// limit of uint bits
 
 private:
