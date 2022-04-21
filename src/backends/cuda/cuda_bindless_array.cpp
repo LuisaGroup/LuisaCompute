@@ -58,17 +58,13 @@ namespace luisa::compute::cuda {
     return texture_desc;
 }
 
-bool CUDABindlessArray::uses_buffer(uint64_t handle) const noexcept {
-    return _resource_tracker.uses_buffer(handle);
-}
-
-bool CUDABindlessArray::uses_texture(uint64_t handle) const noexcept {
-    return _resource_tracker.uses_texture(handle);
+bool CUDABindlessArray::uses_resource(uint64_t handle) const noexcept {
+    return _resource_tracker.uses(handle);
 }
 
 void CUDABindlessArray::remove_buffer(size_t index) noexcept {
     if (auto r = _buffer_resources[index]) [[likely]] {
-        _resource_tracker.release_buffer(r);
+        _resource_tracker.release(r);
         _buffer_slots[index] = 0u;
         _buffer_resources[index] = 0u;
     }
@@ -78,7 +74,7 @@ void CUDABindlessArray::remove_tex2d(size_t index) noexcept {
     if (auto tex = _tex2d_slots[index]) [[likely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
         auto iter = _texture_resources.find(tex);
-        _resource_tracker.release_texture(iter->second);
+        _resource_tracker.release(iter->second);
         _tex2d_slots[index] = 0u;
         _texture_resources.erase(iter);
     }
@@ -88,7 +84,7 @@ void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
     if (auto tex = _tex3d_slots[index]) [[likely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(tex));
         auto iter = _texture_resources.find(tex);
-        _resource_tracker.release_texture(iter->second);
+        _resource_tracker.release(iter->second);
         _tex3d_slots[index] = 0u;
         _texture_resources.erase(iter);
     }
@@ -96,12 +92,12 @@ void CUDABindlessArray::remove_tex3d(size_t index) noexcept {
 
 void CUDABindlessArray::emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept {
     if (auto o = _buffer_resources[index]) {
-        _resource_tracker.release_buffer(o);
+        _resource_tracker.release(o);
     }
     _buffer_slots[index] = buffer + offset;
     _buffer_resources[index] = buffer;
     _buffer_dirty_range.mark(index);
-    _resource_tracker.retain_buffer(buffer);
+    _resource_tracker.retain(buffer);
 }
 
 void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
@@ -119,7 +115,7 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
     if (auto t = _tex2d_slots[index]) [[unlikely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
         auto iter = _texture_resources.find(t);
-        _resource_tracker.release_texture(iter->second);
+        _resource_tracker.release(iter->second);
         _texture_resources.erase(iter);
     }
     _tex2d_slots[index] = texture;
@@ -129,7 +125,7 @@ void CUDABindlessArray::emplace_tex2d(size_t index, CUDAMipmapArray *array, Samp
     _tex2d_dirty_range.mark(index);
     auto resource = reinterpret_cast<uint64_t>(array);
     _texture_resources.emplace(texture, resource);
-    _resource_tracker.retain_texture(resource);
+    _resource_tracker.retain(resource);
 }
 
 void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept {
@@ -147,7 +143,7 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
     if (auto t = _tex3d_slots[index]) [[unlikely]] {
         LUISA_CHECK_CUDA(cuTexObjectDestroy(t));
         auto iter = _texture_resources.find(t);
-        _resource_tracker.release_texture(iter->second);
+        _resource_tracker.release(iter->second);
         _texture_resources.erase(iter);
     }
     auto s = array->size();
@@ -160,7 +156,7 @@ void CUDABindlessArray::emplace_tex3d(size_t index, CUDAMipmapArray *array, Samp
     _tex3d_dirty_range.mark(index);
     auto resource = reinterpret_cast<uint64_t>(array);
     _texture_resources.emplace(texture, resource);
-    _resource_tracker.retain_texture(resource);
+    _resource_tracker.retain(resource);
 }
 
 CUDABindlessArray::~CUDABindlessArray() noexcept {
