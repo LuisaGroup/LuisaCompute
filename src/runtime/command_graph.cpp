@@ -19,6 +19,7 @@ void CommandGraph::add(Command *command) noexcept {
 }
 
 luisa::vector<CommandList> CommandGraph::schedule() noexcept {
+    if (_commands.empty()) { return {}; }
     luisa::vector<CommandList> lists;
     static thread_local luisa::vector<uint> indices;
     static thread_local luisa::vector<uint> next_indices;
@@ -52,6 +53,9 @@ luisa::vector<CommandList> CommandGraph::schedule() noexcept {
             "mismatch (expected {}, got {})",
             _commands.size(), total);
     }
+    _commands.clear();
+    _edges.clear();
+    _dependency_count.clear();
     return lists;
 }
 
