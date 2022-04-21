@@ -109,8 +109,7 @@ public:
         virtual void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept = 0;
         virtual void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
         virtual void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
-        virtual bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept = 0;
-        virtual bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept = 0;
+        virtual bool is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept = 0;
         virtual void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
         virtual void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;

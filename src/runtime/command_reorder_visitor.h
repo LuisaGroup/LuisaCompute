@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <xxhash.h>
+
 #include <core/hash.h>
 #include <runtime/device.h>
 #include <vstl/Common.h>
@@ -7,6 +10,7 @@
 namespace luisa::compute {
 
 class CommandReorderVisitor : public CommandVisitor {
+public:
     enum class ResourceRW : uint8_t {
         Read,
         Write
@@ -18,16 +22,56 @@ class CommandReorderVisitor : public CommandVisitor {
         Bindless,
         Accel
     };
-    struct ResourceHandle {
-        uint64_t handle;
+    struct Range {
+        int64_t min;
+        int64_t max;
+        Range() {
+            min = std::numeric_limits<int64_t>::min();
+            max = std::numeric_limits<int64_t>::max();
+        }
+        Range(int64_t value) {
+            min = value;
+            max = value + 1;
+        }
+        Range(int64_t min, int64_t max)
+            : min(min), max(max) {}
+        bool collide(Range const &r) const;
+        bool operator==(Range const &r) const;
+        bool operator!=(Range const &r) const { return !operator==(r); }
+    };
+    struct RangeHash {
+        size_t operator()(Range const &r) const {
+            return absl::container_internal::hash_default_hash<int64_t>()(r.min ^ r.max);
+        }
+    };
+    struct ResourceView {
         int64_t readLayer = -1;
         int64_t writeLayer = -1;
+    };
+    struct ResourceHandle {
+        uint64_t handle;
         ResourceType type;
     };
+    struct RangeHandle : public ResourceHandle {
+        luisa::unordered_map<Range, ResourceView, RangeHash> views;
+    };
+    struct NoRangeHandle : public ResourceHandle {
+        ResourceView view;
+    };
+    struct BindlessHandle : public ResourceHandle {
+        ResourceView view;
+    };
 
-    vstd::Pool<ResourceHandle, true> handlePool;
-    luisa::unordered_map<uint64_t, ResourceHandle *> resMap;
-    luisa::unordered_map<uint64_t, ResourceHandle *> bindlessMap;
+private:
+    template<typename Func>
+        requires(std::is_invocable_v<Func, Range const &, ResourceView const &>)
+    void IterateMap(Func &&func, RangeHandle &handle, Range const &range);
+    vstd::Pool<RangeHandle, true> rangePool;
+    vstd::Pool<NoRangeHandle, true> noRangePool;
+    vstd::Pool<BindlessHandle, true> bindlessHandlePool;
+    luisa::unordered_map<uint64_t, RangeHandle *> resMap;
+    luisa::unordered_map<uint64_t, NoRangeHandle *> noRangeResMap;
+    luisa::unordered_map<uint64_t, BindlessHandle *> bindlessMap;
     int64_t bindlessMaxLayer = -1;
     int64_t maxMeshLevel = -1;
     int64_t maxAccelLevel = -1;
@@ -38,32 +82,58 @@ class CommandReorderVisitor : public CommandVisitor {
     ResourceHandle *GetHandle(
         uint64_t target_handle,
         ResourceType target_type);
-    size_t GetLastLayerWrite(ResourceHandle *handle);
-    size_t GetLastLayerRead(ResourceHandle *handle);
+    size_t GetLastLayerWrite(RangeHandle *handle, Range range);
+    size_t GetLastLayerWrite(NoRangeHandle *handle);
+    size_t GetLastLayerWrite(BindlessHandle *handle);
+    size_t GetLastLayerRead(RangeHandle *handle, Range range);
+    size_t GetLastLayerRead(NoRangeHandle *handle);
+    size_t GetLastLayerRead(BindlessHandle *handle);
     void AddCommand(Command const *cmd, size_t layer);
     size_t SetRead(
         uint64_t handle,
+        Range range,
         ResourceType type);
+    size_t SetRead(
+        ResourceHandle *handle,
+        Range range);
+    size_t SetWrite(
+        ResourceHandle *handle,
+        Range range);
     size_t SetWrite(
         uint64_t handle,
+        Range range,
         ResourceType type);
     size_t SetRW(
         uint64_t read_handle,
+        Range read_range,
         ResourceType read_type,
         uint64_t write_handle,
+        Range write_range,
         ResourceType write_type);
     size_t SetMesh(
         uint64_t handle,
         uint64_t vb,
-        uint64_t ib);
-    luisa::vector<ResourceHandle *> dispatchReadHandle;
-    luisa::vector<ResourceHandle *> dispatchWriteHandle;
+        Range vb_range,
+        uint64_t ib,
+        Range ib_range);
+
+    void SetReadLayer(
+        ResourceHandle *handle,
+        Range range,
+        int64_t layer);
+    void SetWriteLayer(
+        ResourceHandle *handle,
+        Range range,
+        int64_t layer);
+    luisa::vector<std::pair<Range, ResourceHandle *>> dispatchReadHandle;
+    luisa::vector<std::pair<Range, ResourceHandle *>> dispatchWriteHandle;
     Variable const *arg;
     Function f;
     size_t dispatchLayer;
     void AddDispatchHandle(
         uint64_t handle,
         ResourceType type,
+        Range range,
         bool isWrite);
     Device::Interface *device = nullptr;
 

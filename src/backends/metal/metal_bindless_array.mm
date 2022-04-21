@@ -29,60 +29,57 @@ namespace detail {
 
 void MetalBindlessArray::emplace_buffer(size_t index, uint64_t buffer_handle, size_t offset) noexcept {
     if (auto p = _buffer_slots[index]; p.handle != nullptr) {
-        _tracker.release_buffer(detail::resource_to_handle(p.handle));
+        _tracker.release(detail::resource_to_handle(p.handle));
     }
     [_encoder setArgumentBuffer:_host_buffer offset:slot_size * index];
     [_encoder setBuffer:(__bridge id<MTLBuffer>)(reinterpret_cast<void *>(buffer_handle))
                  offset:offset
                 atIndex:0u];
-    _tracker.retain_buffer(buffer_handle);
+    _tracker.retain(buffer_handle);
     _dirty_range.mark(index);
 }
 
 void MetalBindlessArray::emplace_tex2d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
     if (auto p = _tex2d_slots[index]; p.handle != nullptr) {
-        _tracker.release_texture(detail::resource_to_handle(p.handle));
+        _tracker.release(detail::resource_to_handle(p.handle));
     }
     [_encoder setArgumentBuffer:_host_buffer offset:slot_size * index];
     *static_cast<uint *>([_encoder constantDataAtIndex:1u]) = sampler.code();
     [_encoder setTexture:(__bridge id<MTLTexture>)(reinterpret_cast<void *>(texture_handle))
                  atIndex:3u];
-    _tracker.retain_texture(texture_handle);
+    _tracker.retain(texture_handle);
     _dirty_range.mark(index);
 }
 
 void MetalBindlessArray::emplace_tex3d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept {
     if (auto p = _tex3d_slots[index]; p.handle != nullptr) {
-        _tracker.release_texture(detail::resource_to_handle(p.handle));
+        _tracker.release(detail::resource_to_handle(p.handle));
     }
     [_encoder setArgumentBuffer:_host_buffer offset:slot_size * index];
     *static_cast<uint *>([_encoder constantDataAtIndex:2u]) = sampler.code();
     [_encoder setTexture:(__bridge id<MTLTexture>)(reinterpret_cast<void *>(texture_handle))
                  atIndex:4u];
-    _tracker.retain_texture(texture_handle);
+    _tracker.retain(texture_handle);
     _dirty_range.mark(index);
 }
 
 void MetalBindlessArray::remove_buffer(size_t index) noexcept {
     if (auto &&p = _buffer_slots[index]; p.handle != nullptr) {
-        _tracker.release_buffer(
-            detail::resource_to_handle(p.handle));
+        _tracker.release(detail::resource_to_handle(p.handle));
         p.handle = nullptr;
     }
 }
 
 void MetalBindlessArray::remove_tex2d(size_t index) noexcept {
     if (auto &&p = _tex2d_slots[index]; p.handle != nullptr) {
-        _tracker.release_texture(
-            detail::resource_to_handle(p.handle));
+        _tracker.release(detail::resource_to_handle(p.handle));
         p.handle = nullptr;
     }
 }
 
 void MetalBindlessArray::remove_tex3d(size_t index) noexcept {
     if (auto &&p = _tex3d_slots[index]; p.handle != nullptr) {
-        _tracker.release_texture(
-            detail::resource_to_handle(p.handle));
+        _tracker.release(detail::resource_to_handle(p.handle));
         p.handle = nullptr;
     }
 }

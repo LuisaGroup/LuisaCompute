@@ -13,7 +13,7 @@ void ISPCBindlessArray::emplace_buffer(size_t index, const void *buffer, size_t 
     remove_buffer(index);
     _slots[index].buffer = buffer;
     _slots[index].buffer_offset = offset;
-    _tracker.retain_buffer(reinterpret_cast<uint64_t>(buffer));
+    _tracker.retain(reinterpret_cast<uint64_t>(buffer));
     _dirty.mark(index);
 }
 
@@ -21,7 +21,7 @@ void ISPCBindlessArray::emplace_tex2d(size_t index, const ISPCTexture *tex, Samp
     remove_tex2d(index);
     _slots[index].tex2d = tex;
     _slots[index].sampler2d = sampler;
-    _tracker.retain_texture(reinterpret_cast<uint64_t>(tex));
+    _tracker.retain(reinterpret_cast<uint64_t>(tex));
     _dirty.mark(index);
 }
 
@@ -29,27 +29,27 @@ void ISPCBindlessArray::emplace_tex3d(size_t index, const ISPCTexture *tex, Samp
     remove_tex3d(index);
     _slots[index].tex3d = tex;
     _slots[index].sampler3d = sampler;
-    _tracker.retain_texture(reinterpret_cast<uint64_t>(tex));
+    _tracker.retain(reinterpret_cast<uint64_t>(tex));
     _dirty.mark(index);
 }
 
 void ISPCBindlessArray::remove_buffer(size_t index) noexcept {
     if (auto &buffer = _slots[index].buffer) {
-        _tracker.release_buffer(reinterpret_cast<uint64_t>(buffer));
+        _tracker.release(reinterpret_cast<uint64_t>(buffer));
         buffer = nullptr;
     }
 }
 
 void ISPCBindlessArray::remove_tex2d(size_t index) noexcept {
     if (auto &texture = _slots[index].tex2d) {
-        _tracker.release_texture(reinterpret_cast<uint64_t>(texture));
+        _tracker.release(reinterpret_cast<uint64_t>(texture));
         texture = nullptr;
     }
 }
 
 void ISPCBindlessArray::remove_tex3d(size_t index) noexcept {
     if (auto &texture = _slots[index].tex3d) {
-        _tracker.release_texture(reinterpret_cast<uint64_t>(texture));
+        _tracker.release(reinterpret_cast<uint64_t>(texture));
         texture = nullptr;
     }
 }
@@ -77,12 +77,8 @@ void ISPCBindlessArray::update(ThreadPool &pool) noexcept {
     _tracker.commit();
 }
 
-bool ISPCBindlessArray::uses_buffer(const void *buffer) const noexcept {
-    return _tracker.uses_buffer(reinterpret_cast<uint64_t>(buffer));
-}
-
-bool ISPCBindlessArray::uses_texture(const ISPCTexture *texture) const noexcept {
-    return _tracker.uses_texture(reinterpret_cast<uint64_t>(texture));
+bool ISPCBindlessArray::uses_resource(uint64_t handle) const noexcept {
+    return _tracker.uses(handle);
 }
 
 }// namespace luisa::compute::ispc
