@@ -101,6 +101,7 @@ private:
     Handle _handle;
     CUmodule _accel_update_module{nullptr};
     CUfunction _accel_update_function{nullptr};
+    CUfunction _stream_wait_value_function{nullptr};
 
 public:
     /**
@@ -397,6 +398,12 @@ public:
      * @return pointer to the kernel function
      */
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
+    /**
+     * @brief Get pointer to the pre-defined stream fence kernel function
+     *
+     * @return pointer to the kernel function
+     */
+    [[nodiscard]] auto stream_fence_function() const noexcept { return _stream_wait_value_function; }
     /**
      * @brief Dispatch a host function in the stream
      *
