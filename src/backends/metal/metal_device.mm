@@ -456,12 +456,8 @@ void MetalDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) n
     reinterpret_cast<MetalBindlessArray *>(array)->remove_tex3d(index);
 }
 
-bool MetalDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return reinterpret_cast<MetalBindlessArray *>(array)->has_buffer(handle);
-}
-
-bool MetalDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return reinterpret_cast<MetalBindlessArray *>(array)->has_texture(handle);
+bool MetalDevice::is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
+    return reinterpret_cast<MetalBindlessArray *>(array)->has_resource(handle);
 }
 
 bool MetalDevice::requires_command_reordering() const noexcept {

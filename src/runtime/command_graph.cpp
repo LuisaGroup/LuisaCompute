@@ -139,7 +139,7 @@ bool CommandGraph::_check_buffer_write(uint64_t handle, size_t offset, size_t si
                         return;// do not add the edge twice
                     }
                 } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                    if (_device->is_buffer_in_bindless_array(argument.handle, handle)) {
+                    if (_device->is_resource_in_bindless_array(argument.handle, handle)) {
                         overlap = true;
                         return;
                     }
@@ -217,7 +217,7 @@ bool CommandGraph::_check_texture_write(uint64_t handle, uint level, const Comma
                         return;// do not add the edge twice
                     }
                 } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                    if (_device->is_texture_in_bindless_array(argument.handle, handle)) {
+                    if (_device->is_resource_in_bindless_array(argument.handle, handle)) {
                         overlap = true;
                         return;// do not add the edge twice
                     }
@@ -304,13 +304,13 @@ bool CommandGraph::_check_accel_write(uint64_t handle, const Command *command) c
 bool CommandGraph::_check_bindless_array_read(uint64_t handle, const Command *command) const noexcept {
     switch (command->tag()) {
         case Command::Tag::EBufferUploadCommand:
-            return _device->is_buffer_in_bindless_array(
+            return _device->is_resource_in_bindless_array(
                 handle, static_cast<const BufferUploadCommand *>(command)->handle());
         case Command::Tag::EBufferCopyCommand:
-            return _device->is_buffer_in_bindless_array(
+            return _device->is_resource_in_bindless_array(
                 handle, static_cast<const BufferCopyCommand *>(command)->dst_handle());
         case Command::Tag::EBufferToTextureCopyCommand:
-            return _device->is_texture_in_bindless_array(
+            return _device->is_resource_in_bindless_array(
                 handle, static_cast<const BufferToTextureCopyCommand *>(command)->texture());
         case Command::Tag::EShaderDispatchCommand: {
             auto overlap = false;
@@ -320,14 +320,14 @@ bool CommandGraph::_check_bindless_array_read(uint64_t handle, const Command *co
                 if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                     if (auto usage = other->kernel().variable_usage(argument.variable_uid);
                         (usage == Usage::WRITE || usage == Usage::READ_WRITE) &&
-                        _device->is_buffer_in_bindless_array(handle, argument.handle)) {
+                        _device->is_resource_in_bindless_array(handle, argument.handle)) {
                         overlap = true;
                         return;// do not add the edge twice
                     }
                 } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                     if (auto usage = other->kernel().variable_usage(argument.variable_uid);
                         (usage == Usage::WRITE || usage == Usage::READ_WRITE) &&
-                        _device->is_texture_in_bindless_array(handle, argument.handle)) {
+                        _device->is_resource_in_bindless_array(handle, argument.handle)) {
                         overlap = true;
                         return;// do not add the edge twice
                     }
@@ -336,13 +336,13 @@ bool CommandGraph::_check_bindless_array_read(uint64_t handle, const Command *co
             return overlap;
         }
         case Command::Tag::ETextureUploadCommand:
-            return _device->is_texture_in_bindless_array(
+            return _device->is_resource_in_bindless_array(
                 handle, static_cast<const TextureUploadCommand *>(command)->handle());
         case Command::Tag::ETextureCopyCommand:
-            return _device->is_texture_in_bindless_array(
+            return _device->is_resource_in_bindless_array(
                 handle, static_cast<const TextureCopyCommand *>(command)->dst_handle());
         case Command::Tag::ETextureToBufferCopyCommand:
-            return _device->is_buffer_in_bindless_array(
+            return _device->is_resource_in_bindless_array(
                 handle, static_cast<const TextureToBufferCopyCommand *>(command)->buffer());
         case Command::Tag::EBindlessArrayUpdateCommand:
             return handle == static_cast<const BindlessArrayUpdateCommand *>(command)->handle();

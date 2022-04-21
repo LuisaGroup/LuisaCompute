@@ -77,8 +77,7 @@ public:
     void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
-    bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
-    bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
+    bool is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     bool requires_command_reordering() const noexcept override;
     void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept override;
     uint64_t create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept override;
