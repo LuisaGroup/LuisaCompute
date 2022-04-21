@@ -2,6 +2,7 @@
 // Created by Mike on 7/28/2021.
 //
 
+#include "backends/cuda/cuda_error.h"
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -187,7 +188,7 @@ void CUDADevice::destroy_texture(uint64_t handle) noexcept {
 
 uint64_t CUDADevice::create_stream() noexcept {
     return with_handle([&] {
-        return reinterpret_cast<uint64_t>(new_with_allocator<CUDAStream>());
+        return reinterpret_cast<uint64_t>(new_with_allocator<CUDAStream>(this));
     });
 }
 
@@ -199,21 +200,13 @@ void CUDADevice::destroy_stream(uint64_t handle) noexcept {
 
 void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
     with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
-        LUISA_CHECK_CUDA(cuStreamSynchronize(stream->handle(true)));
+        stream->synchronize();
     });
 }
 
 void CUDADevice::dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept {
-    auto ptr = new_with_allocator<luisa::move_only_function<void()>>(std::move(func));
-    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), ptr] {
-        // TODO: move into CUDAStream::dispatch()?
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            stream->handle(true), [](void *ptr) noexcept {
-                auto func = static_cast<luisa::move_only_function<void()> *>(ptr);
-                (*func)();
-                luisa::delete_with_allocator(func);
-            },
-            ptr));
+    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), &func] {
+        stream->dispatch(std::move(func));
     });
 }
 
@@ -241,11 +234,9 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
     Clock clock;
     auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
     auto entry = kernel.raytracing() ?
-                     fmt::format("__raygen__rg_{:016X}", kernel.hash()) :
-                     fmt::format("kernel_{:016X}", kernel.hash());
-    LUISA_INFO(
-        "Generated PTX for {} in {} ms.",
-        entry, clock.toc());
+                     luisa::format("__raygen__rg_{:016X}", kernel.hash()) :
+                     luisa::format("kernel_{:016X}", kernel.hash());
+    LUISA_INFO("Generated PTX for {} in {} ms.", entry, clock.toc());
     return with_handle([&] {
         auto shader = CUDAShader::create(this, ptx.c_str(), ptx.size(), entry.c_str(), kernel.raytracing());
         return reinterpret_cast<uint64_t>(shader);
@@ -329,6 +320,13 @@ CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_accel_update_function, _accel_update_module,
             "update_instances"));
+        LUISA_CHECK_CUDA(cuModuleGetFunction(
+            &_stream_wait_value_function, _accel_update_module,
+            "wait_value"));
+        // warm up memory allocator
+        auto preallocated = 0ull;
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&preallocated, 64_mb, nullptr));
+        LUISA_CHECK_CUDA(cuMemFreeAsync(preallocated, nullptr));
     });
 }
 

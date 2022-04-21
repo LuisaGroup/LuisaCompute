@@ -1,6 +1,31 @@
 #pragma once
 
-#define lc_buffer_read(buffer, index) ((buffer)[index])
+// template<typename T>
+// [[nodiscard]] inline auto lc_buffer_read(const T *buffer, lc_uint index) noexcept {
+//     constexpr auto size = sizeof(T);
+//     constexpr auto n = (size + 3u) / 4u;
+//     auto ptr = reinterpret_cast<const lc_uint *>(buffer + index);
+//     lc_uint data[n];
+// #pragma unroll
+//     for (auto i = 0u; i < n; i++) {
+//         data[i] = __ldcv(ptr + i);
+//     }
+//     return *reinterpret_cast<const T *>(data);
+// }
+
+// template<typename T>
+// inline void lc_buffer_write(T *buffer, lc_uint index, T value) noexcept {
+//     constexpr auto size = sizeof(T);
+//     constexpr auto n = (size + 3u) / 4u;
+//     auto ptr = reinterpret_cast<lc_uint *>(buffer + index);
+//     auto data = reinterpret_cast<lc_uint *>(&value);
+// #pragma unroll
+//     for (auto i = 0u; i < n; i++) {
+//         __stwt(ptr + i, data[i]);
+//     }
+// }
+
+#define lc_buffer_read(buffer, index) (buffer[index])
 #define lc_buffer_write(buffer, index, value) static_cast<void>((buffer)[index] = (value))
 
 enum struct LCPixelStorage : lc_uint {
