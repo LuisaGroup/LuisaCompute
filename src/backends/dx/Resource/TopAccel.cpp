@@ -7,6 +7,11 @@
 #include <Resource/BottomAccel.h>
 #include <Resource/Mesh.h>
 namespace toolhub::directx {
+vstd::HashMap<TopAccel *> *TopAccel::TopAccels() {
+    static vstd::HashMap<TopAccel *> topAccel;
+    return &topAccel;
+}
+
 namespace detail {
 void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
     float *x[3] = {inst.Transform[0],
@@ -19,14 +24,16 @@ void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
         }
 }
 }// namespace detail
-TopAccel::TopAccel(Device *device, luisa::compute::AccelBuildHint hint)
+TopAccel::TopAccel(Device *device, luisa::compute::AccelUsageHint hint,
+                   bool allow_compact, bool allow_update)
     : device(device) {
+    //TODO: allow_compact not supported
+    allow_compact = false;
     auto GetPreset = [&] {
         switch (hint) {
-            case AccelBuildHint::FAST_TRACE:
+            case AccelUsageHint::FAST_TRACE:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-            case AccelBuildHint::FAST_REBUILD:
-            case AccelBuildHint::FAST_UPDATE:
+            case AccelUsageHint::FAST_BUILD:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
         }
     };
@@ -34,88 +41,89 @@ TopAccel::TopAccel(Device *device, luisa::compute::AccelBuildHint hint)
     memset(&topLevelPrebuildInfo, 0, sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO));
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &topLevelInputs = topLevelBuildDesc.Inputs;
     topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-    topLevelInputs.Flags = GetPreset() |
-                           D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+    topLevelInputs.Flags = GetPreset();
+    if (allow_compact) {
+        topLevelInputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
+    }
+    if (allow_update) {
+        topLevelInputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+    }
     topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
     topLevelBuildDesc.Inputs.NumDescs = 0;
+    TopAccels()->Emplace(this);
 }
-bool TopAccel::IsBufferInAccel(Buffer const *buffer) const {
-    return resourceRefMap.Find(buffer);
-}
-void TopAccel::IncreRef(BottomAccel const *a) {
-    auto Inc = [&](auto &&bf) {
-        auto ite = resourceRefMap.Emplace(bf, 0);
-        ite.Value()++;
-    };
-    auto mesh = static_cast<BottomAccel const *>(a);
-    auto v = mesh->GetMesh()->vHandle;
-    auto i = mesh->GetMesh()->iHandle;
-    Inc(v);
-    Inc(i);
-}
-void TopAccel::DecreRef(BottomAccel const *a) {
-    auto Dec = [&](auto &&bf) {
-        auto ite = resourceRefMap.Find(bf);
-        if (!ite) return;
-        auto &&v = ite.Value();
-        --v;
-        if (v == 0)
-            resourceRefMap.Remove(ite);
-    };
-    auto mesh = static_cast<BottomAccel const *>(a);
-    Dec(mesh->GetMesh()->vHandle);
-    Dec(mesh->GetMesh()->iHandle);
-}
-bool TopAccel::IsMeshInAccel(Mesh const *mesh) const {
-    return IsBufferInAccel(mesh->vHandle);
-}
-
-void TopAccel::Update(
-    uint idx,
-    BottomAccel const *accel) {
-    auto &&oldC = accelMesh[idx];
-    DecreRef(oldC);
-    IncreRef(accel);
-    oldC = accel;
-    auto &&s = setDesc.emplace_back();
-    std::pair<D3D12_GPU_VIRTUAL_ADDRESS, uint> value(accel->GetAccelBuffer()->GetAddress(), idx);
-    *reinterpret_cast<SetPlaceHolder *>(&s) =
-        *reinterpret_cast<SetPlaceHolder *>(&value);
-}
-void TopAccel::Emplace(
-    BottomAccel const *mesh,
-    luisa::float4x4 transform,
-    bool visible) {
-    auto &&len = topLevelBuildDesc.Inputs.NumDescs;
-    uint tarIdx = len;
-    len += 1;
-    auto &&ist = newInstanceDesc.emplace_back();
-    detail::GetRayTransform(ist, transform);
-    ist.InstanceID = tarIdx;
-    ist.InstanceMask = visible ? 255u : 0u;
-    ist.InstanceContributionToHitGroupIndex = 0;
-    ist.Flags = 0;
-    ist.AccelerationStructure = mesh->GetAccelBuffer()->GetAddress();
-    accelMesh.emplace_back(mesh);
-    IncreRef(mesh);
-}
-void TopAccel::PopBack() {
-    auto &&len = topLevelBuildDesc.Inputs.NumDescs;
-    if (len == 0) return;
-    len--;
-    auto last = accelMesh.erase_last();
-    DecreRef(last);
-    if (!newInstanceDesc.empty()) {
-        newInstanceDesc.erase_last();
+void TopAccel::UpdateMesh(
+    BottomAccel const *mesh) {
+    auto ite = meshMap.Find(mesh);
+    if (!ite) return;
+    for (auto &&kv : ite.Value()) {
+        auto &&ist = allInstance[kv.first];
+        ist.mesh = mesh->GetAccelBuffer()->GetAddress();
+        setMap.ForceEmplace(kv.first, ist);
     }
+    requireBuild = true;
+}
+void TopAccel::RemoveMesh(BottomAccel const *mesh, uint64 index) {
+    auto idices = meshMap.Find(mesh);
+    if (!idices) return;
+    auto &&map = idices.Value();
+    auto ite = map.Find(index);
+    if (!ite) return;
+    map.Remove(ite);
+    if (map.size() == 0) meshMap.Remove(idices);
+}
+void TopAccel::AddMesh(BottomAccel const *mesh, uint64 index) {
+    meshMap.Emplace(mesh).Value().Emplace(index);
 }
 
 TopAccel::~TopAccel() {
+    TopAccels()->Remove(this);
 }
 size_t TopAccel::PreProcess(
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
+    uint64 size,
+    vstd::span<AccelBuildCommand::Modification const> const &modifications,
     bool update) {
+    auto refreshUpdate = vstd::create_disposer([&] { this->update = update; });
+    if ((uint)(topLevelBuildDesc.Inputs.Flags &
+               D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) == 0 ||
+        topLevelBuildDesc.Inputs.NumDescs != size) update = false;
+    topLevelBuildDesc.Inputs.NumDescs = size;
+    allInstance.resize(size);
+    setDesc.clear();
+
+    if (!modifications.empty()) {
+        for (auto m : modifications) {
+            auto ite = setMap.Find(m.index);
+            if (ite) setMap.Remove(ite);
+            if (m.mesh != 0) {
+                auto mesh = reinterpret_cast<BottomAccel *>(m.mesh);
+                auto oldMesh = reinterpret_cast<BottomAccel *>(allInstance[m.index].mesh);
+                if (oldMesh != mesh) {
+                    RemoveMesh(oldMesh, m.index);
+                    AddMesh(mesh, m.index);
+                }
+                m.mesh = mesh->GetAccelBuffer()->GetAddress();
+                update = false;
+            } else {
+                m.mesh = allInstance[m.index].mesh;
+            }
+            allInstance[m.index] = m;
+            setDesc.emplace_back(m);
+        }
+    }
+    if (requireBuild) {
+        requireBuild = false;
+        update = false;
+    }
+    if (setMap.size() != 0) {
+        setDesc.reserve(setMap.size());
+        for (auto &&i : setMap) {
+            setDesc.emplace_back(i.second);
+        }
+        setMap.Clear();
+    }
     struct Buffers {
         vstd::unique_ptr<DefaultBuffer> v;
         Buffers(vstd::unique_ptr<DefaultBuffer> &&a)
@@ -163,13 +171,14 @@ size_t TopAccel::PreProcess(
             return true;
         }
     };
-    size_t instanceByteCount = Length() * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
+    size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     auto &&input = topLevelBuildDesc.Inputs;
     device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
     if (GenerateNewBuffer(instBuffer, instanceByteCount, true, VEngineShaderResourceState)) {
         topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
     }
     if (GenerateNewBuffer(accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
+        update = false;
         topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
     }
     if (update) {
@@ -181,12 +190,7 @@ size_t TopAccel::PreProcess(
             (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)topLevelBuildDesc.Inputs.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
     }
 
-    if (!newInstanceDesc.empty()) {
-        tracker.RecordState(
-            instBuffer.get(),
-            D3D12_RESOURCE_STATE_COPY_DEST);
-    }
-    return update ? topLevelPrebuildInfo.UpdateScratchDataSizeInBytes : topLevelPrebuildInfo.ScratchDataSizeInBytes;
+    return (update ? topLevelPrebuildInfo.UpdateScratchDataSizeInBytes : topLevelPrebuildInfo.ScratchDataSizeInBytes) + 8;
 }
 void TopAccel::Build(
     ResourceStateTracker &tracker,
@@ -194,16 +198,6 @@ void TopAccel::Build(
     BufferView const &scratchBuffer) {
     if (Length() == 0) return;
     auto alloc = builder.GetCB()->GetAlloc();
-    // Emplace new
-    bool needUpdate = false;
-    if (!newInstanceDesc.empty()) {
-        size_t lastSize = accelMesh.size() - newInstanceDesc.size();
-        builder.Upload(
-            BufferView(instBuffer.get(), lastSize * sizeof(D3D12_RAYTRACING_INSTANCE_DESC), newInstanceDesc.byte_size()),
-            newInstanceDesc.data());
-        newInstanceDesc.clear();
-        needUpdate = true;
-    }
     // Update
     if (!setDesc.empty()) {
         tracker.RecordState(
@@ -237,19 +231,66 @@ void TopAccel::Build(
         builder.DispatchCompute(
             cs,
             uint3(setDesc.size(), 1, 1),
-            properties);
-        needUpdate = true;
+            {properties, 3});
         setDesc.clear();
-    }
-    if (needUpdate) {
         tracker.RecordState(
             instBuffer.get());
         tracker.UpdateState(builder);
     }
     topLevelBuildDesc.ScratchAccelerationStructureData = scratchBuffer.buffer->GetAddress() + scratchBuffer.offset;
-    builder.CmdList()->BuildRaytracingAccelerationStructure(
-        &topLevelBuildDesc,
-        0,
-        nullptr);
+    if (RequireCompact()) {
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postInfo;
+        postInfo.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+        auto compactOffset = scratchBuffer.offset + scratchBuffer.byteSize - 8;
+        postInfo.DestBuffer = scratchBuffer.buffer->GetAddress() + compactOffset;
+        builder.CmdList()->BuildRaytracingAccelerationStructure(
+            &topLevelBuildDesc,
+            1,
+            &postInfo);
+    } else {
+        builder.CmdList()->BuildRaytracingAccelerationStructure(
+            &topLevelBuildDesc,
+            0,
+            nullptr);
+    }
+}
+void TopAccel::FinalCopy(
+    CommandBufferBuilder &builder,
+    BufferView const &scratchBuffer) {
+    auto compactOffset = scratchBuffer.offset + scratchBuffer.byteSize - 8;
+    auto &&alloc = builder.GetCB()->GetAlloc();
+    auto readback = alloc->GetTempReadbackBuffer(8);
+    builder.CopyBuffer(
+        scratchBuffer.buffer,
+        readback.buffer,
+        compactOffset,
+        readback.offset,
+        8);
+    alloc->ExecuteAfterComplete([readback, this] {
+        static_cast<ReadbackBuffer const *>(readback.buffer)->CopyData(readback.offset, {(vbyte *)&compactSize, 8});
+    });
+}
+bool TopAccel::RequireCompact() const {
+    return (((uint)topLevelBuildDesc.Inputs.Flags & (uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION) != 0) && !update;
+}
+bool TopAccel::CheckAccel(
+    CommandBufferBuilder &builder) {
+    auto disp = vstd::create_disposer([&] { compactSize = 0; });
+    if (compactSize == 0)
+        return false;
+    auto &&alloc = builder.GetCB()->GetAlloc();
+    auto newAccelBuffer = vstd::create_unique(new DefaultBuffer(
+        device,
+        CalcAlign(compactSize, 65536),
+        device->defaultAllocator,
+        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE));
+
+    builder.CmdList()->CopyRaytracingAccelerationStructure(
+        newAccelBuffer->GetAddress(),
+        accelBuffer->GetAddress(),
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);
+    alloc->ExecuteAfterComplete([b = std::move(accelBuffer)] {});
+    accelBuffer = std::move(newAccelBuffer);
+    return true;
 }
 }// namespace toolhub::directx

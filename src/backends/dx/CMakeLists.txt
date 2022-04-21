@@ -5,7 +5,6 @@ if (WIN32)
             Api/LCDevice.cpp
             Api/LCEvent.cpp
             Api/LCSwapChain.cpp
-            Codegen/ArgumentPacker.cpp
             Codegen/CodegenStackData.cpp
             Codegen/DxCodegen.cpp
             Codegen/DxCodegenUtil.cpp
@@ -43,7 +42,6 @@ if (WIN32)
             Api/LCDevice.h
             Api/LCEvent.h
             Api/LCSwapChain.h
-            Codegen/ArgumentPacker.h
             Codegen/CodegenStackData.h
             Codegen/DxCodegen.h
             Codegen/ShaderHeader.h
@@ -83,8 +81,7 @@ if (WIN32)
             Shader/ShaderSerializer.h
             Shader/ShaderVariableType.h
             test_compute.h
-            test_rtx.h
-            )
+            test_rtx.h)
     luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
@@ -121,10 +118,12 @@ if (WIN32)
     set_target_properties(luisa-compute-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
     set(DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
     mark_as_advanced(DX_SUPPORT_DIR)
-    add_custom_target(lc-dx-copy-support ALL
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${DX_SUPPORT_DIR}"
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-    add_dependencies(luisa-compute-backend-dx lc-dx-copy-support)
+    if (CMAKE_BUILD_TYPE)
+        add_custom_target(lc-dx-copy-support ALL
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${DX_SUPPORT_DIR}"
+                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+        add_dependencies(luisa-compute-backend-dx lc-dx-copy-support)
+    endif ()
 
 endif ()

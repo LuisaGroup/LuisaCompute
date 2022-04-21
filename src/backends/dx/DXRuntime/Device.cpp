@@ -12,7 +12,6 @@ static vstd::optional<DXShaderCompiler> gDxcCompiler;
 static int32 gDxcRefCount = 0;
 Device::~Device() {
     if (defaultAllocator) delete defaultAllocator;
-    CloseHandle(eventHandle);
     {
         std::lock_guard lck(gDxcMutex);
         if (--gDxcRefCount == 0) {
@@ -20,6 +19,30 @@ Device::~Device() {
         }
     }
 }
+
+void Device::WaitFence(ID3D12Fence *fence, uint64 fenceIndex) {
+    if (fenceIndex <= 0) return;
+    HANDLE eventHandle = CreateEventEx(nullptr, (LPCWSTR) nullptr, false, EVENT_ALL_ACCESS);
+    auto d = vstd::create_disposer([&] {
+        CloseHandle(eventHandle);
+    });
+    if (fence->GetCompletedValue() < fenceIndex) {
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+    }
+}
+void Device::WaitFence_Async(ID3D12Fence *fence, uint64 fenceIndex) {
+    if (fenceIndex <= 0) return;
+    HANDLE eventHandle = CreateEventEx(nullptr, (LPCWSTR)nullptr, false, EVENT_ALL_ACCESS);
+    auto d = vstd::create_disposer([&] {
+        CloseHandle(eventHandle);
+    });
+    while (fence->GetCompletedValue() < fenceIndex) {
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
+        WaitForSingleObject(eventHandle, 1);
+    }
+}
+
 DXShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
@@ -78,13 +101,11 @@ Device::Device() {
         samplerHeap->CreateSampler(
             samplers[i], i);
     }
-    LPCWSTR falseValue = nullptr;
-    eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-    setAccelKernel = BuiltinKernel::LoadAccelSetKernel(this);
     {
         std::lock_guard lck(gDxcMutex);
         gDxcRefCount++;
         gDxcCompiler.New();
     }
+    setAccelKernel = BuiltinKernel::LoadAccelSetKernel(this);
 }
 }// namespace toolhub::directx

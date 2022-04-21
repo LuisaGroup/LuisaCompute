@@ -2,7 +2,7 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
-void CommandAllocator::Execute(
+void CommandAllocatorBase::Execute(
     CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
@@ -12,7 +12,7 @@ void CommandAllocator::Execute(
         &cmdList);
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
 }
-void CommandAllocator::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain) {
+void CommandAllocatorBase::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain) {
     ID3D12CommandList *cmdList = cbuffer->CmdList();
     queue->Queue()->ExecuteCommandLists(
         1,
@@ -21,51 +21,69 @@ void CommandAllocator::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
 }
 
-void CommandAllocator::Complete(
+void CommandAllocatorBase::Complete(
     CommandQueue *queue,
     ID3D12Fence *fence,
     uint64 fenceIndex) {
     uint64 completeValue;
-    if (fenceIndex > 0 && fence->GetCompletedValue() < fenceIndex) {
-        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, device->EventHandle()));
-        WaitForSingleObject(device->EventHandle(), INFINITE);
-    }
+    device->WaitFence(fence, fenceIndex);
     while (auto evt = executeAfterComplete.Pop()) {
         (*evt)();
     }
 }
-CommandBuffer *CommandAllocator::GetBuffer() const {
+void CommandAllocatorBase::Complete_Async(
+    CommandQueue *queue,
+    ID3D12Fence *fence,
+    uint64 fenceIndex) {
+    uint64 completeValue;
+    device->WaitFence_Async(fence, fenceIndex);
+    while (auto evt = executeAfterComplete.Pop()) {
+        (*evt)();
+    }
+}
+
+
+CommandBuffer *CommandAllocatorBase::GetBuffer() const {
     return cbuffer;
 }
-CommandAllocator::CommandAllocator(
+CommandAllocatorBase::CommandAllocatorBase(
     Device *device,
     IGpuAllocator *resourceAllocator,
     D3D12_COMMAND_LIST_TYPE type)
     : type(type),
       resourceAllocator(resourceAllocator),
-      device(device),
-      uploadAllocator(TEMP_SIZE, &ubVisitor),
-      readbackAllocator(TEMP_SIZE, &rbVisitor),
-      defaultAllocator(TEMP_SIZE, &dbVisitor) {
-    rbVisitor.self = this;
-    ubVisitor.self = this;
-    dbVisitor.self = this;
+      device(device) {
     ThrowIfFailed(
         device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
     cbuffer.New(
         device,
         this);
 }
+CommandAllocator::CommandAllocator(
+    Device *device,
+    IGpuAllocator *resourceAllocator,
+    D3D12_COMMAND_LIST_TYPE type)
+    : CommandAllocatorBase(device, resourceAllocator, type),
+      uploadAllocator(TEMP_SIZE, &ubVisitor),
+      readbackAllocator(TEMP_SIZE, &rbVisitor),
+      defaultAllocator(TEMP_SIZE, &dbVisitor) {
+    rbVisitor.self = this;
+    ubVisitor.self = this;
+    dbVisitor.self = this;
+}
 CommandAllocator::~CommandAllocator() {
     cbuffer.Delete();
+}
+void CommandAllocatorBase::Reset(CommandQueue *queue) {
+    ThrowIfFailed(
+        allocator->Reset());
+    cbuffer->Reset();
 }
 void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();
     uploadAllocator.Clear();
     defaultAllocator.Clear();
-    ThrowIfFailed(
-        allocator->Reset());
-    cbuffer->Reset();
+    CommandAllocatorBase::Reset(queue);
 }
 
 DefaultBuffer const *CommandAllocator::AllocateScratchBuffer(size_t targetSize) {
@@ -134,5 +152,6 @@ BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size, size_t align) {
         chunk.offset,
         size};
 }
-
+CommandAllocatorBase::~CommandAllocatorBase() {
+}
 }// namespace toolhub::directx

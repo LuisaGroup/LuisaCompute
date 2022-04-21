@@ -84,11 +84,7 @@ void LCDevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uin
 void LCDevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
     emplace_tex2d_in_bindless_array(array, index, handle, sampler);
 }
-bool LCDevice::is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-    return reinterpret_cast<BindlessArray *>(array)
-        ->IsPtrInBindless(handle);
-}
-bool LCDevice::is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
+bool LCDevice::is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
     return reinterpret_cast<BindlessArray *>(array)
         ->IsPtrInBindless(handle);
 }
@@ -104,12 +100,12 @@ void LCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noex
     reinterpret_cast<BindlessArray *>(array)
         ->UnBind(BindlessArray::BindTag::Tex3D, index);
 }
-uint64_t LCDevice::create_stream() noexcept {
+uint64_t LCDevice::create_stream(bool allowPresent) noexcept {
     return reinterpret_cast<uint64>(
         new LCCmdBuffer(
             &nativeDevice,
             nativeDevice.defaultAllocator,
-            D3D12_COMMAND_LIST_TYPE_COMPUTE));
+            allowPresent ? D3D12_COMMAND_LIST_TYPE_DIRECT : D3D12_COMMAND_LIST_TYPE_COMPUTE));
 }
 
 void LCDevice::destroy_stream(uint64_t handle) noexcept {
@@ -122,17 +118,13 @@ void LCDevice::dispatch(uint64_t stream_handle, CommandList const &v) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute({&v, 1}, maxAllocatorCount);
 }
-void LCDevice::dispatch(uint64_t stream_handle, CommandList const &v, luisa::move_only_function<void()> &&callback) noexcept {
-    reinterpret_cast<LCCmdBuffer *>(stream_handle)
-        ->Execute({&v, 1}, maxAllocatorCount, &callback);
-}
+
 void LCDevice::dispatch(uint64_t stream_handle, vstd::span<const CommandList> lists) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute(lists, maxAllocatorCount);
 }
-void LCDevice::dispatch(uint64_t stream_handle, vstd::span<const CommandList> lists, luisa::move_only_function<void()> &&callback) noexcept {
-    reinterpret_cast<LCCmdBuffer *>(stream_handle)
-        ->Execute(lists, maxAllocatorCount, &callback);
+void LCDevice::dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept {
+    reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue.Callback(std::move(func));
 }
 
 void *LCDevice::stream_native_handle(uint64_t handle) const noexcept {
@@ -186,7 +178,8 @@ uint64_t LCDevice::create_mesh(
     uint64_t t_buffer,
     size_t t_offset,
     size_t t_count,
-    AccelBuildHint hint) noexcept {
+    AccelUsageHint hint,
+    bool allow_compact, bool allow_update) noexcept {
     return reinterpret_cast<uint64>(
         (
             new BottomAccel(
@@ -198,49 +191,19 @@ uint64_t LCDevice::create_mesh(
                 reinterpret_cast<Buffer *>(t_buffer),
                 t_offset * 3 * sizeof(uint),
                 t_count * 3,
-                hint)));
+                hint,
+                allow_compact,
+                allow_update)));
 }
 void LCDevice::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<BottomAccel *>(handle);
 }
-uint64_t LCDevice::create_accel(AccelBuildHint hint) noexcept {
+uint64_t LCDevice::create_accel(AccelUsageHint hint, bool allow_compact, bool allow_update) noexcept {
     return reinterpret_cast<uint64>(new TopAccel(
         &nativeDevice,
-        hint));
-}
-void LCDevice::emplace_back_instance_in_accel(uint64_t accel, uint64_t mesh, luisa::float4x4 transform, bool visible) noexcept {
-    auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    topAccel->Emplace(
-        reinterpret_cast<BottomAccel *>(mesh),
-        transform,
-        visible);
-}
-void LCDevice::pop_back_instance_in_accel(uint64_t accel) noexcept {
-    auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    topAccel->PopBack();
-}
-void LCDevice::set_instance_mesh_in_accel(uint64_t accel, uint64_t index, uint64_t mesh) noexcept {
-    auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    topAccel->Update(
-        index,
-        reinterpret_cast<BottomAccel *>(mesh));
-}
-bool LCDevice::is_buffer_in_accel(uint64_t accel, uint64_t buffer) const noexcept {
-    auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    return topAccel->IsBufferInAccel(reinterpret_cast<Buffer *>(buffer));
-}
-bool LCDevice::is_mesh_in_accel(uint64_t accel, uint64_t mesh) const noexcept {
-    auto topAccel = reinterpret_cast<TopAccel *>(accel);
-    auto meshAccel = reinterpret_cast<BottomAccel *>(mesh);
-    return topAccel->IsMeshInAccel((meshAccel)->GetMesh());
-}
-uint64_t LCDevice::get_vertex_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    auto meshAccel = reinterpret_cast<BottomAccel *>(mesh_handle);
-    return reinterpret_cast<uint64>((meshAccel)->GetMesh()->vHandle);
-}
-uint64_t LCDevice::get_triangle_buffer_from_mesh(uint64_t mesh_handle) const noexcept {
-    auto meshAccel = reinterpret_cast<BottomAccel *>(mesh_handle);
-    return reinterpret_cast<uint64>((meshAccel)->GetMesh()->iHandle);
+        hint,
+        allow_compact,
+        allow_update));
 }
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);

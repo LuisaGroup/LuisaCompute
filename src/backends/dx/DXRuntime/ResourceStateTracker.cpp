@@ -17,7 +17,10 @@ static bool IsWriteState(D3D12_RESOURCE_STATES state) {
 ResourceStateTracker::ResourceStateTracker() {
 }
 ResourceStateTracker::~ResourceStateTracker() = default;
-void ResourceStateTracker::RecordState(Resource const *resource, D3D12_RESOURCE_STATES state) {
+void ResourceStateTracker::RecordState(
+    Resource const *resource,
+    D3D12_RESOURCE_STATES state,
+    bool lock) {
     auto initState = resource->GetInitState();
     bool newAdd = false;
     bool isWrite = detail::IsWriteState(state);
@@ -31,11 +34,17 @@ void ResourceStateTracker::RecordState(Resource const *resource, D3D12_RESOURCE_
             return State{
                 .lastState = initState,
                 .curState = state,
+                .fence = lock ? fenceCount : 0,
                 .uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && initState == state),
                 .isWrite = isWrite};
         }));
     if (!newAdd) {
         auto &&st = ite.Value();
+        if (lock) {
+            st.fence = fenceCount;
+        } else if (st.fence >= fenceCount)
+            return;
+
         st.uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && ite.Value().lastState == state);
         st.curState = state;
         if (isWrite != st.isWrite) {
@@ -44,8 +53,10 @@ void ResourceStateTracker::RecordState(Resource const *resource, D3D12_RESOURCE_
         }
     }
 }
-void ResourceStateTracker::RecordState(Resource const *resource) {
-    RecordState(resource, resource->GetInitState());
+void ResourceStateTracker::RecordState(
+    Resource const *resource,
+    bool lock) {
+    RecordState(resource, resource->GetInitState(), lock);
 }
 void ResourceStateTracker::ExecuteStateMap() {
     for (auto &&i : stateMap) {
@@ -74,7 +85,7 @@ void ResourceStateTracker::RestoreStateMap() {
         if (isWrite != i.second.isWrite) {
             MarkWritable(i.first, isWrite);
         }
-        bool useUavBarrier  =
+        bool useUavBarrier =
             (i.second.lastState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
              i.second.curState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
