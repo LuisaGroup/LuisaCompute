@@ -12,10 +12,11 @@ CommandBuffer::CommandBuffer(CommandBuffer &&v)
       alloc(v.alloc) {
     v.alloc = nullptr;
 }
+CommandAllocator *CommandBuffer::GetAlloc() const { return static_cast<CommandAllocator *>(alloc); }
 
 CommandBuffer::CommandBuffer(
     Device *device,
-    CommandAllocator *alloc)
+    CommandAllocatorBase *alloc)
     : alloc(alloc) {
     ThrowIfFailed(device->device->CreateCommandList(
         0,
@@ -159,7 +160,7 @@ void CommandBufferBuilder::CopyBufferTexture(
     }
 }
 void CommandBufferBuilder::Upload(BufferView const &buffer, void const *src) {
-    auto uBuffer = cb->alloc->GetTempUploadBuffer(buffer.byteSize);
+    auto uBuffer = cb->GetAlloc()->GetTempUploadBuffer(buffer.byteSize);
     static_cast<UploadBuffer const *>(uBuffer.buffer)
         ->CopyData(
             uBuffer.offset,
@@ -191,17 +192,17 @@ void CommandBufferBuilder::CopyTexture(
         nullptr);
 }
 BufferView CommandBufferBuilder::GetTempBuffer(size_t size, size_t align) {
-    return cb->alloc->GetTempDefaultBuffer(size, align);
+    return cb->GetAlloc()->GetTempDefaultBuffer(size, align);
 }
 void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
-    auto rBuffer = cb->alloc->GetTempReadbackBuffer(buffer.byteSize);
+    auto rBuffer = cb->GetAlloc()->GetTempReadbackBuffer(buffer.byteSize);
     CopyBuffer(
         buffer.buffer,
         rBuffer.buffer,
         buffer.offset,
         rBuffer.offset,
         buffer.byteSize);
-    cb->alloc->ExecuteAfterComplete(
+    cb->GetAlloc()->ExecuteAfterComplete(
         [rBuffer, dst] {
             static_cast<ReadbackBuffer const *>(rBuffer.buffer)
                 ->CopyData(

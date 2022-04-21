@@ -82,7 +82,6 @@ ComputeShader *ComputeShader::CompileCompute(
         SerializeVisitor visitor(
             path,
             psoPath);
-
         //Cached
         if (visitor.csoReader) {
             auto result = ShaderSerializer::DeSerialize(
