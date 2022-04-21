@@ -301,23 +301,14 @@ public:
      */
     void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
     /**
-     * @brief If buffer is in bindless array
+     * @brief Checks if the resource is in the bindless array
      * 
-     * @param array handle of bindless array
-     * @param handle handle of buffer
-     * @return true 
-     * @return false 
+     * @param array handle of the bidnless array
+     * @param handle handle of the resource
+     * @return true if the resource is in the bindless array
+     * @return false if the resource is not in the bindless array
      */
-    bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
-    /**
-     * @brief If texture is in bindless array
-     * 
-     * @param array handle of bidnless array
-     * @param handle handle of texture
-     * @return true 
-     * @return false 
-     */
-    bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
+    bool is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     /**
      * @brief Remove buffer from bidnless array
      * 
