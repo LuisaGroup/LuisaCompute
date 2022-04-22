@@ -1,11 +1,21 @@
 find_program(BUNDLE_ISPC_EXE NAMES ispc ispc.exe PATHS ispc_support NO_DEFAULT_PATH NO_CACHE)
+set(CMAKE_ISPC_COMPILER ${BUNDLE_ISPC_EXE})
 if (NOT BUNDLE_ISPC_EXE)
     find_program(SYSTEM_ISPC_EXE NAMES ispc ispc.exe NO_CACHE)
+    set(CMAKE_ISPC_COMPILER ${SYSTEM_ISPC_EXE})
 endif ()
 
-if (NOT BUNDLE_ISPC_EXE AND NOT SYSTEM_ISPC_EXE)
-    message(WARNING "ISPC not found. ISPC support will be disabled.")
-else ()
+if (CMAKE_ISPC_COMPILER)
+    enable_language(ISPC)
+    if (CMAKE_ISPC_COMPILER_VERSION VERSION_LESS 1.16)
+        message(WARNING "ISPC version 1.16 or higher is required (found: ${CMAKE_ISPC_COMPILER_VERSION})")
+    else ()
+        message(STATUS "Found ISPC compiler: ${CMAKE_ISPC_COMPILER} (version ${CMAKE_ISPC_COMPILER_VERSION})")
+        set(ISPC_FOUND TRUE)
+    endif ()
+endif ()
+
+if (ISPC_FOUND)
     message(STATUS "Build with ISPC")
     set(ISPC_BACKEND_SOURCES
             ispc_device.cpp ispc_device.h
@@ -26,15 +36,12 @@ else ()
             "${CMAKE_CURRENT_SOURCE_DIR}/ispc_support"
             "$<TARGET_FILE_DIR:luisa-compute-backend-ispc>"
             DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ispc_support")
-
-    if (NOT BUNDLE_ISPC_EXE)
-        message(STATUS "Found ISPC in system: ${SYSTEM_ISPC_EXE}")
-        add_custom_command(TARGET luisa-compute-backend-ispc POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${SYSTEM_ISPC_EXE}"
-                "$<TARGET_FILE_DIR:luisa-compute-backend-ispc>/"
-                DEPENDS "${SYSTEM_ISPC_EXE}")
-    endif ()
+    # copy the ISPC compiler
+    add_custom_command(TARGET luisa-compute-backend-ispc POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_ISPC_COMPILER}"
+            "$<TARGET_FILE_DIR:luisa-compute-backend-ispc>/"
+            DEPENDS "${CMAKE_ISPC_COMPILER}")
 
     option(LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT "Enable LLVM JIT for ISPC kernels" ON)
     if (LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT)
