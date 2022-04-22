@@ -27,7 +27,7 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
             tarGetHandle);
         auto &&value = tryResult.first->second;
         if (tryResult.second) {
-            value = pool.New();
+            value = pool.create();
             value->handle = tarGetHandle;
             value->type = target_type;
         }
@@ -100,7 +100,7 @@ size_t CommandReorderVisitor::GetLastLayerRead(BindlessHandle *handle) {
     return handle->view.writeLayer + 1;
 }
 CommandReorderVisitor::CommandReorderVisitor(Device::Interface *device) noexcept
-    : device(device), rangePool(256, true), bindlessHandlePool(32, true), noRangePool(256, true) {
+    : device{device} {
     resMap.reserve(256);
     bindlessMap.reserve(256);
 }
@@ -412,13 +412,13 @@ void CommandReorderVisitor::visit(const MeshBuildCommand *command) noexcept {
 
 void CommandReorderVisitor::clear() noexcept {
     for (auto &&i : resMap) {
-        rangePool.Delete(i.second);
+        rangePool.recycle(i.second);
     }
     for (auto &&i : noRangeResMap) {
-        noRangePool.Delete(i.second);
+        noRangePool.recycle(i.second);
     }
     for (auto &&i : bindlessMap) {
-        bindlessHandlePool.Delete(i.second);
+        bindlessHandlePool.recycle(i.second);
     }
 
     resMap.clear();

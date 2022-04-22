@@ -13,11 +13,18 @@ namespace luisa::compute {
 
 class CommandGraph final : CommandVisitor {
 
+public:
+    static constexpr auto window_size = 16u;
+
 private:
     const Device::Interface *_device;
-    luisa::vector<Command *> _commands;
-    luisa::vector<luisa::vector<uint>> _edges;// _edges[0] stores indices of all commands that depends on _commands[0]
+    luisa::vector<Command *> _commands;       // stores all commands
+    luisa::vector<luisa::vector<uint>> _edges;// _edges[i] stores indices of all commands that depends on _commands[i]
     luisa::vector<uint> _dependency_count;    // number of dependencies of each command
+    luisa::unordered_set<uint> _pending_nodes;// nodes that are not yet scheduled
+    luisa::vector<uint> _free_nodes;          // stores indices of all free nodes (with zero dependency)
+    luisa::vector<uint> _free_nodes_swap;     // for fast swap
+    luisa::vector<CommandList> _command_lists;// scheduled command lists
 
 private:
     [[nodiscard]] bool _check_buffer_read(uint64_t handle, size_t offset, size_t size, const Command *command) const noexcept;
@@ -29,6 +36,7 @@ private:
     [[nodiscard]] bool _check_accel_write(uint64_t handle, const Command *command) const noexcept;
     [[nodiscard]] bool _check_bindless_array_read(uint64_t handle, const Command *command) const noexcept;
     [[nodiscard]] bool _check_bindless_array_write(uint64_t handle, const Command *command) const noexcept;
+    void _schedule_step() noexcept;
 
 private:
     void visit(const BufferUploadCommand *command) noexcept override;

@@ -5,7 +5,6 @@
 
 #include <core/hash.h>
 #include <runtime/device.h>
-#include <vstl/Common.h>
 
 namespace luisa::compute {
 
@@ -66,9 +65,9 @@ private:
     template<typename Func>
         requires(std::is_invocable_v<Func, Range const &, ResourceView const &>)
     void IterateMap(Func &&func, RangeHandle &handle, Range const &range);
-    vstd::Pool<RangeHandle, true> rangePool;
-    vstd::Pool<NoRangeHandle, true> noRangePool;
-    vstd::Pool<BindlessHandle, true> bindlessHandlePool;
+    Pool<RangeHandle, false> rangePool;
+    Pool<NoRangeHandle, false> noRangePool;
+    Pool<BindlessHandle, false> bindlessHandlePool;
     luisa::unordered_map<uint64_t, RangeHandle *> resMap;
     luisa::unordered_map<uint64_t, NoRangeHandle *> noRangeResMap;
     luisa::unordered_map<uint64_t, BindlessHandle *> bindlessMap;
@@ -79,9 +78,7 @@ private:
     size_t layerCount = 0;
     bool useBindlessInPass;
     bool useAccelInPass;
-    ResourceHandle *GetHandle(
-        uint64_t target_handle,
-        ResourceType target_type);
+    ResourceHandle *GetHandle(uint64_t target_handle, ResourceType target_type);
     size_t GetLastLayerWrite(RangeHandle *handle, Range range);
     size_t GetLastLayerWrite(NoRangeHandle *handle);
     size_t GetLastLayerWrite(BindlessHandle *handle);
