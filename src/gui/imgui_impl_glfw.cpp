@@ -184,11 +184,12 @@ static bool ImGui_ImplGlfw_Init(GLFWwindow *window) {
 #endif
     glfwSetErrorCallback(prev_error_callback);
 
+    // Will be handled by class luisa::compute::Window
     // Chain GLFW callbacks: our callbacks will call the user's previously installed callbacks, if any.
-    glfwSetMouseButtonCallback(window, ImGui_ImplGlfw_MouseButtonCallback);
-    glfwSetScrollCallback(window, ImGui_ImplGlfw_ScrollCallback);
-    glfwSetKeyCallback(window, ImGui_ImplGlfw_KeyCallback);
-    glfwSetCharCallback(window, ImGui_ImplGlfw_CharCallback);
+    //    glfwSetMouseButtonCallback(window, ImGui_ImplGlfw_MouseButtonCallback);
+    //    glfwSetScrollCallback(window, ImGui_ImplGlfw_ScrollCallback);
+    //    glfwSetKeyCallback(window, ImGui_ImplGlfw_KeyCallback);
+    //    glfwSetCharCallback(window, ImGui_ImplGlfw_CharCallback);
 
     get_registry().emplace(window, ctx);
     return true;
