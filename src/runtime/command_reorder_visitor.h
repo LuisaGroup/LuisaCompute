@@ -1,11 +1,11 @@
 #pragma once
 
+#include "runtime/command.h"
 #include <cstdint>
-#include <xxhash.h>
 
-#include <core/hash.h>
 #include <runtime/device.h>
-
+#include <core/hash.h>
+#include <xxhash.h>
 namespace luisa::compute {
 
 class CommandReorderVisitor : public CommandVisitor {
@@ -33,7 +33,7 @@ public:
             max = value + 1;
         }
         Range(int64_t min, int64_t size)
-            : min(min), max(min + size) {}
+            : min(min), max(size + min) {}
         bool collide(Range const &r) const;
         bool operator==(Range const &r) const;
         bool operator!=(Range const &r) const { return !operator==(r); }
@@ -63,7 +63,7 @@ public:
 
 private:
     template<typename Func>
-        requires(std::is_invocable_v<Func, Range const &, ResourceView const &>)
+        requires(std::is_invocable_v<Func, ResourceView const &>)
     void IterateMap(Func &&func, RangeHandle &handle, Range const &range);
     Pool<RangeHandle, false> rangePool;
     Pool<NoRangeHandle, false> noRangePool;
@@ -78,7 +78,9 @@ private:
     size_t layerCount = 0;
     bool useBindlessInPass;
     bool useAccelInPass;
-    ResourceHandle *GetHandle(uint64_t target_handle, ResourceType target_type);
+    ResourceHandle *GetHandle(
+        uint64_t target_handle,
+        ResourceType target_type);
     size_t GetLastLayerWrite(RangeHandle *handle, Range range);
     size_t GetLastLayerWrite(NoRangeHandle *handle);
     size_t GetLastLayerWrite(BindlessHandle *handle);
