@@ -9,53 +9,58 @@ namespace luisa::compute {
 CommandGraph::CommandGraph(const Device::Interface *device) noexcept
     : _device{device} {}
 
+void CommandGraph::_schedule_step() noexcept {
+    CommandList list;
+    list.reserve(_free_nodes.size());
+    for (auto i : _free_nodes) {
+        list.append(_commands[i]);
+        _pending_nodes.erase(i);
+        for (auto j : _edges[i]) {
+            if (--_dependency_count[j] == 0u) {
+                _free_nodes_swap.emplace_back(j);
+            }
+        }
+    }
+    _command_lists.emplace_back(std::move(list));
+    _free_nodes.swap(_free_nodes_swap);
+    _free_nodes_swap.clear();
+}
+
 void CommandGraph::add(Command *command) noexcept {
+    auto node = static_cast<uint>(_commands.size());
     // determine dependencies...
     _dependency_count.emplace_back(0u);
     command->accept(*this);
     // add the command
     _commands.emplace_back(command);
     _edges.emplace_back();
+    _pending_nodes.emplace(node);
+    if (_dependency_count[node] == 0u) {// free node
+        _free_nodes.emplace_back(node);
+    }
+    // perform a schedule step if exceeds the window size
+    if (_pending_nodes.size() >= window_size) {
+        _schedule_step();
+    }
 }
 
 luisa::vector<CommandList> CommandGraph::schedule() noexcept {
-    if (_commands.empty()) { return {}; }
-    luisa::vector<CommandList> lists;
-    static thread_local luisa::vector<uint> indices;
-    static thread_local luisa::vector<uint> next_indices;
-    indices.clear();
-    next_indices.clear();
-    for (auto i = 0u; i < _dependency_count.size(); i++) {
-        if (_dependency_count[i] == 0) {
-            indices.emplace_back(i);
-        }
-    }
-    while (!indices.empty()) {
-        lists.emplace_back();
-        lists.back().reserve(indices.size());
-        for (auto i : indices) {
-            lists.back().append(_commands[i]);
-            for (auto j : _edges[i]) {
-                if (--_dependency_count[j] == 0) {
-                    next_indices.emplace_back(j);
-                }
-            }
-        }
-        // prepare for next iteration
-        indices.swap(next_indices);
-        next_indices.clear();
-    }
+    // schedule all pending nodes
+    while (!_pending_nodes.empty()) { _schedule_step(); }
     auto total = 0u;
-    for (auto &list : lists) { total += list.size(); }
-    if (total != _commands.size()) {
-        LUISA_ERROR_WITH_LOCATION(
-            "CommandGraph::schedule: command count "
-            "mismatch (expected {}, got {})",
-            _commands.size(), total);
-    }
+    for (auto &list : _command_lists) { total += list.size(); }
+    LUISA_ASSERT(total == _commands.size(),
+                 "CommandGraph::schedule: command count "
+                 "mismatch (expected {}, got {}).",
+                 _commands.size(), total);
     _commands.clear();
     _edges.clear();
     _dependency_count.clear();
+    _pending_nodes.clear();
+    _free_nodes.clear();
+    _free_nodes_swap.clear();
+    luisa::vector<CommandList> lists;
+    lists.swap(_command_lists);
     return lists;
 }
 
@@ -377,7 +382,7 @@ void CommandGraph::visit(const BufferUploadCommand *command) noexcept {
     auto buffer = command->handle();
     auto offset = command->offset();
     auto size = command->size();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_buffer_write(buffer, offset, size, _commands[i])) {
             _edges[i].emplace_back(curr);
             _dependency_count[curr]++;
@@ -391,7 +396,7 @@ void CommandGraph::visit(const BufferDownloadCommand *command) noexcept {
     auto buffer = command->handle();
     auto offset = command->offset();
     auto size = command->size();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_accel_read(buffer, _commands[i])) {
             _edges[i].emplace_back(curr);
             _dependency_count[curr]++;
@@ -406,7 +411,7 @@ void CommandGraph::visit(const BufferCopyCommand *command) noexcept {
     auto dst = command->dst_handle();
     auto dst_offset = command->dst_offset();
     auto size = command->size();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_buffer_read(src, src_offset, size, _commands[i]) ||
             _check_buffer_write(dst, dst_offset, size, _commands[i])) {
             _edges[i].emplace_back(curr);
@@ -423,7 +428,7 @@ void CommandGraph::visit(const BufferToTextureCopyCommand *command) noexcept {
     auto buffer_offset = command->buffer_offset();
     auto buffer_size = command->size().x * command->size().y * command->size().z *
                        pixel_storage_size(command->storage());
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_buffer_read(buffer, buffer_offset, buffer_size, _commands[i]) ||
             _check_texture_write(texture, texture_level, _commands[i])) {
             _edges[i].emplace_back(curr);
@@ -435,7 +440,7 @@ void CommandGraph::visit(const BufferToTextureCopyCommand *command) noexcept {
 void CommandGraph::visit(const ShaderDispatchCommand *command) noexcept {
     auto curr = static_cast<uint>(_commands.size());
     auto kernel = command->kernel();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         auto overlap = false;
         command->decode([&](auto argument) noexcept {
             using T = std::decay_t<decltype(argument)>;
@@ -493,7 +498,7 @@ void CommandGraph::visit(const TextureUploadCommand *command) noexcept {
     auto curr = static_cast<uint>(_commands.size());
     auto texture = command->handle();
     auto level = command->level();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_texture_write(texture, level, _commands[i])) {
             _edges[i].emplace_back(curr);
             _dependency_count[curr]++;
@@ -505,7 +510,7 @@ void CommandGraph::visit(const TextureDownloadCommand *command) noexcept {
     auto curr = static_cast<uint>(_commands.size());
     auto texture = command->handle();
     auto level = command->level();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_texture_read(texture, level, _commands[i])) {
             _edges[i].emplace_back(curr);
             _dependency_count[curr]++;
@@ -519,7 +524,7 @@ void CommandGraph::visit(const TextureCopyCommand *command) noexcept {
     auto dst = command->dst_handle();
     auto src_level = command->src_level();
     auto dst_level = command->dst_level();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_texture_read(src, src_level, _commands[i]) ||
             _check_texture_write(dst, dst_level, _commands[i])) {
             _edges[i].emplace_back(curr);
@@ -536,7 +541,7 @@ void CommandGraph::visit(const TextureToBufferCopyCommand *command) noexcept {
     auto buffer_offset = command->buffer_offset();
     auto buffer_size = command->size().x * command->size().y * command->size().z *
                        pixel_storage_size(command->storage());
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_texture_read(texture, texture_level, _commands[i]) ||
             _check_buffer_write(buffer, buffer_offset, buffer_size, _commands[i])) {
             _edges[i].emplace_back(curr);
@@ -548,7 +553,7 @@ void CommandGraph::visit(const TextureToBufferCopyCommand *command) noexcept {
 void CommandGraph::visit(const AccelBuildCommand *command) noexcept {
     auto curr = static_cast<uint>(_commands.size());
     auto accel = command->handle();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_accel_write(accel, _commands[i])) {
             _edges[i].emplace_back(curr);
             _dependency_count[curr]++;
@@ -565,7 +570,7 @@ void CommandGraph::visit(const MeshBuildCommand *command) noexcept {
     auto triangle_buffer = command->triangle_buffer();
     auto triangle_buffer_offset = command->triangle_buffer_offset();
     auto triangle_buffer_size = command->triangle_buffer_size();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_buffer_read(vertex_buffer, vertex_buffer_offset, vertex_buffer_size, _commands[i]) ||
             _check_buffer_read(triangle_buffer, triangle_buffer_offset, triangle_buffer_size, _commands[i]) ||
             _check_mesh_write(mesh, _commands[i])) {
@@ -578,7 +583,7 @@ void CommandGraph::visit(const MeshBuildCommand *command) noexcept {
 void CommandGraph::visit(const BindlessArrayUpdateCommand *command) noexcept {
     auto curr = static_cast<uint>(_commands.size());
     auto array = command->handle();
-    for (auto i = 0u; i < _commands.size(); i++) {
+    for (auto i : _pending_nodes) {
         if (_check_bindless_array_write(array, _commands[i])) {
             _edges[i].emplace_back(curr);
             _dependency_count[curr]++;
