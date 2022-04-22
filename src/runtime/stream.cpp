@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
+#include "runtime/command_scheduler.h"
 #include <utility>
 
 #include <core/logging.h>
@@ -20,9 +21,9 @@ void Stream::_dispatch(CommandList list) noexcept {
         auto commands = list.steal_commands();
         Clock clock;
         for (auto command : commands) {
-            _graph.add(command);
+            _scheduler->add(command);
         }
-        auto lists = _graph.schedule();
+        auto lists = _scheduler->schedule();
         LUISA_VERBOSE_WITH_LOCATION(
             "Reordered {} commands into {} list(s) in {} ms.",
             commands.size(), lists.size(), clock.toc());
@@ -66,7 +67,7 @@ Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
 
 Stream::Stream(Device::Interface *device) noexcept
     : Resource{device, Tag::STREAM, device->create_stream()},
-      _graph{device},
+      _scheduler{luisa::make_unique<CommandScheduler>(device)},
       reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}

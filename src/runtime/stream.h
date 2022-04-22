@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/stl.h"
 #include <utility>
 
 #include <core/spin_mutex.h>
@@ -58,7 +59,7 @@ public:
     };
 
 private:
-    CommandScheduler _graph;
+    luisa::unique_ptr<CommandScheduler> _scheduler;
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
     explicit Stream(Device::Interface *device) noexcept;
