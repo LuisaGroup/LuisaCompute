@@ -1,15 +1,15 @@
+#include "runtime/command.h"
 #include <core/mathematics.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/stream.h>
 
 namespace luisa::compute {
-
 template<typename Func>
-    requires(std::is_invocable_v<Func, CommandReorderVisitor::Range const &, CommandReorderVisitor::ResourceView const &>)
+    requires(std::is_invocable_v<Func, CommandReorderVisitor::ResourceView const &>)
 void CommandReorderVisitor::IterateMap(Func &&func, RangeHandle &handle, Range const &range) {
     for (auto &&r : handle.views) {
         if (r.first.collide(range)) {
-            func(r.first, r.second);
+            func(r.second);
         }
     }
 }
@@ -46,7 +46,7 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
 size_t CommandReorderVisitor::GetLastLayerWrite(RangeHandle *handle, Range range) {
     size_t layer = 0;
     IterateMap(
-        [&](auto &&range, auto &&handle) {
+        [&](auto &&handle) {
             layer = std::max<int64_t>(layer, std::max<int64_t>(handle.readLayer + 1, handle.writeLayer + 1));
         },
         *handle,
@@ -70,9 +70,6 @@ size_t CommandReorderVisitor::GetLastLayerWrite(NoRangeHandle *handle) {
         case ResourceType::Accel:
             layer = std::max<int64_t>(layer, maxAccelLevel + 1);
             layer = std::max<int64_t>(layer, maxMeshLevel + 1);
-            break;
-        default:
-            break;
     }
     return layer;
 }
@@ -82,7 +79,7 @@ size_t CommandReorderVisitor::GetLastLayerWrite(BindlessHandle *handle) {
 size_t CommandReorderVisitor::GetLastLayerRead(RangeHandle *handle, Range range) {
     size_t layer = 0;
     IterateMap(
-        [&](auto &&range, auto &&handle) {
+        [&](auto &&handle) {
             layer = std::max<int64_t>(layer, handle.writeLayer + 1);
         },
         *handle,
@@ -259,17 +256,16 @@ size_t CommandReorderVisitor::SetRW(
         } break;
         default: {
             auto handle = static_cast<RangeHandle *>(srcHandle);
-            auto layerHandle =
-                layer = GetLastLayerRead(handle, read_range);
+            layer = GetLastLayerRead(handle, read_range);
             auto ite = handle->views.try_emplace(read_range);
             if (ite.second) {
                 auto viewPtr = &ite.first->second;
-                setReadLayer = [viewPtr, layer]() {
+                setReadLayer = [viewPtr, &layer]() {
                     viewPtr->readLayer = std::max<int64_t>(viewPtr->readLayer, layer);
                 };
             } else {
                 auto viewPtr = &ite.first->second;
-                setReadLayer = [viewPtr, layer]() {
+                setReadLayer = [viewPtr, &layer]() {
                     viewPtr->readLayer = layer;
                 };
             }
@@ -281,17 +277,17 @@ size_t CommandReorderVisitor::SetRW(
         case ResourceType::Mesh:
         case ResourceType::Accel: {
             auto handle = static_cast<NoRangeHandle *>(dstHandle);
-            layer = std::max(layer, GetLastLayerWrite(handle));
+            layer = std::max<int64_t>(layer, GetLastLayerWrite(handle));
             handle->view.writeLayer = layer;
         } break;
         case ResourceType::Bindless: {
             auto handle = static_cast<BindlessHandle *>(dstHandle);
-            layer = std::max(layer, GetLastLayerWrite(handle));
+            layer = std::max<int64_t>(layer, GetLastLayerWrite(handle));
             handle->view.writeLayer = layer;
         } break;
         default: {
             auto handle = static_cast<RangeHandle *>(dstHandle);
-            layer = GetLastLayerWrite(handle, write_range);
+            layer = std::max<int64_t>(layer, GetLastLayerWrite(handle, write_range));
             auto ite = handle->views.try_emplace(write_range);
             ite.first->second.writeLayer = layer;
         } break;
@@ -438,7 +434,7 @@ void CommandReorderVisitor::AddCommand(Command const *cmd, size_t layer) {
     if (commandLists.size() <= layer) {
         commandLists.resize(layer + 1);
     }
-    layerCount = std::max(layerCount, layer + 1);
+    layerCount = std::max<int64_t>(layerCount, layer + 1);
     commandLists[layer].append(const_cast<Command *>(cmd));
 }
 
