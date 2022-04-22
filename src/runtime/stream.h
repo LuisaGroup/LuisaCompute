@@ -14,6 +14,7 @@
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/image.h>
 #include <runtime/swap_chain.h>
+#include <runtime/command_scheduler.h>
 
 namespace luisa::compute {
 
@@ -57,6 +58,7 @@ public:
     };
 
 private:
+    CommandScheduler _graph;
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
     explicit Stream(Device::Interface *device) noexcept;

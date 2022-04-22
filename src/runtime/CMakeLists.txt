@@ -18,7 +18,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         command_reorder_visitor.h command_reorder_visitor.cpp
         swap_chain.h swap_chain.cpp
         resource_tracker.cpp resource_tracker.h
-        command_graph.cpp command_graph.h)
+        command_scheduler.cpp command_scheduler.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast)
