@@ -32,8 +32,8 @@ public:
             min = value;
             max = value + 1;
         }
-        Range(int64_t min, int64_t max)
-            : min(min), max(max) {}
+        Range(int64_t min, int64_t size)
+            : min(min), max(min + size) {}
         bool collide(Range const &r) const;
         bool operator==(Range const &r) const;
         bool operator!=(Range const &r) const { return !operator==(r); }

@@ -2,12 +2,11 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
-#include "core/logging.h"
 #include <utility>
 
+#include <core/logging.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/command_graph.h>
 
 namespace luisa::compute {
 
@@ -21,15 +20,25 @@ void Stream::_dispatch(CommandList list) noexcept {
         auto commands = list.steal_commands();
         Clock clock;
         for (auto command : commands) {
-            command->accept(*reorder_visitor);
+            _graph.add(command);
         }
-        auto lists = reorder_visitor->command_lists();
+        auto lists = _graph.schedule();
         LUISA_VERBOSE_WITH_LOCATION(
             "Reordered {} commands into {} list(s) in {} ms.",
             commands.size(), lists.size(), clock.toc());
         device()->dispatch(handle(), lists);
-        reorder_visitor->clear();
-        for (auto cmd : commands) { cmd->recycle(); }
+
+        // Clock clock;
+        // for (auto command : commands) {
+        //     command->accept(*reorder_visitor);
+        // }
+        // auto lists = reorder_visitor->command_lists();
+        // LUISA_INFO(
+        //     "Reordered {} commands into {} list(s) in {} ms.",
+        //     commands.size(), lists.size(), clock.toc());
+        // device()->dispatch(handle(), lists);
+        // reorder_visitor->clear();
+        // for (auto cmd : commands) { cmd->recycle(); }
     } else {
         device()->dispatch(handle(), list);
     }
@@ -57,6 +66,7 @@ Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
 
 Stream::Stream(Device::Interface *device) noexcept
     : Resource{device, Tag::STREAM, device->create_stream()},
+      _graph{device},
       reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
