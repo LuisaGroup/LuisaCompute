@@ -4,7 +4,7 @@ import inspect
 import sys
 import traceback
 import lcapi
-from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
+from .builtin import deduce_unary_type, deduce_binary_type, builtin_func, builtin_bin_op
 from .types import dtype_of, to_lctype, CallableType
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .buffer import BufferType
@@ -217,11 +217,11 @@ class ASTVisitor:
 
     @staticmethod
     def build_Assign(ctx, node):
-        if len(node.targets)!=1:
+        if len(node.targets) != 1:
             raise Exception('Tuple assignment not supported')
         # allows left hand side to be undefined
         if type(node.targets[0]) is ast.Name:
-            build.build_Name(ctx, node.targets[0], allow_none = True)
+            build.build_Name(ctx, node.targets[0], allow_none=True)
         else:
             build(ctx, node.targets[0])
         build(ctx, node.value)
@@ -258,8 +258,8 @@ class ASTVisitor:
         # ast.Pow, ast.MatMult is not supported
         if op is None:
             raise Exception(f'Unsupported augassign operation: {type(node.op)}')
-        x = lcapi.builder().binary(to_lctype(node.target.dtype), op, node.target.expr, node.value.expr)
-        lcapi.builder().assign(node.target.expr, x)
+        dtype, expr = builtin_bin_op(op, node.target, node.value)
+        lcapi.builder().assign(node.target.expr, expr)
 
     @staticmethod
     def build_UnaryOp(ctx, node):
@@ -295,12 +295,13 @@ class ASTVisitor:
         # ast.Pow, ast.MatMult is not supported
         if op is None:
             raise Exception(f'Unsupported binary operation: {type(node.op)}')
-        node.dtype = deduce_binary_type(node.op, node.left.dtype, node.right.dtype)
-        node.expr = lcapi.builder().binary(to_lctype(node.dtype), op, node.left.expr, node.right.expr)
+        node.dtype, node.expr = builtin_bin_op(op, node.left, node.right)
+        # node.dtype = deduce_binary_type(node.op, node.left.dtype, node.right.dtype)
+        # node.expr = lcapi.builder().binary(to_lctype(node.dtype), op, node.left.expr, node.right.expr)
 
     @staticmethod
     def build_Compare(ctx, node):
-        if len(node.comparators)!=1:
+        if len(node.comparators) != 1:
             raise Exception('chained comparison not supported yet.')
         build(ctx, node.left)
         build(ctx, node.comparators[0])
@@ -315,12 +316,12 @@ class ASTVisitor:
         if op is None:
             raise Exception(f'Unsupported compare operation: {type(node.op)}')
         # TODO support chained comparison
-        node.expr = lcapi.builder().binary(to_lctype(bool), op, node.left.expr, node.comparators[0].expr)
+        node.dtype, node.expr = builtin_bin_op(op, node.left, node.comparators[0])
 
     @staticmethod
     def build_BoolOp(ctx, node):
         # should be short-circuiting
-        if len(node.values)!=2:
+        if len(node.values) != 2:
             raise Exception('chained bool op not supported yet. use brackets instead.')
         for x in node.values:
             build(ctx, x)
@@ -328,7 +329,8 @@ class ASTVisitor:
             ast.And: lcapi.BinaryOp.AND,
             ast.Or:  lcapi.BinaryOp.OR
         }.get(type(node.op))
-        node.expr = lcapi.builder().binary(to_lctype(bool), op, node.values[0].expr, node.values[1].expr)
+        node.dtype, node.expr = builtin_bin_op(op, node.values[0], node.values[1])
+        # node.expr = lcapi.builder().binary(to_lctype(bool), op, node.values[0].expr, node.values[1].expr)
 
     @staticmethod
     def build_If(ctx, node):
