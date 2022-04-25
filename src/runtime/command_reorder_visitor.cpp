@@ -22,8 +22,7 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
     uint64_t tarGetHandle,
     ResourceType target_type) {
     auto func = [&](auto &&map, auto &&pool) {
-        auto tryResult = map.try_emplace(
-            tarGetHandle);
+        auto tryResult = map.try_emplace(tarGetHandle, nullptr);
         auto &&value = tryResult.first->second;
         if (tryResult.second) {
             value = pool.create();
@@ -72,6 +71,7 @@ size_t CommandReorderVisitor::GetLastLayerWrite(NoRangeHandle *handle) {
             layer = std::max<int64_t>(layer, maxAccelLevel + 1);
             layer = std::max<int64_t>(layer, maxMeshLevel + 1);
         } break;
+        default: break;
     }
     return layer;
 }
