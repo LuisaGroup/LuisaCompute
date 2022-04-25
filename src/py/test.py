@@ -1,6 +1,7 @@
 import luisa
 import numpy as np
 from luisa.builtin import builtin_func
+from luisa.mathtypes import *
 
 luisa.init()
 # ============= test script ================
@@ -57,7 +58,8 @@ def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     flipsign(aaa)
     b.write(idx, aaa)
     if dispatch_id().x < 5:
-        print("blah", aaa, True, 3.14, dispatch_id())
+        vtmp = float4(123)
+        print("blah", aaa, True, 3.14, vtmp)
 
 
 b = luisa.Buffer(100, int)
