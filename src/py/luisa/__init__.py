@@ -5,6 +5,7 @@ import struct
 
 import lcapi
 from . import globalvars
+from .globalvars import get_global_device
 from .types import dtype_of, to_lctype
 from .buffer import Buffer, BufferType
 from .arraytype import ArrayType
@@ -53,6 +54,7 @@ def create_param_exprs(params):
 class kernel:
     # creates a luisa kernel with given function
     def __init__(self, func, is_device_callable = False):
+        device = get_global_device()
         # get python AST & context
         self.tree = ast.parse(inspect.getsource(func))
         self.original_func = func
@@ -87,7 +89,7 @@ class kernel:
         self.func = self.builder.function()
         # compile shader
         if not is_device_callable:
-            self.shader_handle = globalvars.device.impl().create_shader(self.func)
+            self.shader_handle = device.impl().create_shader(self.func)
 
 
     # dispatch shader to stream
