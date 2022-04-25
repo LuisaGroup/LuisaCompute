@@ -1,8 +1,12 @@
 #pragma once
 
-#include "runtime/command.h"
+#include <cstdint>
+
 #include <core/hash.h>
+#include <core/stl.h>
+#include <runtime/command.h>
 #include <runtime/device.h>
+
 namespace luisa::compute {
 
 class CommandReorderVisitor : public CommandVisitor {
@@ -36,7 +40,7 @@ public:
         bool operator!=(Range const &r) const { return !operator==(r); }
     };
     struct RangeHash {
-        size_t operator()(Range const &r) const {
+        uint64_t operator()(Range const &r) const {
             return absl::container_internal::hash_default_hash<int64_t>()(r.min ^ r.max);
         }
     };

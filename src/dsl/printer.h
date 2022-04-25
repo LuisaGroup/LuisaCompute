@@ -33,7 +33,7 @@ public:
         };
         luisa::vector<Tag> value_tags;
 
-        [[nodiscard]] auto operator==(const Descriptor &rhs) const noexcept {
+        [[nodiscard]] bool operator==(const Descriptor &rhs) const noexcept {
             for (auto i = 0u; i < value_tags.size(); i++) {
                 if (value_tags[i] != rhs.value_tags[i]) {
                     return false;
@@ -55,8 +55,8 @@ public:
 private:
     Buffer<uint> _buffer;// count & records (desc_id, arg0, arg1, ...)
     luisa::vector<uint> _host_buffer;
-    luisa::unordered_map<Descriptor, uint, DescriptorHash> _desc_id;
-    luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
+    luisa::unordered_map<Descriptor, uint, DescriptorHash, std::equal_to<>> _desc_id;
+    luisa::unordered_map<luisa::string, uint> _string_id;
     luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
     luisa::vector<luisa::string_view> _strings;
     luisa::string _scratch;
@@ -68,12 +68,22 @@ public:
     explicit Printer(Device &device, size_t capacity = 16_mb) noexcept;
     /// Reset stream
     void reset(Stream &stream) noexcept;
+    /// Reset stream
+    void reset(CommandBuffer &command_buffer) noexcept;
     /// Retrieve stream
     [[nodiscard]] luisa::string_view retrieve(Stream &stream) noexcept;
+    /// Retrieve stream
+    [[nodiscard]] luisa::string_view retrieve(CommandBuffer &command_buffer) noexcept;
 
     /// Log in kernel
     template<typename... Args>
     void log(Args &&...args) noexcept;
+
+private:
+    template<class T>
+    [[nodiscard]] luisa::string_view _retrieve(T &t) noexcept;
+    template<class T>
+    void _reset(T &t) noexcept;
 };
 
 template<typename... Args>

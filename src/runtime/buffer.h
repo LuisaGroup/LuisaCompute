@@ -53,8 +53,8 @@ public:
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
-    [[nodiscard]] auto copy_from(const void *data) { return this->view().copy_from(data); }
-    [[nodiscard]] auto copy_from(BufferView<T> source) { return this->view().copy_from(source); }
+    [[nodiscard]] auto copy_from(const void *data) noexcept { return this->view().copy_from(data); }
+    [[nodiscard]] auto copy_from(BufferView<T> source) noexcept { return this->view().copy_from(source); }
 
     template<typename I>
     [[nodiscard]] decltype(auto) read(I &&i) const noexcept { return this->view().read(std::forward<I>(i)); }
@@ -125,15 +125,15 @@ public:
         return BufferView<U>{_handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
     }
 
-    [[nodiscard]] auto copy_to(void *data) const {
+    [[nodiscard]] auto copy_to(void *data) const noexcept {
         return BufferDownloadCommand::create(_handle, offset_bytes(), size_bytes(), data);
     }
 
-    [[nodiscard]] auto copy_from(const void *data) {
+    [[nodiscard]] auto copy_from(const void *data) noexcept {
         return BufferUploadCommand::create(this->handle(), this->offset_bytes(), this->size_bytes(), data);
     }
 
-    [[nodiscard]] auto copy_from(BufferView<T> source) {
+    [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         if (source.size() != this->size()) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Incompatible buffer views with different element counts (src = {}, dst = {}).",

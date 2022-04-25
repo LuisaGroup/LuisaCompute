@@ -15,13 +15,31 @@ Printer::Printer(Device &device, size_t capacity) noexcept
 }
 
 void Printer::reset(Stream &stream) noexcept {
+    _reset(stream);
+}
+
+void Printer::reset(CommandBuffer &command_buffer) noexcept {
+    _reset(command_buffer);
+}
+
+template<class T>
+void Printer::_reset(T &stream) noexcept {
     auto zero = 0u;
     auto size = _buffer.size() - 1u;
     stream << _buffer.view(size, 1u).copy_from(&zero);
     _reset_called = true;
 }
 
+luisa::string_view Printer::retrieve(CommandBuffer &command_buffer) noexcept {
+    return _retrieve(command_buffer);
+}
+
 luisa::string_view Printer::retrieve(Stream &stream) noexcept {
+    return _retrieve(stream);
+}
+
+template<class T>
+luisa::string_view Printer::_retrieve(T &stream) noexcept {
     if (!_reset_called) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Printer results cannot be "
