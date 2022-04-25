@@ -13,9 +13,9 @@ function(luisa_compute_add_backend name)
             DEBUG_POSTFIX "")
 endfunction()
 
-#if (LUISA_COMPUTE_ENABLE_DX)
-#    add_subdirectory(dx)
-#endif ()
+if (LUISA_COMPUTE_ENABLE_DX)
+    add_subdirectory(dx)
+endif ()
 
 if (LUISA_COMPUTE_ENABLE_METAL)
     add_subdirectory(metal)

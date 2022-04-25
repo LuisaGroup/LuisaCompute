@@ -83,7 +83,7 @@ void ISPCDevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) no
     reinterpret_cast<ISPCBindlessArray *>(array)->remove_tex3d(index);
 }
 
-uint64_t ISPCDevice::create_stream() noexcept {
+uint64_t ISPCDevice::create_stream(bool for_present) noexcept {
     return reinterpret_cast<uint64_t>(luisa::new_with_allocator<ISPCStream>());
 }
 

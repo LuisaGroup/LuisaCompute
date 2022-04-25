@@ -151,10 +151,11 @@ public:
     void destroy_texture(uint64_t handle) noexcept override;
     /**
      * @brief Create a CUDAStream object
-     * 
+     * @param for_present Whether the stream is used for display presentation
+     *
      * @return address of CUDAStream
      */
-    uint64_t create_stream() noexcept override;
+    uint64_t create_stream(bool for_present) noexcept override;
     /**
      * @brief Destroy a CUDAStream object
      * 

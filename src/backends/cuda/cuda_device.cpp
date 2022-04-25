@@ -186,7 +186,7 @@ void CUDADevice::destroy_texture(uint64_t handle) noexcept {
     });
 }
 
-uint64_t CUDADevice::create_stream() noexcept {
+uint64_t CUDADevice::create_stream(bool for_present) noexcept {
     return with_handle([&] {
         return reinterpret_cast<uint64_t>(new_with_allocator<CUDAStream>(this));
     });

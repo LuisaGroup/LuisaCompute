@@ -38,7 +38,7 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     LUISA_VERBOSE_WITH_LOCATION("Destroyed buffer #{}.", handle);
 }
 
-uint64_t MetalDevice::create_stream() noexcept {
+uint64_t MetalDevice::create_stream(bool for_present) noexcept {
     Clock clock;
     auto max_command_buffer_count = _handle.isLowPower ? 8u : 16u;
     auto stream = new_with_allocator<MetalStream>(_handle, max_command_buffer_count);

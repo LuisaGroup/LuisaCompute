@@ -48,7 +48,7 @@ public:
     void destroy_texture(uint64_t handle) noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    uint64_t create_stream() noexcept override;
+    uint64_t create_stream(bool for_present) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;

@@ -50,7 +50,7 @@ public:
         Function f;
         Variable const *arg;
 
-        void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BufferArgument const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0) {
                 self->stateTracker->RecordState(
@@ -64,7 +64,7 @@ public:
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
+        void operator()(ShaderDispatchCommand::TextureArgument const &bf) {
             vstd::string name;
             CodegenUtility::GetVariableName(
                 *arg,
@@ -85,7 +85,7 @@ public:
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             for (auto &&i : self->stateTracker->WriteStateMap()) {
                 if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i.first))) {
@@ -98,22 +98,22 @@ public:
             self->backState.clear();
             ++arg;
         }
-        void operator()(uint uid, vstd::span<std::byte const> bf) {
-            if (bf.size() < 4) {
-                bool v = (bool)bf[0];
+        void operator()(ShaderDispatchCommand::UniformArgument const &bf) {
+            if (bf.size < 4) {
+                bool v = (bool)bf.data[0];
                 uint value = v ? std::numeric_limits<uint>::max() : 0;
                 self->EmplaceData(value);
 
             } else {
                 auto type = arg->type();
                 if (type->is_vector() && type->dimension() == 3)
-                    self->EmplaceData(bf.data(), 12);
+                    self->EmplaceData(bf.data, 12);
                 else
-                    self->EmplaceData(bf.data(), bf.size());
+                    self->EmplaceData(bf.data, bf.size);
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+        void operator()(ShaderDispatchCommand::AccelArgument const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if (accel->GetInstBuffer()) {
                 if (((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0) {
@@ -290,7 +290,7 @@ public:
         Function f;
         Variable const *arg;
 
-        void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BufferArgument const &bf) {
             vstd::string name;
             CodegenUtility::GetVariableName(
                 *arg,
@@ -302,7 +302,7 @@ public:
                 BufferView(res, bf.offset));
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
+        void operator()(ShaderDispatchCommand::TextureArgument const &bf) {
             vstd::string name;
             CodegenUtility::GetVariableName(
                 *arg,
@@ -326,7 +326,7 @@ public:
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             auto res = arr->Buffer();
 
@@ -339,7 +339,7 @@ public:
                 BufferView(res, 0));
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+        void operator()(ShaderDispatchCommand::AccelArgument const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             vstd::string name;
             vstd::string instName;
@@ -357,7 +357,7 @@ public:
                 BufferView(accel->GetInstBuffer()));
             ++arg;
         }
-        void operator()(uint uid, vstd::span<std::byte const> bf) {
+        void operator()(ShaderDispatchCommand::UniformArgument const &bf) {
             ++arg;
         }
     };
