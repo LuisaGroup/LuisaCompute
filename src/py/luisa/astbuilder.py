@@ -4,11 +4,12 @@ import inspect
 import sys
 import traceback
 import lcapi
-from .builtin import deduce_unary_type, deduce_binary_type, builtin_func, builtin_func_names
-from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType
+from .builtin import deduce_unary_type, deduce_binary_type, builtin_func, builtin_func_names, builtin_type_cast
+from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType, is_vector_type
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .buffer import BufferType
 from .arraytype import ArrayType
+from .structtype import StructType
 
 
 class ASTVisitor:
@@ -105,10 +106,8 @@ class ASTVisitor:
                 node.dtype, node.expr = builtin_func(node.func.expr, node.args)
             # type: cast / construct
             elif node.func.dtype is type:
-                if len(node.args)>0:
-                    raise NotImplementedError("type cast / initializing with arguments are not supported yet")
-                node.dtype = node.func.expr
-                node.expr = lcapi.builder().local(to_lctype(node.dtype))
+                dtype = node.func.expr
+                node.dtype, node.expr = builtin_type_cast(dtype, node.args)
             else:
                 raise TypeError(f"calling non-callable variable: {node.func.id}")
         # class method
@@ -125,22 +124,18 @@ class ASTVisitor:
     def build_Attribute(ctx, node):
         build(ctx, node.value)
         # vector swizzle
-        lctype = to_lctype(node.value.dtype)
-        print("ATTR:", node.attr)
-        if lctype.is_vector():
+        if is_vector_type(node.value.dtype):
             if is_swizzle_name(node.attr):
-                print("YYYYYYYYYY")
-                original_size = lctype.dimension()
+                original_size = to_lctype(node.value.dtype).dimension()
                 swizzle_size = len(node.attr)
                 swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.dtype = get_swizzle_resulttype(node.value.dtype, swizzle_size)
                 node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
             else:
-                print("NNNNNNNN")
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
-        elif lctype.is_structure():
+        elif type(node.value.dtype) is StructType:
             idx = structType.idx_dict[node.attr]
-        elif lctype.is_buffer():
+        elif type(node.value.dtype) is BufferType:
             if node.attr == "read":
                 node.dtype, node.expr = BuiltinFuncType, "buffer_read"
             elif node.attr == "write":

@@ -1,5 +1,6 @@
 import lcapi
 from . import globalvars
+from .globalvars import get_global_device
 from .types import to_lctype
 
 class Buffer:
@@ -11,7 +12,7 @@ class Buffer:
         self.size = size
         self.bytesize = size * to_lctype(self.dtype).size()
         # instantiate buffer on device
-        self.handle = globalvars.device.impl().create_buffer(self.bytesize)
+        self.handle = get_global_device().impl().create_buffer(self.bytesize)
 
     def copy_from(self, arr, sync = True, stream = None): # arr: numpy array
         if stream is None:
