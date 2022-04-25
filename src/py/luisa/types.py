@@ -50,6 +50,9 @@ basic_lctype_dict = {
 class CallableType:
     pass
 
+class BuiltinFuncType:
+    pass
+
 def dtype_of(val):
     if type(val) is str:
         return str

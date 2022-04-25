@@ -1,3 +1,4 @@
+import lcapi
 from .types import to_lctype, from_lctype
 
 # Note: vector & matrix types are directly imported from lcapi
@@ -44,4 +45,4 @@ def get_swizzle_resulttype(dtype, len):
     if len == 1:
         return from_lctype(lctype.element())
     else:
-        return from_lctype(lcapi.Type.from_(f'vector<{dtype.element().description()},{len}>'))
+        return from_lctype(lcapi.Type.from_(f'vector<{lctype.element().description()},{len}>'))

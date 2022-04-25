@@ -64,6 +64,17 @@ def deduce_binary_type(op, dtype1, dtype2):
 # def check_arg_length(length):
 #     return lambda arguments: sum(map(get_length, arguments)) == length
 
+builtin_func_names = {
+    'thread_id', 'block_id', 'dispatch_id', 'dispatch_size',
+    'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
+    'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
+    'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
+    'make_float2x2', 'make_float3x3', 'make_float4x4',
+    'isinf', 'isnan', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
+    'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
+    'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round',
+    'print'
+}
 
 def builtin_func(name, args):
     # e.g. dispatch_id()
@@ -126,4 +137,19 @@ def builtin_func(name, args):
         return None, None
 
 
+    if name == "buffer_read":
+        builtin_op = lcapi.CallOp.BUFFER_READ
+        dtype = args[0].dtype.dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), builtin_op, [x.expr for x in args])
+    if name == "buffer_write":
+        builtin_op = lcapi.CallOp.BUFFER_WRITE
+        lcapi.builder().call(builtin_op, [x.expr for x in args])
+        return None, None
+
+
+
+
+
     raise Exception('unrecognized function call')
+
+
