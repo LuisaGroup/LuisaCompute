@@ -40,6 +40,10 @@ def g(arr: Arr):
     # x = make_float2(3,5) * -1 + x1
     # m2 = make_float2x2(1,2,3,4,5,6,7)
 
+@luisa.callable
+def flipsign(x: luisa.ref(int)):
+    x = -x
+
 @luisa.kernel
 def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     # x[0] = a
@@ -50,6 +54,7 @@ def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     for xxx in range(100, 200, 3):
         aaa += xxx
     a += g(arr) if True else -1
+    flipsign(aaa)
     b.write(idx, aaa)
     if dispatch_id().x < 5:
         print("blah", aaa, True, 3.14, dispatch_id())
