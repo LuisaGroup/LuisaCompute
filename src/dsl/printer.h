@@ -68,12 +68,22 @@ public:
     explicit Printer(Device &device, size_t capacity = 16_mb) noexcept;
     /// Reset stream
     void reset(Stream &stream) noexcept;
+    /// Reset stream
+    void reset(CommandBuffer &command_buffer) noexcept;
     /// Retrieve stream
     [[nodiscard]] luisa::string_view retrieve(Stream &stream) noexcept;
+    /// Retrieve stream
+    [[nodiscard]] luisa::string_view retrieve(CommandBuffer &command_buffer) noexcept;
 
     /// Log in kernel
     template<typename... Args>
     void log(Args &&...args) noexcept;
+
+private:
+    template<class T>
+    [[nodiscard]] luisa::string_view _retrieve(T &t) noexcept;
+    template<class T>
+    void _reset(T &t) noexcept;
 };
 
 template<typename... Args>
