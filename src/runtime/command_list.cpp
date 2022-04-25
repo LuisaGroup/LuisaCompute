@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
-#include "runtime/command.h"
+#include <runtime/command.h>
 #include <runtime/command_list.h>
 
 namespace luisa::compute {
