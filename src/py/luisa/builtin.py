@@ -1,5 +1,5 @@
 import lcapi
-from .types import to_lctype
+from .types import to_lctype, is_vector_type
 from functools import reduce
 from . import globalvars
 
@@ -19,6 +19,12 @@ def deduce_binary_type(op, dtype1, dtype2):
         return float
     if dtype1 == float and dtype2 == int:
         return float
+    if is_vector_type(dtype1) and dtype2 in {int,float,bool}:
+        if to_lctype(dtype1).element() == to_lctype(dtype2):
+            return dtype1
+    if is_vector_type(dtype2) and dtype1 in {int,float,bool}:
+        if to_lctype(dtype2).element() == to_lctype(dtype1):
+            return dtype2
     raise NotImplementedError(f"deduce_binary_type not implemented for {dtype1}, {dtype2}")
 
 
@@ -106,6 +112,28 @@ def builtin_type_cast(dtype, args):
     # TODO: struct
     raise NotImplementedError("only type cast to scalar types are currently supported")
 
+def make_vector_call(dtype, op, args):
+    # type check: must be corresponding scalar or vector of same element type
+    assert dtype in {int, float, bool}
+    dim = 1
+    for arg in args:
+        assert arg.dtype == dtype or is_vector_type(arg.dtype) and to_lctype(arg.dtype).element() == to_lctype(dtype)
+        if is_vector_type(arg.dtype):
+            if dim != 1:
+                assert dim == to_lctype(arg.dtype).dimension()
+            else:
+                dim = to_lctype(arg.dtype).dimension()
+    convtype = getattr(lcapi, f'{dtype.__name__}{dim}') if dim>1 else dtype
+    exprlist = []
+    for arg in args:
+        if arg.dtype == convtype:
+            exprlist.append(arg.expr)
+        else:
+            dtype1, expr1 = builtin_type_cast(convtype, [arg])
+            exprlist.append(expr1)
+    return convtype, lcapi.builder().call(to_lctype(convtype), op, exprlist)
+    
+
 
 # return dtype, expr
 def builtin_func(name, args):
@@ -164,12 +192,17 @@ def builtin_func(name, args):
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
-    if name in ('abs', 'copysign'):
+    if name in ('abs'):
         assert len(args) == 1
         assert args[0].dtype in (int, float) or to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() in (to_lctype(int), to_lctype(float))
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    if name in ('copysign'):
+        assert len(args) == 2
+        return make_vector_call(float, lcapi.CallOp.COPYSIGN, args)
+
 
     if name in ('length'):
         assert len(args) == 1
@@ -200,12 +233,7 @@ def builtin_func(name, args):
         
     if name in ('lerp'):
         assert len(args) == 3
-        assert args[0].dtype == float or to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
-        assert args[0].dtype == args[1].dtype
-        assert args[2].dtype == args[0].dtype or args[2].dtype == float
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+        return make_vector_call(float, lcapi.CallOp.LERP, args)
 
     if name == 'print':
         globalvars.printer.kernel_print(args)
