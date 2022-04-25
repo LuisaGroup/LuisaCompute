@@ -28,6 +28,8 @@ Arr = luisa.ArrayType(int, 3)
 
 @luisa.callable
 def g(arr: Arr):
+    if dispatch_id().x < 3:
+        print("in callable! ", dispatch_id())
 
     return arr[0] * arr[1] + arr[2]
     # t = make_float2x2(1, 2, 3, 4)
@@ -40,7 +42,9 @@ def g(arr: Arr):
 
 @luisa.kernel
 def f(a: int, arr: Arr, b: luisa.BufferType(int)):
+    # x[0] = a
     a1 = Arr()
+    xx1 = dispatch_id().xy
     # a2[4] = 5
     idx = dispatch_id().x
     aaa = 0

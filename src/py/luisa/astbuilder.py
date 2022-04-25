@@ -4,8 +4,8 @@ import inspect
 import sys
 import traceback
 import lcapi
-from .builtin import deduce_unary_type, deduce_binary_type, builtin_func
-from .types import dtype_of, to_lctype, CallableType
+from .builtin import deduce_unary_type, deduce_binary_type, builtin_func, builtin_func_names
+from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .buffer import BufferType
 from .arraytype import ArrayType
@@ -71,11 +71,11 @@ class ASTVisitor:
         return_type = None if node.value == None else node.value.dtype
         if hasattr(ctx, "return_type"):
             if ctx.return_type != return_type:
-                raise Exception("inconsistent return type in multiple return statements")
+                raise TypeError("inconsistent return type in multiple return statements")
         else:
             ctx.return_type = return_type
         if not ctx.is_device_callable and return_type != None:
-            raise Exception("only callable can return non-void value")
+            raise TypeError("only callable can return non-void value")
         # build return statement
         lcapi.builder().return_(node.value.expr)
 
@@ -85,7 +85,7 @@ class ASTVisitor:
             build(ctx, x)
         # static function
         if type(node.func) is ast.Name:
-            build.build_Name(ctx, node.func, allow_none = True)
+            build(ctx, node.func)
             # custom callable
             if node.func.dtype is CallableType:
                 # check args
@@ -101,35 +101,23 @@ class ASTVisitor:
                     node.dtype = node.func.expr.return_type
                     node.expr = lcapi.builder().call(to_lctype(node.dtype), node.func.expr.func, [x.expr for x in node.args])
             # funciton name undefined: look into builtin functions
-            elif node.func.dtype is None:
-                node.dtype, node.expr = builtin_func(node.func.id, node.args)
+            elif node.func.dtype is BuiltinFuncType:
+                node.dtype, node.expr = builtin_func(node.func.expr, node.args)
             # type: cast / construct
             elif node.func.dtype is type:
                 if len(node.args)>0:
-                    raise Exception("type cast / initializing with arguments are not supported yet")
+                    raise NotImplementedError("type cast / initializing with arguments are not supported yet")
                 node.dtype = node.func.expr
                 node.expr = lcapi.builder().local(to_lctype(node.dtype))
             else:
-                raise Exception(f"calling non-callable variable: {node.func.id}")
+                raise TypeError(f"calling non-callable variable: {node.func.id}")
         # class method
         elif type(node.func) is ast.Attribute: # class method
-            build(ctx, node.func.value)
-            builtin_op = None
-            return_type = None
-            # check for builtin methods (buffer, etc.)
-            if type(node.func.value.dtype) is BufferType:
-                if node.func.attr == "read":
-                    builtin_op = lcapi.CallOp.BUFFER_READ
-                    return_type = node.func.value.dtype.dtype
-                if node.func.attr == "write":
-                    builtin_op = lcapi.CallOp.BUFFER_WRITE
-            if builtin_op is None:
-                raise Exception('unsupported method')
-            node.dtype = return_type
-            if return_type is None:
-                lcapi.builder().call(builtin_op, [node.func.value.expr] + [x.expr for x in node.args])
-            else: # function call has return value
-                node.expr = lcapi.builder().call(to_lctype(return_type), builtin_op, [node.func.value.expr] + [x.expr for x in node.args])
+            build(ctx, node.func)
+            if node.func.dtype is BuiltinFuncType:
+                node.dtype, node.expr = builtin_func(node.func.expr, [node.func.value] + node.args)
+            else:
+                raise TypeError(f'unrecognized method call. calling on {node.func.dtype}.')
         else:
             raise Exception('unrecognized call func type')
 
@@ -138,16 +126,29 @@ class ASTVisitor:
         build(ctx, node.value)
         # vector swizzle
         lctype = to_lctype(node.value.dtype)
+        print("ATTR:", node.attr)
         if lctype.is_vector():
             if is_swizzle_name(node.attr):
+                print("YYYYYYYYYY")
                 original_size = lctype.dimension()
                 swizzle_size = len(node.attr)
                 swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.dtype = get_swizzle_resulttype(node.value.dtype, swizzle_size)
                 node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
+            else:
+                print("NNNNNNNN")
+                raise AttributeError(f"vector has no attribute '{node.attr}'")
         elif lctype.is_structure():
             idx = structType.idx_dict[node.attr]
-
+        elif lctype.is_buffer():
+            if node.attr == "read":
+                node.dtype, node.expr = BuiltinFuncType, "buffer_read"
+            elif node.attr == "write":
+                node.dtype, node.expr = BuiltinFuncType, "buffer_write"
+            else:
+                raise AttributeError(f"buffer has no attribute '{node.attr}'")
+        else:
+            raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
 
 
     @staticmethod
@@ -195,14 +196,16 @@ class ASTVisitor:
     @staticmethod
     def build_Name(ctx, node, allow_none = False):
         # Note: in Python all local variables are function-scoped
-        if node.id in ctx.local_variable:
+        if node.id in builtin_func_names:
+            node.dtype, node.expr = BuiltinFuncType, node.id
+        elif node.id in ctx.local_variable:
             node.dtype, node.expr = ctx.local_variable[node.id]
         else:
             val = ctx.closure_variable.get(node.id)
             # print("NAME:", node.id, "VALUE:", val)
-            if val is None or val == print: # do not capture python builtin print
+            if val is None: # do not capture python builtin print
                 if not allow_none:
-                    raise Exception(f"undeclared idenfitier '{node.id}'")
+                    raise NameError(f"undeclared idenfitier '{node.id}'")
                 node.dtype = None
                 return
             node.dtype, node.expr = build.captured_expr(val)
@@ -235,7 +238,7 @@ class ASTVisitor:
         else:
             # must assign with same type; no implicit casting is allowed.
             if node.targets[0].dtype != node.value.dtype:
-                raise Exception(f"Can't assign to {node.targets[0].id} ({node.targets[0].dtype}) with {node.value.dtype} ")
+                raise TypeError(f"Can't assign to {node.targets[0].id} ({node.targets[0].dtype}) with {node.value.dtype} ")
         lcapi.builder().assign(node.targets[0].expr, node.value.expr)
 
     @staticmethod
@@ -257,7 +260,7 @@ class ASTVisitor:
         }.get(type(node.op))
         # ast.Pow, ast.MatMult is not supported
         if op is None:
-            raise Exception(f'Unsupported augassign operation: {type(node.op)}')
+            raise TypeError(f'Unsupported augassign operation: {type(node.op)}')
         x = lcapi.builder().binary(to_lctype(node.target.dtype), op, node.target.expr, node.value.expr)
         lcapi.builder().assign(node.target.expr, x)
 
@@ -271,7 +274,7 @@ class ASTVisitor:
             ast.Invert: lcapi.UnaryOp.BIT_NOT
         }.get(type(node.op))
         if op is None:
-            raise Exception(f'Unsupported binary operation: {type(node.op)}')
+            raise TypeError(f'Unsupported unary operation: {type(node.op)}')
         node.dtype = deduce_unary_type(node.op, node.operand.dtype)
         node.expr = lcapi.builder().unary(to_lctype(node.dtype), op, node.operand.expr)
 
@@ -294,7 +297,7 @@ class ASTVisitor:
         }.get(type(node.op))
         # ast.Pow, ast.MatMult is not supported
         if op is None:
-            raise Exception(f'Unsupported binary operation: {type(node.op)}')
+            raise TypeError(f'Unsupported binary operation: {type(node.op)}')
         node.dtype = deduce_binary_type(node.op, node.left.dtype, node.right.dtype)
         node.expr = lcapi.builder().binary(to_lctype(node.dtype), op, node.left.expr, node.right.expr)
 
@@ -315,6 +318,7 @@ class ASTVisitor:
         if op is None:
             raise Exception(f'Unsupported compare operation: {type(node.op)}')
         # TODO support chained comparison
+        node.dtype = bool
         node.expr = lcapi.builder().binary(to_lctype(bool), op, node.left.expr, node.comparators[0].expr)
 
     @staticmethod
@@ -334,6 +338,8 @@ class ASTVisitor:
     def build_If(ctx, node):
         # condition
         build(ctx, node.test)
+        if node.test.dtype != bool:
+            raise TypeError(f"If condition must be bool, got {node.test.dtype}")
         ifstmt = lcapi.builder().if_(node.test.expr)
         # true branch
         lcapi.builder().push_scope(ifstmt.true_branch())
@@ -351,7 +357,10 @@ class ASTVisitor:
         build(ctx, node.body)
         build(ctx, node.test)
         build(ctx, node.orelse)
-        assert node.test.dtype == bool and node.body.dtype == node.orelse.dtype
+        if node.test.dtype != bool:
+            raise TypeError(f"IfExp condition must be bool, got {node.test.dtype}")
+        if node.body.dtype != node.orelse.dtype:
+            raise TypeError(f"Both result expressions of IfExp must be of same type. ({node.body.dtype} vs {node.orelse.dtype})")
         node.dtype = node.body.dtype
         node.expr = lcapi.builder().call(to_lctype(node.dtype), lcapi.CallOp.SELECT, [node.orelse.expr, node.body.expr, node.test.expr])
 
