@@ -13,7 +13,13 @@ def deduce_unary_type(op, dtype):
 def deduce_binary_type(op, dtype1, dtype2):
     # TODO: Type check
     # TODO: upcast
-    return dtype1
+    if dtype1 == dtype2:
+        return dtype1
+    if dtype1 == int and dtype2 == float:
+        return float
+    if dtype1 == float and dtype2 == int:
+        return float
+    raise NotImplementedError(f"deduce_binary_type not implemented for {dtype1}, {dtype2}")
 
 
 # def get_length(arg) -> int:
@@ -76,6 +82,23 @@ builtin_func_names = {
     'print'
 }
 
+
+# type cast or initialization
+# return dtype, expr
+def builtin_type_cast(dtype, args):
+    if len(args) == 0:
+        # construct variable without initialization
+        return dtype, lcapi.builder().local(to_lctype(dtype))
+    if dtype in {int, float, bool}:
+        assert len(args)==1 and args[0].dtype in {int, float, bool}
+        return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
+    # TODO: vectors / matrices
+    # TODO: array
+    # TODO: struct
+    raise NotImplementedError("only type cast to scalar types are currently supported")
+
+
+# return dtype, expr
 def builtin_func(name, args):
     # e.g. dispatch_id()
     for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':

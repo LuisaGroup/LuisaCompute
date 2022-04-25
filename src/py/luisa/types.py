@@ -109,3 +109,22 @@ def from_lctype(lctype):
 #     float2x2 = lcapi.Type.from_("matrix<2>")
 #     float3x3 = lcapi.Type.from_("matrix<3>")
 #     float4x4 = lcapi.Type.from_("matrix<4>")
+
+def is_vector_type(dtype):
+    for x in {
+        lcapi.int2,
+        lcapi.uint2,
+        lcapi.bool2,
+        lcapi.float2,
+        lcapi.int3,
+        lcapi.uint3,
+        lcapi.bool3,
+        lcapi.float3,
+        lcapi.int4,
+        lcapi.uint4,
+        lcapi.bool4,
+        lcapi.float4
+    }:
+        if dtype is x:
+            return True
+    return False

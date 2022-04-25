@@ -44,10 +44,9 @@ def g(arr: Arr):
 def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     # x[0] = a
     a1 = Arr()
-    xx1 = dispatch_id().xy
     # a2[4] = 5
     idx = dispatch_id().x
-    aaa = 0
+    aaa = int(-0.3)
     for xxx in range(100, 200, 3):
         aaa += xxx
     a += g(arr) if True else -1
