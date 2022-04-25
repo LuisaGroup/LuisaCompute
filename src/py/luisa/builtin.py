@@ -79,6 +79,12 @@ builtin_func_names = {
     'isinf', 'isnan', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
     'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
     'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round',
+    'abs', 'copysign',
+    'dot',
+    'cross',
+    'length', 
+    'normalize',
+    'lerp',
     'print'
 }
 
@@ -151,6 +157,49 @@ def builtin_func(name, args):
         # type check: arg must be float / float vector
         assert len(args) == 1
         assert args[0].dtype == float or to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
+        op = getattr(lcapi.CallOp, name.upper())
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    if name in ('abs', 'copysign'):
+        assert len(args) == 1
+        assert args[0].dtype in (int, float) or to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() in (to_lctype(int), to_lctype(float))
+        op = getattr(lcapi.CallOp, name.upper())
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    if name in ('length'):
+        assert len(args) == 1
+        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
+        op = getattr(lcapi.CallOp, name.upper())
+        return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
+
+    if name in ('normalize'):
+        assert len(args) == 1
+        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
+        op = getattr(lcapi.CallOp, name.upper())
+        return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), op, [x.expr for x in args])
+
+    if name in ('dot'):
+        assert len(args) == 2
+        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
+        assert to_lctype(args[1].dtype).is_vector() and to_lctype(args[1].dtype).element() == to_lctype(float)
+        assert to_lctype(args[0].dtype).dimension() == to_lctype(args[1].dtype).dimension()
+        op = getattr(lcapi.CallOp, name.upper())
+        return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
+
+    if name in ('cross'):
+        assert len(args) == 2
+        assert args[0].dtype == lcapi.float3
+        assert args[1].dtype == lcapi.float3
+        op = getattr(lcapi.CallOp, name.upper())
+        return lcapi.float3, lcapi.builder().call(to_lctype(lcapi.float3), op, [x.expr for x in args])
+        
+    if name in ('lerp'):
+        assert len(args) == 3
+        assert args[0].dtype == float or to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
+        assert args[0].dtype == args[1].dtype
+        assert args[2].dtype == args[0].dtype or args[2].dtype == float
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
