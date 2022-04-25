@@ -56,7 +56,7 @@ public:
 
     /// Calculate hash, return uint64
     template<typename T>
-    [[nodiscard]] uint64_t operator()(T &&s) const noexcept -> uint64_t {
+    [[nodiscard]] uint64_t operator()(T &&s) const noexcept {
         if constexpr (detail::hashable_with_hash_method<T>) {
             return (*this)(std::forward<T>(s).hash());
         } else if constexpr (detail::hashable_with_hash_code_method<T>) {
