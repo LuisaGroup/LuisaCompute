@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
+#include "runtime/command.h"
 #include <runtime/command_list.h>
 
 namespace luisa::compute {
@@ -82,30 +83,47 @@ private:
                                            command->dispatch_size().y,
                                            command->dispatch_size().z};
         auto arg_array = nlohmann::json::array();
-        command->decode([&arg_array](auto arg) noexcept {
+        constexpr auto usage_string = [](Usage usage) noexcept {
+            switch (usage) {
+                case Usage::NONE: return "none";
+                case Usage::READ: return "read";
+                case Usage::WRITE: return "write";
+                case Usage::READ_WRITE: return "read_write";
+            }
+            return "unknown";
+        };
+        command->decode([&arg_array, command, usage_string](auto arg) noexcept {
             using T = std::decay_t<decltype(arg)>;
             if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
                 arg_array.emplace_back(nlohmann::json{{"type", "buffer"},
                                                       {"variable", arg.variable_uid},
                                                       {"handle", arg.handle},
-                                                      {"offset", arg.offset}});
+                                                      {"offset", arg.offset},
+                                                      {"size", arg.size},
+                                                      {"usage", usage_string(command->kernel().variable_usage(arg.variable_uid))}});
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
                 arg_array.emplace_back(nlohmann::json{{"type", "texture"},
                                                       {"variable", arg.variable_uid},
                                                       {"handle", arg.handle},
-                                                      {"level", arg.level}});
+                                                      {"level", arg.level},
+                                                      {"usage", usage_string(command->kernel().variable_usage(arg.variable_uid))}});
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
                 arg_array.emplace_back(nlohmann::json{{"type", "bindless_array"},
                                                       {"variable", arg.variable_uid},
-                                                      {"handle", arg.handle}});
+                                                      {"handle", arg.handle},
+                                                      {"usage", usage_string(command->kernel().variable_usage(arg.variable_uid))}});
             } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
                 arg_array.emplace_back(nlohmann::json{{"type", "accel"},
                                                       {"variable", arg.variable_uid},
-                                                      {"handle", arg.handle}});
-            } else {
+                                                      {"handle", arg.handle},
+                                                      {"usage", usage_string(command->kernel().variable_usage(arg.variable_uid))}});
+            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::UniformArgument>) {
                 arg_array.emplace_back(nlohmann::json{{"type", "uniform"},
                                                       {"date", luisa::format("{}", static_cast<const void *>(arg.data))},
-                                                      {"size", arg.size}});
+                                                      {"size", arg.size},
+                                                      {"usage", usage_string(command->kernel().variable_usage(arg.variable_uid))}});
+            } else {
+                static_assert(always_false_v<T>, "Invalid argument type");
             }
         });
         json["arguments"] = std::move(arg_array);

@@ -400,7 +400,7 @@ void CommandScheduler::visit(const BufferDownloadCommand *command) noexcept {
     auto offset = command->offset();
     auto size = command->size();
     for (auto i : _pending_nodes) {
-        if (_check_accel_read(buffer, _commands[i])) {
+        if (_check_buffer_read(buffer, offset, size, _commands[i])) {
             _edges[i].emplace_back(curr);
             _dependency_count[curr]++;
         }

@@ -19,27 +19,40 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
+        // Clock clock;
+        // for (auto command : commands) {
+        //     _scheduler->add(command);
+        // }
+        // auto lists = _scheduler->schedule();
+        // LUISA_INFO(
+        //     "Reordered {} commands into {} list(s) in {} ms.",
+        //     commands.size(), lists.size(), clock.toc());
+        // static auto count = 0u;
+        // for (auto &&l : lists) {
+        //     if (l.size() >= 2u) {
+        //         for (auto cmd : l) { cmd->accept(*reorder_visitor); }
+        //         auto reordered = reorder_visitor->command_lists();
+        //         if (reordered.size() == l.size()) {
+        //             auto json = l.dump_json();
+        //             LUISA_INFO("CommandList (size = {}):\n{}", l.size(), json.dump(2));
+        //             if (++count == 100u) { exit(0); }
+        //         }
+        //         reorder_visitor->clear();
+        //     }
+        // }
+        // device()->dispatch(handle(), lists);
+
         Clock clock;
         for (auto command : commands) {
-            _scheduler->add(command);
+            command->accept(*reorder_visitor);
         }
-        auto lists = _scheduler->schedule();
+        auto lists = reorder_visitor->command_lists();
         LUISA_VERBOSE_WITH_LOCATION(
             "Reordered {} commands into {} list(s) in {} ms.",
             commands.size(), lists.size(), clock.toc());
         device()->dispatch(handle(), lists);
-
-        // Clock clock;
-        // for (auto command : commands) {
-        //     command->accept(*reorder_visitor);
-        // }
-        // auto lists = reorder_visitor->command_lists();
-        // LUISA_INFO(
-        //     "Reordered {} commands into {} list(s) in {} ms.",
-        //     commands.size(), lists.size(), clock.toc());
-        // device()->dispatch(handle(), lists);
-        // reorder_visitor->clear();
-        // for (auto cmd : commands) { cmd->recycle(); }
+        reorder_visitor->clear();
+        for (auto cmd : commands) { cmd->recycle(); }
     } else {
         device()->dispatch(handle(), list);
     }
