@@ -368,7 +368,7 @@ class ASTVisitor:
             assert x.dtype is int
         if len(node.iter.args) == 1:
             range_start = lcapi.builder().literal(to_lctype(int), 0)
-            range_stop = node.iter.args[0]
+            range_stop = node.iter.args[0].expr
             range_step = lcapi.builder().literal(to_lctype(int), 1)
         if len(node.iter.args) == 2:
             range_start, range_stop = [x.expr for x in node.iter.args]
