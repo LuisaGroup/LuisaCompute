@@ -6,7 +6,7 @@
 namespace luisa::compute {
 template<typename Func>
     requires(std::is_invocable_v<Func, CommandReorderVisitor::ResourceView const &>)
-void CommandReorderVisitor::IterateMap(Func &&func, RangeHandle &handle, Range const &range) {
+void IterateMap(Func &&func, CommandReorderVisitor::RangeHandle &handle, CommandReorderVisitor::Range const &range) {
     for (auto &&r : handle.views) {
         if (r.first.collide(range)) {
             func(r.second);
@@ -23,8 +23,7 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
     uint64_t tarGetHandle,
     ResourceType target_type) {
     auto func = [&](auto &&map, auto &&pool) {
-        auto tryResult = map.try_emplace(
-            tarGetHandle);
+        auto tryResult = map.try_emplace(tarGetHandle, nullptr);
         auto &&value = tryResult.first->second;
         if (tryResult.second) {
             value = pool.create();

@@ -33,7 +33,7 @@ public:
         };
         luisa::vector<Tag> value_tags;
 
-        [[nodiscard]] auto operator==(const Descriptor &rhs) const noexcept {
+        [[nodiscard]] bool operator==(const Descriptor &rhs) const noexcept {
             for (auto i = 0u; i < value_tags.size(); i++) {
                 if (value_tags[i] != rhs.value_tags[i]) {
                     return false;
@@ -55,8 +55,8 @@ public:
 private:
     Buffer<uint> _buffer;// count & records (desc_id, arg0, arg1, ...)
     luisa::vector<uint> _host_buffer;
-    luisa::unordered_map<Descriptor, uint, DescriptorHash> _desc_id;
-    luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
+    luisa::unordered_map<Descriptor, uint, DescriptorHash, std::equal_to<>> _desc_id;
+    luisa::unordered_map<luisa::string, uint> _string_id;
     luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
     luisa::vector<luisa::string_view> _strings;
     luisa::string _scratch;
