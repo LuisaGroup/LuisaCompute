@@ -89,11 +89,10 @@ class ASTVisitor:
             build(ctx, node.func)
             # custom callable
             if node.func.dtype is CallableType:
-                # check args
-                parameters = node.func.expr.parameters
-                assert len(node.args) == len(parameters)
-                for idx, param_name in enumerate(parameters):
-                    assert node.args[idx].dtype == parameters[param_name].annotation
+                # check callable signature
+                assert len(node.args) == len(node.func.expr.params)
+                for idx, param in enumerate(node.func.expr.params):
+                    assert node.args[idx].dtype == param[1]
                 # call
                 if not hasattr(node.func.expr, "return_type") or node.func.expr.return_type == None:
                     node.dtype = None
