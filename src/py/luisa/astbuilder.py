@@ -326,6 +326,7 @@ class ASTVisitor:
             ast.And: lcapi.BinaryOp.AND,
             ast.Or:  lcapi.BinaryOp.OR
         }.get(type(node.op))
+        node.dtype = bool
         node.expr = lcapi.builder().binary(to_lctype(bool), op, node.values[0].expr, node.values[1].expr)
 
     @staticmethod

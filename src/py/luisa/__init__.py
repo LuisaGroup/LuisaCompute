@@ -125,12 +125,12 @@ class kernel:
             else:
                 assert False
 
-        globalvars.printer.reset()
+        # globalvars.printer.reset()
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
         if sync:
             stream.synchronize()
-        globalvars.printer.final_print()
+        # globalvars.printer.final_print()
 
 
 def callable(func):
