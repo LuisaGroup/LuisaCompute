@@ -102,7 +102,7 @@ class kernel:
 
 
     # dispatch shader to stream
-    def __call__(self, *args, dispatch_size, sync = True, stream = None):
+    def __call__(self, *args, dispatch_size, stream = None):
         if self.is_device_callable:
             raise Exception("callable can't be called on host")
         if stream is None:
@@ -125,12 +125,11 @@ class kernel:
             else:
                 assert False
 
-        # globalvars.printer.reset()
+        globalvars.printer.reset()
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
-        if sync:
-            stream.synchronize()
-        # globalvars.printer.final_print()
+        globalvars.printer.final_print() # Note: This will FORCE synchronize
+        # Note: need to test overhead of printer operations & synchronization
 
 
 def callable(func):

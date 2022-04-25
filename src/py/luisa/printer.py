@@ -7,7 +7,7 @@ from .types import dtype_of, to_lctype, from_lctype
 from struct import pack, unpack
 
 class Printer:
-	def __init__(self, capacity = 2**20):
+	def __init__(self, capacity = 2**16):
 		self.capacity = capacity
 		self.buffer = Buffer(size = capacity, dtype = int)
 		# buffer layout: [tag, content..., tag, content..., ..., cursor]
