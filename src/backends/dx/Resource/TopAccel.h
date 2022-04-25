@@ -13,6 +13,8 @@ class ResourceStateTracker;
 class Mesh;
 class BottomAccel;
 
+using luisa::compute::AccelBuildCommand;
+
 class TopAccel : public vstd::IOperatorNewBase {
 
     friend class BottomAccel;

@@ -11,8 +11,8 @@
 
 namespace luisa::compute {
 
-Stream Device::create_stream() noexcept {
-    return _create<Stream>();
+Stream Device::create_stream(bool for_present) noexcept {
+    return _create<Stream>(for_present);
 }
 
 void Stream::_dispatch(CommandList list) noexcept {
@@ -78,8 +78,8 @@ Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
     return *this;
 }
 
-Stream::Stream(Device::Interface *device) noexcept
-    : Resource{device, Tag::STREAM, device->create_stream()},
+Stream::Stream(Device::Interface *device, bool for_present) noexcept
+    : Resource{device, Tag::STREAM, device->create_stream(for_present)},
       _scheduler{luisa::make_unique<CommandScheduler>(device)},
       reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
 

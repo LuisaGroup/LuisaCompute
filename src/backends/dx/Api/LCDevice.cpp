@@ -178,8 +178,7 @@ uint64_t LCDevice::create_mesh(
     uint64_t t_buffer,
     size_t t_offset,
     size_t t_count,
-    AccelUsageHint hint,
-    bool allow_compact, bool allow_update) noexcept {
+    AccelUsageHint hint) noexcept {
     return reinterpret_cast<uint64>(
         (
             new BottomAccel(
@@ -192,18 +191,19 @@ uint64_t LCDevice::create_mesh(
                 t_offset * 3 * sizeof(uint),
                 t_count * 3,
                 hint,
-                allow_compact,
-                allow_update)));
+                hint != AccelUsageHint::FAST_BUILD,
+                hint != AccelUsageHint::FAST_TRACE)));
 }
 void LCDevice::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<BottomAccel *>(handle);
 }
-uint64_t LCDevice::create_accel(AccelUsageHint hint, bool allow_compact, bool allow_update) noexcept {
+uint64_t LCDevice::create_accel(AccelUsageHint hint
+                                ) noexcept {
     return reinterpret_cast<uint64>(new TopAccel(
         &nativeDevice,
         hint,
-        allow_compact,
-        allow_update));
+        hint != AccelUsageHint::FAST_BUILD,
+        hint != AccelUsageHint::FAST_TRACE));
 }
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);

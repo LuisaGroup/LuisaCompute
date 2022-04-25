@@ -149,10 +149,11 @@ public:
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     /**
      * @brief Create a stream object
-     * 
+     * @param for_present Whether the stream is used for display presentation
+     *
      * @return handle of stream
      */
-    [[nodiscard]] uint64_t create_stream() noexcept override;
+    [[nodiscard]] uint64_t create_stream(bool for_present) noexcept override;
     /**
      * @brief Destrory a stream object
      * 
