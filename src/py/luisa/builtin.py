@@ -98,6 +98,9 @@ def builtin_type_cast(dtype, args):
     if dtype in {int, float, bool}:
         assert len(args)==1 and args[0].dtype in {int, float, bool}
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
+    lctype = to_lctype(dtype)
+    if lctype.is_basic():
+        return builtin_func(f"make_{dtype.__name__}", args)
     # TODO: vectors / matrices
     # TODO: array
     # TODO: struct
@@ -222,6 +225,6 @@ def builtin_func(name, args):
 
 
 
-    raise Exception('unrecognized function call')
+    raise Exception(f'unrecognized function call {name}')
 
 
