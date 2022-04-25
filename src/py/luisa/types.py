@@ -53,6 +53,13 @@ class CallableType:
 class BuiltinFuncType:
     pass
 
+
+class ref:
+    def __init__(self, dtype):
+        self.dtype = dtype
+
+
+
 def dtype_of(val):
     if type(val) is str:
         return str

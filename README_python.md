@@ -104,6 +104,20 @@ a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
 a1.name1 = value1 # python/kernel 都支持
 ```
 
+### 引用
+
+Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
+
+```python
+@luisa.callable
+def flipsign(x: luisa.ref(int)):
+    x = -x
+```
+
+参数类型可以为标量、向量、矩阵、数组、结构体的引用。注意Buffer等资源类型在传参过程中并不会复制数据，将资源类型作为参数时请勿标记为引用。
+
+kernel不支持引用参数。
+
 ### Buffer类型
 
 在设备上的数组，不能直接在python中访问其元素。暂时只支持标量Buffer

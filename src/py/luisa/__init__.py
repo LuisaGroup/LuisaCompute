@@ -6,7 +6,7 @@ import struct
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import dtype_of, to_lctype
+from .types import dtype_of, to_lctype, ref
 from .buffer import Buffer, BufferType
 from .arraytype import ArrayType
 from .structtype import StructType
@@ -28,27 +28,36 @@ def init(backend_name = None):
     globalvars.printer = Printer()
 
 
-def create_param_exprs(params):
+def create_param_exprs(params, allow_ref = False):
     # supports positional arguments only
     l = [] # (name, dtype, expr)
     for name in params:
         anno = params[name].annotation
         if anno == None:
             raise Exception("arguments must be annotated")
-        lctype = to_lctype(anno) # also checking that it's valid dtype
-        if lctype.is_basic() or lctype.is_array() or lctype.is_structure():
-            # uniform argument
-            l.append((name, anno, lcapi.builder().argument(lctype)))
-        elif lctype.is_buffer():
-            l.append((name, anno, lcapi.builder().buffer(lctype)))
-        elif lctype.is_texture():
-            l.append((name, anno, lcapi.builder().texture(lctype)))
-        elif lctype.is_bindless_array():
-            l.append((name, anno, lcapi.builder().bindless_array()))
-        elif lctype.is_accel():
-            l.append((name, anno, lcapi.builder().accel()))
+        if type(anno) is ref:
+            if not allow_ref:
+                raise Exception("reference is only supported as type of callable arguments")
+            lctype = to_lctype(anno.dtype) # also checking that it's valid dtype
+            if lctype.is_basic() or lctype.is_array() or lctype.is_structure():
+                l.append((name, anno.dtype, lcapi.builder().reference(lctype)))
+            else:
+                raise Exception(f"type {anno.dtype} can not be referenced")
         else:
-            raise Exception("unsupported argument annotation")
+            lctype = to_lctype(anno) # also checking that it's valid dtype
+            if lctype.is_basic() or lctype.is_array() or lctype.is_structure():
+                # uniform argument
+                l.append((name, anno, lcapi.builder().argument(lctype)))
+            elif lctype.is_buffer():
+                l.append((name, anno, lcapi.builder().buffer(lctype)))
+            elif lctype.is_texture():
+                l.append((name, anno, lcapi.builder().texture(lctype)))
+            elif lctype.is_bindless_array():
+                l.append((name, anno, lcapi.builder().bindless_array()))
+            elif lctype.is_accel():
+                l.append((name, anno, lcapi.builder().accel()))
+            else:
+                raise Exception("unsupported argument annotation")
     return l
 
 class kernel:
@@ -74,7 +83,7 @@ class kernel:
             if not self.is_device_callable:
                 lcapi.builder().set_block_size(256,1,1)
             # get parameters
-            self.params = create_param_exprs(self.parameters)
+            self.params = create_param_exprs(self.parameters, allow_ref = is_device_callable)
             for name, dtype, expr in self.params:
                 self.local_variable[name] = dtype, expr
             # build function body AST
