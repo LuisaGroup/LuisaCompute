@@ -280,7 +280,8 @@ def builtin_func(name, args):
         for N in 2, 3, 4:
             if name == f'make_{T}{N}':
                 lc_type = lcapi.Type.from_(T)
-                # TODO: check args (element type & total length)
+                # TODO: check args (element type & total length, or type cast)
+                # e.g. make_float4(float, float3), make_float4(int4)
                 op = getattr(lcapi.CallOp, name.upper())
                 dtype = getattr(lcapi, f'{T}{N}')
                 return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
