@@ -139,13 +139,7 @@ template<typename U, typename V, size_t N>
 struct is_vector_same_dimension_impl<Vector<U, N>, Vector<V, N>> : std::true_type {};
 
 template<typename... T>
-struct is_vector_all_same_dimension_impl : std::false_type {};
-
-template<>
-struct is_vector_all_same_dimension_impl<> : std::true_type {};
-
-template<typename T>
-struct is_vector_all_same_dimension_impl<T> : std::true_type {};
+struct is_vector_all_same_dimension_impl : std::true_type {};
 
 template<typename First, typename... Other>
 struct is_vector_all_same_dimension_impl<First, Other...> : std::conjunction<is_vector_same_dimension_impl<First, Other>...> {};
