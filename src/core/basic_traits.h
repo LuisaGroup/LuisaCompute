@@ -23,10 +23,13 @@ struct always_true : std::true_type {};
 template<typename... T>
 constexpr auto always_true_v = always_true<T...>::value;
 
-template<typename T, std::enable_if_t<std::disjunction_v<std::is_enum<T>>, int> = 0>
+// clang-format off
+template<typename T>
+    requires std::is_enum_v<T>
 [[nodiscard]] constexpr auto to_underlying(T e) noexcept {
     return static_cast<std::underlying_type_t<T>>(e);
 }
+// clang-format on
 
 using uint = uint32_t;
 
