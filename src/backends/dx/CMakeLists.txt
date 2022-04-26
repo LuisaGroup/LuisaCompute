@@ -122,7 +122,7 @@ if (WIN32)
         add_custom_target(lc-dx-copy-support ALL
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${DX_SUPPORT_DIR}"
-                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+                "$<TARGET_FILE_DIR:luisa-compute-core>/")
         add_dependencies(luisa-compute-backend-dx lc-dx-copy-support)
     endif ()
 

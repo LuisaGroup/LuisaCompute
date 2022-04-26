@@ -19,6 +19,11 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
+//        for (auto cmd : commands) {
+//            CommandList cmd_list;
+//            cmd_list.append(cmd);
+//            device()->dispatch(handle(), cmd_list);
+//        }
         // Clock clock;
         // for (auto command : commands) {
         //     _scheduler->add(command);

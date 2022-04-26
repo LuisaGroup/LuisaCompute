@@ -5,12 +5,12 @@
 using namespace luisa::compute;
 namespace toolhub::directx {
 using LCDeviceInterface = luisa::compute::Device::Interface;
-class LCDevice : public LCDeviceInterface, public vstd::IOperatorNewBase {
+class LCDevice : public LCDeviceInterface {
 public:
     Device nativeDevice;
     static constexpr size_t maxAllocatorCount = 2;
     //std::numeric_limits<size_t>::max();
-    LCDevice(const Context &ctx);
+    LCDevice(const Context &ctx, uint index) noexcept;
     void *native_handle() const noexcept override;
 
     // buffer

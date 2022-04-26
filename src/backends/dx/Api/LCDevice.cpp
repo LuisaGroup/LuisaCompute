@@ -19,9 +19,10 @@
 #include <Api/LCSwapChain.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
-LCDevice::LCDevice(const Context &ctx)
-    : LCDeviceInterface(ctx) {
-}
+
+LCDevice::LCDevice(const Context &ctx, uint index) noexcept
+    : LCDeviceInterface{ctx}, nativeDevice{index} {}
+
 void *LCDevice::native_handle() const noexcept {
     return nativeDevice.device.Get();
 }
@@ -238,10 +239,12 @@ void LCDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapch
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
             reinterpret_cast<RenderTexture *>(image_handle));
 }
-VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view) {
-    return new LCDevice(c);
+VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view options) {
+    auto opt = nlohmann::json::parse(options);
+    auto index = opt.value("index", 0);
+    return new_with_allocator<LCDevice>(c, index);
 }
 VSTL_EXPORT_C void destroy(LCDeviceInterface *device) {
-    delete static_cast<LCDevice *>(device);
+   delete_with_allocator(device);
 }
 }// namespace toolhub::directx
