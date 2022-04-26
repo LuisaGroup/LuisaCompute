@@ -18,6 +18,7 @@ void export_op(py::module &m);
 void export_vector2(py::module &m);
 void export_vector3(py::module &m);
 void export_vector4(py::module &m);
+void export_matrix(py::module &m);
 
 int add(int i, int j) {
     return i + j;
@@ -32,18 +33,20 @@ namespace pybind11 { namespace detail {
     struct type_caster<eastl::variant<T...>> : variant_caster<eastl::variant<T...>> {};
 }}
 
+
 // Note: declare pointer & base class;
 // use reference policy when python shouldn't destroy returned object
 
 PYBIND11_MODULE(lcapi, m) {
-    m.doc() = "pybind11 example plugin"; // optional module docstring
-    m.def("add", &add, "A function that adds two numbers");
+    m.doc() = "LuisaCompute API"; // optional module docstring
+
     // log
     m.def("log_level_verbose", luisa::log_level_verbose);
     m.def("log_level_info", luisa::log_level_info);
     m.def("log_level_warning", luisa::log_level_warning);
     m.def("log_level_error", luisa::log_level_error);
 
+    // Context, device, stream
     py::class_<std::filesystem::path>(m, "FsPath")
         .def(py::init<std::string>());
     py::class_<Context>(m, "Context")
@@ -65,6 +68,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<Stream>(m, "Stream")
         .def("synchronize", &Stream::synchronize)
         .def("add", [](Stream& self, Command* cmd){self<<cmd;});
+
 
     // AST (FunctionBuilder)
     py::class_<Function>(m, "Function");
@@ -121,8 +125,11 @@ PYBIND11_MODULE(lcapi, m) {
         .def("push_scope", &FunctionBuilder::push_scope)
         .def("pop_scope", &FunctionBuilder::pop_scope)
         .def("function", &FunctionBuilder::function); // returning object
+    // current function builder
     m.def("builder", &FunctionBuilder::current, pyref);
 
+
+    // expression types
     py::class_<Expression>(m, "Expression");
     py::class_<LiteralExpr, Expression>(m, "LiteralExpr");
     py::class_<RefExpr, Expression>(m, "RefExpr");
@@ -132,7 +139,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<MemberExpr, Expression>(m, "MemberExpr");
     py::class_<AccessExpr, Expression>(m, "AccessExpr");
     py::class_<CastExpr, Expression>(m, "CastExpr");
-
+    // statement types
     py::class_<ScopeStmt>(m, "ScopeStmt"); // not yet exporting base class (Statement)
     py::class_<IfStmt>(m, "IfStmt")
         .def("true_branch", py::overload_cast<>(&IfStmt::true_branch), pyref) // using overload_cast because there's also a const method variant
@@ -142,6 +149,8 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<ForStmt>(m, "ForStmt")
         .def("body", py::overload_cast<>(&ForStmt::body), pyref);
 
+
+    // OPs
     export_op(m); // UnaryOp, BinaryOp, CallOp. def at export_op.hpp
 
     py::class_<Type>(m, "Type")
@@ -161,6 +170,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("element", &Type::element, pyref)
         .def("description", &Type::description)
         .def("dimension", &Type::dimension);
+
     // commands
     py::class_<Command>(m, "Command");
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand")
@@ -182,50 +192,50 @@ PYBIND11_MODULE(lcapi, m) {
             return BufferDownloadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
         }, pyref);
 
+    // vector and matrix types
     export_vector2(m);
     export_vector3(m);
     export_vector4(m);
     // TODO export vector operators
+    export_matrix(m);
 
-    py::class_<float2x2>(m, "float2x2").def("identity", [](){return float2x2();});
-    py::class_<float3x3>(m, "float3x3").def("identity", [](){return float3x3();});
-    py::class_<float4x4>(m, "float4x4").def("identity", [](){return float4x4();});
-
-    m.def("make_float2x2", [](float a){return make_float2x2(a);});
-    m.def("make_float2x2", [](float a, float b, float c, float d){return make_float2x2(a,b,c,d);});
-    m.def("make_float2x2", [](float2 a, float2 b){return make_float2x2(a,b);});
-    m.def("make_float2x2", [](float2x2 a){return make_float2x2(a);});
-    m.def("make_float2x2", [](float3x3 a){return make_float2x2(a);});
-    m.def("make_float2x2", [](float4x4 a){return make_float2x2(a);});
-
-    m.def("make_float3x3", [](float a){return make_float3x3(a);});
-    m.def("make_float3x3", [](
-        float m00, float m01, float m02,
-        float m10, float m11, float m12,
-        float m20, float m21, float m22)
-        {return make_float3x3(m00,m01,m02, m10,m11,m12, m20,m21,m22);});
-    m.def("make_float3x3", [](float3 a, float3 b, float3 c){return make_float3x3(a,b,c);});
-    m.def("make_float3x3", [](float2x2 a){return make_float3x3(a);});
-    m.def("make_float3x3", [](float3x3 a){return make_float3x3(a);});
-    m.def("make_float3x3", [](float4x4 a){return make_float3x3(a);});
-
-    m.def("make_float4x4", [](float a){return make_float4x4(a);});
-    m.def("make_float4x4", [](
-        float m00, float m01, float m02, float m03,
-        float m10, float m11, float m12, float m13,
-        float m20, float m21, float m22, float m23,
-        float m30, float m31, float m32, float m33)
-        {return make_float4x4(m00,m01,m02,m03, m10,m11,m12,m13, m20,m21,m22,m23, m30,m31,m32,m33);});
-    m.def("make_float4x4", [](float4 a, float4 b, float4 c, float4 d){return make_float4x4(a,b,c,d);});
-    m.def("make_float4x4", [](float2x2 a){return make_float4x4(a);});
-    m.def("make_float4x4", [](float3x3 a){return make_float4x4(a);});
-    m.def("make_float4x4", [](float4x4 a){return make_float4x4(a);});
-    // TODO export matrix operators
-
-
+    // util function for uniform encoding
     m.def("to_bytes", [](LiteralExpr::Value value){
         return luisa::visit([](auto x) noexcept { return py::bytes(std::string(reinterpret_cast<char*>(&x), sizeof(x))); }, value);
     });
 
+
+    // pixel
+    py::enum_<PixelFormat>(m, "PixelFormat")
+        .value("R8SInt", PixelFormat::R8SInt)
+        .value("R8UInt", PixelFormat::R8UInt)
+        .value("R8UNorm", PixelFormat::R8UNorm)
+        .value("RG8SInt", PixelFormat::RG8SInt)
+        .value("RG8UInt", PixelFormat::RG8UInt)
+        .value("RG8UNorm", PixelFormat::RG8UNorm)
+        .value("RGBA8SInt", PixelFormat::RGBA8SInt)
+        .value("RGBA8UInt", PixelFormat::RGBA8UInt)
+        .value("RGBA8UNorm", PixelFormat::RGBA8UNorm)
+        .value("R16SInt", PixelFormat::R16SInt)
+        .value("R16UInt", PixelFormat::R16UInt)
+        .value("R16UNorm", PixelFormat::R16UNorm)
+        .value("RG16SInt", PixelFormat::RG16SInt)
+        .value("RG16UInt", PixelFormat::RG16UInt)
+        .value("RG16UNorm", PixelFormat::RG16UNorm)
+        .value("RGBA16SInt", PixelFormat::RGBA16SInt)
+        .value("RGBA16UInt", PixelFormat::RGBA16UInt)
+        .value("RGBA16UNorm", PixelFormat::RGBA16UNorm)
+        .value("R32SInt", PixelFormat::R32SInt)
+        .value("R32UInt", PixelFormat::R32UInt)
+        .value("RG32SInt", PixelFormat::RG32SInt)
+        .value("RG32UInt", PixelFormat::RG32UInt)
+        .value("RGBA32SInt", PixelFormat::RGBA32SInt)
+        .value("RGBA32UInt", PixelFormat::RGBA32UInt)
+        .value("R16F", PixelFormat::R16F)
+        .value("RG16F", PixelFormat::RG16F)
+        .value("RGBA16F", PixelFormat::RGBA16F)
+        .value("R32F", PixelFormat::R32F)
+        .value("RG32F", PixelFormat::RG32F)
+        .value("RGBA32F", PixelFormat::RGBA32F);
 
 }
