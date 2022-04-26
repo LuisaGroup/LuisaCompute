@@ -107,10 +107,9 @@ void Printer::log(Args &&...args) noexcept {
             _buffer.write(offset, as<uint>(std::forward<Arg>(arg)));
             return Descriptor::Tag::FLOAT;
         } else {
-            luisa::string_view s{std::forward<Arg>(arg)};
             auto [iter, not_present] = _string_id.try_emplace(
-                s, static_cast<uint>(_strings.size()));
-            if (not_present) { _strings.emplace_back(s); }
+                luisa::string{arg}, static_cast<uint>(_strings.size()));
+            if (not_present) { _strings.emplace_back(iter->first); }
             _buffer.write(offset, iter->second);
             return Descriptor::Tag::STRING;
         }
