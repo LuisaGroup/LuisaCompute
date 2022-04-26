@@ -1,5 +1,5 @@
 import lcapi
-from .types import to_lctype, basic_type_dict, dtype_of
+from .types import to_lctype, basic_type_dict, dtype_of, is_vector_type
 from functools import reduce
 from . import globalvars
 
@@ -234,11 +234,13 @@ def make_vector_call(dtype, op, args):
     assert dtype in {int, float, bool}
     dim = 1
     for arg in args:
-        assert arg.dtype == dtype or is_vector_type(arg.dtype) and to_lctype(arg.dtype).element() == to_lctype(dtype)
+        if not (arg.dtype == dtype or is_vector_type(arg.dtype) and to_lctype(arg.dtype).element() == to_lctype(dtype)):
+            raise TypeError("arguments must be float or float vector")
         if is_vector_type(arg.dtype):
             if dim != 1:
-                assert dim == to_lctype(arg.dtype).dimension()
-            else:
+                if (dim != to_lctype(arg.dtype).dimension()):
+                    raise TypeError("arguments can't contain vectors of different dimension")
+            else: # will upcast scalar to vector
                 dim = to_lctype(arg.dtype).dimension()
     convtype = getattr(lcapi, f'{dtype.__name__}{dim}') if dim>1 else dtype
     exprlist = []

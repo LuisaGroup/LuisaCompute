@@ -52,6 +52,7 @@ def f(a: int, arr: Arr, b: luisa.BufferType(int)):
     if dispatch_id().x < 5:
         vtmp = make_float4(123., 123., 123., 123.)
         print("blah", aaa, True, 3.14, vtmp)
+    copysign(-1.,1.)
 
 
 @luisa.callable
