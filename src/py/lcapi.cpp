@@ -62,9 +62,11 @@ PYBIND11_MODULE(lcapi, m) {
         .def("impl", &Device::impl, pyref);
     py::class_<Device::Interface, eastl::shared_ptr<Device::Interface>>(m, "DeviceInterface")
         .def("create_shader", [](Device::Interface& self, Function kernel){return self.create_shader(kernel, {});}) // TODO: support metaoptions
-        .def("create_buffer", &Device::Interface::create_buffer)
         .def("destroy_shader", &Device::Interface::destroy_shader)
-        .def("destroy_buffer", &Device::Interface::destroy_buffer);
+        .def("create_buffer", &Device::Interface::create_buffer)
+        .def("destroy_buffer", &Device::Interface::destroy_buffer)
+        .def("create_texture", &Device::Interface::create_texture)
+        .def("destroy_texture", &Device::Interface::destroy_texture);
     py::class_<Stream>(m, "Stream")
         .def("synchronize", &Stream::synchronize)
         .def("add", [](Stream& self, Command* cmd){self<<cmd;});
@@ -86,6 +88,7 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("shared")
         // .def("constant")
         .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
+        .def("texture_binding", &FunctionBuilder::texture_binding, pyref)
 
         .def("argument", &FunctionBuilder::argument, pyref)
         .def("reference", &FunctionBuilder::reference, pyref)
@@ -182,7 +185,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("encode_uniform", [](ShaderDispatchCommand& self, char* buf, size_t size, size_t alignment){self.encode_uniform(buf,size,alignment);})
         .def("encode_bindless_array", &ShaderDispatchCommand::encode_bindless_array)
         .def("encode_accel", &ShaderDispatchCommand::encode_accel);
-        
+    // buffer operation commands
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
         .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
             return BufferUploadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
@@ -191,6 +194,33 @@ PYBIND11_MODULE(lcapi, m) {
         .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
             return BufferDownloadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
         }, pyref);
+    py::class_<BufferCopyCommand, Command>(m, "BufferCopyCommand")
+        .def_static("create", [](uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size){
+            return BufferCopyCommand::create(src, dst, src_offset, dst_offset, size);
+        }, pyref);
+    // Pybind can't deduce argument list of create function, so using lambda to inform it
+    // texture operation commands
+    py::class_<TextureUploadCommand, Command>(m, "TextureUploadCommand")
+        .def_static("create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer buf){
+            return TextureUploadCommand::create(handle, storage, level, size, buf.request().ptr);
+        }, pyref);
+    py::class_<TextureDownloadCommand, Command>(m, "TextureDownloadCommand")
+        .def_static("create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer buf){
+            return TextureDownloadCommand::create(handle, storage, level, size, buf.request().ptr);
+        }, pyref);
+    py::class_<TextureCopyCommand, Command>(m, "TextureCopyCommand")
+        .def_static("create", [](PixelStorage storage, uint64_t src_handle, uint64_t dst_handle, uint src_level, uint dst_level, uint3 size){
+            return TextureCopyCommand::create(storage, src_handle, dst_handle, src_level, dst_level, size);
+        }, pyref);
+    py::class_<BufferToTextureCopyCommand, Command>(m, "BufferToTextureCopyCommand")
+        .def("create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size){
+            return BufferToTextureCopyCommand::create(buffer, buffer_offset, texture, storage, level, size);
+        }, pyref);
+    py::class_<TextureToBufferCopyCommand, Command>(m, "TextureToBufferCopyCommand")
+        .def("create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size){
+            return TextureToBufferCopyCommand::create(buffer, buffer_offset, texture, storage, level, size);
+        }, pyref);
+
 
     // vector and matrix types
     export_vector2(m);
@@ -237,5 +267,27 @@ PYBIND11_MODULE(lcapi, m) {
         .value("R32F", PixelFormat::R32F)
         .value("RG32F", PixelFormat::RG32F)
         .value("RGBA32F", PixelFormat::RGBA32F);
+
+    py::enum_<PixelStorage>(m, "PixelStorage")
+        .value("BYTE1", PixelStorage::BYTE1)
+        .value("BYTE2", PixelStorage::BYTE2)
+        .value("BYTE4", PixelStorage::BYTE4)
+        .value("SHORT1", PixelStorage::SHORT1)
+        .value("SHORT2", PixelStorage::SHORT2)
+        .value("SHORT4", PixelStorage::SHORT4)
+        .value("INT1", PixelStorage::INT1)
+        .value("INT2", PixelStorage::INT2)
+        .value("INT4", PixelStorage::INT4)
+        .value("HALF1", PixelStorage::HALF1)
+        .value("HALF2", PixelStorage::HALF2)
+        .value("HALF4", PixelStorage::HALF4)
+        .value("FLOAT1", PixelStorage::FLOAT1)
+        .value("FLOAT2", PixelStorage::FLOAT2)
+        .value("FLOAT4", PixelStorage::FLOAT4);
+
+    m.def("pixel_storage_channel_count", pixel_storage_channel_count);
+    m.def("pixel_storage_to_format_int", pixel_storage_to_format<int>);
+    m.def("pixel_storage_to_format_float", pixel_storage_to_format<float>);
+    m.def("pixel_storage_size", pixel_storage_size);
 
 }

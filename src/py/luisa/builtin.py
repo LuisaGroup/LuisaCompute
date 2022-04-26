@@ -253,6 +253,14 @@ def make_vector_call(dtype, op, args):
     return convtype, lcapi.builder().call(to_lctype(convtype), op, exprlist)
 
 
+def check_exact_signature(signature, args, name):
+    if len(signature) != len(args):
+        raise TypeError(f"{name} takes exactly {len(signature)} arguments, {len(args)} given.")
+    for idx in range(len(args)):
+        if signature[idx] != args[idx].dtype:
+            raise TypeError(f"{name} expects ({','.join([x.__name__ for x in signature])}). Calling with ({','.join([x.dtype.__name__ for x in args])})")
+
+
 # return dtype, expr
 def builtin_func(name, args):
     # e.g. dispatch_id()
@@ -272,9 +280,7 @@ def builtin_func(name, args):
         for N in 2, 3, 4:
             if name == f'make_{T}{N}':
                 lc_type = lcapi.Type.from_(T)
-                assert check_arg_length(N)(args), 'Check arg length failed'
-                assert check_inner_types(lc_type, args), 'check arg type failed'
-                # TODO: check args
+                # TODO: check args (element type & total length)
                 op = getattr(lcapi.CallOp, name.upper())
                 dtype = getattr(lcapi, f'{T}{N}')
                 return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -350,12 +356,29 @@ def builtin_func(name, args):
         return None, None
 
     if name == "buffer_read":
-        builtin_op = lcapi.CallOp.BUFFER_READ
+        op = lcapi.CallOp.BUFFER_READ
         dtype = args[0].dtype.dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), builtin_op, [x.expr for x in args])
+        check_exact_signature([int], args[1:], "Buffer.read")
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
     if name == "buffer_write":
-        builtin_op = lcapi.CallOp.BUFFER_WRITE
-        lcapi.builder().call(builtin_op, [x.expr for x in args])
+        op = lcapi.CallOp.BUFFER_WRITE
+        dtype = args[0].dtype.dtype
+        check_exact_signature([int, dtype], args[1:], "Buffer.write")
+        lcapi.builder().call(op, [x.expr for x in args])
+        return None, None
+
+    if name == "texture2d_read":
+        op = lcapi.CallOp.TEXTURE_READ
+        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
+        check_exact_signature([lcapi.int2], args[1:], "Texture2D.read")
+        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+    if name == "texture2d_write":
+        op = lcapi.CallOp.TEXTURE_WRITE
+        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
+        check_exact_signature([lcapi.int2, dtype], args[1:], "Texture2D.write")
+        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]])
+        lcapi.builder().call(op, [x.expr for x in args])
         return None, None
 
     raise Exception(f'unrecognized function call {name}')
