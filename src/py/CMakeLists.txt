@@ -3,7 +3,8 @@ SET(LUISA_PYTHON_SOURCES
         export_op.cpp
         export_vector2.cpp
         export_vector3.cpp
-        export_vector4.cpp)
+        export_vector4.cpp
+        export_matrix.cpp)
 pybind11_add_module(lcapi ${LUISA_PYTHON_SOURCES})
 # target_compile_options(lcapi PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wa,-mbig-obj>)
 target_link_libraries(lcapi PRIVATE luisa::compute)
