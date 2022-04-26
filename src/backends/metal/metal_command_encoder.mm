@@ -37,6 +37,7 @@ MetalCommandEncoder::MetalCommandEncoder(
 [[nodiscard]] inline static auto to_accel(uint64_t handle) noexcept {
     return reinterpret_cast<MetalAccel *>(handle);
 }
+
 [[nodiscard]] inline static auto to_mesh(uint64_t handle) noexcept {
     return reinterpret_cast<MetalMesh *>(handle);
 }
