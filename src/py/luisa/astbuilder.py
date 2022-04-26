@@ -8,6 +8,7 @@ from .builtin import deduce_unary_type, builtin_func_names, builtin_func, builti
 from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType, is_vector_type
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .buffer import BufferType
+from .texture2d import Texture2DType
 from .arraytype import ArrayType
 from .structtype import StructType
 
@@ -132,8 +133,10 @@ class ASTVisitor:
                 node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
             else:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
+        # struct member
         elif type(node.value.dtype) is StructType:
             idx = structType.idx_dict[node.attr]
+        # buffer methods
         elif type(node.value.dtype) is BufferType:
             if node.attr == "read":
                 node.dtype, node.expr = BuiltinFuncType, "buffer_read"
@@ -141,6 +144,14 @@ class ASTVisitor:
                 node.dtype, node.expr = BuiltinFuncType, "buffer_write"
             else:
                 raise AttributeError(f"buffer has no attribute '{node.attr}'")
+        # texture methods
+        elif type(node.value.dtype) is Texture2DType:
+            if node.attr == "read":
+                node.dtype, node.expr = BuiltinFuncType, "texture2d_read"
+            elif node.attr == "write":
+                node.dtype, node.expr = BuiltinFuncType, "texture2d_write"
+            else:
+                raise AttributeError(f"Texture2D has no attribute '{node.attr}'")
         else:
             raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
 
@@ -166,7 +177,9 @@ class ASTVisitor:
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val)
         if lctype.is_buffer():
-            return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0)
+            return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0) # offset defaults to 0
+        if lctype.is_texture():
+            return dtype, lcapi.builder().texture_binding(lctype, val.handle, 0) # miplevel defaults to 0
         if lctype.is_array():
             # create array and assign each element
             expr = lcapi.builder().local(lctype)
@@ -185,7 +198,7 @@ class ASTVisitor:
                 assert rhs.dtype == dtype.membertype[idx]
                 lcapi.builder().assign(lhs, rhs.expr)
             return dtype, expr
-        raise Exception("unrecognized closure var type:", type(val), node.id)
+        raise Exception("unrecognized closure var type:", type(val))
 
     @staticmethod
     def build_Name(ctx, node, allow_none = False):

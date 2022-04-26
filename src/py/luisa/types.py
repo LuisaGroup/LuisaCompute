@@ -71,6 +71,8 @@ def dtype_of(val):
         return val.structType
     if type(val).__name__ == "Buffer":
         return val.bufferType
+    if type(val).__name__ == "Texture2D":
+        return val.texture2DType
     if type(val).__name__ == "kernel":
         assert val.is_device_callable
         return CallableType
@@ -82,7 +84,7 @@ def dtype_of(val):
 
 
 def to_lctype(dtype):
-    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType"}:
+    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType"}:
         return dtype.luisa_type
     if dtype in basic_type_dict:
         return basic_type_dict[dtype]
