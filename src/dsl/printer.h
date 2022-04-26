@@ -56,7 +56,7 @@ private:
     Buffer<uint> _buffer;// count & records (desc_id, arg0, arg1, ...)
     luisa::vector<uint> _host_buffer;
     luisa::unordered_map<Descriptor, uint, DescriptorHash, std::equal_to<>> _desc_id;
-    luisa::unordered_map<luisa::string, uint> _string_id;
+    luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
     luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
     luisa::vector<luisa::string_view> _strings;
     luisa::string _scratch;
@@ -107,10 +107,10 @@ void Printer::log(Args &&...args) noexcept {
             _buffer.write(offset, as<uint>(std::forward<Arg>(arg)));
             return Descriptor::Tag::FLOAT;
         } else {
-            luisa::string s{std::forward<Arg>(arg)};
+            luisa::string_view s{std::forward<Arg>(arg)};
             auto [iter, not_present] = _string_id.try_emplace(
-                std::move(s), static_cast<uint>(_strings.size()));
-            if (not_present) { _strings.emplace_back(iter->first); }
+                s, static_cast<uint>(_strings.size()));
+            if (not_present) { _strings.emplace_back(s); }
             _buffer.write(offset, iter->second);
             return Descriptor::Tag::STRING;
         }
