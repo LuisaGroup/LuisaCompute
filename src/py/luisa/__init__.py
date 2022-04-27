@@ -124,6 +124,8 @@ class kernel:
                 command.encode_uniform(arg.to_bytes(), lctype.size(), lctype.alignment())
             elif lctype.is_buffer():
                 command.encode_buffer(arg.handle, 0)
+            elif lctype.is_texture():
+                command.encode_texture(arg.handle, 0)
             else:
                 assert False
 
