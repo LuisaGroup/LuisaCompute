@@ -1,3 +1,4 @@
+from .types import from_lctype
 import lcapi
 from .types import to_lctype, basic_type_dict, dtype_of, is_vector_type
 from functools import reduce
@@ -209,7 +210,8 @@ builtin_func_names = {
     'length', 
     'normalize',
     'lerp',
-    'print'
+    'print',
+    'min','max'
 }
 
 
@@ -322,6 +324,15 @@ def builtin_func(name, args):
     if name in ('copysign',):
         assert len(args) == 2
         return make_vector_call(float, lcapi.CallOp.COPYSIGN, args)
+
+    if name in ('min', 'max'):
+        assert len(args) == 2
+        def element_type(dtype):
+            if dtype in {int,float,bool}:
+                return dtype
+            return from_lctype(to_lctype(dtype).element())
+        op = getattr(lcapi.CallOp, name.upper())
+        return make_vector_call(element_type(args[0].dtype), op, args)
 
     if name in ('length',):
         assert len(args) == 1
