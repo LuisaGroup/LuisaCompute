@@ -122,6 +122,7 @@ luisa.init()
 #     test_compare()
 
 img = luisa.Texture2D(1024, 1024, 4, float, luisa.lcapi.PixelStorage.BYTE4)
+b = luisa.Buffer(1024, int)
 
 @luisa.kernel
 def f():
@@ -131,6 +132,7 @@ def f():
     cy = float(dispatch_id().y) / dispatch_size().y
     cz = float(dispatch_id().z) / dispatch_size().z
     img.write(dispatch_id().xy, make_float4(cx,cy,cz,1.))
+    # b.write(dispatch_id(), 3)
 
 
 f(dispatch_size=(1024, 1024, 1))

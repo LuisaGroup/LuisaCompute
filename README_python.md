@@ -140,6 +140,34 @@ python方法：
 
 元素为标量的buffer可以上传/下载到对应类型的numpy.array，注意必须使用int32/float32，而不是默认的64位类型。
 
+### Texture2D类型
+
+在设备上的二维贴图。不能直接在python中访问其元素。
+
+创建贴图：`luisa.Texture2D(width, height, channel, dtype, [storage])`
+
+channel: 1/2/4
+
+dtype: int/float
+
+storage 可选，像素存储格式，见 luisa.PixelStorage。如未指定，默认使用dtype同样精度。
+
+作为参数的类型标记：`luisa.Texture2DType(dtype)`
+
+kernel方法：
+
+`read(idx)`
+
+`write(idx, value)`
+
+python方法：
+
+`copy_to(arr)`
+
+`copy_from(arr)`
+
+上传/下载到storage对应类型的numpy.array。
+
 ## 内建函数与方法
 
 kernel/callable中可以调用内置的函数。
