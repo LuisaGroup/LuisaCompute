@@ -126,10 +126,10 @@ class kernel:
             else:
                 assert False
 
-        globalvars.printer.reset()
+        # globalvars.printer.reset()
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
-        globalvars.printer.final_print() # Note: This will FORCE synchronize
+        # globalvars.printer.final_print() # Note: This will FORCE synchronize
         # Note: need to test overhead of printer operations & synchronization
 
 

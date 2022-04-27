@@ -52,7 +52,7 @@ def clear_kernel(image: luisa.BufferType(float)):
     image.write(coordd * 4, 0.3)
     image.write(coordd * 4 + 1, 0.4)
     image.write(coordd * 4 + 2, 0.5)
-    image.write(coordd * 4 + 3, 1)
+    image.write(coordd * 4 + 3, 1.0)
 
 @luisa.kernel
 def main_kernel(image: luisa.BufferType(float), time: float):
@@ -78,7 +78,7 @@ def main_kernel(image: luisa.BufferType(float), time: float):
     image.write(coord * 4, accum.x)
     image.write(coord * 4 + 1, accum.y)
     image.write(coord * 4 + 2, accum.z)
-    image.write(coord * 4 + 3, 1)
+    image.write(coord * 4 + 3, 1.0)
 
 @luisa.kernel
 def naive_kernel(image: luisa.BufferType(float), time: float):
@@ -88,7 +88,7 @@ def naive_kernel(image: luisa.BufferType(float), time: float):
     image.write(coord * 4, sin(time + scale * coord) * 0.5 + 0.5)
     image.write(coord * 4 + 1, sin(1.23432453245 * (time + scale * coord)) * 0.5 + 0.5)
     image.write(coord * 4 + 2, sin(2.32143241431 * (time + scale * coord)) * 0.5 + 0.5)
-    image.write(coord * 4 + 3, 1)
+    image.write(coord * 4 + 3, 1.0)
 
 image = luisa.Buffer(1024 * 1024 * 4, float)
 
@@ -105,8 +105,8 @@ t0 = time.time()
 def update():
     # frame_rate.record()
     t = time.time() - t0
-    for i in range(1):
-        main_kernel(image, t, dispatch_size=(1024, 1024, 1), sync=False)
+    for i in range(16):
+        main_kernel(image, t, dispatch_size=(1024, 1024, 1))
     image.copy_to(arr)
     # w.update_frame_rate(frame_rate.report())
     w.update_frame_rate(dpg.get_frame_rate())

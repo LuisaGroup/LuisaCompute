@@ -116,6 +116,8 @@ def builtin_bin_op(op, lhs, rhs):
         lcapi.BinaryOp.MOD,
         lcapi.BinaryOp.SHL,
         lcapi.BinaryOp.SHR,
+        lcapi.BinaryOp.OR,
+        lcapi.BinaryOp.AND,
         lcapi.BinaryOp.BIT_OR,
         lcapi.BinaryOp.BIT_XOR,
         lcapi.BinaryOp.BIT_AND,
