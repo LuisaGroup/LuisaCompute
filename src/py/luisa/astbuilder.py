@@ -3,6 +3,7 @@ import astpretty
 import inspect
 import sys
 import traceback
+from .types import from_lctype
 import lcapi
 from .builtin import deduce_unary_type, builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast
 from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType, is_vector_type
@@ -121,7 +122,7 @@ class ASTVisitor:
             raise Exception('unrecognized call func type')
 
     @staticmethod
-    def build_Attribute(ctx, node, structType=None):
+    def build_Attribute(ctx, node):
         build(ctx, node.value)
         # vector swizzle
         if is_vector_type(node.value.dtype):
@@ -135,7 +136,9 @@ class ASTVisitor:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
         # struct member
         elif type(node.value.dtype) is StructType:
-            idx = structType.idx_dict[node.attr]
+            idx = node.value.dtype.idx_dict[node.attr]
+            node.dtype = node.value.dtype.membertype[idx]
+            node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         # buffer methods
         elif type(node.value.dtype) is BufferType:
             if node.attr == "read":
@@ -160,9 +163,16 @@ class ASTVisitor:
     def build_Subscript(ctx, node):
         build(ctx, node.value)
         build(ctx, node.slice)
-        assert type(node.value.dtype) is ArrayType # TODO: atomic
-        # TODO matrix?
-        node.dtype = node.value.dtype.dtype
+        if type(node.value.dtype) is ArrayType:
+            node.dtype = node.value.dtype.dtype
+        elif is_vector_type(node.value.dtype):
+            node.dtype = from_lctype(to_lctype(node.value.dtype).element())
+        elif node.value.dtype in {lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}:
+            element_dtypename = to_lctype(node.value.dtype).element().description()
+            dim = to_lctype(node.value.dtype).dimension()
+            node.dtype = getattr(lcapi, element_dtypename + str(dim))
+        else:
+            raise TypeError(f"{node.value.dtype} can't be subscripted")
         node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
 
     # external variable captured in kernel -> type + expression
