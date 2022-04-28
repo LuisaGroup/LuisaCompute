@@ -141,7 +141,7 @@ def builtin_unary_op(op, operand):
     return dtype, lcapi.builder().unary(to_lctype(dtype), lc_op, operand.expr)
 
 
-def builtin_bin_op(op: ast.operator | ast.cmpop, lhs, rhs):
+def builtin_bin_op(op, lhs, rhs):
     lc_op = {
         ast.Add: lcapi.BinaryOp.ADD,
         ast.Sub: lcapi.BinaryOp.SUB,
@@ -151,6 +151,7 @@ def builtin_bin_op(op: ast.operator | ast.cmpop, lhs, rhs):
         ast.Mod: lcapi.BinaryOp.MOD,
         ast.LShift: lcapi.BinaryOp.SHL,
         ast.RShift: lcapi.BinaryOp.SHR,
+        ast.Pow: lcapi.CallOp.POW,
         ast.And: lcapi.BinaryOp.AND,
         ast.Or: lcapi.BinaryOp.OR,
         ast.BitOr: lcapi.BinaryOp.BIT_OR,
@@ -165,6 +166,17 @@ def builtin_bin_op(op: ast.operator | ast.cmpop, lhs, rhs):
     }.get(op)
     if lc_op is None:
         raise Exception(f'Unsupported compare operation: {op}')
+    if op is ast.Pow:
+        if type(rhs).__name__ == "Constant":
+            exponential = rhs.value
+            if type(exponential) is int:
+                if exponential == 2:
+                    return builtin_bin_op(ast.Mult, lhs, lhs)
+                elif exponential == 3:
+                    return builtin_bin_op(ast.Mult, lhs, builtin_bin_op(ast.Mult, lhs, lhs))
+                elif exponential == 4:
+                    return builtin_bin_op(ast.Mult, builtin_bin_op(ast.Mult, lhs, lhs), builtin_bin_op(ast.Mult, lhs, lhs))
+        return builtin_func("pow", [lhs, rhs])
     dtype0, dtype1 = lhs.dtype, rhs.dtype
     length0, length1 = get_length(lhs), get_length(rhs)
     lhs_expr, rhs_expr = lhs.expr, rhs.expr
@@ -272,12 +284,13 @@ def make_vector_call(dtype, op, args):
     dim = 1
     for arg in args:
         if not (arg.dtype == dtype or is_vector_type(arg.dtype) and to_lctype(arg.dtype).element() == to_lctype(dtype)):
+            print(arg.dtype, dtype)
             raise TypeError("arguments must be float or float vector")
         if is_vector_type(arg.dtype):
             if dim != 1:
                 if dim != to_lctype(arg.dtype).dimension():
                     raise TypeError("arguments can't contain vectors of different dimension")
-            else: # will upcast scalar to vector
+            else:  # will upcast scalar to vector
                 dim = to_lctype(arg.dtype).dimension()
     convtype = getattr(lcapi, f'{dtype.__name__}{dim}') if dim>1 else dtype
     exprlist = []
@@ -436,6 +449,13 @@ def builtin_func(name, args):
         args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]]) # convert int2 to uint2
         lcapi.builder().call(op, [x.expr for x in args])
         return None, None
+
+    if name == 'pow':
+        assert len(args) == 2
+        for arg in args:
+            if arg.dtype is not float:
+                arg.dtype, arg.expr = builtin_type_cast(to_float(arg.dtype), [arg])
+        return make_vector_call(float, lcapi.CallOp.POW, args)
 
     raise Exception(f'unrecognized function call {name}')
 
