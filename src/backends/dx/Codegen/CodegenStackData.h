@@ -2,7 +2,6 @@
 #include <vstl/Common.h>
 #include <Codegen/DxCodegen.h>
 #include <Codegen/StructGenerator.h>
-#include <compile/definition_analysis.h>
 namespace toolhub::directx {
 
 struct CodegenStackData : public vstd::IOperatorNewBase {
@@ -21,15 +20,13 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     uint64 tempCount = 0;
     uint64 bindlessBufferCount = 0;
     uint64 structCount = 0;
-    DefinitionAnalysis analyzer;
     
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;
     vstd::HashMap<vstd::string, vstd::string> structReplaceName;
     vstd::HashMap<uint64_t> generatedConstants;
-    DefinitionAnalysis::VariableSet sharedVariable;
-    DefinitionAnalysis::VariableSet allVariables;
+    vstd::vector<Variable> sharedVariable;
     CodegenStackData();
     void Clear();
     uint AddBindlessType(Type const *type);
