@@ -191,7 +191,7 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
     accum_color = image.read(dispatch_id().xy).xyz
     accum_color = lerp(accum_color, throughput * hit_light, 1.0 / (frame_index + 1))
     image.write(dispatch_id().xy, make_float4(accum_color, 1.0))
-    # display.write(dispatch_id().xy, make_float4(sqrt(accum_color / 0.31544 * 0.24), 1.0))
+    display.write(dispatch_id().xy, make_float4(sqrt(accum_color / 0.084 * 0.24), 1.0))
     seed_image.write(global_id, seed)
 
 luisa.lcapi.log_level_error()
