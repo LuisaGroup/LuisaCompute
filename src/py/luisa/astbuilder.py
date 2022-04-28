@@ -127,24 +127,18 @@ class ASTVisitor:
         # vector swizzle
         if is_vector_type(node.value.dtype):
             if is_swizzle_name(node.attr):
-                # create temporary variable because ISPC doesn't support member of right value
-                tmpvar = lcapi.builder().local(to_lctype(node.value.dtype))
-                lcapi.builder().assign(tmpvar, node.value.expr)
                 original_size = to_lctype(node.value.dtype).dimension()
                 swizzle_size = len(node.attr)
                 swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.dtype = get_swizzle_resulttype(node.value.dtype, swizzle_size)
-                node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), tmpvar, swizzle_size, swizzle_code)
+                node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
             else:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
         # struct member
         elif type(node.value.dtype) is StructType:
-            # create temporary variable because ISPC doesn't support member of right value
-            tmpvar = lcapi.builder().local(to_lctype(node.value.dtype))
-            lcapi.builder().assign(tmpvar, node.value.expr)
             idx = node.value.dtype.idx_dict[node.attr]
             node.dtype = node.value.dtype.membertype[idx]
-            node.expr = lcapi.builder().member(to_lctype(node.dtype), tmpvar, idx)
+            node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         # buffer methods
         elif type(node.value.dtype) is BufferType:
             if node.attr == "read":
