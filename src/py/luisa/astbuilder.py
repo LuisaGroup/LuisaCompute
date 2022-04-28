@@ -105,6 +105,7 @@ class ASTVisitor:
             # funciton name undefined: look into builtin functions
             elif node.func.dtype is BuiltinFuncType:
                 node.dtype, node.expr = builtin_func(node.func.expr, node.args)
+                ctx.uses_printer |= node.func.id == "print"
             # type: cast / construct
             elif node.func.dtype is type:
                 dtype = node.func.expr

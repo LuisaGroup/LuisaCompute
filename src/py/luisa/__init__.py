@@ -79,6 +79,7 @@ class kernel:
         self.is_device_callable = is_device_callable
 
         self.parameters = inspect.signature(func).parameters
+        self.uses_printer = False
 
         def astgen():
             # print(astpretty.pformat(self.tree.body[0]))
@@ -129,11 +130,11 @@ class kernel:
             else:
                 assert False
 
-        # globalvars.printer.reset()
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
-        # globalvars.printer.final_print() # Note: This will FORCE synchronize
-        # Note: need to test overhead of printer operations & synchronization
+        if self.uses_printer:
+            globalvars.printer.final_print() # Note: This will FORCE synchronize
+            globalvars.printer.reset()
 
 
 def callable(func):

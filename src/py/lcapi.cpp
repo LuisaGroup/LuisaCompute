@@ -69,7 +69,8 @@ PYBIND11_MODULE(lcapi, m) {
         .def("destroy_texture", &Device::Interface::destroy_texture);
     py::class_<Stream>(m, "Stream")
         .def("synchronize", &Stream::synchronize)
-        .def("add", [](Stream& self, Command* cmd){self<<cmd;});
+        .def("add", [](Stream& self, Command* cmd){self<<cmd;})
+        .def("add_callback", [](Stream& self, const std::function<void()>& callback){self<<callback;});
 
 
     // AST (FunctionBuilder)
