@@ -5,7 +5,8 @@ import sys
 import traceback
 from .types import from_lctype
 import lcapi
-from .builtin import deduce_unary_type, builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast
+from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
+    builtin_unary_op
 from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType, is_vector_type
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .buffer import BufferType
@@ -262,60 +263,19 @@ class ASTVisitor:
     def build_AugAssign(ctx, node):
         build(ctx, node.target)
         build(ctx, node.value)
-        op = {
-            ast.Add: lcapi.BinaryOp.ADD,
-            ast.Sub: lcapi.BinaryOp.SUB,
-            ast.Mult: lcapi.BinaryOp.MUL,
-            ast.Div: lcapi.BinaryOp.DIV, # TODO type: int/int->float?
-            ast.FloorDiv: lcapi.BinaryOp.DIV, # TODO type check: int only
-            ast.Mod: lcapi.BinaryOp.MOD, # TODO support fmod using builtins
-            ast.LShift: lcapi.BinaryOp.SHL,
-            ast.RShift: lcapi.BinaryOp.SHR,
-            ast.BitOr: lcapi.BinaryOp.BIT_OR,
-            ast.BitXor: lcapi.BinaryOp.BIT_XOR,
-            ast.BitAnd: lcapi.BinaryOp.BIT_AND,
-        }.get(type(node.op))
-        # ast.Pow, ast.MatMult is not supported
-        if op is None:
-            raise TypeError(f'Unsupported augassign operation: {type(node.op)}')
-        dtype, expr = builtin_bin_op(op, node.target, node.value)
+        dtype, expr = builtin_bin_op(type(node.op), node.target, node.value)
         lcapi.builder().assign(node.target.expr, expr)
 
     @staticmethod
     def build_UnaryOp(ctx, node):
         build(ctx, node.operand)
-        op = {
-            ast.UAdd: lcapi.UnaryOp.PLUS,
-            ast.USub: lcapi.UnaryOp.MINUS,
-            ast.Not: lcapi.UnaryOp.NOT,
-            ast.Invert: lcapi.UnaryOp.BIT_NOT
-        }.get(type(node.op))
-        if op is None:
-            raise TypeError(f'Unsupported unary operation: {type(node.op)}')
-        node.dtype = deduce_unary_type(node.op, node.operand.dtype)
-        node.expr = lcapi.builder().unary(to_lctype(node.dtype), op, node.operand.expr)
+        node.dtype, node.expr = builtin_unary_op(type(node.op), node.operand)
 
     @staticmethod
     def build_BinOp(ctx, node):
         build(ctx, node.left)
         build(ctx, node.right)
-        op = {
-            ast.Add: lcapi.BinaryOp.ADD,
-            ast.Sub: lcapi.BinaryOp.SUB,
-            ast.Mult: lcapi.BinaryOp.MUL,
-            ast.Div: lcapi.BinaryOp.DIV, # TODO type: int/int->float?
-            ast.FloorDiv: lcapi.BinaryOp.DIV, # TODO type check: int only
-            ast.Mod: lcapi.BinaryOp.MOD, # TODO support fmod using builtins
-            ast.LShift: lcapi.BinaryOp.SHL,
-            ast.RShift: lcapi.BinaryOp.SHR,
-            ast.BitOr: lcapi.BinaryOp.BIT_OR,
-            ast.BitXor: lcapi.BinaryOp.BIT_XOR,
-            ast.BitAnd: lcapi.BinaryOp.BIT_AND,
-        }.get(type(node.op))
-        # ast.Pow, ast.MatMult is not supported
-        if op is None:
-            raise TypeError(f'Unsupported binary operation: {type(node.op)}')
-        node.dtype, node.expr = builtin_bin_op(op, node.left, node.right)
+        node.dtype, node.expr = builtin_bin_op(type(node.op), node.left, node.right)
 
 
     @staticmethod
@@ -324,18 +284,7 @@ class ASTVisitor:
             raise Exception('chained comparison not supported yet.')
         build(ctx, node.left)
         build(ctx, node.comparators[0])
-        op = {
-            ast.Eq: lcapi.BinaryOp.EQUAL,
-            ast.NotEq: lcapi.BinaryOp.NOT_EQUAL,
-            ast.Lt: lcapi.BinaryOp.LESS,
-            ast.LtE: lcapi.BinaryOp.LESS_EQUAL,
-            ast.Gt: lcapi.BinaryOp.GREATER,
-            ast.GtE: lcapi.BinaryOp.GREATER_EQUAL
-        }.get(type(node.ops[0])) # TODO ops
-        if op is None:
-            raise Exception(f'Unsupported compare operation: {type(node.op)}')
-        # TODO support chained comparison
-        node.dtype, node.expr = builtin_bin_op(op, node.left, node.comparators[0])
+        node.dtype, node.expr = builtin_bin_op(type(node.ops[0]), node.left, node.comparators[0])
 
     @staticmethod
     def build_BoolOp(ctx, node):
@@ -344,11 +293,7 @@ class ASTVisitor:
             raise Exception('chained bool op not supported yet. use brackets instead.')
         for x in node.values:
             build(ctx, x)
-        op = {
-            ast.And: lcapi.BinaryOp.AND,
-            ast.Or:  lcapi.BinaryOp.OR
-        }.get(type(node.op))
-        node.dtype, node.expr = builtin_bin_op(op, node.values[0], node.values[1])
+        node.dtype, node.expr = builtin_bin_op(type(node.op), node.values[0], node.values[1])
 
     @staticmethod
     def build_If(ctx, node):

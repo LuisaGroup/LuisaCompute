@@ -3,29 +3,7 @@ import lcapi
 from .types import to_lctype, basic_type_dict, dtype_of, is_vector_type
 from functools import reduce
 from . import globalvars
-
-
-def deduce_unary_type(op, dtype):
-    # TODO: Type check
-    return dtype
-
-
-def deduce_binary_type(op, dtype1, dtype2):
-    # TODO: Type check
-    # TODO: upcast
-    if dtype1 == dtype2:
-        return dtype1
-    if dtype1 == int and dtype2 == float:
-        return float
-    if dtype1 == float and dtype2 == int:
-        return float
-    if is_vector_type(dtype1) and dtype2 in {int,float,bool}:
-        if to_lctype(dtype1).element() == to_lctype(dtype2):
-            return dtype1
-    if is_vector_type(dtype2) and dtype1 in {int,float,bool}:
-        if to_lctype(dtype2).element() == to_lctype(dtype1):
-            return dtype2
-    raise NotImplementedError(f"deduce_binary_type not implemented for {dtype1}, {dtype2}")
+import ast
 
 
 def get_length(arg) -> int:
@@ -75,8 +53,8 @@ def check_type_in(dtypes, argument):
     return to_lctype(argument.dtype) in lc_types
 
 
-def check_arg_length(length):
-    return lambda arguments: sum(map(get_length, arguments)) == length
+def get_arg_length(arguments) -> int:
+    return sum(map(get_length, arguments))
 
 
 def implicit_coersion(dtype0, dtype1):
@@ -97,6 +75,16 @@ def deduce_broadcast(dtype0, dtype1):
         return dtype1  # same size || Matrix * Vector -> Vector
 
 
+def to(target_dtype, dtype):
+    func = {
+        int: to_int,
+        float: to_float,
+        bool: to_bool
+        # int: to_uint
+    }[target_dtype]
+    return func(dtype)
+
+
 def to_bool(dtype):
     if dtype in [float, int, int, bool]:
         return bool
@@ -108,30 +96,79 @@ def to_bool(dtype):
         return lcapi.bool4
 
 
-def builtin_bin_op(op, lhs, rhs):
-    assert op in (
-        lcapi.BinaryOp.ADD,
-        lcapi.BinaryOp.SUB,
-        lcapi.BinaryOp.MUL,
-        lcapi.BinaryOp.DIV,
-        lcapi.BinaryOp.MOD,
-        lcapi.BinaryOp.SHL,
-        lcapi.BinaryOp.SHR,
-        lcapi.BinaryOp.OR,
-        lcapi.BinaryOp.AND,
-        lcapi.BinaryOp.BIT_OR,
-        lcapi.BinaryOp.BIT_XOR,
-        lcapi.BinaryOp.BIT_AND,
-        lcapi.BinaryOp.GREATER,
-        lcapi.BinaryOp.LESS,
-        lcapi.BinaryOp.GREATER_EQUAL,
-        lcapi.BinaryOp.LESS_EQUAL,
-        lcapi.BinaryOp.EQUAL,
-        lcapi.BinaryOp.NOT_EQUAL
-    ), 'Illegal op'
+def to_float(dtype):
+    if dtype in [float, int, int, bool]:
+        return float
+    elif dtype in [lcapi.float2, lcapi.int2, lcapi.uint2, lcapi.bool2]:
+        return lcapi.float2
+    elif dtype in [lcapi.float3, lcapi.int3, lcapi.uint3, lcapi.bool3]:
+        return lcapi.float3
+    elif dtype in [lcapi.float4, lcapi.int4, lcapi.uint4, lcapi.bool4]:
+        return lcapi.float4
+
+
+def to_int(dtype):
+    if dtype in [float, int, int, bool]:
+        return int
+    elif dtype in [lcapi.float2, lcapi.int2, lcapi.uint2, lcapi.bool2]:
+        return lcapi.int2
+    elif dtype in [lcapi.float3, lcapi.int3, lcapi.uint3, lcapi.bool3]:
+        return lcapi.int3
+    elif dtype in [lcapi.float4, lcapi.int4, lcapi.uint4, lcapi.bool4]:
+        return lcapi.int4
+
+
+def to_uint(dtype):
+    if dtype in [float, int, int, bool]:
+        return int
+    elif dtype in [lcapi.float2, lcapi.int2, lcapi.uint2, lcapi.bool2]:
+        return lcapi.uint2
+    elif dtype in [lcapi.float3, lcapi.int3, lcapi.uint3, lcapi.bool3]:
+        return lcapi.uint3
+    elif dtype in [lcapi.float4, lcapi.int4, lcapi.uint4, lcapi.bool4]:
+        return lcapi.uint4
+
+
+def builtin_unary_op(op, operand):
+    lc_op = {
+        ast.UAdd: lcapi.UnaryOp.PLUS,
+        ast.USub: lcapi.UnaryOp.MINUS,
+        ast.Not: lcapi.UnaryOp.NOT,
+        ast.Invert: lcapi.UnaryOp.BIT_NOT
+    }.get(op)
+    dtype = operand.dtype
+    length = get_length(operand)
+    return dtype, lcapi.builder().unary(to_lctype(dtype), lc_op, operand.expr)
+
+
+def builtin_bin_op(op: ast.operator | ast.cmpop, lhs, rhs):
+    lc_op = {
+        ast.Add: lcapi.BinaryOp.ADD,
+        ast.Sub: lcapi.BinaryOp.SUB,
+        ast.Mult: lcapi.BinaryOp.MUL,
+        ast.Div: lcapi.BinaryOp.DIV,
+        ast.FloorDiv: lcapi.BinaryOp.DIV,
+        ast.Mod: lcapi.BinaryOp.MOD,
+        ast.LShift: lcapi.BinaryOp.SHL,
+        ast.RShift: lcapi.BinaryOp.SHR,
+        ast.And: lcapi.BinaryOp.AND,
+        ast.Or: lcapi.BinaryOp.OR,
+        ast.BitOr: lcapi.BinaryOp.BIT_OR,
+        ast.BitXor: lcapi.BinaryOp.BIT_XOR,
+        ast.BitAnd: lcapi.BinaryOp.BIT_AND,
+        ast.Eq: lcapi.BinaryOp.EQUAL,
+        ast.NotEq: lcapi.BinaryOp.NOT_EQUAL,
+        ast.Lt: lcapi.BinaryOp.LESS,
+        ast.LtE: lcapi.BinaryOp.LESS_EQUAL,
+        ast.Gt: lcapi.BinaryOp.GREATER,
+        ast.GtE: lcapi.BinaryOp.GREATER_EQUAL
+    }.get(op)
+    if lc_op is None:
+        raise Exception(f'Unsupported compare operation: {op}')
     dtype0, dtype1 = lhs.dtype, rhs.dtype
     length0, length1 = get_length(lhs), get_length(rhs)
-    if op != lcapi.BinaryOp.MUL:
+    lhs_expr, rhs_expr = lhs.expr, rhs.expr
+    if op != ast.Mult:
         assert (dtype0 == dtype1) or \
                (length0 == 1 or length1 == 1), \
                'Broadcast operations between different sized vectors not supported'
@@ -145,8 +182,7 @@ def builtin_bin_op(op, lhs, rhs):
     scalar_operation = length0 == length1 == 1
     dtype = None
 
-    if op in (lcapi.BinaryOp.MOD, lcapi.BinaryOp.BIT_AND, lcapi.BinaryOp.BIT_OR, lcapi.BinaryOp.BIT_XOR,
-              lcapi.BinaryOp.SHL, lcapi.BinaryOp.SHR):
+    if op in (ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift):
         inner_lc_type_0 = get_inner_type(to_lctype(lhs.dtype))
         assert inner_lc_type_0 in [basic_type_dict[int], lcapi.Type.from_('uint')], \
             f'operator `{op}` only supports `int` and `uint` types.'
@@ -160,39 +196,37 @@ def builtin_bin_op(op, lhs, rhs):
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
-    elif op in (lcapi.BinaryOp.AND, lcapi.BinaryOp.OR):
+    elif op in (ast.And, ast.Or):
+        print(lhs.dtype, rhs.dtype)
         assert check_inner_types(to_lctype(bool), [lhs, rhs]), f'operator `{op}` only supports `bool` type.'
         dtype = deduce_broadcast(dtype0, dtype1)
         # add / sub / div: int, uint and float allowed
         # relational: int, uint and float allowed
-    elif op in (
-        lcapi.BinaryOp.ADD, lcapi.BinaryOp.SUB, lcapi.BinaryOp.DIV, lcapi.BinaryOp.MUL,
-        lcapi.BinaryOp.LESS, lcapi.BinaryOp.GREATER, lcapi.BinaryOp.LESS_EQUAL, lcapi.BinaryOp.GREATER_EQUAL,
-        lcapi.BinaryOp.EQUAL, lcapi.BinaryOp.NOT_EQUAL
-    ):
-        is_compare = op in (
-            lcapi.BinaryOp.LESS, lcapi.BinaryOp.GREATER, lcapi.BinaryOp.LESS_EQUAL, lcapi.BinaryOp.GREATER_EQUAL,
-            lcapi.BinaryOp.EQUAL, lcapi.BinaryOp.NOT_EQUAL
-        )
+    elif op in (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
         inner_lc_type_0 = get_inner_type(to_lctype(lhs.dtype))
         assert inner_lc_type_0 in [basic_type_dict[int], basic_type_dict[float], lcapi.Type.from_('uint')], \
             f'operator `{op}` only supports `int`, `uint` and `float` types.'
         if scalar_operation:
             # allow implicit type conversion
-            # so check arg[1]'s type, ensure it also satisfies the constraints.
+            # so check rhs's type, ensure it also satisfies the constraints.
             inner_lc_type_1 = get_inner_type(to_lctype(rhs.dtype))
             assert inner_lc_type_1 in [basic_type_dict[int], basic_type_dict[float], lcapi.Type.from_('uint')], \
                 f'operator `{op}` only supports `int`, `uint` and `float` types.'
             dtype = implicit_coersion(dtype0, dtype1)
         else:
             # forbid implicit type conversion
-            # so check arg[1]'s type, ensure it is the same with arg[0]
+            # so check rhs's type, ensure it is the same with lhs
             assert check_inner_type(inner_lc_type_0)(rhs), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
-        if is_compare:
+        if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
             dtype = to_bool(dtype)
-    return dtype, lcapi.builder().binary(to_lctype(dtype), op, lhs.expr, rhs.expr)
+            print(lhs.expr, lhs.dtype, rhs.expr, rhs.dtype, dtype)
+        elif op is ast.Div:
+            dtype = to_float(dtype)
+            _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), [lhs])
+            _, rhs_expr = builtin_type_cast(to_float(rhs.dtype), [rhs])
+    return dtype, lcapi.builder().binary(to_lctype(dtype), lc_op, lhs_expr, rhs_expr)
 
 
 builtin_func_names = {
@@ -210,7 +244,7 @@ builtin_func_names = {
     'length', 'normalize',
     'lerp',
     'print',
-    'min','max'
+    'min', 'max'
 }
 
 
@@ -221,10 +255,10 @@ def builtin_type_cast(dtype, args):
         # construct variable without initialization
         return dtype, lcapi.builder().local(to_lctype(dtype))
     if dtype in {int, float, bool}:
-        assert len(args)==1 and args[0].dtype in {int, float, bool}
+        assert len(args) == 1 and args[0].dtype in {int, float, bool}
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
     lctype = to_lctype(dtype)
-    if lctype.is_basic():
+    if lctype.is_vector() or lctype.is_matrix():
         return builtin_func(f"make_{dtype.__name__}", args)
     # TODO: vectors / matrices
     # TODO: array
@@ -241,7 +275,7 @@ def make_vector_call(dtype, op, args):
             raise TypeError("arguments must be float or float vector")
         if is_vector_type(arg.dtype):
             if dim != 1:
-                if (dim != to_lctype(arg.dtype).dimension()):
+                if dim != to_lctype(arg.dtype).dimension():
                     raise TypeError("arguments can't contain vectors of different dimension")
             else: # will upcast scalar to vector
                 dim = to_lctype(arg.dtype).dimension()
@@ -291,9 +325,8 @@ def builtin_func(name, args):
     for T in 'uint', 'int', 'float', 'bool':
         for N in 2, 3, 4:
             if name == f'make_{T}{N}':
-                lc_type = lcapi.Type.from_(T)
-                # TODO: check args (element type & total length, or type cast)
-                # e.g. make_float4(float, float3), make_float4(int4)
+                if get_arg_length(args) not in [1, N]:
+                    raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {get_arg_length(args)}")
                 op = getattr(lcapi.CallOp, name.upper())
                 dtype = getattr(lcapi, f'{T}{N}')
                 return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -335,10 +368,11 @@ def builtin_func(name, args):
 
     if name in ('min', 'max'):
         assert len(args) == 2
-        def element_type(dtype):
-            if dtype in {int,float,bool}:
-                return dtype
-            return from_lctype(to_lctype(dtype).element())
+
+        def element_type(_dtype):
+            if _dtype in {int, float, bool}:
+                return _dtype
+            return from_lctype(to_lctype(_dtype).element())
         op = getattr(lcapi.CallOp, name.upper())
         return make_vector_call(element_type(args[0].dtype), op, args)
 
