@@ -147,6 +147,7 @@ def next_hit(pos: float3, d: float3):
 
 @luisa.kernel
 def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float), frame_index: int):
+    set_block_size(16,8,1)
     res = make_float2(dispatch_size().xy)
     coord = dispatch_id().xy
     global_id = coord.x + coord.y * dispatch_size().x
@@ -170,7 +171,7 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
     depth = 0
     hit_light = 0.00
 
-    while depth < max_ray_depth:
+    for depth in range(max_ray_depth):
         result = next_hit(pos, d)
         closest = result.closest
         normal = result.normal
@@ -179,7 +180,7 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
         dist_to_light = intersect_light(pos, d)
         if dist_to_light < closest:
             hit_light = 1.0
-            depth = max_ray_depth
+            break
         else:
             hit_pos = pos + closest * d
             if dot(normal, normal) != 0:
@@ -187,14 +188,29 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
                 pos = hit_pos + 1e-4 * d
                 throughput *= c
             else:
-                depth = max_ray_depth
+                break
     accum_color = image.read(dispatch_id().xy).xyz
-    accum_color = lerp(accum_color, throughput * hit_light, 1.0 / (frame_index + 1))
+    accum_color += throughput * hit_light
     image.write(dispatch_id().xy, make_float4(accum_color, 1.0))
-    # display.write(dispatch_id().xy, make_float4(sqrt(accum_color / 0.31544 * 0.24), 1.0))
+    display.write(dispatch_id().xy, make_float4(sqrt(accum_color / (1.0 + frame_index) / 0.084 * 0.24), 1.0))
     seed_image.write(global_id, seed)
 
 luisa.lcapi.log_level_error()
+
+# frame_index = 0
+# for _ in range(10):
+#     k = 256
+#     t0 = time.time()
+#     for i in range(k):
+#         render(seed_image, image, frame_index, dispatch_size=(*res, 1))
+#         frame_index += 1
+#     display.copy_to(arr)
+#     t1 = time.time()
+#     print((t1-t0)/k)
+    
+
+
+
 frame_rate = FrameRate(10)
 w = Window("Shader Toy", res, resizable=False, frame_rate=True)
 w.set_background(arr, res)
@@ -212,11 +228,11 @@ def update():
     frame_rate.record()
     w.update_frame_rate(frame_rate.report())
     print(frame_rate.report())
-    # w.update_frame_rate(dpg.get_frame_rate())
+#     # w.update_frame_rate(dpg.get_frame_rate())
 
 
-def null():
-    # frame_rate.record()
-    w.update_frame_rate(dpg.get_frame_rate())
+# def null():
+#     # frame_rate.record()
+#     w.update_frame_rate(dpg.get_frame_rate())
 
 w.run(update)
