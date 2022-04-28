@@ -74,7 +74,10 @@ def out_dir(n: float3, seed: luisa.ref(int)):
 
 @luisa.callable
 def make_nested(f: float):
-    f = f * 40
+    f = f * 40.0
+    # f = (1 - fract(f) if int(f) % 2 == 0 else fract(f)) if f < 0.0 else f
+    # return (f - 0.2) * (1.0 / 40.0)
+
     i = int(f)
     if f < 0:
         if i % 2 != 0:
@@ -83,7 +86,6 @@ def make_nested(f: float):
             f = floor(f) + 1 - f
     f = (f - 0.2) / 40
     return f
-
 
 # https://www.iquilezles.org/www/articles/distfunctions/distfunctions.htm
 @luisa.callable
@@ -95,7 +97,7 @@ def sdf(o: float3):
     box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0)
 
     O = o - make_float3(-0.8, 0.3, 0.0)
-    d = float2(length(make_float2(O.x, O.z)) - 0.3, abs(O.y) - 0.3)
+    d = make_float2(length(make_float2(O.x, O.z)) - 0.3, abs(O.y) - 0.3)
     cylinder = min(max(d.x, d.y), 0.0) + length(max(d, 0.0))
 
     geometry = make_nested(min(min(sphere, box), cylinder))
@@ -107,7 +109,26 @@ def sdf(o: float3):
 def ray_march(p: float3, d: float3):
     j = 0
     dist = 0.0
-    while (j < 100 and sdf(p + dist * d) > 1e-6) and dist < inf:
+
+    # GOOD
+    # for j in range(100):
+    #     s = sdf(p + dist * d)
+    #     if s <= 1e-6 or dist >= inf:
+    #         break
+    #     dist += s
+
+    # GOOD
+    # while j < 100:
+    #     if not (sdf(p + dist * d) > 1e-6 and dist < inf):
+    #         break
+    #     dist += sdf(p + dist * d)
+    #     j += 1
+
+    # BAD
+    # while (j < 100 and sdf(p + dist * d) > 1e-6) and dist < inf:
+
+    # GOOD
+    while j < 100 and (sdf(p + dist * d) > 1e-6 and dist < inf):
         dist += sdf(p + dist * d)
         j += 1
     return min(inf, dist)
@@ -176,7 +197,6 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
         closest = result.closest
         normal = result.normal
         c = result.c
-        depth += 1
         dist_to_light = intersect_light(pos, d)
         if dist_to_light < closest:
             hit_light = 1.0
