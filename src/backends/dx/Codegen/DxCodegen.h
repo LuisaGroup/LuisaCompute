@@ -7,7 +7,6 @@
 #include <ast/statement.h>
 #include <Shader/Shader.h>
 #include <vstl/MD5.h>
-#include <compile/definition_analysis.h>
 using namespace luisa;
 using namespace luisa::compute;
 namespace toolhub::directx {
@@ -68,8 +67,7 @@ class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
 
 public:
-    DefinitionAnalysis::VariableSet *variableSet;
-    DefinitionAnalysis::VariableSet *sharedVariables = nullptr;
+    vstd::vector<Variable> *sharedVariables = nullptr;
     void visit(const UnaryExpr *expr) override;
     void visit(const BinaryExpr *expr) override;
     void visit(const MemberExpr *expr) override;
@@ -96,13 +94,12 @@ public:
     void visit(const CommentStmt *) override;
     StringStateVisitor(
         Function f,
-        vstd::string &str,
-        DefinitionAnalysis &analyzer);
+        vstd::string &str);
     ~StringStateVisitor();
 
 protected:
     vstd::string &str;
-    DefinitionAnalysis &analyzer;
+    size_t lastIdx = 0;
 };
 template<typename T>
 struct PrintValue;
