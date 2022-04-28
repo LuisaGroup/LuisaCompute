@@ -126,19 +126,17 @@ b = luisa.Buffer(1024, int)
 
 @luisa.kernel
 def f():
-    # need int/int->float
-    # need cast float3(int3)
-    cx = float(dispatch_id().x) / dispatch_size().x
-    cy = float(dispatch_id().y) / dispatch_size().y
-    cz = float(dispatch_id().z) / dispatch_size().z
-    img.write(dispatch_id().xy, make_float4(cx,cy,cz,1.))
-    # b.write(dispatch_id(), 3)
+    a = 1
+    if dispatch_id().x < 5 and dispatch_id().y < 5:
+        print("test12333", dispatch_id())
+
 
 
 f(dispatch_size=(1024, 1024, 1))
+luisa.synchronize()
 
-arr = np.ones(1024*1024*4, dtype=np.uint8)
-img.copy_to(arr)
-print(arr)
-im.fromarray(arr.reshape((1024,1024,4))).save('aaa.png')
+# arr = np.ones(1024*1024*4, dtype=np.uint8)
+# img.copy_to(arr)
+# print(arr)
+# im.fromarray(arr.reshape((1024,1024,4))).save('aaa.png')
 # cv2.imwrite("a.hdr", arr.reshape((1024,1024,4)))
