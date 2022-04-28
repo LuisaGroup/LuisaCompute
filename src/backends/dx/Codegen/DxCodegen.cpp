@@ -126,8 +126,7 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 
     } else {
         vstd::string curStr;
-        StringStateVisitor vis(f, curStr);
-        expr->self()->accept(vis);
+        expr->self()->accept(*this);
         auto &&selfStruct = CodegenUtility::GetStruct(expr->self()->type());
         auto &&structVar = selfStruct->GetStructVar(expr->member_index());
         str << curStr << '.' << structVar;
@@ -152,8 +151,7 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             str << '[';
             expr->index()->accept(*this);
             str << ']';
-        }
-            break;
+        } break;
         case Type::Tag::MATRIX: {
             expr->range()->accept(*this);
             str << '[';
@@ -162,8 +160,7 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             if (t->dimension() == 3u) {
                 str << ".xyz";
             }
-        }
-            break;
+        } break;
         default: {
             expr->range()->accept(*this);
             str << ".v[";
@@ -171,7 +168,6 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             str << ']';
         } break;
     }
-
 }
 void StringStateVisitor::visit(const RefExpr *expr) {
 
@@ -255,6 +251,29 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
     str << "{\n";
+    auto &&vars = analyzer.scoped_variables();
+    auto ite = vars.find(state);
+    if (ite != vars.end()) {
+        for (auto &&v : ite->second) {
+            auto result = variableSet->emplace(v);
+            if (result.second) {
+                if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
+                    vstd::string typeName;
+                    CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+                    str << typeName << ' ';
+                    CodegenUtility::GetVariableName(v, str);
+                    str << "=("sv << typeName << ")0;\n";
+                } else if (v.tag() == Variable::Tag::SHARED) {
+                    sharedVariables->emplace(v);
+                } else {
+                    CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
+                    str << ' ';
+                    CodegenUtility::GetVariableName(v, str);
+                    str << ";\n";
+                }
+            }
+        }
+    }
     for (auto &&i : state->statements()) {
         i->accept(*this);
     }
@@ -319,37 +338,29 @@ void StringStateVisitor::visit(const ForStmt *state) {
 }
 StringStateVisitor::StringStateVisitor(
     Function f,
-    vstd::string &str)
-    : str(str), f(f) {
+    vstd::string &str,
+    DefinitionAnalysis &analyzer)
+    : str(str), f(f), analyzer(analyzer) {
 }
 void StringStateVisitor::visit(const MetaStmt *stmt) {
-    auto func = [&]<bool collectShared>() {
-        for (auto &&v : stmt->variables()) {
-            if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
-                vstd::string typeName;
-                CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-                str << typeName << ' ';
-                CodegenUtility::GetVariableName(v, str);
-                str << "=("sv << typeName << ")0;\n";
-            } else {
-                CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
-                str << ' ';
-                CodegenUtility::GetVariableName(v, str);
-                str << ";\n";
-            }
-            if constexpr (collectShared) {
-                if (v.tag() == Variable::Tag::SHARED) {
-                    sharedVariables->emplace_back(v);
-                }
-            }
-        }
-    };
-    if (sharedVariables) {
-        func.operator()<true>();
-    } else {
-        func.operator()<false>(); 
-    }
+    /*
+    for (auto &&v : stmt->variables()) {
 
+        if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
+            vstd::string typeName;
+            CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+            str << typeName << ' ';
+            CodegenUtility::GetVariableName(v, str);
+            str << "=("sv << typeName << ")0;\n";
+        } else if (v.tag() == Variable::Tag::SHARED) {
+            sharedVariables->emplace(v);
+        } else {
+            CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
+            str << ' ';
+            CodegenUtility::GetVariableName(v, str);
+            str << ";\n";
+        }
+    }*/
     stmt->scope()->accept(*this);
 }
 StringStateVisitor::~StringStateVisitor() = default;

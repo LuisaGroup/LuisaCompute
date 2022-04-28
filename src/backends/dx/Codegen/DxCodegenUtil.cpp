@@ -413,10 +413,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             break;
         case CallOp::SELECT: {
             auto type = args[2]->type();
-            str << "selectVec"sv;
-            if (type->tag() == Type::Tag::VECTOR) {
-                vstd::to_string(type->dimension(), str);
-            }
+            str << "_select"sv;
         } break;
         case CallOp::CLAMP:
             str << "clamp"sv;
@@ -957,8 +954,12 @@ if(any(dspId >= a.dsp_c)) return;
     } else {
         opt->isKernel = false;
     }
-    StringStateVisitor vis(func, result);
-    vis.sharedVariables = (func.tag() == Function::Tag::KERNEL) ? &opt->sharedVariable : nullptr;
+    opt->analyzer.reset();
+    opt->analyzer.analyze(func);
+    opt->allVariables.clear();
+    StringStateVisitor vis(func, result, opt->analyzer);
+    vis.sharedVariables = &opt->sharedVariable;
+    vis.variableSet = &opt->allVariables;
     func.body()->accept(vis);
     result << "}\n"sv;
 }
