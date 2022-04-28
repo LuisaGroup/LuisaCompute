@@ -128,6 +128,9 @@ def ray_march(p: float3, d: float3):
     # while (j < 100 and sdf(p + dist * d) > 1e-6) and dist < inf:
 
     # GOOD
+    # while (j < 100 and dist < inf) and sdf(p + dist * d) > 1e-6:
+
+    # GOOD
     while j < 100 and (sdf(p + dist * d) > 1e-6 and dist < inf):
         dist += sdf(p + dist * d)
         j += 1
