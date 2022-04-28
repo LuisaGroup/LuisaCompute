@@ -196,6 +196,7 @@ def builtin_bin_op(op, lhs, rhs):
 
 
 builtin_func_names = {
+    'set_block_size',
     'thread_id', 'block_id', 'dispatch_id', 'dispatch_size',
     'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
     'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
@@ -205,10 +206,8 @@ builtin_func_names = {
     'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
     'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round',
     'abs', 'copysign',
-    'dot',
-    'cross',
-    'length', 
-    'normalize',
+    'dot', 'cross',
+    'length', 'normalize',
     'lerp',
     'print',
     'min','max'
@@ -267,6 +266,15 @@ def check_exact_signature(signature, args, name):
 
 # return dtype, expr
 def builtin_func(name, args):
+
+    if name == "set_block_size":
+        check_exact_signature([int,int,int], args, "set_block_size")
+        for a in args:
+            if type(a).__name__ != "Constant":
+                raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
+        lcapi.builder().set_block_size(*[a.value for a in args])
+        return None, None
+
     # e.g. dispatch_id()
     for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
         if name == func:
