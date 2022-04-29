@@ -73,6 +73,8 @@ def dtype_of(val):
         return val.bufferType
     if type(val).__name__ == "Texture2D":
         return val.texture2DType
+    if type(val).__name__ == "Accel":
+        return type(val)
     if type(val).__name__ == "kernel":
         assert val.is_device_callable
         return CallableType
