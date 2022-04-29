@@ -11,7 +11,7 @@ from luisa.framerate import FrameRate
 from luisa.window import Window
 import dearpygui.dearpygui as dpg
 
-luisa.init("cuda")
+luisa.init("ispc")
 res = 1280, 720
 image = luisa.Texture2D(*res, 4, float)
 display = luisa.Texture2D(*res, 4, float)
@@ -59,6 +59,33 @@ def random(state: luisa.ref(int)):
     lcg_c = 1013904223
     state = lcg_a * state + lcg_c
     return float(state & 0x00ffffff) * (1.0 / 0x01000000)
+
+
+# RandomSampler = luisa.StructType(state = int)
+
+# @luisa.method_of(RandomSampler)
+# def __init__(self: luisa.ref(RandomSampler), x: int2):
+#     s0 = 0
+#     v0 = x.x
+#     v1 = x.y
+#     for n in range(4):
+#         s0 += 0x9e3779b9
+#         v0 += ((v1 << 4) + 0xa341316c) ^ (v1 + s0) ^ ((v1 >> 5) + 0xc8013ea4)
+#         v1 += ((v0 << 4) + 0xad90777d) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7e95761e)
+#     self.state = v0
+
+# @luisa.method_of(RandomSampler)
+# def next(self: luisa.ref(RandomSampler)):
+#     lcg_a = 1664525
+#     lcg_c = 1013904223
+#     self.state = lcg_a * self.state + lcg_c
+#     return float(self.state & 0x00ffffff) * (1.0 / 0x01000000)
+
+# @luisa.kernel
+# def f():
+#     sampler = RandomSampler(dispatch_id().xy)
+#     sampler.next()
+
 
 @luisa.callable
 def out_dir(n: float3, seed: luisa.ref(int)):
@@ -244,7 +271,7 @@ frame_index = 0
 def update():
     global frame_index, arr
     t = time.time() - t0
-    for i in range(256):
+    for i in range(1):
         render(seed_image, image, frame_index, dispatch_size=(*res, 1))
         frame_index += 1
     display.copy_to(arr)
