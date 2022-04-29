@@ -141,7 +141,7 @@ def builtin_unary_op(op, operand):
     return dtype, lcapi.builder().unary(to_lctype(dtype), lc_op, operand.expr)
 
 
-def builtin_bin_op(op: ast.operator | ast.cmpop, lhs, rhs):
+def builtin_bin_op(op, lhs, rhs):
     lc_op = {
         ast.Add: lcapi.BinaryOp.ADD,
         ast.Sub: lcapi.BinaryOp.SUB,
