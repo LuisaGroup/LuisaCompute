@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     auto window = glfwCreateWindow(width, height, "ShaderToy Example", nullptr, nullptr);
     auto window_handle = reinterpret_cast<uint64_t>(glfwGetCocoaWindow(window));
-    auto swap_chain = device.create_swapchain(window_handle, stream, width, height);
+    auto swap_chain = device.create_swapchain(window_handle, stream, make_uint2(width, height));
 
     Clock clock;
     Framerate framerate{32};
