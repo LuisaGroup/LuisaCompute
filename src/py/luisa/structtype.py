@@ -56,8 +56,9 @@ class _Struct:
 class StructType:
     def __init__(self, **kwargs):
         # initialize from dict (name->type)
-        self.membertype = []
-        self.idx_dict = {}
+        self.membertype = [] # index -> member dtype
+        self.idx_dict = {} # attr -> index
+        self.method_dict = {} # attr -> callable (if any)
         self.alignment = 1
         for idx, (name, dtype) in enumerate(kwargs.items()):
             self.idx_dict[name] = idx
