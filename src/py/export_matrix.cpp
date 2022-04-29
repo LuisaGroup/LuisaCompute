@@ -2,11 +2,22 @@
 #include <luisa-compute.h>
 namespace py = pybind11;
 using namespace luisa::compute;
+const auto pyref = py::return_value_policy::reference; // object lifetime is managed on C++ side
+
 
 void export_matrix(py::module &m) {
-    py::class_<float2x2>(m, "float2x2").def("identity", [](){return float2x2();});
-    py::class_<float3x3>(m, "float3x3").def("identity", [](){return float3x3();});
-    py::class_<float4x4>(m, "float4x4").def("identity", [](){return float4x4();});
+    py::class_<float2x2>(m, "float2x2")
+        .def("identity", [](){return float2x2();})
+        .def("__getitem__", [](float2x2& self, size_t i){return &self[i];}, pyref)
+        .def("__setitem__", [](float2x2& self, size_t i, float2 k){ self[i]=k; });
+    py::class_<float3x3>(m, "float3x3")
+        .def("identity", [](){return float3x3();})
+        .def("__getitem__", [](float3x3& self, size_t i){return &self[i];}, pyref)
+        .def("__setitem__", [](float3x3& self, size_t i, float3 k){ self[i]=k; });
+    py::class_<float4x4>(m, "float4x4")
+        .def("identity", [](){return float4x4();})
+        .def("__getitem__", [](float4x4& self, size_t i){return &self[i];}, pyref)
+        .def("__setitem__", [](float4x4& self, size_t i, float4 k){ self[i]=k; });
 
     m.def("make_float2x2", [](float a){return make_float2x2(a);});
     m.def("make_float2x2", [](float a, float b, float c, float d){return make_float2x2(a,b,c,d);});
