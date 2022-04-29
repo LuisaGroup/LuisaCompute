@@ -97,6 +97,8 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("constant")
         .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
         .def("texture_binding", &FunctionBuilder::texture_binding, pyref)
+        .def("bindless_array_binding", &FunctionBuilder::bindless_array_binding, pyref)
+        .def("accel_binding", &FunctionBuilder::accel_binding, pyref)
 
         .def("argument", &FunctionBuilder::argument, pyref)
         .def("reference", &FunctionBuilder::reference, pyref)
@@ -112,6 +114,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("access", &FunctionBuilder::access, pyref)
         .def("swizzle", &FunctionBuilder::swizzle, pyref)
         .def("cast", &FunctionBuilder::cast, pyref)
+        
         .def("call", [](FunctionBuilder& self, const Type *type, CallOp call_op, std::vector<const Expression *> args){return self.call(type, call_op, args);}, pyref)
         .def("call", [](FunctionBuilder& self, const Type *type, Function custom, std::vector<const Expression *> args){return self.call(type, custom, args);}, pyref)
         .def("call", [](FunctionBuilder& self, CallOp call_op, std::vector<const Expression *> args){self.call(call_op, args);})
@@ -120,19 +123,17 @@ PYBIND11_MODULE(lcapi, m) {
         .def("break_", &FunctionBuilder::break_)
         .def("continue_", &FunctionBuilder::continue_)
         .def("return_", &FunctionBuilder::return_)
-        // .def("comment_")
+        .def("comment_", [](FunctionBuilder& self, std::string s){ self.comment_(s.c_str()); })
         .def("assign", &FunctionBuilder::assign, pyref)
 
-        // // create_expression 内存？
         .def("if_", &FunctionBuilder::if_, pyref)
         .def("loop_", &FunctionBuilder::loop_, pyref)
         // .def("switch_")
         // .def("case_")
         // .def("default_")
         .def("for_", &FunctionBuilder::for_, pyref)
-        // .def("meta") // ???
+        // .def("meta") // unused
 
-        // .def("case_")
         .def("push_scope", &FunctionBuilder::push_scope)
         .def("pop_scope", &FunctionBuilder::pop_scope)
         .def("function", &FunctionBuilder::function); // returning object

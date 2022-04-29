@@ -67,8 +67,9 @@ class kernel:
     def __init__(self, func, is_device_callable = False):
         device = get_global_device()
         # get python AST & context
+        self.sourcelines = inspect.getsourcelines(func)[0]
         self.tree = ast.parse(inspect.getsource(func))
-        self.original_func = func
+        self.funcname = func.__name__
         _closure_vars = inspect.getclosurevars(func)
         self.closure_variable = {
             **_closure_vars.globals,

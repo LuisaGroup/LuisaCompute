@@ -22,12 +22,20 @@ class ASTVisitor:
             raise Exception(f'Unsupported node {node}:\n{astpretty.pformat(node)}')
         try:
             # print(astpretty.pformat(node))
+            self.comment_source(ctx, node)
             return method(ctx, node)
         except Exception as e:
             final_message = "error when building AST"
             if str(e) != final_message:
                 self.print_error(ctx, node, e)
             raise Exception(final_message)
+
+    @staticmethod
+    def comment_source(ctx, node):
+        n = node.lineno-1
+        if getattr(ctx, "_last_comment_source_lineno", None) != n:
+            ctx._last_comment_source_lineno = n
+            lcapi.builder().comment_(str(n) + "  " + ctx.sourcelines[n].strip())
 
     @staticmethod
     def print_error(ctx, node, e):
@@ -41,13 +49,13 @@ class ASTVisitor:
             green = ""
             bold = ""
             clr = ""
-        print(f"{bold}({ctx.__class__.__name__}){ctx.original_func.__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
-        source = inspect.getsourcelines(ctx.original_func)[0][node.lineno-1: node.end_lineno]
+        print(f"{bold}({ctx.__class__.__name__}){ctx.funcname}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+        source = ctx.sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
             print(line.rstrip('\n'))
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
-            print(green + ' '*(startcol-1) + '~' * (endcol - startcol + 1) + clr)
+            print(green + ' ' * startcol + '~' * (endcol - startcol) + clr)
         print("Traceback:")
         _, _, tb = sys.exc_info()
         traceback.print_tb(tb) # Fixed format
