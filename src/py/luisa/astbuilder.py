@@ -84,6 +84,18 @@ class ASTVisitor:
 
     @staticmethod
     def build_Call(ctx, node):
+        def callable_call(func, args):
+            # check callable signature
+            assert len(args) == len(func.params)
+            for idx, param in enumerate(func.params):
+                assert args[idx].dtype == param[1]
+            # call
+            if not hasattr(func, "return_type") or func.return_type == None:
+                return None, lcapi.builder().call(func.func, [x.expr for x in args])
+            else:
+                dtype = func.return_type
+                return dtype, lcapi.builder().call(to_lctype(dtype), func.func, [x.expr for x in args])
+
         for x in node.args:
             build(ctx, x)
         # static function
@@ -91,17 +103,7 @@ class ASTVisitor:
             build(ctx, node.func)
             # custom callable
             if node.func.dtype is CallableType:
-                # check callable signature
-                assert len(node.args) == len(node.func.expr.params)
-                for idx, param in enumerate(node.func.expr.params):
-                    assert node.args[idx].dtype == param[1]
-                # call
-                if not hasattr(node.func.expr, "return_type") or node.func.expr.return_type == None:
-                    node.dtype = None
-                    node.expr = lcapi.builder().call(node.func.expr.func, [x.expr for x in node.args])
-                else:
-                    node.dtype = node.func.expr.return_type
-                    node.expr = lcapi.builder().call(to_lctype(node.dtype), node.func.expr.func, [x.expr for x in node.args])
+                node.dtype, node.expr = callable_call(node.func.expr, node.args)
             # funciton name undefined: look into builtin functions
             elif node.func.dtype is BuiltinFuncType:
                 node.dtype, node.expr = builtin_func(node.func.expr, node.args)
@@ -115,7 +117,9 @@ class ASTVisitor:
         # class method
         elif type(node.func) is ast.Attribute: # class method
             build(ctx, node.func)
-            if node.func.dtype is BuiltinFuncType:
+            if node.func.dtype is CallableType:
+                node.dtype, node.expr = callable_call(node.func.expr, [node.func.value] + node.args)
+            elif node.func.dtype is BuiltinFuncType:
                 node.dtype, node.expr = builtin_func(node.func.expr, [node.func.value] + node.args)
             else:
                 raise TypeError(f'unrecognized method call. calling on {node.func.dtype}.')
@@ -139,7 +143,10 @@ class ASTVisitor:
         elif type(node.value.dtype) is StructType:
             idx = node.value.dtype.idx_dict[node.attr]
             node.dtype = node.value.dtype.membertype[idx]
-            node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
+            if node.dtype == CallableType: # method
+                node.expr = node.dtype.method_dict[node.attr]
+            else: # data member
+                node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         # buffer methods
         elif type(node.value.dtype) is BufferType:
             if node.attr == "read":
