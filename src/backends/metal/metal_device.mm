@@ -172,19 +172,6 @@ float4 f_simple(
   texture2d<float, access::sample> image [[texture(0)]]) {
   return float4(image.sample(sampler(filter::linear), in.uv).xyz, 1.f);
 }
-
-[[kernel]]
-void preset(
-  texture2d<float, access::write> out,
-  texture2d<float, access::sample> in,
-  constant uint2 &size,
-  const uint2 tid [[thread_position_in_grid]]) {
-  if (all(tid < size)) {
-    auto p = float2(tid) / float2(size);
-    auto color = in.sample(sampler(filter::linear), p);
-    out.write(float4(color.xyz, 1.f), tid);
-  }
-}
 )";
 
     NSError *error;
@@ -520,27 +507,29 @@ class MetalSwapChain {
 private:
     MetalDevice *_device;
     CAMetalLayer *_layer;
+    MTLRenderPassDescriptor *_render_pass_desc;
 
 public:
     MetalSwapChain(MetalDevice *device, CAMetalLayer *layer) noexcept
-        : _device{device}, _layer{layer} {}
+        : _device{device}, _layer{layer}, _render_pass_desc{[[MTLRenderPassDescriptor alloc] init]} {
+        auto attachment_desc = _render_pass_desc.colorAttachments[0];
+        attachment_desc.loadAction = MTLLoadActionDontCare;
+        attachment_desc.storeAction = MTLStoreActionStore;
+    }
     void present(id<MTLCommandBuffer> cb, id<MTLTexture> image) const noexcept {
         auto drawable = [_layer nextDrawable];
         LUISA_ASSERT(drawable != nullptr, "No drawable available.");
-        auto render_pass_desc = [MTLRenderPassDescriptor new];
-        auto attachment_desc = render_pass_desc.colorAttachments[0];
+        auto attachment_desc = _render_pass_desc.colorAttachments[0];
         attachment_desc.texture = drawable.texture;
-        attachment_desc.loadAction = MTLLoadActionDontCare;
-        attachment_desc.storeAction = MTLStoreActionStore;
-        auto render_encoder = [cb renderCommandEncoderWithDescriptor:render_pass_desc];
-        std::array vertices{make_float4(-1.f, 1.f, 0.f, 1.f), make_float4(-1.f, -1.f, 0.f, 1.f), make_float4(1.f, 1.f, 0.f, 1.f),
-                            make_float4(1.f, 1.f, 0.f, 1.f), make_float4(-1.f, -1.f, 0.f, 1.f), make_float4(1.f, -1.f, 0.f, 1.f)};
+        auto render_encoder = [cb renderCommandEncoderWithDescriptor:_render_pass_desc];
+        std::array vertices{make_float4(-1.f, 1.f, 0.f, 1.f), make_float4(-1.f, -1.f, 0.f, 1.f),
+                            make_float4(1.f, 1.f, 0.f, 1.f), make_float4(1.f, -1.f, 0.f, 1.f)};
         [render_encoder setRenderPipelineState:_device->present_shader()];
         [render_encoder setVertexBytes:vertices.data()
                                 length:vertices.size() * sizeof(float4)
                                atIndex:0u];
         [render_encoder setFragmentTexture:image atIndex:0u];
-        [render_encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+        [render_encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
         [render_encoder endEncoding];
         [cb presentDrawable:drawable];
     }

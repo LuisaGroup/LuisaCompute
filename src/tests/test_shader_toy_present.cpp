@@ -12,7 +12,6 @@
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/event.h>
 #include <dsl/syntax.h>
 #include <gui/framerate.h>
 
