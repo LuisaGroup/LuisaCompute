@@ -85,6 +85,7 @@ CompileResult DXShaderCompiler::CompileCompute(
     args.push_back_all(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
+         L"-Gfa",
          L"/enable_unbounded_descriptor_tables",
          L"-HV 2021"});
     if (optimize) {
