@@ -197,7 +197,6 @@ def builtin_bin_op(op, lhs, rhs):
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
     elif op in (ast.And, ast.Or):
-        print(lhs.dtype, rhs.dtype)
         assert check_inner_types(to_lctype(bool), [lhs, rhs]), f'operator `{op}` only supports `bool` type.'
         dtype = deduce_broadcast(dtype0, dtype1)
         # add / sub / div: int, uint and float allowed
@@ -221,7 +220,6 @@ def builtin_bin_op(op, lhs, rhs):
             dtype = deduce_broadcast(dtype0, dtype1)
         if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
             dtype = to_bool(dtype)
-            print(lhs.expr, lhs.dtype, rhs.expr, rhs.dtype, dtype)
         elif op is ast.Div:
             dtype = to_float(dtype)
             _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), [lhs])
