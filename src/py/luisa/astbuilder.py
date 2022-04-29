@@ -145,7 +145,7 @@ class ASTVisitor:
             idx = node.value.dtype.idx_dict[node.attr]
             node.dtype = node.value.dtype.membertype[idx]
             if node.dtype == CallableType: # method
-                node.expr = node.dtype.method_dict[node.attr]
+                node.expr = node.value.dtype.method_dict[node.attr]
             else: # data member
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         # buffer methods
