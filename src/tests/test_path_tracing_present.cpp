@@ -265,11 +265,10 @@ int main(int argc, char *argv[]) {
             beta *= 1.0f / q;
         };
         seed_image.write(coord, make_uint4(state));
-        $if(none(isnan(radiance))) {
-            auto old = image.read(dispatch_id().xy()).xyz();
-            auto accum = lerp(old, radiance, 1.f / (1.f + frame_index));
-            image.write(dispatch_id().xy(), make_float4(accum, 1.f));
-        };
+        $if(any(isnan(radiance))) { radiance = make_float3(); };
+        auto old = image.read(dispatch_id().xy()).xyz();
+        auto accum = lerp(old, radiance * 3.f, 1.f / (1.f + frame_index));
+        image.write(dispatch_id().xy(), make_float4(accum, 1.f));
     };
 
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
@@ -299,9 +298,14 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     while (!glfwWindowShouldClose(window)) {
         auto command_buffer = stream.command_buffer();
-        command_buffer << raytracing_shader(accum_image, seed_image, accel, resolution, frame_count++).dispatch(resolution)
-                       << swap_chain.present(accum_image);
-        framerate.record();
+        constexpr auto spp_per_present = 1u;
+        for (auto i = 0u; i < spp_per_present; i++) {
+            command_buffer << raytracing_shader(accum_image, seed_image, accel,
+                                                resolution, frame_count++)
+                                  .dispatch(resolution);
+        }
+        command_buffer << swap_chain.present(accum_image);
+        framerate.record(spp_per_present);
         LUISA_INFO("FPS: {}", framerate.report());
         glfwPollEvents();
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
