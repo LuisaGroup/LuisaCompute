@@ -60,7 +60,8 @@ PYBIND11_MODULE(lcapi, m) {
         });
     py::class_<Device>(m, "Device")
         .def("create_stream", &Device::create_stream)
-        .def("impl", &Device::impl, pyref);
+        .def("impl", &Device::impl, pyref)
+        .def("create_accel", &Device::create_accel);
     py::class_<Device::Interface, eastl::shared_ptr<Device::Interface>>(m, "DeviceInterface")
         .def("create_shader", [](Device::Interface& self, Function kernel){return self.create_shader(kernel, {});}) // TODO: support metaoptions
         .def("destroy_shader", &Device::Interface::destroy_shader)
@@ -253,6 +254,16 @@ PYBIND11_MODULE(lcapi, m) {
 
 
     // accel
+    py::class_<Accel>(m, "Accel")
+        .def("size", &Accel::size)
+        .def("handle", &Accel::handle)
+        .def("emplace_back", &Accel::_emplace_back)
+        .def("set", &Accel::set)
+        .def("pop_back", &Accel::pop_back)
+        .def("set_transform_on_update", &Accel::set_transform_on_update)
+        .def("set_visibility_on_update", &Accel::set_visibility_on_update)
+        .def("build_command", &Accel::build, pyref);
+
     py::enum_<AccelUsageHint>(m, "AccelUsageHint")
         .value("FAST_TRACE", AccelUsageHint::FAST_TRACE)
         .value("FAST_UPDATE", AccelUsageHint::FAST_UPDATE)
