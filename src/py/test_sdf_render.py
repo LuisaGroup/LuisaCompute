@@ -1,7 +1,4 @@
-import math
-from re import L
 import time
-from unittest import result
 
 import numpy as np
 
@@ -11,11 +8,10 @@ from luisa.framerate import FrameRate
 from luisa.window import Window
 import dearpygui.dearpygui as dpg
 
-luisa.init("ispc")
+luisa.init("cuda")
 res = 1280, 720
 image = luisa.Texture2D(*res, 4, float)
 display = luisa.Texture2D(*res, 4, float)
-seed_image = luisa.Buffer(res[0] * res[1], int)
 arr = np.zeros([*res, 4], dtype=np.float32)
 max_ray_depth = 6
 eps = 1e-4
@@ -31,6 +27,29 @@ light_radius = 2.0
 
 next_hit_struct = luisa.StructType(closest=float, normal=float3, c=float3)
 
+RandomSampler = luisa.StructType(state=int)
+
+@luisa.callable_method(RandomSampler)
+def __init__(self: luisa.ref(RandomSampler), p: int3):
+    PRIME32_2 = 2246822519
+    PRIME32_3 = 3266489917
+    PRIME32_4 = 668265263
+    PRIME32_5 = 374761393
+    h32 =  p.z + PRIME32_5 + p.x * PRIME32_3
+    h32 = PRIME32_4 * ((h32 << 17) | 0x0001ffff & (h32 >> (32 - 17)))
+    h32 += p.y * PRIME32_3
+    h32 = PRIME32_4 * ((h32 << 17) | 0x0001ffff & (h32 >> (32 - 17)))
+    h32 = PRIME32_2 * (h32 ^ ((h32 >> 15) & 0x0001ffff))
+    h32 = PRIME32_3 * (h32 ^ ((h32 >> 13) & 0x0007ffff))
+    self.state = h32 ^ ((h32 >> 16) & 0x0000ffff)
+
+@luisa.callable_method(RandomSampler)
+def next(self: luisa.ref(RandomSampler)):
+    lcg_a = 1664525
+    lcg_c = 1013904223
+    self.state = lcg_a * self.state + lcg_c
+    return float(self.state & 0x00ffffff) * (1.0 / 0x01000000)
+
 
 @luisa.callable
 def intersect_light(pos: float3, d: float3):
@@ -45,56 +64,13 @@ def intersect_light(pos: float3, d: float3):
     return dist_to_light
 
 @luisa.callable
-def tea(v0: int, v1:int):
-    s0 = 0
-    for n in range(4):
-        s0 += 0x9e3779b9
-        v0 += ((v1 << 4) + 0xa341316c) ^ (v1 + s0) ^ ((v1 >> 5) + 0xc8013ea4)
-        v1 += ((v0 << 4) + 0xad90777d) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7e95761e)
-    return v0
-
-@luisa.callable
-def random(state: luisa.ref(int)):
-    lcg_a = 1664525
-    lcg_c = 1013904223
-    state = lcg_a * state + lcg_c
-    return float(state & 0x00ffffff) * (1.0 / 0x01000000)
-
-
-# RandomSampler = luisa.StructType(state = int)
-
-# @luisa.method_of(RandomSampler)
-# def __init__(self: luisa.ref(RandomSampler), x: int2):
-#     s0 = 0
-#     v0 = x.x
-#     v1 = x.y
-#     for n in range(4):
-#         s0 += 0x9e3779b9
-#         v0 += ((v1 << 4) + 0xa341316c) ^ (v1 + s0) ^ ((v1 >> 5) + 0xc8013ea4)
-#         v1 += ((v0 << 4) + 0xad90777d) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7e95761e)
-#     self.state = v0
-
-# @luisa.method_of(RandomSampler)
-# def next(self: luisa.ref(RandomSampler)):
-#     lcg_a = 1664525
-#     lcg_c = 1013904223
-#     self.state = lcg_a * self.state + lcg_c
-#     return float(self.state & 0x00ffffff) * (1.0 / 0x01000000)
-
-# @luisa.kernel
-# def f():
-#     sampler = RandomSampler(dispatch_id().xy)
-#     sampler.next()
-
-
-@luisa.callable
-def out_dir(n: float3, seed: luisa.ref(int)):
+def out_dir(n: float3, sampler: luisa.ref(RandomSampler)):
     u = make_float3(1.0, 0.0, 0.0)
     if abs(n.y) < 1 - eps:
         u = normalize(cross(n, make_float3(0.0, 1.0, 0.0)))
     v = cross(n, u)
-    phi = 2 * 3.1415926 * random(seed)
-    ay = sqrt(random(seed))
+    phi = 2 * 3.1415926 * sampler.next()
+    ay = sqrt(sampler.next())
     ax = sqrt(1 - ay * ay)
     return ax * (cos(phi) * u + sin(phi) * v) + ay * n
 
@@ -197,21 +173,21 @@ def next_hit(pos: float3, d: float3):
 
 
 @luisa.kernel
-def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float), frame_index: int):
+def render(image: luisa.Texture2DType(float), frame_index: int):
     set_block_size(16,8,1)
     res = make_float2(dispatch_size().xy)
     coord = dispatch_id().xy
-    global_id = coord.x + coord.y * dispatch_size().x
 
     if frame_index == 0:
-        seed_image.write(global_id, tea(coord.x, coord.y))
         image.write(dispatch_id().xy, make_float4(make_float3(0.0), 1.0))
+
+    sampler = RandomSampler()
+    sampler.__init__(make_int3(coord, frame_index))
 
     aspect_ratio = res.x / res.y
     pos = camera_pos
-    seed = seed_image.read(global_id)
-    ux = random(seed)
-    uy = random(seed)
+    ux = sampler.next()
+    uy = sampler.next()
     uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1 - dispatch_id().y + uy)
     d = make_float3(
         2.0 * fov * uv / res.y - fov * make_float2(aspect_ratio, 1.0) - 1e-5, -1.0)
@@ -219,7 +195,6 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
 
     throughput = make_float3(1.0, 1.0, 1.0)
 
-    depth = 0
     hit_light = 0.00
 
     for depth in range(max_ray_depth):
@@ -234,7 +209,7 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
         else:
             hit_pos = pos + closest * d
             if dot(normal, normal) != 0:
-                d = out_dir(normal, seed)
+                d = out_dir(normal, sampler)
                 pos = hit_pos + 1e-4 * d
                 throughput *= c
             else:
@@ -243,23 +218,8 @@ def render(seed_image: luisa.BufferType(int), image: luisa.Texture2DType(float),
     accum_color += throughput * hit_light
     image.write(dispatch_id().xy, make_float4(accum_color, 1.0))
     display.write(dispatch_id().xy, make_float4(sqrt(accum_color / (1.0 + frame_index) / 0.084 * 0.24), 1.0))
-    seed_image.write(global_id, seed)
 
 luisa.lcapi.log_level_error()
-
-# frame_index = 0
-# for _ in range(10):
-#     k = 256
-#     t0 = time.time()
-#     for i in range(k):
-#         render(seed_image, image, frame_index, dispatch_size=(*res, 1))
-#         frame_index += 1
-#     display.copy_to(arr)
-#     t1 = time.time()
-#     print((t1-t0)/k)
-    
-
-
 
 frame_rate = FrameRate(10)
 w = Window("Shader Toy", res, resizable=False, frame_rate=True)
@@ -271,18 +231,13 @@ frame_index = 0
 def update():
     global frame_index, arr
     t = time.time() - t0
-    for i in range(1):
-        render(seed_image, image, frame_index, dispatch_size=(*res, 1))
+    for i in range(256):
+        render(image, frame_index, dispatch_size=(*res, 1))
         frame_index += 1
     display.copy_to(arr)
     frame_rate.record()
     w.update_frame_rate(frame_rate.report())
     print(frame_rate.report())
 #     # w.update_frame_rate(dpg.get_frame_rate())
-
-
-# def null():
-#     # frame_rate.record()
-#     w.update_frame_rate(dpg.get_frame_rate())
 
 w.run(update)
