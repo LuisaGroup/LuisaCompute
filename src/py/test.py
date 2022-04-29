@@ -1,8 +1,6 @@
-import luisa
 import numpy as np
-from luisa.builtin import builtin_func
+import luisa
 from luisa.mathtypes import *
-from PIL import Image as im
 
 luisa.init()
 # ============= test script ================
@@ -15,9 +13,20 @@ def f():
         print("test12333", dispatch_id())
 
 
-
 f(dispatch_size=(1024, 1024, 1))
 luisa.synchronize()
+
+accel = get_global_device().create_accel(lcapi.AccelUsageHint.FAST_TRACE)
+v_buffer = luisa.Buffer(3, float3)
+t_buffer = luisa.Buffer(3, int)
+v_buffer.copy_from(np.array([0,0,0,0,0,1,2,0,0,2,1,0], dtype=np.float32))
+t_buffer.copy_from(np.array([0,1,2], dtype=np.int32))
+mesh_handle = get_global_device().impl().create_mesh(v_buffer, 0, 16, v_count, t_buffer, 0, t_count, lcapi.AccelUsageHint.FAST_TRACE)
+globalvars.stream.add(lcapi.MeshBuildCommand.create(mesh_handle, lcapi.BuildRequest.PREFER_UPDATE, v_buffer, t_buffer))
+accel.emplace_back(mesh_handle, float4x4.identity(), True)
+
+globalvars.stream.add(accel.build_command())
+globalvars.stream.synchronize()
 
 # arr = np.ones(1024*1024*4, dtype=np.uint8)
 # img.copy_to(arr)

@@ -36,7 +36,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _mesh_handles.size(); }
 
     // host interfaces
-    void _emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
+    void _emplace_back(uint64_t mesh_handle, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
     void emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
     void set(size_t index, const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
     void pop_back() noexcept;
