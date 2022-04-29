@@ -5,7 +5,8 @@ import sys
 import traceback
 from .types import from_lctype
 import lcapi
-from .builtin import deduce_unary_type, builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast
+from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
+    builtin_unary_op
 from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType, is_vector_type
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .buffer import BufferType
@@ -84,6 +85,18 @@ class ASTVisitor:
 
     @staticmethod
     def build_Call(ctx, node):
+        def callable_call(func, args):
+            # check callable signature
+            assert len(args) == len(func.params)
+            for idx, param in enumerate(func.params):
+                assert args[idx].dtype == param[1]
+            # call
+            if not hasattr(func, "return_type") or func.return_type == None:
+                return None, lcapi.builder().call(func.func, [x.expr for x in args])
+            else:
+                dtype = func.return_type
+                return dtype, lcapi.builder().call(to_lctype(dtype), func.func, [x.expr for x in args])
+
         for x in node.args:
             build(ctx, x)
         # static function
@@ -91,17 +104,7 @@ class ASTVisitor:
             build(ctx, node.func)
             # custom callable
             if node.func.dtype is CallableType:
-                # check callable signature
-                assert len(node.args) == len(node.func.expr.params)
-                for idx, param in enumerate(node.func.expr.params):
-                    assert node.args[idx].dtype == param[1]
-                # call
-                if not hasattr(node.func.expr, "return_type") or node.func.expr.return_type == None:
-                    node.dtype = None
-                    node.expr = lcapi.builder().call(node.func.expr.func, [x.expr for x in node.args])
-                else:
-                    node.dtype = node.func.expr.return_type
-                    node.expr = lcapi.builder().call(to_lctype(node.dtype), node.func.expr.func, [x.expr for x in node.args])
+                node.dtype, node.expr = callable_call(node.func.expr, node.args)
             # funciton name undefined: look into builtin functions
             elif node.func.dtype is BuiltinFuncType:
                 node.dtype, node.expr = builtin_func(node.func.expr, node.args)
@@ -115,7 +118,9 @@ class ASTVisitor:
         # class method
         elif type(node.func) is ast.Attribute: # class method
             build(ctx, node.func)
-            if node.func.dtype is BuiltinFuncType:
+            if node.func.dtype is CallableType:
+                node.dtype, node.expr = callable_call(node.func.expr, [node.func.value] + node.args)
+            elif node.func.dtype is BuiltinFuncType:
                 node.dtype, node.expr = builtin_func(node.func.expr, [node.func.value] + node.args)
             else:
                 raise TypeError(f'unrecognized method call. calling on {node.func.dtype}.')
@@ -139,7 +144,10 @@ class ASTVisitor:
         elif type(node.value.dtype) is StructType:
             idx = node.value.dtype.idx_dict[node.attr]
             node.dtype = node.value.dtype.membertype[idx]
-            node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
+            if node.dtype == CallableType: # method
+                node.expr = node.dtype.method_dict[node.attr]
+            else: # data member
+                node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         # buffer methods
         elif type(node.value.dtype) is BufferType:
             if node.attr == "read":
@@ -263,60 +271,19 @@ class ASTVisitor:
     def build_AugAssign(ctx, node):
         build(ctx, node.target)
         build(ctx, node.value)
-        op = {
-            ast.Add: lcapi.BinaryOp.ADD,
-            ast.Sub: lcapi.BinaryOp.SUB,
-            ast.Mult: lcapi.BinaryOp.MUL,
-            ast.Div: lcapi.BinaryOp.DIV, # TODO type: int/int->float?
-            ast.FloorDiv: lcapi.BinaryOp.DIV, # TODO type check: int only
-            ast.Mod: lcapi.BinaryOp.MOD, # TODO support fmod using builtins
-            ast.LShift: lcapi.BinaryOp.SHL,
-            ast.RShift: lcapi.BinaryOp.SHR,
-            ast.BitOr: lcapi.BinaryOp.BIT_OR,
-            ast.BitXor: lcapi.BinaryOp.BIT_XOR,
-            ast.BitAnd: lcapi.BinaryOp.BIT_AND,
-        }.get(type(node.op))
-        # ast.Pow, ast.MatMult is not supported
-        if op is None:
-            raise TypeError(f'Unsupported augassign operation: {type(node.op)}')
-        dtype, expr = builtin_bin_op(op, node.target, node.value)
+        dtype, expr = builtin_bin_op(type(node.op), node.target, node.value)
         lcapi.builder().assign(node.target.expr, expr)
 
     @staticmethod
     def build_UnaryOp(ctx, node):
         build(ctx, node.operand)
-        op = {
-            ast.UAdd: lcapi.UnaryOp.PLUS,
-            ast.USub: lcapi.UnaryOp.MINUS,
-            ast.Not: lcapi.UnaryOp.NOT,
-            ast.Invert: lcapi.UnaryOp.BIT_NOT
-        }.get(type(node.op))
-        if op is None:
-            raise TypeError(f'Unsupported unary operation: {type(node.op)}')
-        node.dtype = deduce_unary_type(node.op, node.operand.dtype)
-        node.expr = lcapi.builder().unary(to_lctype(node.dtype), op, node.operand.expr)
+        node.dtype, node.expr = builtin_unary_op(type(node.op), node.operand)
 
     @staticmethod
     def build_BinOp(ctx, node):
         build(ctx, node.left)
         build(ctx, node.right)
-        op = {
-            ast.Add: lcapi.BinaryOp.ADD,
-            ast.Sub: lcapi.BinaryOp.SUB,
-            ast.Mult: lcapi.BinaryOp.MUL,
-            ast.Div: lcapi.BinaryOp.DIV, # TODO type: int/int->float?
-            ast.FloorDiv: lcapi.BinaryOp.DIV, # TODO type check: int only
-            ast.Mod: lcapi.BinaryOp.MOD, # TODO support fmod using builtins
-            ast.LShift: lcapi.BinaryOp.SHL,
-            ast.RShift: lcapi.BinaryOp.SHR,
-            ast.BitOr: lcapi.BinaryOp.BIT_OR,
-            ast.BitXor: lcapi.BinaryOp.BIT_XOR,
-            ast.BitAnd: lcapi.BinaryOp.BIT_AND,
-        }.get(type(node.op))
-        # ast.Pow, ast.MatMult is not supported
-        if op is None:
-            raise TypeError(f'Unsupported binary operation: {type(node.op)}')
-        node.dtype, node.expr = builtin_bin_op(op, node.left, node.right)
+        node.dtype, node.expr = builtin_bin_op(type(node.op), node.left, node.right)
 
 
     @staticmethod
@@ -325,18 +292,7 @@ class ASTVisitor:
             raise Exception('chained comparison not supported yet.')
         build(ctx, node.left)
         build(ctx, node.comparators[0])
-        op = {
-            ast.Eq: lcapi.BinaryOp.EQUAL,
-            ast.NotEq: lcapi.BinaryOp.NOT_EQUAL,
-            ast.Lt: lcapi.BinaryOp.LESS,
-            ast.LtE: lcapi.BinaryOp.LESS_EQUAL,
-            ast.Gt: lcapi.BinaryOp.GREATER,
-            ast.GtE: lcapi.BinaryOp.GREATER_EQUAL
-        }.get(type(node.ops[0])) # TODO ops
-        if op is None:
-            raise Exception(f'Unsupported compare operation: {type(node.op)}')
-        # TODO support chained comparison
-        node.dtype, node.expr = builtin_bin_op(op, node.left, node.comparators[0])
+        node.dtype, node.expr = builtin_bin_op(type(node.ops[0]), node.left, node.comparators[0])
 
     @staticmethod
     def build_BoolOp(ctx, node):
@@ -345,11 +301,7 @@ class ASTVisitor:
             raise Exception('chained bool op not supported yet. use brackets instead.')
         for x in node.values:
             build(ctx, x)
-        op = {
-            ast.And: lcapi.BinaryOp.AND,
-            ast.Or:  lcapi.BinaryOp.OR
-        }.get(type(node.op))
-        node.dtype, node.expr = builtin_bin_op(op, node.values[0], node.values[1])
+        node.dtype, node.expr = builtin_bin_op(type(node.op), node.values[0], node.values[1])
 
     @staticmethod
     def build_If(ctx, node):
