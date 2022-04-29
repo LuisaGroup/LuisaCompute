@@ -31,6 +31,7 @@ private:
     id<MTLDevice> _handle{nullptr};
     id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
     id<MTLComputePipelineState> _update_instances_shader{nullptr};
+    id<MTLRenderPipelineState> _render_shader{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
 public:
@@ -41,6 +42,7 @@ public:
     void check_raytracing_supported() const noexcept;
     [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
     [[nodiscard]] auto instance_update_shader() const noexcept { return _update_instances_shader; }
+    [[nodiscard]] auto present_shader() const noexcept { return _render_shader; }
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,

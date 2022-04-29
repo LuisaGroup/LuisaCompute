@@ -10,6 +10,7 @@
 #import <numeric>
 
 #import <nlohmann/json.hpp>
+
 #import <core/platform.h>
 #import <core/hash.h>
 #import <core/clock.h>
@@ -21,6 +22,8 @@
 #import <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {
+
+static constexpr auto present_pixel_format = MTLPixelFormatRGBA16Float;
 
 uint64_t MetalDevice::create_buffer(size_t size_bytes) noexcept {
     Clock clock;
@@ -149,6 +152,39 @@ struct alignas(16) BindlessItem {
 
 [[kernel]]
 void k(device const BindlessItem *array) {}
+
+struct RasterData {
+  float4 p [[position]];
+  float2 uv;
+};
+
+[[vertex]]
+RasterData v_simple(
+  constant float4 *in [[buffer(0)]],
+  uint vid [[vertex_id]]) {
+  auto p = in[vid];
+  return RasterData{p, saturate(p.xy * float2(.5f, -.5f) + .5f)};
+}
+
+[[fragment]]
+float4 f_simple(
+  RasterData in [[stage_in]],
+  texture2d<float, access::sample> image [[texture(0)]]) {
+  return float4(image.sample(sampler(filter::linear), in.uv).xyz, 1.f);
+}
+
+[[kernel]]
+void preset(
+  texture2d<float, access::write> out,
+  texture2d<float, access::sample> in,
+  constant uint2 &size,
+  const uint2 tid [[thread_position_in_grid]]) {
+  if (all(tid < size)) {
+    auto p = float2(tid) / float2(size);
+    auto color = in.sample(sampler(filter::linear), p);
+    out.write(float4(color.xyz, 1.f), tid);
+  }
+}
 )";
 
     NSError *error;
@@ -178,11 +214,26 @@ void k(device const BindlessItem *array) {}
                                                                       options:0u
                                                                    reflection:nullptr
                                                                         error:&error];
-    if (error) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to create instance update shader: {}.",
-            [[error description] cStringUsingEncoding:NSUTF8StringEncoding]);
-    }
+    LUISA_ASSERT(error == nullptr,
+                 "Failed to create instance update shader: {}.",
+                 [[error description] cStringUsingEncoding:NSUTF8StringEncoding]);
+
+    // create vertex and fragment shaders for presentation
+    auto vertex_shader = [library newFunctionWithName:@"v_simple"];
+    auto fragment_shader = [library newFunctionWithName:@"f_simple"];
+    LUISA_ASSERT(vertex_shader != nullptr && fragment_shader != nullptr, "Failed to create shaders.");
+    auto render_pipeline_desc = [[MTLRenderPipelineDescriptor alloc] init];
+    render_pipeline_desc.vertexFunction = vertex_shader;
+    render_pipeline_desc.fragmentFunction = fragment_shader;
+    render_pipeline_desc.colorAttachments[0].pixelFormat = present_pixel_format;
+    error = nullptr;
+    _render_shader = [_handle newRenderPipelineStateWithDescriptor:render_pipeline_desc
+                                                           options:0u
+                                                        reflection:nullptr
+                                                             error:&error];
+    LUISA_ASSERT(error == nullptr,
+                 "Failed to create present shader: {}.",
+                 [[error description] cStringUsingEncoding:NSUTF8StringEncoding]);
 }
 
 MetalDevice::~MetalDevice() noexcept {
@@ -464,20 +515,72 @@ bool MetalDevice::requires_command_reordering() const noexcept {
     return false;
 }
 
-uint64_t MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+class MetalSwapChain {
+
+private:
+    MetalDevice *_device;
+    CAMetalLayer *_layer;
+
+public:
+    MetalSwapChain(MetalDevice *device, CAMetalLayer *layer) noexcept
+        : _device{device}, _layer{layer} {}
+    void present(id<MTLCommandBuffer> cb, id<MTLTexture> image) const noexcept {
+        auto drawable = [_layer nextDrawable];
+        LUISA_ASSERT(drawable != nullptr, "No drawable available.");
+        auto render_pass_desc = [MTLRenderPassDescriptor new];
+        auto attachment_desc = render_pass_desc.colorAttachments[0];
+        attachment_desc.texture = drawable.texture;
+        attachment_desc.loadAction = MTLLoadActionDontCare;
+        attachment_desc.storeAction = MTLStoreActionStore;
+        auto render_encoder = [cb renderCommandEncoderWithDescriptor:render_pass_desc];
+        std::array vertices{make_float4(-1.f, 1.f, 0.f, 1.f), make_float4(-1.f, -1.f, 0.f, 1.f), make_float4(1.f, 1.f, 0.f, 1.f),
+                            make_float4(1.f, 1.f, 0.f, 1.f), make_float4(-1.f, -1.f, 0.f, 1.f), make_float4(1.f, -1.f, 0.f, 1.f)};
+        [render_encoder setRenderPipelineState:_device->present_shader()];
+        [render_encoder setVertexBytes:vertices.data()
+                                length:vertices.size() * sizeof(float4)
+                               atIndex:0u];
+        [render_encoder setFragmentTexture:image atIndex:0u];
+        [render_encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+        [render_encoder endEncoding];
+        [cb presentDrawable:drawable];
+    }
+};
+
+uint64_t MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
+                                        bool allow_hdr, uint back_buffer_size) noexcept {
+    auto window = (__bridge NSWindow *)(reinterpret_cast<void *>(window_handle));
+    auto layer = [CAMetalLayer layer];
+    window.contentView.layer = layer;
+    window.contentView.wantsLayer = YES;
+    layer.device = _handle;
+    layer.pixelFormat = present_pixel_format;
+    layer.wantsExtendedDynamicRangeContent = allow_hdr;
+    auto chain = new_with_allocator<MetalSwapChain>(this, layer);
+    return reinterpret_cast<uint64_t>(chain);
 }
 
 void MetalDevice::destroy_swap_chain(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    delete_with_allocator(reinterpret_cast<MetalSwapChain *>(handle));
 }
 
-PixelStorage MetalDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+PixelStorage MetalDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {// TODO: is this interface necessary?
+    return PixelStorage::HALF4;
 }
 
 void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+    auto swapchain = reinterpret_cast<MetalSwapChain *>(swapchain_handle);
+    auto image = (__bridge id<MTLTexture>)(reinterpret_cast<void *>(image_handle));
+    auto level = 0u;
+    if (level != 0u) {
+        image = [image newTextureViewWithPixelFormat:[image pixelFormat]
+                                         textureType:[image textureType]
+                                              levels:NSMakeRange(level, 1u)
+                                              slices:NSMakeRange(0u, 1u)];
+    }
+    auto cb = stream->command_buffer();
+    swapchain->present(cb, image);
+    stream->dispatch(cb);
 }
 
 }
