@@ -91,7 +91,9 @@ class kernel:
             for name, dtype, expr in self.params:
                 self.local_variable[name] = dtype, expr
             # build function body AST
-            astbuilder.build(self, self.tree.body[0])
+            globalvars.current_kernel = self
+            astbuilder.build(self.tree.body[0])
+            globalvars.current_kernel = None
 
         if is_device_callable:
             self.builder = lcapi.FunctionBuilder.define_callable(astgen)
@@ -158,6 +160,8 @@ def callable_method(struct):
         if type(anno) != ref or anno.dtype != struct:
             raise TypeError("annotation of first argument must be luisa.ref(T) where T is the struct type")
         struct.method_dict[name] = callable(func)
+        if name == '__init__' and getattr(struct.method_dict[name], 'return_type', None) != None:
+            raise TypeError(f'__init__() should return None, not {struct.method_dict[name].return_type}')
     return add_method
 
 def synchronize(stream = None):

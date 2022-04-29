@@ -72,6 +72,9 @@ class StructType:
     def __call__(self, **kwargs):
         return _Struct(self, **kwargs)
 
+    def __repr__(self):
+        return 'StructType(' + ','.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
+
     def __eq__(self, other):
         return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment
 

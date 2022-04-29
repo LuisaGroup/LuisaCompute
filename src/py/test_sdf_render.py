@@ -181,8 +181,7 @@ def render(image: luisa.Texture2DType(float), frame_index: int):
     if frame_index == 0:
         image.write(dispatch_id().xy, make_float4(make_float3(0.0), 1.0))
 
-    sampler = RandomSampler()
-    sampler.__init__(make_int3(coord, frame_index))
+    sampler = RandomSampler(make_int3(coord, frame_index))
 
     aspect_ratio = res.x / res.y
     pos = camera_pos

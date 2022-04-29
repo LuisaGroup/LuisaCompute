@@ -1,12 +1,12 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype
+from .types import to_lctype, is_vector_type
 
 class Buffer:
     def __init__(self, size, dtype):
-        if not dtype in {int, float, bool}:
-            raise Exception('buffer only supports scalar yet')
+        if not (dtype in {int, float, bool} or is_vector_type(dtype)):
+            raise Exception('buffer only supports scalar / vector yet')
         self.bufferType = BufferType(dtype)
         self.dtype = dtype
         self.size = size
