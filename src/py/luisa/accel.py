@@ -87,7 +87,6 @@ class Accel:
         expr = lcapi.builder().cast(to_lctype(Hit), lcapi.CastOp.BITWISE, tmp)
         return Hit, expr
 
-    # trace_any = BuiltinFuncEntry("accel_trace_any")
     instance_transform = BuiltinFuncEntry("accel_instance_transform")
     set_instance_transform = BuiltinFuncEntry("accel_set_instance_transform")
     set_instance_visibility = BuiltinFuncEntry("accel_set_instance_visibility")
