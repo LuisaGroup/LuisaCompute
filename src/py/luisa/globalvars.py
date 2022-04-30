@@ -2,6 +2,10 @@
 context = None
 device = None
 stream = None
+current_kernel = None
+
+# NOTE: DO NOT import these variables!
+#       Import globalvars and use globalvars.stream instead.
 
 def get_global_device():
 	if device == None:

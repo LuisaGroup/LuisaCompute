@@ -1,8 +1,9 @@
-from .types import from_lctype
 import lcapi
-from .types import to_lctype, basic_type_dict, dtype_of, is_vector_type
+from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type
 from functools import reduce
 from . import globalvars
+from .structtype import StructType
+from types import SimpleNamespace
 import ast
 
 
@@ -197,7 +198,6 @@ def builtin_bin_op(op, lhs, rhs):
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
     elif op in (ast.And, ast.Or):
-        print(lhs.dtype, rhs.dtype)
         assert check_inner_types(to_lctype(bool), [lhs, rhs]), f'operator `{op}` only supports `bool` type.'
         dtype = deduce_broadcast(dtype0, dtype1)
         # add / sub / div: int, uint and float allowed
@@ -221,7 +221,6 @@ def builtin_bin_op(op, lhs, rhs):
             dtype = deduce_broadcast(dtype0, dtype1)
         if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
             dtype = to_bool(dtype)
-            print(lhs.expr, lhs.dtype, rhs.expr, rhs.dtype, dtype)
         elif op is ast.Div:
             dtype = to_float(dtype)
             _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), [lhs])
@@ -251,9 +250,19 @@ builtin_func_names = {
 # type cast or initialization
 # return dtype, expr
 def builtin_type_cast(dtype, args):
+    # struct with constructor
+    if type(dtype) is StructType and '__init__' in dtype.method_dict:
+        obj = SimpleNamespace()
+        obj.dtype = dtype
+        obj.expr = lcapi.builder().local(to_lctype(dtype))
+        callable_call(dtype.method_dict['__init__'], [obj] + args)
+        return dtype, obj.expr
+    # default construct without arguments
     if len(args) == 0:
         # construct variable without initialization
         return dtype, lcapi.builder().local(to_lctype(dtype))
+    # type cast of basic types
+    # TODO may need temporary variable?
     if dtype in {int, float, bool}:
         assert len(args) == 1 and args[0].dtype in {int, float, bool}
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
@@ -295,7 +304,7 @@ def check_exact_signature(signature, args, name):
         raise TypeError(f"{name} takes exactly {len(signature)} arguments, {len(args)} given.")
     for idx in range(len(args)):
         if signature[idx] != args[idx].dtype:
-            raise TypeError(f"{name} expects ({','.join([x.__name__ for x in signature])}). Calling with ({','.join([x.dtype.__name__ for x in args])})")
+            raise TypeError(f"{name} expects ({','.join([getattr(x,'__name__',None) or repr(x) for x in signature])}). Calling with ({','.join([getattr(x.dtype,'__name__',None) or repr(x.dtype) for x in args])})")
 
 
 # return dtype, expr
@@ -409,8 +418,10 @@ def builtin_func(name, args):
 
     if name == 'print':
         globalvars.printer.kernel_print(args)
+        globalvars.current_kernel.uses_printer = True
         return None, None
 
+    # buffer
     if name == "buffer_read":
         op = lcapi.CallOp.BUFFER_READ
         dtype = args[0].dtype.dtype
@@ -437,6 +448,17 @@ def builtin_func(name, args):
         lcapi.builder().call(op, [x.expr for x in args])
         return None, None
 
+
     raise Exception(f'unrecognized function call {name}')
 
 
+
+def callable_call(func, args):
+    globalvars.current_kernel.uses_printer |= func.uses_printer
+    check_exact_signature([x[1] for x in func.params], args, f"(callable){func.funcname}")
+    # call
+    if not hasattr(func, "return_type") or func.return_type == None:
+        return None, lcapi.builder().call(func.func, [x.expr for x in args])
+    else:
+        dtype = func.return_type
+        return dtype, lcapi.builder().call(to_lctype(dtype), func.func, [x.expr for x in args])

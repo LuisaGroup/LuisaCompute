@@ -42,7 +42,7 @@ print(res)
 
 kernel 是可由python(host)中并行调用的函数，并行度由 `dispatch_size` 参数指定。
 
-callable是可由kernel/callable调用的函数，其不可在python中直接调用。callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
+callable 是可由kernel/callable调用的函数，其不可在python中直接调用。callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
 
 kernel/callable可以接受参数。参数列表可为空，由逗号隔开，每一项必须标记类型，形为`name: type`。其中，`name`为参数名字，`type` 为类型标记（见“类型”一节）。
 
@@ -104,6 +104,16 @@ a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
 a1.name1 = value1 # python/kernel 都支持
 ```
 
+（高级用法）结构体可以定义callable方法：
+
+```python
+@luisa.callable_method(struct_t)
+def method1(self: luisa.ref(struct_t), ...):
+    ...
+```
+
+如方法名为`__init__`，该结构体在kernel/callable中构造时会调用该方法。
+
 ### 引用
 
 Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
@@ -120,7 +130,9 @@ kernel不支持引用参数。
 
 ### Buffer类型
 
-在设备上的数组，不能直接在python中访问其元素。暂时只支持标量Buffer
+在设备上的数组，不能直接在python中访问其元素。暂时只支持以标量或向量为元素的Buffer。
+
+Buffer和Array的区别是，Buffer是一种资源，由所有线程共享，长度可以很大；而Array是一个长度固定且较小的变量类型。
 
 类型标记：`luisa.BufferType(dtype)`
 
@@ -168,6 +180,46 @@ python方法：
 
 上传/下载到storage对应类型的numpy.array。
 
+### Accel类型
+
+在设备上的（光线求交）加速结构。
+
+构建例子：
+
+```python
+accel = luisa.Accel()
+v_buffer = luisa.Buffer(3, float3)
+t_buffer = luisa.Buffer(3, int)
+v_buffer.copy_from(np.array([0,0,0,0,0,1,2,0,0,2,1,0], dtype=np.float32))
+t_buffer.copy_from(np.array([0,1,2], dtype=np.int32))
+mesh = luisa.Mesh(v_buffer, t_buffer)
+accel.add(mesh)
+accel.build() 
+```
+
+TODO: `make_ray(origin, direction)`
+
+TODO: `make_ray(origin, direction, t_min, t_max)`
+
+```python
+ray.t_min
+ray.t_max
+ray.get_origin()
+ray.get_direction()
+ray.set_origin(k)
+ray.set_direction(k)
+hit = accel.trace_closest(ray)
+hit.miss()
+hit.inst # instance ID of the hit object
+hit.prim # primitive ID of the hit object
+```
+
+TODO: `interpolate(hit, a,b,c)`
+
+TODO: `offset_ray_origin(p,n)`
+
+TODO: `offset_ray_origin(p,n,w)`
+
 ## 内建函数与方法
 
 kernel/callable中可以调用内置的函数。
@@ -189,12 +241,7 @@ make_bool3(x,y,z), ...
 make_float2x2(...)
 ```
 
-一些类型具有可调用的方法；自定义类暂不支持方法。
-
-```
-Buffer.read(idx)
-Buffer.write(idx, value)
-```
+一些类型具有可调用的方法，见类型对应文档。
 
 ## 变量
 
@@ -231,4 +278,6 @@ def fill():
 `node.dtype` 表达式值的类型，见用户文档“类型”一节。调用 `luisa.types.to_lctype(node.dtype)` 可转换为 `lcapi.Types`
 
 `node.expr` 表达式，类型为 `lcapi.Expression`
+
+## 注
 
