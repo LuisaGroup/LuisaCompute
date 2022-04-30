@@ -15,6 +15,7 @@ from .structtype import StructType
 from . import astbuilder
 from .mathtypes import *
 from .printer import Printer
+from .accel import Ray, Hit, Accel, Mesh
 
 
 def init(backend_name = None):
