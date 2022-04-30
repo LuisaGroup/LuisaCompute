@@ -262,6 +262,7 @@ def builtin_type_cast(dtype, args):
         # construct variable without initialization
         return dtype, lcapi.builder().local(to_lctype(dtype))
     # type cast of basic types
+    # TODO may need temporary variable?
     if dtype in {int, float, bool}:
         assert len(args) == 1 and args[0].dtype in {int, float, bool}
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
@@ -420,6 +421,7 @@ def builtin_func(name, args):
         globalvars.current_kernel.uses_printer = True
         return None, None
 
+    # buffer
     if name == "buffer_read":
         op = lcapi.CallOp.BUFFER_READ
         dtype = args[0].dtype.dtype
@@ -445,6 +447,7 @@ def builtin_func(name, args):
         args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]]) # convert int2 to uint2
         lcapi.builder().call(op, [x.expr for x in args])
         return None, None
+
 
     raise Exception(f'unrecognized function call {name}')
 

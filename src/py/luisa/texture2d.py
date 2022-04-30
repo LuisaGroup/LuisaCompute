@@ -1,6 +1,7 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
+from .types import BuiltinFuncEntry
 
 
 class Texture2D:
@@ -44,11 +45,8 @@ class Texture2D:
         if sync:
             stream.synchronize()
 
-    def read(self, idx):
-        raise Exception("Method can only be called in Luisa kernel / callable")
-
-    def write(self, idx):
-        raise Exception("Method can only be called in Luisa kernel / callable")
+    read = BuiltinFuncEntry("texture2d_read")
+    write = BuiltinFuncEntry("texture2d_write")
 
 
 class Texture2DType:
@@ -58,3 +56,6 @@ class Texture2DType:
 
     def __eq__(self, other):
         return type(other) is Texture2DType and self.dtype == other.dtype
+
+    read = BuiltinFuncEntry("texture2d_read")
+    write = BuiltinFuncEntry("texture2d_write")

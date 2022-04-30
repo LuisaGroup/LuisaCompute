@@ -2,6 +2,7 @@ import numpy as np
 import luisa
 from luisa.mathtypes import *
 
+
 luisa.init()
 # ============= test script ================
 
@@ -34,32 +35,49 @@ def next(self: luisa.ref(RandomSampler)):
 
 
 
-@luisa.kernel
-def f():
-    sampler = RandomSampler(make_int3(dispatch_id().xy, 0))
-    a = sampler.next()
+# @luisa.kernel
+# def f():
+#     sampler = RandomSampler(make_int3(dispatch_id().xy, 0))
+#     a = sampler.next()
 
 
-f(dispatch_size=(2,1,1))
+# f(dispatch_size=(2,1,1))
 # f(dispatch_size=(1024, 1024, 1))
 # luisa.synchronize()
 
+
+
+
 from luisa import globalvars, lcapi
 from luisa.globalvars import get_global_device
+import math
+from math import pi
 
-accel = get_global_device().create_accel(lcapi.AccelUsageHint.FAST_TRACE)
+
+accel = luisa.Accel()
+from luisa import Ray
+
+
 v_buffer = luisa.Buffer(3, float3)
 t_buffer = luisa.Buffer(3, int)
 v_buffer.copy_from(np.array([0,0,0,0,0,1,2,0,0,2,1,0], dtype=np.float32))
 t_buffer.copy_from(np.array([0,1,2], dtype=np.int32))
-v_count = 3
-t_count = 1
-mesh_handle = get_global_device().impl().create_mesh(v_buffer.handle, 0, 16, v_count, t_buffer.handle, 0, t_count, lcapi.AccelUsageHint.FAST_TRACE)
-globalvars.stream.add(lcapi.MeshBuildCommand.create(mesh_handle, lcapi.AccelBuildRequest.PREFER_UPDATE, v_buffer.handle, t_buffer.handle))
-accel.emplace_back(mesh_handle, float4x4.identity(), True)
+mesh = luisa.Mesh(v_buffer, t_buffer)
 
-globalvars.stream.add(accel.build_command(lcapi.AccelBuildRequest.PREFER_UPDATE))
-globalvars.stream.synchronize()
+accel.add(mesh)
+accel.build()
+luisa.globalvars.stream.synchronize()
+
+@luisa.kernel
+def test():
+    a = pi
+    r = Ray()
+    r.set_origin(make_float3(0,0,0))
+    r.t_min = 0.
+    r.t_max = 1e5
+    r.set_dir(make_float3(1,0,0))
+    h = accel.trace_closest(r)
+
 
 # arr = np.ones(1024*1024*4, dtype=np.uint8)
 # img.copy_to(arr)

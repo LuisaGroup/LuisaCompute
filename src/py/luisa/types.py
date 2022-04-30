@@ -53,6 +53,17 @@ class CallableType:
 class BuiltinFuncType:
     pass
 
+class BuiltinFuncEntry:
+    def __init__(self, name):
+        self.name = name
+    def __call__(self, *args):
+        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
+
+class BuiltinFuncBuilder:
+    def __init__(self, builder):
+        self.builder = builder
+    def __call__(self, *args):
+        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
 
 class ref:
     def __init__(self, dtype):
@@ -92,6 +103,8 @@ def dtype_of(val):
 def to_lctype(dtype):
     if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType"}:
         return dtype.luisa_type
+    if dtype.__name__ == "Accel":
+        return lcapi.Type.from_("accel")
     if dtype in basic_type_dict:
         return basic_type_dict[dtype]
     raise Exception(f"to_lctype({dtype}): unrecognized type")
