@@ -303,7 +303,7 @@ def fill():
 
 `BuiltinFuncBuilder` 该节点表示的是一个内建函数，此时`node.expr`为一个函数` (argnodes)->(dtype,expr)`
 
-`str` 该节点表示的是一个字符串，这种情况只允许在 `print` 函数的参数里出现
+`str` 该节点表示的是一个字符串，此时`node.expr`为一个字符串字面值。这种情况只允许在 `print` 函数的参数里出现
 
 
 
