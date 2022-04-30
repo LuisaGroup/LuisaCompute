@@ -53,6 +53,17 @@ class CallableType:
 class BuiltinFuncType:
     pass
 
+class BuiltinFuncEntry:
+    def __init__(self, name):
+        self.name = name
+    def __call__(self, *args):
+        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
+
+class BuiltinFuncBuilder:
+    def __init__(self, builder):
+        self.builder = builder
+    def __call__(self, *args):
+        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
 
 class ref:
     def __init__(self, dtype):
@@ -61,6 +72,10 @@ class ref:
 
 
 def dtype_of(val):
+    if type(val).__name__ == "module" and val.__name__ == "luisa":
+        raise NameError("Do not use module luisa in kernel/callable. If you wish to use builtin functions, don't prefix them with 'luisa.'; If you wish to use other components of luisa, import their name from luisa beforehand.")
+    if type(val).__name__ == "module":
+        raise NameError("Do not use module in kernel/callable. If you wish to use its members, import their name from the module beforehand.")
     if type(val) is str:
         return str
     if type(val) in basic_type_dict:
@@ -73,6 +88,8 @@ def dtype_of(val):
         return val.bufferType
     if type(val).__name__ == "Texture2D":
         return val.texture2DType
+    if type(val).__name__ == "Accel":
+        return type(val)
     if type(val).__name__ == "kernel":
         assert val.is_device_callable
         return CallableType
@@ -86,6 +103,8 @@ def dtype_of(val):
 def to_lctype(dtype):
     if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType"}:
         return dtype.luisa_type
+    if dtype.__name__ == "Accel":
+        return lcapi.Type.from_("accel")
     if dtype in basic_type_dict:
         return basic_type_dict[dtype]
     raise Exception(f"to_lctype({dtype}): unrecognized type")
