@@ -24,6 +24,13 @@ add_custom_command(TARGET lcapi-copy
         "$<TARGET_FILE_DIR:luisa-compute-core>/test_sdf_render.py"
         VERBATIM)
 add_custom_command(TARGET lcapi-copy
+        DEPENDS test_sdf_render.py
+        COMMENT "Copying Python test"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_path_tracing.py"
+        "$<TARGET_FILE_DIR:luisa-compute-core>/test_path_tracing.py"
+        VERBATIM)
+add_custom_command(TARGET lcapi-copy
         DEPENDS luisa
         COMMENT "Copying Python package"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
