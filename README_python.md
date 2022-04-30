@@ -128,6 +128,8 @@ def flipsign(x: luisa.ref(int)):
 
 kernel不支持引用参数。
 
+注意：引用类型只可以在参数列表中使用。
+
 ### Buffer类型
 
 在设备上的数组，不能直接在python中访问其元素。暂时只支持以标量或向量为元素的Buffer。
@@ -220,6 +222,10 @@ TODO: `offset_ray_origin(p,n)`
 
 TODO: `offset_ray_origin(p,n,w)`
 
+### 类型转换
+
+TODO
+
 ## 内建函数与方法
 
 kernel/callable中可以调用内置的函数。
@@ -261,6 +267,12 @@ def fill():
 
 # Python-Luisa 开发者文档
 
+## 概述
+
+
+
+## 文件结构
+
 `src/py/lcapi.cpp` 导出PyBind接口到名为 lcapi 的库
 
 `src/py/luisa` python库
@@ -278,6 +290,22 @@ def fill():
 `node.dtype` 表达式值的类型，见用户文档“类型”一节。调用 `luisa.types.to_lctype(node.dtype)` 可转换为 `lcapi.Types`
 
 `node.expr` 表达式，类型为 `lcapi.Expression`
+
+## 其它类型标记
+
+除用户文档中的类型标记外，AST节点的类型标记 `node.dtype` 还可以为以下值。这些值不可以作为 kernel/callable 的类型标记。
+
+`type` 该节点表示的是一个类型，此时`node.expr`为对应的类型标记
+
+`CallableType` 该节点表示的是一个callable，此时`node.expr`为callable
+
+`BuiltinFuncType` 该节点表示的是一个内建函数，此时`node.expr`为一个字符串，内建函数的名字
+
+`BuiltinFuncBuilder` 该节点表示的是一个内建函数，此时`node.expr`为一个函数` (argnodes)->(dtype,expr)`
+
+`str` 该节点表示的是一个字符串，这种情况只允许在 `print` 函数的参数里出现
+
+
 
 ## 注
 
