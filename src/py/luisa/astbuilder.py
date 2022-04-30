@@ -76,8 +76,10 @@ class ASTVisitor:
     def build_Expr(node):
         if isinstance(node.value, ast.Call):
             build(node.value)
+            if node.value.dtype != None:
+                raise TypeError("Expr: Discarding return value")
         else:
-            print("WARNING: Expr discarded")
+            raise TypeError("Dangling expression.")
 
     @staticmethod
     def build_Return(node):
@@ -263,7 +265,7 @@ class ASTVisitor:
         else:
             # must assign with same type; no implicit casting is allowed.
             if node.targets[0].dtype != node.value.dtype:
-                raise TypeError(f"Can't assign to {node.targets[0].id} ({node.targets[0].dtype}) with {node.value.dtype} ")
+                raise TypeError(f"Can't assign to {node.targets[0].dtype} with {node.value.dtype} ")
         lcapi.builder().assign(node.targets[0].expr, node.value.expr)
 
     @staticmethod

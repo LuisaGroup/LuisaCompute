@@ -61,6 +61,10 @@ class ref:
 
 
 def dtype_of(val):
+    if type(val).__name__ == "module" and val.__name__ == "luisa":
+        raise NameError("Do not use module luisa in kernel/callable. If you wish to use builtin functions, don't prefix them with 'luisa.'; If you wish to use other components of luisa, import their name from luisa beforehand.")
+    if type(val).__name__ == "module":
+        raise NameError("Do not use module in kernel/callable. If you wish to use its members, import their name from the module beforehand.")
     if type(val) is str:
         return str
     if type(val) in basic_type_dict:
