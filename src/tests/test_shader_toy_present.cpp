@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
         Var uuv = ro + cf * 3.0f + uv.x * cs + uv.y * cu;
         Var rd = normalize(uuv - ro);
         Var col = rm(ro, rd, time);
-        image.write(xy, make_float4(pow(col.xyz(), 2.2f) * 10.f, 1.0f));
+        image.write(xy, make_float4(pow(col.xyz(), 2.2f) * 1.f, 1.0f));
     };
 
     Kernel2D<Image<float>, float> k = main_kernel;
@@ -107,6 +107,9 @@ int main(int argc, char *argv[]) {
         stream << shader(device_image, time).dispatch(width, height)
                << swap_chain.present(device_image);
         glfwPollEvents();
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            glfwSetWindowShouldClose(window, true);
+        }
     }
     stream << synchronize();
 }
