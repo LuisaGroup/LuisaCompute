@@ -1,7 +1,7 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype, is_vector_type
+from .types import to_lctype, is_vector_type, BuiltinFuncEntry
 
 class Buffer:
     def __init__(self, size, dtype):
@@ -32,11 +32,8 @@ class Buffer:
         if sync:
             stream.synchronize()
 
-    def read(self, idx):
-        raise Exception("Method can only be called in Luisa kernel / callable")
-
-    def write(self, idx):
-        raise Exception("Method can only be called in Luisa kernel / callable")
+    read = BuiltinFuncEntry("buffer_read")
+    write = BuiltinFuncEntry("buffer_write")
 
 
 class BufferType:
@@ -46,3 +43,6 @@ class BufferType:
 
     def __eq__(self, other):
         return type(other) is BufferType and self.dtype == other.dtype
+
+    read = BuiltinFuncEntry("buffer_read")
+    write = BuiltinFuncEntry("buffer_write")

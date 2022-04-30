@@ -8,10 +8,9 @@ from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call
-from .types import dtype_of, to_lctype, CallableType, BuiltinFuncType, is_vector_type
+from .types import dtype_of, to_lctype, CallableType, is_vector_type
+from .types import BuiltinFuncType, BuiltinFuncEntry, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
-from .buffer import BufferType
-from .texture2d import Texture2DType
 from .arraytype import ArrayType
 from .structtype import StructType
 
@@ -110,6 +109,8 @@ class ASTVisitor:
             # funciton name undefined: look into builtin functions
             elif node.func.dtype is BuiltinFuncType:
                 node.dtype, node.expr = builtin_func(node.func.expr, node.args)
+            elif node.func.dtype is BuiltinFuncBuilder:
+                node.dtype, node.expr = node.func.expr.builder(node.args)
             # type: cast / construct
             elif node.func.dtype is type:
                 dtype = node.func.expr
@@ -123,6 +124,8 @@ class ASTVisitor:
                 node.dtype, node.expr = callable_call(node.func.expr, [node.func.value] + node.args)
             elif node.func.dtype is BuiltinFuncType:
                 node.dtype, node.expr = builtin_func(node.func.expr, [node.func.value] + node.args)
+            elif node.func.dtype is BuiltinFuncBuilder:
+                node.dtype, node.expr = node.func.expr.builder([node.func.value] + node.args)
             else:
                 raise TypeError(f'calling non-callable member ({node.func.dtype}).')
         else:
@@ -149,22 +152,14 @@ class ASTVisitor:
                 node.expr = node.value.dtype.method_dict[node.attr]
             else: # data member
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
-        # buffer methods
-        elif type(node.value.dtype) is BufferType:
-            if node.attr == "read":
-                node.dtype, node.expr = BuiltinFuncType, "buffer_read"
-            elif node.attr == "write":
-                node.dtype, node.expr = BuiltinFuncType, "buffer_write"
+        elif hasattr(node.value.dtype, node.attr):
+            entry = getattr(node.value.dtype, node.attr)
+            if type(entry) is BuiltinFuncEntry:
+                node.dtype, node.expr = BuiltinFuncType, entry.name
+            elif type(entry) is BuiltinFuncBuilder:
+                node.dtype, node.expr = BuiltinFuncBuilder, entry
             else:
-                raise AttributeError(f"buffer has no attribute '{node.attr}'")
-        # texture methods
-        elif type(node.value.dtype) is Texture2DType:
-            if node.attr == "read":
-                node.dtype, node.expr = BuiltinFuncType, "texture2d_read"
-            elif node.attr == "write":
-                node.dtype, node.expr = BuiltinFuncType, "texture2d_write"
-            else:
-                raise AttributeError(f"Texture2D has no attribute '{node.attr}'")
+                raise TypeError(f"Can't access member {entry} in kernel/callable")
         else:
             raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
 
@@ -200,6 +195,8 @@ class ASTVisitor:
             return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0) # offset defaults to 0
         if lctype.is_texture():
             return dtype, lcapi.builder().texture_binding(lctype, val.handle, 0) # miplevel defaults to 0
+        if lctype.is_accel():
+            return dtype, lcapi.builder().accel_binding(val.handle)
         if lctype.is_array():
             # create array and assign each element
             expr = lcapi.builder().local(lctype)
