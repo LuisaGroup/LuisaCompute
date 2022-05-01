@@ -58,7 +58,9 @@ int main(int argc, char *argv[]) {
 
     auto display_shader = device.compile(display_kernel);
 
+    Clock clock;
     command_buffer << display_shader(image_byte4).dispatch(resolution)
                    << printer.retrieve()
                    << synchronize();
+    LUISA_INFO("Finished in {} ms.", clock.toc());
 }
