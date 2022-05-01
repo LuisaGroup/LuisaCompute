@@ -245,7 +245,7 @@ class ASTVisitor:
     @staticmethod
     def build_Assign(node):
         if len(node.targets) != 1:
-            raise Exception('Tuple assignment not supported')
+            raise Exception('Chained assignment not supported')
         # allows left hand side to be undefined
         if type(node.targets[0]) is ast.Name:
             build.build_Name(node.targets[0], allow_none=True)
