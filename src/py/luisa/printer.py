@@ -106,7 +106,7 @@ class Printer:
 		return lcapi.builder().binary(to_lctype(int), lcapi.BinaryOp.ADD, expr, kexpr)
 
 	def kernel_print(self, argnodes, sep=' ', end='\n'):
-		self.buffer_expr = lcapi.builder().buffer_binding(to_lctype(dtype_of(self.buffer)), self.buffer.handle, 0)
+		self.buffer_expr = lcapi.builder().buffer_binding(to_lctype(dtype_of(self.buffer)), self.buffer.handle, 0, self.buffer.bytesize)
 		# compute size of buffer to be used
 		def intexpr(k):
 			return lcapi.builder().literal(to_lctype(int), k)
