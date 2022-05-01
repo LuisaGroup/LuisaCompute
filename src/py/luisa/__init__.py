@@ -12,6 +12,7 @@ from lcapi import PixelStorage
 
 from .printer import Printer
 from .accel import Ray, Hit, Accel, Mesh
+from .bindless import BindlessArray
 
 
 def init(backend_name = None):
