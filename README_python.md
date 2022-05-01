@@ -54,11 +54,13 @@ kernel/callable可以接受参数。参数列表可为空，由逗号隔开，�
 - 单精度浮点数 `float`
 - 逻辑类型 `bool`
 
+注意 int/float 与 python 中的 int/float 精度不同。
+
 ### 向量、矩阵类型
 
 `luisa.float3`, `luisa.float3x3` , ...
 
-注：向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，矩阵只支持float矩阵。
+向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，矩阵只支持float矩阵。
 
 导入命名空间：
 
@@ -116,7 +118,7 @@ def method1(self: luisa.ref(struct_t), ...):
 
 ### 引用
 
-Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
+（高级用法）Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
 
 ```python
 @luisa.callable
@@ -124,11 +126,13 @@ def flipsign(x: luisa.ref(int)):
     x = -x
 ```
 
+这使得在Callable中可以改变调用者传入参数的值。
+
 参数类型可以为标量、向量、矩阵、数组、结构体的引用。注意Buffer等资源类型在传参过程中并不会复制数据，将资源类型作为参数时请勿标记为引用。
 
 kernel不支持引用参数。
 
-注意：引用类型只可以在参数列表中使用。
+注意：引用不是一种数据类型。只能用于标记参数的类型。
 
 ### Buffer类型
 
@@ -153,6 +157,16 @@ python方法：
 `copy_from(arr)`
 
 元素为标量的buffer可以上传/下载到对应类型的numpy.array，注意必须使用int32/float32，而不是默认的64位类型。
+
+当元素类型为向量时，需要使用对应长度的标量类型的numpy.array。注意：由于对齐要求，长度为3的向量占用4个对应类型标量的空间，矩阵float3x3占用12个float32的空间。例如
+
+```python
+b = luisa.Buffer(100, luisa.float3)
+arr = numpy.zeros(400, dtype=numpy.float32)
+b.copy_from(arr)
+```
+
+TODO: 需要提供用户友好的上传下载方式，以及支持其它类型元素的buffer
 
 ### Texture2D类型
 
@@ -211,6 +225,7 @@ ray.get_direction()
 ray.set_origin(k)
 ray.set_direction(k)
 hit = accel.trace_closest(ray)
+hit1 = accel.trace_any(ray)
 hit.miss()
 hit.inst # instance ID of the hit object
 hit.prim # primitive ID of the hit object
@@ -263,7 +278,11 @@ def fill():
 
 ## 语法参考
 
-...
+kernel中尚不支持 list, tuple, dict 等python提供的数据结构
+
+### for 循环
+
+仅支持 range for，形如 `for x in range(...)`
 
 # Python-Luisa 开发者文档
 
@@ -283,17 +302,29 @@ def fill():
 
 暂无文档。见`src/py/lcapi.cpp` 指向的c++函数
 
-## AST变换
+## 抽象语法树
 
-对AST的表达式节点维护两个属性：
+使用Python提供的语法解析工具，可以将用户函数解析为一个Python抽象语法树（AST）。astbuilder模块递归地遍历这一语法树，在遍历过程中调用lcapi，以将该语法树转换为LuisaCompute的函数表示。
 
-`node.dtype` 表达式值的类型，见用户文档“类型”一节。调用 `luisa.types.to_lctype(node.dtype)` 可转换为 `lcapi.Types`
+对于每一个kernel/callable，在遍历过程中，维护一些全局信息：
 
-`node.expr` 表达式，类型为 `lcapi.Expression`
+local_variable[变量名] -> (dtype, expr)
 
-## 其它类型标记
+return_type
 
-除用户文档中的类型标记外，AST节点的类型标记 `node.dtype` 还可以为以下值。这些值不可以作为 kernel/callable 的类型标记。
+uses_printer
+
+在递归遍历语法树过程中，对AST的每个表达式节点计算出两个属性：
+
+`node.dtype` 该节点的类型标记，表示其表达式值的类型，见用户文档“类型”一节。
+
+如果该节点的类型是一个数据类型（即标记类型为用户文档中除ref外的类型，而不是下述的“非数据类型标记”），那么调用 `luisa.types.to_lctype(node.dtype)` 可将类型标记转换为 `lcapi.Types`
+
+`node.expr` 该节点的表达式。如果该节点的类型是一个数据类型，那么其表达式的类型为 `lcapi.Expression`；否则见下
+
+## 非数据类型标记
+
+除用户文档中的类型标记外，AST节点的类型标记 `node.dtype` 还可以为以下值。这些值不可以作为 kernel/callable 的参数类型标记。
 
 `type` 该节点表示的是一个类型，此时`node.expr`为对应的类型标记
 

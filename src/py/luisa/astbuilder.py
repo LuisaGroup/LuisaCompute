@@ -180,7 +180,7 @@ class ASTVisitor:
             raise TypeError(f"{node.value.dtype} can't be subscripted")
         node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
 
-    # external variable captured in kernel -> type + expression
+    # external variable captured in kernel -> (dtype, expr)
     @staticmethod
     def captured_expr(val):
         dtype = dtype_of(val)
@@ -283,11 +283,10 @@ class ASTVisitor:
         build(node.right)
         node.dtype, node.expr = builtin_bin_op(type(node.op), node.left, node.right)
 
-
     @staticmethod
     def build_Compare(node):
         if len(node.comparators) != 1:
-            raise Exception('chained comparison not supported yet.')
+            raise NotImplementedError('chained comparison not supported yet.')
         build(node.left)
         build(node.comparators[0])
         node.dtype, node.expr = builtin_bin_op(type(node.ops[0]), node.left, node.comparators[0])
@@ -296,7 +295,7 @@ class ASTVisitor:
     def build_BoolOp(node):
         # should be short-circuiting
         if len(node.values) != 2:
-            raise Exception('chained bool op not supported yet. use brackets instead.')
+            raise NotImplementedError('chained bool op not supported yet. use brackets instead.')
         for x in node.values:
             build(x)
         node.dtype, node.expr = builtin_bin_op(type(node.op), node.values[0], node.values[1])

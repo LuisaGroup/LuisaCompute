@@ -94,13 +94,13 @@ def make_nested(f: float):
 @luisa.callable
 def sdf(o: float3):
     wall = min(o.y + 0.1, o.z + 0.4)
-    sphere = length(o - make_float3(0.0, 0.35, 0.0)) - 0.36
+    sphere = length(o - float3(0.0, 0.35, 0.0)) - 0.36
 
-    q = abs(o - make_float3(0.8, 0.3, 0.0)) - make_float3(0.3, 0.3, 0.3)
+    q = abs(o - float3(0.8, 0.3, 0.0)) - float3(0.3, 0.3, 0.3)
     box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0)
 
-    O = o - make_float3(-0.8, 0.3, 0.0)
-    d = make_float2(length(make_float2(O.x, O.z)) - 0.3, abs(O.y) - 0.3)
+    O = o - float3(-0.8, 0.3, 0.0)
+    d = float2(length(float2(O.x, O.z)) - 0.3, abs(O.y) - 0.3)
     cylinder = min(max(d.x, d.y), 0.0) + length(max(d, 0.0))
 
     geometry = make_nested(min(min(sphere, box), cylinder))
@@ -110,40 +110,19 @@ def sdf(o: float3):
 
 @luisa.callable
 def ray_march(p: float3, d: float3):
-    j = 0
     dist = 0.0
-
-    # GOOD
-    # for j in range(100):
-    #     s = sdf(p + dist * d)
-    #     if s <= 1e-6 or dist >= inf:
-    #         break
-    #     dist += s
-
-    # GOOD
-    # while j < 100:
-    #     if not (sdf(p + dist * d) > 1e-6 and dist < inf):
-    #         break
-    #     dist += sdf(p + dist * d)
-    #     j += 1
-
-    # BAD
-    # while (j < 100 and sdf(p + dist * d) > 1e-6) and dist < inf:
-
-    # GOOD
-    # while (j < 100 and dist < inf) and sdf(p + dist * d) > 1e-6:
-
-    # GOOD
-    while j < 100 and (sdf(p + dist * d) > 1e-6 and dist < inf):
-        dist += sdf(p + dist * d)
-        j += 1
+    for j in range(100):
+        s = sdf(p + dist * d)
+        if s <= 1e-6 or dist >= inf:
+            break
+        dist += s
     return min(inf, dist)
 
 
 @luisa.callable
 def sdf_normal(p: float3):
     d = 1e-3
-    n = make_float3(0.0, 0.0, 0.0)
+    n = float3(0)
     sdf_center = sdf(p)
     for i in range(3):
         inc = p
@@ -155,15 +134,15 @@ def sdf_normal(p: float3):
 @luisa.callable
 def next_hit(pos: float3, d: float3):
     closest = inf
-    normal = make_float3(0, 0, 0)
-    c = make_float3(0, 0, 0)
+    normal = float3(0)
+    c = float3(0)
     ray_march_dist = ray_march(pos, d)
     if ray_march_dist < dist_limit and ray_march_dist < closest:
         closest = ray_march_dist
         normal = sdf_normal(pos + d * closest)
         hit_pos = pos + d * closest
         t = int((hit_pos[0] + 10) * 1.1 + 0.5) % 3
-        c = make_float3(
+        c = float3(
             0.4 + 0.3 * float(t == 0), 0.4 + 0.2 * float(t == 1), 0.4 + 0.3 * float(t == 2))
     result = next_hit_struct()
     result.closest = closest
