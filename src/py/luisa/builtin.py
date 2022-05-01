@@ -300,11 +300,13 @@ def make_vector_call(dtype, op, args):
 
 
 def check_exact_signature(signature, args, name):
+    signature_repr = ','.join([getattr(x,'__name__',None) or repr(x) for x in signature])
+    giventype_repr = ','.join([getattr(x.dtype,'__name__',None) or repr(x.dtype) for x in args])
     if len(signature) != len(args):
-        raise TypeError(f"{name} takes exactly {len(signature)} arguments, {len(args)} given.")
+        raise TypeError(f"{name} takes exactly {len(signature)} arguments ({signature_repr}), {len(args)} given.")
     for idx in range(len(args)):
         if signature[idx] != args[idx].dtype:
-            raise TypeError(f"{name} expects ({','.join([getattr(x,'__name__',None) or repr(x) for x in signature])}). Calling with ({','.join([getattr(x.dtype,'__name__',None) or repr(x.dtype) for x in args])})")
+            raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
 
 
 # return dtype, expr

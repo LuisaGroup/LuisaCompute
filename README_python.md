@@ -196,6 +196,37 @@ python方法：
 
 上传/下载到storage对应类型的numpy.array。
 
+### BindlessArray类型
+
+可以放置多个 buffer / texture2d(float) 的容器。
+
+创建：
+
+```python
+a = luisa.BindlessArray()
+a.emplace(123, luisa.Buffer(...))
+a.emplace(456, luisa.Texture2D(..., dtype=float))
+a.remove_buffer(123)
+a.remove_texture2d(456)
+res in a
+a.update()
+```
+
+进入kernel使用前需要调用update
+
+作为参数的类型标记：`luisa.BindlessArray`
+
+kernel/callable 方法：
+
+```python
+a.buffer_read(element_type, idx, element_idx)
+a.texture2d_read(idx, coord)
+a.texture2d_sample(idx, uv)
+a.texture2d_size(idx)
+```
+
+注：目前的用法有点奇怪，可能后续会更改
+
 ### Accel类型
 
 在设备上的（光线求交）加速结构。
@@ -212,6 +243,10 @@ mesh = luisa.Mesh(v_buffer, t_buffer)
 accel.add(mesh)
 accel.build() 
 ```
+
+作为参数的类型标记：`luisa.Accel`
+
+kernel/callable 方法：
 
 TODO: `make_ray(origin, direction)`
 

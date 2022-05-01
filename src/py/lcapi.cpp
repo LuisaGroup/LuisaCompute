@@ -352,19 +352,19 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("pixel_storage_size", pixel_storage_size);
 
     // sampler
-    py::enum_<Sampler::Filter>(Sampler, "Filter")
+    auto m_sampler = py::class_<Sampler>(m, "Sampler")
+        .def(py::init<Sampler::Filter, Sampler::Address>());
+
+    py::enum_<Sampler::Filter>(m_sampler, "Filter")
         .value("POINT", Sampler::Filter::POINT)
         .value("LINEAR_POINT", Sampler::Filter::LINEAR_POINT)
         .value("LINEAR_LINEAR", Sampler::Filter::LINEAR_LINEAR)
         .value("ANISOTROPIC", Sampler::Filter::ANISOTROPIC);
 
-    py::enum_<Sampler::Address>(Sampler, "Address")
+    py::enum_<Sampler::Address>(m_sampler, "Address")
         .value("EDGE", Sampler::Address::EDGE)
         .value("REPEAT", Sampler::Address::REPEAT)
         .value("MIRROR", Sampler::Address::MIRROR)
         .value("ZERO", Sampler::Address::ZERO);
-
-    py::class_<Sampler>(m, "Sampler")
-        .def(py::init<Sampler::Filter, Sampler::Address>());
 
 }
