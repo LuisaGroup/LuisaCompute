@@ -27,7 +27,11 @@ public:
 private:
     uint _triangle_count{};
     uint64_t _v_buffer{};
+    size_t _v_buffer_offset{};
+    size_t _v_buffer_size{};
     uint64_t _t_buffer{};
+    size_t _t_buffer_offset{};
+    size_t _t_buffer_size{};
 
 private:
     friend class Device;
@@ -61,7 +65,11 @@ private:
                    _create_resource(device, hint, vertex_buffer, triangle_buffer)},
           _triangle_count{static_cast<uint>(triangle_buffer.size())},
           _v_buffer{BufferView{vertex_buffer}.handle()},
-          _t_buffer{BufferView{triangle_buffer}.handle()} {}
+          _v_buffer_offset{BufferView{vertex_buffer}.offset_bytes()},
+          _v_buffer_size{BufferView{vertex_buffer}.size_bytes()},
+          _t_buffer{BufferView{triangle_buffer}.handle()},
+          _t_buffer_offset{BufferView{triangle_buffer}.offset_bytes()},
+          _t_buffer_size{BufferView{triangle_buffer}.size_bytes()} {}
 
 public:
     Mesh() noexcept = default;

@@ -11,7 +11,6 @@
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_heap.h>
 
 namespace luisa::compute::cuda {
 
@@ -100,9 +99,9 @@ public:
 
 private:
     Handle _handle;
-    luisa::unique_ptr<CUDAHeap> _heap;
     CUmodule _accel_update_module{nullptr};
     CUfunction _accel_update_function{nullptr};
+    CUfunction _stream_wait_value_function{nullptr};
 
 public:
     /**
@@ -119,12 +118,6 @@ public:
      * @return Handle
      */
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
-    /**
-     * @brief Return address of CUDAHeap
-     * 
-     * @return CUDAHeap*
-     */
-    [[nodiscard]] auto heap() noexcept { return _heap.get(); }
     /**
      * @brief Create a buffer on device
      * 
@@ -158,10 +151,11 @@ public:
     void destroy_texture(uint64_t handle) noexcept override;
     /**
      * @brief Create a CUDAStream object
-     * 
+     * @param for_present Whether the stream is used for display presentation
+     *
      * @return address of CUDAStream
      */
-    uint64_t create_stream() noexcept override;
+    uint64_t create_stream(bool for_present) noexcept override;
     /**
      * @brief Destroy a CUDAStream object
      * 
@@ -308,23 +302,14 @@ public:
      */
     void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
     /**
-     * @brief If buffer is in bindless array
+     * @brief Checks if the resource is in the bindless array
      * 
-     * @param array handle of bindless array
-     * @param handle handle of buffer
-     * @return true 
-     * @return false 
+     * @param array handle of the bidnless array
+     * @param handle handle of the resource
+     * @return true if the resource is in the bindless array
+     * @return false if the resource is not in the bindless array
      */
-    bool is_buffer_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
-    /**
-     * @brief If texture is in bindless array
-     * 
-     * @param array handle of bidnless array
-     * @param handle handle of texture
-     * @return true 
-     * @return false 
-     */
-    bool is_texture_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
+    bool is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override;
     /**
      * @brief Remove buffer from bidnless array
      * 
@@ -405,6 +390,12 @@ public:
      * @return pointer to the kernel function
      */
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
+    /**
+     * @brief Get pointer to the pre-defined stream fence kernel function
+     *
+     * @return pointer to the kernel function
+     */
+    [[nodiscard]] auto stream_fence_function() const noexcept { return _stream_wait_value_function; }
     /**
      * @brief Dispatch a host function in the stream
      *

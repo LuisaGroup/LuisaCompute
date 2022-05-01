@@ -23,7 +23,7 @@ inline void CUDACommandEncoder::with_upload_buffer(size_t size, F &&f) noexcept 
 }
 
 void CUDACommandEncoder::visit(const BufferUploadCommand *command) noexcept {
-    auto buffer = CUDAHeap::buffer_address(command->handle()) + command->offset();
+    auto buffer = command->handle() + command->offset();
     auto data = command->data();
     auto size = command->size();
     with_upload_buffer(size, [&](auto upload_buffer) noexcept {
@@ -35,15 +35,15 @@ void CUDACommandEncoder::visit(const BufferUploadCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(const BufferDownloadCommand *command) noexcept {
-    auto buffer = CUDAHeap::buffer_address(command->handle()) + command->offset();
+    auto buffer = command->handle() + command->offset();
     auto data = command->data();
     auto size = command->size();
     LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(data, buffer, size, _stream->handle()));
 }
 
 void CUDACommandEncoder::visit(const BufferCopyCommand *command) noexcept {
-    auto src_buffer = CUDAHeap::buffer_address(command->src_handle()) + command->src_offset();
-    auto dst_buffer = CUDAHeap::buffer_address(command->dst_handle()) + command->dst_offset();
+    auto src_buffer = command->src_handle() + command->src_offset();
+    auto dst_buffer = command->dst_handle() + command->dst_offset();
     auto size = command->size();
     LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dst_buffer, src_buffer, size, _stream->handle()));
 }
@@ -55,7 +55,7 @@ void CUDACommandEncoder::visit(const BufferToTextureCopyCommand *command) noexce
     auto pixel_size = pixel_storage_size(command->storage());
     auto pitch = pixel_size * command->size().x;
     copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-    copy.srcDevice = CUDAHeap::buffer_address(command->buffer()) + command->buffer_offset();
+    copy.srcDevice = command->buffer() + command->buffer_offset();
     copy.srcPitch = pitch;
     copy.srcHeight = command->size().y;
     copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
@@ -137,7 +137,7 @@ void CUDACommandEncoder::visit(const TextureToBufferCopyCommand *command) noexce
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = array;
     copy.dstMemoryType = CU_MEMORYTYPE_DEVICE;
-    copy.dstDevice = CUDAHeap::buffer_address(command->buffer()) + command->buffer_offset();
+    copy.dstDevice = command->buffer() + command->buffer_offset();
     copy.dstPitch = pitch;
     copy.dstHeight = command->size().y;
     copy.WidthInBytes = pitch;

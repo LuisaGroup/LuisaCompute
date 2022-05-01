@@ -8,6 +8,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <dsl/syntax.h>
+#include <dsl/sugar.h>
 #include <dsl/printer.h>
 
 using namespace luisa;
@@ -18,14 +19,16 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("ispc");
+    auto device = context.create_device("cuda");
 
     Printer printer{device};
 
     // __device__
     Callable linear_to_srgb = [&](Float3 linear) noexcept {
         auto x = linear.xyz();
-        printer.log("Linear: (", x.x, ", ", x.y, ", ", x.z, ")");
+        $if(all(dispatch_id() == make_uint3(33, 0, 0))) {
+            printer.log("Linear: (", x.x, ", ", x.y, ", ", x.z, ")");
+        };
         auto srgb = make_uint3(
             round(saturate(
                       select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -45,7 +48,9 @@ int main(int argc, char *argv[]) {
     Kernel2D fill_image_kernel = [&](BufferUInt image) noexcept {
         auto coord = dispatch_id().xy();
         auto rg = make_float2(coord) / make_float2(dispatch_size().xy());
-        printer.log(1, 1.f, true, "Hello, coord = (", coord.x, ", ", coord.y, ")");
+        $if(all(dispatch_id() == make_uint3(12, 0, 0))) {
+            printer.log(1, 1.f, true, "Hello, coord = (", coord.x, ", ", coord.y, ")");
+        };
         image.write(coord.x + coord.y * dispatch_size_x(), linear_to_srgb(make_float3(rg, 0.5f)));
     };
 

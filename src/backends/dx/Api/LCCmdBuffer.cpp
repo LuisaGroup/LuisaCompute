@@ -21,10 +21,10 @@ public:
     vstd::vector<vbyte> argBuffer;
     vstd::vector<BottomAccelData> bottomAccelDatas;
     size_t buildAccelSize = 0;
-    vstd::vector<size_t, VEngine_AllocType::VEngine, 4> accelOffset;
+    vstd::vector<std::pair<size_t, size_t>, VEngine_AllocType::VEngine, 4> accelOffset;
     void AddBuildAccel(size_t size) {
-        accelOffset.emplace_back(buildAccelSize);
         size = CalcAlign(size, 256);
+        accelOffset.emplace_back(buildAccelSize, size);
         buildAccelSize += size;
     }
     void UniformAlign(size_t align) {
@@ -50,12 +50,13 @@ public:
         Function f;
         Variable const *arg;
 
-        void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BufferArgument const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0) {
                 self->stateTracker->RecordState(
                     res,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    true);
             } else {
                 self->stateTracker->RecordState(
                     res,
@@ -63,7 +64,7 @@ public:
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
+        void operator()(ShaderDispatchCommand::TextureArgument const &bf) {
             vstd::string name;
             CodegenUtility::GetVariableName(
                 *arg,
@@ -73,7 +74,8 @@ public:
             if (((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0) {
                 self->stateTracker->RecordState(
                     rt,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    true);
             }
             // SRV
             else {
@@ -83,7 +85,7 @@ public:
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             for (auto &&i : self->stateTracker->WriteStateMap()) {
                 if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i.first))) {
@@ -96,22 +98,22 @@ public:
             self->backState.clear();
             ++arg;
         }
-        void operator()(uint uid, vstd::span<std::byte const> bf) {
-            if (bf.size() < 4) {
-                bool v = (bool)bf[0];
+        void operator()(ShaderDispatchCommand::UniformArgument const &bf) {
+            if (bf.size < 4) {
+                bool v = (bool)bf.data[0];
                 uint value = v ? std::numeric_limits<uint>::max() : 0;
                 self->EmplaceData(value);
 
             } else {
                 auto type = arg->type();
                 if (type->is_vector() && type->dimension() == 3)
-                    self->EmplaceData(bf.data(), 12);
+                    self->EmplaceData(bf.data, 12);
                 else
-                    self->EmplaceData(bf.data(), bf.size());
+                    self->EmplaceData(bf.data, bf.size);
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+        void operator()(ShaderDispatchCommand::AccelArgument const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if (accel->GetInstBuffer()) {
                 if (((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0) {
@@ -198,30 +200,15 @@ public:
         size_t afterSize = argBuffer.size();
         argVecs.emplace_back(beforeSize, afterSize - beforeSize);
     }
-    void visit(const AccelUpdateCommand *cmd) noexcept override {
-        auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
-        AddBuildAccel(accel->PreProcess(
-            *stateTracker,
-            *bd,
-            true));
-    }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         AddBuildAccel(
             accel->PreProcess(
                 *stateTracker,
                 *bd,
-                false));
-    }
-    void visit(const MeshUpdateCommand *cmd) noexcept override {
-        auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        AddBuildAccel(
-            accel->PreProcessStates(
-                *bd,
-                *stateTracker,
-                //TODO: driver's bug, do not support update mesh's accel
-                false,
-                bottomAccelDatas.emplace_back()));
+                cmd->instance_count(),
+                cmd->modifications(),
+                cmd->request() == AccelBuildRequest::PREFER_UPDATE));
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
@@ -229,7 +216,9 @@ public:
             accel->PreProcessStates(
                 *bd,
                 *stateTracker,
-                false,
+                cmd->request() == AccelBuildRequest::PREFER_UPDATE,
+                reinterpret_cast<Buffer const *>(cmd->vertex_buffer()),
+                reinterpret_cast<Buffer const *>(cmd->triangle_buffer()),
                 bottomAccelDatas.emplace_back()));
     }
     void visit(const BindlessArrayUpdateCommand *cmd) noexcept override {
@@ -246,9 +235,10 @@ public:
     ResourceStateTracker *stateTracker;
     BufferView argBuffer;
     Buffer const *accelScratchBuffer;
-    size_t *accelScratchOffsets;
+    std::pair<size_t, size_t> *accelScratchOffsets;
     std::pair<size_t, size_t> *bufferVec;
     vstd::vector<BindProperty> bindProps;
+    vstd::vector<ButtomCompactCmd> updateAccel;
     BottomAccelData *bottomAccelData;
 
     void visit(const BufferUploadCommand *cmd) noexcept override {
@@ -300,7 +290,7 @@ public:
         Function f;
         Variable const *arg;
 
-        void operator()(uint uid, ShaderDispatchCommand::BufferArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BufferArgument const &bf) {
             vstd::string name;
             CodegenUtility::GetVariableName(
                 *arg,
@@ -312,7 +302,7 @@ public:
                 BufferView(res, bf.offset));
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::TextureArgument const &bf) {
+        void operator()(ShaderDispatchCommand::TextureArgument const &bf) {
             vstd::string name;
             CodegenUtility::GetVariableName(
                 *arg,
@@ -336,7 +326,7 @@ public:
             }
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+        void operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             auto res = arr->Buffer();
 
@@ -349,7 +339,7 @@ public:
                 BufferView(res, 0));
             ++arg;
         }
-        void operator()(uint uid, ShaderDispatchCommand::AccelArgument const &bf) {
+        void operator()(ShaderDispatchCommand::AccelArgument const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             vstd::string name;
             vstd::string instName;
@@ -367,7 +357,7 @@ public:
                 BufferView(accel->GetInstBuffer()));
             ++arg;
         }
-        void operator()(uint uid, vstd::span<std::byte const> bf) {
+        void operator()(ShaderDispatchCommand::UniformArgument const &bf) {
             ++arg;
         }
     };
@@ -505,39 +495,32 @@ public:
             bf,
             VEngineShaderResourceState);
     }
-    void visit(const AccelUpdateCommand *cmd) noexcept override {
-        auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
-        accel->Build(
-            *stateTracker,
-            *bd,
-            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
-        accelScratchOffsets++;
-    }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         accel->Build(
             *stateTracker,
             *bd,
-            BufferView(accelScratchBuffer, *accelScratchOffsets, 1));
+            BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second));
+        if (accel->RequireCompact()) {
+            updateAccel.emplace_back(ButtomCompactCmd{
+                .accel = accel,
+                .offset = accelScratchOffsets->first,
+                .size = accelScratchOffsets->second});
+        }
         accelScratchOffsets++;
-    }
-    void visit(const MeshUpdateCommand *cmd) noexcept override {
-        auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
-        accel->UpdateStates(
-            *bd,
-            *stateTracker,
-            BufferView(accelScratchBuffer, *accelScratchOffsets, 1),
-            *bottomAccelData);
-        accelScratchOffsets++;
-        bottomAccelData++;
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         accel->UpdateStates(
             *bd,
-            *stateTracker,
-            BufferView(accelScratchBuffer, *accelScratchOffsets, 1),
+            BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second),
             *bottomAccelData);
+        if (accel->RequireCompact()) {
+            updateAccel.emplace_back(ButtomCompactCmd{
+                .accel = accel,
+                .offset = accelScratchOffsets->first,
+                .size = accelScratchOffsets->second});
+        }
         accelScratchOffsets++;
         bottomAccelData++;
     }
@@ -561,9 +544,9 @@ LCCmdBuffer::LCCmdBuffer(
 }
 void LCCmdBuffer::Execute(
     vstd::span<CommandList const> const &c,
-    size_t maxAlloc,
-    vstd::move_only_func<void()> *func) {
+    size_t maxAlloc) {
     auto allocator = queue.CreateAllocator(maxAlloc);
+    bool cmdListIsEmpty = false;
     {
         LCPreProcessVisitor ppVisitor;
         ppVisitor.stateTracker = &tracker;
@@ -579,6 +562,7 @@ void LCCmdBuffer::Execute(
             device->samplerHeap->GetHeap()};
         cmdBuilder.CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
         for (auto &&lst : c) {
+            cmdListIsEmpty = cmdListIsEmpty && lst.empty();
             // Clear caches
             ppVisitor.argVecs.clear();
             ppVisitor.argBuffer.clear();
@@ -589,9 +573,10 @@ void LCCmdBuffer::Execute(
             for (auto &&i : lst)
                 i->accept(ppVisitor);
             visitor.bottomAccelData = ppVisitor.bottomAccelDatas.data();
+            DefaultBuffer const *accelScratchBuffer;
             if (ppVisitor.buildAccelSize) {
-                auto accelScratchBuffer = allocator->AllocateScratchBuffer(ppVisitor.buildAccelSize);
-                ppVisitor.stateTracker->RecordState(
+                accelScratchBuffer = allocator->AllocateScratchBuffer(ppVisitor.buildAccelSize);
+                tracker.RecordState(
                     accelScratchBuffer,
                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                 visitor.accelScratchOffsets = ppVisitor.accelOffset.data();
@@ -599,39 +584,70 @@ void LCCmdBuffer::Execute(
             }
             // Upload CBuffers
             auto uploadBuffer = allocator->GetTempDefaultBuffer(ppVisitor.argBuffer.size(), 16);
-            ppVisitor.stateTracker->RecordState(
+            tracker.RecordState(
                 uploadBuffer.buffer,
                 D3D12_RESOURCE_STATE_COPY_DEST);
             // Update recorded states
-            ppVisitor.stateTracker->UpdateState(
+            tracker.UpdateState(
                 cmdBuilder);
             cmdBuilder.Upload(
                 uploadBuffer,
                 ppVisitor.argBuffer.data());
-            ppVisitor.stateTracker->RecordState(
+            tracker.RecordState(
                 uploadBuffer.buffer,
                 VEngineShaderResourceState);
-            ppVisitor.stateTracker->UpdateState(
+            tracker.UpdateState(
                 cmdBuilder);
             visitor.bufferVec = ppVisitor.argVecs.data();
             visitor.argBuffer = uploadBuffer;
             // Execute commands
             for (auto &&i : lst)
                 i->accept(visitor);
+            if (!visitor.updateAccel.empty()) {
+                tracker.RecordState(
+                    accelScratchBuffer,
+                    D3D12_RESOURCE_STATE_COPY_SOURCE);
+                tracker.UpdateState(cmdBuilder);
+                for (auto &&i : visitor.updateAccel) {
+                    i.accel.visit([&](auto &&p) {
+                        p->FinalCopy(
+                            cmdBuilder,
+                            BufferView(
+                                accelScratchBuffer,
+                                i.offset,
+                                i.size));
+                    });
+                }
+                tracker.ClearFence();
+                tracker.RestoreState(cmdBuilder);
+                queue.ForceSync(
+                    allocator,
+                    *cmdBuffer);
+                cmdBuilder.CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+                for (auto &&i : visitor.updateAccel) {
+                    i.accel.visit([&](auto &&p) {
+                        p->CheckAccel(cmdBuilder);
+                    });
+                }
+                visitor.updateAccel.clear();
+            }
+            tracker.ClearFence();
         }
         tracker.RestoreState(cmdBuilder);
     }
-    if (func)
-        allocator->ExecuteAfterComplete(std::move(*func));
-    lastFence = queue.Execute(std::move(allocator));
+    if (cmdListIsEmpty)
+        queue.ExecuteEmpty(std::move(allocator));
+    else
+        lastFence = queue.Execute(std::move(allocator));
 }
 void LCCmdBuffer::Sync() {
     queue.Complete(lastFence);
 }
 void LCCmdBuffer::Present(
     LCSwapChain *swapchain,
-    RenderTexture *rt) {
-    auto alloc = queue.CreateAllocator(0);
+    RenderTexture *img,
+    size_t maxAlloc) {
+    auto alloc = queue.CreateAllocator(maxAlloc);
     {
         swapchain->frameIndex = swapchain->swapChain->GetCurrentBackBufferIndex();
         auto &&rt = &swapchain->m_renderTargets[swapchain->frameIndex];
@@ -640,6 +656,9 @@ void LCCmdBuffer::Present(
         auto cmdList = bd.CmdList();
         tracker.RecordState(
             rt, D3D12_RESOURCE_STATE_COPY_DEST);
+        tracker.RecordState(
+            img,
+            VEngineShaderResourceRTState);
         tracker.UpdateState(bd);
         D3D12_TEXTURE_COPY_LOCATION sourceLocation;
         sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -647,7 +666,7 @@ void LCCmdBuffer::Present(
         D3D12_TEXTURE_COPY_LOCATION destLocation;
         destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         destLocation.SubresourceIndex = 0;
-        sourceLocation.pResource = rt->GetResource();
+        sourceLocation.pResource = img->GetResource();
         destLocation.pResource = rt->GetResource();
         cmdList->CopyTextureRegion(
             &destLocation,

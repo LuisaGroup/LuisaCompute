@@ -53,17 +53,13 @@ public:
     void remove_buffer(size_t index) noexcept;
     void remove_tex2d(size_t index) noexcept;
     void remove_tex3d(size_t index) noexcept;
-    [[nodiscard]] bool has_buffer(uint64_t handle) const noexcept { return _tracker.uses_buffer(handle); }
-    [[nodiscard]] bool has_texture(uint64_t handle) const noexcept { return _tracker.uses_texture(handle); }
+    [[nodiscard]] bool has_resource(uint64_t handle) const noexcept { return _tracker.uses(handle); }
     [[nodiscard]] auto handle() const noexcept { return _device_buffer; }
     void update(MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
 
     template<typename F>
     void traverse_resources(const F &f) const noexcept {
-        _tracker.traverse_buffers([&f](auto handle) noexcept {
-            f((__bridge id<MTLResource>)(reinterpret_cast<void *>(handle)));
-        });
-        _tracker.traverse_textures([&f](auto handle) noexcept {
+        _tracker.traverse([&f](auto handle) noexcept {
             f((__bridge id<MTLResource>)(reinterpret_cast<void *>(handle)));
         });
     }

@@ -848,9 +848,8 @@ private:
 
 public:
     using EvalType = decltype(std::declval<Func>()());
-    template<typename TT>
-    LazyEval(TT &&func)
-        : func(std::forward<TT>(func)) {}
+    LazyEval(Func &&func)
+        : func(std::forward<Func&&>(func)) {}
     LazyEval(LazyEval const &) = delete;
     LazyEval(LazyEval &&v)
         : func(std::move(v.func)) {}

@@ -11,20 +11,16 @@ LCEvent::LCEvent(Device *device)
 }
 LCEvent::~LCEvent() {
 }
-void LCEvent::SyncTarget(uint64 tar) const {
-    if (tar > 0 && fence->GetCompletedValue() < tar) {
-        ThrowIfFailed(fence->SetEventOnCompletion(tar, device->EventHandle()));
-        WaitForSingleObject(device->EventHandle(), INFINITE);
-    }
-}
 
 void LCEvent::Sync() const {
     std::unique_lock lck(globalMtx);
     while (finishedEvent < fenceIndex) {
-        cv.wait(lck);
+        queue->ExecuteDuringWaiting();
+        cv.wait_for(lck, std::chrono::milliseconds(1));
     }
 }
 void LCEvent::Signal(CommandQueue *queue) const {
+    this->queue = queue;
     ++fenceIndex;
     queue->Queue()->Signal(fence.Get(), fenceIndex);
     queue->AddEvent(this);

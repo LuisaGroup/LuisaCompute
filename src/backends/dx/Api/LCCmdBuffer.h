@@ -11,11 +11,17 @@ using namespace luisa::compute;
 namespace toolhub::directx {
 class RenderTexture;
 class LCSwapChain;
+class BottomAccel;
+struct ButtomCompactCmd {
+    vstd::variant<BottomAccel *, TopAccel *> accel;
+    size_t offset;
+    size_t size;
+};
 class LCCmdBuffer final : public vstd::IOperatorNewBase {
 protected:
-    uint64 lastFence = 0;
     Device *device;
     ResourceStateTracker tracker;
+    uint64 lastFence = 0;
 
 public:
     CommandQueue queue;
@@ -25,12 +31,12 @@ public:
         D3D12_COMMAND_LIST_TYPE type);
     void Execute(
         vstd::span<CommandList const> const &c,
-        size_t maxAlloc = std::numeric_limits<size_t>::max(),
-        vstd::move_only_func<void()> *func = nullptr);
+        size_t maxAlloc = std::numeric_limits<size_t>::max());
     void Sync();
     void Present(
-        LCSwapChain* swapchain,
-        RenderTexture *rt);
+        LCSwapChain *swapchain,
+        RenderTexture *rt,
+        size_t maxAlloc = std::numeric_limits<size_t>::max());
 };
 
 }// namespace toolhub::directx

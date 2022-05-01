@@ -14,7 +14,7 @@ ComputeShader const *BuiltinKernel::LoadAccelSetKernel(Device *device) {
     InstBuffer.second.arrSize = 0;
     InstBuffer.second.registerIndex = 0;
     InstBuffer.second.spaceIndex = 0;
-    InstBuffer.second.type = ShaderVariableType::StructuredBuffer;
+    InstBuffer.second.type = ShaderVariableType::RWStructuredBuffer;
     auto &Global = code.properties[1];
     Global.first = "_Global"sv;
     Global.second.arrSize = 0;
@@ -26,7 +26,7 @@ ComputeShader const *BuiltinKernel::LoadAccelSetKernel(Device *device) {
     SetBuffer.second.arrSize = 0;
     SetBuffer.second.registerIndex = 0;
     SetBuffer.second.spaceIndex = 0;
-    SetBuffer.second.type = ShaderVariableType::RWStructuredBuffer;
+    SetBuffer.second.type = ShaderVariableType::StructuredBuffer;
     return ComputeShader::CompileCompute(
         device,
         code,
