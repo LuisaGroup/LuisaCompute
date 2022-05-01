@@ -8,10 +8,13 @@
 
 namespace luisa::compute {
 
-Printer::Printer(Device &device, size_t capacity) noexcept
+Printer::Printer(Device &device, luisa::string_view name, size_t capacity) noexcept
     : _buffer{device.create_buffer<uint>(next_pow2(capacity) + 1u)},
-      _host_buffer(next_pow2(capacity) + 1u) {
-    std::iota(_host_buffer.begin(), _host_buffer.end(), 0u);
+      _host_buffer(next_pow2(capacity) + 1u),
+      _logger{std::string{name},
+              luisa::detail::default_logger().sinks().cbegin(),
+              luisa::detail::default_logger().sinks().cend()} {
+    _logger.set_level(spdlog::level::trace);
 }
 
 Command *Printer::reset() noexcept {
@@ -33,36 +36,14 @@ Printer::retrieve() noexcept {
             _host_buffer.back());
         auto offset = 0u;
         while (offset < size) {
-            auto desc_id = _host_buffer[offset++];
-            auto desc = _descriptors[desc_id];
-            if (offset + desc.size() > size) { break; }
-            static thread_local luisa::string item;
-            item.clear();
-            for (auto &&tag : desc) {
-                auto record = _host_buffer[offset++];
-                switch (tag) {
-                    case Descriptor::Tag::INT:
-                        item.append(luisa::format(
-                            "{}", static_cast<int>(record)));
-                        break;
-                    case Descriptor::Tag::UINT:
-                        item.append(luisa::format(
-                            "{}", record));
-                        break;
-                    case Descriptor::Tag::FLOAT:
-                        item.append(luisa::format(
-                            "{}", luisa::bit_cast<float>(record)));
-                        break;
-                    case Descriptor::Tag::BOOL:
-                        item.append(luisa::format(
-                            "{}", static_cast<bool>(record)));
-                        break;
-                    case Descriptor::Tag::STRING:
-                        item.append(_strings[record]);
-                        break;
-                }
+            auto data = _host_buffer.data() + offset;
+            auto &&item = _items[data[0u]];
+            offset += item.size;
+            if (offset > size) {
+                LUISA_WARNING_WITH_LOCATION("Kernel log truncated.");
+            } else {
+                item.f(data);
             }
-            LUISA_INFO("{}", item);
         }
     };
     return std::make_tuple<Command *, luisa::move_only_function<void()>, Command *>(

@@ -25,8 +25,8 @@ int main(int argc, char *argv[]) {
     // __device__
     Callable linear_to_srgb = [&](Float3 linear) noexcept {
         auto x = linear.xyz();
-        $if(all(dispatch_id() == make_uint3(33, 0, 0))) {
-            printer.log("Linear: (", x.x, ", ", x.y, ", ", x.z, ")");
+        $if(all(dispatch_id() <= make_uint3(33, 0, 0))) {
+            printer.verbose_with_location("Linear: ({}, {}, {})", x.x, x.y, x.z);
         };
         auto srgb = make_uint3(
             round(saturate(
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
         auto coord = dispatch_id().xy();
         auto rg = make_float2(coord) / make_float2(dispatch_size().xy());
         $if(all(dispatch_id() == make_uint3(12, 0, 0))) {
-            printer.log(1, 1.f, true, "Hello, coord = (", coord.x, ", ", coord.y, ")");
+            printer.info("{}{}{}Hello, coord = ({}, {})", 1, 1.f, true, coord.x, coord.y);
         };
         image.write(coord.x + coord.y * dispatch_size_x(), linear_to_srgb(make_float3(rg, 0.5f)));
     };
