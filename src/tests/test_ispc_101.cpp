@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("metal");
+    auto device = context.create_device("ispc");
     Printer printer{device};
 
     // __device__
@@ -53,21 +53,18 @@ int main(int argc, char *argv[]) {
         image.write(coord.x + coord.y * dispatch_size_x(), linear_to_srgb(make_float3(rg, 0.5f)));
     };
 
-    // compile
-    auto fill_image = device.compile(fill_image_kernel);
-
     std::vector<std::byte> download_image(1024u * 1024u * 4u);
 
     // cuMemAlloc
-    auto device_buffer = device.create_buffer<uint>(1024 * 1024);
+    auto buffer = device.create_buffer<uint>(1024 * 1024);
 
     // cuStreamCreate
     auto stream = device.create_stream();
     stream << printer.reset();
 
     // dispatch
-    stream << fill_image(device_buffer).dispatch(1024u, 1024u)
-           << device_buffer.copy_to(download_image.data())
+    stream << fill_image_kernel(device, buffer).dispatch(1024u, 1024u)
+           << buffer.copy_to(download_image.data())
            << printer.retrieve()
            << synchronize();
     stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
