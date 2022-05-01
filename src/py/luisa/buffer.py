@@ -14,7 +14,7 @@ class Buffer:
         # instantiate buffer on device
         self.handle = get_global_device().impl().create_buffer(self.bytesize)
 
-    def copy_from(self, arr, sync = True, stream = None): # arr: numpy array
+    def copy_from(self, arr, sync = False, stream = None): # arr: numpy array
         if stream is None:
             stream = globalvars.stream
         assert arr.size * arr.itemsize == self.bytesize

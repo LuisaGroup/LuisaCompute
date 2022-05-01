@@ -27,7 +27,7 @@ class Texture2D:
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, 1)
 
-    def copy_from(self, arr, sync = True, stream = None): # arr: numpy array
+    def copy_from(self, arr, sync = False, stream = None): # arr: numpy array
         if stream is None:
             stream = globalvars.stream
         assert arr.size * arr.itemsize == self.bytesize

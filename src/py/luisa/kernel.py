@@ -108,6 +108,8 @@ class kernel:
                 command.encode_buffer(arg.handle, 0, arg.bytesize)
             elif lctype.is_texture():
                 command.encode_texture(arg.handle, 0)
+            elif lctype.is_bindless_array():
+                command.encode_bindless_array(arg.handle)
             elif lctype.is_accel():
                 command.encode_accel(arg.handle)
             else:
