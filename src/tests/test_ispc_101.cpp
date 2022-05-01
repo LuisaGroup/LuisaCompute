@@ -19,8 +19,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
-
+    auto device = context.create_device("metal");
     Printer printer{device};
 
     // __device__
@@ -64,11 +63,12 @@ int main(int argc, char *argv[]) {
 
     // cuStreamCreate
     auto stream = device.create_stream();
-    printer.reset(stream);
 
     // dispatch
-    stream << fill_image(device_buffer).dispatch(1024u, 1024u)
-           << device_buffer.copy_to(download_image.data());
-    std::cout << printer.retrieve(stream);
+    stream << printer.reset()
+           << fill_image(device_buffer).dispatch(1024u, 1024u)
+           << device_buffer.copy_to(download_image.data())
+           << printer.retrieve()
+           << synchronize();
     stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
 }

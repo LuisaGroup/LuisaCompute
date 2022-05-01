@@ -52,9 +52,9 @@ public:
         template<typename... T>
         decltype(auto) operator<<(std::tuple<T...> args) noexcept {
             auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
-                return (*this << ... << std::get<i>(a));
+                return (std::move(*this) << ... << std::move(std::get<i>(a)));
             };
-            return encode(std::move(args));
+            return encode(std::move(args), std::index_sequence_for<T...>{});
         }
     };
 
@@ -84,9 +84,9 @@ public:
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> args) noexcept {
         auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
-            return (*this << ... << std::get<i>(a));
+            return (*this << ... << std::move(std::get<i>(a)));
         };
-        return encode(std::move(args));
+        return encode(std::move(args), std::index_sequence_for<T...>{});
     }
 };
 
