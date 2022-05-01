@@ -70,7 +70,7 @@ luisa.globalvars.stream.synchronize()
 
 @luisa.kernel
 def test():
-    a = pi
+    a,b = pi
     r = Ray()
     r.set_origin(make_float3(0,0,0))
     r.t_min = 0.
