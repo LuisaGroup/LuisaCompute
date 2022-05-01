@@ -177,7 +177,7 @@ public:
     [[nodiscard]] Event create_event() noexcept;                          // see definition in runtime/event.cpp
 
     [[nodiscard]] SwapChain create_swapchain(
-        uint64_t window_handle, const Stream &stream, uint width, uint height,
+        uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, uint back_buffer_count = 1) noexcept;
 
     template<typename VBuffer, typename TBuffer>
