@@ -9,8 +9,8 @@
 namespace luisa::compute {
 
 Printer::Printer(Device &device, luisa::string_view name, size_t capacity) noexcept
-    : _buffer{device.create_buffer<uint>(next_pow2(capacity) + 1u)},
-      _host_buffer(next_pow2(capacity) + 1u),
+    : _buffer{device.create_buffer<uint>(next_pow2(capacity))},
+      _host_buffer(next_pow2(capacity)),
       _logger{std::string{name},
               luisa::detail::default_logger().sinks().cbegin(),
               luisa::detail::default_logger().sinks().cend()} {
@@ -35,15 +35,19 @@ Printer::retrieve() noexcept {
             static_cast<uint>(_buffer.size() - 1u),
             _host_buffer.back());
         auto offset = 0u;
+        auto truncated = _host_buffer.back() > size;
         while (offset < size) {
             auto data = _host_buffer.data() + offset;
             auto &&item = _items[data[0u]];
             offset += item.size;
             if (offset > size) {
-                LUISA_WARNING_WITH_LOCATION("Kernel log truncated.");
+                truncated = true;
             } else {
                 item.f(data);
             }
+        }
+        if (truncated) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION("Kernel log truncated.");
         }
     };
     return {_buffer.copy_to(_host_buffer.data()), print, reset()};
