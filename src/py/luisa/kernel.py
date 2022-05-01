@@ -100,12 +100,12 @@ class kernel:
             assert dtype_of(arg) == dtype
             lctype = to_lctype(dtype)
             if lctype.is_basic():
-                # TODO argument type cast? (e.g. int to uint)
-                command.encode_uniform(lcapi.to_bytes(arg), lctype.size(), lctype.alignment())
+                # TODO implicit argument type cast? (e.g. int to uint)
+                command.encode_uniform(lcapi.to_bytes(arg), lctype.size())
             elif lctype.is_array() or lctype.is_structure():
-                command.encode_uniform(arg.to_bytes(), lctype.size(), lctype.alignment())
+                command.encode_uniform(arg.to_bytes(), lctype.size())
             elif lctype.is_buffer():
-                command.encode_buffer(arg.handle, 0)
+                command.encode_buffer(arg.handle, 0, arg.bytesize)
             elif lctype.is_texture():
                 command.encode_texture(arg.handle, 0)
             elif lctype.is_accel():

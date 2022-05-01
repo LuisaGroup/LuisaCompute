@@ -59,7 +59,7 @@ PYBIND11_MODULE(lcapi, m) {
             return strs;
         });
     py::class_<Device>(m, "Device")
-        .def("create_stream", &Device::create_stream)
+        .def("create_stream", &Device::create_stream, py::arg("present")=false)
         .def("impl", &Device::impl, pyref)
         .def("create_accel", &Device::create_accel);
     py::class_<Device::Interface, eastl::shared_ptr<Device::Interface>>(m, "DeviceInterface")
@@ -190,8 +190,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});})
         .def("encode_buffer", &ShaderDispatchCommand::encode_buffer)
         .def("encode_texture", &ShaderDispatchCommand::encode_texture)
-        // .def("encode_uniform", &ShaderDispatchCommand::encode_uniform)
-        .def("encode_uniform", [](ShaderDispatchCommand& self, char* buf, size_t size, size_t alignment){self.encode_uniform(buf,size,alignment);})
+        .def("encode_uniform", [](ShaderDispatchCommand& self, char* buf, size_t size){self.encode_uniform(buf,size);})
         .def("encode_bindless_array", &ShaderDispatchCommand::encode_bindless_array)
         .def("encode_accel", &ShaderDispatchCommand::encode_accel);
     // buffer operation commands
@@ -231,8 +230,11 @@ PYBIND11_MODULE(lcapi, m) {
         }, pyref);
     // accel commands
     py::class_<MeshBuildCommand, Command>(m, "MeshBuildCommand")
-        .def_static("create", [](uint64_t handle, AccelBuildRequest request, uint64_t vertex_buffer, uint64_t triangle_buffer) {
-            return MeshBuildCommand::create(handle, request, vertex_buffer, triangle_buffer);
+        .def_static("create", [](uint64_t handle, AccelBuildRequest request,
+                    uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size,
+                    uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size) {
+            return MeshBuildCommand::create(handle, request, vertex_buffer, vertex_buffer_offset, vertex_buffer_size,
+                    triangle_buffer, triangle_buffer_offset, triangle_buffer_size);
         }, pyref);
     py::class_<AccelBuildCommand, Command>(m, "AccelBuildCommand")
         .def_static("create", [](uint64_t handle, uint32_t instance_count, AccelBuildRequest request, std::vector<AccelModification> modifications) {
