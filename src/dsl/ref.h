@@ -11,7 +11,7 @@ namespace luisa::compute {
 inline namespace dsl {
 /// Assign rhs to lhs
 template<typename Lhs, typename Rhs>
-inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept;// defined in dsl/stmt.h
+void assign(Lhs &&lhs, Rhs &&rhs) noexcept;// defined in dsl/stmt.h
 }
 
 namespace detail {
