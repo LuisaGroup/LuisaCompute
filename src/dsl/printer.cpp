@@ -46,8 +46,7 @@ Printer::retrieve() noexcept {
             }
         }
     };
-    return std::make_tuple<Command *, luisa::move_only_function<void()>, Command *>(
-        _buffer.copy_to(_host_buffer.data()), print, reset());
+    return {_buffer.copy_to(_host_buffer.data()), print, reset()};
 }
 
 }// namespace luisa::compute

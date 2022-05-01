@@ -63,10 +63,10 @@ int main(int argc, char *argv[]) {
 
     // cuStreamCreate
     auto stream = device.create_stream();
+    stream << printer.reset();
 
     // dispatch
-    stream << printer.reset()
-           << fill_image(device_buffer).dispatch(1024u, 1024u)
+    stream << fill_image(device_buffer).dispatch(1024u, 1024u)
            << device_buffer.copy_to(download_image.data())
            << printer.retrieve()
            << synchronize();
