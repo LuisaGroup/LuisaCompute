@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    auto device = context.create_device("metal");
     Printer printer{device};
 
     static constexpr auto resolution = make_uint2(1024u);
@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     std::vector<std::array<float, 4u>> array_float4(resolution.x * resolution.y);
 
     auto stream = device.create_stream();
-    printer.reset(stream);
+    stream << printer.reset();
 
     for (auto i = 0u; i < resolution.x * resolution.y; ++i) {
         array_byte4[i] = {12, 34, 56, 78};
@@ -53,16 +53,12 @@ int main(int argc, char *argv[]) {
     Kernel2D display_kernel = [&](ImageFloat image) {
         auto coord = dispatch_id().xy();
         auto num = image.read(coord);
-        printer.log("(", num.x, ", ", num.y, ", ", num.z, ", ", num.w, ")");
+        printer.info_with_location("color = ({}, {}, {}, {})", num.x, num.y, num.z, num.w);
     };
 
     auto display_shader = device.compile(display_kernel);
 
     command_buffer << display_shader(image_byte4).dispatch(resolution)
-                   << commit();
-    stream << synchronize();
-
-    std::cout << printer.retrieve(stream);
-
-    return 0;
+                   << printer.retrieve()
+                   << synchronize();
 }
