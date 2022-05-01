@@ -23,6 +23,11 @@ class Stream;
 class LC_DSL_API Printer {
 
 public:
+    struct Item {
+        uint size;
+        luisa::function<void(const uint *)> f;
+    };
+
     struct Descriptor {
         enum struct Tag {
             INT,
@@ -59,30 +64,22 @@ private:
     luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
     luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
     luisa::vector<luisa::string> _strings;
-    luisa::string _scratch;
     bool _reset_called{false};
 
 public:
     /// Create printer object on device. Will create a buffer in it.
     explicit Printer(Device &device, size_t capacity = 16_mb) noexcept;
-    /// Reset stream
-    void reset(Stream &stream) noexcept;
-    /// Reset stream
-    void reset(CommandBuffer &command_buffer) noexcept;
-    /// Retrieve stream
-    [[nodiscard]] luisa::string_view retrieve(Stream &stream) noexcept;
-    /// Retrieve stream
-    [[nodiscard]] luisa::string_view retrieve(CommandBuffer &command_buffer) noexcept;
+    /// Reset the printer. Must be called before any shader dispatch that uses this printer.
+    [[nodiscard]] Command *reset() noexcept;
+    /// Retrieve and print the logs. Will automatically reset the printer for future use.
+    [[nodiscard]] std::tuple<Command * /* download */,
+                             luisa::move_only_function<void()> /* print */,
+                             Command * /* reset */>
+    retrieve() noexcept;
 
     /// Log in kernel
     template<typename... Args>
     void log(Args &&...args) noexcept;
-
-private:
-    template<class T>
-    [[nodiscard]] luisa::string_view _retrieve(T &t) noexcept;
-    template<class T>
-    void _reset(T &t) noexcept;
 };
 
 template<typename... Args>
