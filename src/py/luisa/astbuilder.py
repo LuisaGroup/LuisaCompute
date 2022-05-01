@@ -195,6 +195,8 @@ class ASTVisitor:
             return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0, val.bytesize) # offset defaults to 0
         if lctype.is_texture():
             return dtype, lcapi.builder().texture_binding(lctype, val.handle, 0) # miplevel defaults to 0
+        if lctype.is_bindless_array():
+            return dtype, lcapi.builder().bindless_array_binding(val.handle)
         if lctype.is_accel():
             return dtype, lcapi.builder().accel_binding(val.handle)
         if lctype.is_array():

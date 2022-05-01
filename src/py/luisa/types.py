@@ -88,6 +88,8 @@ def dtype_of(val):
         return val.bufferType
     if type(val).__name__ == "Texture2D":
         return val.texture2DType
+    if type(val).__name__ == "BindlessArray":
+        return type(val)
     if type(val).__name__ == "Accel":
         return type(val)
     if type(val).__name__ == "kernel":
@@ -103,6 +105,8 @@ def dtype_of(val):
 def to_lctype(dtype):
     if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType"}:
         return dtype.luisa_type
+    if dtype.__name__ == "BindlessArray":
+        return lcapi.Type.from_("bindless_array")
     if dtype.__name__ == "Accel":
         return lcapi.Type.from_("accel")
     if dtype in basic_type_dict:

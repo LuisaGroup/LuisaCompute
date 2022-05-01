@@ -72,7 +72,17 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("create_accel", &Device::Interface::create_accel) // (AccelUsageHint hint = AccelUsageHint::FAST_TRACE)
         // .def("destroy_accel", &Device::Interface::destroy_accel)
         .def("create_mesh", &Device::Interface::create_mesh) // (uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint)
-        .def("destroy_mesh", &Device::Interface::destroy_mesh);
+        .def("destroy_mesh", &Device::Interface::destroy_mesh)
+        .def("create_bindless_array", &Device::Interface::create_bindless_array) // size 
+        .def("destroy_bindless_array", &Device::Interface::destroy_bindless_array)
+        .def("emplace_buffer_in_bindless_array", &Device::Interface::emplace_buffer_in_bindless_array) // arr, i, handle, offset_bytes
+        .def("emplace_tex2d_in_bindless_array", &Device::Interface::emplace_tex2d_in_bindless_array) // arr, i, handle, sampler
+        .def("emplace_tex3d_in_bindless_array", &Device::Interface::emplace_tex3d_in_bindless_array)
+        .def("is_resource_in_bindless_array", &Device::Interface::is_resource_in_bindless_array) // arr, handle -> bool
+        .def("remove_buffer_in_bindless_array", &Device::Interface::remove_buffer_in_bindless_array)
+        .def("remove_tex2d_in_bindless_array", &Device::Interface::remove_tex2d_in_bindless_array)
+        .def("remove_tex3d_in_bindless_array", &Device::Interface::remove_tex3d_in_bindless_array);
+
 
     py::class_<Stream>(m, "Stream")
         .def("synchronize", &Stream::synchronize)
@@ -240,7 +250,11 @@ PYBIND11_MODULE(lcapi, m) {
         .def_static("create", [](uint64_t handle, uint32_t instance_count, AccelBuildRequest request, std::vector<AccelModification> modifications) {
             return AccelBuildCommand::create(handle, instance_count, request, luisa::vector<AccelModification>(modifications.cbegin(), modifications.cend()));
         }, pyref);
-
+    // bindless
+    py::class_<BindlessArrayUpdateCommand, Command>(m, "BindlessArrayUpdateCommand")
+        .def_static("create", [](uint64_t handle){
+            return BindlessArrayUpdateCommand::create(handle);
+        }, pyref);
 
 
     // vector and matrix types
@@ -336,5 +350,21 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("pixel_storage_to_format_int", pixel_storage_to_format<int>);
     m.def("pixel_storage_to_format_float", pixel_storage_to_format<float>);
     m.def("pixel_storage_size", pixel_storage_size);
+
+    // sampler
+    py::enum_<Sampler::Filter>(Sampler, "Filter")
+        .value("POINT", Sampler::Filter::POINT)
+        .value("LINEAR_POINT", Sampler::Filter::LINEAR_POINT)
+        .value("LINEAR_LINEAR", Sampler::Filter::LINEAR_LINEAR)
+        .value("ANISOTROPIC", Sampler::Filter::ANISOTROPIC);
+
+    py::enum_<Sampler::Address>(Sampler, "Address")
+        .value("EDGE", Sampler::Address::EDGE)
+        .value("REPEAT", Sampler::Address::REPEAT)
+        .value("MIRROR", Sampler::Address::MIRROR)
+        .value("ZERO", Sampler::Address::ZERO);
+
+    py::class_<Sampler>(m, "Sampler")
+        .def(py::init<Sampler::Filter, Sampler::Address>());
 
 }
