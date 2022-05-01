@@ -4,13 +4,17 @@
 
 #include <iostream>
 
+#define GLFW_INCLUDE_NONE
+#define GLFW_EXPOSE_NATIVE_COCOA
+#import <GLFW/glfw3.h>
+#import <GLFW/glfw3native.h>
+
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/sugar.h>
 #include <rtx/accel.h>
-#include <gui/window.h>
 #include <gui/framerate.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
@@ -125,7 +129,7 @@ int main(int argc, char *argv[]) {
                      0.0f, 1.0f);
     };
 
-    Callable tea = [](UInt v0, UInt v1) noexcept {
+    Callable tea = [](compute::UInt v0, compute::UInt v1) noexcept {
         auto s0 = def(0u);
         for (auto n = 0u; n < 4u; n++) {
             s0 += 0x9e3779b9u;
@@ -141,7 +145,7 @@ int main(int argc, char *argv[]) {
         seed_image.write(p, make_uint4(state));
     };
 
-    Callable lcg = [](UInt &state) noexcept {
+    Callable lcg = [](compute::UInt &state) noexcept {
         constexpr auto lcg_a = 1664525u;
         constexpr auto lcg_c = 1013904223u;
         state = lcg_a * state + lcg_c;
@@ -175,7 +179,8 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel,
+                                     UInt2 resolution, compute::UInt frame_index) noexcept {
         set_block_size(8u, 8u, 1u);
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
@@ -260,84 +265,53 @@ int main(int argc, char *argv[]) {
             beta *= 1.0f / q;
         };
         seed_image.write(coord, make_uint4(state));
-        $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
-    };
-
-    Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
-        auto p = dispatch_id().xy();
-        auto accum = accum_image.read(p);
-        auto curr = curr_image.read(p).xyz();
-        auto t = 1.0f / (accum.w + 1.0f);
-        accum_image.write(p, make_float4(lerp(accum.xyz(), curr, t), accum.w + 1.0f));
-    };
-
-    Callable aces_tonemapping = [](Float3 x) noexcept {
-        static constexpr auto a = 2.51f;
-        static constexpr auto b = 0.03f;
-        static constexpr auto c = 2.43f;
-        static constexpr auto d = 0.59f;
-        static constexpr auto e = 0.14f;
-        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
+        $if(any(isnan(radiance))) { radiance = make_float3(); };
+        auto old = image.read(dispatch_id().xy()).xyz();
+        auto accum = lerp(old, radiance * 3.f, 1.f / (1.f + frame_index));
+        image.write(dispatch_id().xy(), make_float4(accum, 1.f));
     };
 
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
         image.write(dispatch_id().xy(), make_float4(0.0f));
     };
 
-    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
-        auto coord = dispatch_id().xy();
-        auto hdr = hdr_image.read(coord);
-        auto ldr = linear_to_srgb(hdr.xyz() * scale);
-        ldr_image.write(coord, make_float4(ldr, 1.0f));
-    };
-
     auto clear_shader = device.compile(clear_kernel);
-    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
-    auto accumulate_shader = device.compile(accumulate_kernel);
     auto raytracing_shader = device.compile(raytracing_kernel);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
     static constexpr auto resolution = make_uint2(1024u);
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
 
-    Clock clock;
     stream << clear_shader(accum_image).dispatch(resolution)
-           << make_sampler_shader(seed_image).dispatch(resolution);
+           << make_sampler_shader(seed_image).dispatch(resolution)
+           << synchronize();
+
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    auto window = glfwCreateWindow(resolution.x, resolution.y, "Simple Path Tracer", nullptr, nullptr);
+    auto window_handle = reinterpret_cast<uint64_t>(glfwGetCocoaWindow(window));
+    auto swap_chain = device.create_swapchain(window_handle, stream, resolution);
 
     Framerate framerate;
-    Window window{"Display", resolution};
-    window.set_key_callback([&](int key, int action) noexcept {
-        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
-            window.set_should_close();
-        }
-    });
     auto frame_count = 0u;
-    window.run([&] {
+    while (!glfwWindowShouldClose(window)) {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 256u;
-        for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution)
-                                  .dispatch(resolution)
-                           << accumulate_shader(accum_image, framebuffer)
+        constexpr auto spp_per_present = 1u;
+        for (auto i = 0u; i < spp_per_present; i++) {
+            command_buffer << raytracing_shader(accum_image, seed_image, accel,
+                                                resolution, frame_count++)
                                   .dispatch(resolution);
         }
-        command_buffer // << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
-                       << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
-                       << ldr_image.copy_to(host_image.data())
-                       << commit();
-        stream << synchronize();
-        window.set_background(host_image.data(), resolution);
-        framerate.record(spp_per_dispatch);
-        frame_count += spp_per_dispatch;
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("Frames: %u", frame_count);
-        ImGui::Text("FPS: %.1f", framerate.report());
-        ImGui::End();
-    });
+        command_buffer << swap_chain.present(accum_image);
+        framerate.record(spp_per_present);
+        LUISA_INFO("FPS: {}", framerate.report());
+        glfwPollEvents();
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
+            glfwSetWindowShouldClose(window, true);
+        }
+    };
+    stream << synchronize();
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
