@@ -19,34 +19,6 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
-//        for (auto cmd : commands) {
-//            CommandList cmd_list;
-//            cmd_list.append(cmd);
-//            device()->dispatch(handle(), cmd_list);
-//        }
-        // Clock clock;
-        // for (auto command : commands) {
-        //     _scheduler->add(command);
-        // }
-        // auto lists = _scheduler->schedule();
-        // LUISA_INFO(
-        //     "Reordered {} commands into {} list(s) in {} ms.",
-        //     commands.size(), lists.size(), clock.toc());
-        // static auto count = 0u;
-        // for (auto &&l : lists) {
-        //     if (l.size() >= 2u) {
-        //         for (auto cmd : l) { cmd->accept(*reorder_visitor); }
-        //         auto reordered = reorder_visitor->command_lists();
-        //         if (reordered.size() == l.size()) {
-        //             auto json = l.dump_json();
-        //             LUISA_INFO("CommandList (size = {}):\n{}", l.size(), json.dump(2));
-        //             if (++count == 100u) { exit(0); }
-        //         }
-        //         reorder_visitor->clear();
-        //     }
-        // }
-        // device()->dispatch(handle(), lists);
-
         Clock clock;
         for (auto command : commands) {
             command->accept(*reorder_visitor);
@@ -73,6 +45,7 @@ Stream &Stream::operator<<(Event::Signal signal) noexcept {
     device()->signal_event(signal.handle, handle());
     return *this;
 }
+
 Stream &Stream::operator<<(Event::Wait wait) noexcept {
     device()->wait_event(wait.handle, handle());
     return *this;
