@@ -143,13 +143,17 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
     ImGui_ImplOpenGL3_Init("#version 330");
 
     glfwSetWindowUserPointer(_handle, this);
-    glfwSetMouseButtonCallback(_handle, [](GLFWwindow *window, int button, int action, int /* mods */) noexcept {
-        auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
-        auto x = 0.0;
-        auto y = 0.0;
-        glfwGetCursorPos(self->handle(), &x, &y);
-        if (auto &&cb = self->_mouse_button_callback) {
-            cb(button, action, make_float2(static_cast<float>(x), static_cast<float>(y)));
+    glfwSetMouseButtonCallback(_handle, [](GLFWwindow *window, int button, int action, int mods) noexcept {
+        if (ImGui::GetIO().WantCaptureMouse) {  // ImGui is handling the mouse
+            ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+        } else {
+            auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
+            auto x = 0.0;
+            auto y = 0.0;
+            glfwGetCursorPos(self->handle(), &x, &y);
+            if (auto &&cb = self->_mouse_button_callback) {
+                cb(button, action, make_float2(static_cast<float>(x), static_cast<float>(y)));
+            }
         }
     });
     glfwSetCursorPosCallback(_handle, [](GLFWwindow *window, double x, double y) noexcept {
@@ -160,14 +164,25 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
         auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
         if (auto &&cb = self->_window_size_callback) { cb(make_uint2(width, height)); }
     });
-    glfwSetKeyCallback(_handle, [](GLFWwindow *window, int key, int /* scancode */, int action, int /* mods */) noexcept {
-        auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
-        if (auto &&cb = self->_key_callback) { cb(key, action); }
+    glfwSetKeyCallback(_handle, [](GLFWwindow *window, int key, int scancode, int action, int mods) noexcept {
+        if (ImGui::GetIO().WantCaptureKeyboard) {  // ImGui is handling the keyboard
+            ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+        } else {
+            auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
+            if (auto &&cb = self->_key_callback) { cb(key, action); }
+        }
     });
     glfwSetScrollCallback(_handle, [](GLFWwindow *window, double dx, double dy) noexcept {
-        auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
-        if (auto &&cb = self->_scroll_callback) { cb(make_float2(static_cast<float>(dx), static_cast<float>(dy))); }
+        if (ImGui::GetIO().WantCaptureMouse) {  // ImGui is handling the mouse
+            ImGui_ImplGlfw_ScrollCallback(window, dx, dy);
+        } else {
+            auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
+            if (auto &&cb = self->_scroll_callback) {
+                cb(make_float2(static_cast<float>(dx), static_cast<float>(dy)));
+            }
+        }
     });
+    glfwSetCharCallback(_handle, ImGui_ImplGlfw_CharCallback);
 }
 
 Window::~Window() noexcept {

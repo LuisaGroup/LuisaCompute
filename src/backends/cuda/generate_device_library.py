@@ -584,7 +584,8 @@ struct lc_float{i}x{i} {{
 
     def src2c(lib, postfix):
         with open(f"{curr_dir}/{lib}.{postfix}", "r") as fin:
-            chars = [c for c in "".join(fin.readlines())] + ['\0']
+            content = "".join(fin.readlines()).replace(".version 7.6", ".version 6.3")
+            chars = [c for c in content] + ['\0']
         with open(f"{curr_dir}/{lib}_embedded.inl.h", "w") as fout:
             print(f"static const char {lib}_source[{len(chars) + 1}] = {{", file=fout)
             chars_per_row = 32

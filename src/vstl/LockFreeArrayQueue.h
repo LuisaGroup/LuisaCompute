@@ -29,7 +29,6 @@ public:
 			return ssize;
 		}(capacity);
 		this->capacity = capacity - 1;
-		std::lock_guard<spin_mutex> lck(mtx);
 		arr = (T*)Allocator().Malloc(sizeof(T) * capacity);
 	}
 	LockFreeArrayQueue(SelfType&& v)

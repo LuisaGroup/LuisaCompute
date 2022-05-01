@@ -23,7 +23,7 @@ struct Test {
     float a;
 };
 
-LUISA_STRUCT(Test, something, a) {};
+LUISA_STRUCT(Test, something, a){};
 
 int main(int argc, char *argv[]) {
 
@@ -130,24 +130,24 @@ int main(int argc, char *argv[]) {
         Var c = 0.5f + vt.a * 1.0f;
 
         Var vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)*/
+        Var another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)
         buffer.write(v_int + 1, float4(123.0f));
     };
     auto t1 = clock.toc();
 
     auto kernel = device.compile(kernel_def);
     auto command = kernel(float_buffer, 12u).dispatch(1024u);
-    auto launch_command = static_cast<ShaderDispatchCommand *>(command->clone());
+    auto launch_command = static_cast<ShaderDispatchCommand *>(command);
     LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
     command->recycle();
     launch_command->recycle();
 
-//    clock.tic();
-//    Codegen::Scratch scratch;
-//    CppCodegen codegen{scratch};
-//    codegen.emit(launch_command->kernel());
-//    auto t2 = clock.toc();
-//
-//    std::cout << scratch.view() << std::endl;
-//    LUISA_INFO("AST: {} ms, Codegen: {} ms", t1, t2);
+    //    clock.tic();
+    //    Codegen::Scratch scratch;
+    //    CppCodegen codegen{scratch};
+    //    codegen.emit(launch_command->kernel());
+    //    auto t2 = clock.toc();
+    //
+    //    std::cout << scratch.view() << std::endl;
+    //    LUISA_INFO("AST: {} ms, Codegen: {} ms", t1, t2);
 }

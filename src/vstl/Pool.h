@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/config.h>
 #include <type_traits>
-#include <stdint.h>
+#include <cstdint>
 
 #include <atomic>
 #include <type_traits>

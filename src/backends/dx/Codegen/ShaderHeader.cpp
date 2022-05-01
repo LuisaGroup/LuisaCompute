@@ -13,18 +13,40 @@ uint InstanceContributionToHitGroupIndex : 24;
 uint Flags : 8;
 uint2 accelStructPtr;
 };
+struct InputInst{
+uint index;
+uint flags;
+uint2 mesh;
+float4 p0;
+float4 p1;
+float4 p2;
+};
 RWStructuredBuffer<MeshInst> _InstBuffer : register(u0);
-StructuredBuffer<uint3> _SetBuffer : register(t0);
+StructuredBuffer<InputInst> _SetBuffer : register(t0);
 cbuffer _Global : register(b0){
 uint dsp;
 uint count;
 }
+static const uint flag_visibility_on = 1u << 2u;
 [numthreads(64,1,1)]
 void main(uint id : SV_DISPATCHTHREADID){
 if(id >= dsp) return;
-uint3 v = _SetBuffer[id];
-if(v.z >= count) return;
-_InstBuffer[v.z].accelStructPtr = v.xy;
+InputInst v = _SetBuffer[id];
+if(v.index >= count) return;
+MeshInst r;
+r.p0 = v.p0;
+r.p1 = v.p1;
+r.p2 = v.p2;
+r.InstanceID = v.index;
+if((v.flags & flag_visibility_on) != 0)
+r.InstanceMask = 255;
+else
+r.InstanceMask = 0;
+
+r.InstanceContributionToHitGroupIndex = 0;
+r.Flags = 0;
+r.accelStructPtr = v.mesh;
+_InstBuffer[v.index] = r;
 }
 )"sv;
 }
@@ -349,10 +371,10 @@ BdlsStruct s = arr[index];
 return _BindlessTex3D[s.tex3D].Load(uint4(coord, level));
 }
 float4 ReadTex2D(BINDLESS_ARRAY arr, uint index, uint2 coord) {
-return ReadTex2D(arr, index, 0);
+return ReadTex2D(arr, index, coord, 0);
 }
 float4 ReadTex3D(BINDLESS_ARRAY arr, uint index, uint3 coord) {
-return ReadTex3D(arr, index, 0);
+return ReadTex3D(arr, index, coord, 0);
 }
 uint2 Tex2DSize(BINDLESS_ARRAY arr, uint index) {
 BdlsStruct s = arr[index];
@@ -400,58 +422,58 @@ SetInstTransform(buffer[index], mat);
 void SetAccelVis(RWStructuredBuffer<MeshInst> buffer, uint index, bool vis) {
 buffer[index].InstanceMask = vis ? 255 : 0;
 }
-template<typename T>
-T _atomic_exchange(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_exchange(Buffer a, Idx idx, T b) {
 T r;
-InterlockedExchange(a, b, r);
+InterlockedExchange(a[idx], b, r);
 return r;
 }
-template<typename T>
-T _atomic_compare_exchange(inout T a, T b, T c) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_compare_exchange(Buffer a, Idx idx, T b, T c) {
 T r;
-InterlockedCompareExchange(a, b, c, r);
+InterlockedCompareExchange(a[idx], b, c, r);
 return r;
 }
-template<typename T>
-T _atomic_add(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_add(Buffer a, Idx idx, T b) {
 T r;
-InterlockedAdd(a, b, r);
+InterlockedAdd(a[idx], b, r);
 return r;
 }
-template<typename T>
-T _atomic_sub(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_sub(Buffer a, Idx idx, T b) {
 T r;
-InterlockedAdd(a, -b, r);
+InterlockedAdd(a[idx], -b, r);
 return r;
 }
-template<typename T>
-T _atomic_and(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_and(Buffer a, Idx idx, T b) {
 T r;
-InterlockedAnd(a, b, r);
+InterlockedAnd(a[idx], b, r);
 return r;
 }
-template<typename T>
-T _atomic_or(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_or(Buffer a, Idx idx, T b) {
 T r;
-InterlockedOr(a, b, r);
+InterlockedOr(a[idx], b, r);
 return r;
 }
-template<typename T>
-T _atomic_xor(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_xor(Buffer a, Idx idx, T b) {
 T r;
-InterlockedXor(a, b, r);
+InterlockedXor(a[idx], b, r);
 return r;
 }
-template<typename T>
-T _atomic_min(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_min(Buffer a, Idx idx, T b) {
 T r;
-InterlockedMin(a, b, r);
+InterlockedMin(a[idx], b, r);
 return r;
 }
-template<typename T>
-T _atomic_max(inout T a, T b) {
+template<typename Buffer, typename Idx, typename T>
+T _atomic_max(Buffer a, Idx idx, T b) {
 T r;
-InterlockedMax(a, b, r);
+InterlockedMax(a[idx], b, r);
 return r;
 }
 struct FLOATV3 {

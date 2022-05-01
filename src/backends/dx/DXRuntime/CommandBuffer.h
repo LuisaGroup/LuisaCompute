@@ -3,6 +3,7 @@
 #include <Resource/TextureBase.h>
 namespace toolhub::directx {
 class CommandAllocator;
+class CommandAllocatorBase;
 class Resource;
 class ComputeShader;
 class DescriptorHeap;
@@ -85,21 +86,23 @@ public:
         uint targetMip);
     ~CommandBufferBuilder();
 };
-class CommandBuffer : public vstd::IOperatorNewBase{
+class CommandBuffer : public vstd::IOperatorNewBase {
+    friend class CommandQueue;
     friend class CommandBufferBuilder;
     friend class CommandAllocator;
+    friend class CommandAllocatorBase;
     mutable std::atomic_bool isOpened;
     void Reset() const;
     void Close() const;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> cmdList;
-    CommandAllocator *alloc;
+    CommandAllocatorBase *alloc;
 
 public:
     ID3D12GraphicsCommandList4 *CmdList() const { return cmdList.Get(); }
     CommandBuffer(
         Device *device,
-        CommandAllocator *alloc);
-    CommandAllocator *GetAlloc() const { return alloc; }
+        CommandAllocatorBase *alloc);
+    CommandAllocator *GetAlloc() const;
     ~CommandBuffer();
     CommandBuffer(CommandBuffer &&v);
     CommandBufferBuilder Build() const { return CommandBufferBuilder(this); }

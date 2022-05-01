@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    auto device = context.create_device("metal");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -326,7 +326,7 @@ int main(int argc, char *argv[]) {
                            << accumulate_shader(accum_image, framebuffer)
                                   .dispatch(resolution);
         }
-        command_buffer << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
+        command_buffer // << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
                        << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
                        << ldr_image.copy_to(host_image.data())
                        << commit();

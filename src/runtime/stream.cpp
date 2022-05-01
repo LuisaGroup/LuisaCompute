@@ -2,29 +2,62 @@
 // Created by Mike Smith on 2021/3/18.
 //
 
+#include "runtime/command_scheduler.h"
 #include <utility>
+
+#include <core/logging.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
 
 namespace luisa::compute {
 
-Stream Device::create_stream() noexcept {
-    return _create<Stream>();
+Stream Device::create_stream(bool for_present) noexcept {
+    return _create<Stream>(for_present);
 }
 
 void Stream::_dispatch(CommandList list) noexcept {
     if (auto size = list.size();
         size > 1u && device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
+//        for (auto cmd : commands) {
+//            CommandList cmd_list;
+//            cmd_list.append(cmd);
+//            device()->dispatch(handle(), cmd_list);
+//        }
+        // Clock clock;
+        // for (auto command : commands) {
+        //     _scheduler->add(command);
+        // }
+        // auto lists = _scheduler->schedule();
+        // LUISA_INFO(
+        //     "Reordered {} commands into {} list(s) in {} ms.",
+        //     commands.size(), lists.size(), clock.toc());
+        // static auto count = 0u;
+        // for (auto &&l : lists) {
+        //     if (l.size() >= 2u) {
+        //         for (auto cmd : l) { cmd->accept(*reorder_visitor); }
+        //         auto reordered = reorder_visitor->command_lists();
+        //         if (reordered.size() == l.size()) {
+        //             auto json = l.dump_json();
+        //             LUISA_INFO("CommandList (size = {}):\n{}", l.size(), json.dump(2));
+        //             if (++count == 100u) { exit(0); }
+        //         }
+        //         reorder_visitor->clear();
+        //     }
+        // }
+        // device()->dispatch(handle(), lists);
+
+        Clock clock;
         for (auto command : commands) {
             command->accept(*reorder_visitor);
         }
         auto lists = reorder_visitor->command_lists();
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Reordered {} commands into {} list(s) in {} ms.",
+            commands.size(), lists.size(), clock.toc());
         device()->dispatch(handle(), lists);
         reorder_visitor->clear();
-        for (auto command : commands) {
-            command->recycle();
-        }
+        for (auto cmd : commands) { cmd->recycle(); }
     } else {
         device()->dispatch(handle(), list);
     }
@@ -50,8 +83,9 @@ Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
     return *this;
 }
 
-Stream::Stream(Device::Interface *device) noexcept
-    : Resource{device, Tag::STREAM, device->create_stream()},
+Stream::Stream(Device::Interface *device, bool for_present) noexcept
+    : Resource{device, Tag::STREAM, device->create_stream(for_present)},
+      _scheduler{luisa::make_unique<CommandScheduler>(device)},
       reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}

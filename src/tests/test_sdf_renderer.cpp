@@ -7,7 +7,10 @@
 #include <numeric>
 #include <algorithm>
 
+#ifdef OPENCV_ENABLED
 #include <opencv2/opencv.hpp>
+//#define ENABLE_DISPLAY
+#endif
 
 #include <runtime/context.h>
 #include <runtime/device.h>
@@ -15,8 +18,6 @@
 #include <runtime/event.h>
 #include <meta/property.h>
 #include <dsl/sugar.h>
-
-//#define ENABLE_DISPLAY
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -181,7 +182,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-    auto device = context.create_device("ispc");
+    auto device = context.create_device("dx");
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
@@ -191,15 +192,14 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto copy_event = device.create_event();
 
-    cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
-    cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
-
-    static constexpr auto interval = 4u;
+    static constexpr auto interval = 64u;
 
 #ifdef ENABLE_DISPLAY
+    cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
+    cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
     static constexpr auto total_spp = 500000u;
 #else
-    static constexpr auto total_spp = 128u;
+    static constexpr auto total_spp = 1024u;
 #endif
 
     auto t0 = clock.toc();
@@ -239,6 +239,9 @@ int main(int argc, char *argv[]) {
         last_t = t;
 #endif
     }
-    stream << accum_image.copy_to(cv_back_image.data) << synchronize();
+#ifdef ENABLE_DISPLAY
+    stream << accum_image.copy_to(cv_back_image.data);
+#endif
+    stream << synchronize();
     LUISA_INFO("{} samples/s", spp_count / (clock.toc() - t0) * 1000);
 }
