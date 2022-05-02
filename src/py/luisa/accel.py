@@ -5,10 +5,9 @@ from .structtype import StructType
 from .arraytype import ArrayType
 from .mathtypes import *
 
-from .kernel import callable_method
-from .types import ref, to_lctype
-from .types import BuiltinFuncEntry, BuiltinFuncBuilder
-from .builtin import check_exact_signature
+from .kernel import callable_method, callable
+from .types import ref
+from .builtin import _builtin_call, _builtin_cast
 
 # Ray
 Ray = StructType(16, _origin=ArrayType(float,3), t_min=float, _dir=ArrayType(float,3), t_max=float)
@@ -69,27 +68,25 @@ class Accel:
     def build(self):
         globalvars.stream.add(self._accel.build_command(lcapi.AccelBuildRequest.PREFER_UPDATE))
 
-    @BuiltinFuncBuilder
-    def trace_closest(argnodes):
-        check_exact_signature([Ray], argnodes[1:], "trace_closest")
-        uhit = lcapi.builder().call(_uHitLCtype, lcapi.CallOp.TRACE_CLOSEST, [x.expr for x in argnodes])
-        tmp = lcapi.builder().local(_uHitLCtype)
-        lcapi.builder().assign(tmp, uhit)
-        expr = lcapi.builder().cast(to_lctype(Hit), lcapi.CastOp.BITWISE, tmp)
-        return Hit, expr
+    @callable
+    def trace_closest(self: Accel, ray: Ray):
+        return _builtin_cast(Hit, "BITWISE", _builtin_call(UHit, "TRACE_CLOSEST", [self, ray]))
 
-    @BuiltinFuncBuilder
-    def trace_any(argnodes):
-        check_exact_signature([Ray], argnodes[1:], "trace_any")
-        uhit = lcapi.builder().call(_uHitLCtype, lcapi.CallOp.TRACE_ANY, [x.expr for x in argnodes])
-        tmp = lcapi.builder().local(_uHitLCtype)
-        lcapi.builder().assign(tmp, uhit)
-        expr = lcapi.builder().cast(to_lctype(Hit), lcapi.CastOp.BITWISE, tmp)
-        return Hit, expr
+    @callable
+    def trace_any(self: Accel, ray: Ray):
+        return _builtin_cast(Hit, "BITWISE", _builtin_call(UHit, "TRACE_ANY", [self, ray]))
 
-    instance_transform = BuiltinFuncEntry("accel_instance_transform")
-    set_instance_transform = BuiltinFuncEntry("accel_set_instance_transform")
-    set_instance_visibility = BuiltinFuncEntry("accel_set_instance_visibility")
+    @callable
+    def instance_transform(self: Accel, instance_id: int):
+        return _builtin_call(float4x4, "INSTANCE_TO_WORLD_MATRIX", [self, instance_id])
+
+    @callable
+    def set_instance_transform(self: Accel, instance_id: int, mat: float4x4):
+        _builtin_call("SET_INSTANCE_TRANSFORM", [self, instance_id, mat])
+
+    @callable
+    def set_instance_visibility(self: Accel, instance_id: int, vis: bool):
+        _builtin_call("SET_INSTANCE_VISIBILITY", [self, instance_id, vis])
 
 
 class Mesh:

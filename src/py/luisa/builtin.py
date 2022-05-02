@@ -5,6 +5,7 @@ from . import globalvars
 from .structtype import StructType
 from types import SimpleNamespace
 import ast
+from .types import BuiltinFuncBuilder
 
 
 def get_length(arg) -> int:
@@ -309,16 +310,39 @@ def check_exact_signature(signature, args, name):
             raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
 
 
+
+@BuiltinFuncBuilder
+def _builtin_cast(args):
+    assert len(args)==3
+    check_exact_signature([type, str], args[0:2])
+    dtype = args[0].expr
+    op = getattr(lcapi.CastOp, args[1].expr)
+    return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[2].expr)
+
+
+@BuiltinFuncBuilder
+def _builtin_call(args):
+    if args[0].dtype == str: # void call
+        op = getattr(lcapi.CallOp, args[0].expr)
+        return None, lcapi.builder().call(op, [x.expr for x in args[2:]])
+    else:
+        check_exact_signature([type, str], args[0:2])
+        dtype = args[0].expr
+        op = getattr(lcapi.CallOp, args[1].expr)
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args[2:]])
+
+# @BuiltinFuncBuilder
+# def set_block_size(args):
+#     check_exact_signature([int,int,int], args, "set_block_size")
+#     for a in args:
+#         if type(a).__name__ != "Constant":
+#             raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
+#     lcapi.builder().set_block_size(*[a.value for a in args])
+#     return None, None
+
+
 # return dtype, expr
 def builtin_func(name, args):
-
-    if name == "set_block_size":
-        check_exact_signature([int,int,int], args, "set_block_size")
-        for a in args:
-            if type(a).__name__ != "Constant":
-                raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
-        lcapi.builder().set_block_size(*[a.value for a in args])
-        return None, None
 
     # e.g. dispatch_id()
     for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
@@ -423,25 +447,13 @@ def builtin_func(name, args):
         globalvars.current_kernel.uses_printer = True
         return None, None
 
-    # buffer
-    if name == "buffer_read":
-        op = lcapi.CallOp.BUFFER_READ
-        dtype = args[0].dtype.dtype
-        check_exact_signature([int], args[1:], "Buffer.read")
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-    if name == "buffer_write":
-        op = lcapi.CallOp.BUFFER_WRITE
-        dtype = args[0].dtype.dtype
-        check_exact_signature([int, dtype], args[1:], "Buffer.write")
-        lcapi.builder().call(op, [x.expr for x in args])
-        return None, None
-
     if name == "texture2d_read":
         op = lcapi.CallOp.TEXTURE_READ
         dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
         check_exact_signature([lcapi.int2], args[1:], "Texture2D.read")
         args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]]) # convert int2 to uint2
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
     if name == "texture2d_write":
         op = lcapi.CallOp.TEXTURE_WRITE
         dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
