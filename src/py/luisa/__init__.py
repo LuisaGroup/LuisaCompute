@@ -14,6 +14,8 @@ from .printer import Printer
 from .accel import Ray, Hit, Accel, Mesh
 from .bindless import BindlessArray
 
+from lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
+
 
 def init(backend_name = None):
     globalvars.context = lcapi.Context(lcapi.FsPath("."))
