@@ -1,7 +1,6 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import BuiltinFuncEntry
 
 
 class Texture2D:
@@ -45,8 +44,14 @@ class Texture2D:
         if sync:
             stream.synchronize()
 
-    read = BuiltinFuncEntry("texture2d_read")
-    write = BuiltinFuncEntry("texture2d_write")
+
+    @callable
+    def read(self: Texture2DType(dtype), coord: int2):
+        return _builtin_call(dtype, "TEXTURE_READ", [self, coord])
+
+    @callable
+    def write(self: Texture2DType(dtype), coord: int2, value: dtype):
+        _builtin_call("TEXTURE_WRITE", [self, coord, value])
 
 
 class Texture2DType:
