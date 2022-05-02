@@ -1,5 +1,5 @@
 import lcapi
-from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type
+from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type, basic_lctype_dict
 from functools import reduce
 from . import globalvars
 from .structtype import StructType
@@ -359,7 +359,7 @@ def builtin_func(name, args):
     for N in 2, 3, 4:
         if name == f'make_float{N}x{N}':
             assert (len(args) == 1 and check_type_in([float, lcapi.float2x2, lcapi.float3x3, lcapi.float4x4], args[0])) \
-                   or (len(args) == N and check_types(lcapi.Type.from_(f"vector<float,{N}>"), args)) \
+                   or (len(args) == N and check_types(basic_lctype_dict[lcapi.Type.from_(f"vector<float,{N}>")], args)) \
                    or (len(args) == N * N and check_types(float, args)), 'type check failed'
             op = getattr(lcapi.CallOp, name.upper())
             dtype = getattr(lcapi, f'float{N}x{N}')
