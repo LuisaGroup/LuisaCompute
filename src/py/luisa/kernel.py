@@ -44,20 +44,23 @@ def create_param_exprs(params, allow_ref = False):
 class kernel:
     # creates a luisa kernel with given function
     def __init__(self, func, is_device_callable = False):
+        self.func = func
+        self.is_device_callable = is_device_callable
+
+    def compile(self):
         # get python AST & context
-        self.sourcelines = inspect.getsourcelines(func)[0]
-        self.tree = ast.parse(inspect.getsource(func))
-        self.funcname = func.__name__
-        _closure_vars = inspect.getclosurevars(func)
+        self.sourcelines = inspect.getsourcelines(self.func)[0]
+        self.tree = ast.parse(inspect.getsource(self.func))
+        self.funcname = self.func.__name__
+        _closure_vars = inspect.getclosurevars(self.func)
         self.closure_variable = {
             **_closure_vars.globals,
             **_closure_vars.nonlocals,
             **_closure_vars.builtins
         }
         self.local_variable = {} # dict: name -> (dtype, expr)
-        self.is_device_callable = is_device_callable
 
-        self.parameters = inspect.signature(func).parameters
+        self.parameters = inspect.signature(self.func).parameters
         self.uses_printer = False
 
         def astgen():
@@ -79,10 +82,10 @@ class kernel:
             self.builder = lcapi.FunctionBuilder.define_kernel(astgen)
         # Note: self.params[*][2] (expr) is invalidated
 
-        self.func = self.builder.function()
+        self.lcfunction = self.builder.function()
         # compile shader
         if not is_device_callable:
-            self.shader_handle = get_global_device().impl().create_shader(self.func)
+            self.shader_handle = get_global_device().impl().create_shader(self.lcfunction)
 
 
     # dispatch shader to stream
@@ -91,7 +94,7 @@ class kernel:
             raise Exception("callable can't be called on host")
         if stream is None:
             stream = globalvars.stream
-        command = lcapi.ShaderDispatchCommand.create(self.shader_handle, self.func)
+        command = lcapi.ShaderDispatchCommand.create(self.shader_handle, self.lcfunction)
         # check & push arguments
         if len(args) != len(self.params):
             raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
