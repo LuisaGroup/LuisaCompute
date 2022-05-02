@@ -96,8 +96,8 @@ void ISPCStream::visit(const BufferToTextureCopyCommand *command) noexcept {
 void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
     auto shader = reinterpret_cast<const ISPCShader *>(command->handle());
     luisa::vector<std::byte> argument_buffer(shader->argument_buffer_size());
-    command->decode([&](auto vid, auto argument) noexcept {
-        auto ptr = argument_buffer.data() + shader->argument_offset(vid);
+    command->decode([&](auto argument) noexcept {
+        auto ptr = argument_buffer.data() + shader->argument_offset(argument.variable_uid);
         using T = decltype(argument);
         if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
             auto buffer = reinterpret_cast<void *>(argument.handle + argument.offset);
@@ -115,8 +115,8 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
             auto handle = accel->handle();
             std::memcpy(ptr, &handle, sizeof(handle));
         } else {// uniform
-            static_assert(std::same_as<T, luisa::span<const std::byte>>);
-            std::memcpy(ptr, argument.data(), argument.size_bytes());
+            static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);
+            std::memcpy(ptr, argument.data, argument.size);
         }
     });
     auto shared_buffer = luisa::make_shared<luisa::vector<std::byte>>(std::move(argument_buffer));

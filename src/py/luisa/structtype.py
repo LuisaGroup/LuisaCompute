@@ -54,11 +54,12 @@ class _Struct:
 
 
 class StructType:
-    def __init__(self, **kwargs):
+    def __init__(self, alignment = 1, **kwargs):
         # initialize from dict (name->type)
-        self.membertype = []
-        self.idx_dict = {}
-        self.alignment = 1
+        self.membertype = [] # index -> member dtype
+        self.idx_dict = {} # attr -> index
+        self.method_dict = {} # attr -> callable (if any)
+        self.alignment = alignment
         for idx, (name, dtype) in enumerate(kwargs.items()):
             self.idx_dict[name] = idx
             lctype = to_lctype(dtype) # also checks if it's valid dtype
@@ -70,6 +71,9 @@ class StructType:
 
     def __call__(self, **kwargs):
         return _Struct(self, **kwargs)
+
+    def __repr__(self):
+        return 'StructType(' + ','.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
 
     def __eq__(self, other):
         return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment

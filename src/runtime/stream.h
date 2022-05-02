@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/stl.h"
 #include <utility>
 
 #include <core/spin_mutex.h>
@@ -14,6 +15,7 @@
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/image.h>
 #include <runtime/swap_chain.h>
+#include <runtime/command_scheduler.h>
 
 namespace luisa::compute {
 
@@ -57,9 +59,10 @@ public:
     };
 
 private:
+    luisa::unique_ptr<CommandScheduler> _scheduler;
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
-    explicit Stream(Device::Interface *device) noexcept;
+    explicit Stream(Device::Interface *device, bool for_present = false) noexcept;
     void _synchronize() noexcept;
     luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
 

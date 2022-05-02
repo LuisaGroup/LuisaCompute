@@ -13,6 +13,7 @@
 namespace py = pybind11;
 using namespace luisa::compute;
 using luisa::compute::detail::FunctionBuilder;
+using AccelModification = AccelBuildCommand::Modification;
 
 void export_op(py::module &m);
 void export_vector2(py::module &m);
@@ -58,18 +59,35 @@ PYBIND11_MODULE(lcapi, m) {
             return strs;
         });
     py::class_<Device>(m, "Device")
-        .def("create_stream", &Device::create_stream)
-        .def("impl", &Device::impl, pyref);
+        .def("create_stream", &Device::create_stream, py::arg("present")=false)
+        .def("impl", &Device::impl, pyref)
+        .def("create_accel", &Device::create_accel);
     py::class_<Device::Interface, eastl::shared_ptr<Device::Interface>>(m, "DeviceInterface")
         .def("create_shader", [](Device::Interface& self, Function kernel){return self.create_shader(kernel, {});}) // TODO: support metaoptions
         .def("destroy_shader", &Device::Interface::destroy_shader)
         .def("create_buffer", &Device::Interface::create_buffer)
         .def("destroy_buffer", &Device::Interface::destroy_buffer)
         .def("create_texture", &Device::Interface::create_texture)
-        .def("destroy_texture", &Device::Interface::destroy_texture);
+        .def("destroy_texture", &Device::Interface::destroy_texture)
+        // .def("create_accel", &Device::Interface::create_accel) // (AccelUsageHint hint = AccelUsageHint::FAST_TRACE)
+        // .def("destroy_accel", &Device::Interface::destroy_accel)
+        .def("create_mesh", &Device::Interface::create_mesh) // (uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint)
+        .def("destroy_mesh", &Device::Interface::destroy_mesh)
+        .def("create_bindless_array", &Device::Interface::create_bindless_array) // size 
+        .def("destroy_bindless_array", &Device::Interface::destroy_bindless_array)
+        .def("emplace_buffer_in_bindless_array", &Device::Interface::emplace_buffer_in_bindless_array) // arr, i, handle, offset_bytes
+        .def("emplace_tex2d_in_bindless_array", &Device::Interface::emplace_tex2d_in_bindless_array) // arr, i, handle, sampler
+        .def("emplace_tex3d_in_bindless_array", &Device::Interface::emplace_tex3d_in_bindless_array)
+        .def("is_resource_in_bindless_array", &Device::Interface::is_resource_in_bindless_array) // arr, handle -> bool
+        .def("remove_buffer_in_bindless_array", &Device::Interface::remove_buffer_in_bindless_array)
+        .def("remove_tex2d_in_bindless_array", &Device::Interface::remove_tex2d_in_bindless_array)
+        .def("remove_tex3d_in_bindless_array", &Device::Interface::remove_tex3d_in_bindless_array);
+
+
     py::class_<Stream>(m, "Stream")
         .def("synchronize", &Stream::synchronize)
-        .def("add", [](Stream& self, Command* cmd){self<<cmd;});
+        .def("add", [](Stream& self, Command* cmd){self<<cmd;})
+        .def("add_callback", [](Stream& self, const std::function<void()>& callback){self<<callback;});
 
 
     // AST (FunctionBuilder)
@@ -89,6 +107,8 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("constant")
         .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
         .def("texture_binding", &FunctionBuilder::texture_binding, pyref)
+        .def("bindless_array_binding", &FunctionBuilder::bindless_array_binding, pyref)
+        .def("accel_binding", &FunctionBuilder::accel_binding, pyref)
 
         .def("argument", &FunctionBuilder::argument, pyref)
         .def("reference", &FunctionBuilder::reference, pyref)
@@ -104,6 +124,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("access", &FunctionBuilder::access, pyref)
         .def("swizzle", &FunctionBuilder::swizzle, pyref)
         .def("cast", &FunctionBuilder::cast, pyref)
+        
         .def("call", [](FunctionBuilder& self, const Type *type, CallOp call_op, std::vector<const Expression *> args){return self.call(type, call_op, args);}, pyref)
         .def("call", [](FunctionBuilder& self, const Type *type, Function custom, std::vector<const Expression *> args){return self.call(type, custom, args);}, pyref)
         .def("call", [](FunctionBuilder& self, CallOp call_op, std::vector<const Expression *> args){self.call(call_op, args);})
@@ -112,19 +133,17 @@ PYBIND11_MODULE(lcapi, m) {
         .def("break_", &FunctionBuilder::break_)
         .def("continue_", &FunctionBuilder::continue_)
         .def("return_", &FunctionBuilder::return_)
-        // .def("comment_")
+        .def("comment_", [](FunctionBuilder& self, std::string s){ self.comment_(s.c_str()); })
         .def("assign", &FunctionBuilder::assign, pyref)
 
-        // // create_expression 内存？
         .def("if_", &FunctionBuilder::if_, pyref)
         .def("loop_", &FunctionBuilder::loop_, pyref)
         // .def("switch_")
         // .def("case_")
         // .def("default_")
         .def("for_", &FunctionBuilder::for_, pyref)
-        // .def("meta") // ???
+        // .def("meta") // unused
 
-        // .def("case_")
         .def("push_scope", &FunctionBuilder::push_scope)
         .def("pop_scope", &FunctionBuilder::pop_scope)
         .def("function", &FunctionBuilder::function); // returning object
@@ -181,11 +200,11 @@ PYBIND11_MODULE(lcapi, m) {
         .def("set_dispatch_size", [](ShaderDispatchCommand& self, uint sx, uint sy, uint sz){self.set_dispatch_size(uint3{sx,sy,sz});})
         .def("encode_buffer", &ShaderDispatchCommand::encode_buffer)
         .def("encode_texture", &ShaderDispatchCommand::encode_texture)
-        // .def("encode_uniform", &ShaderDispatchCommand::encode_uniform)
-        .def("encode_uniform", [](ShaderDispatchCommand& self, char* buf, size_t size, size_t alignment){self.encode_uniform(buf,size,alignment);})
+        .def("encode_uniform", [](ShaderDispatchCommand& self, char* buf, size_t size){self.encode_uniform(buf,size);})
         .def("encode_bindless_array", &ShaderDispatchCommand::encode_bindless_array)
         .def("encode_accel", &ShaderDispatchCommand::encode_accel);
     // buffer operation commands
+    // Pybind can't deduce argument list of the create function, so using lambda to inform it
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
         .def_static("create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer buf){
             return BufferUploadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr);
@@ -198,7 +217,6 @@ PYBIND11_MODULE(lcapi, m) {
         .def_static("create", [](uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size){
             return BufferCopyCommand::create(src, dst, src_offset, dst_offset, size);
         }, pyref);
-    // Pybind can't deduce argument list of create function, so using lambda to inform it
     // texture operation commands
     py::class_<TextureUploadCommand, Command>(m, "TextureUploadCommand")
         .def_static("create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer buf){
@@ -213,12 +231,29 @@ PYBIND11_MODULE(lcapi, m) {
             return TextureCopyCommand::create(storage, src_handle, dst_handle, src_level, dst_level, size);
         }, pyref);
     py::class_<BufferToTextureCopyCommand, Command>(m, "BufferToTextureCopyCommand")
-        .def("create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size){
+        .def_static("create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size){
             return BufferToTextureCopyCommand::create(buffer, buffer_offset, texture, storage, level, size);
         }, pyref);
     py::class_<TextureToBufferCopyCommand, Command>(m, "TextureToBufferCopyCommand")
-        .def("create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size){
+        .def_static("create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size){
             return TextureToBufferCopyCommand::create(buffer, buffer_offset, texture, storage, level, size);
+        }, pyref);
+    // accel commands
+    py::class_<MeshBuildCommand, Command>(m, "MeshBuildCommand")
+        .def_static("create", [](uint64_t handle, AccelBuildRequest request,
+                    uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size,
+                    uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size) {
+            return MeshBuildCommand::create(handle, request, vertex_buffer, vertex_buffer_offset, vertex_buffer_size,
+                    triangle_buffer, triangle_buffer_offset, triangle_buffer_size);
+        }, pyref);
+    py::class_<AccelBuildCommand, Command>(m, "AccelBuildCommand")
+        .def_static("create", [](uint64_t handle, uint32_t instance_count, AccelBuildRequest request, std::vector<AccelModification> modifications) {
+            return AccelBuildCommand::create(handle, instance_count, request, luisa::vector<AccelModification>(modifications.cbegin(), modifications.cend()));
+        }, pyref);
+    // bindless
+    py::class_<BindlessArrayUpdateCommand, Command>(m, "BindlessArrayUpdateCommand")
+        .def_static("create", [](uint64_t handle){
+            return BindlessArrayUpdateCommand::create(handle);
         }, pyref);
 
 
@@ -233,6 +268,32 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("to_bytes", [](LiteralExpr::Value value){
         return luisa::visit([](auto x) noexcept { return py::bytes(std::string(reinterpret_cast<char*>(&x), sizeof(x))); }, value);
     });
+
+
+    // accel
+    py::class_<Accel>(m, "Accel")
+        .def("size", &Accel::size)
+        .def("handle", [](Accel& self){ return self.handle(); })
+        .def("emplace_back", &Accel::_emplace_back)
+        .def("set", &Accel::set)
+        .def("pop_back", &Accel::pop_back)
+        .def("set_transform_on_update", &Accel::set_transform_on_update)
+        .def("set_visibility_on_update", &Accel::set_visibility_on_update)
+        .def("build_command", &Accel::build, pyref);
+
+    py::enum_<AccelUsageHint>(m, "AccelUsageHint")
+        .value("FAST_TRACE", AccelUsageHint::FAST_TRACE)
+        .value("FAST_UPDATE", AccelUsageHint::FAST_UPDATE)
+        .value("FAST_BUILD", AccelUsageHint::FAST_BUILD);
+
+    py::enum_<AccelBuildRequest>(m, "AccelBuildRequest")
+        .value("PREFER_UPDATE", AccelBuildRequest::PREFER_UPDATE)
+        .value("FORCE_BUILD", AccelBuildRequest::FORCE_BUILD);
+
+    py::class_<AccelModification>(m, "AccelModification")
+        .def("set_transform", &AccelModification::set_transform)
+        .def("set_visibility", &AccelModification::set_visibility)
+        .def("set_mesh", &AccelModification::set_mesh);
 
 
     // pixel
@@ -289,5 +350,21 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("pixel_storage_to_format_int", pixel_storage_to_format<int>);
     m.def("pixel_storage_to_format_float", pixel_storage_to_format<float>);
     m.def("pixel_storage_size", pixel_storage_size);
+
+    // sampler
+    auto m_sampler = py::class_<Sampler>(m, "Sampler")
+        .def(py::init<Sampler::Filter, Sampler::Address>());
+
+    py::enum_<Sampler::Filter>(m_sampler, "Filter")
+        .value("POINT", Sampler::Filter::POINT)
+        .value("LINEAR_POINT", Sampler::Filter::LINEAR_POINT)
+        .value("LINEAR_LINEAR", Sampler::Filter::LINEAR_LINEAR)
+        .value("ANISOTROPIC", Sampler::Filter::ANISOTROPIC);
+
+    py::enum_<Sampler::Address>(m_sampler, "Address")
+        .value("EDGE", Sampler::Address::EDGE)
+        .value("REPEAT", Sampler::Address::REPEAT)
+        .value("MIRROR", Sampler::Address::MIRROR)
+        .value("ZERO", Sampler::Address::ZERO);
 
 }

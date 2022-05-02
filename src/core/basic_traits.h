@@ -23,10 +23,13 @@ struct always_true : std::true_type {};
 template<typename... T>
 constexpr auto always_true_v = always_true<T...>::value;
 
-template<typename T, std::enable_if_t<std::disjunction_v<std::is_enum<T>>, int> = 0>
+// clang-format off
+template<typename T>
+    requires std::is_enum_v<T>
 [[nodiscard]] constexpr auto to_underlying(T e) noexcept {
     return static_cast<std::underlying_type_t<T>>(e);
 }
+// clang-format on
 
 using uint = uint32_t;
 
@@ -136,13 +139,7 @@ template<typename U, typename V, size_t N>
 struct is_vector_same_dimension_impl<Vector<U, N>, Vector<V, N>> : std::true_type {};
 
 template<typename... T>
-struct is_vector_all_same_dimension_impl : std::false_type {};
-
-template<>
-struct is_vector_all_same_dimension_impl<> : std::true_type {};
-
-template<typename T>
-struct is_vector_all_same_dimension_impl<T> : std::true_type {};
+struct is_vector_all_same_dimension_impl : std::true_type {};
 
 template<typename First, typename... Other>
 struct is_vector_all_same_dimension_impl<First, Other...> : std::conjunction<is_vector_same_dimension_impl<First, Other>...> {};

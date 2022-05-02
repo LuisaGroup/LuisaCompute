@@ -84,9 +84,10 @@ public:
     struct BufferBinding {
         uint64_t handle;
         size_t offset_bytes;
+        size_t size_bytes;
         BufferBinding() noexcept = default;
-        BufferBinding(uint64_t handle, size_t offset_bytes) noexcept
-            : handle{handle}, offset_bytes{offset_bytes} {}
+        BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
+            : handle{handle}, offset_bytes{offset_bytes}, size_bytes{size_bytes} {}
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
             return hash64(offset_bytes, hash64(handle, hash64("__hash_buffer_binding")));
@@ -319,7 +320,7 @@ public:
     /// Add constant of type and data
     [[nodiscard]] const ConstantExpr *constant(const Type *type, ConstantData data) noexcept;
     /// Add binding of buffer. Will check for already bound arguments.
-    [[nodiscard]] const RefExpr *buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes) noexcept;
+    [[nodiscard]] const RefExpr *buffer_binding(const Type *type, uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept;
     /// Add binding of texture. Will check for already bound arguments.
     [[nodiscard]] const RefExpr *texture_binding(const Type *type, uint64_t handle, uint32_t level) noexcept;
     /// Add binding of bidnless array. Will check for already bound arguments.

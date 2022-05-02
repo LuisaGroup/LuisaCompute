@@ -1,4 +1,5 @@
 #pragma once
+#include <core/dynamic_module.h>
 #include <DXRuntime/Device.h>
 #include <dxc/dxcapi.h>
 namespace toolhub::directx {
@@ -21,6 +22,7 @@ using CompileResult = vstd::variant<
 class DXShaderCompiler final : public vstd::IOperatorNewBase {
 private:
     ComPtr<IDxcCompiler3> comp;
+    luisa::optional<luisa::DynamicModule> dxcCompiler;
     CompileResult Compile(
         vstd::string_view code,
         vstd::span<LPCWSTR> args);

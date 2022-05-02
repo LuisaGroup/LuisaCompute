@@ -37,7 +37,6 @@ public:
 
 private:
     OptixTraversableHandle _handle{};
-    CUDAHeap *_heap{nullptr};
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};
@@ -57,7 +56,7 @@ public:
      * 
      * @param hint build hint
      */
-    CUDAAccel(AccelUsageHint hint, CUDAHeap *heap) noexcept;
+    explicit CUDAAccel(AccelUsageHint hint) noexcept;
     ~CUDAAccel() noexcept;
 
     /**

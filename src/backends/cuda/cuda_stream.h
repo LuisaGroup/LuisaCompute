@@ -15,6 +15,7 @@
 
 namespace luisa::compute::cuda {
 
+class CUDADevice;
 class CUDACallbackContext;
 
 /**
@@ -24,20 +25,22 @@ class CUDACallbackContext;
 class CUDAStream {
 
 public:
-    static constexpr auto backed_cuda_stream_count = 1u;
+    static constexpr auto backed_cuda_stream_count = 8u;
+    static_assert(backed_cuda_stream_count <= 32u);// limit of uint bits
 
 private:
+    CUDADevice *_device;
     CUDAHostBufferPool _upload_pool;
+    std::mutex _mutex;
     luisa::queue<luisa::vector<CUDACallbackContext *>> _callback_lists;
     luisa::vector<CUDACallbackContext *> _current_callbacks;
-    std::mutex _mutex;
     std::array<CUstream, backed_cuda_stream_count> _worker_streams{};
     std::array<CUevent, backed_cuda_stream_count> _worker_events{};
-    mutable std::bitset<backed_cuda_stream_count> _used_streams;
+    mutable uint _used_streams{0u};
     mutable uint _round{0u};
 
 public:
-    CUDAStream() noexcept;
+    explicit CUDAStream(CUDADevice *device) noexcept;
     ~CUDAStream() noexcept;
     /**
      * @brief Return handle of a CUDA worker stream
@@ -66,6 +69,14 @@ public:
      * @brief Dispatch callbacks
      */
     void dispatch_callbacks() noexcept;
+    /**
+     * @brief Synchronize
+     */
+    void synchronize() noexcept;
+    /**
+     * @brief Dispatch a host function in the stream
+     */
+    void dispatch(luisa::move_only_function<void()> &&f) noexcept;
 };
 
-}
+}// namespace luisa::compute::cuda

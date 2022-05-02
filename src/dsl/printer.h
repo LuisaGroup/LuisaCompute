@@ -33,7 +33,7 @@ public:
         };
         luisa::vector<Tag> value_tags;
 
-        [[nodiscard]] auto operator==(const Descriptor &rhs) const noexcept {
+        [[nodiscard]] bool operator==(const Descriptor &rhs) const noexcept {
             for (auto i = 0u; i < value_tags.size(); i++) {
                 if (value_tags[i] != rhs.value_tags[i]) {
                     return false;
@@ -47,7 +47,7 @@ public:
         [[nodiscard]] uint64_t operator()(const Descriptor &desc) const noexcept {
             return luisa::detail::xxh3_hash64(
                 desc.value_tags.data(),
-                desc.value_tags.size() * sizeof(Descriptor),
+                desc.value_tags.size() * sizeof(Descriptor::Tag),
                 Hash64::default_seed);
         }
     };
@@ -55,12 +55,11 @@ public:
 private:
     Buffer<uint> _buffer;// count & records (desc_id, arg0, arg1, ...)
     luisa::vector<uint> _host_buffer;
-    luisa::unordered_map<Descriptor, uint, DescriptorHash> _desc_id;
+    luisa::unordered_map<Descriptor, uint, DescriptorHash, std::equal_to<>> _desc_id;
     luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
     luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
-    luisa::vector<luisa::string_view> _strings;
+    luisa::vector<luisa::string> _strings;
     luisa::string _scratch;
-    uint _uid{};
     bool _reset_called{false};
 
 public:
@@ -68,12 +67,22 @@ public:
     explicit Printer(Device &device, size_t capacity = 16_mb) noexcept;
     /// Reset stream
     void reset(Stream &stream) noexcept;
+    /// Reset stream
+    void reset(CommandBuffer &command_buffer) noexcept;
     /// Retrieve stream
     [[nodiscard]] luisa::string_view retrieve(Stream &stream) noexcept;
+    /// Retrieve stream
+    [[nodiscard]] luisa::string_view retrieve(CommandBuffer &command_buffer) noexcept;
 
     /// Log in kernel
     template<typename... Args>
     void log(Args &&...args) noexcept;
+
+private:
+    template<class T>
+    [[nodiscard]] luisa::string_view _retrieve(T &t) noexcept;
+    template<class T>
+    void _reset(T &t) noexcept;
 };
 
 template<typename... Args>
@@ -99,7 +108,7 @@ void Printer::log(Args &&...args) noexcept {
         } else {
             luisa::string s{std::forward<Arg>(arg)};
             auto [iter, not_present] = _string_id.try_emplace(
-                std::move(s), static_cast<uint>(_strings.size()));
+                s, static_cast<uint>(_strings.size()));
             if (not_present) { _strings.emplace_back(iter->first); }
             _buffer.write(offset, iter->second);
             return Descriptor::Tag::STRING;

@@ -109,21 +109,13 @@ public:
      */
     void remove_tex3d(size_t index) noexcept;
     /**
-     * @brief If buffer is used
+     * @brief If resource is used
      * 
-     * @param handle handle of buffer
+     * @param handle handle of resource
      * @return true 
      * @return false 
      */
-    [[nodiscard]] bool uses_buffer(uint64_t handle) const noexcept;
-    /**
-     * @brief If texture is used
-     * 
-     * @param handle handle of texture
-     * @return true 
-     * @return false 
-     */
-    [[nodiscard]] bool uses_texture(uint64_t handle) const noexcept;
+    [[nodiscard]] bool uses_resource(uint64_t handle) const noexcept;
     /**
      * @brief Upload bindless array to CUDA device
      * 

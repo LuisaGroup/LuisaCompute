@@ -3,7 +3,6 @@
 #include <core/dynamic_module.h>
 #include <Codegen/ShaderHeader.h>
 namespace toolhub::directx {
-luisa::DynamicModule dxcCompiler("dxcompiler");
 DXByteBlob::DXByteBlob(
     ComPtr<IDxcBlob> &&b,
     ComPtr<IDxcResult> &&rr)
@@ -25,13 +24,21 @@ static vstd::wstring GetSM(uint shaderModel) {
     }
     return wstr;
 }
-DXShaderCompiler::~DXShaderCompiler() {}
+DXShaderCompiler::~DXShaderCompiler() {
+    comp = nullptr;
+}
 DXShaderCompiler::DXShaderCompiler() {
-    auto voidPtr = dxcCompiler.address("DxcCreateInstance"sv);
-    HRESULT(__stdcall * DxcCreateInstance)
-    (const IID &, const IID &, LPVOID *) =
-        reinterpret_cast<HRESULT(__stdcall *)(const IID &, const IID &, LPVOID *)>(voidPtr);
-    DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(comp.GetAddressOf()));
+    dxcCompiler = luisa::DynamicModule::load("dxcompiler");
+    if (dxcCompiler.has_value()) {
+        luisa::DynamicModule &m = dxcCompiler.value();
+        auto voidPtr = m.address("DxcCreateInstance"sv);
+        HRESULT(__stdcall * DxcCreateInstance)
+        (const IID &, const IID &, LPVOID *) =
+            reinterpret_cast<HRESULT(__stdcall *)(const IID &, const IID &, LPVOID *)>(voidPtr);
+        DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(comp.GetAddressOf()));
+    } else {
+        comp = nullptr;
+    }
 }
 CompileResult DXShaderCompiler::Compile(
     vstd::string_view code,
@@ -78,6 +85,7 @@ CompileResult DXShaderCompiler::CompileCompute(
     args.push_back_all(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
+         L"-Gfa",
          L"/enable_unbounded_descriptor_tables",
          L"-HV 2021"});
     if (optimize) {

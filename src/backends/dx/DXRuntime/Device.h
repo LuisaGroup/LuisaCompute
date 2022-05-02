@@ -13,10 +13,7 @@ class ComputeShader;
 class PipelineLibrary;
 class DXShaderCompiler;
 class Device {
-    HANDLE eventHandle;
-
 public:
-    HANDLE EventHandle() const { return eventHandle; }
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
     Microsoft::WRL::ComPtr<ID3D12Device5> device;
     Microsoft::WRL::ComPtr<IDXGIFactory4> dxgiFactory;
@@ -24,10 +21,12 @@ public:
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
     ComputeShader const *setAccelKernel;
-    Device();
+    explicit Device(uint index);
     Device(Device const &) = delete;
     Device(Device &&) = delete;
     ~Device();
+    void WaitFence(ID3D12Fence *fence, uint64 fenceIndex);
+    void WaitFence_Async(ID3D12Fence *fence, uint64 fenceIndex);
     static DXShaderCompiler *Compiler();
 };
 }// namespace toolhub::directx

@@ -20,10 +20,10 @@ namespace luisa::compute {
 inline namespace dsl {
 
 template<typename T>
-[[nodiscard]] inline auto def(const Expression *expr) noexcept -> Var<expr_value_t<T>>;
+[[nodiscard]] auto def(const Expression *expr) noexcept -> Var<expr_value_t<T>>;
 
 template<typename T>
-[[nodiscard]] inline auto def(T &&x) noexcept -> Var<expr_value_t<T>>;
+[[nodiscard]] auto def(T &&x) noexcept -> Var<expr_value_t<T>>;
 
 }// namespace dsl
 
@@ -55,12 +55,11 @@ public:                                                                         
     Expr &operator=(Expr) noexcept = delete;
 
 /// Construct Expr from literal value
-#define LUISA_EXPR_FROM_LITERAL(...)                             \
-    template<typename U>                                         \
-        requires std::same_as<U, __VA_ARGS__>                    \
-        Expr(U literal)                                          \
-    noexcept : Expr{detail::FunctionBuilder::current()->literal( \
-                   Type::of<U>(), literal)} {}
+#define LUISA_EXPR_FROM_LITERAL(...)                                             \
+    template<typename U>                                                         \
+        requires std::same_as<U, __VA_ARGS__>                                    \
+    Expr(U literal) noexcept : Expr{detail::FunctionBuilder::current()->literal( \
+                                   Type::of<U>(), literal)} {}
 
 namespace detail {
 
@@ -226,8 +225,9 @@ namespace detail {
 template<typename T>
 struct ExprEnableStaticCast {
     template<typename Dest>
-        requires concepts::static_convertible<expr_value_t<T>, expr_value_t<Dest>>
-    [[nodiscard]] auto cast() const noexcept {
+        requires concepts::static_convertible<expr_value_t<T>,
+                                              expr_value_t<Dest>> [[nodiscard]] auto
+        cast() const noexcept {
         auto src = def(*static_cast<const T *>(this));
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
@@ -242,8 +242,9 @@ struct ExprEnableStaticCast {
 template<typename T>
 struct ExprEnableBitwiseCast {
     template<typename Dest>
-        requires concepts::bitwise_convertible<expr_value_t<T>, expr_value_t<Dest>>
-    [[nodiscard]] auto as() const noexcept {
+        requires concepts::bitwise_convertible<expr_value_t<T>,
+                                               expr_value_t<Dest>> [[nodiscard]] auto
+        as() const noexcept {
         auto src = def(*static_cast<const T *>(this));
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
@@ -258,8 +259,9 @@ struct ExprEnableBitwiseCast {
 template<typename T>
 struct ExprEnableSubscriptAccess {
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto operator[](I &&index) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        operator[](I &&index) const noexcept {
         auto self = def<T>(static_cast<const T *>(this)->expression());
         using Elem = std::remove_cvref_t<
             decltype(std::declval<expr_value_t<T>>()[0])>;
@@ -301,16 +303,17 @@ public:
     /// Construct from BufferView. Will call buffer_binding() to bind buffer
     explicit Expr(BufferView<T> buffer) noexcept
         : _expression{detail::FunctionBuilder::current()->buffer_binding(
-              Type::of<Buffer<T>>(),
-              buffer.handle(), buffer.offset_bytes())} {}
+              Type::of<Buffer<T>>(), buffer.handle(),
+              buffer.offset_bytes(), buffer.size_bytes())} {}
 
     /// Return RefExpr
     [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
 
     /// Read buffer at index
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(I &&index) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        read(I &&index) const noexcept {
         auto f = detail::FunctionBuilder::current();
         auto expr = f->call(
             Type::of<T>(), CallOp::BUFFER_READ,
@@ -433,8 +436,9 @@ template<>
 struct BufferExprAsAtomic<int> {
     /// Atomic access
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto atomic(I &&i) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         return AtomicRef<int>{FunctionBuilder::current()->access(
             Type::of<int>(),
@@ -448,8 +452,9 @@ template<>
 struct BufferExprAsAtomic<uint> {
     /// Atomic access
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto atomic(I &&i) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         return AtomicRef<uint>{FunctionBuilder::current()->access(
             Type::of<uint>(),
@@ -555,8 +560,9 @@ public:
 
     /// Read at index i
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(I &&i) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        read(I &&i) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<T>(
             f->call(
@@ -594,8 +600,9 @@ public:
 
     /// Read at coordinate and mipmap level
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(Expr<uint2> coord, I &&level) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        read(Expr<uint2> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<float4>(f->call(
             Type::of<float4>(), CallOp::BINDLESS_TEXTURE2D_READ_LEVEL,
@@ -633,8 +640,9 @@ public:
 
     /// Read at coordinate and mipmap level
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(Expr<uint3> coord, I &&level) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        read(Expr<uint3> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<float4>(f->call(
             Type::of<float4>(), CallOp::BINDLESS_TEXTURE3D_READ_LEVEL,
@@ -662,24 +670,27 @@ public:
 
     /// Get 2D texture at index
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto tex2d(I &&index) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        tex2d(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
         return BindlessTexture2D{_expression, i.expression()};
     }
 
     /// Get 3D texture at index
     template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto tex3d(I &&index) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        tex3d(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
         return BindlessTexture3D{_expression, i.expression()};
     }
 
     /// Get buffer at index
     template<typename T, typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto buffer(I &&index) const noexcept {
+        requires is_integral_expr_v<I> [
+            [nodiscard]] auto
+        buffer(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
         return BindlessBuffer<T>{_expression, i.expression()};
     }
