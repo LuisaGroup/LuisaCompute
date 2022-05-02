@@ -1,6 +1,6 @@
 if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
-    message(STATUS "Build with Metal")
+    message(STATUS "Build with Metal backend")
 
     enable_language(OBJC)
     enable_language(OBJCXX)
