@@ -15,35 +15,53 @@ Printer::Printer(Device &device, size_t capacity) noexcept
 }
 
 void Printer::reset(Stream &stream) noexcept {
-    auto zero = 0u;
-    auto size = _buffer.size() - 1u;
-    stream << _buffer.view(size, 1u).copy_from(&zero);
+    _reset(stream);
+}
+
+void Printer::reset(CommandBuffer &command_buffer) noexcept {
+    _reset(command_buffer);
+}
+
+template<class T>
+void Printer::_reset(T &stream) noexcept {
+    uint zero = 0u;
+    stream << _buffer.view(_buffer.size() - 1u, 1u).copy_from(&zero);
+    if constexpr (std::is_same_v<std::remove_cvref_t<T>, CommandBuffer>) {
+        stream << commit();
+    }
     _reset_called = true;
 }
 
+luisa::string_view Printer::retrieve(CommandBuffer &command_buffer) noexcept {
+    return _retrieve(command_buffer);
+}
+
 luisa::string_view Printer::retrieve(Stream &stream) noexcept {
+    return _retrieve(stream);
+}
+
+template<class T>
+luisa::string_view Printer::_retrieve(T &stream) noexcept {
     if (!_reset_called) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Printer results cannot be "
             "retrieved if never reset.");
     }
-    auto zero = 0u;
-    stream << _buffer.copy_to(_host_buffer.data())
-           << _buffer.view(_buffer.size() - 1u, 1u).copy_from(&zero)
-           << synchronize();
+    stream << _buffer.copy_to(_host_buffer.data());
+    _reset(stream);
+    stream << synchronize();
     auto size = std::min(
         static_cast<uint>(_buffer.size() - 1u),
         _host_buffer.back());
     _scratch.clear();
-    auto records = luisa::span{_host_buffer}.subspan(0u, size);
     for (auto offset = 0u; offset < size;) {
-        auto desc_id = records[offset++];
+        auto desc_id = _host_buffer[offset++];
         auto desc = _descriptors[desc_id];
-        if (offset + desc.size() > records.size()) {
+        if (offset + desc.size() > size) {
             break;
         }
         for (auto &&tag : desc) {
-            auto record = records[offset++];
+            auto record = _host_buffer[offset++];
             switch (tag) {
                 case Descriptor::Tag::INT:
                     _scratch.append(luisa::format(

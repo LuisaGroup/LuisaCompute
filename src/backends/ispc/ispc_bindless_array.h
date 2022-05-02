@@ -120,21 +120,13 @@ public:
      */
     [[nodiscard]] auto handle() const noexcept { return Handle{_items.data()}; }
     /**
-     * @brief If buffer is used in this array
+     * @brief If resource is used in this array
      * 
-     * @param buffer buffer to be tested
+     * @param handle resource handle to be tested
      * @return true 
      * @return false 
      */
-    [[nodiscard]] bool uses_buffer(const void *buffer) const noexcept;
-    /**
-     * @brief If texture is used in this array
-     * 
-     * @param texture texture to be tested
-     * @return true 
-     * @return false 
-     */
-    [[nodiscard]] bool uses_texture(const ISPCTexture *texture) const noexcept;
+    [[nodiscard]] bool uses_resource(uint64_t handle) const noexcept;
 };
 
 }// namespace luisa::compute::ispc

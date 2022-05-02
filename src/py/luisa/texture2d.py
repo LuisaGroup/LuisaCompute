@@ -1,6 +1,7 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
+from .types import BuiltinFuncEntry
 
 
 class Texture2D:
@@ -26,7 +27,7 @@ class Texture2D:
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, 1)
 
-    def copy_from(self, arr, sync = True, stream = None): # arr: numpy array
+    def copy_from(self, arr, sync = False, stream = None): # arr: numpy array
         if stream is None:
             stream = globalvars.stream
         assert arr.size * arr.itemsize == self.bytesize
@@ -44,11 +45,8 @@ class Texture2D:
         if sync:
             stream.synchronize()
 
-    def read(self, idx):
-        raise Exception("Method can only be called in Luisa kernel / callable")
-
-    def write(self, idx):
-        raise Exception("Method can only be called in Luisa kernel / callable")
+    read = BuiltinFuncEntry("texture2d_read")
+    write = BuiltinFuncEntry("texture2d_write")
 
 
 class Texture2DType:
@@ -58,3 +56,6 @@ class Texture2DType:
 
     def __eq__(self, other):
         return type(other) is Texture2DType and self.dtype == other.dtype
+
+    read = BuiltinFuncEntry("texture2d_read")
+    write = BuiltinFuncEntry("texture2d_write")

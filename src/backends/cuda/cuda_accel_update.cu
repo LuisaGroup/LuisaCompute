@@ -55,3 +55,14 @@ __global__ void update_instances(
         }
     }
 }
+
+extern "C"
+__global__ void __launch_bounds__(32u)
+wait_value(const unsigned int *values, unsigned int expected, unsigned int worker_masks) {
+    auto i = threadIdx.x;
+    if (((worker_masks >> i) & 1u)) {
+        while (__ldcv(values + i) != expected) {
+            // idle
+        }
+    }
+}

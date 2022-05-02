@@ -12,7 +12,6 @@ static vstd::optional<DXShaderCompiler> gDxcCompiler;
 static int32 gDxcRefCount = 0;
 Device::~Device() {
     if (defaultAllocator) delete defaultAllocator;
-    CloseHandle(eventHandle);
     {
         std::lock_guard lck(gDxcMutex);
         if (--gDxcRefCount == 0) {
@@ -20,11 +19,35 @@ Device::~Device() {
         }
     }
 }
+
+void Device::WaitFence(ID3D12Fence *fence, uint64 fenceIndex) {
+    if (fenceIndex <= 0) return;
+    HANDLE eventHandle = CreateEventEx(nullptr, (LPCWSTR) nullptr, false, EVENT_ALL_ACCESS);
+    auto d = vstd::create_disposer([&] {
+        CloseHandle(eventHandle);
+    });
+    if (fence->GetCompletedValue() < fenceIndex) {
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
+        WaitForSingleObject(eventHandle, INFINITE);
+    }
+}
+void Device::WaitFence_Async(ID3D12Fence *fence, uint64 fenceIndex) {
+    if (fenceIndex <= 0) return;
+    HANDLE eventHandle = CreateEventEx(nullptr, (LPCWSTR)nullptr, false, EVENT_ALL_ACCESS);
+    auto d = vstd::create_disposer([&] {
+        CloseHandle(eventHandle);
+    });
+    while (fence->GetCompletedValue() < fenceIndex) {
+        ThrowIfFailed(fence->SetEventOnCompletion(fenceIndex, eventHandle));
+        WaitForSingleObject(eventHandle, 1);
+    }
+}
+
 DXShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
 
-Device::Device() {
+Device::Device(uint index) {
     using Microsoft::WRL::ComPtr;
     uint32_t dxgiFactoryFlags = 0;
 
@@ -42,22 +65,25 @@ Device::Device() {
     }
 #endif
     ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgiFactory)));
-    uint adapterIndex = 0;    // we'll start looking for directx 12  compatible graphics devices starting at index 0
-    bool adapterFound = false;// set this to true when a good one was found
-    while (dxgiFactory->EnumAdapters1(adapterIndex, &adapter) != DXGI_ERROR_NOT_FOUND) {
+    auto capableAdapterIndex = 0u;
+    for (auto adapterIndex = 0u; dxgiFactory->EnumAdapters1(adapterIndex, &adapter) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
         DXGI_ADAPTER_DESC1 desc;
         adapter->GetDesc1(&desc);
         if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
             HRESULT hr = D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_1,
                                            IID_PPV_ARGS(&device));
-            if (SUCCEEDED(hr)) {
-                adapterFound = true;
+            if (SUCCEEDED(hr) && capableAdapterIndex++ == index) {
+                std::wstring s{desc.Description};
+                luisa::string ss(s.size(), ' ');
+                std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
+                LUISA_INFO("Found capable DirectX device at index {}: {}.", index, ss);
                 break;
             }
+            device = nullptr;
+            adapter = nullptr;
         }
-        adapter = nullptr;
-        adapterIndex++;
     }
+    if (adapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
     defaultAllocator = IGpuAllocator::CreateAllocator(
         this,
         IGpuAllocator::Tag::DefaultAllocator);
@@ -78,13 +104,11 @@ Device::Device() {
         samplerHeap->CreateSampler(
             samplers[i], i);
     }
-    LPCWSTR falseValue = nullptr;
-    eventHandle = CreateEventEx(nullptr, falseValue, false, EVENT_ALL_ACCESS);
-    setAccelKernel = BuiltinKernel::LoadAccelSetKernel(this);
     {
         std::lock_guard lck(gDxcMutex);
         gDxcRefCount++;
         gDxcCompiler.New();
     }
+    setAccelKernel = BuiltinKernel::LoadAccelSetKernel(this);
 }
 }// namespace toolhub::directx

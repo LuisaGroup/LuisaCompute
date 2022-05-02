@@ -166,7 +166,15 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
             vstd::to_string((type.dimension()), str);
         }
             return;
-        case Type::Tag::ARRAY:
+        case Type::Tag::ARRAY: {
+            if (type.element()->tag() == Type::Tag::FLOAT && type.dimension() == 3) {
+                str << "FLOATV3";
+            } else {
+                auto customType = opt->CreateStruct(&type);
+                str << customType->GetStructName();
+            }
+        }
+            return;
         case Type::Tag::STRUCTURE: {
             auto customType = opt->CreateStruct(&type);
             str << customType->GetStructName();
@@ -333,9 +341,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         str << '(';
         uint64 sz = 1;
         if (args.size() >= 1) {
-            str << "&(";
-            args[0]->accept(vis);
-            str << "),";
+            auto firstArg = static_cast<AccessExpr const *>(args[0]);
+            firstArg->range()->accept(vis);
+            str << ',';
+            firstArg->index()->accept(vis);
+            str << ',';
         }
         for (auto i : vstd::range(1, args.size())) {
             ++sz;
@@ -734,19 +744,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
-        case CallOp::SET_ACCEL_TRANSFORM_VISIBILITY: {
-            str << "SetAccelTransformVis("sv;
-            args[0]->accept(vis);
-            str << "Inst,"sv;
-            for (auto i : vstd::range(1, args.size())) {
-                args[i]->accept(vis);
-                if (i != (args.size() - 1)) {
-                    str << ',';
-                }
-            }
-            str << ')';
-            return;
-        }
         case CallOp::SET_INSTANCE_VISIBILITY: {
             str << "SetAccelVis("sv;
             args[0]->accept(vis);
@@ -896,7 +893,6 @@ void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::string &str) {
 }
 void CodegenUtility::CodegenFunction(Function func, vstd::string &result) {
 
-    
     if (func.tag() == Function::Tag::KERNEL) {
         result << "[numthreads("
                << vstd::to_string(func.block_size().x)
@@ -1007,6 +1003,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         CodegenStackData::DeAllocate(std::move(opt));
     });
     vstd::string codegenData;
+    vstd::string varData;
     // Custom callable
     {
         vstd::HashMap<void const *> callableMap;
@@ -1031,25 +1028,25 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     size_t unChangedOffset = finalResult.size();
 
     opt->isKernel = false;
-    GenerateCBuffer(kernel, kernel.arguments(), finalResult);
+    GenerateCBuffer(kernel, kernel.arguments(), varData);
     CodegenResult::Properties properties;
     properties.reserve(kernel.arguments().size() + opt->bindlessBufferCount + 4);
     // Bindless Buffers;
     for (auto &&i : opt->bindlessBufferTypes) {
-        finalResult << "StructuredBuffer<"sv;
+        varData << "StructuredBuffer<"sv;
         if (i.first->is_matrix()) {
             auto n = i.first->dimension();
-            finalResult << luisa::format("WrappedFloat{}x{}", n, n);
+            varData << luisa::format("WrappedFloat{}x{}", n, n);
         } else if (i.first->is_vector() && i.first->dimension() == 3) {
-            finalResult << "float4"sv;
+            varData << "float4"sv;
         } else {
-            GetTypeName(*i.first, finalResult, Usage::READ);
+            GetTypeName(*i.first, varData, Usage::READ);
         }
         vstd::string instName("bdls"sv);
         vstd::to_string(i.second, instName);
-        finalResult << "> " << instName << "[]:register(t0,space"sv;
-        vstd::to_string(i.second + 3, finalResult);
-        finalResult << ");\n"sv;
+        varData << "> " << instName << "[]:register(t0,space"sv;
+        vstd::to_string(i.second + 3, varData);
+        varData << ");\n"sv;
 
         properties.emplace_back(
             std::move(instName),
@@ -1097,22 +1094,22 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     };
     for (auto &&i : kernel.arguments()) {
         auto print = [&] {
-            GetTypeName(*i.type(), finalResult, kernel.variable_usage(i.uid()));
-            finalResult << ' ';
+            GetTypeName(*i.type(), varData, kernel.variable_usage(i.uid()));
+            varData << ' ';
             vstd::string varName;
             GetVariableName(i, varName);
-            finalResult << varName;
+            varData << varName;
             return varName;
         };
         auto printInstBuffer = [&]<bool writable>() {
             if constexpr (writable)
-                finalResult << "RWStructuredBuffer<MeshInst> "sv;
+                varData << "RWStructuredBuffer<MeshInst> "sv;
             else
-                finalResult << "StructuredBuffer<MeshInst> "sv;
+                varData << "StructuredBuffer<MeshInst> "sv;
             vstd::string varName;
             GetVariableName(i, varName);
             varName << "Inst"sv;
-            finalResult << varName;
+            varData << varName;
             return varName;
         };
         auto genArg = [&]<bool rtBuffer = false, bool writable = false>(RegisterType regisT, ShaderVariableType sT, char v) {
@@ -1128,9 +1125,9 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             } else {
                 properties.emplace_back(print(), prop);
             }
-            finalResult << ":register("sv << v;
-            vstd::to_string(r, finalResult);
-            finalResult << ");\n"sv;
+            varData << ":register("sv << v;
+            vstd::to_string(r, varData);
+            varData << ");\n"sv;
             r++;
         };
 
@@ -1179,7 +1176,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
                         << v->GetStructDesc() << "};\n";
         }
     }
-    for (auto&& i : opt->sharedVariable) {
+    for (auto &&i : opt->sharedVariable) {
         finalResult << "groupshared "sv;
         GetTypeName(*i.type()->element(), finalResult, Usage::READ);
         finalResult << ' ';
@@ -1188,12 +1185,12 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
         vstd::to_string(i.type()->dimension(), finalResult);
         finalResult << "];\n"sv;
     }
-    
-    finalResult << codegenData;
+
+    finalResult << varData << codegenData;
     return {
         std::move(finalResult),
         std::move(properties),
-        opt->bindlessBufferCount, 
+        opt->bindlessBufferCount,
         vstd::MD5(vstd::string_view(finalResult.c_str() + unChangedOffset, finalResult.size() - unChangedOffset))};
 }
 }// namespace toolhub::directx

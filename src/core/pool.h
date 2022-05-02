@@ -9,6 +9,7 @@
 
 #include <core/logging.h>
 #include <core/spin_mutex.h>
+#include <core/thread_safety.h>
 #include <core/stl.h>
 
 namespace luisa {
@@ -17,15 +18,15 @@ namespace luisa {
  * @brief Pool class
  * 
  * @tparam T type
+ * @tparam thread_safe whether the pool is thread-safe
  */
-template<typename T>
-class Pool {
+template<typename T, bool thread_safe = true>
+class Pool : public thread_safety<conditional_mutex_t<true>> {
 
 public:
     static constexpr auto block_size = 64u;
 
 private:
-    spin_mutex _mutex;
     luisa::vector<T *> _blocks;
     luisa::vector<T *> _available_objects;
 
@@ -81,13 +82,12 @@ public:
      */
     template<typename... Args>
     [[nodiscard]] auto create(Args &&...args) noexcept {
-        auto p = [this] {
-            std::scoped_lock lock{_mutex};
+        auto p = with_lock([this] {
             if (_available_objects.empty()) { _enlarge(); }
             auto p = _available_objects.back();
             _available_objects.pop_back();
             return p;
-        }();
+        });
         return std::construct_at(p, std::forward<Args>(args)...);
     }
 
@@ -99,8 +99,7 @@ public:
      */
     void recycle(T *object) noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>) { object->~T(); }
-        std::scoped_lock lock{_mutex};
-        _available_objects.emplace_back(object);
+        with_lock([this, object] { _available_objects.emplace_back(object); });
     }
 };
 

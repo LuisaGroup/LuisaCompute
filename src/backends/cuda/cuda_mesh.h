@@ -23,14 +23,12 @@ class CUDAMesh {
 
 private:
     OptixTraversableHandle _handle{};
-    uint64_t _bvh_buffer_handle{};
+    CUdeviceptr _bvh_buffer_handle{};
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
-    uint64_t _vertex_buffer_handle{};
     CUdeviceptr _vertex_buffer;
     size_t _vertex_stride;
     size_t _vertex_count;
-    uint64_t _triangle_buffer_handle{};
     CUdeviceptr _triangle_buffer;
     size_t _triangle_count;
     AccelUsageHint _build_hint;

@@ -160,7 +160,7 @@ void StructGenerator::InitAsStruct(
             case Type::Tag::ARRAY: {
                 auto subStruct = visitor(i);
                 Align(i->element()->alignment());
-                structSize += i->size() * i->dimension();
+                structSize += i->size();
                 ele = subStruct;
             } break;
         }
@@ -170,6 +170,7 @@ void StructGenerator::InitAsStruct(
             structDesc << ":8"sv;
         }
         structDesc << ";\n"sv;
+        Align(i->alignment());
         structTypes.emplace_back(
             std::move(varName),
             ele);

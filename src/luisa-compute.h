@@ -25,6 +25,7 @@
 #include <core/spin_mutex.h>
 #include <core/stl.h>
 #include <core/thread_pool.h>
+#include <core/thread_safety.h>
 
 #include <ast/constant_data.h>
 #include <ast/expression.h>
@@ -44,6 +45,7 @@
 #include <runtime/command_buffer.h>
 #include <runtime/command_list.h>
 #include <runtime/command_reorder_visitor.h>
+#include <runtime/command_scheduler.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/event.h>

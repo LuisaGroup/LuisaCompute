@@ -42,7 +42,7 @@ print(res)
 
 kernel 是可由python(host)中并行调用的函数，并行度由 `dispatch_size` 参数指定。
 
-callable是可由kernel/callable调用的函数，其不可在python中直接调用。callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
+callable 是可由kernel/callable调用的函数，其不可在python中直接调用。callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
 
 kernel/callable可以接受参数。参数列表可为空，由逗号隔开，每一项必须标记类型，形为`name: type`。其中，`name`为参数名字，`type` 为类型标记（见“类型”一节）。
 
@@ -54,11 +54,13 @@ kernel/callable可以接受参数。参数列表可为空，由逗号隔开，�
 - 单精度浮点数 `float`
 - 逻辑类型 `bool`
 
+注意 int/float 与 python 中的 int/float 精度不同。
+
 ### 向量、矩阵类型
 
 `luisa.float3`, `luisa.float3x3` , ...
 
-注：向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，矩阵只支持float矩阵。
+向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，矩阵只支持float矩阵。
 
 导入命名空间：
 
@@ -104,9 +106,19 @@ a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
 a1.name1 = value1 # python/kernel 都支持
 ```
 
+（高级用法）结构体可以定义callable方法：
+
+```python
+@luisa.callable_method(struct_t)
+def method1(self: luisa.ref(struct_t), ...):
+    ...
+```
+
+如方法名为`__init__`，该结构体在kernel/callable中构造时会调用该方法。
+
 ### 引用
 
-Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
+（高级用法）Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
 
 ```python
 @luisa.callable
@@ -114,13 +126,19 @@ def flipsign(x: luisa.ref(int)):
     x = -x
 ```
 
+这使得在Callable中可以改变调用者传入参数的值。
+
 参数类型可以为标量、向量、矩阵、数组、结构体的引用。注意Buffer等资源类型在传参过程中并不会复制数据，将资源类型作为参数时请勿标记为引用。
 
 kernel不支持引用参数。
 
+注意：引用不是一种数据类型。只能用于标记参数的类型。
+
 ### Buffer类型
 
-在设备上的数组，不能直接在python中访问其元素。暂时只支持标量Buffer
+在设备上的数组，不能直接在python中访问其元素。暂时只支持以标量或向量为元素的Buffer。
+
+Buffer和Array的区别是，Buffer是一种资源，由所有线程共享，长度可以很大；而Array是一个长度固定且较小的变量类型。
 
 类型标记：`luisa.BufferType(dtype)`
 
@@ -139,6 +157,16 @@ python方法：
 `copy_from(arr)`
 
 元素为标量的buffer可以上传/下载到对应类型的numpy.array，注意必须使用int32/float32，而不是默认的64位类型。
+
+当元素类型为向量时，需要使用对应长度的标量类型的numpy.array。注意：由于对齐要求，长度为3的向量占用4个对应类型标量的空间，矩阵float3x3占用12个float32的空间。例如
+
+```python
+b = luisa.Buffer(100, luisa.float3)
+arr = numpy.zeros(400, dtype=numpy.float32)
+b.copy_from(arr)
+```
+
+TODO: 需要提供用户友好的上传下载方式，以及支持其它类型元素的buffer
 
 ### Texture2D类型
 
@@ -168,6 +196,86 @@ python方法：
 
 上传/下载到storage对应类型的numpy.array。
 
+### BindlessArray类型
+
+可以放置多个 buffer / texture2d(float) 的容器。
+
+创建：
+
+```python
+a = luisa.BindlessArray()
+a.emplace(123, luisa.Buffer(...))
+a.emplace(456, luisa.Texture2D(..., dtype=float))
+a.remove_buffer(123)
+a.remove_texture2d(456)
+res in a
+a.update()
+```
+
+进入kernel使用前需要调用update
+
+作为参数的类型标记：`luisa.BindlessArray`
+
+kernel/callable 方法：
+
+```python
+a.buffer_read(element_type, idx, element_idx)
+a.texture2d_read(idx, coord)
+a.texture2d_sample(idx, uv)
+a.texture2d_size(idx)
+```
+
+注：目前的用法有点奇怪，可能后续会更改
+
+### Accel类型
+
+在设备上的（光线求交）加速结构。
+
+构建例子：
+
+```python
+accel = luisa.Accel()
+v_buffer = luisa.Buffer(3, float3)
+t_buffer = luisa.Buffer(3, int)
+v_buffer.copy_from(np.array([0,0,0,0,0,1,2,0,0,2,1,0], dtype=np.float32))
+t_buffer.copy_from(np.array([0,1,2], dtype=np.int32))
+mesh = luisa.Mesh(v_buffer, t_buffer)
+accel.add(mesh)
+accel.build() 
+```
+
+作为参数的类型标记：`luisa.Accel`
+
+kernel/callable 方法：
+
+TODO: `make_ray(origin, direction)`
+
+TODO: `make_ray(origin, direction, t_min, t_max)`
+
+```python
+ray.t_min
+ray.t_max
+ray.get_origin()
+ray.get_direction()
+ray.set_origin(k)
+ray.set_direction(k)
+hit = accel.trace_closest(ray)
+hit1 = accel.trace_any(ray)
+hit.miss()
+hit.inst # instance ID of the hit object
+hit.prim # primitive ID of the hit object
+```
+
+TODO: `interpolate(hit, a,b,c)`
+
+TODO: `offset_ray_origin(p,n)`
+
+TODO: `offset_ray_origin(p,n,w)`
+
+### 类型转换
+
+TODO
+
 ## 内建函数与方法
 
 kernel/callable中可以调用内置的函数。
@@ -189,12 +297,7 @@ make_bool3(x,y,z), ...
 make_float2x2(...)
 ```
 
-一些类型具有可调用的方法；自定义类暂不支持方法。
-
-```
-Buffer.read(idx)
-Buffer.write(idx, value)
-```
+一些类型具有可调用的方法，见类型对应文档。
 
 ## 变量
 
@@ -210,9 +313,19 @@ def fill():
 
 ## 语法参考
 
-...
+kernel中尚不支持 list, tuple, dict 等python提供的数据结构
+
+### for 循环
+
+仅支持 range for，形如 `for x in range(...)`
 
 # Python-Luisa 开发者文档
+
+## 概述
+
+
+
+## 文件结构
 
 `src/py/lcapi.cpp` 导出PyBind接口到名为 lcapi 的库
 
@@ -224,11 +337,41 @@ def fill():
 
 暂无文档。见`src/py/lcapi.cpp` 指向的c++函数
 
-## AST变换
+## 抽象语法树
 
-对AST的表达式节点维护两个属性：
+使用Python提供的语法解析工具，可以将用户函数解析为一个Python抽象语法树（AST）。astbuilder模块递归地遍历这一语法树，在遍历过程中调用lcapi，以将该语法树转换为LuisaCompute的函数表示。
 
-`node.dtype` 表达式值的类型，见用户文档“类型”一节。调用 `luisa.types.to_lctype(node.dtype)` 可转换为 `lcapi.Types`
+对于每一个kernel/callable，在遍历过程中，维护一些全局信息：
 
-`node.expr` 表达式，类型为 `lcapi.Expression`
+local_variable[变量名] -> (dtype, expr)
+
+return_type
+
+uses_printer
+
+在递归遍历语法树过程中，对AST的每个表达式节点计算出两个属性：
+
+`node.dtype` 该节点的类型标记，表示其表达式值的类型，见用户文档“类型”一节。
+
+如果该节点的类型是一个数据类型（即标记类型为用户文档中除ref外的类型，而不是下述的“非数据类型标记”），那么调用 `luisa.types.to_lctype(node.dtype)` 可将类型标记转换为 `lcapi.Types`
+
+`node.expr` 该节点的表达式。如果该节点的类型是一个数据类型，那么其表达式的类型为 `lcapi.Expression`；否则见下
+
+## 非数据类型标记
+
+除用户文档中的类型标记外，AST节点的类型标记 `node.dtype` 还可以为以下值。这些值不可以作为 kernel/callable 的参数类型标记。
+
+`type` 该节点表示的是一个类型，此时`node.expr`为对应的类型标记
+
+`CallableType` 该节点表示的是一个callable，此时`node.expr`为callable
+
+`BuiltinFuncType` 该节点表示的是一个内建函数，此时`node.expr`为一个字符串，内建函数的名字
+
+`BuiltinFuncBuilder` 该节点表示的是一个内建函数，此时`node.expr`为一个函数` (argnodes)->(dtype,expr)`
+
+`str` 该节点表示的是一个字符串，此时`node.expr`为一个字符串字面值。这种情况只允许在 `print` 函数的参数里出现
+
+
+
+## 注
 

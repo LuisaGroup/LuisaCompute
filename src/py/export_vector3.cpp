@@ -9,7 +9,9 @@ using namespace luisa::compute;
 #define LUISA_EXPORT_VECTOR3(T) \
     py::class_<luisa::detail::VectorStorage<T, 3>>(m, "_vectorstorage_"#T"3"); \
     py::class_<Vector<T,3>, luisa::detail::VectorStorage<T, 3>>(m, #T"3") \
+    	.def(py::init<T>()) \
     	.def(py::init<T,T,T>()) \
+    	.def(py::init<Vector<T,3>>()) \
     	.def("__repr__", [](Vector<T,3>& self){return format(#T"3({},{},{})", self.x, self.y, self.z);}) \
     	.def_readwrite("x", &Vector<T,3>::x) \
     	.def_readwrite("y", &Vector<T,3>::y) \

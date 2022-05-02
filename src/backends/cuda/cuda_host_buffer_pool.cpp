@@ -2,6 +2,7 @@
 // Created by Mike on 8/1/2021.
 //
 
+#include "backends/cuda/cuda_error.h"
 #include <backends/cuda/cuda_host_buffer_pool.h>
 
 namespace luisa::compute::cuda {
@@ -29,9 +30,9 @@ CUDAHostBufferPool::View *CUDAHostBufferPool::allocate(size_t size) noexcept {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to allocate {} bytes from "
             "CUDAHostBufferPool. Falling back "
-            "to ad-hoc allocation.", size);
-        view = View::create(
-            luisa::allocate<std::byte>(size));
+            "to ad-hoc allocation.",
+            size);
+        view = View::create(luisa::allocate<std::byte>(size));
     }
     return view;
 }

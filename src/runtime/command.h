@@ -84,28 +84,33 @@ LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
     void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
 
-#define LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)                 \
-    [[nodiscard]] Command *clone() const noexcept override { \
-        return Cmd::create(*this);                           \
-    }
-
-#define LUISA_MAKE_COMMAND_COMMON(Cmd)     \
-    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)  \
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)  \
-    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_CLONE(Cmd)
+#define LUISA_MAKE_COMMAND_COMMON(Cmd)    \
+    LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
+    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd)
 
 class LC_RUNTIME_API Command {
+
+public:
+    enum struct Tag {
+#define LUISA_MAKE_COMMAND_TAG(Cmd) E##Cmd,
+        LUISA_MAP(LUISA_MAKE_COMMAND_TAG, LUISA_COMPUTE_RUNTIME_COMMANDS)
+#undef LUISA_MAKE_COMMAND_TAG
+    };
+
+private:
+    Tag _tag;
 
 protected:
     virtual void _recycle() noexcept = 0;
 
 public:
+    explicit Command(Tag tag) noexcept : _tag(tag) {}
     virtual ~Command() noexcept = default;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
-    [[nodiscard]] virtual Command *clone() const noexcept = 0;
     void recycle();
+    [[nodiscard]] auto tag() const noexcept { return _tag; }
 };
 
 class BufferUploadCommand final : public Command {
@@ -118,10 +123,8 @@ private:
 
 public:
     BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
-        : _handle{handle},
-          _offset{offset_bytes},
-          _size{size_bytes},
-          _data{data} {}
+        : Command{Command::Tag::EBufferUploadCommand},
+          _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -139,10 +142,8 @@ private:
 
 public:
     BufferDownloadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, void *data) noexcept
-        : _handle{handle},
-          _offset{offset_bytes},
-          _size{size_bytes},
-          _data{data} {}
+        : Command{Command::Tag::EBufferDownloadCommand},
+          _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -161,11 +162,8 @@ private:
 
 public:
     BufferCopyCommand(uint64_t src, uint64_t dst, size_t src_offset, size_t dst_offset, size_t size) noexcept
-        : _src_handle{src},
-          _dst_handle{dst},
-          _src_offset{src_offset},
-          _dst_offset{dst_offset},
-          _size{size} {}
+        : Command{Command::Tag::EBufferCopyCommand},
+          _src_handle{src}, _dst_handle{dst}, _src_offset{src_offset}, _dst_offset{dst_offset}, _size{size} {}
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
@@ -188,7 +186,8 @@ public:
     BufferToTextureCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage,
                                uint level, uint3 size) noexcept
-        : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
+        : Command{Command::Tag::EBufferToTextureCopyCommand},
+          _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
@@ -213,7 +212,8 @@ private:
 public:
     TextureToBufferCopyCommand(uint64_t buffer, size_t buffer_offset,
                                uint64_t texture, PixelStorage storage, uint level, uint3 size) noexcept
-        : _buffer_handle{buffer}, _buffer_offset{buffer_offset},
+        : Command{Command::Tag::ETextureToBufferCopyCommand},
+          _buffer_handle{buffer}, _buffer_offset{buffer_offset},
           _texture_handle{texture}, _pixel_storage{storage}, _texture_level{level},
           _texture_size{size.x, size.y, size.z} {}
     [[nodiscard]] auto buffer() const noexcept { return _buffer_handle; }
@@ -236,17 +236,11 @@ private:
     uint _dst_level;
 
 public:
-    TextureCopyCommand(
-        PixelStorage storage,
-        uint64_t src_handle,
-        uint64_t dst_handle,
-        uint src_level,
-        uint dst_level,
-        uint3 size) noexcept
-        : _storage{storage},
-          _src_handle{src_handle}, _dst_handle{dst_handle},
-          _size{size.x, size.y, size.z},
-          _src_level{src_level}, _dst_level{dst_level} {}
+    TextureCopyCommand(PixelStorage storage, uint64_t src_handle, uint64_t dst_handle,
+                       uint src_level, uint dst_level, uint3 size) noexcept
+        : Command{Command::Tag::ETextureCopyCommand},
+          _storage{storage}, _src_handle{src_handle}, _dst_handle{dst_handle},
+          _size{size.x, size.y, size.z}, _src_level{src_level}, _dst_level{dst_level} {}
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto src_handle() const noexcept { return _src_handle; }
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
@@ -268,11 +262,9 @@ private:
 public:
     TextureUploadCommand(uint64_t handle, PixelStorage storage,
                          uint level, uint3 size, const void *data) noexcept
-        : _handle{handle},
-          _storage{storage},
-          _level{level},
-          _size{size.x, size.y, size.z},
-          _data{data} {}
+        : Command{Command::Tag::ETextureUploadCommand},
+          _handle{handle}, _storage{storage}, _level{level},
+          _size{size.x, size.y, size.z}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
@@ -291,14 +283,11 @@ private:
     void *_data;
 
 public:
-    TextureDownloadCommand(
-        uint64_t handle, PixelStorage storage,
-        uint level, uint3 size, void *data) noexcept
-        : _handle{handle},
-          _storage{storage},
-          _level{level},
-          _size{size.x, size.y, size.z},
-          _data{data} {}
+    TextureDownloadCommand(uint64_t handle, PixelStorage storage,
+                           uint level, uint3 size, void *data) noexcept
+        : Command{Command::Tag::ETextureDownloadCommand},
+          _handle{handle}, _storage{storage}, _level{level},
+          _size{size.x, size.y, size.z}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
@@ -307,14 +296,10 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
 };
 
-namespace detail {
-class FunctionBuilder;
-}
-
 class LC_RUNTIME_API ShaderDispatchCommand final : public Command {
 
 public:
-    struct alignas(16) Argument {
+    struct alignas(8) Argument {
 
         enum struct Tag : uint32_t {
             BUFFER,
@@ -335,11 +320,10 @@ public:
     struct BufferArgument : Argument {
         uint64_t handle{};
         size_t offset{};
+        size_t size{};
         BufferArgument() noexcept : Argument{Tag::BUFFER, 0u} {}
-        BufferArgument(uint32_t vid, uint64_t handle, size_t offset) noexcept
-            : Argument{Tag::BUFFER, vid},
-              handle{handle},
-              offset{offset} {}
+        BufferArgument(uint32_t vid, uint64_t handle, size_t offset, size_t size) noexcept
+            : Argument{Tag::BUFFER, vid}, handle{handle}, offset{offset}, size{size} {}
     };
 
     struct TextureArgument : Argument {
@@ -347,38 +331,33 @@ public:
         uint32_t level{};
         TextureArgument() noexcept : Argument{Tag::TEXTURE, 0u} {}
         TextureArgument(uint32_t vid, uint64_t handle, uint32_t level) noexcept
-            : Argument{Tag::TEXTURE, vid},
-              handle{handle},
-              level{level} {}
+            : Argument{Tag::TEXTURE, vid}, handle{handle}, level{level} {}
     };
 
     struct UniformArgument : Argument {
         size_t size{};
-        size_t alignment{};
+        const std::byte *data{};
         UniformArgument() noexcept : Argument{Tag::UNIFORM, 0u} {}
-        UniformArgument(uint32_t vid, size_t size, size_t alignment) noexcept
-            : Argument{Tag::UNIFORM, vid},
-              size{size},
-              alignment{alignment} {}
+        UniformArgument(uint32_t vid, const std::byte *data, size_t size) noexcept
+            : Argument{Tag::UNIFORM, vid}, size{size}, data{data} {}
+        [[nodiscard]] auto span() const noexcept { return luisa::span{data, size}; }
     };
 
     struct BindlessArrayArgument : Argument {
         uint64_t handle{};
         BindlessArrayArgument() noexcept : Argument{Tag::BINDLESS_ARRAY, 0u} {}
         BindlessArrayArgument(uint32_t vid, uint64_t handle) noexcept
-            : Argument{Tag::BINDLESS_ARRAY, vid},
-              handle{handle} {}
+            : Argument{Tag::BINDLESS_ARRAY, vid}, handle{handle} {}
     };
 
     struct AccelArgument : Argument {
         uint64_t handle{};
         AccelArgument() noexcept : Argument{Tag::ACCEL, 0u} {}
         AccelArgument(uint32_t vid, uint64_t handle) noexcept
-            : Argument{Tag::ACCEL, vid},
-              handle{handle} {}
+            : Argument{Tag::ACCEL, vid}, handle{handle} {}
     };
 
-    struct ArgumentBuffer : std::array<std::byte, 2048u> {};
+    using ArgumentBuffer = std::array<std::byte, 4000u>;
 
 private:
     uint64_t _handle;
@@ -386,71 +365,71 @@ private:
     size_t _argument_buffer_size{0u};
     uint _dispatch_size[3]{};
     uint32_t _argument_count{0u};
-    ArgumentBuffer _argument_buffer{};
+    luisa::unique_ptr<ArgumentBuffer> _argument_buffer;
 
 private:
     void _encode_pending_bindings() noexcept;
-    void _encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void _encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
     void _encode_texture(uint64_t handle, uint32_t level) noexcept;
-    void _encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void _encode_uniform(const void *data, size_t size) noexcept;
     void _encode_bindless_array(uint64_t handle) noexcept;
     void _encode_accel(uint64_t handle) noexcept;
 
 public:
     explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
+    ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept = default;
+    ShaderDispatchCommand &operator=(ShaderDispatchCommand &&) noexcept = default;
     void set_dispatch_size(uint3 launch_size) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto kernel() const noexcept { return _kernel; }
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
     [[nodiscard]] auto dispatch_size() const noexcept { return uint3(_dispatch_size[0], _dispatch_size[1], _dispatch_size[2]); }
 
-    void encode_buffer(uint64_t handle, size_t offset) noexcept;
+    void encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
     void encode_texture(uint64_t handle, uint32_t level) noexcept;
-    void encode_uniform(const void *data, size_t size, size_t alignment) noexcept;
+    void encode_uniform(const void *data, size_t size) noexcept;
     void encode_bindless_array(uint64_t handle) noexcept;
     void encode_accel(uint64_t handle) noexcept;
 
     template<typename Visit>
     void decode(Visit &&visit) const noexcept {
-        auto p = _argument_buffer.data();
-        while (p < _argument_buffer.data() + _argument_buffer_size) {
+        auto p = _argument_buffer->data();
+        while (p < _argument_buffer->data() + _argument_buffer_size) {
             Argument argument{};
             std::memcpy(&argument, p, sizeof(Argument));
             switch (argument.tag) {
                 case Argument::Tag::BUFFER: {
                     BufferArgument buffer_argument{};
                     std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
-                    visit(argument.variable_uid, buffer_argument);
+                    visit(buffer_argument);
                     p += sizeof(BufferArgument);
                     break;
                 }
                 case Argument::Tag::TEXTURE: {
                     TextureArgument texture_argument{};
                     std::memcpy(&texture_argument, p, sizeof(TextureArgument));
-                    visit(argument.variable_uid, texture_argument);
+                    visit(texture_argument);
                     p += sizeof(TextureArgument);
                     break;
                 }
                 case Argument::Tag::UNIFORM: {
                     UniformArgument uniform_argument{};
                     std::memcpy(&uniform_argument, p, sizeof(UniformArgument));
-                    p += sizeof(UniformArgument);
-                    luisa::span data{p, uniform_argument.size};
-                    visit(argument.variable_uid, data);
-                    p += uniform_argument.size;
+                    visit(uniform_argument);
+                    p += sizeof(UniformArgument) + uniform_argument.size;
                     break;
                 }
                 case Argument::Tag::BINDLESS_ARRAY: {
                     BindlessArrayArgument bindless_array_argument;
                     std::memcpy(&bindless_array_argument, p, sizeof(BindlessArrayArgument));
-                    visit(argument.variable_uid, bindless_array_argument);
+                    visit(bindless_array_argument);
                     p += sizeof(BindlessArrayArgument);
                     break;
                 }
                 case Argument::Tag::ACCEL: {
                     AccelArgument accel_argument;
                     std::memcpy(&accel_argument, p, sizeof(AccelArgument));
-                    visit(argument.variable_uid, accel_argument);
+                    visit(accel_argument);
                     p += sizeof(AccelArgument);
                     break;
                 }
@@ -481,17 +460,27 @@ private:
     uint64_t _handle;
     AccelBuildRequest _request;
     uint64_t _vertex_buffer;
+    size_t _vertex_buffer_offset;
+    size_t _vertex_buffer_size;
     uint64_t _triangle_buffer;
+    size_t _triangle_buffer_offset;
+    size_t _triangle_buffer_size;
 
 public:
     MeshBuildCommand(uint64_t handle, AccelBuildRequest request,
-                     uint64_t vertex_buffer, uint64_t triangle_buffer) noexcept
-        : _handle{handle}, _request{request},
-          _vertex_buffer{vertex_buffer}, _triangle_buffer{triangle_buffer} {}
+                     uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size,
+                     uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size) noexcept
+        : Command{Command::Tag::EMeshBuildCommand}, _handle{handle}, _request{request},
+          _vertex_buffer{vertex_buffer}, _vertex_buffer_offset{vertex_buffer_offset}, _vertex_buffer_size{vertex_buffer_size},
+          _triangle_buffer{triangle_buffer}, _triangle_buffer_offset{triangle_buffer_offset}, _triangle_buffer_size{triangle_buffer_size} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto vertex_buffer() const noexcept { return _vertex_buffer; }
     [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
+    [[nodiscard]] auto vertex_buffer_offset() const noexcept { return _vertex_buffer_offset; }
+    [[nodiscard]] auto vertex_buffer_size() const noexcept { return _vertex_buffer_size; }
+    [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
+    [[nodiscard]] auto triangle_buffer_size() const noexcept { return _triangle_buffer_size; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand)
 };
 
@@ -532,7 +521,8 @@ private:
 public:
     AccelBuildCommand(uint64_t handle, uint32_t instance_count,
                       AccelBuildRequest request, luisa::vector<Modification> modifications) noexcept
-        : _handle{handle}, _instance_count{instance_count},
+        : Command{Command::Tag::EAccelBuildCommand},
+          _handle{handle}, _instance_count{instance_count},
           _request{request}, _modifications{std::move(modifications)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
@@ -547,7 +537,8 @@ private:
     uint64_t _handle;
 
 public:
-    explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept : _handle{handle} {}
+    explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept
+        : Command{Command::Tag::EBindlessArrayUpdateCommand}, _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand)
 };
@@ -555,7 +546,6 @@ public:
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE
 #undef LUISA_MAKE_COMMAND_COMMON_ACCEPT
 #undef LUISA_MAKE_COMMAND_COMMON_RECYCLE
-#undef LUISA_MAKE_COMMAND_COMMON_CLONE
 #undef LUISA_MAKE_COMMAND_COMMON
 
 }// namespace luisa::compute
