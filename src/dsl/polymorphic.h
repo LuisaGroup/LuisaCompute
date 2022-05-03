@@ -26,11 +26,9 @@ public:
     template<typename Impl, typename... Args>
         requires std::derived_from<Impl, T>
     [[nodiscard]] auto create(Args &&...args) noexcept {
-        auto impl = luisa::make_unique<Impl>(std::forward<Args>(args)...);
-        auto impl_ptr = impl.get();
         auto tag = static_cast<uint>(_impl.size());
-        _impl.emplace_back(std::move(impl));
-        return std::make_pair(tag, impl_ptr);
+        _impl.emplace_back(luisa::make_unique<Impl>(std::forward<Args>(args)...));
+        return tag;
     }
     // clang-format on
 

@@ -69,8 +69,8 @@ class Microfacet : public Surface {
 int main(int argc, char *argv[]) {
 
     Polymorphic<Surface> surfaces;
-    auto [t1, s1] = surfaces.create<Lambertian>();
-    auto [t2, s2] = surfaces.create<Microfacet>();
+    auto tag1 = surfaces.create<Lambertian>();
+    auto tag2 = surfaces.create<Microfacet>();
     // ...
 
     // in kernel
