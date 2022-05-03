@@ -261,8 +261,11 @@ public:
         for (auto col = 0u; col < 4u; col++) {
             for (auto row = 0u; row < 4u; row++) {
                 (*this)(m[col][row]);
+                _s << ", ";
             }
         }
+        _s.pop_back();
+        _s.pop_back();
         _s << ")";
     }
 
