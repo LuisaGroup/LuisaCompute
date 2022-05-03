@@ -96,6 +96,8 @@ def dtype_of(val):
         if not val.is_device_callable:
             raise TypeError("can't call kernel in kernel/callable")
         return CallableType
+    if type(val).__name__ == "BuiltinFuncBuilder":
+        return type(val)
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
     if type(val).__name__ in {"ArrayType", "StructType", "BufferType"} or val in basic_type_dict:

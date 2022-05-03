@@ -191,8 +191,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("is_accel", &Type::is_accel)
         .def("element", &Type::element, pyref)
         .def("description", &Type::description)
-        .def("dimension", &Type::dimension)
-        .def("__hash__", [](Type& self){return py::hash(self.description())^5784320913421789ull;});
+        .def("dimension", &Type::dimension);
 
     // commands
     py::class_<Command>(m, "Command");
