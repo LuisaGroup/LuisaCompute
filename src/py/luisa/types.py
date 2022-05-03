@@ -111,7 +111,7 @@ def to_lctype(dtype):
         return lcapi.Type.from_("accel")
     if dtype in basic_type_dict:
         return basic_type_dict[dtype]
-    raise Exception(f"to_lctype({dtype}): unrecognized type")
+    raise TypeError(f"{dtype} is not a valid data type")
 
 def from_lctype(lctype):
     if lctype in basic_lctype_dict:

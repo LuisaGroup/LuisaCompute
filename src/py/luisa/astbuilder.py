@@ -18,6 +18,13 @@ def current_kernel():
     return globalvars.current_kernel
 
 
+class VariableInfo:
+    def __init__(dtype, expr, is_arg = False):
+        self.dtype = dtype
+        self.expr = expr
+        self.is_arg = is_arg
+
+
 class ASTVisitor:
     def __call__(self, node):
         method = getattr(self, 'build_' + node.__class__.__name__, None)

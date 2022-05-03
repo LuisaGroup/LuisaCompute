@@ -3,6 +3,7 @@ try:
 except ImportError:
     print('sourceinspect not installed. This may cause issues in interactive mode (REPL).')
     import inspect as sourceinspect
+    # need sourceinspect for getting source. see (#10)
 import inspect
 import ast
 import astpretty
@@ -12,48 +13,44 @@ from . import globalvars, astbuilder
 from .globalvars import get_global_device
 from .types import dtype_of, to_lctype, ref, CallableType
 from .structtype import StructType
+from .astbuilder import VariableInfo
 
 
-def create_param_exprs(params, allow_ref = False):
-    # supports positional arguments only
-    l = [] # (name, dtype, expr)
-    for name in params:
-        anno = params[name].annotation
-        if anno == None:
-            raise Exception("arguments must be annotated")
-        if type(anno) is ref:
-            if not allow_ref:
-                raise Exception("reference is only supported as type of callable arguments")
-            lctype = to_lctype(anno.dtype) # also checking that it's valid dtype
-            if lctype.is_basic() or lctype.is_array() or lctype.is_structure():
-                l.append((name, anno.dtype, lcapi.builder().reference(lctype)))
-            else:
-                raise Exception(f"type {anno.dtype} can not be referenced")
-        else:
-            lctype = to_lctype(anno) # also checking that it's valid dtype
-            if lctype.is_basic() or lctype.is_array() or lctype.is_structure():
-                # uniform argument
-                l.append((name, anno, lcapi.builder().argument(lctype)))
-            elif lctype.is_buffer():
-                l.append((name, anno, lcapi.builder().buffer(lctype)))
-            elif lctype.is_texture():
-                l.append((name, anno, lcapi.builder().texture(lctype)))
-            elif lctype.is_bindless_array():
-                l.append((name, anno, lcapi.builder().bindless_array()))
-            elif lctype.is_accel():
-                l.append((name, anno, lcapi.builder().accel()))
-            else:
-                raise Exception("unsupported argument annotation")
-    return l
+def create_arg_expr(dtype, allow_ref):
+    # Note: scalars are always passed by value
+    #       vectors/matrices/arrays/structs are passed by reference if (allow_ref==True)
+    #       resources are always passed by reference (without specifying ref)
+    lctype = to_lctype(dtype) # also checking that it's valid data dtype
+    if lctype.is_scalar():
+        return lcapi.builder().argument(lctype)
+    elif lctype.is_vector() or lctype.is_matrix() or lctype.is_array() or lctype.is_structure():
+        return lcapi.builder().reference(lctype)
+    elif lctype.is_buffer():
+        return lcapi.builder().buffer(lctype)
+    elif lctype.is_texture():
+        return lcapi.builder().texture(lctype)
+    elif lctype.is_bindless_array():
+        return lcapi.builder().bindless_array()
+    elif lctype.is_accel():
+        return lcapi.builder().accel()
+    else:
+        assert False
+
 
 class kernel:
     # creates a luisa kernel with given function
+    # func: python function
+    # is_device_callable: True if it's callable, False if it's kernel
     def __init__(self, func, is_device_callable = False):
         self.func = func
         self.is_device_callable = is_device_callable
         self.__name__ = func.__name__
         self.__doc__ = func.__doc__
+        self.compiled_results = {} # maps (arg_type_tuple) to (function, shader_handle)
 
+    # compiles an argument-type-specialized callable/kernel
+    # returns (LCfunction, shader_handle)
+    # shader_handle is None if it's callable
     def compile(self, argtypes):
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.func)[0]
@@ -64,42 +61,50 @@ class kernel:
             **_closure_vars.nonlocals,
             **_closure_vars.builtins
         }
-        self.local_variable = {} # dict: name -> (dtype, expr)
-
+        self.local_variable = {} # dict: name -> VariableInfo(dtype, expr, is_arg)
         self.parameters = inspect.signature(self.func).parameters
-        if len(self.parameters)
+        if len(args) != len(self.parameters):
+            raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
         self.uses_printer = False
-
+        # compile callback
         def astgen():
-            # print(astpretty.pformat(self.tree.body[0]))
             if not self.is_device_callable:
                 lcapi.builder().set_block_size(256,1,1)
             # get parameters
-            # self.params = create_param_exprs(self.parameters, allow_ref = is_device_callable)
-            for name, dtype, expr in self.params:
-                self.local_variable[name] = dtype, expr
-            # build function body AST
+            for idx, name in enumerate(self.parameters):
+                dtype = argtypes[idx]
+                expr = create_arg_expr(dtype, allow_ref = self.is_device_callable)
+                self.local_variable[name] = VariableInfo(dtype, expr, is_arg=True)
+            # push context & build function body AST
+            top = globalvars.current_kernel
             globalvars.current_kernel = self
             astbuilder.build(self.tree.body[0])
-            globalvars.current_kernel = None
-
+            globalvars.current_kernel = top
+        # compile
         if is_device_callable:
             self.builder = lcapi.FunctionBuilder.define_callable(astgen)
         else:
             self.builder = lcapi.FunctionBuilder.define_kernel(astgen)
-        # Note: self.params[*][2] (expr) is invalidated
-
-        self.lcfunction = self.builder.function()
+        # get LuisaCompute function
+        function = self.builder.function()
+        if is_device_callable:
+            return function, None
         # compile shader
-        if not is_device_callable:
-            self.shader_handle = get_global_device().impl().create_shader(self.lcfunction)
+        shader_handle = get_global_device().impl().create_shader(self.lcfunction)
+        return function, shader_handle
 
-    def compile(argtypes):
 
-        if len(args) != len(self.params):
-            raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
+    # looks up arg_type_tuple; compile if not existing
+    # argtypes: tuple of dtype
+    # returns (function, shader_handle)
+    def get_compiled(self, argtypes):
+        if argtypes not in self.compiled_results:
+            self.compiled_results[argtypes] = self.compile(argtypes)
+        return self.compiled_results[argtypes]
 
-    # dispatch shader to stream
+
+    # dispatch shader to stream if it's kernel
+    # callables can't be called directly
     def __call__(self, *args, dispatch_size, stream = None):
         if self.is_device_callable:
             raise TypeError("callable can't be called on host")
@@ -107,9 +112,7 @@ class kernel:
             stream = globalvars.stream
         # get types of arguments and compile
         argtypes = tuple(dtype_of(a) for a in args)
-        if argtypes not in compiled_results:
-            compiled_results[argtypes] = self.compile(argtypes)
-        lcfunction, shader_handle = compiled_results[argtypes]
+        lcfunction, shader_handle = self.get_compiled(argtypes)
         # create command
         command = lcapi.ShaderDispatchCommand.create(shader_handle, lcfunction)
         # push arguments
@@ -140,6 +143,7 @@ class kernel:
 
 def callable(func):
     return kernel(func, is_device_callable = True)
+
 
 def callable_method(struct):
     assert type(struct) is StructType

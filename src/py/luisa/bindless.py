@@ -40,6 +40,14 @@ class BindlessArray:
     @callable
     def buffer_read(self: BindlessArray, dtype: type, buffer_index: int, element_index: int):
         return _builtin_call(dtype, "BINDLESS_BUFFER_READ", self, buffer_index, element_index)
+    # might not be possible, because "type" is not a valid data type in LC
+
+    # @BuiltinFuncBuilder
+    # def buffer_read(argnodes): # (dtype, buffer_index, element_index)
+    #     check_exact_signature([type, int, int], argnodes[1:], "buffer_read")
+    #     dtype = argnodes[1]
+    #     expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [argnodes[0]] + argnodes[2:])
+    #     return dtype, expr
 
     @callable
     def texture2d_read(self: BindlessArray, texture2d_index: int, coord: int2):
