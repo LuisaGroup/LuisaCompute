@@ -39,6 +39,12 @@ def create_arg_expr(dtype, allow_ref):
     else:
         assert False
 
+# annotation can be used (but not required) to specify argument type
+def annotation_type_check(parameters, argtypes):
+    for idx, name in enumerate(parameters):
+        anno = parameters[name].annotation
+        if anno != inspect._empty and anno != argtypes[idx]:
+            raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}")
 
 # variables, information and compiled result are stored per kernel instance (argument type specialization)
 class KernelInstanceInfo:
@@ -86,6 +92,7 @@ class kernel:
         self.parameters = inspect.signature(self.func).parameters
         if len(argtypes) != len(self.parameters):
             raise Exception(f"calling kernel with {len(argtypes)} arguments ({len(self.params)} expected).")
+        annotation_type_check(self.parameters, argtypes)
         f = KernelInstanceInfo(self)
         # compile callback
         def astgen():
@@ -182,4 +189,5 @@ def callable_method(struct):
         struct.method_dict[name] = callable(func)
         if name == '__init__' and getattr(struct.method_dict[name], 'return_type', None) != None:
             raise TypeError(f'__init__() should return None, not {struct.method_dict[name].return_type}')
+        # FIXME
     return add_method

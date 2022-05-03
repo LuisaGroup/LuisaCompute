@@ -93,7 +93,8 @@ def dtype_of(val):
     if type(val).__name__ == "Accel":
         return type(val)
     if type(val).__name__ == "kernel":
-        assert val.is_device_callable
+        if not val.is_device_callable:
+            raise TypeError("can't call kernel in kernel/callable")
         return CallableType
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
