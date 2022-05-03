@@ -4,6 +4,8 @@ from .globalvars import get_global_device as device
 from . import Buffer, Texture2D, int2
 from .types import BuiltinFuncBuilder
 from .builtin import check_exact_signature
+from .func import func
+from .builtin import _builtin_call
 
 class BindlessArray:
     def __init__(self, n_slots = 65536):
@@ -35,31 +37,28 @@ class BindlessArray:
         cmd = lcapi.BindlessArrayUpdateCommand.create(self.handle)
         stream.add(cmd)
 
-    @BuiltinFuncBuilder
-    def buffer_read(argnodes): # (dtype, buffer_index, element_index)
-        check_exact_signature([type, int, int], argnodes[1:], "buffer_read")
-        dtype = argnodes[1]
-        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [argnodes[0]] + argnodes[2:])
-        return dtype, expr
+    @func
+    def buffer_read(self: BindlessArray, dtype: type, buffer_index: int, element_index: int):
+        return _builtin_call(dtype, "BINDLESS_BUFFER_READ", self, buffer_index, element_index)
+    # might not be possible, because "type" is not a valid data type in LC
 
-    @BuiltinFuncBuilder
-    def texture2d_read(argnodes): # (texture2d_index, coord: int2)
-        check_exact_signature([int, int2], argnodes[1:], "texture2d_read")
-        args[2].dtype, args[2].expr = builtin_type_cast(lcapi.uint2, [args[2]]) # convert int2 to uint2
-        expr = lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_READ, argnodes)
-        return float4, expr
+    # @BuiltinFuncBuilder
+    # def buffer_read(argnodes): # (dtype, buffer_index, element_index)
+    #     check_exact_signature([type, int, int], argnodes[1:], "buffer_read")
+    #     dtype = argnodes[1]
+    #     expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [argnodes[0]] + argnodes[2:])
+    #     return dtype, expr
 
-    @BuiltinFuncBuilder
-    def texture2d_sample(argnodes): # (texture2d_index, uv: float4)
-        check_exact_signature([int, float2], argnodes[1:], "texture2d_sample")
-        expr = lcapi.builder().call(to_lctype(float4), lcapi.CallOp.BINDLESS_TEXTURE2D_SAMPLE, argnodes)
-        return float4, expr
+    @func
+    def texture2d_read(self: BindlessArray, texture2d_index: int, coord: int2):
+        return _builtin_call(float4, "BINDLESS_TEXTURE2D_READ", self, texture2d_index, uint2(coord))
 
-    @BuiltinFuncBuilder
-    def texture2d_size(argnodes): # (texture2d_index)
-        check_exact_signature([int], argnodes[1:], "texture2d_size")
-        expr = lcapi.builder().call(to_lctype(uint2), BINDLESS_TEXTURE2D_SIZE, argnodes)
-        # convert expr to int2
-        return int2, lcapi.builder().call(to_lctype(int2), lcapi.CallOp.MAKE_INT2, [expr])
+    @func
+    def texture2d_sample(self: BindlessArray, texture2d_index: int, uv: float2):
+        return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE", self, texture2d_index, uv)
+
+    @func
+    def texture2d_size(self: BindlessArray, texture2d_index: int):
+        return int2(_builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index))
 
 
