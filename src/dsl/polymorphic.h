@@ -18,9 +18,10 @@ private:
     luisa::vector<luisa::unique_ptr<T>> _impl;
 
 public:
+    [[nodiscard]] auto empty() const noexcept { return _impl.empty(); }
     [[nodiscard]] auto size() const noexcept { return _impl.size(); }
-    [[nodiscard]] auto impl(size_t i) noexcept { return _impl[i].get(); }
-    [[nodiscard]] auto impl(size_t i) const noexcept { return _impl[i].get(); }
+    [[nodiscard]] auto impl(size_t i) noexcept { return _impl.at(i).get(); }
+    [[nodiscard]] auto impl(size_t i) const noexcept { return _impl.at(i).get(); }
 
     // clang-format off
     template<typename Impl, typename... Args>
@@ -32,14 +33,27 @@ public:
     }
     // clang-format on
 
+    [[nodiscard]] auto add(luisa::unique_ptr<T> impl) noexcept {
+        auto tag = static_cast<uint>(_impl.size());
+        _impl.emplace_back(std::move(impl));
+        return tag;
+    }
+
     template<typename Tag, typename F>
         requires is_integral_expr_v<Tag> && std::invocable<F, const T *>
     void dispatch(Tag &&tag, F &&f) const noexcept {
-        auto s = switch_(std::forward<Tag>(tag));
-        for (auto i = 0u; i < _impl.size(); i++) {
-            s = std::move(s).case_(i, [&f, this, i] { f(impl(i)); });
+        if (empty()) {
+            LUISA_WARNING_WITH_LOCATION("No implementations registered.");
         }
-        std::move(s).default_(unreachable);
+        if (_impl.size() == 1u) {
+            f(_impl.front().get());
+        } else {
+            auto s = switch_(std::forward<Tag>(tag));
+            for (auto i = 0u; i < _impl.size(); i++) {
+                s = std::move(s).case_(i, [&f, this, i] { f(impl(i)); });
+            }
+            std::move(s).default_(unreachable);
+        }
     }
 };
 
