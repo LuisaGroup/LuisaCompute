@@ -198,6 +198,8 @@ class ASTVisitor:
             return dtype, val
         if dtype == CallableType:
             return dtype, val
+        if dtype == BuiltinFuncBuilder:
+            return dtype, val
         lctype = to_lctype(dtype)
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val)

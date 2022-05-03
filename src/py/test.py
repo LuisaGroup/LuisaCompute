@@ -14,7 +14,7 @@ b = luisa.Buffer(100, dtype=int)
 @luisa.kernel
 def f(a):
     x1 = b.read(dispatch_id().x)
-    b.write(dispatch_id().x, 0.1)
+    # b.write(dispatch_id().x, 0.1)
     b.write(dispatch_id().x, 123)
     print("!!!!", b.read(dispatch_id().x))
 

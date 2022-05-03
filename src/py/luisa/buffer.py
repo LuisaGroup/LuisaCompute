@@ -4,6 +4,7 @@ from .globalvars import get_global_device
 from .types import to_lctype, is_vector_type, BuiltinFuncEntry
 from functools import cache
 from . import callable
+from .builtin import _builtin_call
 
 class Buffer:
     def __init__(self, size, dtype):
@@ -39,8 +40,8 @@ class BufferType:
     def __init__(self, dtype):
         self.dtype = dtype
         self.luisa_type = lcapi.Type.from_("buffer<" + to_lctype(dtype).description() + ">")
-        # self.write = self.get_write_method(self.dtype)
-        # print("write:", self.write)
+        self.read = self.get_read_method(self.dtype)
+        self.write = self.get_write_method(self.dtype)
 
     def __eq__(self, other):
         return type(other) is BufferType and self.dtype == other.dtype
@@ -48,15 +49,19 @@ class BufferType:
     def __hash__(self):
         return hash(self.dtype) ^ 8965828349193294
 
-    @callable
-    def read(self, idx):
-        return _builtin_call(dtype, "BUFFER_READ", [self, idx])
+    @staticmethod
+    @cache
+    def get_read_method(dtype):
+        @callable
+        def read(self, idx):
+            return _builtin_call(dtype, "BUFFER_READ", self, idx)
+        return read
     
     @staticmethod
     @cache
     def get_write_method(dtype):
         @callable
         def write(self, idx, value: dtype):
-            _builtin_call(dtype, "BUFFER_WRITE", [self, idx, value])
+            _builtin_call("BUFFER_WRITE", self, idx, value)
         return write
 
