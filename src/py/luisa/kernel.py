@@ -125,6 +125,7 @@ class kernel:
     def __call__(self, *args, dispatch_size, stream = None):
         if self.is_device_callable:
             raise TypeError("callable can't be called on host")
+        get_global_device() # check device is initialized
         if stream is None:
             stream = globalvars.stream
         # get types of arguments and compile
