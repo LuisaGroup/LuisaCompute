@@ -161,7 +161,11 @@ class ASTVisitor:
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         elif hasattr(node.value.dtype, node.attr):
             entry = getattr(node.value.dtype, node.attr)
-            if type(entry) is BuiltinFuncEntry:
+            if type(entry).__name__ == "kernel":
+                if not entry.is_device_callable:
+                    raise TypeError("can't call kernel in kernel/callable")
+                node.dtype, node.expr = CallableType, entry
+            elif type(entry) is BuiltinFuncEntry:
                 node.dtype, node.expr = BuiltinFuncType, entry.name
             elif type(entry) is BuiltinFuncBuilder:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry

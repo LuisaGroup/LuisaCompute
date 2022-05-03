@@ -4,9 +4,9 @@ from .types import ref
 
 from .kernel import kernel, callable, callable_method
 from .mathtypes import *
-# from .arraytype import ArrayType
-# from .structtype import StructType
-# from .buffer import Buffer, BufferType
+from .arraytype import ArrayType
+from .structtype import StructType
+from .buffer import Buffer, BufferType
 # from .texture2d import Texture2D, Texture2DType
 # from lcapi import PixelStorage
 
