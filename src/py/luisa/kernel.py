@@ -14,6 +14,7 @@ from .globalvars import get_global_device
 from .types import dtype_of, to_lctype, ref, CallableType
 from .structtype import StructType
 from .astbuilder import VariableInfo
+import textwrap
 
 
 def create_arg_expr(dtype, allow_ref):
@@ -40,11 +41,18 @@ def create_arg_expr(dtype, allow_ref):
         assert False
 
 # annotation can be used (but not required) to specify argument type
-def annotation_type_check(parameters, argtypes):
+def annotation_type_check(funcname, parameters, argtypes):
+    def anno_str(anno):
+        if anno == inspect._empty:
+            return ""
+        if hasattr(anno, '__name__'):
+            return ":" + anno.__name__
+        return ":" + repr(anno)
     for idx, name in enumerate(parameters):
         anno = parameters[name].annotation
         if anno != inspect._empty and anno != argtypes[idx]:
-            raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}")
+            hint = funcname + '(' + ', '.join([n + anno_str(parameters[n].annotation) for n in parameters]) + ')'
+            raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}. calling {hint}")
 
 # variables, information and compiled result are stored per kernel instance (argument type specialization)
 class KernelInstanceInfo:
@@ -88,11 +96,11 @@ class kernel:
     def compile(self, argtypes):
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.func)[0]
-        self.tree = ast.parse(sourceinspect.getsource(self.func))
+        self.tree = ast.parse(textwrap.dedent(sourceinspect.getsource(self.func)))
         self.parameters = inspect.signature(self.func).parameters
         if len(argtypes) != len(self.parameters):
             raise Exception(f"calling kernel with {len(argtypes)} arguments ({len(self.params)} expected).")
-        annotation_type_check(self.parameters, argtypes)
+        annotation_type_check(self.__name__, self.parameters, argtypes)
         f = KernelInstanceInfo(self)
         # compile callback
         def astgen():
