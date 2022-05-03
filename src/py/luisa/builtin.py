@@ -324,9 +324,9 @@ def _builtin_cast(args):
 def _builtin_call(args):
     if args[0].dtype == str: # void call
         op = getattr(lcapi.CallOp, args[0].expr)
-        return None, lcapi.builder().call(op, [x.expr for x in args[2:]])
+        return None, lcapi.builder().call(op, [x.expr for x in args[1:]])
     else:
-        check_exact_signature([type, str], args[0:2])
+        check_exact_signature([type, str], args[0:2], "_builtin_call")
         dtype = args[0].expr
         op = getattr(lcapi.CallOp, args[1].expr)
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args[2:]])
