@@ -273,7 +273,7 @@ class ASTVisitor:
         if type(node.targets[0]) is ast.Name:
             build.build_Name(node.targets[0], allow_none=True)
             if getattr(node.targets[0], "is_arg", False): # is argument
-                if node.dtype not in (int, float, bool): # not scalar
+                if node.targets[0].dtype not in (int, float, bool): # not scalar
                     raise TypeError("Assignment to non-scalar argument is not allowed.")
         else:
             build(node.targets[0])
@@ -378,7 +378,7 @@ class ASTVisitor:
         # loop variable
         varexpr = lcapi.builder().local(to_lctype(int))
         lcapi.builder().assign(varexpr, range_start)
-        ctx().local_variable[node.target.id] = (int, varexpr)
+        ctx().local_variable[node.target.id] = VariableInfo(int, varexpr)
         # build for statement
         condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, varexpr, range_stop)
         forstmt = lcapi.builder().for_(varexpr, condition, range_step)
