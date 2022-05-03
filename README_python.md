@@ -1,5 +1,5 @@
 # Python-Luisa 用户文档
-多后端高性能计算库。
+多后端高性能计算库，支持 ISPC/CUDA/DirectX/Metal 后端。
 
 ## 编译与运行
 
@@ -445,6 +445,7 @@ def test_modify():
     a += 1 # BAD
     b.write(...) # GOOD
     c.x = 4 # BAD
+    c += 1 # BAD/WARN?
 def test_assign():
     a = 1 # ???
     b = ... # ???
@@ -460,6 +461,8 @@ def h():
         a = 4
     b = a
 ```
+
+补注：如果一个名字被赋值了，那么就不会出现在closure_var中。
 
 ### 方案B
 
