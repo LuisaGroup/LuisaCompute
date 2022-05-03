@@ -2,7 +2,7 @@
 context = None
 device = None
 stream = None
-current_kernel = None
+current_context = None
 
 # NOTE: DO NOT import these variables!
 #       Import globalvars and use globalvars.stream instead.

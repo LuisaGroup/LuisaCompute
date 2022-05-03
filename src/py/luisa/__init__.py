@@ -28,7 +28,6 @@ def init(backend_name = None):
     globalvars.device = globalvars.context.create_device(backend_name)
     globalvars.stream = globalvars.device.create_stream()
     globalvars.printer = Printer()
-    globalvars.current_context = None
 
 
 def synchronize(stream = None):
