@@ -444,7 +444,7 @@ def builtin_func(name, args):
 
     if name == 'print':
         globalvars.printer.kernel_print(args)
-        globalvars.current_kernel.uses_printer = True
+        globalvars.current_context.uses_printer = True
         return None, None
 
     if name == "texture2d_read":
@@ -468,11 +468,12 @@ def builtin_func(name, args):
 
 
 def callable_call(func, args):
-    globalvars.current_kernel.uses_printer |= func.uses_printer
-    check_exact_signature([x[1] for x in func.params], args, f"(callable){func.funcname}")
+    # get function instance by argtypes
+    f = func.get_compiled(tuple(a.dtype for a in args))
+    globalvars.current_context.uses_printer |= f.uses_printer
     # call
-    if not hasattr(func, "return_type") or func.return_type == None:
-        return None, lcapi.builder().call(func.func, [x.expr for x in args])
+    if getattr(f, "return_type", None) == None:
+        return None, lcapi.builder().call(f.function, [x.expr for x in args])
     else:
-        dtype = func.return_type
-        return dtype, lcapi.builder().call(to_lctype(dtype), func.func, [x.expr for x in args])
+        dtype = f.return_type
+        return dtype, lcapi.builder().call(to_lctype(dtype), f.function, [x.expr for x in args])

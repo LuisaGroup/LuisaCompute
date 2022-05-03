@@ -35,29 +35,18 @@ class Buffer:
 
 
 class BufferType:
-
-    @staticmethod
-    @cache
-    def read_callable(dtype):
-        @callable
-        def read(self: BufferType(dtype), idx: int):
-            return _builtin_call(dtype, "BUFFER_READ", [self, idx])
-        return read
-
-    @staticmethod
-    @cache
-    def write_callable(dtype):
-        @callable
-        def write(self: BufferType(dtype), idx: int, value: dtype):
-            _builtin_call(dtype, "BUFFER_WRITE", [self, idx, value])
-        return write
-
     def __init__(self, dtype):
         self.dtype = dtype
         self.luisa_type = lcapi.Type.from_("buffer<" + to_lctype(dtype).description() + ">")
-        self.read = self.read_callable(self.dtype)
-        self.write = self.write_callable(self.dtype)
 
     def __eq__(self, other):
         return type(other) is BufferType and self.dtype == other.dtype
+        
+    @callable
+    def read(self, idx):
+        return _builtin_call(dtype, "BUFFER_READ", [self, idx])
+
+    @callable
+    def write(self, idx, value):
+        _builtin_call(dtype, "BUFFER_WRITE", [self, idx, value])
 
