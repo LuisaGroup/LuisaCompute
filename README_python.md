@@ -373,5 +373,94 @@ uses_printer
 
 
 
-## 注
+## 注1
 
+### 对传入参数的赋值语义
+
+使赋值语义与python接近？
+```python
+@luisa.callable
+def f(x): # x为int/float时按值传，x为vector/matrix/array/struct时按引用传
+    # 例：x类型为float3
+    x.y = 2 # 会改变调用者传入参数
+    x[1] = 2 # 会改变调用者传入参数
+    x += float3(1) # 会改变调用者传入参数
+    x = x + float3(1) # 不会改变调用者传入参数：右侧x为传入参数，左侧x为新建的局部变量。
+    # 这种情况警告用户
+    # 不可以在非最外层scope中创建新变量覆盖旧变量！
+    # 注：x = 1 也是可以的，允许新建不同类型的局部变量。同样警告用户
+    x = float3(1) # 赋值。x仍为上一条语句创建的局部变量
+    # 这句是普通赋值，赋值不可以改变类型，否则直接报错
+```
+如果在kernel中出现会改变传入参数（vector/matrix/array/struct）的语义，警告用户，实际上不会改变host中的值。
+
+方案2：
+
+```python
+@luisa.callable
+def f(x): # x为int/float时按值传，x为vector/matrix/array/struct时按引用传
+    # 例：x类型为float3
+    x.y = 2 # 会改变调用者传入参数
+    x[1] = 2 # 会改变调用者传入参数
+    x += float3(1) # 会改变调用者传入参数
+    x = x + float3(1) # 禁止！为了防止歧义，用户不能给引用参数赋值
+```
+
+### callable对传入参数的修改/赋值语义
+
+```python
+def test_modify(a: int, b: Buffer..., c: float3):
+    a += 1 # GOOD? (scalars are passed by value in python)
+    b.write(...) # Good
+    c.x = 4 # allow modify (reference)?
+    c += 1 # allow modify (reference)?
+    # view vector/struct as object?
+def test_assign(a: int, b: Buffer..., c: float3):
+    a = 1 # GOOD? (assignment. scalars are passed by value in python)
+    b = ... # ???
+    c = ... # ???
+```
+
+### kernel对传入参数的修改/赋值语义
+
+```python
+def test_modify(a: int, b: Buffer..., c: float3):
+    a += 1 # GOOD? (scalars are passed by value in python)
+    b.write(...) # Good
+    c.x = 4 # BAD/WARN?
+    c += 1 # BAD/WARN?
+def test_assign(a: int, b: Buffer..., c: float3):
+    a = 1 # GOOD? (assignment. scalars are passed by value in python)
+    b = ... # ???
+    c = ... # ???
+```
+
+### kernel/callable对捕获变量的修改/赋值语义
+
+```python
+a = 3
+b = buffer(...)
+c = float3()
+def test_modify():
+    a += 1 # BAD
+    b.write(...) # GOOD
+    c.x = 4 # BAD
+def test_assign():
+    a = 1 # ???
+    b = ... # ???
+    c = ... # ???
+```
+
+注意：允许赋值覆盖原变量是危险的，可能出现一种情况：
+
+```python
+a = 3
+def h():
+    if cond:
+        a = 4
+    b = a
+```
+
+### 方案B
+
+为每个变量记录创建的scope，禁止在更外层的scope使用？

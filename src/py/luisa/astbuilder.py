@@ -52,7 +52,7 @@ class ASTVisitor:
             green = ""
             bold = ""
             clr = ""
-        print(f"{bold}({current_kernel().__class__.__name__}){current_kernel().funcname}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+        print(f"{bold}({current_kernel().__class__.__name__}){current_kernel().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
         source = current_kernel().sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
             print(line.rstrip('\n'))

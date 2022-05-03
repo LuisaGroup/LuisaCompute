@@ -1,3 +1,8 @@
+try:
+    import sourceinspect
+except ImportError:
+    print('sourceinspect not installed. This may cause issues in interactive mode (REPL).')
+    import inspect as sourceinspect
 import inspect
 import ast
 import astpretty
@@ -46,12 +51,13 @@ class kernel:
     def __init__(self, func, is_device_callable = False):
         self.func = func
         self.is_device_callable = is_device_callable
+        self.__name__ = func.__name__
+        self.__doc__ = func.__doc__
 
-    def compile(self):
+    def compile(self, argtypes):
         # get python AST & context
-        self.sourcelines = inspect.getsourcelines(self.func)[0]
-        self.tree = ast.parse(inspect.getsource(self.func))
-        self.funcname = self.func.__name__
+        self.sourcelines = sourceinspect.getsourcelines(self.func)[0]
+        self.tree = ast.parse(sourceinspect.getsource(self.func))
         _closure_vars = inspect.getclosurevars(self.func)
         self.closure_variable = {
             **_closure_vars.globals,
@@ -61,6 +67,7 @@ class kernel:
         self.local_variable = {} # dict: name -> (dtype, expr)
 
         self.parameters = inspect.signature(self.func).parameters
+        if len(self.parameters)
         self.uses_printer = False
 
         def astgen():
@@ -68,7 +75,7 @@ class kernel:
             if not self.is_device_callable:
                 lcapi.builder().set_block_size(256,1,1)
             # get parameters
-            self.params = create_param_exprs(self.parameters, allow_ref = is_device_callable)
+            # self.params = create_param_exprs(self.parameters, allow_ref = is_device_callable)
             for name, dtype, expr in self.params:
                 self.local_variable[name] = dtype, expr
             # build function body AST
@@ -87,41 +94,47 @@ class kernel:
         if not is_device_callable:
             self.shader_handle = get_global_device().impl().create_shader(self.lcfunction)
 
+    def compile(argtypes):
+
+        if len(args) != len(self.params):
+            raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
 
     # dispatch shader to stream
     def __call__(self, *args, dispatch_size, stream = None):
         if self.is_device_callable:
-            raise Exception("callable can't be called on host")
+            raise TypeError("callable can't be called on host")
         if stream is None:
             stream = globalvars.stream
-        command = lcapi.ShaderDispatchCommand.create(self.shader_handle, self.lcfunction)
-        # check & push arguments
-        if len(args) != len(self.params):
-            raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
-        for argid, arg in enumerate(args):
-            dtype = self.params[argid][1]
-            assert dtype_of(arg) == dtype
-            lctype = to_lctype(dtype)
+        # get types of arguments and compile
+        argtypes = tuple(dtype_of(a) for a in args)
+        if argtypes not in compiled_results:
+            compiled_results[argtypes] = self.compile(argtypes)
+        lcfunction, shader_handle = compiled_results[argtypes]
+        # create command
+        command = lcapi.ShaderDispatchCommand.create(shader_handle, lcfunction)
+        # push arguments
+        for a in args:
+            lctype = to_lctype(dtype_of(a))
             if lctype.is_basic():
-                # TODO implicit argument type cast? (e.g. int to uint)
-                command.encode_uniform(lcapi.to_bytes(arg), lctype.size())
+                command.encode_uniform(lcapi.to_bytes(a), lctype.size())
             elif lctype.is_array() or lctype.is_structure():
-                command.encode_uniform(arg.to_bytes(), lctype.size())
+                command.encode_uniform(a.to_bytes(), lctype.size())
             elif lctype.is_buffer():
-                command.encode_buffer(arg.handle, 0, arg.bytesize)
+                command.encode_buffer(a.handle, 0, a.bytesize)
             elif lctype.is_texture():
-                command.encode_texture(arg.handle, 0)
+                command.encode_texture(a.handle, 0)
             elif lctype.is_bindless_array():
-                command.encode_bindless_array(arg.handle)
+                command.encode_bindless_array(a.handle)
             elif lctype.is_accel():
-                command.encode_accel(arg.handle)
+                command.encode_accel(a.handle)
             else:
                 assert False
-
+        # dispatch
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
-        if self.uses_printer:
-            globalvars.printer.final_print() # Note: This will FORCE synchronize
+        if self.uses_printer: # assume that this property doesn't change with argtypes
+            globalvars.printer.final_print()
+            # Note: printing will FORCE synchronize (#21)
             globalvars.printer.reset()
 
 
