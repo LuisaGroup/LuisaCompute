@@ -1,17 +1,33 @@
 import numpy as np
 import luisa
 from luisa.mathtypes import *
+from luisa.util import RandomSampler
 
 
 luisa.init()
 # ============= test script ================
 arr = luisa.BindlessArray()
 
-@luisa.kernel
-def f():
-    a = arr.buffer_read(1)
+@luisa.func
+def f(a):
+    x1 = b.read(dispatch_id().x)
+    # b.write(dispatch_id().x, 0.1)
+    b.write(dispatch_id().x, 123)
+    print("!!!!", b.read(dispatch_id().x))
+    tex.write(dispatch_id().xy, tex.read(dispatch_id().xy) + float4(1))
 
 
+# f(1, dispatch_size=(2,1,1))
+
+@luisa.func
+def test_rand():
+    sampler = RandomSampler(int3(0,0,0))
+    print(sampler.next())
+    print(sampler.next())
+    print(sampler.next())
+
+
+test_rand(dispatch_size=(1,1,1))
 
 
 
@@ -30,7 +46,7 @@ def f():
 # accel.build()
 # luisa.globalvars.stream.synchronize()
 
-# @luisa.kernel
+# @luisa.func
 # def test():
 #     a,b = pi
 #     r = Ray()

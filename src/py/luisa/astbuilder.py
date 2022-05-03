@@ -9,13 +9,20 @@ import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call
 from .types import dtype_of, to_lctype, CallableType, is_vector_type
-from .types import BuiltinFuncType, BuiltinFuncEntry, BuiltinFuncBuilder
+from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .arraytype import ArrayType
 from .structtype import StructType
 
-def current_kernel():
-    return globalvars.current_kernel
+def ctx():
+    return globalvars.current_context
+
+
+class VariableInfo:
+    def __init__(self, dtype, expr, is_arg = False):
+        self.dtype = dtype
+        self.expr = expr
+        self.is_arg = is_arg
 
 
 class ASTVisitor:
@@ -36,9 +43,9 @@ class ASTVisitor:
     @staticmethod
     def comment_source(node):
         n = node.lineno-1
-        if getattr(current_kernel(), "_last_comment_source_lineno", None) != n:
-            current_kernel()._last_comment_source_lineno = n
-            lcapi.builder().comment_(str(n) + "  " + current_kernel().sourcelines[n].strip())
+        if getattr(ctx(), "_last_comment_source_lineno", None) != n:
+            ctx()._last_comment_source_lineno = n
+            lcapi.builder().comment_(str(n) + "  " + ctx().sourcelines[n].strip())
 
     @staticmethod
     def print_error(node, e):
@@ -52,8 +59,8 @@ class ASTVisitor:
             green = ""
             bold = ""
             clr = ""
-        print(f"{bold}({current_kernel().__class__.__name__}){current_kernel().funcname}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
-        source = current_kernel().sourcelines[node.lineno-1: node.end_lineno]
+        print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+        source = ctx().sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
             print(line.rstrip('\n'))
             startcol = node.col_offset if idx==0 else 0
@@ -86,15 +93,23 @@ class ASTVisitor:
             build(node.value)
         # deduce & check type of return value
         return_type = None if node.value == None else node.value.dtype
-        if hasattr(current_kernel(), 'return_type'):
-            if current_kernel().return_type != return_type:
+        if hasattr(ctx(), 'return_type'):
+            if ctx().return_type != return_type:
                 raise TypeError("inconsistent return type in multiple return statements")
         else:
-            current_kernel().return_type = return_type
-            if not current_kernel().is_device_callable and return_type != None:
-                raise TypeError("only callable can return value")
+            ctx().return_type = return_type
+            if ctx().call_from_host and return_type != None:
+                raise TypeError("luisa func called on host can't return value")
         # build return statement
         lcapi.builder().return_(node.value.expr)
+
+    @staticmethod
+    def wrap_with_tmp_var(node):
+        # Python does not distinguish l-value and r-value;
+        # so always convert r-value to l-value
+        tmp = lcapi.builder().local(to_lctype(node.dtype))
+        lcapi.builder().assign(tmp, node.expr)
+        node.expr = tmp
 
     @staticmethod
     def build_Call(node):
@@ -103,7 +118,7 @@ class ASTVisitor:
         # static function
         if type(node.func) is ast.Name:
             build(node.func)
-            # custom callable
+            # custom function
             if node.func.dtype is CallableType:
                 node.dtype, node.expr = callable_call(node.func.expr, node.args)
             # funciton name undefined: look into builtin functions
@@ -130,6 +145,8 @@ class ASTVisitor:
                 raise TypeError(f'calling non-callable member ({node.func.dtype}).')
         else:
             raise Exception('unrecognized call func type')
+        if node.dtype != None:
+            build.wrap_with_tmp_var(node)
 
     @staticmethod
     def build_Attribute(node):
@@ -154,15 +171,14 @@ class ASTVisitor:
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         elif hasattr(node.value.dtype, node.attr):
             entry = getattr(node.value.dtype, node.attr)
-            if type(entry) is BuiltinFuncEntry:
-                node.dtype, node.expr = BuiltinFuncType, entry.name
+            if type(entry).__name__ == "func":
+                node.dtype, node.expr = CallableType, entry
             elif type(entry) is BuiltinFuncBuilder:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry
             else:
-                raise TypeError(f"Can't access member {entry} in kernel/callable")
+                raise TypeError(f"Can't access member {entry} in luisa func")
         else:
             raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
-
 
     @staticmethod
     def build_Subscript(node):
@@ -187,6 +203,8 @@ class ASTVisitor:
         if dtype == type:
             return dtype, val
         if dtype == CallableType:
+            return dtype, val
+        if dtype == BuiltinFuncBuilder:
             return dtype, val
         lctype = to_lctype(dtype)
         if lctype.is_basic():
@@ -224,10 +242,13 @@ class ASTVisitor:
         # Note: in Python all local variables are function-scoped
         if node.id in builtin_func_names:
             node.dtype, node.expr = BuiltinFuncType, node.id
-        elif node.id in current_kernel().local_variable:
-            node.dtype, node.expr = current_kernel().local_variable[node.id]
+        elif node.id in ctx().local_variable:
+            varinfo = ctx().local_variable[node.id]
+            node.dtype = varinfo.dtype
+            node.expr = varinfo.expr
+            node.is_arg = varinfo.is_arg
         else:
-            val = current_kernel().closure_variable.get(node.id)
+            val = ctx().closure_variable.get(node.id)
             # print("NAME:", node.id, "VALUE:", val)
             if val is None: # do not capture python builtin print
                 if not allow_none:
@@ -247,10 +268,13 @@ class ASTVisitor:
     @staticmethod
     def build_Assign(node):
         if len(node.targets) != 1:
-            raise Exception('Chained assignment not supported')
+            raise NotImplementedError('Chained assignment not supported')
         # allows left hand side to be undefined
         if type(node.targets[0]) is ast.Name:
             build.build_Name(node.targets[0], allow_none=True)
+            if getattr(node.targets[0], "is_arg", False): # is argument
+                if node.dtype not in (int, float, bool): # not scalar
+                    raise TypeError("Assignment to non-scalar argument is not allowed.")
         else:
             build(node.targets[0])
         build(node.value)
@@ -259,8 +283,8 @@ class ASTVisitor:
             dtype = node.value.dtype # craete variable with same type as rhs
             node.targets[0].expr = lcapi.builder().local(to_lctype(dtype))
             # store type & ptr info into name
-            current_kernel().local_variable[node.targets[0].id] = (dtype, node.targets[0].expr)
-            # all local variables are function scope
+            ctx().local_variable[node.targets[0].id] = VariableInfo(dtype, node.targets[0].expr)
+            # Note: all local variables are function scope
         else:
             # must assign with same type; no implicit casting is allowed.
             if node.targets[0].dtype != node.value.dtype:
@@ -278,12 +302,14 @@ class ASTVisitor:
     def build_UnaryOp(node):
         build(node.operand)
         node.dtype, node.expr = builtin_unary_op(type(node.op), node.operand)
+        build.wrap_with_tmp_var(node)
 
     @staticmethod
     def build_BinOp(node):
         build(node.left)
         build(node.right)
         node.dtype, node.expr = builtin_bin_op(type(node.op), node.left, node.right)
+        build.wrap_with_tmp_var(node)
 
     @staticmethod
     def build_Compare(node):
@@ -352,7 +378,7 @@ class ASTVisitor:
         # loop variable
         varexpr = lcapi.builder().local(to_lctype(int))
         lcapi.builder().assign(varexpr, range_start)
-        current_kernel().local_variable[node.target.id] = (int, varexpr)
+        ctx().local_variable[node.target.id] = (int, varexpr)
         # build for statement
         condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, varexpr, range_stop)
         forstmt = lcapi.builder().for_(varexpr, condition, range_step)
