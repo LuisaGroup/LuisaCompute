@@ -13,7 +13,9 @@ set(LUISA_COMPUTE_DSL_SOURCES
         builtin.h
         ref.h
         operators.h
-        printer.cpp printer.h local.h)
+        printer.cpp printer.h
+        local.h
+        polymorphic.h)
 
 add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
 target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime)

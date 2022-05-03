@@ -8,6 +8,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <dsl/syntax.h>
+#include <dsl/sugar.h>
 #include <dsl/printer.h>
 
 using namespace luisa;
@@ -17,7 +18,7 @@ struct M {
     float4x4 m;
 };
 
-LUISA_STRUCT(M, m) {};
+LUISA_STRUCT(M, m){};
 
 template<typename T, typename = void>
 struct test : std::false_type {};
@@ -25,7 +26,9 @@ struct test : std::false_type {};
 template<typename T>
 struct test<T, std::void_t<decltype(T::inputLayouts)>> : std::true_type {};
 
-struct WithLayouts { inline static int inputLayouts; };
+struct WithLayouts {
+    inline static int inputLayouts;
+};
 struct WithoutLayouts {};
 
 static_assert(test<WithLayouts>::value);
@@ -33,8 +36,8 @@ static_assert(!test<WithoutLayouts>::value);
 
 template<typename T, typename Serializer>
 concept has_member_function_serialize = requires(T t) {
-    { t.serialize(std::declval<Serializer>()) } -> std::same_as<void>;
-};
+                                            { t.serialize(std::declval<Serializer>()) } -> std::same_as<void>;
+                                        };
 
 struct WithSerialize {
     template<typename T>
@@ -47,7 +50,38 @@ void nothing() noexcept {}
 
 void do_something(luisa::move_only_function<void()> &&f) noexcept {}
 
+struct Evaluation {};
+
+class Surface {
+public:
+    virtual ~Surface() noexcept = default;
+    [[nodiscard]] virtual Evaluation eval(Float3 wo, Float3 wi) const noexcept = 0;
+};
+
+class Lambertian : public Surface {
+    [[nodiscard]] Evaluation eval(Float3 wo, Float3 wi) const noexcept override { return {}; }
+};
+
+class Microfacet : public Surface {
+    [[nodiscard]] Evaluation eval(Float3 wo, Float3 wi) const noexcept override { return {}; }
+};
+
 int main(int argc, char *argv[]) {
+
+    Polymorphic<Surface> surfaces;
+    auto [t1, s1] = surfaces.create<Lambertian>();
+    auto [t2, s2] = surfaces.create<Microfacet>();
+    // ...
+
+    // in kernel
+    Kernel1D test_dispatch = [&surfaces] {
+        UInt tag;
+        Float3 wo, wi;
+        Evaluation eval;
+        surfaces.dispatch(tag, [&](auto surface) noexcept {
+            eval = surface->eval(wo, wi);
+        });
+    };
 
     log_level_verbose();
 

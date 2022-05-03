@@ -73,6 +73,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             "--math-lib=fast",
             "--opt=fast-masked-vload",
             "--opt=fast-math",
+            "--enable-llvm-intrinsics",
 #if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
             "--cpu=apple-a14",
             "--arch=aarch64",
