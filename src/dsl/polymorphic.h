@@ -47,11 +47,12 @@ public:
         if (_impl.size() == 1u) {
             f(_impl.front().get());
         } else {
-            auto s = switch_(tag);
-            for (auto i = 0u; i < _impl.size(); i++) {
-                s = std::move(s).case_(i, [&f, this, i] { f(impl(i)); });
-            }
-            std::move(s).default_(unreachable);
+            detail::SwitchStmtBuilder{tag} % [&] {
+                for (auto i = 0u; i < _impl.size(); i++) {
+                    detail::SwitchCaseStmtBuilder{i} % [&f, this, i] { f(impl(i)); };
+                }
+                detail::SwitchDefaultStmtBuilder{} % unreachable;
+            };
         }
     }
 };
