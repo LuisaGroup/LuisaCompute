@@ -1,5 +1,9 @@
 import lcapi
 
+scalar_dtypes = (int, float, bool)
+arithmetic_dtypes = (int, float)
+scalar_lctypes = (lcapi.Type.from_("int"), lcapi.Type.from_("float"), lcapi.Type.from_("bool"))
+arithmetic_lctypes = (lcapi.Type.from_("int"), lcapi.Type.from_("float"))
 
 basic_type_dict = {
     int: lcapi.Type.from_("int"),
