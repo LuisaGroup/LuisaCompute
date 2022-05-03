@@ -39,16 +39,15 @@ public:
         return tag;
     }
 
-    template<typename Tag, typename F>
-        requires is_integral_expr_v<Tag>
-    void dispatch(Tag &&tag, const F &f) const noexcept {
+    template<typename F>
+    void dispatch(Expr<uint> tag, const F &f) const noexcept {
         if (empty()) {
             LUISA_WARNING_WITH_LOCATION("No implementations registered.");
         }
         if (_impl.size() == 1u) {
             f(_impl.front().get());
         } else {
-            auto s = switch_(std::forward<Tag>(tag));
+            auto s = switch_(tag);
             for (auto i = 0u; i < _impl.size(); i++) {
                 s = std::move(s).case_(i, [&f, this, i] { f(impl(i)); });
             }
