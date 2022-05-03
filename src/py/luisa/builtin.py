@@ -1,5 +1,6 @@
 import lcapi
-from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type, basic_lctype_dict
+from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type, basic_lctype_dict, scalar_dtypes, \
+    scalar_lctypes, arithmetic_dtypes, arithmetic_lctypes
 from functools import reduce
 from . import globalvars
 from .structtype import StructType
@@ -176,7 +177,8 @@ def builtin_bin_op(op, lhs, rhs):
                 elif exponential == 3:
                     return builtin_bin_op(ast.Mult, lhs, builtin_bin_op(ast.Mult, lhs, lhs))
                 elif exponential == 4:
-                    return builtin_bin_op(ast.Mult, builtin_bin_op(ast.Mult, lhs, lhs), builtin_bin_op(ast.Mult, lhs, lhs))
+                    return builtin_bin_op(ast.Mult, builtin_bin_op(ast.Mult, lhs, lhs),
+                                          builtin_bin_op(ast.Mult, lhs, lhs))
         return builtin_func("pow", [lhs, rhs])
     dtype0, dtype1 = lhs.dtype, rhs.dtype
     length0, length1 = get_length(lhs), get_length(rhs)
@@ -184,14 +186,14 @@ def builtin_bin_op(op, lhs, rhs):
     if op != ast.Mult:
         assert (dtype0 == dtype1) or \
                (length0 == 1 or length1 == 1), \
-               'Broadcast operations between different sized vectors not supported'
+            'Broadcast operations between different sized vectors not supported'
     else:
         assert (dtype0 == dtype1) or \
                (length0 == 1 or length1 == 1) or \
                (dtype0 == lcapi.float2x2 and dtype1 == lcapi.float2) or \
                (dtype0 == lcapi.float3x3 and dtype1 == lcapi.float3) or \
                (dtype0 == lcapi.float4x4 and dtype1 == lcapi.float4), \
-               'Broadcast operations between different sized vectors not supported'
+            'Broadcast operations between different sized vectors not supported'
     scalar_operation = length0 == length1 == 1
     dtype = None
 
@@ -255,7 +257,10 @@ builtin_func_names = {
     'length', 'normalize',
     'lerp',
     'print',
-    'min', 'max'
+    'min', 'max',
+    'all', 'any',
+    'select', 'clamp', 'step',
+    'clz', 'ctz', 'popcount', 'reverse'
 }
 
 
@@ -301,7 +306,7 @@ def make_vector_call(dtype, op, args):
                     raise TypeError("arguments can't contain vectors of different dimension")
             else:  # will upcast scalar to vector
                 dim = to_lctype(arg.dtype).dimension()
-    convtype = getattr(lcapi, f'{dtype.__name__}{dim}') if dim>1 else dtype
+    convtype = getattr(lcapi, f'{dtype.__name__}{dim}') if dim > 1 else dtype
     exprlist = []
     for arg in args:
         if arg.dtype == convtype:
@@ -313,8 +318,8 @@ def make_vector_call(dtype, op, args):
 
 
 def check_exact_signature(signature, args, name):
-    signature_repr = ','.join([getattr(x,'__name__',None) or repr(x) for x in signature])
-    giventype_repr = ','.join([getattr(x.dtype,'__name__',None) or repr(x.dtype) for x in args])
+    signature_repr = ','.join([getattr(x, '__name__', None) or repr(x) for x in signature])
+    giventype_repr = ','.join([getattr(x.dtype, '__name__', None) or repr(x.dtype) for x in args])
     if len(signature) != len(args):
         raise TypeError(f"{name} takes exactly {len(signature)} arguments ({signature_repr}), {len(args)} given.")
     for idx in range(len(args)):
@@ -324,12 +329,12 @@ def check_exact_signature(signature, args, name):
 
 # return dtype, expr
 def builtin_func(name, args):
-
     if name == "set_block_size":
-        check_exact_signature([int,int,int], args, "set_block_size")
+        check_exact_signature([int, int, int], args, "set_block_size")
         for a in args:
             if type(a).__name__ != "Constant":
-                raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
+                raise TypeError(
+                    "Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
         lcapi.builder().set_block_size(*[a.value for a in args])
         return None, None
 
@@ -381,7 +386,8 @@ def builtin_func(name, args):
 
     if name in ('abs',):
         assert len(args) == 1
-        assert args[0].dtype in (int, float) or to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() in (to_lctype(int), to_lctype(float))
+        assert args[0].dtype in (int, float) or to_lctype(args[0].dtype).is_vector() and to_lctype(
+            args[0].dtype).element() in (to_lctype(int), to_lctype(float))
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -397,6 +403,7 @@ def builtin_func(name, args):
             if _dtype in {int, float, bool}:
                 return _dtype
             return from_lctype(to_lctype(_dtype).element())
+
         op = getattr(lcapi.CallOp, name.upper())
         return make_vector_call(element_type(args[0].dtype), op, args)
 
@@ -426,7 +433,7 @@ def builtin_func(name, args):
         assert args[1].dtype == lcapi.float3
         op = getattr(lcapi.CallOp, name.upper())
         return lcapi.float3, lcapi.builder().call(to_lctype(lcapi.float3), op, [x.expr for x in args])
-        
+
     if name in ('lerp',):
         assert len(args) == 3
         return make_vector_call(float, lcapi.CallOp.LERP, args)
@@ -453,13 +460,13 @@ def builtin_func(name, args):
         op = lcapi.CallOp.TEXTURE_READ
         dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
         check_exact_signature([lcapi.int2], args[1:], "Texture2D.read")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]]) # convert int2 to uint2
+        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]])  # convert int2 to uint2
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
     if name == "texture2d_write":
         op = lcapi.CallOp.TEXTURE_WRITE
         dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
         check_exact_signature([lcapi.int2, dtype], args[1:], "Texture2D.write")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]]) # convert int2 to uint2
+        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]])  # convert int2 to uint2
         lcapi.builder().call(op, [x.expr for x in args])
         return None, None
 
@@ -470,8 +477,66 @@ def builtin_func(name, args):
                 arg.dtype, arg.expr = builtin_type_cast(to_float(arg.dtype), [arg])
         return make_vector_call(float, lcapi.CallOp.POW, args)
 
-    raise Exception(f'unrecognized function call {name}')
+    if name in ('all', 'any'):
+        op = getattr(lcapi.CallOp, name.upper())
+        assert len(args) == 1
+        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(bool)
+        return bool, lcapi.builder().call(to_lctype(bool), op, [args[0].expr])
 
+    if name == 'select':
+        op = lcapi.CallOp.SELECT
+        assert len(args) == 3
+        lctypes = [to_lctype(arg.dtype) for arg in args]
+        assert args[0].dtype == bool and args[1].dtype in scalar_dtypes and args[2].dtype in scalar_dtypes and \
+               args[1].dtype == args[2].dtype or \
+               lctypes[0].is_vector() and lctypes[0].element() == to_lctype(bool) and \
+               lctypes[1].is_vector() and lctypes[1].element() in scalar_lctypes and \
+               lctypes[2].is_vector() and lctypes[2].element() in scalar_lctypes and \
+               lctypes[0].dimension() == lctypes[1].dimension() == lctypes[2].dimension and \
+               lctypes[1].element() == lctypes[2].element(), "invalid parameter"
+        dtype = args[1].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+
+    if name == 'clamp':
+        op = lcapi.CallOp.CLAMP
+        assert len(args) == 3
+        lctypes = [to_lctype(arg.dtype) for arg in args]
+        assert args[0].dtype == args[1].dtype == args[2].dtype and args[0].dtype in arithmetic_dtypes or \
+               lctypes[0] == lctypes[1] == lctypes[2] and lctypes[0].is_vector() and \
+               lctypes[0].element() in arithmetic_lctypes, "invalid parameter"
+        # clamp(scalar, scalar, scalar) -> scalar
+        # clamp(vector<scalar>, vector<scalar>, vector<scalar>) -> vector<scalar>
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+
+    if name == 'step':
+        op = lcapi.CallOp.STEP
+        assert len(args) == 2
+        lctypes = [to_lctype(arg.dtype) for arg in args]
+        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes or \
+               lctypes[0] == lctypes[1] and lctypes[0].is_vector() and lctypes[0].element() in arithmetic_lctypes, \
+               "invalid parameter"
+        if args[0].dtype in arithmetic_dtypes:
+            # step(scalar, scalar) -> float
+            dtype = float
+        else:
+            # step(vector<scalar>, vector<scalar>) -> vector(float)
+            dtype = lcapi.Type.from_(f"vector<float,{lctypes[0].dimension()}>")
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+
+    if name in ('clz', 'ctz', 'popcount', 'reverse'):
+        op = getattr(lcapi.CallOp, name.upper())
+        assert len(args) == 1
+        assert args[0].dtype == int or \
+               to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype) == lcapi.Type.from_('int'), \
+               "invalid parameter"
+        # clz(uint) -> uint
+        # clz(vector<uint>) -> vector<uint>
+        dtype = args[0].dtype
+        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+
+
+    raise Exception(f'unrecognized function call {name}')
 
 
 def callable_call(func, args):
