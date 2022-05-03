@@ -24,7 +24,10 @@ def create_arg_expr(dtype, allow_ref):
     if lctype.is_scalar():
         return lcapi.builder().argument(lctype)
     elif lctype.is_vector() or lctype.is_matrix() or lctype.is_array() or lctype.is_structure():
-        return lcapi.builder().reference(lctype)
+        if allow_ref:
+            return lcapi.builder().reference(lctype)
+        else:
+            return lcapi.builder().argument(lctype)
     elif lctype.is_buffer():
         return lcapi.builder().buffer(lctype)
     elif lctype.is_texture():
@@ -35,6 +38,32 @@ def create_arg_expr(dtype, allow_ref):
         return lcapi.builder().accel()
     else:
         assert False
+
+
+# variables, information and compiled result are stored per kernel instance (argument type specialization)
+class KernelInstanceInfo:
+    def __init__(self, kernel):
+        self.kernel = kernel
+        self.__name__ = kernel.__name__
+        self.sourcelines = kernel.sourcelines
+        self.is_device_callable = kernel.is_device_callable
+        self.uses_printer = False
+        # self.return_type is not defined until a return statement is met
+        _closure_vars = inspect.getclosurevars(kernel.func)
+        self.closure_variable = {
+            **_closure_vars.globals,
+            **_closure_vars.nonlocals,
+            **_closure_vars.builtins
+        }
+        self.local_variable = {} # dict: name -> VariableInfo(dtype, expr, is_arg)
+        self.function = None
+        self.shader_handle = None
+
+    def build_arguments(self, argtypes):
+        for idx, name in enumerate(self.kernel.parameters):
+            dtype = argtypes[idx]
+            expr = create_arg_expr(dtype, allow_ref = self.kernel.is_device_callable)
+            self.local_variable[name] = VariableInfo(dtype, expr, is_arg=True)
 
 
 class kernel:
@@ -49,54 +78,42 @@ class kernel:
         self.compiled_results = {} # maps (arg_type_tuple) to (function, shader_handle)
 
     # compiles an argument-type-specialized callable/kernel
-    # returns (LCfunction, shader_handle)
-    # shader_handle is None if it's callable
+    # returns KernelInstanceInfo
     def compile(self, argtypes):
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.func)[0]
         self.tree = ast.parse(sourceinspect.getsource(self.func))
-        _closure_vars = inspect.getclosurevars(self.func)
-        self.closure_variable = {
-            **_closure_vars.globals,
-            **_closure_vars.nonlocals,
-            **_closure_vars.builtins
-        }
-        self.local_variable = {} # dict: name -> VariableInfo(dtype, expr, is_arg)
         self.parameters = inspect.signature(self.func).parameters
-        if len(args) != len(self.parameters):
-            raise Exception(f"calling kernel with {len(args)} arguments ({len(self.params)} expected).")
-        self.uses_printer = False
+        if len(argtypes) != len(self.parameters):
+            raise Exception(f"calling kernel with {len(argtypes)} arguments ({len(self.params)} expected).")
+        f = KernelInstanceInfo(self)
         # compile callback
         def astgen():
             if not self.is_device_callable:
                 lcapi.builder().set_block_size(256,1,1)
-            # get parameters
-            for idx, name in enumerate(self.parameters):
-                dtype = argtypes[idx]
-                expr = create_arg_expr(dtype, allow_ref = self.is_device_callable)
-                self.local_variable[name] = VariableInfo(dtype, expr, is_arg=True)
+            f.build_arguments(argtypes)
             # push context & build function body AST
-            top = globalvars.current_kernel
-            globalvars.current_kernel = self
+            top = globalvars.current_context
+            globalvars.current_context = f
             astbuilder.build(self.tree.body[0])
-            globalvars.current_kernel = top
+            globalvars.current_context = top
         # compile
-        if is_device_callable:
-            self.builder = lcapi.FunctionBuilder.define_callable(astgen)
+        # Note: must retain the builder object
+        if self.is_device_callable:
+            f.builder = lcapi.FunctionBuilder.define_callable(astgen)
         else:
-            self.builder = lcapi.FunctionBuilder.define_kernel(astgen)
+            f.builder = lcapi.FunctionBuilder.define_kernel(astgen)
         # get LuisaCompute function
-        function = self.builder.function()
-        if is_device_callable:
-            return function, None
+        f.function = f.builder.function()
         # compile shader
-        shader_handle = get_global_device().impl().create_shader(self.lcfunction)
-        return function, shader_handle
+        if not self.is_device_callable:
+            f.shader_handle = get_global_device().impl().create_shader(f.function)
+        return f
 
 
     # looks up arg_type_tuple; compile if not existing
     # argtypes: tuple of dtype
-    # returns (function, shader_handle)
+    # returns KernelInstanceInfo
     def get_compiled(self, argtypes):
         if argtypes not in self.compiled_results:
             self.compiled_results[argtypes] = self.compile(argtypes)
@@ -112,9 +129,9 @@ class kernel:
             stream = globalvars.stream
         # get types of arguments and compile
         argtypes = tuple(dtype_of(a) for a in args)
-        lcfunction, shader_handle = self.get_compiled(argtypes)
+        f = self.get_compiled(argtypes)
         # create command
-        command = lcapi.ShaderDispatchCommand.create(shader_handle, lcfunction)
+        command = lcapi.ShaderDispatchCommand.create(f.shader_handle, f.function)
         # push arguments
         for a in args:
             lctype = to_lctype(dtype_of(a))
@@ -135,7 +152,7 @@ class kernel:
         # dispatch
         command.set_dispatch_size(*dispatch_size)
         stream.add(command)
-        if self.uses_printer: # assume that this property doesn't change with argtypes
+        if f.uses_printer: # assume that this property doesn't change with argtypes
             globalvars.printer.final_print()
             # Note: printing will FORCE synchronize (#21)
             globalvars.printer.reset()

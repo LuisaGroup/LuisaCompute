@@ -442,10 +442,10 @@ a = 3
 b = buffer(...)
 c = float3()
 def test_modify():
-    a += 1 # BAD
+    a += 1 # BAD (automatically disables capture)
     b.write(...) # GOOD
     c.x = 4 # BAD
-    c += 1 # BAD/WARN?
+    c += 1 # BAD/WARN?  (automatically disables capture)
 def test_assign():
     a = 1 # ???
     b = ... # ???

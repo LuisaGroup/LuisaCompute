@@ -8,12 +8,24 @@ luisa.init()
 
 
 
-arr = luisa.BindlessArray()
+# arr = luisa.BindlessArray()
+
+@luisa.callable
+def g(a):
+    a += a
+
 
 @luisa.kernel
-def f():
-    a = arr.buffer_read(1)
+def f(a):
+    print("Aaaaa")
+    print(a)
+    g(a)
+    print(a)
 
+
+f(1, dispatch_size=(1,1,1))
+print("============================")
+f(float3(1), dispatch_size=(1,1,1))
 
 
 
