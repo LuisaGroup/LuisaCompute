@@ -23,31 +23,30 @@ public:
     [[nodiscard]] auto impl(size_t i) noexcept { return _impl.at(i).get(); }
     [[nodiscard]] auto impl(size_t i) const noexcept { return _impl.at(i).get(); }
 
-    // clang-format off
-    template<typename Impl, typename... Args>
-        requires std::derived_from<Impl, T>
-    [[nodiscard]] auto create(Args &&...args) noexcept {
-        auto tag = static_cast<uint>(_impl.size());
-        _impl.emplace_back(luisa::make_unique<Impl>(std::forward<Args>(args)...));
-        return tag;
-    }
-    // clang-format on
-
-    [[nodiscard]] auto add(luisa::unique_ptr<T> impl) noexcept {
+    [[nodiscard]] auto emplace(luisa::unique_ptr<T> impl) noexcept {
         auto tag = static_cast<uint>(_impl.size());
         _impl.emplace_back(std::move(impl));
         return tag;
     }
 
-    template<typename F>
-    void dispatch(Expr<uint> tag, const F &f) const noexcept {
-        if (empty()) {
+    // clang-format off
+    template<typename Impl, typename... Args>
+        requires std::derived_from<Impl, T>
+    [[nodiscard]] auto create(Args &&...args) noexcept {
+        return emplace(luisa::make_unique<Impl>(std::forward<Args>(args)...));
+    }
+    // clang-format on
+
+    template<typename Tag>
+        requires is_integral_expr_v<Tag>
+    void dispatch(Tag &&tag, const luisa::function<void(const T *)> &f) const noexcept {
+        if (empty()) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION("No implementations registered.");
         }
         if (_impl.size() == 1u) {
             f(_impl.front().get());
         } else {
-            detail::SwitchStmtBuilder{tag} % [&] {
+            detail::SwitchStmtBuilder{std::forward<Tag>(tag)} % [&] {
                 for (auto i = 0u; i < _impl.size(); i++) {
                     detail::SwitchCaseStmtBuilder{i} % [&f, this, i] { f(impl(i)); };
                 }
