@@ -347,18 +347,17 @@ def _builtin_call(args):
         op = getattr(lcapi.CallOp, args[1].expr)
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args[2:]])
 
-# @BuiltinFuncBuilder
-# def set_block_size(args):
-#     check_exact_signature([int,int,int], args, "set_block_size")
-#     for a in args:
-#         if type(a).__name__ != "Constant":
-#             raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
-#     lcapi.builder().set_block_size(*[a.value for a in args])
-#     return None, None
-
 
 # return dtype, expr
 def builtin_func(name, args):
+
+    if name == "set_block_size":
+        check_exact_signature([int,int,int], args, "set_block_size")
+        for a in args:
+            if type(a).__name__ != "Constant":
+                raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
+        lcapi.builder().set_block_size(*[a.value for a in args])
+        return None, None
 
     # e.g. dispatch_id()
     for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':

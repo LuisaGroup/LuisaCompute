@@ -28,8 +28,8 @@ light_radius = 2.0
 
 next_hit_struct = luisa.StructType(closest=float, normal=float3, c=float3)
 
-@luisa.callable
-def intersect_light(pos: float3, d: float3):
+@luisa.func
+def intersect_light(pos, d):
     vdot = dot(-d, light_normal)
     dist = dot(d, light_pos - pos)
     dist_to_light = inf
@@ -40,8 +40,8 @@ def intersect_light(pos: float3, d: float3):
             dist_to_light = D
     return dist_to_light
 
-@luisa.callable
-def out_dir(n: float3, sampler: luisa.ref(RandomSampler)):
+@luisa.func
+def out_dir(n, sampler):
     u = make_float3(1.0, 0.0, 0.0)
     if abs(n.y) < 1 - eps:
         u = normalize(cross(n, make_float3(0.0, 1.0, 0.0)))
@@ -52,8 +52,8 @@ def out_dir(n: float3, sampler: luisa.ref(RandomSampler)):
     return ax * (cos(phi) * u + sin(phi) * v) + ay * n
 
 
-@luisa.callable
-def make_nested(f: float):
+@luisa.func
+def make_nested(f):
     f = f * 40.0
     # f = (1 - fract(f) if int(f) % 2 == 0 else fract(f)) if f < 0.0 else f
     # return (f - 0.2) * (1.0 / 40.0)
@@ -68,8 +68,8 @@ def make_nested(f: float):
     return f
 
 # https://www.iquilezles.org/www/articles/distfunctions/distfunctions.htm
-@luisa.callable
-def sdf(o: float3):
+@luisa.func
+def sdf(o):
     wall = min(o.y + 0.1, o.z + 0.4)
     sphere = length(o - float3(0.0, 0.35, 0.0)) - 0.36
 
@@ -85,8 +85,8 @@ def sdf(o: float3):
     return min(wall, geometry)
 
 
-@luisa.callable
-def ray_march(p: float3, d: float3):
+@luisa.func
+def ray_march(p, d):
     dist = 0.0
     for j in range(100):
         s = sdf(p + dist * d)
@@ -96,8 +96,8 @@ def ray_march(p: float3, d: float3):
     return min(inf, dist)
 
 
-@luisa.callable
-def sdf_normal(p: float3):
+@luisa.func
+def sdf_normal(p):
     d = 1e-3
     n = float3(0)
     sdf_center = sdf(p)
@@ -108,8 +108,8 @@ def sdf_normal(p: float3):
     return normalize(n)
 
 
-@luisa.callable
-def next_hit(pos: float3, d: float3):
+@luisa.func
+def next_hit(pos, d):
     closest = inf
     normal = float3(0)
     c = float3(0)
@@ -128,8 +128,8 @@ def next_hit(pos: float3, d: float3):
     return result
 
 
-@luisa.kernel
-def render(image: luisa.Texture2DType(float), frame_index: int):
+@luisa.func
+def render(image, frame_index):
     set_block_size(16,8,1)
     res = make_float2(dispatch_size().xy)
     coord = dispatch_id().xy
