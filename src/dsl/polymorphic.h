@@ -40,8 +40,8 @@ public:
     }
 
     template<typename Tag, typename F>
-        requires is_integral_expr_v<Tag> && std::invocable<F, const T *>
-    void dispatch(Tag &&tag, F &&f) const noexcept {
+        requires is_integral_expr_v<Tag>
+    void dispatch(Tag &&tag, const F &f) const noexcept {
         if (empty()) {
             LUISA_WARNING_WITH_LOCATION("No implementations registered.");
         }
