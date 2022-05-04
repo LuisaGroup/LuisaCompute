@@ -104,6 +104,14 @@ class ASTVisitor:
         lcapi.builder().return_(node.value.expr)
 
     @staticmethod
+    def wrap_with_tmp_var(node):
+        # Python does not distinguish l-value and r-value;
+        # so always convert r-value to l-value
+        tmp = lcapi.builder().local(to_lctype(node.dtype))
+        lcapi.builder().assign(tmp, node.expr)
+        node.expr = tmp
+
+    @staticmethod
     def build_Call(node):
         for x in node.args:
             build(x)
@@ -137,6 +145,8 @@ class ASTVisitor:
                 raise TypeError(f'calling non-callable member ({node.func.dtype}).')
         else:
             raise Exception('unrecognized call func type')
+        if node.dtype != None:
+            build.wrap_with_tmp_var(node)
 
     @staticmethod
     def build_Attribute(node):
@@ -292,12 +302,14 @@ class ASTVisitor:
     def build_UnaryOp(node):
         build(node.operand)
         node.dtype, node.expr = builtin_unary_op(type(node.op), node.operand)
+        build.wrap_with_tmp_var(node)
 
     @staticmethod
     def build_BinOp(node):
         build(node.left)
         build(node.right)
         node.dtype, node.expr = builtin_bin_op(type(node.op), node.left, node.right)
+        build.wrap_with_tmp_var(node)
 
     @staticmethod
     def build_Compare(node):
