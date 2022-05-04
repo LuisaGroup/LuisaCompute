@@ -14,3 +14,4 @@
 #include <dsl/ref.h>
 #include <dsl/var.h>
 #include <dsl/builtin.h>
+#include <dsl/polymorphic.h>
