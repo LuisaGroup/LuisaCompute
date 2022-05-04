@@ -453,7 +453,7 @@ def builtin_func(name, args):
 
 def callable_call(func, args):
     # get function instance by argtypes
-    f = func.get_compiled(tuple(a.dtype for a in args))
+    f = func.get_compiled(call_from_host=False, argtypes=tuple(a.dtype for a in args))
     globalvars.current_context.uses_printer |= f.uses_printer
     # call
     if getattr(f, "return_type", None) == None:

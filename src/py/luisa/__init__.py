@@ -2,7 +2,7 @@ import lcapi
 from . import globalvars
 from .types import ref
 
-from .kernel import kernel, callable, callable_method
+from .func import func
 from .mathtypes import *
 from .arraytype import ArrayType
 from .structtype import StructType

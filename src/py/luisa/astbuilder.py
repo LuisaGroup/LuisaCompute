@@ -59,7 +59,7 @@ class ASTVisitor:
             green = ""
             bold = ""
             clr = ""
-        print(f"{bold}({ctx().kernel.__class__.__name__}){ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+        print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
         source = ctx().sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
             print(line.rstrip('\n'))
@@ -98,8 +98,8 @@ class ASTVisitor:
                 raise TypeError("inconsistent return type in multiple return statements")
         else:
             ctx().return_type = return_type
-            if not ctx().is_device_callable and return_type != None:
-                raise TypeError("only callable can return value")
+            if ctx().call_from_host and return_type != None:
+                raise TypeError("luisa func called on host can't return value")
         # build return statement
         lcapi.builder().return_(node.value.expr)
 
@@ -110,7 +110,7 @@ class ASTVisitor:
         # static function
         if type(node.func) is ast.Name:
             build(node.func)
-            # custom callable
+            # custom function
             if node.func.dtype is CallableType:
                 node.dtype, node.expr = callable_call(node.func.expr, node.args)
             # funciton name undefined: look into builtin functions
@@ -161,14 +161,12 @@ class ASTVisitor:
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
         elif hasattr(node.value.dtype, node.attr):
             entry = getattr(node.value.dtype, node.attr)
-            if type(entry).__name__ == "kernel":
-                if not entry.is_device_callable:
-                    raise TypeError("can't call kernel in kernel/callable")
+            if type(entry).__name__ == "func":
                 node.dtype, node.expr = CallableType, entry
             elif type(entry) is BuiltinFuncBuilder:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry
             else:
-                raise TypeError(f"Can't access member {entry} in kernel/callable")
+                raise TypeError(f"Can't access member {entry} in luisa func")
         else:
             raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
 

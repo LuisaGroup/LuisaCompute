@@ -3,7 +3,7 @@ from . import globalvars
 from .globalvars import get_global_device
 from .types import to_lctype, is_vector_type
 from functools import cache
-from . import callable
+from .func import func
 from .builtin import _builtin_call
 
 class Buffer:
@@ -54,7 +54,7 @@ class BufferType:
     @staticmethod
     @cache
     def get_read_method(dtype):
-        @callable
+        @func
         def read(self, idx: int):
             return _builtin_call(dtype, "BUFFER_READ", self, idx)
         return read
@@ -62,7 +62,7 @@ class BufferType:
     @staticmethod
     @cache
     def get_write_method(dtype):
-        @callable
+        @func
         def write(self, idx: int, value: dtype):
             _builtin_call("BUFFER_WRITE", self, idx, value)
         return write
