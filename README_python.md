@@ -272,6 +272,17 @@ TODO: `offset_ray_origin(p,n,w)`
 
 ### 类型转换
 
+类型转换规则？
+
+```python
+int(a)
+float3(b)
+```
+
+TODO: struct / array
+
+### 运算的类型规则
+
 二元运算符和二元内建函数在不同运算时的转换规则如下：
 
 #### 标量运算
