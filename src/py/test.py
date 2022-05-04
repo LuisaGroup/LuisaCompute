@@ -11,15 +11,11 @@ luisa.init()
 @luisa.func
 def g():
     print("!!!")
-    return 3
+    return True
 
 @luisa.func
 def f():
-    a = b = 1
-    c = 1<2<g()
-    d = 2<1<g()
-    print(a,b,c,d)
-    print(True and True and False)
+    print(False and g())
 
 
 f( dispatch_size=(1,1,1))

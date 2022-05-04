@@ -8,7 +8,7 @@ from .types import from_lctype
 from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
-    builtin_unary_op, callable_call
+    builtin_unary_op, callable_call, wrap_with_tmp_var
 from .types import dtype_of, to_lctype, CallableType, is_vector_type
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
@@ -25,6 +25,10 @@ class VariableInfo:
         self.expr = expr
         self.is_arg = is_arg
 
+# Visit AST of the python functions; computes the following for each expression node:
+# node.dtype: type of the expression
+# node.expr: the expression as defined in the function builder
+# node.lr: "l" or "r", representing l-value or r-value
 
 class ASTVisitor:
     def __call__(self, node):
@@ -105,14 +109,6 @@ class ASTVisitor:
         lcapi.builder().return_(node.value.expr)
 
     @staticmethod
-    def wrap_with_tmp_var(node):
-        # Python does not distinguish l-value and r-value;
-        # so always convert r-value to l-value
-        tmp = lcapi.builder().local(to_lctype(node.dtype))
-        lcapi.builder().assign(tmp, node.expr)
-        node.expr = tmp
-
-    @staticmethod
     def build_Call(node):
         for x in node.args:
             build(x)
@@ -146,12 +142,12 @@ class ASTVisitor:
                 raise TypeError(f'calling non-callable member ({node.func.dtype}).')
         else:
             raise Exception('unrecognized call func type')
-        if node.dtype != None:
-            build.wrap_with_tmp_var(node)
+        node.lr = 'r'
 
     @staticmethod
     def build_Attribute(node):
         build(node.value)
+        node.lr = node.value.lr
         # vector swizzle
         if is_vector_type(node.value.dtype):
             if is_swizzle_name(node.attr):
@@ -184,6 +180,7 @@ class ASTVisitor:
     @staticmethod
     def build_Subscript(node):
         build(node.value)
+        node.lr = node.value.lr
         build(node.slice)
         if type(node.value.dtype) is ArrayType:
             node.dtype = node.value.dtype.dtype
@@ -248,6 +245,7 @@ class ASTVisitor:
             node.dtype = varinfo.dtype
             node.expr = varinfo.expr
             node.is_arg = varinfo.is_arg
+            node.lr = 'l'
         else:
             val = ctx().closure_variable.get(node.id)
             # print("NAME:", node.id, "VALUE:", val)
@@ -257,6 +255,7 @@ class ASTVisitor:
                 node.dtype = None
                 return
             node.dtype, node.expr = build.captured_expr(val)
+            node.lr = 'r'
 
     @staticmethod
     def build_Constant(node):
@@ -265,6 +264,7 @@ class ASTVisitor:
             node.expr = node.value
         else:
             node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
+        node.lr = 'r'
 
     @staticmethod
     def build_assign_pair(lhs, rhs):
@@ -295,7 +295,7 @@ class ASTVisitor:
         if len(node.targets) == 1:
             build.build_assign_pair(node.targets[0], node.value)
         else: # chained assignment
-            build.wrap_with_tmp_var(node.value)
+            wrap_with_tmp_var(node.value)
             for targ in node.targets:
                 build.build_assign_pair(targ, node.value)
 
@@ -310,14 +310,14 @@ class ASTVisitor:
     def build_UnaryOp(node):
         build(node.operand)
         node.dtype, node.expr = builtin_unary_op(type(node.op), node.operand)
-        build.wrap_with_tmp_var(node)
+        node.lr = 'r'
 
     @staticmethod
     def build_BinOp(node):
         build(node.left)
         build(node.right)
         node.dtype, node.expr = builtin_bin_op(type(node.op), node.left, node.right)
-        build.wrap_with_tmp_var(node)
+        node.lr = 'r'
 
     @staticmethod
     def build_Compare(node):
@@ -330,7 +330,7 @@ class ASTVisitor:
             obj = SimpleNamespace()
             obj.dtype, obj.expr = builtin_bin_op(type(node.ops[idx]), node.comparators[idx-1], node.comparators[idx])
             node.dtype, node.expr = builtin_bin_op(ast.And, node, obj)
-
+        node.lr = 'r'
 
     @staticmethod
     def build_BoolOp(node):
@@ -340,6 +340,7 @@ class ASTVisitor:
         # bool operators of same type are left-associative
         for idx in range(2, len(node.values)):
             node.dtype, node.expr = builtin_bin_op(type(node.op), node, node.values[idx])
+        node.lr = 'r'
 
     @staticmethod
     def build_If(node):
@@ -370,6 +371,7 @@ class ASTVisitor:
             raise TypeError(f"Both result expressions of IfExp must be of same type. ({node.body.dtype} vs {node.orelse.dtype})")
         node.dtype = node.body.dtype
         node.expr = lcapi.builder().call(to_lctype(node.dtype), lcapi.CallOp.SELECT, [node.orelse.expr, node.body.expr, node.test.expr])
+        node.lr = 'r'
 
     @staticmethod
     def build_For(node):
