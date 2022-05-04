@@ -78,4 +78,16 @@ class StructType:
     def __eq__(self, other):
         return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment
 
+    def __hash__(self):
+        return hash(self.luisa_type.description()) ^ 7178987438397
+
+    def add_method(self, name, func):
+        # check name collision
+        if name in self.idx_dict:
+            raise NameError("struct method can't have same name as its data members")
+        # add method to structtype
+        self.idx_dict[name] = len(self.membertype)
+        self.membertype.append(dtype_of(func))
+        self.method_dict[name] = func
+
 

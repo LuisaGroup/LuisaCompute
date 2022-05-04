@@ -176,26 +176,3 @@ class func:
             # Note: printing will FORCE synchronize (#21)
             globalvars.printer.reset()
 
-
-
-def callable_method(struct):
-    assert type(struct) is StructType
-    def add_method(func):
-        name = func.__name__
-        # check name collision
-        if name in struct.idx_dict:
-            raise NameError("struct method can't have same name as its data members")
-        struct.idx_dict[name] = len(struct.membertype)
-        struct.membertype.append(CallableType)
-        # check first parameter
-        params = list(inspect.signature(func).parameters.items())
-        if len(params) == 0:
-            raise TypeError("struct method must have at lease 1 argument (self)")
-        anno = params[0][1].annotation
-        if type(anno) != ref or anno.dtype != struct:
-            raise TypeError("annotation of first argument must be luisa.ref(T) where T is the struct type")
-        struct.method_dict[name] = callable(func)
-        if name == '__init__' and getattr(struct.method_dict[name], 'return_type', None) != None:
-            raise TypeError(f'__init__() should return None, not {struct.method_dict[name].return_type}')
-        # FIXME
-    return add_method
