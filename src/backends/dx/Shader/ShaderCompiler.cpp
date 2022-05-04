@@ -87,7 +87,7 @@ CompileResult DXShaderCompiler::CompileCompute(
          L"-Qstrip_reflect",
          L"-all-resources-bound",
          L"-Gfa",
-         L"/enable_unbounded_descriptor_tables",
+        //  L"/enable_unbounded_descriptor_tables",
          L"-HV 2021"});
     if (optimize) {
         args.push_back(L"/O3");

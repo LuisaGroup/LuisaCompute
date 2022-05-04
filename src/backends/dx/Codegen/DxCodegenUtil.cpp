@@ -247,7 +247,14 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                 data += '(';
                 for (auto &&i : func.arguments()) {
                     if (i.tag() == Variable::Tag::REFERENCE) {
-                        data += "inout ";
+                        if (auto usage = func.variable_usage(i.uid());
+                            usage == Usage::WRITE) {
+                            data += "out ";
+                        } else if (usage == Usage::READ_WRITE) {
+                            data += "inout ";
+                        } else {
+                            data += "in ";
+                        }
                     }
                     RegistStructType(i.type());
                     Usage usage = func.variable_usage(i.uid());
@@ -262,6 +269,10 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                         } else {
                             data << "RWStructuredBuffer<MeshInst> "sv << varName << "Inst,"sv;
                         }
+                    } else if (i.type()->is_buffer() || i.type()->is_texture()) {
+                        CodegenUtility::GetTypeName(*i.type(), data, Usage::READ_WRITE);
+                        data << ' ';
+                        data << varName << ',';
                     } else {
                         CodegenUtility::GetTypeName(*i.type(), data, usage);
                         data << ' ';
