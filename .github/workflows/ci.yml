@@ -29,7 +29,7 @@ jobs:
       #          linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LUISA_COMPUTE_ENABLE_LLVM=OFF -D LUISA_COMPUTE_ENABLE_ISPC=OFF
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LUISA_COMPUTE_ENABLE_LLVM=OFF -D LUISA_COMPUTE_ENABLE_ISPC=OFF -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=ON
           cmake --build build
 
   #  build-macos:
@@ -65,5 +65,5 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER:FILEPATH=cl.exe -D CMAKE_CXX_COMPILER:FILEPATH=cl.exe -D LUISA_COMPUTE_ENABLE_DX=OFF -D LUISA_COMPUTE_ENABLE_ISPC=OFF
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER:FILEPATH=cl.exe -D CMAKE_CXX_COMPILER:FILEPATH=cl.exe -D LUISA_COMPUTE_ENABLE_DX=OFF -D LUISA_COMPUTE_ENABLE_ISPC=OFF -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=ON
           cmake --build build

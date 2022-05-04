@@ -218,10 +218,15 @@ public:
         return _create<Shader<N, Args...>>(kernel.function(), meta_options);
     }
 
+    template<size_t N, typename... Args>
+    [[nodiscard]] auto create_shader(const Kernel<N, Args...> &kernel, std::string_view meta_options = {}) noexcept {
+        return _create<Shader<N, Args...>>(kernel.function(), meta_options);
+    }
+
+    // clang-format off
     template<size_t N, typename Func>
-        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>> [
-            [nodiscard]] auto
-        compile(Func &&f, std::string_view meta_options = {}) noexcept {
+        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
+    [[nodiscard]] auto compile(Func &&f, std::string_view meta_options = {}) noexcept {
         if constexpr (N == 1u) {
             return compile(Kernel1D{std::forward<Func>(f)});
         } else if constexpr (N == 2u) {
@@ -232,6 +237,21 @@ public:
             static_assert(always_false_v<Func>, "Invalid kernel dimension.");
         }
     }
+
+    template<size_t N, typename Func>
+        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
+    [[nodiscard]] auto create_shader(Func &&f, std::string_view meta_options = {}) noexcept {
+        if constexpr (N == 1u) {
+            return compile(Kernel1D{std::forward<Func>(f)});
+        } else if constexpr (N == 2u) {
+            return compile(Kernel2D{std::forward<Func>(f)});
+        } else if constexpr (N == 3u) {
+            return compile(Kernel3D{std::forward<Func>(f)});
+        } else {
+            static_assert(always_false_v<Func>, "Invalid kernel dimension.");
+        }
+    }
+    // clang-format on
 
     [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {
         return _impl->query(meta_expr);
