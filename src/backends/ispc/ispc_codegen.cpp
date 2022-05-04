@@ -1116,7 +1116,6 @@ void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {
     if (auto iter = _definition_analysis.scoped_variables().find(scope);
         iter != _definition_analysis.scoped_variables().cend()) {
         for (auto v : iter->second) {
-            LUISA_INFO("Variable: {}", v.uid());
             if (_defined_variables.emplace(v).second) {
                 _scratch << "\n  ";
                 _emit_indent();
