@@ -44,6 +44,8 @@ print(res)
 
 一个 Luisa 函数可以被host端并行调用，也可以被另一个Luisa函数调用。在被调用时，该函数会被即时编译为后端设备可以执行的代码。
 
+函数的参数可以有（但不要求）类型标记，如 `def f(a: int)`。如有类型标记，在调用时会检查对应参数类型。
+
 ## 类型
 
 ### 标量类型
@@ -82,7 +84,7 @@ v1.xzzy # int4(7,9,9,8)，只读
 # 声明了一个类型
 # 其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
 arr_t = luisa.ArrayType(dtype, size)
-# arr_t 可以作为kernel/callable参数列表中的类型标记
+# arr_t 可以作为func参数列表中的类型标记
 # 生成一个实例
 a1 = arr_t() # 暂时只在kernel中支持
 a2 = arr_t([value1, ...]) # 暂时只在python(host)中支持
@@ -96,7 +98,7 @@ a1[idx] = value1 # python/kernel 都支持
 # 声明了一个类型
 # 其中dtype为标量/向量/矩阵/数组/结构体类型
 struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
-# struct_t 可以作为kernel/callable参数列表中的类型标记
+# struct_t 可以作为func参数列表中的类型标记
 # 生成一个实例
 a1 = struct_t() # 暂时只在kernel中支持
 a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
@@ -104,33 +106,16 @@ a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
 a1.name1 = value1 # python/kernel 都支持
 ```
 
-（高级用法）结构体可以定义callable方法：
-
-```python
-@luisa.callable_method(struct_t)
-def method1(self: luisa.ref(struct_t), ...):
-    ...
-```
-
-如方法名为`__init__`，该结构体在kernel/callable中构造时会调用该方法。
-
-### 引用
-
-（高级用法）Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
+结构体可以将一个luisa函数作为方法：
 
 ```python
 @luisa.callable
-def flipsign(x: luisa.ref(int)):
-    x = -x
+def f1(self, ...):
+    ...
+struct_t.add_method(f1)
 ```
 
-这使得在Callable中可以改变调用者传入参数的值。
-
-参数类型可以为标量、向量、矩阵、数组、结构体的引用。注意Buffer等资源类型在传参过程中并不会复制数据，将资源类型作为参数时请勿标记为引用。
-
-kernel不支持引用参数。
-
-注意：引用不是一种数据类型。只能用于标记参数的类型。
+如方法名为`__init__`，该结构体在luisa函数中构造时会调用该方法。
 
 ### Buffer类型
 
@@ -360,7 +345,7 @@ make_float2x2(...)
 
 ## 变量
 
-在kernel/callable中初次出现（请勿与外部变量重名，TODO）的变量为局部变量。局部变量的类型在整个函数中保持不变。例如：
+局部变量的类型在整个函数中保持不变。例如：
 
 ```python
 @luisa.kernel
@@ -369,6 +354,8 @@ def fill():
     a = 2 # 赋值
     a = 1.5 # 禁止这么做，因为改变了类型
 ```
+
+同样地，如果函数的参数是一个类型，那么不能给这个参数赋另一个类型的值。（除了按值传的基本类型参数外，其它类型的参数不能被赋值）
 
 ## 语法参考
 
@@ -382,7 +369,7 @@ kernel中尚不支持 list, tuple, dict 等python提供的数据结构
 
 ## 概述
 
-
+一个luisa.func在python中并行调用时，编译为kernel；在luisa.func中调用时，编译为callable。
 
 ## 文件结构
 
