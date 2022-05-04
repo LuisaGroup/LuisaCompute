@@ -11,7 +11,8 @@
 #include <span>
 
 #include <xxhash.h>
-#include <core/logging.h>
+
+#include <core/dll_export.h>
 #include <core/concepts.h>
 
 namespace luisa {
@@ -36,8 +37,6 @@ concept hashable_with_hash_code_method = requires(T x) {
 };
 
 }// namespace detail
-
-[[nodiscard]] LC_CORE_API std::string_view hash_to_string(uint64_t hash) noexcept;
 
 /// Hash 64 calculator
 class LC_CORE_API Hash64 {
@@ -73,6 +72,7 @@ public:
         } else if constexpr (
             std::is_arithmetic_v<std::remove_cvref_t<T>> ||
             std::is_enum_v<std::remove_cvref_t<T>> ||
+            std::is_pointer_v<std::remove_cvref_t<T>> ||
             is_basic_v<T>) {
             auto x = s;
             return detail::xxh3_hash64(&x, sizeof(x), _seed);

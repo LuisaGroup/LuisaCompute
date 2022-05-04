@@ -8,7 +8,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
-#include <core/dll_export.h>
+
 #include <fmt/format.h>
 
 #include <EASTL/bit.h>
@@ -40,6 +40,9 @@
 #include <absl/container/flat_hash_set.h>
 #include <absl/container/btree_map.h>
 #include <absl/container/btree_set.h>
+
+#include <core/dll_export.h>
+#include <core/hash.h>
 
 namespace luisa {
 
@@ -111,10 +114,10 @@ using eastl::vector;
 
 using eastl::deque;
 using eastl::list;
+using eastl::make_optional;
 using eastl::monostate;
 using eastl::move_only_function;
 using eastl::nullopt;
-using eastl::make_optional;
 using eastl::optional;
 using eastl::queue;
 using eastl::slist;
@@ -123,13 +126,13 @@ using eastl::variant_alternative_t;
 using eastl::variant_size_v;
 
 template<typename K, typename V,
-         typename Hash = absl::container_internal::hash_default_hash<K>,
+         typename Hash = Hash64,
          typename Eq = absl::container_internal::hash_default_eq<K>,
          typename Allocator = luisa::allocator<std::pair<const K, V>>>
 using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
 
 template<typename K,
-         typename Hash = absl::container_internal::hash_default_hash<K>,
+         typename Hash = Hash64,
          typename Eq = absl::container_internal::hash_default_eq<K>,
          typename Allocator = luisa::allocator<const K>>
 using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
@@ -207,6 +210,10 @@ template<typename FMT, typename... Args>
     memory_buffer buffer;
     fmt::format_to(std::back_inserter(buffer), std::forward<FMT>(f), std::forward<Args>(args)...);
     return luisa::string{buffer.data(), buffer.size()};
+}
+
+[[nodiscard]] inline auto hash_to_string(uint64_t hash) noexcept {
+    return luisa::format("{:016X}", hash);
 }
 
 }// namespace luisa
