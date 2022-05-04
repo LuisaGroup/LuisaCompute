@@ -10,6 +10,7 @@ luisa.init()
 
 # arr = luisa.BindlessArray()
 b = luisa.Buffer(100, dtype=int)
+tex = luisa.Texture2D(100, 100, 4, dtype=float)
 
 @luisa.kernel
 def f(a):
@@ -17,6 +18,7 @@ def f(a):
     # b.write(dispatch_id().x, 0.1)
     b.write(dispatch_id().x, 123)
     print("!!!!", b.read(dispatch_id().x))
+    tex.write(dispatch_id().xy, tex.read(dispatch_id().xy) + float4(1))
 
 
 f(1, dispatch_size=(2,1,1))

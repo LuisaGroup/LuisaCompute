@@ -1,7 +1,7 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype, is_vector_type, BuiltinFuncEntry
+from .types import to_lctype, is_vector_type
 from functools import cache
 from . import callable
 from .builtin import _builtin_call
@@ -11,6 +11,8 @@ class Buffer:
         if not (dtype in {int, float, bool} or is_vector_type(dtype)):
             raise Exception('buffer only supports scalar / vector yet')
         self.bufferType = BufferType(dtype)
+        self.read = self.bufferType.read
+        self.write = self.bufferType.write
         self.dtype = dtype
         self.size = size
         self.bytesize = size * to_lctype(self.dtype).size()
@@ -53,7 +55,7 @@ class BufferType:
     @cache
     def get_read_method(dtype):
         @callable
-        def read(self, idx):
+        def read(self, idx: int):
             return _builtin_call(dtype, "BUFFER_READ", self, idx)
         return read
     
@@ -61,7 +63,7 @@ class BufferType:
     @cache
     def get_write_method(dtype):
         @callable
-        def write(self, idx, value: dtype):
+        def write(self, idx: int, value: dtype):
             _builtin_call("BUFFER_WRITE", self, idx, value)
         return write
 

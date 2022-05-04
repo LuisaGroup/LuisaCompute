@@ -53,12 +53,6 @@ class CallableType:
 class BuiltinFuncType:
     pass
 
-class BuiltinFuncEntry:
-    def __init__(self, name):
-        self.name = name
-    def __call__(self, *args):
-        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
-
 class BuiltinFuncBuilder:
     def __init__(self, builder):
         self.builder = builder

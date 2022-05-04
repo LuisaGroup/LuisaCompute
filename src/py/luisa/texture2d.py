@@ -1,6 +1,10 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
+from functools import cache
+from . import callable
+from .builtin import _builtin_call
+from .mathtypes import *
 
 
 class Texture2D:
@@ -22,7 +26,9 @@ class Texture2D:
         self.format = getattr(lcapi, "pixel_storage_to_format_" + dtype.__name__)(storage)
 
         self.bytesize = lcapi.pixel_storage_size(storage) * width * height;
-        self.texture2DType = Texture2DType(dtype)
+        self.texture2DType = Texture2DType(dtype, channel)
+        self.read = self.texture2DType.read
+        self.write = self.texture2DType.write
         # instantiate texture on device
         self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, 1)
 
@@ -45,22 +51,33 @@ class Texture2D:
             stream.synchronize()
 
 
-    @callable
-    def read(self: Texture2DType(dtype), coord: int2):
-        return _builtin_call(dtype, "TEXTURE_READ", [self, coord])
-
-    @callable
-    def write(self: Texture2DType(dtype), coord: int2, value: dtype):
-        _builtin_call("TEXTURE_WRITE", [self, coord, value])
-
-
 class Texture2DType:
-    def __init__(self, dtype):
+    def __init__(self, dtype, channel):
         self.dtype = dtype
+        self.channel = channel
+        self.vectype = getattr(lcapi, dtype.__name__ + str(channel))
         self.luisa_type = lcapi.Type.from_("texture<2," + dtype.__name__ + ">")
+        self.read = self.get_read_method(self.vectype)
+        self.write = self.get_write_method(self.vectype)
 
     def __eq__(self, other):
-        return type(other) is Texture2DType and self.dtype == other.dtype
+        return type(other) is Texture2DType and self.dtype == other.dtype and self.channel == other.channel
 
-    read = BuiltinFuncEntry("texture2d_read")
-    write = BuiltinFuncEntry("texture2d_write")
+    def __hash__(self):
+        return hash(self.dtype) ^ hash(self.channel) ^ 127858794396757894
+
+    @staticmethod
+    @cache
+    def get_read_method(dtype):
+        @callable
+        def read(self, coord: int2):
+            return _builtin_call(dtype, "TEXTURE_READ", self, make_uint2(coord))
+        return read
+    
+    @staticmethod
+    @cache
+    def get_write_method(dtype):
+        @callable
+        def write(self, coord: int2, value: dtype):
+            _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), value)
+        return write
