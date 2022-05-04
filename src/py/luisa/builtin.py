@@ -8,6 +8,13 @@ import ast
 from .types import BuiltinFuncBuilder
 
 
+def wrap_with_tmp_var(node):
+    tmp = lcapi.builder().local(to_lctype(node.dtype))
+    lcapi.builder().assign(tmp, node.expr)
+    node.expr = tmp
+    node.lr = 'l'
+
+
 def get_length(arg) -> int:
     lc_type = to_lctype(arg.dtype)
     if lc_type.is_scalar():
@@ -470,6 +477,10 @@ def callable_call(func, args):
     # get function instance by argtypes
     f = func.get_compiled(call_from_host=False, argtypes=tuple(a.dtype for a in args))
     globalvars.current_context.uses_printer |= f.uses_printer
+    # create temporary var for each r-value argument
+    for node in args:
+        if node.lr == "r":
+            wrap_with_tmp_var(node)
     # call
     if getattr(f, "return_type", None) == None:
         return None, lcapi.builder().call(f.function, [x.expr for x in args])
