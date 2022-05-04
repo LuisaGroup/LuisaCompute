@@ -23,10 +23,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
     ISPCCodegen codegen{scratch};
     codegen.emit(func);
 
-    std::cout << "================= ISPC ===================\n";
-    std::cout << scratch.view() << "\n";
-    std::cout << "==========================================\n";
-
+    LUISA_VERBOSE_WITH_LOCATION("Generating ISPC shader:\n{}", scratch.view());
 
     auto name = fmt::format("func_{:016x}", func.hash());
     auto cache_dir_str = ctx.cache_directory().string();
