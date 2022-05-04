@@ -447,22 +447,6 @@ def builtin_func(name, args):
         globalvars.current_context.uses_printer = True
         return None, None
 
-    if name == "texture2d_read":
-        op = lcapi.CallOp.TEXTURE_READ
-        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
-        check_exact_signature([lcapi.int2], args[1:], "Texture2D.read")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]]) # convert int2 to uint2
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
-    if name == "texture2d_write":
-        op = lcapi.CallOp.TEXTURE_WRITE
-        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
-        check_exact_signature([lcapi.int2, dtype], args[1:], "Texture2D.write")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]]) # convert int2 to uint2
-        lcapi.builder().call(op, [x.expr for x in args])
-        return None, None
-
-
     raise Exception(f'unrecognized function call {name}')
 
 

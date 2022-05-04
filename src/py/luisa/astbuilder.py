@@ -9,7 +9,7 @@ import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call
 from .types import dtype_of, to_lctype, CallableType, is_vector_type
-from .types import BuiltinFuncType, BuiltinFuncEntry, BuiltinFuncBuilder
+from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .arraytype import ArrayType
 from .structtype import StructType
@@ -165,8 +165,6 @@ class ASTVisitor:
                 if not entry.is_device_callable:
                     raise TypeError("can't call kernel in kernel/callable")
                 node.dtype, node.expr = CallableType, entry
-            elif type(entry) is BuiltinFuncEntry:
-                node.dtype, node.expr = BuiltinFuncType, entry.name
             elif type(entry) is BuiltinFuncBuilder:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry
             else:
