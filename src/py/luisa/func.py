@@ -107,7 +107,7 @@ class func:
         self.tree = ast.parse(textwrap.dedent(sourceinspect.getsource(self.pyfunc)))
         self.parameters = inspect.signature(self.pyfunc).parameters
         if len(argtypes) != len(self.parameters):
-            raise Exception(f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.params)} expected).")
+            raise Exception(f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} expected).")
         annotation_type_check(self.__name__, self.parameters, argtypes)
         f = FuncInstanceInfo(self, call_from_host, argtypes)
         # build function callback
