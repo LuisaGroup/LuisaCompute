@@ -12,7 +12,7 @@ luisa.init()
 b = luisa.Buffer(100, dtype=int)
 tex = luisa.Texture2D(100, 100, 4, dtype=float)
 
-@luisa.kernel
+@luisa.func
 def f(a):
     x1 = b.read(dispatch_id().x)
     # b.write(dispatch_id().x, 0.1)
@@ -41,7 +41,7 @@ f(1, dispatch_size=(2,1,1))
 # accel.build()
 # luisa.globalvars.stream.synchronize()
 
-# @luisa.kernel
+# @luisa.func
 # def test():
 #     a,b = pi
 #     r = Ray()

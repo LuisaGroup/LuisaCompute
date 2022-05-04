@@ -4,7 +4,7 @@ from .globalvars import get_global_device as device
 from . import Buffer, Texture2D, int2
 from .types import BuiltinFuncBuilder
 from .builtin import check_exact_signature
-from . import callable
+from .func import func
 from .builtin import _builtin_call
 
 class BindlessArray:
@@ -37,7 +37,7 @@ class BindlessArray:
         cmd = lcapi.BindlessArrayUpdateCommand.create(self.handle)
         stream.add(cmd)
 
-    @callable
+    @func
     def buffer_read(self: BindlessArray, dtype: type, buffer_index: int, element_index: int):
         return _builtin_call(dtype, "BINDLESS_BUFFER_READ", self, buffer_index, element_index)
     # might not be possible, because "type" is not a valid data type in LC
@@ -49,15 +49,15 @@ class BindlessArray:
     #     expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [argnodes[0]] + argnodes[2:])
     #     return dtype, expr
 
-    @callable
+    @func
     def texture2d_read(self: BindlessArray, texture2d_index: int, coord: int2):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_READ", self, texture2d_index, uint2(coord))
 
-    @callable
+    @func
     def texture2d_sample(self: BindlessArray, texture2d_index: int, uv: float2):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE", self, texture2d_index, uv)
 
-    @callable
+    @func
     def texture2d_size(self: BindlessArray, texture2d_index: int):
         return int2(_builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index))
 

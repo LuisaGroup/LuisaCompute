@@ -54,16 +54,17 @@ def annotation_type_check(funcname, parameters, argtypes):
             hint = funcname + '(' + ', '.join([n + anno_str(parameters[n].annotation) for n in parameters]) + ')'
             raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}. calling {hint}")
 
-# variables, information and compiled result are stored per kernel instance (argument type specialization)
-class KernelInstanceInfo:
-    def __init__(self, kernel):
-        self.kernel = kernel
-        self.__name__ = kernel.__name__
-        self.sourcelines = kernel.sourcelines
-        self.is_device_callable = kernel.is_device_callable
+# variables, information and compiled result are stored per func instance (argument type specialization)
+class FuncInstanceInfo:
+    def __init__(self, func, call_from_host, argtypes):
+        self.func = func
+        self.__name__ = func.__name__
+        self.sourcelines = func.sourcelines
         self.uses_printer = False
         # self.return_type is not defined until a return statement is met
-        _closure_vars = inspect.getclosurevars(kernel.func)
+        self.call_from_host = call_from_host
+        self.argtypes = argtypes
+        _closure_vars = inspect.getclosurevars(func.pyfunc)
         self.closure_variable = {
             **_closure_vars.globals,
             **_closure_vars.nonlocals,
@@ -73,79 +74,81 @@ class KernelInstanceInfo:
         self.function = None
         self.shader_handle = None
 
-    def build_arguments(self, argtypes):
-        for idx, name in enumerate(self.kernel.parameters):
-            dtype = argtypes[idx]
-            expr = create_arg_expr(dtype, allow_ref = self.kernel.is_device_callable)
+    def build_arguments(self):
+        for idx, name in enumerate(self.func.parameters):
+            dtype = self.argtypes[idx]
+            expr = create_arg_expr(dtype, allow_ref = (not self.call_from_host))
             self.local_variable[name] = VariableInfo(dtype, expr, is_arg=True)
 
 
-class kernel:
-    # creates a luisa kernel with given function
-    # func: python function
-    # is_device_callable: True if it's callable, False if it's kernel
-    def __init__(self, func, is_device_callable = False):
-        self.func = func
-        self.is_device_callable = is_device_callable
-        self.__name__ = func.__name__
-        self.__doc__ = func.__doc__
+class device_func:
+    pass
+
+class host_func:
+    pass
+
+class func:
+    # creates a luisa function with given function
+    # A luisa function can be run on accelarated device (CPU/GPU).
+    # It can either be called in parallel by python code,
+    # or be called by another luisa function.
+    # pyfunc: python function
+    def __init__(self, pyfunc):
+        self.pyfunc = pyfunc
+        self.__name__ = pyfunc.__name__
+        self.__doc__ = pyfunc.__doc__
         self.compiled_results = {} # maps (arg_type_tuple) to (function, shader_handle)
 
     # compiles an argument-type-specialized callable/kernel
-    # returns KernelInstanceInfo
-    def compile(self, argtypes):
+    # returns FuncInstanceInfo
+    def compile(self, call_from_host: bool, argtypes: tuple):
         # get python AST & context
-        self.sourcelines = sourceinspect.getsourcelines(self.func)[0]
-        self.tree = ast.parse(textwrap.dedent(sourceinspect.getsource(self.func)))
-        self.parameters = inspect.signature(self.func).parameters
+        self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
+        self.tree = ast.parse(textwrap.dedent(sourceinspect.getsource(self.pyfunc)))
+        self.parameters = inspect.signature(self.pyfunc).parameters
         if len(argtypes) != len(self.parameters):
-            raise Exception(f"calling kernel with {len(argtypes)} arguments ({len(self.params)} expected).")
+            raise Exception(f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.params)} expected).")
         annotation_type_check(self.__name__, self.parameters, argtypes)
-        f = KernelInstanceInfo(self)
-        # compile callback
+        f = FuncInstanceInfo(self, call_from_host, argtypes)
+        # build function callback
         def astgen():
-            if not self.is_device_callable:
+            if call_from_host:
                 lcapi.builder().set_block_size(256,1,1)
-            f.build_arguments(argtypes)
+            f.build_arguments()
             # push context & build function body AST
             top = globalvars.current_context
             globalvars.current_context = f
             astbuilder.build(self.tree.body[0])
             globalvars.current_context = top
-        # compile
+        # build function
         # Note: must retain the builder object
-        if self.is_device_callable:
-            f.builder = lcapi.FunctionBuilder.define_callable(astgen)
-        else:
+        if call_from_host:
             f.builder = lcapi.FunctionBuilder.define_kernel(astgen)
-        # get LuisaCompute function
+        else:
+            f.builder = lcapi.FunctionBuilder.define_callable(astgen)
         f.function = f.builder.function()
         # compile shader
-        if not self.is_device_callable:
+        if call_from_host:
             f.shader_handle = get_global_device().impl().create_shader(f.function)
         return f
 
 
     # looks up arg_type_tuple; compile if not existing
-    # argtypes: tuple of dtype
-    # returns KernelInstanceInfo
-    def get_compiled(self, argtypes):
-        if argtypes not in self.compiled_results:
-            self.compiled_results[argtypes] = self.compile(argtypes)
-        return self.compiled_results[argtypes]
+    # returns FuncInstanceInfo
+    def get_compiled(self, call_from_host: bool, argtypes: tuple):
+        if (call_from_host,) + argtypes not in self.compiled_results:
+            self.compiled_results[(call_from_host,) + argtypes] = self.compile(call_from_host, argtypes)
+        return self.compiled_results[(call_from_host,) + argtypes]
 
 
-    # dispatch shader to stream if it's kernel
-    # callables can't be called directly
+    # dispatch shader to stream
     def __call__(self, *args, dispatch_size, stream = None):
-        if self.is_device_callable:
-            raise TypeError("callable can't be called on host")
         get_global_device() # check device is initialized
         if stream is None:
             stream = globalvars.stream
         # get types of arguments and compile
         argtypes = tuple(dtype_of(a) for a in args)
-        f = self.get_compiled(argtypes)
+        f = self.get_compiled(call_from_host=True, argtypes=argtypes)
         # create command
         command = lcapi.ShaderDispatchCommand.create(f.shader_handle, f.function)
         # push arguments
@@ -173,9 +176,6 @@ class kernel:
             # Note: printing will FORCE synchronize (#21)
             globalvars.printer.reset()
 
-
-def callable(func):
-    return kernel(func, is_device_callable = True)
 
 
 def callable_method(struct):

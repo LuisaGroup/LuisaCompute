@@ -57,7 +57,7 @@ class BuiltinFuncBuilder:
     def __init__(self, builder):
         self.builder = builder
     def __call__(self, *args):
-        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
+        raise TypeError("Builtin function can only be called in a luisa func")
 
 class ref:
     def __init__(self, dtype):
@@ -67,9 +67,9 @@ class ref:
 
 def dtype_of(val):
     if type(val).__name__ == "module" and val.__name__ == "luisa":
-        raise NameError("Do not use module luisa in kernel/callable. If you wish to use builtin functions, don't prefix them with 'luisa.'; If you wish to use other components of luisa, import their name from luisa beforehand.")
+        raise NameError("Do not use module in luisa.func If you wish to use builtin functions, don't prefix them with 'luisa.'; If you wish to use other members of luisa, import their name from luisa beforehand.")
     if type(val).__name__ == "module":
-        raise NameError("Do not use module in kernel/callable. If you wish to use its members, import their name from the module beforehand.")
+        raise NameError("Do not use module in luisa.func If you wish to use its members, import their name from the module beforehand.")
     if type(val) is str:
         return str
     if type(val) in basic_type_dict:
@@ -86,9 +86,7 @@ def dtype_of(val):
         return type(val)
     if type(val).__name__ == "Accel":
         return type(val)
-    if type(val).__name__ == "kernel":
-        if not val.is_device_callable:
-            raise TypeError("can't call kernel in kernel/callable")
+    if type(val).__name__ == "func":
         return CallableType
     if type(val).__name__ == "BuiltinFuncBuilder":
         return type(val)

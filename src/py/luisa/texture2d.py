@@ -2,7 +2,7 @@ import lcapi
 from . import globalvars
 from .globalvars import get_global_device
 from functools import cache
-from . import callable
+from .func import func
 from .builtin import _builtin_call
 from .mathtypes import *
 
@@ -69,7 +69,7 @@ class Texture2DType:
     @staticmethod
     @cache
     def get_read_method(dtype):
-        @callable
+        @func
         def read(self, coord: int2):
             return _builtin_call(dtype, "TEXTURE_READ", self, make_uint2(coord))
         return read
@@ -77,7 +77,7 @@ class Texture2DType:
     @staticmethod
     @cache
     def get_write_method(dtype):
-        @callable
+        @func
         def write(self, coord: int2, value: dtype):
             _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), value)
         return write
