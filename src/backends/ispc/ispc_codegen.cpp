@@ -878,6 +878,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             break;
         case Variable::Tag::REFERENCE:
             if (readonly || force_const) {
+                _scratch << "const ";
                 _emit_type_name(v.type());
                 _scratch << " ";
             } else {
