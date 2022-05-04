@@ -424,5 +424,18 @@ class ASTVisitor:
     @staticmethod
     def build_Continue(node):
         lcapi.builder().continue_()
+
+    @staticmethod
+    def build_JoinedStr(node):
+        node.joined = []
+        for x in node.values:
+            if isinstance(x, ast.FormattedValue):
+                build(x.value)
+                node.joined.append(x.value)
+            elif isinstance(x, ast.Constant):
+                build(x)
+                node.joined.append(x)
+            else:
+                assert False
     
 build = ASTVisitor()

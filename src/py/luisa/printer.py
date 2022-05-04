@@ -1,9 +1,11 @@
 import ast
 import lcapi
 import numpy
+from types import SimpleNamespace
 from .astbuilder import build
 from .buffer import Buffer
 from .types import dtype_of, to_lctype, from_lctype
+from .builtin import wrap_with_tmp_var
 from struct import pack, unpack
 
 class Printer:
@@ -106,11 +108,26 @@ class Printer:
         return lcapi.builder().binary(to_lctype(int), lcapi.BinaryOp.ADD, expr, kexpr)
 
     def kernel_print(self, argnodes, sep=' ', end='\n'):
+        # collect all nodes to print
+        def tmp_str_node(text):
+            obj = SimpleNamespace()
+            obj.dtype = str
+            obj.expr = text
+            return obj
+        elements = []
+        for idx, x in enumerate(argnodes):
+            if idx > 0:
+                elements.append(tmp_str_node(sep))
+            if hasattr(x, "joined"):
+                elements += x.joined
+            else:
+                elements.append(x)
+        elements.append(tmp_str_node(end))
+        # get buffer and compute size to be used
         self.buffer_expr = lcapi.builder().buffer_binding(to_lctype(dtype_of(self.buffer)), self.buffer.handle, 0, self.buffer.bytesize)
-        # compute size of buffer to be used
         def intexpr(k):
             return lcapi.builder().literal(to_lctype(int), k)
-        count = sum([1 + self.get_expr_elements_count(x.dtype) for x in argnodes]) + len(argnodes) # plus sep & end
+        count = sum([1 + self.get_expr_elements_count(x.dtype) for x in elements]) # need to store tag+value for each element
         # reserve size of buffer to be used
         access_expr = lcapi.builder().access(to_lctype(int), self.buffer_expr, intexpr(self.capacity-1))
         tmp = lcapi.builder().call(to_lctype(int), lcapi.CallOp.ATOMIC_FETCH_ADD, [access_expr, intexpr(count)])
@@ -118,22 +135,18 @@ class Printer:
         lcapi.builder().assign(start_pos, tmp)
         offset = 0
         # write to buffer
-        for idx, x in enumerate(argnodes):
-            # separator
-            if idx > 0:
-                self.buffer_write(self.addint(start_pos, offset), intexpr(self.get_tag_id(sep)))
-                offset += 1
+        for idx, x in enumerate(elements):
             # write element
             self.buffer_write(self.addint(start_pos, offset), intexpr(self.get_tag_id(x.dtype if x.dtype != str else x.expr)))
             offset += 1
+            # workaround: ISPC can't cast r-value; so creating a temporary variable
+            if x.dtype != str:
+                wrap_with_tmp_var(x)
             elements = self.get_expr_elements(x.dtype, x.expr)
             assert len(elements) == self.get_expr_elements_count(x.dtype)
             for casted_expr in elements:
                 self.buffer_write(self.addint(start_pos, offset), casted_expr)
                 offset += 1
-        # add end mark (newline)
-        self.buffer_write(self.addint(start_pos, offset), intexpr(self.get_tag_id(end)))
-        offset += 1
         assert offset == count
 
     # recover original data from stored buffer

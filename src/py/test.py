@@ -15,7 +15,9 @@ def g():
 
 @luisa.func
 def f():
-    print(False and g())
+    # print(False and g())
+    print("aaaa", 123, True, int3(4,5,6), bool2(True, False), "bbbb")
+    print(2, f"aa{g()}a{123}a")
 
 
 f( dispatch_size=(1,1,1))
