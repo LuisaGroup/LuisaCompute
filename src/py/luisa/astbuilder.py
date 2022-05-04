@@ -3,6 +3,7 @@ import astpretty
 import inspect
 import sys
 import traceback
+from types import SimpleNamespace
 from .types import from_lctype
 from . import globalvars
 import lcapi
@@ -266,30 +267,37 @@ class ASTVisitor:
             node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
 
     @staticmethod
-    def build_Assign(node):
-        if len(node.targets) != 1:
-            raise NotImplementedError('Chained assignment not supported')
+    def build_assign_pair(lhs, rhs):
         # allows left hand side to be undefined
-        if type(node.targets[0]) is ast.Name:
-            build.build_Name(node.targets[0], allow_none=True)
-            if getattr(node.targets[0], "is_arg", False): # is argument
-                if node.targets[0].dtype not in (int, float, bool): # not scalar
+        if type(lhs) is ast.Name:
+            build.build_Name(lhs, allow_none=True)
+            if getattr(lhs, "is_arg", False): # is argument
+                if lhs.dtype not in (int, float, bool): # not scalar
                     raise TypeError("Assignment to non-scalar argument is not allowed.")
         else:
-            build(node.targets[0])
-        build(node.value)
+            build(lhs)
         # create local variable if it doesn't exist yet
-        if node.targets[0].dtype is None:
-            dtype = node.value.dtype # craete variable with same type as rhs
-            node.targets[0].expr = lcapi.builder().local(to_lctype(dtype))
+        if lhs.dtype is None:
+            dtype = rhs.dtype # craete variable with same type as rhs
+            lhs.expr = lcapi.builder().local(to_lctype(dtype))
             # store type & ptr info into name
-            ctx().local_variable[node.targets[0].id] = VariableInfo(dtype, node.targets[0].expr)
+            ctx().local_variable[lhs.id] = VariableInfo(dtype, lhs.expr)
             # Note: all local variables are function scope
         else:
             # must assign with same type; no implicit casting is allowed.
-            if node.targets[0].dtype != node.value.dtype:
-                raise TypeError(f"Can't assign to {node.targets[0].dtype} with {node.value.dtype} ")
-        lcapi.builder().assign(node.targets[0].expr, node.value.expr)
+            if lhs.dtype != rhs.dtype:
+                raise TypeError(f"Can't assign to {lhs.dtype} with {rhs.dtype} ")
+        lcapi.builder().assign(lhs.expr, rhs.expr)
+
+    @staticmethod
+    def build_Assign(node):
+        build(node.value)
+        if len(node.targets) == 1:
+            build.build_assign_pair(node.targets[0], node.value)
+        else: # chained assignment
+            build.wrap_with_tmp_var(node.value)
+            for targ in node.targets:
+                build.build_assign_pair(targ, node.value)
 
     @staticmethod
     def build_AugAssign(node):
@@ -313,20 +321,25 @@ class ASTVisitor:
 
     @staticmethod
     def build_Compare(node):
-        if len(node.comparators) != 1:
-            raise NotImplementedError('chained comparison not supported yet.')
         build(node.left)
-        build(node.comparators[0])
+        for x in node.comparators:
+            build(x)
         node.dtype, node.expr = builtin_bin_op(type(node.ops[0]), node.left, node.comparators[0])
+        # compare from left to right
+        for idx in range(1, len(node.comparators)):
+            obj = SimpleNamespace()
+            obj.dtype, obj.expr = builtin_bin_op(type(node.ops[idx]), node.comparators[idx-1], node.comparators[idx])
+            node.dtype, node.expr = builtin_bin_op(ast.And, node, obj)
+
 
     @staticmethod
     def build_BoolOp(node):
-        # should be short-circuiting
-        if len(node.values) != 2:
-            raise NotImplementedError('chained bool op not supported yet. use brackets instead.')
         for x in node.values:
             build(x)
         node.dtype, node.expr = builtin_bin_op(type(node.op), node.values[0], node.values[1])
+        # bool operators of same type are left-associative
+        for idx in range(2, len(node.values)):
+            node.dtype, node.expr = builtin_bin_op(type(node.op), node, node.values[idx])
 
     @staticmethod
     def build_If(node):

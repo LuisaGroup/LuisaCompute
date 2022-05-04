@@ -6,18 +6,23 @@ from luisa.util import RandomSampler
 
 luisa.init()
 # ============= test script ================
-arr = luisa.BindlessArray()
+# arr = luisa.BindlessArray()
 
 @luisa.func
-def f(a):
-    x1 = b.read(dispatch_id().x)
-    # b.write(dispatch_id().x, 0.1)
-    b.write(dispatch_id().x, 123)
-    print("!!!!", b.read(dispatch_id().x))
-    tex.write(dispatch_id().xy, tex.read(dispatch_id().xy) + float4(1))
+def g():
+    print("!!!")
+    return 3
+
+@luisa.func
+def f():
+    a = b = 1
+    c = 1<2<g()
+    d = 2<1<g()
+    print(a,b,c,d)
+    print(True and True and False)
 
 
-# f(1, dispatch_size=(2,1,1))
+f( dispatch_size=(1,1,1))
 
 @luisa.func
 def test_rand():
@@ -27,7 +32,7 @@ def test_rand():
     print(sampler.next())
 
 
-test_rand(dispatch_size=(1,1,1))
+# test_rand(dispatch_size=(1,1,1))
 
 
 
