@@ -256,7 +256,10 @@ def builtin_type_cast(dtype, args):
         obj = SimpleNamespace()
         obj.dtype = dtype
         obj.expr = lcapi.builder().local(to_lctype(dtype))
-        callable_call(dtype.method_dict['__init__'], [obj] + args)
+        _rettype, _retexpr = callable_call(dtype.method_dict['__init__'], [obj] + args)
+        # if it's a constructor, make sure it doesn't return value
+        if _rettype != None:
+            raise TypeError(f'__init__() should return None, not {_rettype}')
         return dtype, obj.expr
     # default construct without arguments
     if len(args) == 0:

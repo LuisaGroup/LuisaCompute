@@ -1,6 +1,7 @@
 import numpy as np
 import luisa
 from luisa.mathtypes import *
+from luisa.util import RandomSampler
 
 
 luisa.init()
@@ -21,8 +22,17 @@ def f(a):
     tex.write(dispatch_id().xy, tex.read(dispatch_id().xy) + float4(1))
 
 
-f(1, dispatch_size=(2,1,1))
+# f(1, dispatch_size=(2,1,1))
 
+@luisa.func
+def test_rand():
+    sampler = RandomSampler(int3(0,0,0))
+    print(sampler.next())
+    print(sampler.next())
+    print(sampler.next())
+
+
+test_rand(dispatch_size=(1,1,1))
 
 
 
