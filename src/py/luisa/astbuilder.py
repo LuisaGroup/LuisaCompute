@@ -279,7 +279,7 @@ class ASTVisitor:
         if type(lhs) is ast.Name:
             build.build_Name(lhs, allow_none=True)
             if getattr(lhs, "is_arg", False): # is argument
-                if lhs.dtype not in (int, float, bool): # not scalar
+                if lhs.dtype not in (int, float, bool): # not scalar; therefore passed by reference
                     raise TypeError("Assignment to non-scalar argument is not allowed.")
         else:
             build(lhs)
@@ -294,6 +294,8 @@ class ASTVisitor:
             # must assign with same type; no implicit casting is allowed.
             if lhs.dtype != rhs.dtype:
                 raise TypeError(f"Can't assign to {lhs.dtype} with {rhs.dtype} ")
+            if lhs.lr == "r":
+                raise TypeError("Can't assign to read-only value")
         lcapi.builder().assign(lhs.expr, rhs.expr)
 
     @staticmethod
