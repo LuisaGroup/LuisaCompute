@@ -40,10 +40,10 @@ class ASTVisitor:
             self.comment_source(node)
             return method(node)
         except Exception as e:
-            final_message = "error when building AST"
-            if str(e) != final_message:
+            if not hasattr(e, "already_printed"):
                 self.print_error(node, e)
-            raise Exception(final_message)
+                e.already_printed = True
+            raise
 
     @staticmethod
     def comment_source(node):
@@ -71,12 +71,12 @@ class ASTVisitor:
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' ' * startcol + '~' * (endcol - startcol) + clr)
-        print("Traceback:")
-        _, _, tb = sys.exc_info()
-        traceback.print_tb(tb) # Fixed format
-        tb_info = traceback.extract_tb(tb)
-        filename, line, func, text = tb_info[-1]
-        print('An error occurred on line {} in statement {}'.format(line, text))
+        # print("Traceback:")
+        # _, _, tb = sys.exc_info()
+        # traceback.print_tb(tb) # Fixed format
+        # tb_info = traceback.extract_tb(tb)
+        # filename, line, func, text = tb_info[-1]
+        # print('An error occurred on line {} in statement {}'.format(line, text))
 
     @staticmethod
     def build_FunctionDef(node):
