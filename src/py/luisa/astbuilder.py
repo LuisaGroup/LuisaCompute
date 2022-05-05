@@ -54,7 +54,15 @@ class ASTVisitor:
 
     @staticmethod
     def print_error(node, e):
-        if sys.stdout.isatty():
+        def support_color():
+            if sys.stdout.isatty():
+                return True
+            try:
+                shell = get_ipython().__class__.__name__
+                return shell in ('ZMQInteractiveShell', 'TerminalInteractiveShell')
+            except NameError:
+                return False
+        if support_color():
             red = "\x1b[31;1m"
             green = "\x1b[32;1m"
             bold = "\x1b[1m"
