@@ -18,8 +18,6 @@ python3 test.py
 
 ## 语言用例
 
-**注意：** 在 Python 终端交互模式（REPL）下不可使用（见[#10](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。在 Jupyter notebook 中出错时可能导致崩溃（见[#11](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。建议使用文件脚本，如`python3 a.py`。
-
 ```python
 import luisa # 引入Luisa库，初始化
 import numpy as np
@@ -46,6 +44,8 @@ print(res)
 
 函数的参数可以有（但不要求）类型标记，如 `def f(a: int)`。如有类型标记，在调用时会检查对应参数类型。
 
+函数的传参规则与Python一致，即：标量类型按值传递，其它任何类型按引用传递（但不可以被赋值）。
+
 ## 类型
 
 ### 标量类型
@@ -54,13 +54,13 @@ print(res)
 - 单精度浮点数 `float`
 - 逻辑类型 `bool`
 
-注意 Luisa 函数中 int/float 精度相比 python 中的 int/float 精度较低。
+注意 Luisa 函数中 int/float 精度相比 python 中的64位 int/float 精度较低。
 
 ### 向量、矩阵类型
 
 `luisa.float3`, `luisa.float3x3` , ...
 
-向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，矩阵只支持float矩阵。
+向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，而矩阵元素只能是float。
 
 导入命名空间：
 
@@ -119,9 +119,9 @@ struct_t.add_method(f1)
 
 ### Buffer类型
 
-在设备上的数组，不能直接在python中访问其元素。暂时只支持以标量或向量为元素的Buffer。
+在设备上的数组，不能直接在python中访问其元素。其元素类型可以是标量、向量、矩阵、数组或结构体。
 
-Buffer和Array的区别是，Buffer是一种资源，由所有线程共享，长度可以很大；而Array是一个长度固定且较小的变量类型。
+Buffer和Array的区别是，Buffer是一种资源，由所有线程共享，长度可以很大；而Array是一个长度固定且较小的变量类型，可以作为每个线程局部变量的类型。
 
 类型标记：`luisa.BufferType(dtype)`
 
@@ -150,6 +150,8 @@ b.copy_from(arr)
 ```
 
 TODO: 需要提供用户友好的上传下载方式，以及支持其它类型元素的buffer
+
+`copy_from` 可以从长度和元素类型一致的列表（list）上传到buffer。
 
 ### Texture2D类型
 
@@ -257,7 +259,7 @@ TODO: `offset_ray_origin(p,n,w)`
 
 ### 类型转换
 
-类型转换规则？
+类型转换规则？目前只支持标量、向量、矩阵的类型转换。
 
 ```python
 int(a)
@@ -403,6 +405,8 @@ uses_printer
 
 `node.expr` 该节点的表达式。如果该节点的类型是一个数据类型，那么其表达式的类型为 `lcapi.Expression`；否则见下
 
+`node.lr` 该节点是左值还是右值。`'l'` 或`'r'`
+
 ## 非数据类型标记
 
 除用户文档中的类型标记外，AST节点的类型标记 `node.dtype` 还可以为以下值。这些值不可以作为 kernel/callable 的参数类型标记。
@@ -416,8 +420,6 @@ uses_printer
 `BuiltinFuncBuilder` 该节点表示的是一个内建函数，此时`node.expr`为一个函数` (argnodes)->(dtype,expr)`
 
 `str` 该节点表示的是一个字符串，此时`node.expr`为一个字符串字面值。这种情况只允许在 `print` 函数的参数里出现
-
-
 
 ## 注1
 
