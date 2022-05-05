@@ -9,25 +9,19 @@ luisa.init()
 # arr = luisa.BindlessArray()
 
 @luisa.func
-def g():
-    print("!!!")
-    return True
-
-@luisa.func
 def f():
-    # print(False and g())
-    print("aaaa", 123, True, int3(4,5,6), bool2(True, False), "bbbb")
-    print(2, f"aa{g()}a{123}a")
+    pass
+
+# f( dispatch_size=(1,1,1))
+
+b = luisa.Buffer(100, int)
+b.copy_from([x for x in range(100)])
+arr = np.empty(100, dtype=np.int32)
+b.copy_to(arr)
+print(arr)
 
 
-f( dispatch_size=(1,1,1))
 
-@luisa.func
-def test_rand():
-    sampler = RandomSampler(int3(0,0,0))
-    print(sampler.next())
-    print(sampler.next())
-    print(sampler.next())
 
 
 # test_rand(dispatch_size=(1,1,1))

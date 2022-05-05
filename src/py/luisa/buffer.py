@@ -1,15 +1,15 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype, is_vector_type
+from .types import to_lctype, basic_type_dict, dtype_of
 from functools import cache
 from .func import func
 from .builtin import _builtin_call
 
 class Buffer:
     def __init__(self, size, dtype):
-        if not (dtype in {int, float, bool} or is_vector_type(dtype)):
-            raise Exception('buffer only supports scalar / vector yet')
+        if not (dtype in basic_type_dict or hasattr(dtype, 'to_bytes')):
+            raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
         self.write = self.bufferType.write
@@ -19,12 +19,28 @@ class Buffer:
         # instantiate buffer on device
         self.handle = get_global_device().impl().create_buffer(self.bytesize)
 
-    def copy_from(self, arr, sync = False, stream = None): # arr: numpy array
+    def copy_from(self, arr, sync = False, stream = None): # arr: numpy array or list
         if stream is None:
             stream = globalvars.stream
-        assert arr.size * arr.itemsize == self.bytesize
-        ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, arr)
-        stream.add(ulcmd)
+        # numpy array of same data layout
+        if type(arr).__name__ == "ndarray":
+            assert arr.size * arr.itemsize == self.bytesize
+            ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, arr)
+            stream.add(ulcmd)
+        # list of elements
+        if type(arr) == list:
+            assert len(arr) == self.size
+            lctype = to_lctype(self.dtype)
+            packed_bytes = b''
+            for x in arr:
+                assert dtype_of(x) == self.dtype
+                if lctype.is_basic():
+                    packed_bytes += lcapi.to_bytes(x)
+                else:
+                    packed_bytes += x.to_bytes()
+            assert len(packed_bytes) == self.bytesize
+            ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, packed_bytes)
+            stream.add(ulcmd)
         if sync:
             stream.synchronize()
 
