@@ -4,42 +4,46 @@ from .globalvars import get_global_device
 from .structtype import StructType
 from .arraytype import ArrayType
 from .mathtypes import *
-
-from .kernel import callable_method, callable
+from .func import func
 from .types import ref
 from .builtin import _builtin_call, _builtin_cast
 
 # Ray
 Ray = StructType(16, _origin=ArrayType(float,3), t_min=float, _dir=ArrayType(float,3), t_max=float)
 
-@callable_method(Ray)
+@func
 def get_origin(self: ref(Ray)):
     return float3(self._origin[0], self._origin[1], self._origin[2])
+Ray.add_method('get_origin', get_origin)
 
-@callable_method(Ray)
+@func
 def get_dir(self: ref(Ray)):
     return float3(self._dir[0], self._dir[1], self._dir[2])
+Ray.add_method('get_dir', get_dir)
 
-@callable_method(Ray)
+@func
 def set_origin(self: ref(Ray), val: float3):
     self._origin[0] = val.x
     self._origin[1] = val.y
     self._origin[2] = val.z
+Ray.add_method('set_origin', set_origin)
 
-@callable_method(Ray)
+@func
 def set_dir(self: ref(Ray), val: float3):
     self._dir[0] = val.x
     self._dir[1] = val.y
     self._dir[2] = val.z
+Ray.add_method('set_dir', set_dir)
 
 
 
 # Hit
 Hit = StructType(16, inst=int, prim=int, bary=float2)
 
-@callable_method(Hit)
+@func
 def miss(self: ref(Hit)):
     return self.inst == -1
+Ray.add_method('miss', miss)
 
 _uHitLCtype = lcapi.Type.from_("struct<16,uint,uint,vector<float,2>>")
 
@@ -68,24 +72,24 @@ class Accel:
     def build(self):
         globalvars.stream.add(self._accel.build_command(lcapi.AccelBuildRequest.PREFER_UPDATE))
 
-    @callable
-    def trace_closest(self: Accel, ray: Ray):
+    @func
+    def trace_closest(self, ray: Ray):
         return _builtin_cast(Hit, "BITWISE", _builtin_call(UHit, "TRACE_CLOSEST", [self, ray]))
 
-    @callable
-    def trace_any(self: Accel, ray: Ray):
+    @func
+    def trace_any(self, ray: Ray):
         return _builtin_cast(Hit, "BITWISE", _builtin_call(UHit, "TRACE_ANY", [self, ray]))
 
-    @callable
-    def instance_transform(self: Accel, instance_id: int):
+    @func
+    def instance_transform(self, instance_id: int):
         return _builtin_call(float4x4, "INSTANCE_TO_WORLD_MATRIX", [self, instance_id])
 
-    @callable
-    def set_instance_transform(self: Accel, instance_id: int, mat: float4x4):
+    @func
+    def set_instance_transform(self, instance_id: int, mat: float4x4):
         _builtin_call("SET_INSTANCE_TRANSFORM", [self, instance_id, mat])
 
-    @callable
-    def set_instance_visibility(self: Accel, instance_id: int, vis: bool):
+    @func
+    def set_instance_visibility(self, instance_id: int, vis: bool):
         _builtin_call("SET_INSTANCE_VISIBILITY", [self, instance_id, vis])
 
 
