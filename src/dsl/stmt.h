@@ -435,5 +435,15 @@ inline void meta(S &&...info, Body &&body) noexcept {
     detail::MetaStmtBuilder{std::forward<S>(info)...} % body;
 }
 
+template<typename T>
+inline void return_(T &&t) noexcept {
+    detail::FunctionBuilder::current()->return_(
+        detail::extract_expression(std::forward<T>(t)));
+}
+
+inline void return_() noexcept {
+    detail::FunctionBuilder::current()->return_();
+}
+
 }// namespace dsl
 }// namespace luisa::compute

@@ -168,7 +168,7 @@ public:
 
 private:
     MetaStmt _body;
-    const Type *_ret{nullptr};
+    luisa::optional<const Type *> _return_type;
     luisa::vector<luisa::unique_ptr<Expression>> _all_expressions;
     luisa::vector<luisa::unique_ptr<Statement>> _all_statements;
     luisa::vector<MetaStmt *> _meta_stack;//
@@ -274,7 +274,7 @@ public:
     /// Return const pointer to body.
     [[nodiscard]] auto body() const noexcept { return &_body; }
     /// Return const pointer to return type.
-    [[nodiscard]] auto return_type() const noexcept { return _ret; }
+    [[nodiscard]] auto return_type() const noexcept { return _return_type.value_or(nullptr); }
     /// Return variable usage of given uid.
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
     /// Return block size in uint3.
