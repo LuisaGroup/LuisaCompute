@@ -194,27 +194,27 @@ class ASTVisitor:
             raise TypeError(f"{node.value.dtype} can't be subscripted")
         node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
 
-    # external variable captured in kernel -> (dtype, expr)
+    # external variable captured in kernel -> (dtype, expr, lr)
     @staticmethod
     def captured_expr(val):
         dtype = dtype_of(val)
         if dtype == type:
-            return dtype, val
+            return dtype, val, None
         if dtype == CallableType:
-            return dtype, val
+            return dtype, val, None
         if dtype == BuiltinFuncBuilder:
-            return dtype, val
+            return dtype, val, None
         lctype = to_lctype(dtype)
         if lctype.is_basic():
-            return dtype, lcapi.builder().literal(lctype, val)
+            return dtype, lcapi.builder().literal(lctype, val), 'r'
         if lctype.is_buffer():
-            return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0, val.bytesize) # offset defaults to 0
+            return dtype, lcapi.builder().buffer_binding(lctype, val.handle, 0, val.bytesize), 'l' # offset defaults to 0
         if lctype.is_texture():
-            return dtype, lcapi.builder().texture_binding(lctype, val.handle, 0) # miplevel defaults to 0
+            return dtype, lcapi.builder().texture_binding(lctype, val.handle, 0), 'l' # miplevel defaults to 0
         if lctype.is_bindless_array():
-            return dtype, lcapi.builder().bindless_array_binding(val.handle)
+            return dtype, lcapi.builder().bindless_array_binding(val.handle), 'l'
         if lctype.is_accel():
-            return dtype, lcapi.builder().accel_binding(val.handle)
+            return dtype, lcapi.builder().accel_binding(val.handle), 'l'
         if lctype.is_array():
             # create array and assign each element
             expr = lcapi.builder().local(lctype)
@@ -223,7 +223,7 @@ class ASTVisitor:
                 lhs = lcapi.builder().access(lctype, expr, sliceexpr)
                 rhs = lcapi.builder().literal(lctype.element(), x)
                 lcapi.builder().assign(lhs, rhs)
-            return dtype, expr
+            return dtype, expr, 'r'
         if lctype.is_structure():
             # create struct and assign each element
             expr = lcapi.builder().local(lctype)
@@ -232,7 +232,7 @@ class ASTVisitor:
                 rhs = captured_expr(x)
                 assert rhs.dtype == dtype.membertype[idx]
                 lcapi.builder().assign(lhs, rhs.expr)
-            return dtype, expr
+            return dtype, expr, 'r'
         raise Exception("unrecognized closure var type:", type(val))
 
     @staticmethod
@@ -254,8 +254,7 @@ class ASTVisitor:
                     raise NameError(f"undeclared idenfitier '{node.id}'")
                 node.dtype = None
                 return
-            node.dtype, node.expr = build.captured_expr(val)
-            node.lr = 'r'
+            node.dtype, node.expr, node.lr = build.captured_expr(val)
 
     @staticmethod
     def build_Constant(node):
