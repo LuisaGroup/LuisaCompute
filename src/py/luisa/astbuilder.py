@@ -444,5 +444,9 @@ class ASTVisitor:
                 node.joined.append(x)
             else:
                 assert False
+
+    @staticmethod
+    def build_Pass(node):
+        pass
     
 build = ASTVisitor()
