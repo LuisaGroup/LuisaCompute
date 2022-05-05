@@ -112,16 +112,16 @@ class ASTVisitor:
         args = [node.func.value] + node.args if type(node.func) is ast.Attribute else node.args
         # custom function
         if node.func.dtype is CallableType:
-            node.dtype, node.expr = callable_call(node.func.expr, node.args)
+            node.dtype, node.expr = callable_call(node.func.expr, args)
         # builtin function (as defined in builtin_func_names)
         elif node.func.dtype is BuiltinFuncType:
-            node.dtype, node.expr = builtin_func(node.func.expr, node.args)
+            node.dtype, node.expr = builtin_func(node.func.expr, args)
         elif node.func.dtype is BuiltinFuncBuilder:
-            node.dtype, node.expr = node.func.expr.builder(node.args)
+            node.dtype, node.expr = node.func.expr.builder(args)
         # type: cast / construct
         elif node.func.dtype is type:
             dtype = node.func.expr
-            node.dtype, node.expr = builtin_type_cast(dtype, node.args)
+            node.dtype, node.expr = builtin_type_cast(dtype, args)
         else:
             raise TypeError(f"{node.func.dtype} is not callble")
         node.lr = 'r'
