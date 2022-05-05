@@ -332,16 +332,13 @@ class ASTVisitor:
         if node.test.dtype != bool:
             raise TypeError(f"If condition must be bool, got {node.test.dtype}")
         ifstmt = lcapi.builder().if_(node.test.expr)
-        # true branch
-        lcapi.builder().push_scope(ifstmt.true_branch())
-        for x in node.body:
-            build(x)
-        lcapi.builder().pop_scope(ifstmt.true_branch())
-        # false branch
-        lcapi.builder().push_scope(ifstmt.false_branch())
-        for x in node.orelse:
-            build(x)
-        lcapi.builder().pop_scope(ifstmt.false_branch())
+        # branches
+        with ifstmt.true_branch():
+            for x in node.body:
+                build(x)
+        with ifstmt.false_branch():
+            for x in node.orelse:
+                build(x)
 
     @staticmethod
     def build_IfExp(node):
@@ -381,25 +378,22 @@ class ASTVisitor:
         # build for statement
         condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, varexpr, range_stop)
         forstmt = lcapi.builder().for_(varexpr, condition, range_step)
-        lcapi.builder().push_scope(forstmt.body())
-        for x in node.body:
-            build(x)
-        lcapi.builder().pop_scope(forstmt.body())
+        with forstmt.body():
+            for x in node.body:
+                build(x)
 
     @staticmethod
     def build_While(node):
         loopstmt = lcapi.builder().loop_()
-        lcapi.builder().push_scope(loopstmt.body())
-        # condition
-        build(node.test)
-        ifstmt = lcapi.builder().if_(node.test.expr)
-        lcapi.builder().push_scope(ifstmt.false_branch())
-        lcapi.builder().break_()
-        lcapi.builder().pop_scope(ifstmt.false_branch())
-        # body
-        for x in node.body:
-            build(x)
-        lcapi.builder().pop_scope(loopstmt.body())
+        with loopstmt.body():
+            # condition
+            build(node.test)
+            ifstmt = lcapi.builder().if_(node.test.expr)
+            with ifstmt.false_branch():
+                lcapi.builder().break_()
+            # body
+            for x in node.body:
+                build(x)
 
     @staticmethod
     def build_Break(node):
