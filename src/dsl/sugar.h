@@ -63,6 +63,7 @@
 
 #define $break ::luisa::compute::break_()
 #define $continue ::luisa::compute::continue_()
+#define $return(...) ::luisa::compute::return_(__VA_ARGS__)
 
 #define $if(...) ::luisa::compute::detail::IfStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $else / [&]() noexcept
@@ -70,9 +71,7 @@
 #define $meta(...) ::luisa::compute::detail::MetaStmtBuilder{__VA_ARGS__} % [&]() noexcept
 #define $loop ::luisa::compute::detail::LoopStmtBuilder{} % [&]() noexcept
 #define $while(...) ::luisa::compute::detail::LoopStmtBuilder{} / [&]() noexcept { \
-    $if(!(__VA_ARGS__)) {                                                          \
-        $break;                                                                    \
-    };                                                                             \
+    $if(!(__VA_ARGS__)) { $break; };                                               \
 } % [&]() noexcept
 
 #define $switch(...) ::luisa::compute::detail::SwitchStmtBuilder{__VA_ARGS__} % [&]() noexcept
