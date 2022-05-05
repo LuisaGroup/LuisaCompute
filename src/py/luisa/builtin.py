@@ -272,9 +272,7 @@ builtin_func_names = {
 def builtin_type_cast(dtype, args):
     # struct with constructor
     if type(dtype) is StructType and '__init__' in dtype.method_dict:
-        obj = SimpleNamespace()
-        obj.dtype = dtype
-        obj.expr = lcapi.builder().local(to_lctype(dtype))
+        obj = SimpleNamespace(dtype = dtype, expr = lcapi.builder().local(to_lctype(dtype)), lr = 'l')
         _rettype, _retexpr = callable_call(dtype.method_dict['__init__'], [obj] + args)
         # if it's a constructor, make sure it doesn't return value
         if _rettype != None:
