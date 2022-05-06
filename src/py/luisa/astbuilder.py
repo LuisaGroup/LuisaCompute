@@ -142,6 +142,8 @@ class ASTVisitor:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
         # struct member
         elif type(node.value.dtype) is StructType:
+            if node.attr not in node.value.dtype.idx_dict:
+                raise AttributeError(f"struct {node.value.dtype} has no attribute '{node.attr}'")
             idx = node.value.dtype.idx_dict[node.attr]
             node.dtype = node.value.dtype.membertype[idx]
             if node.dtype == CallableType: # method
