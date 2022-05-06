@@ -252,8 +252,8 @@ def update():
         frame_index += 1
     hdr2ldr_kernel(accum_image, ldr_image, 1.0, dispatch_size=[*res, 1])
     ldr_image.copy_to(arr)
-    frame_rate.record()
-    w.update_frame_rate(frame_rate.report() * sample_per_pass)
+    frame_rate.record(sample_per_pass)
+    w.update_frame_rate(frame_rate.report())
     print(frame_rate.report())
 #     # w.update_frame_rate(dpg.get_frame_rate())
 

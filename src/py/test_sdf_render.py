@@ -193,11 +193,12 @@ frame_index = 0
 def update():
     global frame_index, arr
     t = time.time() - t0
-    for i in range(256):
+    spp_per_dispatch = 256
+    for i in range(spp_per_dispatch):
         render(image, frame_index, dispatch_size=(*res, 1))
         frame_index += 1
     display.copy_to(arr)
-    frame_rate.record()
+    frame_rate.record(spp_per_dispatch)
     w.update_frame_rate(frame_rate.report())
     print(frame_rate.report())
 #     # w.update_frame_rate(dpg.get_frame_rate())

@@ -5,6 +5,8 @@ if __name__ == "__main__":
     module_dir = dirname(realpath(__file__))
     with open(f"{module_dir}/lcapi.cpp") as file:
         lines = [line.strip() for line in file.readlines()]
+    with open(f"{module_dir}/export_op.cpp") as file:
+        lines += [line.strip() for line in file.readlines()]
 
     builtin_functions = ["make_float2x2", "make_float3x3", "make_float4x4",
                          "dispatch_id", "thread_id", "block_id",
@@ -34,6 +36,8 @@ if __name__ == "__main__":
             classes[last_class] = []
         elif line.startswith(".def(") and '"' in line:  # class methods
             classes[last_class].append(line.split('"')[1])
+        elif line.startswith(".def_static(") and '"' in line:  # class methods
+            classes[last_class].append("STATIC_" + line.split('"')[1])
 
     print("########## RESULTS ##########")
     print(f"functions: {functions}")
@@ -42,13 +46,22 @@ if __name__ == "__main__":
 
     # generate stub file
     with open(f"{module_dir}/luisa/lcapi.pyi", "w") as file:
-        for function in functions:
-            file.write(f"def {function}(*args, **kwargs): ...\n")
         for class_name, methods in classes.items():
             file.write(f"class {class_name}:\n")
             file.write("    def __init__(self, *args, **kwargs): ...\n")
             for method in {m for m in methods}:
-                file.write(f"    def {method}(self, *args, **kwargs): ...\n")
+                if method.startswith("STATIC_"):
+                    file.write(f"    @staticmethod\n")
+                    file.write(f"    def {method[len('STATIC_'):]}(*args, **kwargs): ...\n")
+                else:
+                    file.write(f"    def {method}(self, *args, **kwargs): ...\n")
+        for function in functions:
+            if function == "builder":
+                file.write(f"def builder() -> FunctionBuilder: ...\n")
+            elif function.startswith("make_"):
+                file.write(f"def {function}(*args, **kwargs) -> {function[len('make_'):]}: ...\n")
+            else:
+                file.write(f"def {function}(*args, **kwargs): ...\n")
         for enum_name, values in enums.items():
             file.write(f"class {enum_name}:\n")
             for value in values:

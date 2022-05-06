@@ -115,7 +115,7 @@ def update():
         main_kernel(image, t, dispatch_size=(1024, 1024, 1))
     image.copy_to(arr)
     # w.update_frame_rate(frame_rate.report())
-    w.update_frame_rate(dpg.get_frame_rate())
+    w.update_frame_rate(dpg.get_frame_rate() * 16)
 
 
 def null():
