@@ -382,6 +382,7 @@ public:
               };
               if constexpr (std::is_same_v<Ret, void>) {
                   create(std::forward<Def>(f), std::index_sequence_for<Args...>{});
+                  detail::FunctionBuilder::current()->return_(nullptr);// to check if any previous $return called with non-void types
               } else {
                   auto ret = def<Ret>(create(std::forward<Def>(f), std::index_sequence_for<Args...>{}));
                   detail::FunctionBuilder::current()->return_(ret.expression());
