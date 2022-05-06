@@ -354,9 +354,9 @@ void CUDACodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "reinterpret_cast<const ";
+            _scratch << "lc_bit_cast<";
             _emit_type_name(expr->type());
-            _scratch << " &>(";
+            _scratch << ">(";
             break;
         default: break;
     }

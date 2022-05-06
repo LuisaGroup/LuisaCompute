@@ -2066,3 +2066,9 @@ template<typename T>
     return val;
 }
 
+template<typename D, typename S>
+[[nodiscard]] inline auto lc_bit_cast(S s) noexcept {
+    static_assert(sizeof(D) == sizeof(S));
+    return reinterpret_cast<const D &>(s);
+}
+
