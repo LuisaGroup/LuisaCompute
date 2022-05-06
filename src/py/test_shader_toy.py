@@ -11,26 +11,27 @@ from luisa.window import Window
 
 luisa.init("cuda")
 
-@luisa.callable
+@luisa.func
 def palette(d: float):
     return lerp(make_float3(0.2, 0.7, 0.9), make_float3(1.0, 0.0, 1.0), d)
 
-@luisa.callable
+@luisa.func
 def rotate(p: float2, a: float):
     c = cos(a)
     s = sin(a)
     return make_float2(dot(p, make_float2(c, s)), dot(p, make_float2(-s, c)))
 
-@luisa.callable
+@luisa.func
 def map(p: float3, time: float):
+    q = p
     for i in range(8):
         t = time * 0.2
-        p = make_float3(rotate(p.xz, t), p.y).xzy
-        p = make_float3(rotate(p.xy, t * 1.89), p.z)
-        p = make_float3(abs(p.x) - 0.5, p.y, abs(p.z) - 0.5)
-    return dot(copysign(1.0, p), p) * 0.2
+        q = make_float3(rotate(q.xz, t), q.y).xzy
+        q = make_float3(rotate(q.xy, t * 1.89), q.z)
+        q = make_float3(abs(q.x) - 0.5, q.y, abs(q.z) - 0.5)
+    return dot(copysign(1.0, q), q) * 0.2
 
-@luisa.callable
+@luisa.func
 def rm(ro: float3, rd: float3, time: float):
     t = 0.0
     col = make_float3(0.0)
@@ -44,8 +45,8 @@ def rm(ro: float3, rd: float3, time: float):
         t += d
     return float4(col, 1.0 / (d * 100))
 
-@luisa.kernel
-def clear_kernel(image: luisa.BufferType(float)):
+@luisa.func
+def clear_kernel(image):
     coord = dispatch_id().xy
     rg = make_float2(coord) / make_float2(dispatch_size().xy)
     coordd = coord.x * dispatch_size().y + coord.y
@@ -54,8 +55,8 @@ def clear_kernel(image: luisa.BufferType(float)):
     image.write(coordd * 4 + 2, 0.5)
     image.write(coordd * 4 + 3, 1.0)
 
-@luisa.kernel
-def main_kernel(image: luisa.BufferType(float), time: float):
+@luisa.func
+def main_kernel(image, time: float):
     xy = dispatch_id().xy
     coord = xy.y * dispatch_size().x + xy.x
     resolution = make_float2(dispatch_size().xy)
@@ -80,8 +81,8 @@ def main_kernel(image: luisa.BufferType(float), time: float):
     image.write(coord * 4 + 2, accum.z)
     image.write(coord * 4 + 3, 1.0)
 
-@luisa.kernel
-def naive_kernel(image: luisa.BufferType(float), time: float):
+@luisa.func
+def naive_kernel(image, time: float):
     xy = dispatch_id().xy
     coord = xy.y * dispatch_size().x + xy.x
     scale = 1.0 / 1048576
