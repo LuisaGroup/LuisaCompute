@@ -251,6 +251,8 @@ class ASTVisitor:
 
     @staticmethod
     def build_assign_pair(lhs, rhs):
+        if rhs.dtype == None:
+            raise TypeError("Can't assign None to variable")
         # allows left hand side to be undefined
         if type(lhs) is ast.Name:
             build.build_Name(lhs, allow_none=True)
