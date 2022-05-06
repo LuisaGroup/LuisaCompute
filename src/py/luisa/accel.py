@@ -6,7 +6,7 @@ from .arraytype import ArrayType
 from .mathtypes import *
 from .func import func
 from .types import ref, uint
-from .builtin import _builtin_call, _builtin_cast
+from .builtin import _builtin_call, _bitwise_cast
 
 # Ray
 Ray = StructType(16, _origin=ArrayType(float,3), t_min=float, _dir=ArrayType(float,3), t_max=float)
@@ -30,8 +30,15 @@ def offset_ray_origin(p: float3, n: float3):
     float_scale = 1.0 / 65536.0
     int_scale = 256.0
     of_i = int3(int_scale * n)
-    int_p = _builtin_cast(int3, 'BITWISE', p)
-    p_i = _builtin_cast(float3, 'BITWISE', int_p + select(of_i, -of_i, p < 0.0))
+    int_p = int3()
+    int_p.x = _bitwise_cast(int, p.x)
+    int_p.y = _bitwise_cast(int, p.y)
+    int_p.z = _bitwise_cast(int, p.z)
+    p_i_tmp = int_p + select(of_i, -of_i, p < 0.0)
+    p_i = float3()
+    p_i.x = _bitwise_cast(float, p_i_tmp.x)
+    p_i.y = _bitwise_cast(float, p_i_tmp.y)
+    p_i.z = _bitwise_cast(float, p_i_tmp.z)
     return select(p_i, p + float_scale * n, abs(p) < origin)
 
 @func
@@ -102,11 +109,10 @@ class Accel:
     def trace_closest(self, ray: Ray):
         uhit = _builtin_call(UHit, "TRACE_CLOSEST", self, ray)
         hit = Hit()
-        hit.inst = _builtin_cast(int, "BITWISE", uhit.inst)
-        hit.prim = _builtin_cast(int, "BITWISE", uhit.prim)
+        hit.inst = _bitwise_cast(int, uhit.inst)
+        hit.prim = _bitwise_cast(int, uhit.prim)
         hit.bary = uhit.bary
         return hit
-        # return _builtin_cast(Hit, "BITWISE", _builtin_call(UHit, "TRACE_CLOSEST", self, ray))
 
     @func
     def trace_any(self, ray: Ray):
