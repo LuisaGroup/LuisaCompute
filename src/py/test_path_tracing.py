@@ -46,7 +46,7 @@ for mesh in cornell_box.faces:
         for x in [0, 1, 2, 0, 2, 3]:
             indices.append(item[x])
     triangle_buffer = luisa.Buffer(len(indices), int)
-    triangle_buffer.copy_from(np.array(indices, dtype=int))
+    triangle_buffer.copy_from(np.array(indices, dtype=np.int32))
     heap.emplace(mesh_cnt, triangle_buffer)
     mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
     accel.add(mesh)

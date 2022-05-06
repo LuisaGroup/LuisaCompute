@@ -20,11 +20,13 @@ from lcapi import log_level_verbose, log_level_info, log_level_warning, log_leve
 def init(backend_name = None):
     globalvars.context = lcapi.Context(lcapi.FsPath("."))
     # auto select backend if not specified
+    backends = globalvars.context.installed_backends()
+    assert len(backends) > 0
     if backend_name == None:
-        backends = globalvars.context.installed_backends()
-        assert len(backends) > 0
-        print("detected backends:", backends, "selecting first one.")
+        print(f"detected backends: {backends}. Selecting {backends[0]}.")
         backend_name = backends[0]
+    elif backend_name not in backends:
+        raise NameError(f"backend '{backend_name}' is not installed.")
     globalvars.device = globalvars.context.create_device(backend_name)
     globalvars.stream = globalvars.device.create_stream()
     globalvars.printer = Printer()
