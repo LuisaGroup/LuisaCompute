@@ -101,7 +101,7 @@ class ASTVisitor:
             if ctx().call_from_host and return_type != None:
                 raise TypeError("luisa func called on host can't return value")
         # build return statement
-        lcapi.builder().return_(node.value.expr)
+        lcapi.builder().return_(getattr(node.value, 'expr', None))
 
     @staticmethod
     def build_Call(node):

@@ -58,10 +58,12 @@ for mesh in cornell_box.faces:
             indices.append(item[x])
     triangle_buffer = luisa.Buffer(len(indices), int)
     triangle_buffer.copy_from(np.array(indices, dtype=int))
+    heap.emplace(mesh_cnt, triangle_buffer)
     mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
     accel.add(mesh)
     mesh_cnt += 1
 accel.build()
+heap.update()
 
 @luisa.func
 def to_world(self, v: float3):
@@ -120,7 +122,7 @@ def raytracing_kernel(image, accel, resolution, frame_index):
     ray = generate_ray(pixel * make_float2(1.0, -1.0))
     radiance = make_float3(0.0)
     beta = make_float3(1.0)
-    pdf_bsdf = 0.0
+    pdf_bsdf = 1e30
     light_position = make_float3(-0.24, 1.98, 0.16)
     light_u = make_float3(-0.24, 1.98, -0.22) - light_position
     light_v = make_float3(0.23, 1.98, 0.16) - light_position
@@ -170,11 +172,12 @@ def raytracing_kernel(image, accel, resolution, frame_index):
         occluded = accel.trace_any(shadow_ray)
         cos_wi_light = dot(wi_light, n)
         cos_light = -dot(light_normal, wi_light)
-        if (not occluded and cos_wi_light > 1e-4) and cos_light > 1e-4:
+        if ((not occluded and cos_wi_light > 1e-4) and cos_light > 1e-4):
             pdf_light = (d_light * d_light) / (light_area * cos_light)
             pdf_bsdf = cos_wi_light * (1 / 3.1415926)
             mis_weight = balanced_heuristic(pdf_light, pdf_bsdf)
             bsdf = material.albedo * (1 / 3.1415926) * cos_wi_light
+            # radiance += beta * bsdf * light_emission
             radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4)
 
         # sample BSDF
@@ -255,7 +258,7 @@ def update():
         frame_index += 1
     hdr2ldr_kernel(image, ldr_image, 1.0, dispatch_size=[*res, 1])
     hdr2ldr_kernel(accum_image, ldr_image, 1.0, dispatch_size=[*res, 1])
-    ldr_image.copy_to(arr)
+    ldr_image.copy_to(arr, sync=False)
     frame_rate.record()
     w.update_frame_rate(frame_rate.report() * sample_per_pass)
     print(frame_rate.report())
