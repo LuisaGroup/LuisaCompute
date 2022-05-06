@@ -440,7 +440,10 @@ class ASTVisitor:
         for x in node.values:
             if isinstance(x, ast.FormattedValue):
                 build(x.value)
-                node.joined.append(x.value)
+                if hasattr(x.value, 'joined'):
+                    node.joined += x.value.joined
+                else:
+                    node.joined.append(x.value)
             elif isinstance(x, ast.Constant):
                 build(x)
                 node.joined.append(x)
