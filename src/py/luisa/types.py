@@ -64,8 +64,8 @@ class BuiltinFuncType:
 class BuiltinFuncBuilder:
     def __init__(self, builder):
         self.builder = builder
-    def __call__(self, *args):
-        raise TypeError("Builtin function can only be called in a luisa func")
+    def __call__(self, *args, DO_NOT_CALL):
+        pass
 
 class ref:
     def __init__(self, dtype):

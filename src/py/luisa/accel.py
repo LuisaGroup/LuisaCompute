@@ -30,7 +30,8 @@ def offset_ray_origin(p: float3, n: float3):
     float_scale = 1.0 / 65536.0
     int_scale = 256.0
     of_i = int3(int_scale * n)
-    p_i = float3(int3(p) + select(of_i, -of_i, p < 0.0))
+    int_p = _builtin_cast(int3, 'BITWISE', p)
+    p_i = _builtin_cast(float3, 'BITWISE', int_p + select(of_i, -of_i, p < 0.0))
     return select(p_i, p + float_scale * n, abs(p) < origin)
 
 @func
