@@ -250,7 +250,6 @@ def update():
         raytracing_kernel(image, accel, make_int2(*res), frame_index, dispatch_size=(*res, 1))
         accumulate_kernel(accum_image, image, dispatch_size=[*res, 1])
         frame_index += 1
-    hdr2ldr_kernel(image, ldr_image, 1.0, dispatch_size=[*res, 1])
     hdr2ldr_kernel(accum_image, ldr_image, 1.0, dispatch_size=[*res, 1])
     ldr_image.copy_to(arr)
     frame_rate.record()
