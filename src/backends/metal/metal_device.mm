@@ -292,6 +292,7 @@ uint64_t MetalDevice::create_texture(
         case PixelFormat::RGBA32F: desc.pixelFormat = MTLPixelFormatRGBA32Float; break;
     }
     desc.allowGPUOptimizedContents = YES;
+    desc.cpuCacheMode = MTLCPUCacheModeWriteCombined;
     desc.storageMode = MTLStorageModePrivate;
     desc.hazardTrackingMode = MTLHazardTrackingModeTracked;
     desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
