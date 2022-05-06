@@ -1,9 +1,10 @@
 import lcapi
+from lcapi import uint2
 from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
-from . import Buffer, Texture2D, int2
-from .types import BuiltinFuncBuilder
+from . import Buffer, Texture2D
+from .types import BuiltinFuncBuilder, to_lctype
 from .builtin import check_exact_signature
 from .func import func
 from .builtin import _builtin_call
@@ -46,8 +47,8 @@ class BindlessArray:
     @BuiltinFuncBuilder
     def buffer_read(argnodes): # (dtype, buffer_index, element_index)
         check_exact_signature([type, int, int], argnodes[1:], "buffer_read")
-        dtype = argnodes[1]
-        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [argnodes[0]] + argnodes[2:])
+        dtype = argnodes[1].expr
+        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [x.expr for x in [argnodes[0]] + argnodes[2:]])
         return dtype, expr
 
     @func
