@@ -13,17 +13,6 @@ from luisa.accel import make_ray, offset_ray_origin
 
 luisa.init("cuda")
 
-@luisa.func
-def f():
-    a = [1,2]
-
-@luisa.func
-def g():
-    f()
-
-# g(dispatch_size=(1,1,1))
-
-# quit()
 
 Material = luisa.StructType(albedo=float3, emission=float3)
 
@@ -112,7 +101,7 @@ def balanced_heuristic(pdf_a, pdf_b):
 
 @luisa.func
 def raytracing_kernel(image, accel, resolution, frame_index):
-    set_block_size(16, 8, 1)
+    set_block_size(8, 8, 1)
     coord = dispatch_id().xy
     frame_size = float(min(resolution.x, resolution.y))
     sampler = RandomSampler(make_int3(coord, frame_index))

@@ -100,7 +100,13 @@ class Accel:
 
     @func
     def trace_closest(self, ray: Ray):
-        return _builtin_cast(Hit, "BITWISE", _builtin_call(UHit, "TRACE_CLOSEST", self, ray))
+        uhit = _builtin_call(UHit, "TRACE_CLOSEST", self, ray)
+        hit = Hit()
+        hit.inst = _builtin_cast(int, "BITWISE", uhit.inst)
+        hit.prim = _builtin_cast(int, "BITWISE", uhit.prim)
+        hit.bary = uhit.bary
+        return hit
+        # return _builtin_cast(Hit, "BITWISE", _builtin_call(UHit, "TRACE_CLOSEST", self, ray))
 
     @func
     def trace_any(self, ray: Ray):
