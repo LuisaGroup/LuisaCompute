@@ -136,6 +136,11 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
 
     auto str = CodegenUtility::Codegen(kernel);
     if (str) {
+        {
+            auto file_name = luisa::format("dx_{:016x}.hlsl", kernel.hash());
+            std::ofstream file{context().cache_directory() / file_name};
+            file << str->result.c_str();
+        }
         return reinterpret_cast<uint64_t>(
             ComputeShader::CompileCompute(
                 &nativeDevice,
