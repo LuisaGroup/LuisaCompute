@@ -47,7 +47,7 @@ if __name__ == "__main__":
         for class_name, methods in classes.items():
             file.write(f"class {class_name}:\n")
             file.write("    def __init__(self, *args, **kwargs): ...\n")
-            for method in methods:
+            for method in {m for m in methods}:
                 file.write(f"    def {method}(self, *args, **kwargs): ...\n")
         for enum_name, values in enums.items():
             file.write(f"class {enum_name}:\n")
