@@ -15,10 +15,11 @@ from .accel import Ray, Hit, Accel, Mesh
 from .bindless import BindlessArray
 
 from lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
+from os.path import realpath
 
 
 def init(backend_name = None):
-    globalvars.context = lcapi.Context(lcapi.FsPath("."))
+    globalvars.context = lcapi.Context(lcapi.FsPath(realpath(lcapi.__file__)))
     # auto select backend if not specified
     if backend_name == None:
         backends = globalvars.context.installed_backends()

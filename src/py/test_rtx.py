@@ -11,7 +11,11 @@ import dearpygui.dearpygui as dpg
 from luisa.accel import make_ray
 from luisa.texture2d import Texture2D
 
-luisa.init("cuda")
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init("cuda")
+
 res = 1280, 720
 image = luisa.Buffer(res[0] * res[1], float4)
 arr = np.zeros([*res, 4], dtype=np.float32)
