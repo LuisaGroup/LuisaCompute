@@ -8,86 +8,112 @@ from luisa.framerate import FrameRate
 from luisa.window import Window
 import dearpygui.dearpygui as dpg
 
-from py.luisa.texture2d import Texture2DType
+import cornell_box
+from luisa.accel import make_ray, offset_ray_origin
 
 luisa.init("cuda")
+
+@luisa.func
+def f():
+    a = [1,2]
+
+@luisa.func
+def g():
+    f()
+
+# g(dispatch_size=(1,1,1))
+
+# quit()
 
 Material = luisa.StructType(albedo=float3, emission=float3)
 
 Onb = luisa.StructType(tangent=float3, binormal=float3, normal=float3)
 
-@luisa.callable_method(Onb)
-def to_world(self: luisa.ref(Onb), v: float3):
+heap = luisa.BindlessArray()
+vertex_buffer = luisa.Buffer(len(cornell_box.vertices), float3)
+vertex_arr = [[*item, 0.0] for item in cornell_box.vertices]
+vertex_arr = np.array(vertex_arr, dtype=np.float32)
+vertex_buffer.copy_from(vertex_arr)
+material_arr = [
+    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.14, 0.45, 0.091, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.63, 0.065, 0.05, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.725, 0.71, 0.68, 0.0], [0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0, 0.0], [17.0, 12.0, 4.0, 0.0],
+]
+material_buffer = luisa.Buffer(len(material_arr), float3)
+material_arr = np.array(material_arr, dtype=np.float32)
+material_buffer.copy_from(material_arr)
+
+mesh_cnt = 0
+accel = luisa.Accel()
+for mesh in cornell_box.faces:
+    indices = []
+    for item in mesh:
+        assert(len(item) == 4)
+        for x in [0, 1, 2, 0, 2, 3]:
+            indices.append(item[x])
+    triangle_buffer = luisa.Buffer(len(indices), int)
+    triangle_buffer.copy_from(np.array(indices, dtype=int))
+    mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
+    accel.add(mesh)
+    mesh_cnt += 1
+accel.build()
+
+@luisa.func
+def to_world(self, v: float3):
     return v.x * self.tangent + v.y * self.binormal + v.z * self.normal
+Onb.add_method("to_world", to_world)
 
-RandomSampler = luisa.StructType(state=int)
+from luisa.util import RandomSampler
 
-@luisa.callable_method(RandomSampler)
-def __init__(self: luisa.ref(RandomSampler), p: int3):
-    PRIME32_2 = 2246822519
-    PRIME32_3 = 3266489917
-    PRIME32_4 = 668265263
-    PRIME32_5 = 374761393
-    h32 =  p.z + PRIME32_5 + p.x * PRIME32_3
-    h32 = PRIME32_4 * ((h32 << 17) | 0x0001ffff & (h32 >> (32 - 17)))
-    h32 += p.y * PRIME32_3
-    h32 = PRIME32_4 * ((h32 << 17) | 0x0001ffff & (h32 >> (32 - 17)))
-    h32 = PRIME32_2 * (h32 ^ ((h32 >> 15) & 0x0001ffff))
-    h32 = PRIME32_3 * (h32 ^ ((h32 >> 13) & 0x0007ffff))
-    self.state = h32 ^ ((h32 >> 16) & 0x0000ffff)
-
-@luisa.callable_method(RandomSampler)
-def next(self: luisa.ref(RandomSampler)):
-    lcg_a = 1664525
-    lcg_c = 1013904223
-    self.state = lcg_a * self.state + lcg_c
-    return float(self.state & 0x00ffffff) * (1.0 / 0x01000000)
-
-@luisa.callable
+@luisa.func
 def linear_to_srgb(x: float3):
-    return clamp(select(1.055 * pow(x, 1.0 / 2.4) - 0.055,
+    return clamp(select(1.055 * x ** (1.0 / 2.4) - 0.055,
                 12.92 * x,
                 x <= 0.00031308),
                 0.0, 1.0)
 
-@luisa.callable
+@luisa.func
 def make_onb(normal: float3):
-    binormal = normalize(ite(
-            abs(normal.x) > abs(normal.z),
+    binormal = normalize(select(
+            make_float3(0.0, -normal.z, normal.y),
             make_float3(-normal.y, normal.x, 0.0),
-            make_float3(0.0, -normal.z, normal.y)))
+            abs(normal.x) > abs(normal.z)))
     tangent = normalize(cross(binormal, normal))
     result = Onb()
-    Onb.tangent = tangent
-    Onb.binormal = binormal
-    Onb.normal = normal
+    result.tangent = tangent
+    result.binormal = binormal
+    result.normal = normal
     return result
 
-@luisa.callable
-def generate_ray():
-    fov = radians(27.8) # TODO
+@luisa.func
+def generate_ray(p):
+    fov = 27.8 / 180 * 3.1415926
     origin = make_float3(-0.01, 0.995, 5.0)
     pixel = origin + make_float3(p * tan(0.5 * fov), -1.0)
     direction = normalize(pixel - origin)
-    return make_ray(origin, direction) # TODO
+    return make_ray(origin, direction, 0.0, 1e30) # TODO
 
-@luisa.callable
+@luisa.func
 def cosine_sample_hemisphere(u: float2):
     r = sqrt(u.x)
     phi = 2.0 * 3.1415926 * u.y
     return make_float3(r * cos(phi), r * sin(phi), sqrt(1.0 - u.x))
 
-@luisa.callable
-def balanced_heuristic(pdf_a: float3, pdf_b: float3):
+@luisa.func
+def balanced_heuristic(pdf_a, pdf_b):
     return pdf_a / max(pdf_a + pdf_b, 1e-4)
 
-@luisa.kernel
-def raytracing_kernel(image: luisa.Texture2DType(float), accel: luisa.accel, resolution: int2, frame_index: int):
+@luisa.func
+def raytracing_kernel(image, accel, resolution, frame_index):
     set_block_size(16, 8, 1)
     coord = dispatch_id().xy
     frame_size = float(min(resolution.x, resolution.y))
-    sampler = RandomSampler()
-    sampler.__init__(make_int3(coord, frame_index))
+    sampler = RandomSampler(make_int3(coord, frame_index))
     rx = sampler.next()
     ry = sampler.next()
     pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0 - 1.0
@@ -107,23 +133,27 @@ def raytracing_kernel(image: luisa.Texture2DType(float), accel: luisa.accel, res
         hit = accel.trace_closest(ray)
         if hit.miss():
             break
-        triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim)
-        p0 = vertex_buffer.read(triangle.i0)
-        p1 = vertex_buffer.read(triangle.i1)
-        p2 = vertex_buffer.read(triangle.i2)
+        i0 = heap.buffer_read(int, hit.inst, hit.prim * 3 + 0)
+        i1 = heap.buffer_read(int, hit.inst, hit.prim * 3 + 1)
+        i2 = heap.buffer_read(int, hit.inst, hit.prim * 3 + 2)
+        p0 = vertex_buffer.read(i0)
+        p1 = vertex_buffer.read(i1)
+        p2 = vertex_buffer.read(i2)
         p = hit.interpolate(p0, p1, p2)
         n = normalize(cross(p1 - p0, p2 - p0))
-        cos_wi = dot(-ray.direction, n)
+        cos_wi = dot(-ray.get_dir(), n)
         if cos_wi < 1e-4:
             break
-        material = material_buffer.read(hit.inst)
+        material = Material()
+        material.albedo = material_buffer.read(hit.inst * 2 + 0)
+        material.emission = material_buffer.read(hit.inst * 2 + 1)
 
         # hit light
-        if hit.inst == int(meshes.size() - 1):
+        if hit.inst == int(mesh_cnt - 1):
             if depth == 0:
                 radiance += light_emission
             else:
-                pdf_light = length_squared(p - ray.origin) / (light_area * cos_wi)
+                pdf_light = length_squared(p - ray.get_origin()) / (light_area * cos_wi)
                 mis_weight = balanced_heuristic(pdf_bsdf, pdf_light)
                 radiance += mis_weight * beta * light_emission
             break
@@ -134,7 +164,7 @@ def raytracing_kernel(image: luisa.Texture2DType(float), accel: luisa.accel, res
         p_light = light_position + ux_light * light_u + uy_light * light_v
         pp = offset_ray_origin(p, n)
         pp_light = offset_ray_origin(p_light, light_normal)
-        d_light = distance(pp, pp_light)
+        d_light = length(pp - pp_light)
         wi_light = normalize(pp_light - pp)
         shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.0, d_light)
         occluded = accel.trace_any(shadow_ray)
@@ -142,9 +172,9 @@ def raytracing_kernel(image: luisa.Texture2DType(float), accel: luisa.accel, res
         cos_light = -dot(light_normal, wi_light)
         if (not occluded and cos_wi_light > 1e-4) and cos_light > 1e-4:
             pdf_light = (d_light * d_light) / (light_area * cos_light)
-            pdf_bsdf = cos_wi_light * inv_pi
+            pdf_bsdf = cos_wi_light * (1 / 3.1415926)
             mis_weight = balanced_heuristic(pdf_light, pdf_bsdf)
-            bsdf = material.albedo * inv_pi * cos_wi_light
+            bsdf = material.albedo * (1 / 3.1415926) * cos_wi_light
             radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4)
 
         # sample BSDF
@@ -152,9 +182,9 @@ def raytracing_kernel(image: luisa.Texture2DType(float), accel: luisa.accel, res
         ux = sampler.next()
         uy = sampler.next()
         new_direction = onb.to_world(cosine_sample_hemisphere(make_float2(ux, uy)))
-        ray = make_ray(pp, new_direction)
+        ray = make_ray(pp, new_direction, 0.0, 1e30)
         beta *= material.albedo
-        pdf_bsdf = cos_wi * inv_pi
+        pdf_bsdf = cos_wi * (1 / 3.1415926)
 
         # rr
         l = dot(make_float3(0.212671, 0.715160, 0.072169), beta)
@@ -169,15 +199,15 @@ def raytracing_kernel(image: luisa.Texture2DType(float), accel: luisa.accel, res
         radiance = make_float3(0.0)
     image.write(dispatch_id().xy, make_float4(clamp(radiance, 0.0, 30.0), 1.0))
 
-@luisa.kernel
-def accumulate_kernel(accum_image: luisa.Texture2DType(float), curr_image: luisa.Texture2DType(float)):
+@luisa.func
+def accumulate_kernel(accum_image, curr_image):
     p = dispatch_id().xy
     accum = accum_image.read(p)
     curr = curr_image.read(p).xyz
     t = 1.0 / (accum.w + 1.0)
     accum_image.write(p, make_float4(lerp(accum.xyz, curr, t), accum.w + 1.0))
 
-@luisa.callable
+@luisa.func
 def aces_tonemapping(x: float3):
     a = 2.51
     b = 0.03
@@ -186,12 +216,12 @@ def aces_tonemapping(x: float3):
     e = 0.14
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0)
 
-@luisa.kernel
-def clear_kernel(image: luisa.Texture2DType(float)):
+@luisa.func
+def clear_kernel(image):
     image.write(dispatch_id().xy, make_float4(0.0))
 
-@luisa.kernel
-def hdr2ldr_kernel(hdr_image: luisa.Texture2DType(float), ldr_image:luisa.Texture2DType(float), scale: float):
+@luisa.func
+def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
     coord = dispatch_id().xy
     hdr = hdr_image.read(coord)
     ldr = linear_to_srgb(hdr.xyz * scale)
