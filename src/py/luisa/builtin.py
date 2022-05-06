@@ -174,7 +174,8 @@ def builtin_bin_op(op, lhs, rhs):
         ast.GtE: lcapi.BinaryOp.GREATER_EQUAL
     }.get(op)
     if lc_op is None:
-        raise TypeError(f'Unsupported compare operation: {op}')
+        raise TypeError(f'Unsupported binary operation: {op}')
+    # power operation: a**b
     if op is ast.Pow:
         if type(rhs).__name__ == "Constant":
             exponential = rhs.value

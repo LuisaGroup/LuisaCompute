@@ -258,7 +258,7 @@ class ASTVisitor:
             build.build_Name(lhs, allow_none=True)
             if getattr(lhs, "is_arg", False): # is argument
                 if lhs.dtype not in (int, float, bool): # not scalar; therefore passed by reference
-                    raise TypeError("Assignment to non-scalar argument is not allowed.")
+                    raise TypeError("Assignment to non-scalar argument is not allowed. Please create a local variable.")
         else:
             build(lhs)
         # create local variable if it doesn't exist yet
