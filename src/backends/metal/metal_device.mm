@@ -103,8 +103,8 @@ struct alignas(16) BuildRequest {
   float affine[12];
 };
 
-static_assert(sizeof(Instance) == 64u);
-static_assert(sizeof(BuildRequest) == 64u);
+static_assert(sizeof(Instance) == 64u, "");
+static_assert(sizeof(BuildRequest) == 64u, "");
 
 [[kernel]]
 void update_instance_buffer(
@@ -112,7 +112,7 @@ void update_instance_buffer(
     device const BuildRequest *__restrict__ requests,
     constant uint &n,
     uint tid [[thread_position_in_grid]]) {
-  if (tid < n) [[likely]] {
+  if (tid < n) {
     auto r = requests[tid];
     instances[r.index].mesh_index = r.index;
     instances[r.index].options = 0x07u;
