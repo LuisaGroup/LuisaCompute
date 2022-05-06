@@ -1,5 +1,5 @@
 import time
-
+from sys import argv
 import numpy as np
 
 import luisa
