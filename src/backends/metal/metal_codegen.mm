@@ -1244,7 +1244,7 @@ struct alignas(16) Instance {
   uint mesh_index;
 };
 
-static_assert(sizeof(Instance) == 64u);
+static_assert(sizeof(Instance) == 64u, "");
 
 struct Accel {
   instance_acceleration_structure handle;

@@ -512,9 +512,9 @@ void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
-//    _scratch << luisa::format(
-//        "CONT_{}:;\n",
-//        _scope_label(stmt));
+    //    _scratch << luisa::format(
+    //        "CONT_{}:;\n",
+    //        _scope_label(stmt));
     _scratch << "}";
 }
 
