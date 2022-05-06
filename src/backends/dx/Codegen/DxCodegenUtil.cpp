@@ -441,14 +441,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::ANY:
             str << "any"sv;
             break;
-        case CallOp::SELECT: {
-            auto type = args[2]->type();
-            // str << "_select"sv;
-            str << "selectVec"sv;
-            if (type->tag() == Type::Tag::VECTOR) {
-                vstd::to_string(type->dimension(), str);
-            }
-        } break;
+        case CallOp::SELECT:
+             str << "_select"sv;
+             break;
         case CallOp::CLAMP:
             str << "clamp"sv;
             break;
