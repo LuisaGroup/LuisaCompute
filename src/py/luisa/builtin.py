@@ -341,12 +341,12 @@ def check_exact_signature(signature, args, name):
 
 
 @BuiltinFuncBuilder
-def _builtin_cast(args):
-    assert len(args)==3
-    check_exact_signature([type, str], args[0:2], '_builtin_cast')
+def _bitwise_cast(args):
+    assert len(args)==2 and args[0].dtype == type
     dtype = args[0].expr
-    op = getattr(lcapi.CastOp, args[1].expr)
-    return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[2].expr)
+    assert dtype in (int, float)
+    op = lcapi.CastOp.BITWISE
+    return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[1].expr)
 
 
 @BuiltinFuncBuilder
