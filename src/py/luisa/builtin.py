@@ -174,7 +174,7 @@ def builtin_bin_op(op, lhs, rhs):
         ast.GtE: lcapi.BinaryOp.GREATER_EQUAL
     }.get(op)
     if lc_op is None:
-        raise Exception(f'Unsupported compare operation: {op}')
+        raise TypeError(f'Unsupported compare operation: {op}')
     if op is ast.Pow:
         if type(rhs).__name__ == "Constant":
             exponential = rhs.value
@@ -469,7 +469,7 @@ def builtin_func(name, args):
         globalvars.current_context.uses_printer = True
         return None, None
 
-    raise Exception(f'unrecognized function call {name}')
+    raise NameError(f'unrecognized function call {name}')
 
 
 

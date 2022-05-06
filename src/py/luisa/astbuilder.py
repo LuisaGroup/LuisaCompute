@@ -34,7 +34,7 @@ class ASTVisitor:
     def __call__(self, node):
         method = getattr(self, 'build_' + node.__class__.__name__, None)
         if method is None:
-            raise Exception(f'Unsupported node {node}:\n{astpretty.pformat(node)}')
+            raise NotImplementedError(f'Unsupported node {node}:\n{astpretty.pformat(node)}')
         try:
             # print(astpretty.pformat(node))
             self.comment_source(node)
@@ -54,24 +54,17 @@ class ASTVisitor:
 
     @staticmethod
     def print_error(node, e):
+        # print exception, line number and corresponding source code
         def support_color():
-            if sys.stdout.isatty():
-                return True
             try:
                 shell = get_ipython().__class__.__name__
                 return shell in ('ZMQInteractiveShell', 'TerminalInteractiveShell')
             except NameError:
-                return False
+                return sys.stdout.isatty()
         if support_color():
-            red = "\x1b[31;1m"
-            green = "\x1b[32;1m"
-            bold = "\x1b[1m"
-            clr = "\x1b[0m"
+            red, green, bold, clr = "\x1b[31;1m", "\x1b[32;1m", "\x1b[1m", "\x1b[0m"
         else:
-            red = ""
-            green = ""
-            bold = ""
-            clr = ""
+            red = green = bold = clr = ""
         print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
         source = ctx().sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
@@ -79,16 +72,10 @@ class ASTVisitor:
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' ' * startcol + '~' * (endcol - startcol) + clr)
-        # print("Traceback:")
-        # _, _, tb = sys.exc_info()
-        # traceback.print_tb(tb) # Fixed format
-        # tb_info = traceback.extract_tb(tb)
-        # filename, line, func, text = tb_info[-1]
-        # print('An error occurred on line {} in statement {}'.format(line, text))
 
     @staticmethod
     def build_FunctionDef(node):
-        for x in node.body: # build over a list
+        for x in node.body:
             build(x)
 
     @staticmethod
@@ -96,9 +83,9 @@ class ASTVisitor:
         if isinstance(node.value, ast.Call):
             build(node.value)
             if node.value.dtype != None:
-                raise TypeError("Expr: Discarding return value")
+                raise TypeError("Discarding non-void return value")
         else:
-            raise TypeError("Dangling expression.")
+            raise TypeError("Dangling expression")
 
     @staticmethod
     def build_Return(node):
@@ -118,38 +105,25 @@ class ASTVisitor:
 
     @staticmethod
     def build_Call(node):
+        build(node.func)
         for x in node.args:
             build(x)
-        # static function
-        if type(node.func) is ast.Name:
-            build(node.func)
-            # custom function
-            if node.func.dtype is CallableType:
-                node.dtype, node.expr = callable_call(node.func.expr, node.args)
-            # funciton name undefined: look into builtin functions
-            elif node.func.dtype is BuiltinFuncType:
-                node.dtype, node.expr = builtin_func(node.func.expr, node.args)
-            elif node.func.dtype is BuiltinFuncBuilder:
-                node.dtype, node.expr = node.func.expr.builder(node.args)
-            # type: cast / construct
-            elif node.func.dtype is type:
-                dtype = node.func.expr
-                node.dtype, node.expr = builtin_type_cast(dtype, node.args)
-            else:
-                raise TypeError(f"calling non-callable variable: {node.func.id} ({node.func.dtype})")
-        # class method
-        elif type(node.func) is ast.Attribute: # class method
-            build(node.func)
-            if node.func.dtype is CallableType:
-                node.dtype, node.expr = callable_call(node.func.expr, [node.func.value] + node.args)
-            elif node.func.dtype is BuiltinFuncType:
-                node.dtype, node.expr = builtin_func(node.func.expr, [node.func.value] + node.args)
-            elif node.func.dtype is BuiltinFuncBuilder:
-                node.dtype, node.expr = node.func.expr.builder([node.func.value] + node.args)
-            else:
-                raise TypeError(f'calling non-callable member ({node.func.dtype}).')
+        # if it's a method, call with self (the object)
+        args = [node.func.value] + node.args if type(node.func) is ast.Attribute else node.args
+        # custom function
+        if node.func.dtype is CallableType:
+            node.dtype, node.expr = callable_call(node.func.expr, node.args)
+        # builtin function (as defined in builtin_func_names)
+        elif node.func.dtype is BuiltinFuncType:
+            node.dtype, node.expr = builtin_func(node.func.expr, node.args)
+        elif node.func.dtype is BuiltinFuncBuilder:
+            node.dtype, node.expr = node.func.expr.builder(node.args)
+        # type: cast / construct
+        elif node.func.dtype is type:
+            dtype = node.func.expr
+            node.dtype, node.expr = builtin_type_cast(dtype, node.args)
         else:
-            raise Exception('unrecognized call func type')
+            raise TypeError(f"{node.func.dtype} is not callble")
         node.lr = 'r'
 
     @staticmethod
@@ -195,6 +169,7 @@ class ASTVisitor:
         elif is_vector_type(node.value.dtype):
             node.dtype = from_lctype(to_lctype(node.value.dtype).element())
         elif node.value.dtype in {lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}:
+            # matrix: indexed is a column vector
             element_dtypename = to_lctype(node.value.dtype).element().description()
             dim = to_lctype(node.value.dtype).dimension()
             node.dtype = getattr(lcapi, element_dtypename + str(dim))
@@ -241,7 +216,7 @@ class ASTVisitor:
                 assert rhs.dtype == dtype.membertype[idx]
                 lcapi.builder().assign(lhs, rhs.expr)
             return dtype, expr, 'r'
-        raise Exception("unrecognized closure var type:", type(val))
+        raise TypeError("unrecognized closure var type:", type(val))
 
     @staticmethod
     def build_Name(node, allow_none = False):
@@ -256,8 +231,7 @@ class ASTVisitor:
             node.lr = 'l'
         else:
             val = ctx().closure_variable.get(node.id)
-            # print("NAME:", node.id, "VALUE:", val)
-            if val is None: # do not capture python builtin print
+            if val is None:
                 if not allow_none:
                     raise NameError(f"undeclared idenfitier '{node.id}'")
                 node.dtype = None
@@ -384,6 +358,7 @@ class ASTVisitor:
 
     @staticmethod
     def build_For(node):
+        # currently only supports for x in range(...)
         assert type(node.target) is ast.Name
         assert type(node.iter) is ast.Call and type(node.iter.func) is ast.Name
         assert node.iter.func.id == "range" and len(node.iter.args) in {1,2,3}
