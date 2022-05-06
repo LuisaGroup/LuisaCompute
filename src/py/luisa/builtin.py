@@ -1,4 +1,5 @@
 import lcapi
+
 from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type, basic_lctype_dict, scalar_dtypes, \
     scalar_lctypes, arithmetic_dtypes, arithmetic_lctypes
 from functools import reduce
@@ -6,7 +7,7 @@ from . import globalvars
 from .structtype import StructType
 from types import SimpleNamespace
 import ast
-from .types import BuiltinFuncBuilder
+from .types import BuiltinFuncBuilder, ref as ref_type
 
 
 def wrap_with_tmp_var(node):
@@ -644,7 +645,7 @@ def builtin_func(name, args):
         # clz(uint) -> uint
         # clz(vector<uint>) -> vector<uint>
         dtype = args[0].dtype
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name == 'copysign':
         op = getattr(lcapi.CallOp, name.upper())
@@ -671,23 +672,23 @@ def builtin_func(name, args):
         assert len(args) == 1
         assert to_lctype(args[0].dtype).is_matrix()
         dtype = float
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name in ('transpose', 'inverse'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 1
         assert to_lctype(args[0].dtype).is_matrix()
         dtype = args[0].dtype
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name in ('atomic_exchange', 'atomic_fetch_add', 'atomic_fetch_sub', 'atomic_fetch_and', 'atomic_fetch_or',
                 'atomic_fetch_xor', 'atomic_fetch_min', 'atomic_fetch_max'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 2
-        assert args[0] is luisa.ref and args[0].dtype == args[1].dtype
+        assert args[0] is ref_type and args[0].dtype == args[1].dtype
         # TODO: Finish type check for atomic operations
         dtype = args[0].dtype
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name == 'atomic_compare_exchange':
         pass

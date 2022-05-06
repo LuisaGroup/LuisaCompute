@@ -25,7 +25,7 @@ vertices = [
     float3(0.5, -0.5, -1.0),
     float3(0.0, 0.5, -1.0),
 ]
-indices = np.array([0, 1, 2], dtype=int)
+indices = np.array([0, 1, 2], dtype=np.int32)
 
 vertex_buffer = luisa.Buffer(3, float3)
 index_buffer = luisa.Buffer(3, int)
