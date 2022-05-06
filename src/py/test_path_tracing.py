@@ -1,6 +1,7 @@
 import time
 
 import numpy as np
+from sys import argv
 
 import luisa
 from luisa.mathtypes import *
@@ -11,7 +12,11 @@ import dearpygui.dearpygui as dpg
 import cornell_box
 from luisa.accel import make_ray, offset_ray_origin
 
-luisa.init("cuda")
+
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init("cuda")
 
 
 Material = luisa.StructType(albedo=float3, emission=float3)
@@ -46,7 +51,7 @@ for mesh in cornell_box.faces:
         for x in [0, 1, 2, 0, 2, 3]:
             indices.append(item[x])
     triangle_buffer = luisa.Buffer(len(indices), int)
-    triangle_buffer.copy_from(np.array(indices, dtype=int))
+    triangle_buffer.copy_from(np.array(indices, dtype=np.int32))
     heap.emplace(mesh_cnt, triangle_buffer)
     mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
     accel.add(mesh)
@@ -247,7 +252,7 @@ def update():
         frame_index += 1
     hdr2ldr_kernel(image, ldr_image, 1.0, dispatch_size=[*res, 1])
     hdr2ldr_kernel(accum_image, ldr_image, 1.0, dispatch_size=[*res, 1])
-    ldr_image.copy_to(arr, sync=False)
+    ldr_image.copy_to(arr)
     frame_rate.record()
     w.update_frame_rate(frame_rate.report() * sample_per_pass)
     print(frame_rate.report())

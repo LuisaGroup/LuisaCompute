@@ -1,6 +1,7 @@
 import time
 
 import numpy as np
+from sys import argv
 
 import luisa
 from luisa.mathtypes import *
@@ -9,7 +10,13 @@ from luisa.window import Window
 import dearpygui.dearpygui as dpg
 from luisa.util import RandomSampler
 
-luisa.init("cuda")
+
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init("cuda")
+
+
 res = 1280, 720
 image = luisa.Texture2D(*res, 4, float)
 display = luisa.Texture2D(*res, 4, float)

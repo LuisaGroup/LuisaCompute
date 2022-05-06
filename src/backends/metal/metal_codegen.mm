@@ -545,9 +545,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         }
     }
     // emit body
-    _scratch << "\n";
     _emit_declarations(f.body());
-    _scratch << "\n";
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 }
