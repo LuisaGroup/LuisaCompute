@@ -5,7 +5,7 @@
 namespace toolhub::directx {
 
 void StringStateVisitor::visit(const UnaryExpr *expr) {
-
+    str << "(";
     switch (expr->op()) {
         case UnaryOp::PLUS://+x
             str << '+';
@@ -21,9 +21,10 @@ void StringStateVisitor::visit(const UnaryExpr *expr) {
             break;
     }
     expr->operand()->accept(*this);
+    str << ")";
 }
 void StringStateVisitor::visit(const BinaryExpr *expr) {
-
+    str << "(";
     auto op = expr->op();
     auto IsMulFuncCall = [&]() -> bool {
         if (op == BinaryOp::MUL) {
@@ -113,9 +114,10 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         }
         expr->rhs()->accept(*this);
     }
+    str << ")";
 }
 void StringStateVisitor::visit(const MemberExpr *expr) {
-
+    str << "(";
     char const *xyzw = "xyzw";
     if (expr->is_swizzle()) {
         expr->self()->accept(*this);
@@ -132,8 +134,10 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
         auto &&structVar = selfStruct->GetStructVar(expr->member_index());
         str << curStr << '.' << structVar;
     }
+    str << ")";
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
+    str << "(";
     auto t = expr->range()->type();
     if (expr->range()->tag() == Expression::Tag::REF) {
         auto variable = static_cast<RefExpr const *>(expr->range())->variable();
@@ -171,10 +175,9 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             str << ']';
         } break;
     }
-
+    str << ")";
 }
 void StringStateVisitor::visit(const RefExpr *expr) {
-
     Variable v = expr->variable();
     vstd::string tempStr;
     CodegenUtility::GetVariableName(v, tempStr);
@@ -183,7 +186,6 @@ void StringStateVisitor::visit(const RefExpr *expr) {
 }
 
 void StringStateVisitor::visit(const LiteralExpr *expr) {
-
     LiteralExpr::Value const &value = expr->value();
     eastl::visit(
         [&](auto &&value) -> void {
@@ -197,6 +199,7 @@ void StringStateVisitor::visit(const CallExpr *expr) {
     CodegenUtility::GetFunctionName(expr, str, *this);
 }
 void StringStateVisitor::visit(const CastExpr *expr) {
+    str << "(";
     switch (expr->op()) {
         case CastOp::STATIC:
             str << '(';
@@ -229,15 +232,14 @@ void StringStateVisitor::visit(const CastExpr *expr) {
             str << ')';
         } break;
     }
+    str << ")";
 }
 
 void StringStateVisitor::visit(const ConstantExpr *expr) {
-
     CodegenUtility::GetConstName(expr->data(), str);
 }
 
 void StringStateVisitor::visit(const BreakStmt *state) {
-
     str << "break;\n";
 }
 void StringStateVisitor::visit(const ContinueStmt *state) {
@@ -261,6 +263,7 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
     str << "}\n";
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
+    str << "/* " << state->comment() << " */\n";
 }
 void StringStateVisitor::visit(const IfStmt *state) {
     str << "if(";

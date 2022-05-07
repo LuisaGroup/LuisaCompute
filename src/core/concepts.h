@@ -12,7 +12,6 @@
 
 #include <core/macro.h>
 #include <core/basic_types.h>
-#include <core/stl.h>
 
 namespace luisa::concepts {
 
@@ -26,40 +25,40 @@ struct Noncopyable {
 
 template<typename T>
 concept iterable = requires(T v) {
-                       v.begin();
-                       v.end();
-                   };
+    v.begin();
+    v.end();
+};
 
 template<typename T>
 concept string_viewable = requires(T v) {
-                              std::string_view{v};
-                          };
+    std::string_view{v};
+};
 
 template<typename T>
 concept span_convertible = requires(T v) {
-                               luisa::span{v};
-                           };
+    std::span{v};
+};
 
 template<typename T, typename... Args>
 concept constructible = requires(Args... args) {
-                            T{args...};
-                        };
+    T{args...};
+};
 
 template<typename T>
 concept trivially_default_constructible = std::is_trivially_constructible_v<T>;
 
 template<typename Src, typename Dest>
 concept static_convertible = requires(Src s) {
-                                 static_cast<Dest>(s);
-                             };
+    static_cast<Dest>(s);
+};
 
 template<typename Src, typename Dest>
 concept bitwise_convertible = sizeof(Src) >= sizeof(Dest);
 
 template<typename Src, typename Dest>
 concept reinterpret_convertible = requires(Src s) {
-                                      reinterpret_cast<Dest *>(&s);
-                                  };
+    reinterpret_cast<Dest *>(&s);
+};
 
 template<typename F, typename... Args>
 concept invocable = std::is_invocable_v<F, Args...>;
@@ -75,9 +74,9 @@ concept non_pointer = std::negation_v<std::is_pointer<T>>;
 
 template<typename T>
 concept container = requires(T a) {
-                        a.begin();
-                        a.size();
-                    };
+    a.begin();
+    a.size();
+};
 
 template<typename T>
 concept integral = is_integral_v<T>;
@@ -177,11 +176,11 @@ concept function = std::is_function_v<T>;
 
 namespace detail {
 
-template<typename... T>
-struct all_same_impl : std::true_type {};
+    template<typename... T>
+    struct all_same_impl : std::true_type {};
 
-template<typename First, typename... Other>
-struct all_same_impl<First, Other...> : std::conjunction<std::is_same<First, Other>...> {};
+    template<typename First, typename... Other>
+    struct all_same_impl<First, Other...> : std::conjunction<std::is_same<First, Other>...> {};
 
 }// namespace detail
 
@@ -195,8 +194,7 @@ template<typename... T>
 concept same = is_same_v<T...>;
 
 template<typename A, typename B>
-concept different = !
-same<A, B>;
+concept different = !same<A, B>;
 
 template<typename... T>
 concept vector_same_dimension = is_vector_same_dimension_v<T...>;

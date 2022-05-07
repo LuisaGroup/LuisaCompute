@@ -316,7 +316,9 @@ void MetalCodegen::visit(const CallExpr *expr) {
         auto arg_index = 0u;
         for (auto arg : expr->arguments()) {
             auto by_ref = !expr->is_builtin() &&
-                          expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE;
+                          expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE &&
+                          (expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::WRITE ||
+                           expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::READ_WRITE);
             if (by_ref) {
                 if (arg->tag() == Expression::Tag::MEMBER &&
                     static_cast<const MemberExpr *>(arg)->is_swizzle()) {
@@ -483,8 +485,11 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << "    constant uint3 &ls";
     } else if (f.tag() == Function::Tag::CALLABLE) {
         // emit templated access specifier for textures
-        if (std::any_of(f.arguments().begin(), f.arguments().end(), [](auto v) noexcept {
-                return v.tag() == Variable::Tag::TEXTURE || v.tag() == Variable::Tag::REFERENCE;
+        if (std::any_of(f.arguments().begin(), f.arguments().end(), [&f](auto v) noexcept {
+                return v.tag() == Variable::Tag::TEXTURE ||
+                       (v.tag() == Variable::Tag::REFERENCE &&
+                        (f.variable_usage(v.uid()) == Usage::WRITE ||
+                         f.variable_usage(v.uid()) == Usage::READ_WRITE));
             })) {
             _scratch << "template<";
             for (auto arg : f.arguments()) {
@@ -492,7 +497,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                     _scratch << "access a";
                     _emit_variable_name(arg);
                     _scratch << ", ";
-                } else if (arg.tag() == Variable::Tag::REFERENCE) {
+                } else if (arg.tag() == Variable::Tag::REFERENCE &&
+                           (f.variable_usage(arg.uid()) == Usage::WRITE ||
+                            f.variable_usage(arg.uid()) == Usage::READ_WRITE)) {
                     _scratch << "typename T" << arg.uid() << ", ";
                 }
             }
@@ -538,9 +545,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         }
     }
     // emit body
-    _scratch << "\n";
     _emit_declarations(f.body());
-    _scratch << "\n";
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 }
@@ -549,7 +554,14 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
-        case Variable::Tag::REFERENCE: _scratch << "(*p" << v.uid() << ")"; break;
+        case Variable::Tag::REFERENCE:
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                _scratch << "(*p" << v.uid() << ")";
+            } else {
+                _scratch << "v" << v.uid();
+            }
+            break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::BINDLESS_ARRAY: _scratch << "h" << v.uid(); break;
@@ -630,7 +642,14 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
                 LUISA_ERROR_WITH_LOCATION(
                     "Invalid reference argument in kernel.");
             }
-            _scratch << "T" << v.uid() << " p" << v.uid();
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                _scratch << "T" << v.uid() << " p" << v.uid();
+            } else {
+                _scratch << "const ";
+                _emit_type_name(v.type());
+                _scratch << " v" << v.uid();
+            }
             break;
         case Variable::Tag::BUFFER:
             _scratch << "device ";
@@ -1225,7 +1244,7 @@ struct alignas(16) Instance {
   uint mesh_index;
 };
 
-static_assert(sizeof(Instance) == 64u);
+static_assert(sizeof(Instance) == 64u, "");
 
 struct Accel {
   instance_acceleration_structure handle;

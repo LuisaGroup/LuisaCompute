@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
 
     auto heap = device.create_bindless_array();
     auto stream = device.create_stream();
-    printer.reset(stream);
+    stream << printer.reset();
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
     std::vector<Mesh> meshes;
@@ -235,12 +235,6 @@ int main(int argc, char *argv[]) {
             $if(cos_wi < 1e-4f) { $break; };
 
             auto material = material_buffer[material_buffer_id].read(hit.inst);
-            //            $if(material_buffer_id == 1u & hit.inst == differentiable_index) {
-            //                //                printer.log("material_index_uint64 = ", (int)material_index_uint64);
-            //                printer.log("material.albedo = (", material.albedo.x, ", ", material.albedo.y, ", ", material.albedo.z, ")");
-            //                auto material_diff = material_buffer[1u].read(hit.inst);
-            //                printer.log("material_diff.albedo = (", material_diff.albedo.x, ", ", material_diff.albedo.y, ", ", material_diff.albedo.z, ")");
-            //            };
 
             // hit light
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -321,11 +315,6 @@ int main(int argc, char *argv[]) {
         auto rendered = rendered_image.read(coord);
         auto target = target_image.read(coord);
         beta *= 2.0f * (rendered - target).xyz();
-        //        printer.log("rendered = (", rendered.x, ", ", rendered.y, ", ", rendered.z, ")");
-        //        printer.log("target = (", target.x, ", ", target.y, ", ", target.z, ")");
-        //        $if(rendered.x < target.x) {
-        //        printer.log("beta = (", beta.x, ", ", beta.y, ", ", beta.z, ")");
-        //        };
 
         $for(depth, max_depth) {
             // trace
@@ -351,23 +340,6 @@ int main(int argc, char *argv[]) {
                 auto bsdf_diff = make_float3(1.0f) * inv_pi * cos_wi;
                 auto Li = make_float3(1.0f);
                 grad += beta * Li * bsdf_diff;
-
-                //                // sample light
-                //                auto ux_light = lcg(state);
-                //                auto uy_light = lcg(state);
-                //                auto p_light = light_position + ux_light * light_u + uy_light * light_v;
-                //                auto d_light = distance(p, p_light);
-                //                auto wi_light = normalize(p_light - p);
-                //                auto shadow_ray = make_ray_robust(p, n, wi_light, d_light - 1e-3f);
-                //                auto occluded = accel.trace_any(shadow_ray);
-                //                auto cos_wi_light = dot(wi_light, n);
-                //                auto cos_light = -dot(light_normal, wi_light);
-                //                $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
-                //                    auto pdf_light = (d_light * d_light) / (light_area * cos_light);
-                //                    auto pdf_bsdf = cos_wi_light * inv_pi;
-                //                    auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                //                    grad += beta * bsdf_diff * mis_weight * light_emission / max(pdf_light, 1e-4f);
-                //                };
             };
 
             // sample BSDF
@@ -512,9 +484,9 @@ int main(int argc, char *argv[]) {
         grad /= float(resolution.x * resolution.y);
         auto &albedo = materials[differentiable_index].albedo;
         albedo -= learning_rate * grad;
-        command_buffer << material_buffer[1].copy_from(materials.data());
+        command_buffer << material_buffer[1].copy_from(materials.data())
+                       << printer.retrieve();
 
-        std::cout << printer.retrieve(stream);
         LUISA_INFO("grad = ({}, {}, {}), "
                    "albedo = ({}, {}, {})",
                    grad.x, grad.y, grad.z,

@@ -85,8 +85,9 @@ CompileResult DXShaderCompiler::CompileCompute(
     args.push_back_all(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
+         L"-all-resources-bound",
          L"-Gfa",
-         L"/enable_unbounded_descriptor_tables",
+        //  L"/enable_unbounded_descriptor_tables",
          L"-HV 2021"});
     if (optimize) {
         args.push_back(L"/O3");
@@ -108,6 +109,8 @@ CompileResult DXShaderCompiler::CompileRayTracing(
     args.push_back_all(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
+         L"-all-resources-bound",
+         L"-Gfa",
          L"/enable_unbounded_descriptor_tables",
          L"-HV 2021"});
     if (optimize) {

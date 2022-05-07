@@ -1,4 +1,5 @@
 import lcapi
+
 from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type, basic_lctype_dict, scalar_dtypes, \
     scalar_lctypes, arithmetic_dtypes, arithmetic_lctypes
 from functools import reduce
@@ -6,9 +7,16 @@ from . import globalvars
 from .structtype import StructType
 from types import SimpleNamespace
 import ast
+from .types import BuiltinFuncBuilder, ref as ref_type
 
 from .. import luisa
 
+
+def wrap_with_tmp_var(node):
+    tmp = lcapi.builder().local(to_lctype(node.dtype))
+    lcapi.builder().assign(tmp, node.expr)
+    node.expr = tmp
+    node.lr = 'l'
 
 def get_length(arg) -> int:
     lc_type = to_lctype(arg.dtype)
@@ -17,7 +25,7 @@ def get_length(arg) -> int:
     elif lc_type.is_array() or lc_type.is_vector() or lc_type.is_matrix() or lc_type.is_texture():
         return lc_type.dimension()
     else:
-        assert False, 'Unknown argument type'
+        assert False, f'Unknown argument type {arg.dtype}'
 
 
 def get_inner_type(lc_type):
@@ -169,7 +177,8 @@ def builtin_bin_op(op, lhs, rhs):
         ast.GtE: lcapi.BinaryOp.GREATER_EQUAL
     }.get(op)
     if lc_op is None:
-        raise Exception(f'Unsupported compare operation: {op}')
+        raise TypeError(f'Unsupported binary operation: {op}')
+    # power operation: a**b
     if op is ast.Pow:
         if type(rhs).__name__ == "Constant":
             exponential = rhs.value
@@ -274,10 +283,11 @@ builtin_func_names = {
 def builtin_type_cast(dtype, args):
     # struct with constructor
     if type(dtype) is StructType and '__init__' in dtype.method_dict:
-        obj = SimpleNamespace()
-        obj.dtype = dtype
-        obj.expr = lcapi.builder().local(to_lctype(dtype))
-        callable_call(dtype.method_dict['__init__'], [obj] + args)
+        obj = SimpleNamespace(dtype = dtype, expr = lcapi.builder().local(to_lctype(dtype)), lr = 'l')
+        _rettype, _retexpr = callable_call(dtype.method_dict['__init__'], [obj] + args)
+        # if it's a constructor, make sure it doesn't return value
+        if _rettype != None:
+            raise TypeError(f'__init__() should return None, not {_rettype}')
         return dtype, obj.expr
     # default construct without arguments
     if len(args) == 0:
@@ -332,6 +342,28 @@ def check_exact_signature(signature, args, name):
             raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
 
 
+
+@BuiltinFuncBuilder
+def _bitwise_cast(args):
+    assert len(args)==2 and args[0].dtype == type
+    dtype = args[0].expr
+    assert dtype in (int, float)
+    op = lcapi.CastOp.BITWISE
+    return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[1].expr)
+
+
+@BuiltinFuncBuilder
+def _builtin_call(args):
+    if args[0].dtype == str: # void call
+        op = getattr(lcapi.CallOp, args[0].expr)
+        return None, lcapi.builder().call(op, [x.expr for x in args[1:]])
+    else:
+        check_exact_signature([type, str], args[0:2], "_builtin_call")
+        dtype = args[0].expr
+        op = getattr(lcapi.CallOp, args[1].expr)
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args[2:]])
+
+
 # return dtype, expr
 def builtin_func(name, args):
     if name == "set_block_size":
@@ -381,8 +413,13 @@ def builtin_func(name, args):
 
     # TODO: atan2
 
+    def element_type(_dtype):
+        if _dtype in {int, float, bool}:
+            return _dtype
+        return from_lctype(to_lctype(_dtype).element())
+
     # e.g. sin(x)
-    if name in ('isinf', 'isnan', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
+    if name in ('acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
                 'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
                 'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round'):
         # type check: arg must be float / float vector
@@ -391,6 +428,15 @@ def builtin_func(name, args):
                (to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float))
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+        
+    if name in ('isinf','isnan'):
+        # type check: arg must be float / float vector
+        assert len(args) == 1
+        assert args[0].dtype == float or \
+               (to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float))
+        op = getattr(lcapi.CallOp, name.upper())
+        dtype = to_bool(args[0].dtype)
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     if name in ('abs',):
@@ -407,12 +453,6 @@ def builtin_func(name, args):
 
     if name in ('min', 'max'):
         assert len(args) == 2
-
-        def element_type(_dtype):
-            if _dtype in {int, float, bool}:
-                return _dtype
-            return from_lctype(to_lctype(_dtype).element())
-
         op = getattr(lcapi.CallOp, name.upper())
         return make_vector_call(element_type(args[0].dtype), op, args)
 
@@ -447,9 +487,17 @@ def builtin_func(name, args):
         assert len(args) == 3
         return make_vector_call(float, lcapi.CallOp.LERP, args)
 
+    if name in ('select',):
+        assert len(args) == 3
+        assert args[2].dtype in [bool, lcapi.bool2, lcapi.bool3, lcapi.bool4]
+        assert args[0].dtype == args[1].dtype
+        assert args[2].dtype == bool or to_lctype(args[0].dtype).is_scalar() or \
+            to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).dimension() == to_lctype(args[2].dtype).dimension()
+        return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
+
     if name == 'print':
         globalvars.printer.kernel_print(args)
-        globalvars.current_kernel.uses_printer = True
+        globalvars.current_context.uses_printer = True
         return None, None
 
     # buffer
@@ -551,31 +599,29 @@ def builtin_func(name, args):
         assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(bool)
         return bool, lcapi.builder().call(to_lctype(bool), op, [args[0].expr])
 
-    if name == 'select':
-        op = lcapi.CallOp.SELECT
-        assert len(args) == 3
-        lctypes = [to_lctype(arg.dtype) for arg in args]
-        assert args[0].dtype == bool and args[1].dtype in scalar_dtypes and args[2].dtype in scalar_dtypes and \
-               args[1].dtype == args[2].dtype or \
-               lctypes[0].is_vector() and lctypes[0].element() == to_lctype(bool) and \
-               lctypes[1].is_vector() and lctypes[1].element() in scalar_lctypes and \
-               lctypes[2].is_vector() and lctypes[2].element() in scalar_lctypes and \
-               lctypes[0].dimension() == lctypes[1].dimension() == lctypes[2].dimension and \
-               lctypes[1].element() == lctypes[2].element(), "invalid parameter"
-        dtype = args[1].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+    # if name == 'select':
+    #     op = lcapi.CallOp.SELECT
+    #     assert len(args) == 3
+    #     lctypes = [to_lctype(arg.dtype) for arg in args]
+    #     assert args[0].dtype == bool and args[1].dtype in scalar_dtypes and args[2].dtype in scalar_dtypes and \
+    #            args[1].dtype == args[2].dtype or \
+    #            lctypes[0].is_vector() and lctypes[0].element() == to_lctype(bool) and \
+    #            lctypes[1].is_vector() and lctypes[1].element() in scalar_lctypes and \
+    #            lctypes[2].is_vector() and lctypes[2].element() in scalar_lctypes and \
+    #            lctypes[0].dimension() == lctypes[1].dimension() == lctypes[2].dimension and \
+    #            lctypes[1].element() == lctypes[2].element(), "invalid parameter"
+    #     dtype = args[1].dtype
+    #     return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
 
     if name in ('clamp', 'fma'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 3
-        lctypes = [to_lctype(arg.dtype) for arg in args]
-        assert args[0].dtype == args[1].dtype == args[2].dtype and args[0].dtype in arithmetic_dtypes or \
-               lctypes[0] == lctypes[1] == lctypes[2] and lctypes[0].is_vector() and \
-               lctypes[0].element() in arithmetic_lctypes, "invalid parameter"
-        # clamp/fma(scalar, scalar, scalar) -> scalar
-        # clamp/fma(vector<scalar>, vector<scalar>, vector<scalar>) -> vector<scalar>
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+        e = element_type(args[0].dtype)
+        if name == 'clamp':
+            assert e in arithmetic_dtypes
+        else:
+            assert e == 'float'
+        return make_vector_call(e, op, args)
 
     if name == 'step':
         op = lcapi.CallOp.STEP
@@ -601,7 +647,7 @@ def builtin_func(name, args):
         # clz(uint) -> uint
         # clz(vector<uint>) -> vector<uint>
         dtype = args[0].dtype
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name == 'copysign':
         op = getattr(lcapi.CallOp, name.upper())
@@ -628,36 +674,41 @@ def builtin_func(name, args):
         assert len(args) == 1
         assert to_lctype(args[0].dtype).is_matrix()
         dtype = float
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name in ('transpose', 'inverse'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 1
         assert to_lctype(args[0].dtype).is_matrix()
         dtype = args[0].dtype
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name in ('atomic_exchange', 'atomic_fetch_add', 'atomic_fetch_sub', 'atomic_fetch_and', 'atomic_fetch_or',
                 'atomic_fetch_xor', 'atomic_fetch_min', 'atomic_fetch_max'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 2
-        assert args[0] is luisa.ref and args[0].dtype == args[1].dtype
+        assert args[0] is ref_type and args[0].dtype == args[1].dtype
         # TODO: Finish type check for atomic operations
         dtype = args[0].dtype
-        return dtype, lcapi.builder.call(to_lctype(dtype), op, [args[0].expr])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name == 'atomic_compare_exchange':
         pass
 
-    raise Exception(f'unrecognized function call {name}')
+    raise NameError(f'unrecognized function call {name}')
 
 
 def callable_call(func, args):
-    globalvars.current_kernel.uses_printer |= func.uses_printer
-    check_exact_signature([x[1] for x in func.params], args, f"(callable){func.funcname}")
+    # get function instance by argtypes
+    f = func.get_compiled(call_from_host=False, argtypes=tuple(a.dtype for a in args))
+    globalvars.current_context.uses_printer |= f.uses_printer
+    # create temporary var for each r-value argument
+    for node in args:
+        if node.lr == "r":
+            wrap_with_tmp_var(node)
     # call
-    if not hasattr(func, "return_type") or func.return_type is None:
-        return None, lcapi.builder().call(func.func, [x.expr for x in args])
+    if getattr(f, "return_type", None) == None:
+        return None, lcapi.builder().call(f.function, [x.expr for x in args])
     else:
-        dtype = func.return_type
-        return dtype, lcapi.builder().call(to_lctype(dtype), func.func, [x.expr for x in args])
+        dtype = f.return_type
+        return dtype, lcapi.builder().call(to_lctype(dtype), f.function, [x.expr for x in args])

@@ -31,6 +31,7 @@ private:
         uint back_buffer_size) noexcept;
 
 public:
+    SwapChain() noexcept = default;
     [[nodiscard]] PixelStorage backend_storage() const;
     [[nodiscard]] Present present(ImageView<float> frame) const noexcept;
 };

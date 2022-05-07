@@ -4,11 +4,14 @@ scalar_dtypes = (int, float, bool)
 arithmetic_dtypes = (int, float)
 scalar_lctypes = (lcapi.Type.from_("int"), lcapi.Type.from_("float"), lcapi.Type.from_("bool"))
 arithmetic_lctypes = (lcapi.Type.from_("int"), lcapi.Type.from_("float"))
+class uint:
+    pass
 
 basic_type_dict = {
     int: lcapi.Type.from_("int"),
     float: lcapi.Type.from_("float"),
     bool: lcapi.Type.from_("bool"),
+    uint: lcapi.Type.from_("uint"),
     lcapi.int2: lcapi.Type.from_("vector<int,2>"),
     lcapi.uint2: lcapi.Type.from_("vector<uint,2>"),
     lcapi.bool2: lcapi.Type.from_("vector<bool,2>"),
@@ -30,6 +33,7 @@ basic_lctype_dict = {
     lcapi.Type.from_("int") : int,
     lcapi.Type.from_("float") : float,
     lcapi.Type.from_("bool") : bool,
+    lcapi.Type.from_("uint") : uint,
     lcapi.Type.from_("vector<int,2>") : lcapi.int2,
     lcapi.Type.from_("vector<uint,2>") : lcapi.uint2,
     lcapi.Type.from_("vector<bool,2>") : lcapi.bool2,
@@ -57,17 +61,11 @@ class CallableType:
 class BuiltinFuncType:
     pass
 
-class BuiltinFuncEntry:
-    def __init__(self, name):
-        self.name = name
-    def __call__(self, *args):
-        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
-
 class BuiltinFuncBuilder:
     def __init__(self, builder):
         self.builder = builder
-    def __call__(self, *args):
-        raise TypeError("Builtin function can only be called in Luisa kernel / callable")
+    def __call__(self, *args, DO_NOT_CALL):
+        pass
 
 class ref:
     def __init__(self, dtype):
@@ -77,9 +75,9 @@ class ref:
 
 def dtype_of(val):
     if type(val).__name__ == "module" and val.__name__ == "luisa":
-        raise NameError("Do not use module luisa in kernel/callable. If you wish to use builtin functions, don't prefix them with 'luisa.'; If you wish to use other components of luisa, import their name from luisa beforehand.")
+        raise NameError("Do not use module in luisa.func If you wish to use builtin functions, don't prefix them with 'luisa.'; If you wish to use other members of luisa, import their name from luisa beforehand.")
     if type(val).__name__ == "module":
-        raise NameError("Do not use module in kernel/callable. If you wish to use its members, import their name from the module beforehand.")
+        raise NameError("Do not use module in luisa.func If you wish to use its members, import their name from the module beforehand.")
     if type(val) is str:
         return str
     if type(val) in basic_type_dict:
@@ -96,9 +94,10 @@ def dtype_of(val):
         return type(val)
     if type(val).__name__ == "Accel":
         return type(val)
-    if type(val).__name__ == "kernel":
-        assert val.is_device_callable
+    if type(val).__name__ == "func":
         return CallableType
+    if type(val).__name__ == "BuiltinFuncBuilder":
+        return type(val)
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
     if type(val).__name__ in {"ArrayType", "StructType", "BufferType"} or val in basic_type_dict:
@@ -115,7 +114,7 @@ def to_lctype(dtype):
         return lcapi.Type.from_("accel")
     if dtype in basic_type_dict:
         return basic_type_dict[dtype]
-    raise Exception(f"to_lctype({dtype}): unrecognized type")
+    raise TypeError(f"{dtype} is not a valid data type")
 
 def from_lctype(lctype):
     if lctype in basic_lctype_dict:
@@ -147,7 +146,7 @@ def from_lctype(lctype):
 #     float4x4 = lcapi.Type.from_("matrix<4>")
 
 def is_vector_type(dtype):
-    for x in {
+    return dtype in {
         lcapi.int2,
         lcapi.uint2,
         lcapi.bool2,
@@ -160,7 +159,4 @@ def is_vector_type(dtype):
         lcapi.uint4,
         lcapi.bool4,
         lcapi.float4
-    }:
-        if dtype is x:
-            return True
-    return False
+    }
