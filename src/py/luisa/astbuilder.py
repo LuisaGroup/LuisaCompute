@@ -3,7 +3,7 @@ import astpretty
 import inspect
 import sys
 import traceback
-from types import SimpleNamespace
+from types import SimpleNamespace, ModuleType
 from .types import from_lctype
 from . import globalvars
 import lcapi
@@ -108,8 +108,11 @@ class ASTVisitor:
         build(node.func)
         for x in node.args:
             build(x)
-        # if it's a method, call with self (the object)
-        args = [node.func.value] + node.args if type(node.func) is ast.Attribute else node.args
+        # if it's called as method, call with self (the object)
+        if type(node.func) is ast.Attribute and getattr(node.func, 'calling_method', False):
+            args = [node.func.value] + node.args 
+        else:
+            args = node.args
         # custom function
         if node.func.dtype is CallableType:
             node.dtype, node.expr = callable_call(node.func.expr, args)
@@ -129,7 +132,6 @@ class ASTVisitor:
     @staticmethod
     def build_Attribute(node):
         build(node.value)
-        node.lr = node.value.lr
         # vector swizzle
         if is_vector_type(node.value.dtype):
             if is_swizzle_name(node.attr):
@@ -138,24 +140,32 @@ class ASTVisitor:
                 swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.dtype = get_swizzle_resulttype(node.value.dtype, swizzle_size)
                 node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
+                node.lr = 'l' if swizzle_size==1 else 'r'
             else:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
         # struct member
         elif type(node.value.dtype) is StructType:
-            if node.attr not in node.value.dtype.idx_dict:
-                raise AttributeError(f"struct {node.value.dtype} has no attribute '{node.attr}'")
-            idx = node.value.dtype.idx_dict[node.attr]
-            node.dtype = node.value.dtype.membertype[idx]
-            if node.dtype == CallableType: # method
-                node.expr = node.value.dtype.method_dict[node.attr]
-            else: # data member
+            if node.attr in node.value.dtype.idx_dict: # data member
+                idx = node.value.dtype.idx_dict[node.attr]
+                node.dtype = node.value.dtype.membertype[idx]
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
+                node.lr = node.value.lr
+            elif node.attr in node.value.dtype.method_dict: # struct method
+                node.dtype = CallableType
+                node.calling_method = True
+                node.expr = node.value.dtype.method_dict[node.attr]
+            else:
+                raise AttributeError(f"struct {node.value.dtype} has no attribute '{node.attr}'")
+        elif node.value.dtype is ModuleType:
+            node.dtype, node.expr, node.lr = build.captured_expr(getattr(node.value.expr, node.attr))
         elif hasattr(node.value.dtype, node.attr):
             entry = getattr(node.value.dtype, node.attr)
             if type(entry).__name__ == "func":
                 node.dtype, node.expr = CallableType, entry
+                node.calling_method = True
             elif type(entry) is BuiltinFuncBuilder:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry
+                node.calling_method = True
             else:
                 raise TypeError(f"Can't access member {entry} in luisa func")
         else:
@@ -183,6 +193,8 @@ class ASTVisitor:
     @staticmethod
     def captured_expr(val):
         dtype = dtype_of(val)
+        if dtype == ModuleType:
+            return dtype, val, None
         if dtype == type:
             return dtype, val, None
         if dtype == CallableType:
@@ -214,7 +226,7 @@ class ASTVisitor:
             expr = lcapi.builder().local(lctype)
             for idx,x in enumerate(val.values):
                 lhs = lcapi.builder().member(to_lctype(dtype.membertype[idx]), expr, idx)
-                rhs = captured_expr(x)
+                rhs = build.captured_expr(x)
                 assert rhs.dtype == dtype.membertype[idx]
                 lcapi.builder().assign(lhs, rhs.expr)
             return dtype, expr, 'r'

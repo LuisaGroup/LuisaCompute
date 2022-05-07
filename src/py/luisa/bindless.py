@@ -13,6 +13,18 @@ class BindlessArray:
     def __init__(self, n_slots = 65536):
         self.handle = device().impl().create_bindless_array(n_slots)
 
+    @staticmethod
+    def bindless_array(dic):
+        arr = BindlessArray.empty()
+        for i in dic:
+            arr.emplace(i, dic[i])
+        arr.update()
+        return arr
+
+    @staticmethod
+    def empty():
+        return BindlessArray()
+
     def emplace(self, idx, res):
         if type(res) is Buffer:
             device().impl().emplace_buffer_in_bindless_array(self.handle, idx, res.handle, 0)
@@ -63,4 +75,4 @@ class BindlessArray:
     def texture2d_size(self, texture2d_index: int):
         return int2(_builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index))
 
-
+bindless_array = BindlessArray.bindless_array

@@ -1,4 +1,4 @@
-from . import func, StructType, int3, ref
+from . import func, StructType, int3, float2, float3
 
 RandomSampler = StructType(state=int)
 
@@ -24,3 +24,13 @@ def _f(self):
     self.state = lcg_a * self.state + lcg_c
     return float(self.state & 0x00ffffff) * (1.0 / 0x01000000)
 RandomSampler.add_method("next", _f)
+
+@func
+def _f(self):
+    return float2(self.next(), self.next())
+RandomSampler.add_method("next2f", _f)
+
+@func
+def _f(self):
+    return float3(self.next(), self.next(), self.next())
+RandomSampler.add_method("next3f", _f)
