@@ -20,6 +20,15 @@ class Buffer:
         self.handle = get_global_device().impl().create_buffer(self.bytesize)
 
     @staticmethod
+    def buffer(arr):
+        if type(arr).__name__ == "ndarray":
+            return Buffer.from_array(arr)
+        elif type(arr) == list:
+            return Buffer.from_list(arr)
+        else:
+            raise TypeError(f"buffer from unrecognized type: {type(arr)}")
+        
+    @staticmethod
     def empty(size, dtype):
         return Buffer(size, dtype)
 
@@ -120,14 +129,6 @@ class Buffer:
         stream.add(dlcmd)
         if sync:
             stream.synchronize()
-
-def buffer(arr):
-    if type(arr).__name__ == "ndarray":
-        return Buffer.from_array(arr)
-    elif type(arr) == list:
-        return Buffer.from_list(arr)
-    else:
-        raise TypeError(f"buffer from unrecognized type: {type(arr)}")
 
 
 
