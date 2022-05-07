@@ -20,9 +20,9 @@ meshes = [[0,1,2,0,2,3], [4,5,6,4,6,7], [3,2,6,3,6,5], [2,1,7,2,7,6], [0,3,5,0,5
 
 white, red, green = float3(0.725, 0.71, 0.68), float3(0.63, 0.065, 0.05), float3(0.14, 0.45, 0.091)
 materials = [white, white, white, green, red, white, white, white]
-camera_pos = make_float3(-0.01, 0.995, 5.0)
-fov = 27.8 / 180 * pi
+camera_pos = float3(-0.01, 0.995, 5.0)
 
+# copy scene info to device
 luisa.init()
 vertex_buffer = luisa.buffer(vertices)
 material_buffer = luisa.buffer(materials)
@@ -30,11 +30,7 @@ triangle_buffers = list(map(luisa.buffer, meshes))
 triangle_buffer_table = luisa.bindless_array({i:buf for i,buf in enumerate(triangle_buffers)})
 accel = luisa.accel([luisa.Mesh(vertex_buffer, t) for t in triangle_buffers])
 
-@luisa.func
-def camera_ray(pixel):
-    p = camera_pos + make_float3(pixel * tan(0.5 * fov), -1.0)
-    return make_ray(camera_pos, normalize(p - camera_pos), 0.0, 1e30)
-
+# sample reflected direction from diffuse surface
 @luisa.func
 def cosine_sample_hemisphere(u, N):
     bN = normalize(select(float3(0.0, -N.z, N.y), float3(-N.y, N.x, 0.0), abs(N.x) > abs(N.z)))
@@ -47,13 +43,15 @@ def cosine_sample_hemisphere(u, N):
 def path_tracer(accum_image, frame_id, resolution):
     coord = dispatch_id().xy
     sampler = luisa.RandomSampler(int3(coord, frame_id)) # builtin RNG; the sobol sampler can be used instead to improve convergence
+    # generate ray from camera
     pixel = 2.0 / resolution * (float2(coord) + sampler.next2f()) - 1.0
-    ray = camera_ray(pixel * float2(1.0, -1.0))
+    targ = camera_pos + float3(0.247 * pixel * float2(1.0, -1.0), -1.0)
+    ray = make_ray(camera_pos, normalize(targ - camera_pos), 0.0, 1e30)
 
-    radiance = make_float3(0.0)
-    beta = make_float3(1.0)
+    radiance = float3(0.0)
+    beta = float3(1.0)
 
-    light_emission = make_float3(17.0, 12.0, 4.0)
+    light_emission = float3(17.0, 12.0, 4.0)
     light_position = float3(-0.24, 1.98, 0.16)
     light_u = float3(0, 0, -0.38)
     light_v = float3(0.47, 0, 0)
@@ -65,6 +63,7 @@ def path_tracer(accum_image, frame_id, resolution):
         hit = accel.trace_closest(ray)
         if hit.miss():
             break
+        # fetch hit triangle info
         v0_id = triangle_buffer_table.buffer_read(int, hit.inst, hit.prim * 3 + 0)
         v1_id = triangle_buffer_table.buffer_read(int, hit.inst, hit.prim * 3 + 1)
         v2_id = triangle_buffer_table.buffer_read(int, hit.inst, hit.prim * 3 + 2)
@@ -78,29 +77,36 @@ def path_tracer(accum_image, frame_id, resolution):
             break
         albedo = material_buffer.read(hit.inst)
 
-        if hit.inst == 7: # hit light
+        # hit light
+        if hit.inst == 7:
             if depth == 0: # light is directly visible
                 radiance += light_emission
             break
 
         # sample light
         p_light = light_position + sampler.next() * light_u + sampler.next() * light_v
-
-        # use eps to avoid self-intersection. or better, use offset_ray_origin(p,n)
         d_light = length(p - p_light)
         wi_light = normalize(p_light - p)
+        # use eps to avoid self-intersection. or better, use offset_ray_origin(p,n)
         occluded = accel.trace_any(make_ray(p, wi_light, 1e-4, d_light - 2e-4))
         cos_wi_light = dot(wi_light, n)
         cos_light = -dot(light_normal, wi_light)
 
+        # compute direct lighting
         if not occluded and cos_wi_light > 1e-4 and cos_light > 1e-4:
             pdf_light = d_light ** 2 / (light_area * cos_light)
             bsdf = 1 / pi * albedo * cos_wi_light
             radiance += beta * bsdf * light_emission / max(pdf_light, 1e-4)
 
-        # sample BSDF
+        # sample BSDF; continue loop to compute indirect lighting
         ray = make_ray(p, cosine_sample_hemisphere(sampler.next2f(), n), 1e-4, 1e30)
         beta *= albedo
+
+        # Russian roulette
+        l = dot(float3(0.212671, 0.715160, 0.072169), beta)
+        if sampler.next() >= l:
+            break
+        beta *= 1.0 / l
 
     accum_image.write(coord, accum_image.read(coord) + float4(clamp(radiance, 0.0, 30.0), 1.0))
 
@@ -114,6 +120,7 @@ res = 1024, 1024
 accum_image = luisa.Texture2D.zeros(*res, 4, float)
 final_image = luisa.Texture2D.empty(*res, 4, float)
 
+# compute & display the progressively converging image in a window
 frame_id = 0
 gui = luisa.GUI("Cornel Box", resolution=res)
 while gui.running():
@@ -124,4 +131,5 @@ while gui.running():
         gui.set_image(final_image)
         gui.show()
 
+# save image when window is closed
 Image.fromarray(final_image.to(luisa.PixelStorage.BYTE4).numpy()).save("cornell.png")
