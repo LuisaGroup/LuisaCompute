@@ -199,7 +199,7 @@ int main(int argc, char *argv[]) {
 
     using namespace std::string_literals;
     using namespace std::string_view_literals;
-    luisa::unordered_set<std::string, string_hash> s{"hello"s, "world"s};
+    luisa::unordered_set<std::string> s{"hello"s, "world"s};
     LUISA_INFO("Present: {}", s.contains("hello"));
     LUISA_INFO("Present: {}", s.contains("world"sv));
 }
