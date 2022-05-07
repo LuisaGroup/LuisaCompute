@@ -142,14 +142,15 @@ class ASTVisitor:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
         # struct member
         elif type(node.value.dtype) is StructType:
-            if node.attr not in node.value.dtype.idx_dict:
-                raise AttributeError(f"struct {node.value.dtype} has no attribute '{node.attr}'")
-            idx = node.value.dtype.idx_dict[node.attr]
-            node.dtype = node.value.dtype.membertype[idx]
-            if node.dtype == CallableType: # method
-                node.expr = node.value.dtype.method_dict[node.attr]
-            else: # data member
+            if node.attr in node.value.dtype.idx_dict: # data member
+                idx = node.value.dtype.idx_dict[node.attr]
+                node.dtype = node.value.dtype.membertype[idx]
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
+            elif node.attr in node.value.dtype.method_dict: # struct method
+                node.dtype = CallableType
+                node.expr = node.value.dtype.method_dict[node.attr]
+            else:
+                raise AttributeError(f"struct {node.value.dtype} has no attribute '{node.attr}'")
         elif hasattr(node.value.dtype, node.attr):
             entry = getattr(node.value.dtype, node.attr)
             if type(entry).__name__ == "func":

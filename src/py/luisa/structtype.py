@@ -86,8 +86,6 @@ class StructType:
         if name in self.idx_dict:
             raise NameError("struct method can't have same name as its data members")
         # add method to structtype
-        self.idx_dict[name] = len(self.membertype)
-        self.membertype.append(dtype_of(func))
         self.method_dict[name] = func
 
 
