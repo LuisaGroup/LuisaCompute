@@ -51,6 +51,10 @@ class _Struct:
         assert len(packed_bytes) == self.structType.luisa_type.size()
         return packed_bytes
 
+    def __repr__(self):
+        idd = self.structType.idx_dict
+        return '{' + ','.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
+
 
 
 class StructType:
