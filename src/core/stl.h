@@ -8,6 +8,8 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <fmt/format.h>
 
@@ -40,6 +42,8 @@
 #include <absl/container/flat_hash_set.h>
 #include <absl/container/btree_map.h>
 #include <absl/container/btree_set.h>
+#include <absl/container/node_hash_map.h>
+#include <absl/container/node_hash_set.h>
 
 #include <core/dll_export.h>
 #include <core/hash.h>
@@ -125,17 +129,23 @@ using eastl::variant;
 using eastl::variant_alternative_t;
 using eastl::variant_size_v;
 
+#define LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
+
+#ifdef LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
 template<typename K, typename V,
          typename Hash = Hash64,
-         typename Eq = absl::container_internal::hash_default_eq<K>,
+         typename Eq = std::equal_to<>,
          typename Allocator = luisa::allocator<std::pair<const K, V>>>
 using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
-
 template<typename K,
          typename Hash = Hash64,
-         typename Eq = absl::container_internal::hash_default_eq<K>,
+         typename Eq = std::equal_to<>,
          typename Allocator = luisa::allocator<const K>>
 using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
+#else
+using std::unordered_map;
+using std::unordered_set;
+#endif
 
 template<typename K, typename V,
          typename Compare = std::less<K>,
