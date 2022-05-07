@@ -75,4 +75,4 @@ class BindlessArray:
     def texture2d_size(self, texture2d_index: int):
         return int2(_builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index))
 
-
+bindless_array = BindlessArray.bindless_array
