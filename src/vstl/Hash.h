@@ -7,20 +7,20 @@
 
 #include <core/hash.h>
 
-[[nodiscard]] inline uint64_t vstd_xxhash_gethash(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
-    return luisa::detail::xxh3_hash64(data, size, seed);
+[[nodiscard]] inline uint64_t vstd_gethash(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
+    return luisa::detail::murmur2_hash64(data, size, seed);
 }
 
-[[nodiscard]] inline uint64_t vstd_xxhash_gethash_small(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
-    return vstd_xxhash_gethash(data, size, seed);
+[[nodiscard]] inline uint64_t vstd_gethash_small(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
+    return vstd_gethash(data, size, seed);
 }
 
 
-//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash(void const* ptr, size_t sz);
-//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_seed(void const* ptr, size_t sz, size_t seed);
+//VENGINE_C_FUNC_COMMON size_t vstd_gethash(void const* ptr, size_t sz);
+//VENGINE_C_FUNC_COMMON size_t vstd_gethash_seed(void const* ptr, size_t sz, size_t seed);
 //Size must less than 32 in x64
-//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small(void const* ptr, size_t sz);
-//VENGINE_C_FUNC_COMMON size_t vstd_xxhash_gethash_small_seed(void const* ptr, size_t sz, size_t seed);
+//VENGINE_C_FUNC_COMMON size_t vstd_gethash_small(void const* ptr, size_t sz);
+//VENGINE_C_FUNC_COMMON size_t vstd_gethash_small_seed(void const* ptr, size_t sz, size_t seed);
 
 namespace vstd {
 template<typename K>
@@ -39,7 +39,7 @@ public:
 	static size_t CharArrayHash(
 		const void* First,
 		const size_t Count) noexcept {// accumulate range [_First, First + Count) into partial FNV-1a hash Val
-		return vstd_xxhash_gethash(First, Count);
+		return vstd_gethash(First, Count);
 	}
 	template<typename... T>
 	static size_t MultipleHash(T const&... values) {
@@ -60,7 +60,7 @@ template<typename K>
 struct hash {
 	size_t operator()(K const& value) const noexcept {
 		if constexpr (sizeof(K) < (sizeof(size_t) / 2)) {
-			return vstd_xxhash_gethash_small(&value, sizeof(K));
+			return vstd_gethash_small(&value, sizeof(K));
 		} else {
 			return Hash::CharArrayHash(&value, sizeof(K));
 		}

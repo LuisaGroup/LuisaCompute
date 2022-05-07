@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/hash.h"
 #include <core/stl.h>
 #include <ast/interface.h>
 
@@ -17,9 +18,9 @@ public:
     };
 
     using VariableSet = luisa::unordered_set<Variable, VariableHash>;
-    using ScopeSet = luisa::unordered_set<const ScopeStmt *>;
+    using ScopeSet = luisa::unordered_set<const ScopeStmt *, PointerHash>;
     using VariableScopeMap = luisa::unordered_map<Variable, ScopeSet, VariableHash>;
-    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet>;
+    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet, PointerHash>;
 
     class ScopeRecord {
 
