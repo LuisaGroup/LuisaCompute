@@ -6,8 +6,8 @@ from .func import func
 from .mathtypes import *
 from .arraytype import ArrayType
 from .structtype import StructType
-from .buffer import Buffer, BufferType
-from .texture2d import Texture2D, Texture2DType
+from .buffer import buffer, Buffer, BufferType
+from .texture2d import texture2d, Texture2D, Texture2DType
 from lcapi import PixelStorage
 
 from .printer import Printer
