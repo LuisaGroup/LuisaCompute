@@ -6,9 +6,37 @@
 namespace py = pybind11;
 using namespace luisa::compute;
 
+#define LUISA_EXPORT_ARITHMETIC_OP(T) \
+    m##T \
+        .def("__add__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a + b; }, py::is_operator()) \
+        .def("__add__", [](const Vector<T,3>&a, const T&b) { return a + b; }, py::is_operator())           \
+        .def("__radd__", [](const Vector<T,3>&a, const T&b) { return a + b; }, py::is_operator())           \
+        .def("__sub__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a - b; }, py::is_operator()) \
+        .def("__sub__", [](const Vector<T,3>&a, const T&b) { return a - b; }, py::is_operator()) \
+        .def("__rsub__", [](const Vector<T,3>&a, const T&b) { return b - a; }, py::is_operator()) \
+        .def("__mul__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a * b; }, py::is_operator()) \
+        .def("__mul__", [](const Vector<T,3>&a, const T&b) { return a * b; }, py::is_operator()) \
+        .def("__rmul__", [](const Vector<T,3>&a, const T&b) { return a * b; }, py::is_operator()) \
+        .def("__truediv__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a / b; }, py::is_operator()) \
+        .def("__truediv__", [](const Vector<T,3>&a, const T&b) { return a / b; }, py::is_operator()) \
+        .def("__rtruediv__", [](const Vector<T,3>&a, const T&b) { return b / a; }, py::is_operator()) \
+        ;
+
+#define LUISA_EXPORT_INT_OP(T) \
+    m##T \
+        .def("__mod__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a % b; }, py::is_operator()) \
+        .def("__mod__", [](const Vector<T,3>&a, const T&b) { return a % b; }, py::is_operator()) \
+        .def("__rmod__", [](const Vector<T,3>&a, const T&b) { return b % a; }, py::is_operator()) \
+        ;
+
+#define LUISA_EXPORT_FLOAT_OP(T) \
+    m##T                    \
+        .def("__pow__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return luisa::pow(a, b); }, py::is_operator());
+
+
 #define LUISA_EXPORT_VECTOR3(T) \
     py::class_<luisa::detail::VectorStorage<T, 3>>(m, "_vectorstorage_"#T"3"); \
-    py::class_<Vector<T,3>, luisa::detail::VectorStorage<T, 3>>(m, #T"3") \
+    auto m##T = py::class_<Vector<T,3>, luisa::detail::VectorStorage<T, 3>>(m, #T"3") \
     	.def(py::init<T>()) \
     	.def(py::init<T,T,T>()) \
     	.def(py::init<Vector<T,3>>()) \
@@ -143,4 +171,10 @@ void export_vector3(py::module &m) {
 	LUISA_EXPORT_VECTOR3(uint)
 	LUISA_EXPORT_VECTOR3(int)
 	LUISA_EXPORT_VECTOR3(float)
+    LUISA_EXPORT_ARITHMETIC_OP(uint)
+    LUISA_EXPORT_ARITHMETIC_OP(int)
+    LUISA_EXPORT_ARITHMETIC_OP(float)
+    LUISA_EXPORT_INT_OP(uint)
+    LUISA_EXPORT_INT_OP(int)
+    LUISA_EXPORT_FLOAT_OP(float)
 }
