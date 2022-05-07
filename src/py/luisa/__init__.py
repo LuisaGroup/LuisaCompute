@@ -14,6 +14,7 @@ from .gui import GUI
 from .printer import Printer
 from .accel import accel, Ray, Hit, Accel, Mesh
 from .bindless import bindless_array, BindlessArray
+from .util import RandomSampler
 
 from lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
 from os.path import realpath
