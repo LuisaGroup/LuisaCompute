@@ -135,12 +135,17 @@ class Mesh:
     def __init__(self, vertices, triangles):
         assert vertices.dtype == float3
         assert triangles.dtype == int and triangles.size%3==0
+        self.vertices = vertices
+        self.triangles = triangles
         # TODO: support buffer of structs or arrays
         self.handle = get_global_device().impl().create_mesh(
-            vertices.handle, 0, 16, vertices.size,
-            triangles.handle, 0, triangles.size//3,
+            self.vertices.handle, 0, 16, self.vertices.size,
+            self.triangles.handle, 0, self.triangles.size//3,
             lcapi.AccelUsageHint.FAST_TRACE)
+        self.build()
+        
+    def build(self):
         globalvars.stream.add(lcapi.MeshBuildCommand.create(
             self.handle, lcapi.AccelBuildRequest.PREFER_UPDATE,
-            vertices.handle, 0, vertices.size,
-            triangles.handle, 0, triangles.size//3))
+            self.vertices.handle, 0, self.vertices.size,
+            self.triangles.handle, 0, self.triangles.size//3))
