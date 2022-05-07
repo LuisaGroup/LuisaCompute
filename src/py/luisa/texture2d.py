@@ -45,33 +45,29 @@ class Texture2D:
     def empty(width, height, channel, dtype, storage = None):
         return Texture2D(width, height, channel, dtype, storage)
 
-    @staticmethod
-    @cache
-    def get_fill_kernel(value):
-        @func
-        def fill(tex):
-            tex.write(dispatch_id().xy, value)
-        return fill
+    @func
+    def fill_kernel(tex, value):
+        tex.write(dispatch_id().xy, value)
 
     @staticmethod
     def zeros(width, height, channel, dtype, storage = None):
         tex = Texture2D.empty(width, height, channel, dtype, storage)
         val = tex.vectype(0)
-        Texture2D.get_fill_kernel(val)(tex, dispatch_size=(width,height,1))
+        Texture2D.fill_kernel(tex, val, dispatch_size=(width,height,1))
         return tex
 
     @staticmethod
     def ones(width, height, channel, dtype, storage = None):
         tex = Texture2D.empty(width, height, channel, dtype, storage)
         val = tex.vectype(1)
-        Texture2D.get_fill_kernel(val)(tex, dispatch_size=(width,height,1))
+        Texture2D.fill_kernel(tex, val, dispatch_size=(width,height,1))
         return tex
 
     @staticmethod
     def filled(width, height, channel, dtype, val, storage = None): # TODO deduce dtype
         tex = Texture2D.empty(width, height, channel, dtype, storage)
         assert dtype_of(val) == tex.vectype
-        Texture2D.get_fill_kernel(val)(tex, dispatch_size=(width,height,1))
+        Texture2D.fill_kernel(tex, val, dispatch_size=(width,height,1))
         return tex
 
     @staticmethod
