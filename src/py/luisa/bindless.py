@@ -13,6 +13,18 @@ class BindlessArray:
     def __init__(self, n_slots = 65536):
         self.handle = device().impl().create_bindless_array(n_slots)
 
+    @staticmethod
+    def bindless_array(dic):
+        arr = BindlessArray.empty()
+        for i in dic:
+            arr.emplace(i, dic[i])
+        arr.update()
+        return arr
+
+    @staticmethod
+    def empty():
+        return BindlessArray()
+
     def emplace(self, idx, res):
         if type(res) is Buffer:
             device().impl().emplace_buffer_in_bindless_array(self.handle, idx, res.handle, 0)

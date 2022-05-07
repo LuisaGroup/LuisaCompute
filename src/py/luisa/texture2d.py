@@ -35,6 +35,13 @@ class Texture2D:
         self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, 1)
 
     @staticmethod
+    def texture2d(arr):
+        if type(arr).__name__ == "ndarray":
+            return Texture2D.from_array(arr)
+        else:
+            raise TypeError(f"Texture2D from unrecognized type: {type(arr)}")
+
+    @staticmethod
     def empty(width, height, channel, dtype, storage = None):
         return Texture2D(width, height, channel, dtype, storage)
 
@@ -96,12 +103,6 @@ class Texture2D:
         if sync:
             stream.synchronize()
 
-
-def texture2d(arr):
-    if type(arr).__name__ == "ndarray":
-        return Texture2D.from_array(arr)
-    else:
-        raise TypeError(f"Texture2D from unrecognized type: {type(arr)}")
 
 
 class Texture2DType:

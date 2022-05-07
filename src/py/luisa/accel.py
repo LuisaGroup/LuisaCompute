@@ -99,6 +99,18 @@ class Accel:
         self._accel = get_global_device().create_accel(lcapi.AccelUsageHint.FAST_TRACE)
         self.handle = self._accel.handle()
 
+    @staticmethod
+    def accel(list):
+        acc = Accel.empty()
+        for mesh in list:
+            acc.add(mesh)
+        acc.build()
+        return acc
+
+    @staticmethod
+    def empty():
+        return Accel()
+
     def add(self, mesh, transform = float4x4.identity(), visible = True):
         self._accel.emplace_back(mesh.handle, transform, visible)
 
@@ -143,7 +155,7 @@ class Mesh:
             self.triangles.handle, 0, self.triangles.size//3,
             lcapi.AccelUsageHint.FAST_TRACE)
         self.build()
-        
+
     def build(self):
         globalvars.stream.add(lcapi.MeshBuildCommand.create(
             self.handle, lcapi.AccelBuildRequest.PREFER_UPDATE,
