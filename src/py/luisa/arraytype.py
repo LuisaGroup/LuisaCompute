@@ -6,7 +6,7 @@ class _Array:
         self.arrayType = arrayType
         if type(arg) is _Array:
             assert arrayType == arg.arrayType
-            self.values = arr.values.copy()
+            self.values = arg.values.copy()
         else:
             assert len(arg) == arrayType.size
             for x in arg:

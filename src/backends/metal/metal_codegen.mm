@@ -497,7 +497,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                     _scratch << "access a";
                     _emit_variable_name(arg);
                     _scratch << ", ";
-                } else if (arg.tag() == Variable::Tag::REFERENCE) {
+                } else if (arg.tag() == Variable::Tag::REFERENCE &&
+                           (f.variable_usage(arg.uid()) == Usage::WRITE ||
+                            f.variable_usage(arg.uid()) == Usage::READ_WRITE)) {
                     _scratch << "typename T" << arg.uid() << ", ";
                 }
             }
@@ -543,9 +545,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         }
     }
     // emit body
-    _scratch << "\n";
     _emit_declarations(f.body());
-    _scratch << "\n";
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 }

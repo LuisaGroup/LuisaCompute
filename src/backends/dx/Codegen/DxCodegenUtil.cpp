@@ -441,10 +441,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::ANY:
             str << "any"sv;
             break;
-        case CallOp::SELECT: {
-            auto type = args[2]->type();
-            str << "_select"sv;
-        } break;
+        case CallOp::SELECT:
+             str << "_select"sv;
+             break;
         case CallOp::CLAMP:
             str << "clamp"sv;
             break;
@@ -986,10 +985,10 @@ if(any(dspId >= a.dsp_c)) return;
     }
     //opt->analyzer.reset();
     //opt->analyzer.analyze(func);
-    opt->allVariables.clear();
-    StringStateVisitor vis(func, result, opt->analyzer);
+    // opt->allVariables.clear();
+    StringStateVisitor vis(func, result);
     vis.sharedVariables = &opt->sharedVariable;
-    vis.variableSet = &opt->allVariables;
+    // vis.variableSet = &opt->allVariables;
     func.body()->accept(vis);
     result << "}\n"sv;
 }

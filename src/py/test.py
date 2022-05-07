@@ -6,28 +6,25 @@ from luisa.util import RandomSampler
 
 luisa.init()
 # ============= test script ================
-arr = luisa.BindlessArray()
+# arr = luisa.BindlessArray()
 
 @luisa.func
-def f(a):
-    x1 = b.read(dispatch_id().x)
-    # b.write(dispatch_id().x, 0.1)
-    b.write(dispatch_id().x, 123)
-    print("!!!!", b.read(dispatch_id().x))
-    tex.write(dispatch_id().xy, tex.read(dispatch_id().xy) + float4(1))
+def f():
+    pass
+
+# f( dispatch_size=(1,1,1))
+
+b = luisa.Buffer(100, int)
+b.copy_from([x for x in range(100)])
+arr = np.empty(100, dtype=np.int32)
+b.copy_to(arr)
+print(arr)
 
 
-# f(1, dispatch_size=(2,1,1))
-
-@luisa.func
-def test_rand():
-    sampler = RandomSampler(int3(0,0,0))
-    print(sampler.next())
-    print(sampler.next())
-    print(sampler.next())
 
 
-test_rand(dispatch_size=(1,1,1))
+
+# test_rand(dispatch_size=(1,1,1))
 
 
 

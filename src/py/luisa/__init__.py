@@ -8,23 +8,26 @@ from .arraytype import ArrayType
 from .structtype import StructType
 from .buffer import Buffer, BufferType
 from .texture2d import Texture2D, Texture2DType
-# from lcapi import PixelStorage
+from lcapi import PixelStorage
 
 from .printer import Printer
-# from .accel import Ray, Hit, Accel, Mesh
-# from .bindless import BindlessArray
+from .accel import Ray, Hit, Accel, Mesh
+from .bindless import BindlessArray
 
 from lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
+from os.path import realpath
 
 
 def init(backend_name = None):
-    globalvars.context = lcapi.Context(lcapi.FsPath("."))
+    globalvars.context = lcapi.Context(lcapi.FsPath(realpath(lcapi.__file__)))
     # auto select backend if not specified
+    backends = globalvars.context.installed_backends()
+    assert len(backends) > 0
     if backend_name == None:
-        backends = globalvars.context.installed_backends()
-        assert len(backends) > 0
-        print("detected backends:", backends, "selecting first one.")
+        print(f"detected backends: {backends}. Selecting {backends[0]}.")
         backend_name = backends[0]
+    elif backend_name not in backends:
+        raise NameError(f"backend '{backend_name}' is not installed.")
     globalvars.device = globalvars.context.create_device(backend_name)
     globalvars.stream = globalvars.device.create_stream()
     globalvars.printer = Printer()
