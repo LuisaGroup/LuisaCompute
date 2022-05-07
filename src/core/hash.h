@@ -5,6 +5,8 @@
 #pragma once
 
 #include <memory>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <type_traits>
