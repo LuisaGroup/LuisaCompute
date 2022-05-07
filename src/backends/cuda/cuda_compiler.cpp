@@ -93,7 +93,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         luisa::string log;
         log.resize(log_size - 1);
         LUISA_CHECK_NVRTC(nvrtcGetProgramLog(prog, log.data()));
-        LUISA_INFO("Compile log:\n{}", log);
+        std::cerr << "Compile log:\n" << log << std::flush;
     }
     LUISA_CHECK_NVRTC(error);
 

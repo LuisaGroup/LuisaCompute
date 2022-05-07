@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2021/3/24.
 //
 
+#import <fstream>
+
 #import <core/clock.h>
 #import <runtime/context.h>
 #import <backends/metal/metal_codegen.h>
@@ -25,6 +27,13 @@ MetalShader MetalCompiler::compile(
     MetalCodegen codegen{scratch};
     codegen.emit(kernel);
 
+    // dump kernel source
+    {
+        auto file_name = luisa::format("func_{:016x}.metal", kernel.hash());
+        std::ofstream file{_device->context().cache_directory() / file_name};
+        file << scratch.view() << std::endl;
+    }
+
     // compile from source
     auto source = scratch.view();
     auto src = [[NSString alloc] initWithBytes:source.data()
@@ -39,11 +48,12 @@ MetalShader MetalCompiler::compile(
     auto library = [_device->handle() newLibraryWithSource:src options:options error:&error];
     if (error != nullptr) [[unlikely]] {
         auto error_msg = [error.description cStringUsingEncoding:NSUTF8StringEncoding];
-        LUISA_WARNING("Output while compiling kernel_{:016X}: {}", kernel.hash(), error_msg);
         if (library == nullptr || error.code == MTLLibraryErrorCompileFailure) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Failed to compile kernel_{:016X}.", kernel.hash());
+            LUISA_ERROR_WITH_LOCATION("Failed to compile kernel_{:016X}:\n{}", kernel.hash(), error_msg);
+        } else {
+            LUISA_WARNING("Output while compiling kernel_{:016X}:\n{}", kernel.hash(), error_msg);
+            error = nullptr;
         }
-        error = nullptr;
     }
 
     auto name = fmt::format("kernel_{:016X}", kernel.hash());

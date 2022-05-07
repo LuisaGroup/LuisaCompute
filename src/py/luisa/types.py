@@ -1,10 +1,17 @@
 import lcapi
 
+scalar_dtypes = (int, float, bool)
+arithmetic_dtypes = (int, float)
+scalar_lctypes = (lcapi.Type.from_("int"), lcapi.Type.from_("float"), lcapi.Type.from_("bool"))
+arithmetic_lctypes = (lcapi.Type.from_("int"), lcapi.Type.from_("float"))
+class uint:
+    pass
 
 basic_type_dict = {
     int: lcapi.Type.from_("int"),
     float: lcapi.Type.from_("float"),
     bool: lcapi.Type.from_("bool"),
+    uint: lcapi.Type.from_("uint"),
     lcapi.int2: lcapi.Type.from_("vector<int,2>"),
     lcapi.uint2: lcapi.Type.from_("vector<uint,2>"),
     lcapi.bool2: lcapi.Type.from_("vector<bool,2>"),
@@ -26,6 +33,7 @@ basic_lctype_dict = {
     lcapi.Type.from_("int") : int,
     lcapi.Type.from_("float") : float,
     lcapi.Type.from_("bool") : bool,
+    lcapi.Type.from_("uint") : uint,
     lcapi.Type.from_("vector<int,2>") : lcapi.int2,
     lcapi.Type.from_("vector<uint,2>") : lcapi.uint2,
     lcapi.Type.from_("vector<bool,2>") : lcapi.bool2,
@@ -56,8 +64,8 @@ class BuiltinFuncType:
 class BuiltinFuncBuilder:
     def __init__(self, builder):
         self.builder = builder
-    def __call__(self, *args):
-        raise TypeError("Builtin function can only be called in a luisa func")
+    def __call__(self, *args, DO_NOT_CALL):
+        pass
 
 class ref:
     def __init__(self, dtype):
@@ -138,7 +146,7 @@ def from_lctype(lctype):
 #     float4x4 = lcapi.Type.from_("matrix<4>")
 
 def is_vector_type(dtype):
-    for x in {
+    return dtype in {
         lcapi.int2,
         lcapi.uint2,
         lcapi.bool2,
@@ -151,7 +159,4 @@ def is_vector_type(dtype):
         lcapi.uint4,
         lcapi.bool4,
         lcapi.float4
-    }:
-        if dtype is x:
-            return True
-    return False
+    }

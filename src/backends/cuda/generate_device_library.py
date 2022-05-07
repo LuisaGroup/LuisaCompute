@@ -580,6 +580,12 @@ struct lc_float{i}x{i} {{
     asm("{  cvt.rn.f16.f32 %0, %1;}\\n" : "=h"(val) : "f"(x));
     return val;
 }
+
+template<typename D, typename S>
+[[nodiscard]] inline auto lc_bit_cast(S s) noexcept {
+    static_assert(sizeof(D) == sizeof(S));
+    return reinterpret_cast<const D &>(s);
+}
 """, file=file)
 
     def src2c(lib, postfix):
