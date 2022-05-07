@@ -81,7 +81,7 @@ void Accel::_emplace_back(uint64_t mesh_handle, float4x4 transform, bool visible
     modification.set_mesh(mesh_handle);
     modification.set_transform(transform);
     modification.set_visibility(visible);
-    _modifications[index] = modification;
+    _modifications.insert_or_assign(index, modification);
     _mesh_handles.emplace_back(mesh_handle);
 }
 
@@ -110,7 +110,7 @@ void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible
             modification.set_mesh(mesh.handle());
             _mesh_handles[index] = mesh.handle();
         }
-        _modifications[index] = modification;
+        _modifications.insert_or_assign(index, modification);
     }
 }
 

@@ -25,12 +25,11 @@ class GUI:
 
         dpg.draw_image("background", (0, 0), resolution, parent="viewport_draw")
 
-    def show(self):
+    def show(self, frames_in_flight=1):
         dpg.render_dearpygui_frame()
         if self.frame_rate == None:
             self.frame_rate = FrameRate(10)
-        else:
-            self.frame_rate.record()
+        self.frame_rate.record(frames_in_flight)
         dpg.configure_item('frame_rate_text', default_value=str(self.frame_rate.report()))
 
     def running(self):
