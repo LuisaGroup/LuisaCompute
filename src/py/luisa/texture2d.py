@@ -103,6 +103,29 @@ class Texture2D:
         if sync:
             stream.synchronize()
 
+    def numpy(self):
+        import numpy as np
+        pcf = str(self.storage).split('.')[-1][:-1] # BYTE4 -> BYTE
+        if self.dtype == float:
+            npf = {'BYTE': np.uint8, 'SHORT': np.uint16, 'HALF': np.half, 'FLOAT': np.float}[pcf]
+        else:
+            npf = {'BYTE': np.int8, 'SHORT': np.int16, 'INT': np.int32}[pcf]
+        arr = np.empty((self.width, self.height, self.channel), dtype=npf)
+        self.copy_to(arr, sync=True)
+        return arr
+
+    @func
+    def copy_kernel(tex1, tex2):
+        tex2.write(dispatch_id().xy, tex1.read(dispatch_id().xy))
+
+    def to(self, storage):
+        if lcapi.pixel_storage_channel_count(storage) != self.channel:
+            raise TypeError("pixel storage inconsistent with channel count")
+        tex = Texture2D.empty(self.width, self.height, self.channel, self.dtype, storage)
+        Texture2D.copy_kernel(self, tex, dispatch_size=(self.width, self.height, 1))
+        return tex
+
+
 texture2d = Texture2D.texture2d
 
 
