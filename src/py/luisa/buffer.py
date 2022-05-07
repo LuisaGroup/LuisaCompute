@@ -5,6 +5,7 @@ from .types import to_lctype, basic_type_dict, dtype_of
 from functools import cache
 from .func import func
 from .builtin import _builtin_call
+from .mathtypes import *
 
 class Buffer:
     def __init__(self, size, dtype):

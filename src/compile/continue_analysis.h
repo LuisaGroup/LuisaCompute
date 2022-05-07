@@ -12,7 +12,7 @@ namespace luisa::compute {
 class ContinueAnalysis final : public StmtVisitor {
 
 private:
-    luisa::unordered_map<const ContinueStmt *, const ScopeStmt *, PointerHash> _continue_scopes;
+    luisa::unordered_map<const ContinueStmt *, const ScopeStmt *> _continue_scopes;
     luisa::vector<const ScopeStmt *> _scope_stack;
 
 public:

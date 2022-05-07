@@ -18,9 +18,9 @@ public:
     };
 
     using VariableSet = luisa::unordered_set<Variable, VariableHash>;
-    using ScopeSet = luisa::unordered_set<const ScopeStmt *, PointerHash>;
+    using ScopeSet = luisa::unordered_set<const ScopeStmt *>;
     using VariableScopeMap = luisa::unordered_map<Variable, ScopeSet, VariableHash>;
-    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet, PointerHash>;
+    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet>;
 
     class ScopeRecord {
 

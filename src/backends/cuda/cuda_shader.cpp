@@ -126,7 +126,7 @@ private:
     mutable luisa::spin_mutex _mutex;
     mutable CUevent _sbt_event{};
     mutable OptixShaderBindingTable _sbt{};
-    mutable luisa::unordered_set<CUstream, PointerHash> _sbt_recoreded_streams;
+    mutable luisa::unordered_set<CUstream> _sbt_recoreded_streams;
 
 public:
     CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept
