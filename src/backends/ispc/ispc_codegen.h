@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/hash.h"
 #include <ast/function.h>
 #include <ast/statement.h>
 #include <ast/expression.h>
@@ -33,7 +34,7 @@ private:
     luisa::vector<uint64_t> _generated_constants;
     uint32_t _indent{0u};
     ContinueAnalysis _continue_analysis;
-    luisa::unordered_map<const ScopeStmt *, uint> _scope_labels;
+    luisa::unordered_map<const ScopeStmt *, uint, PointerHash> _scope_labels;
     DefinitionAnalysis _definition_analysis;
     DefinitionAnalysis::VariableSet _defined_variables;
 
