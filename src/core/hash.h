@@ -134,6 +134,12 @@ struct string_hash {
 template<>
 struct hash<const char *> : string_hash {};
 
+template<typename C, typename CT, typename Alloc>
+struct hash<std::basic_string<C, CT, Alloc>> : string_hash {};
+
+template<>
+struct hash<std::string_view> : string_hash {};
+
 template<typename T>
 struct hash<T *> : pointer_hash {};
 
