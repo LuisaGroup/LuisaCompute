@@ -83,7 +83,7 @@ class Texture2D:
         return tex
 
     def copy_from(self, arr, sync = False, stream = None):
-        return copy_from_array(self, arr, sync, stream)
+        return self.copy_from_array(self, arr, sync, stream)
 
     def copy_from_array(self, arr, sync = False, stream = None): # arr: numpy array
         if stream is None:
