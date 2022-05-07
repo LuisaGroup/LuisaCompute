@@ -132,7 +132,6 @@ class ASTVisitor:
     @staticmethod
     def build_Attribute(node):
         build(node.value)
-        node.lr = node.value.lr
         # vector swizzle
         if is_vector_type(node.value.dtype):
             if is_swizzle_name(node.attr):
@@ -141,6 +140,7 @@ class ASTVisitor:
                 swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.dtype = get_swizzle_resulttype(node.value.dtype, swizzle_size)
                 node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
+                node.lr = 'l' if swizzle_size==1 else 'r'
             else:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
         # struct member
@@ -149,6 +149,7 @@ class ASTVisitor:
                 idx = node.value.dtype.idx_dict[node.attr]
                 node.dtype = node.value.dtype.membertype[idx]
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
+                node.lr = node.value.lr
             elif node.attr in node.value.dtype.method_dict: # struct method
                 node.dtype = CallableType
                 node.calling_method = True
