@@ -73,7 +73,6 @@ struct allocator {
         return std::is_same_v<T, R>;
     }
 };
-
 template<typename T>
 [[nodiscard]] inline auto allocate(size_t n = 1u) noexcept {
     return allocator<T>{}.allocate(n);
@@ -97,6 +96,9 @@ inline void delete_with_allocator(T *p) noexcept {
     }
 }
 
+using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
+using std::string_view;
+
 using eastl::const_pointer_cast;
 using eastl::dynamic_pointer_cast;
 using eastl::enable_shared_from_this;
@@ -109,9 +111,6 @@ using eastl::shared_ptr;
 using eastl::static_pointer_cast;
 using eastl::unique_ptr;
 using eastl::weak_ptr;
-
-using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
-using std::string_view;
 
 using eastl::span;
 using eastl::vector;
@@ -133,12 +132,12 @@ using eastl::variant_size_v;
 
 #ifdef LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
 template<typename K, typename V,
-         typename Hash = Hash64,
+         typename Hash = hash<K>,
          typename Eq = std::equal_to<>,
          typename Allocator = luisa::allocator<std::pair<const K, V>>>
 using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
 template<typename K,
-         typename Hash = Hash64,
+         typename Hash = hash<K>,
          typename Eq = std::equal_to<>,
          typename Allocator = luisa::allocator<const K>>
 using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;

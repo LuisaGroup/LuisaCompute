@@ -93,7 +93,7 @@ while gui.running():
     path_tracer(accum_image, final_image, frame_id, res[0], dispatch_size=(*res, 1))
     frame_id += 1
     if frame_id % 16 == 0:
-        gui.set_image(final_image), gui.show()
+        gui.set_image(final_image), gui.show(frames_in_flight=16)
 
 # save image when window is closed
 Image.fromarray(final_image.to(luisa.PixelStorage.BYTE4).numpy()).save("cornell.png")

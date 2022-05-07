@@ -107,12 +107,44 @@ public:
     }
 };
 
-struct PointerHash {
+template<typename T>
+struct hash {
+    [[nodiscard]] uint64_t operator()(const T &t) const noexcept { return Hash64{}(t); }
+};
+
+struct pointer_hash {
     [[nodiscard]] uint64_t operator()(const void *p) const noexcept {
         auto x = reinterpret_cast<uint64_t>(p);
         return detail::murmur2_hash64(&x, sizeof(x), Hash64::default_seed);
     }
+    [[nodiscard]] uint64_t operator()(const volatile void *p) const noexcept {
+        auto x = reinterpret_cast<uint64_t>(p);
+        return detail::murmur2_hash64(&x, sizeof(x), Hash64::default_seed);
+    }
 };
+
+struct string_hash {
+    using is_transparent = void;// to enable heterogeneous lookup
+    template<typename C, typename CT, typename Alloc>
+    [[nodiscard]] uint64_t operator()(const std::basic_string<C, CT, Alloc> &s) const noexcept { return Hash64{}(s); }
+    [[nodiscard]] uint64_t operator()(std::string_view s) const noexcept { return Hash64{}(s); }
+    [[nodiscard]] uint64_t operator()(const char *s) const noexcept { return Hash64{}(s); }
+};
+
+template<>
+struct hash<const char *> : string_hash {};
+
+template<typename T>
+struct hash<T *> : pointer_hash {};
+
+template<typename T>
+struct hash<const T *> : pointer_hash {};
+
+template<typename T>
+struct hash<volatile T *> : pointer_hash {};
+
+template<typename T>
+struct hash<const volatile T *> : pointer_hash {};
 
 /// Calculate hash
 template<typename T>
