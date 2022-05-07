@@ -103,6 +103,7 @@ class Texture2D:
         if sync:
             stream.synchronize()
 
+texture2d = Texture2D.texture2d
 
 
 class Texture2DType:

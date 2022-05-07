@@ -6,17 +6,14 @@ from .func import func
 from .mathtypes import *
 from .arraytype import ArrayType
 from .structtype import StructType
-from .buffer import Buffer, BufferType
-from .buffer.Buffer import buffer
-from .texture2d import Texture2D, Texture2DType
-from .texture2d.Texture2D import texture2d
+from .buffer import buffer, Buffer, BufferType
+from .texture2d import texture2d, Texture2D, Texture2DType
 from lcapi import PixelStorage
+from .gui import GUI
 
 from .printer import Printer
-from .accel import Ray, Hit, Accel, Mesh
-from .accel.Accel import accel
-from .bindless import BindlessArray
-from .bindless.BindlessArray import bindless_array
+from .accel import accel, Ray, Hit, Accel, Mesh
+from .bindless import bindless_array, BindlessArray
 
 from lcapi import log_level_verbose, log_level_info, log_level_warning, log_level_error
 from os.path import realpath

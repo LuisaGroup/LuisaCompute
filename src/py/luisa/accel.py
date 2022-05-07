@@ -142,6 +142,8 @@ class Accel:
     def set_instance_visibility(self, instance_id: int, vis: bool):
         _builtin_call("SET_INSTANCE_VISIBILITY", self, instance_id, vis)
 
+accel = Accel.accel
+
 
 class Mesh:
     def __init__(self, vertices, triangles):

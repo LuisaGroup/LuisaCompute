@@ -27,7 +27,7 @@ class Buffer:
             return Buffer.from_list(arr)
         else:
             raise TypeError(f"buffer from unrecognized type: {type(arr)}")
-        
+
     @staticmethod
     def empty(size, dtype):
         return Buffer(size, dtype)
@@ -130,6 +130,7 @@ class Buffer:
         if sync:
             stream.synchronize()
 
+buffer = Buffer.buffer
 
 
 class BufferType:
