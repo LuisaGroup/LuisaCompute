@@ -143,9 +143,6 @@ PYBIND11_MODULE(lcapi, m) {
         // .def("default_")
         .def("for_", &FunctionBuilder::for_, pyref)
         // .def("meta") // unused
-
-        .def("push_scope", &FunctionBuilder::push_scope)
-        .def("pop_scope", &FunctionBuilder::pop_scope)
         .def("function", &FunctionBuilder::function); // returning object
     // current function builder
     m.def("builder", &FunctionBuilder::current, pyref);
@@ -162,7 +159,9 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<AccessExpr, Expression>(m, "AccessExpr");
     py::class_<CastExpr, Expression>(m, "CastExpr");
     // statement types
-    py::class_<ScopeStmt>(m, "ScopeStmt"); // not yet exporting base class (Statement)
+    py::class_<ScopeStmt>(m, "ScopeStmt") // not yet exporting base class (Statement)
+        .def("__enter__", [](ScopeStmt& self){FunctionBuilder::current()->push_scope(&self);})
+        .def("__exit__", [](ScopeStmt& self, py::object& e1, py::object& e2, py::object& tb){FunctionBuilder::current()->pop_scope(&self);});
     py::class_<IfStmt>(m, "IfStmt")
         .def("true_branch", py::overload_cast<>(&IfStmt::true_branch), pyref) // using overload_cast because there's also a const method variant
         .def("false_branch", py::overload_cast<>(&IfStmt::false_branch), pyref);

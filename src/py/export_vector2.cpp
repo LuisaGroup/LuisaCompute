@@ -1,18 +1,47 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
+#include <pybind11/operators.h>
 #include <luisa-compute.h>
+#include <dsl/builtin.h>
 
 namespace py = pybind11;
 using namespace luisa::compute;
 
+#define LUISA_EXPORT_ARITHMETIC_OP(T) \
+    m##T \
+        .def("__add__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a + b; }, py::is_operator()) \
+        .def("__add__", [](const Vector<T,2>&a, const T&b) { return a + b; }, py::is_operator())           \
+        .def("__radd__", [](const Vector<T,2>&a, const T&b) { return a + b; }, py::is_operator())           \
+        .def("__sub__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a - b; }, py::is_operator()) \
+        .def("__sub__", [](const Vector<T,2>&a, const T&b) { return a - b; }, py::is_operator()) \
+        .def("__rsub__", [](const Vector<T,2>&a, const T&b) { return b - a; }, py::is_operator()) \
+        .def("__mul__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a * b; }, py::is_operator()) \
+        .def("__mul__", [](const Vector<T,2>&a, const T&b) { return a * b; }, py::is_operator()) \
+        .def("__rmul__", [](const Vector<T,2>&a, const T&b) { return a * b; }, py::is_operator()) \
+        .def("__truediv__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a / b; }, py::is_operator()) \
+        .def("__truediv__", [](const Vector<T,2>&a, const T&b) { return a / b; }, py::is_operator()) \
+        .def("__rtruediv__", [](const Vector<T,2>&a, const T&b) { return b / a; }, py::is_operator()) \
+        ;
+
+#define LUISA_EXPORT_INT_OP(T) \
+    m##T \
+        .def("__mod__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a % b; }, py::is_operator()) \
+        .def("__mod__", [](const Vector<T,2>&a, const T&b) { return a % b; }, py::is_operator()) \
+        .def("__rmod__", [](const Vector<T,2>&a, const T&b) { return b % a; }, py::is_operator()) \
+        ;
+
+#define LUISA_EXPORT_FLOAT_OP(T) \
+    m##T                    \
+        .def("__pow__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return luisa::pow(a, b); }, py::is_operator());
+
 #define LUISA_EXPORT_VECTOR2(T) \
     py::class_<luisa::detail::VectorStorage<T, 2>>(m, "_vectorstorage_"#T"2"); \
-    py::class_<Vector<T,2>, luisa::detail::VectorStorage<T, 2>>(m, #T"2") \
+    auto m##T = py::class_<Vector<T,2>, luisa::detail::VectorStorage<T, 2>>(m, #T"2") \
     	.def(py::init<T>()) \
     	.def(py::init<T,T>()) \
     	.def(py::init<Vector<T,2>>()) \
-    	.def("__repr__", [](Vector<T,2>& self){return format(#T"2({},{})", self.x, self.y);}) \
+        .def("__repr__", [](Vector<T,2>& self){return format(#T"2({},{})", self.x, self.y);}) \
     	.def_readwrite("x", &Vector<T,2>::x) \
     	.def_readwrite("y", &Vector<T,2>::y) \
 		.def_property_readonly("xx", &Vector<T,2>::xx) \
@@ -49,8 +78,14 @@ using namespace luisa::compute;
 	m.def("make_"#T"2", [](Vector<T,2> a){return make_##T##2(a);});
 
 void export_vector2(py::module &m) {
-	LUISA_EXPORT_VECTOR2(bool)
-	LUISA_EXPORT_VECTOR2(uint)
-	LUISA_EXPORT_VECTOR2(int)
-	LUISA_EXPORT_VECTOR2(float)
+    LUISA_EXPORT_VECTOR2(bool)
+    LUISA_EXPORT_VECTOR2(uint)
+    LUISA_EXPORT_VECTOR2(int)
+    LUISA_EXPORT_VECTOR2(float)
+    LUISA_EXPORT_ARITHMETIC_OP(uint)
+    LUISA_EXPORT_ARITHMETIC_OP(int)
+    LUISA_EXPORT_ARITHMETIC_OP(float)
+    LUISA_EXPORT_INT_OP(uint)
+    LUISA_EXPORT_INT_OP(int)
+    LUISA_EXPORT_FLOAT_OP(float)
 }

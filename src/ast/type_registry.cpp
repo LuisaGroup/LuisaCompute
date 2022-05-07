@@ -3,6 +3,8 @@
 //
 
 #include <charconv>
+
+#include <core/logging.h>
 #include <ast/type_registry.h>
 
 namespace luisa::compute::detail {
@@ -25,7 +27,6 @@ const Type *TypeRegistry::_decode(std::string_view desc) noexcept {
     // texture<n,int|uint|float>
     // bindless_array
     // accel
-
 
     auto hash = _hash(desc);
     if (auto iter = _type_set.find(hash); iter != _type_set.cend()) {

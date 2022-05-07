@@ -1,5 +1,5 @@
 # Python-Luisa 用户文档
-多后端高性能计算库。
+多后端高性能计算库，支持 ISPC/CUDA/DirectX/Metal 后端。
 
 ## 编译与运行
 
@@ -18,33 +18,33 @@ python3 test.py
 
 ## 语言用例
 
-**注意：** 在 Python 终端交互模式（REPL）下不可使用（见[#10](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。在 Jupyter notebook 中出错时可能导致崩溃（见[#11](https://github.com/LuisaGroup/LuisaCompute/issues/10)）。建议使用文件脚本，如`python3 a.py`。
-
 ```python
 import luisa # 引入Luisa库，初始化
 import numpy as np
 
 b = luisa.Buffer(100, dtype=int)
-# 声明函数 kernel
-@luisa.kernel
-def fill(x: int): # 括号内为参数列表
+
+@luisa.func
+def fill(x):
     b.write(dispatch_id().x, x)
-    # b从外部捕获
     # dispatch_id 为内建函数，返回 int3 类型
 
 fill(42, dispatch_size=(100,1,1))
-# 并行执行，必须指定并行度 dispatch_size
+# 并行执行，指定并行线程数量为 dispatch_size
+
 res = np.ones(100, dtype='int32')
 b.copy_to(res)
 print(res)
 ```
-## Kernel 与 Callable
+## Luisa函数
 
-kernel 是可由python(host)中并行调用的函数，并行度由 `dispatch_size` 参数指定。
+使用修饰符 `luisa.func` 可以将一个函数标记为 Luisa 函数，这使得该函数可以在后端设备上运行。
 
-callable 是可由kernel/callable调用的函数，其不可在python中直接调用。callable 中返回值类型必须统一，即不能出现多处return值类型不同的情形。
+一个 Luisa 函数可以被host端并行调用，也可以被另一个Luisa函数调用。在被调用时，该函数会被即时编译为后端设备可以执行的代码。
 
-kernel/callable可以接受参数。参数列表可为空，由逗号隔开，每一项必须标记类型，形为`name: type`。其中，`name`为参数名字，`type` 为类型标记（见“类型”一节）。
+函数的参数可以有（但不要求）类型标记，如 `def f(a: int)`。如有类型标记，在调用时会检查对应参数类型。
+
+在Luisa函数中调用函数时，函数的传参规则与Python一致，即：标量类型按值传递，其它任何类型按引用传递（但不可以被赋值）。在python中并行调用时，luisa函数无论如何都不会修改python端传入的参数（这是显然的）。
 
 ## 类型
 
@@ -54,13 +54,13 @@ kernel/callable可以接受参数。参数列表可为空，由逗号隔开，�
 - 单精度浮点数 `float`
 - 逻辑类型 `bool`
 
-注意 int/float 与 python 中的 int/float 精度不同。
+注意 Luisa 函数中 int/float 精度相比 python 中的64位 int/float 精度较低。
 
 ### 向量、矩阵类型
 
 `luisa.float3`, `luisa.float3x3` , ...
 
-向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，矩阵只支持float矩阵。
+向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，而矩阵元素只能是float。
 
 导入命名空间：
 
@@ -84,7 +84,7 @@ v1.xzzy # int4(7,9,9,8)，只读
 # 声明了一个类型
 # 其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
 arr_t = luisa.ArrayType(dtype, size)
-# arr_t 可以作为kernel/callable参数列表中的类型标记
+# arr_t 可以作为func参数列表中的类型标记
 # 生成一个实例
 a1 = arr_t() # 暂时只在kernel中支持
 a2 = arr_t([value1, ...]) # 暂时只在python(host)中支持
@@ -98,7 +98,7 @@ a1[idx] = value1 # python/kernel 都支持
 # 声明了一个类型
 # 其中dtype为标量/向量/矩阵/数组/结构体类型
 struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
-# struct_t 可以作为kernel/callable参数列表中的类型标记
+# struct_t 可以作为func参数列表中的类型标记
 # 生成一个实例
 a1 = struct_t() # 暂时只在kernel中支持
 a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
@@ -106,39 +106,22 @@ a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
 a1.name1 = value1 # python/kernel 都支持
 ```
 
-（高级用法）结构体可以定义callable方法：
-
-```python
-@luisa.callable_method(struct_t)
-def method1(self: luisa.ref(struct_t), ...):
-    ...
-```
-
-如方法名为`__init__`，该结构体在kernel/callable中构造时会调用该方法。
-
-### 引用
-
-（高级用法）Callable的参数可以标记为引用类型`luisa.ref(type)`，例如：
+结构体可以将一个luisa函数作为方法：
 
 ```python
 @luisa.callable
-def flipsign(x: luisa.ref(int)):
-    x = -x
+def f1(self, ...):
+    ...
+struct_t.add_method(f1)
 ```
 
-这使得在Callable中可以改变调用者传入参数的值。
-
-参数类型可以为标量、向量、矩阵、数组、结构体的引用。注意Buffer等资源类型在传参过程中并不会复制数据，将资源类型作为参数时请勿标记为引用。
-
-kernel不支持引用参数。
-
-注意：引用不是一种数据类型。只能用于标记参数的类型。
+如方法名为`__init__`，该结构体在luisa函数中构造时会调用该方法。
 
 ### Buffer类型
 
-在设备上的数组，不能直接在python中访问其元素。暂时只支持以标量或向量为元素的Buffer。
+在设备上的数组，不能直接在python中访问其元素。其元素类型可以是标量、向量、矩阵、数组或结构体。
 
-Buffer和Array的区别是，Buffer是一种资源，由所有线程共享，长度可以很大；而Array是一个长度固定且较小的变量类型。
+Buffer和Array的区别是，Buffer是一种资源，由所有线程共享，长度可以很大；而Array是一个长度固定且较小的变量类型，可以作为每个线程局部变量的类型。
 
 类型标记：`luisa.BufferType(dtype)`
 
@@ -167,6 +150,8 @@ b.copy_from(arr)
 ```
 
 TODO: 需要提供用户友好的上传下载方式，以及支持其它类型元素的buffer
+
+`copy_from` 可以从长度和元素类型一致的列表（list）上传到buffer。
 
 ### Texture2D类型
 
@@ -212,11 +197,11 @@ res in a
 a.update()
 ```
 
-进入kernel使用前需要调用update
+进入luisa函数使用前需要调用update
 
 作为参数的类型标记：`luisa.BindlessArray`
 
-kernel/callable 方法：
+luisa函数内方法：
 
 ```python
 a.buffer_read(element_type, idx, element_idx)
@@ -273,6 +258,17 @@ TODO: `offset_ray_origin(p,n)`
 TODO: `offset_ray_origin(p,n,w)`
 
 ### 类型转换
+
+类型转换规则？目前只支持标量、向量、矩阵的类型转换。
+
+```python
+int(a)
+float3(b)
+```
+
+TODO: struct / array
+
+### 运算的类型规则
 
 二元运算符和二元内建函数在不同运算时的转换规则如下：
 
@@ -351,7 +347,7 @@ make_float2x2(...)
 
 ## 变量
 
-在kernel/callable中初次出现（请勿与外部变量重名，TODO）的变量为局部变量。局部变量的类型在整个函数中保持不变。例如：
+局部变量的类型在整个函数中保持不变。例如：
 
 ```python
 @luisa.kernel
@@ -360,6 +356,8 @@ def fill():
     a = 2 # 赋值
     a = 1.5 # 禁止这么做，因为改变了类型
 ```
+
+同样地，如果函数的参数是一个类型，那么不能给这个参数赋另一个类型的值。（除了按值传的基本类型参数外，其它类型的参数不能被赋值）
 
 ## 语法参考
 
@@ -373,7 +371,7 @@ kernel中尚不支持 list, tuple, dict 等python提供的数据结构
 
 ## 概述
 
-
+一个luisa.func在python中并行调用时，编译为kernel；在luisa.func中调用时，编译为callable。
 
 ## 文件结构
 
@@ -407,6 +405,8 @@ uses_printer
 
 `node.expr` 该节点的表达式。如果该节点的类型是一个数据类型，那么其表达式的类型为 `lcapi.Expression`；否则见下
 
+`node.lr` 该节点是左值还是右值。`'l'` 或`'r'`
+
 ## 非数据类型标记
 
 除用户文档中的类型标记外，AST节点的类型标记 `node.dtype` 还可以为以下值。这些值不可以作为 kernel/callable 的参数类型标记。
@@ -421,7 +421,98 @@ uses_printer
 
 `str` 该节点表示的是一个字符串，此时`node.expr`为一个字符串字面值。这种情况只允许在 `print` 函数的参数里出现
 
+## 注1
 
+### 对传入参数的赋值语义
 
-## 注
+使赋值语义与python接近？
+```python
+@luisa.callable
+def f(x): # x为int/float时按值传，x为vector/matrix/array/struct时按引用传
+    # 例：x类型为float3
+    x.y = 2 # 会改变调用者传入参数
+    x[1] = 2 # 会改变调用者传入参数
+    x += float3(1) # 会改变调用者传入参数
+    x = x + float3(1) # 不会改变调用者传入参数：右侧x为传入参数，左侧x为新建的局部变量。
+    # 这种情况警告用户
+    # 不可以在非最外层scope中创建新变量覆盖旧变量！
+    # 注：x = 1 也是可以的，允许新建不同类型的局部变量。同样警告用户
+    x = float3(1) # 赋值。x仍为上一条语句创建的局部变量
+    # 这句是普通赋值，赋值不可以改变类型，否则直接报错
+```
+如果在kernel中出现会改变传入参数（vector/matrix/array/struct）的语义，警告用户，实际上不会改变host中的值。
+
+方案2：
+
+```python
+@luisa.callable
+def f(x): # x为int/float时按值传，x为vector/matrix/array/struct时按引用传
+    # 例：x类型为float3
+    x.y = 2 # 会改变调用者传入参数
+    x[1] = 2 # 会改变调用者传入参数
+    x += float3(1) # 会改变调用者传入参数
+    x = x + float3(1) # 禁止！为了防止歧义，用户不能给引用参数赋值
+```
+
+### callable对传入参数的修改/赋值语义
+
+```python
+def test_modify(a: int, b: Buffer..., c: float3):
+    a += 1 # GOOD? (scalars are passed by value in python)
+    b.write(...) # Good
+    c.x = 4 # allow modify (reference)?
+    c += 1 # allow modify (reference)?
+    # view vector/struct as object?
+def test_assign(a: int, b: Buffer..., c: float3):
+    a = 1 # GOOD? (assignment. scalars are passed by value in python)
+    b = ... # ???
+    c = ... # ???
+```
+
+### kernel对传入参数的修改/赋值语义
+
+```python
+def test_modify(a: int, b: Buffer..., c: float3):
+    a += 1 # GOOD? (scalars are passed by value in python)
+    b.write(...) # Good
+    c.x = 4 # BAD/WARN?
+    c += 1 # BAD/WARN?
+def test_assign(a: int, b: Buffer..., c: float3):
+    a = 1 # GOOD? (assignment. scalars are passed by value in python)
+    b = ... # ???
+    c = ... # ???
+```
+
+### kernel/callable对捕获变量的修改/赋值语义
+
+```python
+a = 3
+b = buffer(...)
+c = float3()
+def test_modify():
+    a += 1 # BAD (automatically disables capture)
+    b.write(...) # GOOD
+    c.x = 4 # BAD
+    c += 1 # BAD/WARN?  (automatically disables capture)
+def test_assign():
+    a = 1 # ???
+    b = ... # ???
+    c = ... # ???
+```
+
+注意：允许赋值覆盖原变量是危险的，可能出现一种情况：
+
+```python
+a = 3
+def h():
+    if cond:
+        a = 4
+    b = a
+```
+
+补注：如果一个名字被赋值了，那么就不会出现在closure_var中。
+
+### 方案B
+
+为每个变量记录创建的scope，禁止在更外层的scope使用？
 

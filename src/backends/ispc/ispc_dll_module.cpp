@@ -62,9 +62,9 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     auto dll_path = output_folder / luisa::format("lib{}.so", file_name);
 
 #ifndef NDEBUG
-    auto link_opt = "-shared -g -O3";
+    auto link_opt = "-shared -g -O3 -flto";
 #else
-    auto link_opt = "-shared -O3";
+    auto link_opt = "-shared -O3 -flto";
 #endif
 
     auto command = luisa::format(

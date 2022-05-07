@@ -123,7 +123,7 @@ $(document).ready(function(){initNavTree('db/d86/ispc__accel_8h_source.html','..
 <div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span> </div>
 <div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span><span class="keyword">private</span>:</div>
 <div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span>    RTCScene _handle;</div>
-<div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span>    luisa::vector&lt;Instance&gt; _instances;</div>
+<div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span>    luisa::vector&lt;Instance&gt; _impl;</div>
 <div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span> </div>
 <div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span><span class="keyword">private</span>:</div>
 <div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span>    [[nodiscard]] <span class="keyword">static</span> std::array&lt;float, 12&gt; _compress(<a class="code hl_struct" href="../../d6/d97/structluisa_1_1_matrix_3_014_01_4.html">float4x4</a> m) <span class="keyword">noexcept</span>;</div>
@@ -134,7 +134,7 @@ $(document).ready(function(){initNavTree('db/d86/ispc__accel_8h_source.html','..
 <div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span>    <a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ae12eff50c4f72822f0fe3384228f6f6a">~ISPCAccel</a>() noexcept;</div>
 <div class="line"><a id="l00060" name="l00060"></a><span class="lineno"><a class="line" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ac60c9909f17bca1a0cc29e7d0c5180ff">   60</a></span>    [[nodiscard]] auto <a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#ac60c9909f17bca1a0cc29e7d0c5180ff">handle</a>() noexcept {</div>
 <div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>        <span class="keywordflow">return</span> <a class="code hl_struct" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#d7/d82/structluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel_1_1_handle">Handle</a>{.<a class="code hl_variable" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#add7b5222b3245790bf6e375c4dc22ca8">scene</a> = _handle,</div>
-<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>                      .instances = _instances.data()};</div>
+<div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>                      .instances = _impl.data()};</div>
 <div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>    }</div>
 <div class="line"><a id="l00071" name="l00071"></a><span class="lineno">   71</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="../../dd/d20/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_accel.html#a3ba0ed7928e39e45269fc1453e3f58b8">build</a>(<a class="code hl_class" href="../../d4/df2/classluisa_1_1_thread_pool.html">ThreadPool</a> &amp;pool, <span class="keywordtype">size_t</span> instance_count,</div>
 <div class="line"><a id="l00072" name="l00072"></a><span class="lineno">   72</span>               luisa::span&lt;const AccelBuildCommand::Modification&gt; mods) <span class="keyword">noexcept</span>;</div>
