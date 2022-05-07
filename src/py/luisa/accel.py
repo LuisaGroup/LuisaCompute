@@ -99,6 +99,18 @@ class Accel:
         self._accel = get_global_device().create_accel(lcapi.AccelUsageHint.FAST_TRACE)
         self.handle = self._accel.handle()
 
+    @staticmethod
+    def accel(list):
+        acc = Accel.empty()
+        for mesh in list:
+            acc.add(mesh)
+        acc.build()
+        return acc
+
+    @staticmethod
+    def empty():
+        return Accel()
+
     def add(self, mesh, transform = float4x4.identity(), visible = True):
         self._accel.emplace_back(mesh.handle, transform, visible)
 
@@ -130,17 +142,24 @@ class Accel:
     def set_instance_visibility(self, instance_id: int, vis: bool):
         _builtin_call("SET_INSTANCE_VISIBILITY", self, instance_id, vis)
 
+accel = Accel.accel
+
 
 class Mesh:
     def __init__(self, vertices, triangles):
         assert vertices.dtype == float3
         assert triangles.dtype == int and triangles.size%3==0
+        self.vertices = vertices
+        self.triangles = triangles
         # TODO: support buffer of structs or arrays
         self.handle = get_global_device().impl().create_mesh(
-            vertices.handle, 0, 16, vertices.size,
-            triangles.handle, 0, triangles.size//3,
+            self.vertices.handle, 0, 16, self.vertices.size,
+            self.triangles.handle, 0, self.triangles.size//3,
             lcapi.AccelUsageHint.FAST_TRACE)
+        self.build()
+
+    def build(self):
         globalvars.stream.add(lcapi.MeshBuildCommand.create(
             self.handle, lcapi.AccelBuildRequest.PREFER_UPDATE,
-            vertices.handle, 0, vertices.size,
-            triangles.handle, 0, triangles.size//3))
+            self.vertices.handle, 0, self.vertices.size,
+            self.triangles.handle, 0, self.triangles.size//3))

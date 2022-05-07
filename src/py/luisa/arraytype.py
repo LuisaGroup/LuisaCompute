@@ -20,6 +20,9 @@ class _Array:
         assert len(packed_bytes) == self.arrayType.luisa_type.size()
         return packed_bytes
 
+    def __repr__(self):
+        return '[' + ','.join(repr(x) for x in self.values) + ']'
+
 
 class ArrayType:
     def __init__(self, dtype, size):
