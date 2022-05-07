@@ -30,7 +30,8 @@ class GUI:
         if self.frame_rate == None:
             self.frame_rate = FrameRate(10)
         self.frame_rate.record(frames_in_flight)
-        dpg.configure_item('frame_rate_text', default_value=str(self.frame_rate.report()))
+        if hasattr(self, 'frame_rate_window'):
+            dpg.configure_item('frame_rate_text', default_value=str(self.frame_rate.report()))
 
     def running(self):
         return dpg.is_dearpygui_running()
