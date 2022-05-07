@@ -2,6 +2,7 @@
 // Created by Mike on 2021/12/4.
 //
 
+#include "core/hash.h"
 #include "core/spin_mutex.h"
 #include <cuda.h>
 #include <mutex>
@@ -125,7 +126,7 @@ private:
     mutable luisa::spin_mutex _mutex;
     mutable CUevent _sbt_event{};
     mutable OptixShaderBindingTable _sbt{};
-    mutable luisa::unordered_set<CUstream> _sbt_recoreded_streams;
+    mutable luisa::unordered_set<CUstream, PointerHash> _sbt_recoreded_streams;
 
 public:
     CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept
