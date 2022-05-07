@@ -19,30 +19,98 @@ class Buffer:
         # instantiate buffer on device
         self.handle = get_global_device().impl().create_buffer(self.bytesize)
 
-    def copy_from(self, arr, sync = False, stream = None): # arr: numpy array or list
+    @staticmethod
+    def empty(size, dtype):
+        return Buffer(size, dtype)
+
+    @staticmethod
+    @cache
+    def get_fill_kernel(dtype, value):
+        assert dtype_of(value) == dtype
+        @func
+        def fill(buf):
+            buf.write(dispatch_id().x, value)
+        return fill
+
+    @staticmethod
+    def zeros(size, dtype):
+        buf = Buffer.empty(size, dtype)
+        try:
+            val = dtype(0)
+        except Exception:
+            raise TypeError(f"can't deduce zero value of {dtype} type")
+        Buffer.get_fill_kernel(dtype, val)(buf, dispatch_size=(size,1,1))
+        return buf
+
+    @staticmethod
+    def ones(size, dtype):
+        buf = Buffer.empty(size, dtype)
+        try:
+            val = dtype(1)
+        except Exception:
+            raise TypeError(f"can't deduce zero value of {dtype} type")
+        Buffer.get_fill_kernel(dtype, val)(buf, dispatch_size=(size,1,1))
+        return buf
+
+    @staticmethod
+    def filled(size, val, dtype=None):
+        if dtype is None:
+            dtype = dtype_of(val)
+        else:
+            assert dtype_of(val) == dtype
+        buf = Buffer.empty(size, dtype)
+        Buffer.get_fill_kernel(dtype, val)(buf, dispatch_size=(size,1,1))
+        return buf
+
+    @staticmethod
+    def from_list(arr):
+        assert len(arr) > 0
+        buf = Buffer(len(arr), dtype_of(arr[0]))
+        buf.copy_from_list(arr)
+        return buf
+
+    @staticmethod
+    def from_array(arr):
+        assert len(arr) > 0
+        buf = Buffer(len(arr), dtype_of(arr[0].item()))
+        buf.copy_from_array(arr)
+        return buf
+
+    def copy_from_list(self, arr, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
+        assert len(arr) == self.size
+        lctype = to_lctype(self.dtype)
+        packed_bytes = b''
+        for x in arr:
+            assert dtype_of(x) == self.dtype
+            if lctype.is_basic():
+                packed_bytes += lcapi.to_bytes(x)
+            else:
+                packed_bytes += x.to_bytes()
+        assert len(packed_bytes) == self.bytesize
+        ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, packed_bytes)
+        stream.add(ulcmd)
+        if sync:
+            stream.synchronize()
+        
+    def copy_from_array(self, arr, sync = False, stream = None): # arr: numpy array or list
         if stream is None:
             stream = globalvars.stream
         # numpy array of same data layout
-        if type(arr).__name__ == "ndarray":
-            assert arr.size * arr.itemsize == self.bytesize
-            ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, arr)
-            stream.add(ulcmd)
-        # list of elements
-        if type(arr) == list:
-            assert len(arr) == self.size
-            lctype = to_lctype(self.dtype)
-            packed_bytes = b''
-            for x in arr:
-                assert dtype_of(x) == self.dtype
-                if lctype.is_basic():
-                    packed_bytes += lcapi.to_bytes(x)
-                else:
-                    packed_bytes += x.to_bytes()
-            assert len(packed_bytes) == self.bytesize
-            ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, packed_bytes)
-            stream.add(ulcmd)
+        assert arr.size * arr.itemsize == self.bytesize
+        ulcmd = lcapi.BufferUploadCommand.create(self.handle, 0, self.bytesize, arr)
+        stream.add(ulcmd)
         if sync:
             stream.synchronize()
+
+    def copy_from(self, arr, sync = False, stream = None): # arr: numpy array or list
+        if type(arr).__name__ == "ndarray":
+            self.copy_from_array(arr, sync, stream)
+        elif type(arr) == list:
+            self.copy_from_list(arr, sync, stream)
+        else:
+            raise TypeError(f"copy from unrecognized type: {type(arr)}")
 
     def copy_to(self, arr, sync = True, stream = None): # arr: numpy array
         if stream is None:
@@ -52,6 +120,15 @@ class Buffer:
         stream.add(dlcmd)
         if sync:
             stream.synchronize()
+
+def buffer(arr):
+    if type(arr).__name__ == "ndarray":
+        return Buffer.from_array(arr)
+    elif type(arr) == list:
+        return Buffer.from_list(arr)
+    else:
+        raise TypeError(f"buffer from unrecognized type: {type(arr)}")
+
 
 
 class BufferType:
