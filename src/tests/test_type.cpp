@@ -146,8 +146,8 @@ int main() {
 
     print(Type::from("array<array<vector<float,3>,5>,9>"));
 
-    auto hash_aa = luisa::hash64(type_aa);
-    auto hash_bb = luisa::hash64(type_bb);
+    auto hash_aa = luisa::hash64(type_aa.name());
+    auto hash_bb = luisa::hash64(type_bb.name());
     LUISA_INFO("{} {}", hash_aa, hash_bb);
 
     LUISA_INFO("{}", Type::of<std::array<float, 5>>()->description());
