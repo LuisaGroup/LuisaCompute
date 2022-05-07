@@ -32,14 +32,9 @@ class Buffer:
     def empty(size, dtype):
         return Buffer(size, dtype)
 
-    @staticmethod
-    @cache
-    def get_fill_kernel(dtype, value):
-        assert dtype_of(value) == dtype
-        @func
-        def fill(buf):
-            buf.write(dispatch_id().x, value)
-        return fill
+    @func
+    def fill_kernel(buf, value):
+        buf.write(dispatch_id().x, value)
 
     @staticmethod
     def zeros(size, dtype):
@@ -48,7 +43,7 @@ class Buffer:
             val = dtype(0)
         except Exception:
             raise TypeError(f"can't deduce zero value of {dtype} type")
-        Buffer.get_fill_kernel(dtype, val)(buf, dispatch_size=(size,1,1))
+        Buffer.fill_kernel(buf, val, dispatch_size=(size,1,1))
         return buf
 
     @staticmethod
@@ -58,17 +53,17 @@ class Buffer:
             val = dtype(1)
         except Exception:
             raise TypeError(f"can't deduce zero value of {dtype} type")
-        Buffer.get_fill_kernel(dtype, val)(buf, dispatch_size=(size,1,1))
+        Buffer.fill_kernel(buf, val, dispatch_size=(size,1,1))
         return buf
 
     @staticmethod
     def filled(size, val, dtype=None):
+        buf = Buffer.empty(size, dtype)
         if dtype is None:
             dtype = dtype_of(val)
         else:
             assert dtype_of(val) == dtype
-        buf = Buffer.empty(size, dtype)
-        Buffer.get_fill_kernel(dtype, val)(buf, dispatch_size=(size,1,1))
+        Buffer.fill_kernel(buf, val, dispatch_size=(size,1,1))
         return buf
 
     @staticmethod
