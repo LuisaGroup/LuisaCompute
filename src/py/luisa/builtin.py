@@ -8,6 +8,8 @@ from .structtype import StructType
 from types import SimpleNamespace
 import ast
 from .types import BuiltinFuncBuilder, ref as ref_type
+from .arraytype import ArrayType
+from .structtype import StructType
 
 
 def wrap_with_tmp_var(node):
@@ -272,7 +274,8 @@ builtin_func_names = {
     'clz', 'ctz', 'popcount', 'reverse',
     'fma', 'copysign',
     'determinant', 'transpose', 'inverse',
-    'synchronize_block'
+    'synchronize_block',
+    'array', 'struct'
 }
 
 
@@ -379,7 +382,7 @@ def _builtin_call(*args):
 
 
 # return dtype, expr
-def builtin_func(name, *args):
+def builtin_func(name, *args, **kwargs):
     if name == "set_block_size":
         check_exact_signature([int, int, int], args, "set_block_size")
         for a in args:
@@ -697,6 +700,7 @@ def builtin_func(name, *args):
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
+    # UNUSABLE YET
     if name in ('atomic_exchange', 'atomic_fetch_add', 'atomic_fetch_sub', 'atomic_fetch_and', 'atomic_fetch_or',
                 'atomic_fetch_xor', 'atomic_fetch_min', 'atomic_fetch_max'):
         op = getattr(lcapi.CallOp, name.upper())
@@ -708,6 +712,38 @@ def builtin_func(name, *args):
 
     if name == 'atomic_compare_exchange':
         pass
+
+    if name == 'array': # create array from list
+        check_exact_signature([list], args, 'array')
+        # deduce array dtype & length
+        nodes = args[0].elts
+        size = len(nodes)
+        if size == 0:
+            raise TypeError("Can't create empty array")
+        dtype = nodes[0].dtype
+        for x in nodes:
+            if x.dtype != dtype:
+                raise TypeError("all elements of array must be of same type")
+        arrtype = ArrayType(dtype=dtype, size=size)
+        # create & fill array
+        arrexpr = lcapi.builder().local(to_lctype(arrtype))
+        for idx in range(size):
+            sliceexpr = lcapi.builder().literal(to_lctype(int), idx)
+            lhs = lcapi.builder().access(to_lctype(dtype), arrexpr, sliceexpr)
+            lcapi.builder().assign(lhs, nodes[idx].expr)
+        return arrtype, arrexpr
+
+    if name == 'struct': # create struct from kwargs
+        # deduce struct type
+        strtype = StructType(**{name:kwargs[name].dtype for name in kwargs})
+        # create & fill struct
+        strexpr = lcapi.builder().local(to_lctype(strtype))
+        for name in kwargs:
+            idx = strtype.idx_dict[name]
+            dtype = strtype.membertype[idx]
+            lhs = lcapi.builder().member(to_lctype(dtype), strexpr, idx)
+            lcapi.builder().assign(lhs, kwargs[name].expr)
+        return strtype, strexpr
 
     raise NameError(f'unrecognized function call {name}')
 

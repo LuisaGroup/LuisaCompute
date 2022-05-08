@@ -1,16 +1,16 @@
 import luisa
 from luisa.mathtypes import *
+from luisa import array, struct
 
 print(float2x2(4))
 print(make_float2x2(4))
 
-arr_t = luisa.ArrayType(100, bool)
-arr_t in luisa.types.basic_type_dict
 
 luisa.init()
 
 @luisa.func
 def f():
-    print(float2x2(4.0))
+    print(array([2,4,6]), struct(a=4,b=0.9))
 
-f( dispatch_size=(1,1,1))
+f(dispatch_size=(1,1,1))
+print(array([2,4,6]), struct(a=4,b=0.9))
