@@ -665,8 +665,8 @@ LUISA_INLINE uniform float4x4 make_float4x4() {
 // make_float2x2 functions
 LUISA_INLINE uniform float2x2 make_float2x2(uniform float s) {
     uniform float2x2 m;
-    m.cols[0] = make_float2(s);
-    m.cols[1] = make_float2(s);
+    m.cols[0] = make_float2(s,0.0);
+    m.cols[1] = make_float2(0.0,s);
     return m;
 }
 LUISA_INLINE uniform float2x2 make_float2x2(uniform float2 c0, uniform float2 c1) {
@@ -688,9 +688,9 @@ LUISA_INLINE uniform float2x2 make_float2x2(uniform float2x2 m) { return m; }
 // make_float3x3 functions
 LUISA_INLINE uniform float3x3 make_float3x3(uniform float s) {
     uniform float3x3 m;
-    m.cols[0] = make_float3(s);
-    m.cols[1] = make_float3(s);
-    m.cols[2] = make_float3(s);
+    m.cols[0] = make_float3(s,0.0,0.0);
+    m.cols[1] = make_float3(0.0,s,0.0);
+    m.cols[2] = make_float3(0.0,0.0,s);
     return m;
 }
 LUISA_INLINE uniform float3x3 make_float3x3(uniform float3 c0, uniform float3 c1, uniform float3 c2) {
@@ -715,10 +715,10 @@ LUISA_INLINE uniform float3x3 make_float3x3(uniform float3x3 m) { return m; }
 // make_float4x4 functions
 LUISA_INLINE uniform float4x4 make_float4x4(uniform float s) {
     uniform float4x4 m;
-    m.cols[0] = make_float4(s);
-    m.cols[1] = make_float4(s);
-    m.cols[2] = make_float4(s);
-    m.cols[3] = make_float4(s);
+    m.cols[0] = make_float4(s,0.0,0.0,0.0);
+    m.cols[1] = make_float4(0.0,s,0.0,0.0);
+    m.cols[2] = make_float4(0.0,0.0,s,0.0);
+    m.cols[3] = make_float4(0.0,0.0,0.0,s);
     return m;
 }
 LUISA_INLINE uniform float4x4 make_float4x4(uniform float4 c0, uniform float4 c1, uniform float4 c2, uniform float4 c3) {
