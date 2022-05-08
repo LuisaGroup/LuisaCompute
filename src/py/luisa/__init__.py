@@ -4,8 +4,8 @@ from .types import ref
 
 from .func import func
 from .mathtypes import *
-from .arraytype import ArrayType
-from .structtype import StructType
+from .arraytype import array, ArrayType
+from .structtype import struct, StructType
 from .buffer import buffer, Buffer, BufferType
 from .texture2d import texture2d, Texture2D, Texture2DType
 from lcapi import PixelStorage
