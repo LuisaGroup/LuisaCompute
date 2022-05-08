@@ -12,8 +12,8 @@ from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_t
 from .types import dtype_of, to_lctype, CallableType, is_vector_type
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
-from .arraytype import ArrayType
-from .structtype import StructType
+from .array import ArrayType
+from .struct import StructType
 
 def ctx():
     return globalvars.current_context

@@ -12,7 +12,7 @@ import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
 from .types import dtype_of, to_lctype, ref, CallableType
-from .structtype import StructType
+from .struct import StructType
 from .astbuilder import VariableInfo
 import textwrap
 
