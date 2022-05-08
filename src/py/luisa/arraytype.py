@@ -1,17 +1,14 @@
 import lcapi
 from .types import dtype_of, to_lctype
 
-class _Array:
-    def __init__(self, arrayType, arg):
-        self.arrayType = arrayType
-        if type(arg) is _Array:
-            assert arrayType == arg.arrayType
-            self.values = arg.values.copy()
+class Array:
+    def __init__(self, arr):
+        if type(arr) is Array:
+            self.arrayType = arrayType
+            self.values = arr.values.copy()
         else:
-            assert len(arg) == arrayType.size
-            for x in arg:
-                assert dtype_of(x) == self.arrayType.dtype
-            self.values = list(arg)
+            self.arrayType = deduce_array_type(arr)
+            self.values = list(arr)
 
     def to_bytes(self):
         packed_bytes = b''
@@ -23,17 +20,30 @@ class _Array:
     def __repr__(self):
         return '[' + ','.join(repr(x) for x in self.values) + ']'
 
+def array(arr):
+    return Array(arr)
 
 class ArrayType:
-    def __init__(self, dtype, size):
-        self.dtype = dtype
+    def __init__(self, size, dtype):
         self.size = size
+        self.dtype = dtype
         assert type(size) is int and size>0
         self.luisa_type = lcapi.Type.from_(f'array<{to_lctype(dtype).description()},{self.size}>')
 
     def __call__(self, data):
-        return _Array(self, data)
+        assert self == deduce_array_type(data)
+        return Array(data)
 
     def __eq__(self, other):
         return type(other) is ArrayType and self.dtype == other.dtype and self.size == other.size
 
+    def __hash__(self):
+        return hash(self.dtype) ^ hash(self.size) ^ 2958463956743103
+
+def deduce_array_type(arr):
+    assert len(arr) > 0
+    dtype = dtype_of(arr[0])
+    for x in arr:
+        if dtype_of(x) != dtype:
+            raise TypeError("all elements of array must be of same type")
+    return ArrayType(dtype=dtype, size=len(arr))

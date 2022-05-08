@@ -9,7 +9,7 @@ from .types import ref, uint
 from .builtin import _builtin_call, _bitwise_cast
 
 # Ray
-Ray = StructType(16, _origin=ArrayType(float,3), t_min=float, _dir=ArrayType(float,3), t_max=float)
+Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
 
 @func
 def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
