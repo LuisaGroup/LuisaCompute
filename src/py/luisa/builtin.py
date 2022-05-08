@@ -347,6 +347,9 @@ def _bitwise_cast(args):
     dtype = args[0].expr
     assert dtype in (int, float)
     op = lcapi.CastOp.BITWISE
+    # create temporary variable
+    if args[1].lr == 'r':
+        wrap_with_tmp_var(args[1])
     return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[1].expr)
 
 
