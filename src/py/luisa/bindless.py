@@ -57,10 +57,10 @@ class BindlessArray:
     # might not be possible, because "type" is not a valid data type in LC
 
     @BuiltinFuncBuilder
-    def buffer_read(argnodes): # (dtype, buffer_index, element_index)
+    def buffer_read(*argnodes): # (dtype, buffer_index, element_index)
         check_exact_signature([type, int, int], argnodes[1:], "buffer_read")
         dtype = argnodes[1].expr
-        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [x.expr for x in [argnodes[0]] + argnodes[2:]])
+        expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
         return dtype, expr
 
     @func
