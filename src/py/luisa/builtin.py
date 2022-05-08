@@ -4,12 +4,11 @@ from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_
     scalar_lctypes, arithmetic_dtypes, arithmetic_lctypes
 from functools import reduce
 from . import globalvars
-from .structtype import StructType
 from types import SimpleNamespace
 import ast
 from .types import BuiltinFuncBuilder, ref as ref_type
-from .arraytype import ArrayType
-from .structtype import StructType
+from .array import ArrayType
+from .struct import StructType
 
 
 def wrap_with_tmp_var(node):

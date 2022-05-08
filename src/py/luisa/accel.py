@@ -1,8 +1,8 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .structtype import StructType
-from .arraytype import ArrayType
+from .struct import StructType
+from .array import ArrayType
 from .mathtypes import *
 from .func import func
 from .types import ref, uint
