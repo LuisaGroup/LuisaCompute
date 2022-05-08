@@ -66,7 +66,7 @@ class Printer:
             for idx in range(lctype.dimension()):
                 idxexpr = lcapi.builder().literal(to_lctype(int), idx)
                 element = lcapi.builder().access(lctype.element(), expr, idxexpr)
-                res.append(lcapi.builder().cast(to_lctype(int), lcapi.CastOp.BITWISE, element))
+                res += Printer.get_expr_elements(from_lctype(lctype.element()), element)
             return res
         if lctype.is_matrix():
             column_lctype = lcapi.Type.from_(f"vector<float,{lctype.dimension()}>")
@@ -77,7 +77,7 @@ class Printer:
                 for idy in range(lctype.dimension()):
                     idyexpr = lcapi.builder().literal(to_lctype(int), idy)
                     element = lcapi.builder().access(lctype.element(), column, idyexpr)
-                    res.append(lcapi.builder().cast(to_lctype(int), lcapi.CastOp.BITWISE, element))
+                    res += Printer.get_expr_elements(from_lctype(lctype.element()), element)
             return res
         if lctype.is_array():
             res = []
