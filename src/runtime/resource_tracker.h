@@ -12,7 +12,7 @@ namespace luisa::compute {
 class LC_RUNTIME_API ResourceTracker {
 
 private:
-    luisa::unordered_map<uint64_t, size_t, Hash64> _ref_count;
+    luisa::unordered_map<uint64_t, size_t> _ref_count;
     luisa::vector<uint64_t> _remove_queue;
 
 public:

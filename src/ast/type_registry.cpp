@@ -3,6 +3,8 @@
 //
 
 #include <charconv>
+
+#include <core/logging.h>
 #include <ast/type_registry.h>
 
 namespace luisa::compute::detail {
@@ -20,6 +22,11 @@ const Type *TypeRegistry::_decode(std::string_view desc) noexcept {
     // VECTOR := vector<BASIC,2> | vector<BASIC,3> | vector<BASIC,4>
     // MATRIX := matrix<2> | matrix<3> | matrix<4>
     // STRUCT := struct<4,TYPE...> | struct<8,TYPE...> | struct<16,TYPE...>
+
+    // buffer<Type>
+    // texture<n,int|uint|float>
+    // bindless_array
+    // accel
 
     auto hash = _hash(desc);
     if (auto iter = _type_set.find(hash); iter != _type_set.cend()) {

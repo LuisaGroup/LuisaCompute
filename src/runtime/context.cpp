@@ -35,7 +35,10 @@ namespace detail {
 Context::Context(const std::filesystem::path &program) noexcept
     : _impl{luisa::make_shared<Impl>()} {
     _impl->runtime_directory = detail::runtime_directory(program);
-    LUISA_INFO("Created context for program: {}.", program.filename().string<char>());
+#ifdef LUISA_PLATFORM_WINDOWS
+    SetDllDirectoryW(_impl->runtime_directory.c_str());
+#endif
+    LUISA_INFO("Created context for program '{}'.", program.filename().string<char>());
     LUISA_INFO("Runtime directory: {}.", _impl->runtime_directory.string<char>());
     _impl->cache_directory = _impl->runtime_directory / ".cache";
     LUISA_INFO("Cache directory: {}.", _impl->cache_directory.string<char>());

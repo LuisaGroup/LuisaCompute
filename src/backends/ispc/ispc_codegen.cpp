@@ -261,8 +261,11 @@ public:
         for (auto col = 0u; col < 4u; col++) {
             for (auto row = 0u; row < 4u; row++) {
                 (*this)(m[col][row]);
+                _s << ", ";
             }
         }
+        _s.pop_back();
+        _s.pop_back();
         _s << ")";
     }
 
@@ -442,7 +445,9 @@ void ISPCCodegen::visit(const CallExpr *expr) {
     _scratch << "(";
     auto args = expr->arguments();
     if (is_atomic) {
-        _scratch << "&(";
+        _scratch << "(";
+        _emit_type_name(args.front()->type());
+        _scratch << " *varying)&(";
         args.front()->accept(*this);
         _scratch << ")";
         for (auto arg : args.subspan(1u)) {
@@ -507,9 +512,9 @@ void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
-//    _scratch << luisa::format(
-//        "CONT_{}:;\n",
-//        _scope_label(stmt));
+    //    _scratch << luisa::format(
+    //        "CONT_{}:;\n",
+    //        _scope_label(stmt));
     _scratch << "}";
 }
 
@@ -875,6 +880,7 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             break;
         case Variable::Tag::REFERENCE:
             if (readonly || force_const) {
+                _scratch << "const ";
                 _emit_type_name(v.type());
                 _scratch << " ";
             } else {

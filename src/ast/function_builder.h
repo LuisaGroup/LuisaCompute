@@ -168,7 +168,7 @@ public:
 
 private:
     MetaStmt _body;
-    const Type *_ret{nullptr};
+    luisa::optional<const Type *> _return_type;
     luisa::vector<luisa::unique_ptr<Expression>> _all_expressions;
     luisa::vector<luisa::unique_ptr<Statement>> _all_statements;
     luisa::vector<MetaStmt *> _meta_stack;//
@@ -224,10 +224,16 @@ private:
      * @return share pointer to function builder
      */
     template<typename Def>
-    static auto _define(Function::Tag tag, Def &&def) noexcept {
+    static auto _define(Function::Tag tag, Def &&def) {
         auto f = make_shared<FunctionBuilder>(tag);
         push(f.get());
-        f->with(&f->_body, std::forward<Def>(def));
+        try {
+            f->with(&f->_body, std::forward<Def>(def));
+        }
+        catch (...) {
+            pop(f.get());
+            throw;
+        }
         pop(f.get());
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
@@ -274,7 +280,7 @@ public:
     /// Return const pointer to body.
     [[nodiscard]] auto body() const noexcept { return &_body; }
     /// Return const pointer to return type.
-    [[nodiscard]] auto return_type() const noexcept { return _ret; }
+    [[nodiscard]] auto return_type() const noexcept { return _return_type.value_or(nullptr); }
     /// Return variable usage of given uid.
     [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
     /// Return block size in uint3.
@@ -287,13 +293,13 @@ public:
     // build primitives
     /// Define a kernel function with given definition
     template<typename Def>
-    static auto define_kernel(Def &&def) noexcept {
+    static auto define_kernel(Def &&def) {
         return _define(Function::Tag::KERNEL, std::forward<Def>(def));
     }
 
     template<typename Def>
     /// Define a callable function with given definition
-    static auto define_callable(Def &&def) noexcept {
+    static auto define_callable(Def &&def) {
         return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
     }
 
@@ -403,7 +409,7 @@ public:
 
     /// Run body function in given scope s
     template<typename Body>
-    decltype(auto) with(ScopeStmt *s, Body &&body) noexcept {
+    decltype(auto) with(ScopeStmt *s, Body &&body) {
         ScopeGuard guard{this, s};
         return body();
     }
@@ -422,7 +428,7 @@ public:
 
     /// Run body function in given meta m
     template<typename Body>
-    decltype(auto) with(MetaStmt *m, Body &&body) noexcept {
+    decltype(auto) with(MetaStmt *m, Body &&body) {
         MetaGuard guard{this, m};
         return body();
     }
