@@ -102,15 +102,16 @@ protected:
     size_t lastIdx = 0;
 };
 template<typename T>
-struct PrintValue;
+struct PrintValue {};
+
 template<>
 struct PrintValue<float> {
-    void operator()(float const &v, vstd::string &str) {
+    void operator()(float v, vstd::string &str) {
         if (std::isnan(v)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
         }
         if (std::isinf(v)) {
-            str.append(v < 0.0f ? "(-INFINITY_f)" : "(INFINITY_f)");
+            str.append(v < 0.0f ? "(-1.#INF)" : "(1.#INF)");
         } else {
             auto s = fmt::format("{}", v);
             str.append(s);
@@ -148,9 +149,10 @@ struct PrintValue<bool> {
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
-    void PureRun(T const &v, vstd::string &varName) {
-        for (uint64 i = 0; i < N; ++i) {
-            vstd::to_string(v[i], varName);
+    void PureRun(T v, vstd::string &varName) {
+        for (uint i = 0u; i < N; ++i) {
+            PrintValue<EleType> pv;
+            pv(v[i], varName);
             varName += ',';
         }
         auto &&last = varName.end() - 1;
