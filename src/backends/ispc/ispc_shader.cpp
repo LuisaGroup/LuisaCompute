@@ -101,6 +101,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noe
     }
 
     Clock clock;
+    // FIXME: the compiled shaders never release; maybe we should try LRU?
     static luisa::unordered_map<luisa::string, std::shared_future<luisa::shared_ptr<ISPCModule>>> compile_futures;
     static std::mutex compile_mutex;
     auto module_future = [&] {
@@ -135,7 +136,6 @@ ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noe
         _module = module_future.get();
         LUISA_INFO("Created ISPC shader in {} ms.", clock.toc());
         std::scoped_lock lock{compile_mutex};
-        compile_futures.erase(name);
     }
 
     // arguments
