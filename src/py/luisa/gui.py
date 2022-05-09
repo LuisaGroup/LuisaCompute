@@ -9,9 +9,9 @@ class GUI:
                             width=resolution[0],
                             height=resolution[1],
                             resizable=False)
-        self.frame_rate_window = None
-        self.frame_rate = None
-        if show_FPS:
+        self.show_FPS = show_FPS
+        if self.show_FPS:
+            self.frame_rate = None
             self.frame_rate_window = dpg.add_window(label="Frame rate", pos=(0, 0))
             dpg.add_text('N/A', tag="frame_rate_text", parent=self.frame_rate_window)
         dpg.add_viewport_drawlist(front=False, tag="viewport_draw")
@@ -25,13 +25,14 @@ class GUI:
 
         dpg.draw_image("background", (0, 0), resolution, parent="viewport_draw")
 
-    def show(self, frames_in_flight=1):
+    def show(self):
         dpg.render_dearpygui_frame()
-        if self.frame_rate == None:
-            self.frame_rate = FrameRate(10)
-        self.frame_rate.record(frames_in_flight)
-        if hasattr(self, 'frame_rate_window'):
-            dpg.configure_item('frame_rate_text', default_value=str(self.frame_rate.report()))
+        if self.show_FPS:
+            if self.frame_rate == None:
+                self.frame_rate = FrameRate(10)
+            else:
+                self.frame_rate.record()
+                dpg.configure_item('frame_rate_text', default_value=str(self.frame_rate.report()))
 
     def running(self):
         return dpg.is_dearpygui_running()

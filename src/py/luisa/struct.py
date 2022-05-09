@@ -1,9 +1,7 @@
 import lcapi
 from .types import dtype_of, to_lctype
-from .arraytype import ArrayType, _Array
 
-
-class _Struct:
+class Struct:
     @staticmethod
     def make_getter(name):
         def f(self):
@@ -20,15 +18,16 @@ class _Struct:
         assert dtype_of(value) == dtype
         return value
 
-    def __init__(self, structType, **kwargs):
-        self.structType = structType
-        self.values = []
-        assert len(kwargs.items()) == len(self.structType.membertype)
-        for name, value in kwargs.items():
-            idx = self.structType.idx_dict[name]
-            dtype = self.structType.membertype[idx]
-            self.values.append(self.cast(dtype, value))
-            setattr(_Struct, name, property(self.make_getter(name), self.make_setter(name)))
+    def __init__(self, copy_source = None, alignment = 1, **kwargs):
+        if copy_source is not None: # copy from another struct
+            assert len(kwargs) == 0 and type(copy_source) is Struct
+            self.structType = copy_source.structType
+            self.values = copy_source.values.copy()
+        else:
+            self.structType = deduce_struct_type(kwargs, alignment=alignment)
+            self.values = [value for name, value in kwargs.items()]
+            for name in kwargs:
+                setattr(Struct, name, property(self.make_getter(name), self.make_setter(name)))
 
     def to_bytes(self):
         packed_bytes = b''
@@ -55,6 +54,13 @@ class _Struct:
         idd = self.structType.idx_dict
         return '{' + ','.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
 
+def struct(**kwargs):
+    assert 'copy_source' not in kwargs
+    assert 'alignment' not in kwargs
+    return Struct(**kwargs)
+
+def deduce_struct_type(kwargs, alignment = 1):
+    return StructType(alignment, **{name: dtype_of(kwargs[name]) for name in kwargs})
 
 
 class StructType:
@@ -74,7 +80,9 @@ class StructType:
         self.luisa_type = lcapi.Type.from_(type_string)
 
     def __call__(self, **kwargs):
-        return _Struct(self, **kwargs)
+        # ensure order
+        assert deduce_struct_type(kwargs, alignment=self.alignment) == self
+        return Struct(alignment=self.alignment, **kwargs)
 
     def __repr__(self):
         return 'StructType(' + ','.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'

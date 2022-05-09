@@ -12,8 +12,8 @@ from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_t
 from .types import dtype_of, to_lctype, CallableType, is_vector_type
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
-from .arraytype import ArrayType
-from .structtype import StructType
+from .array import ArrayType
+from .struct import StructType
 
 def ctx():
     return globalvars.current_context
@@ -108,23 +108,26 @@ class ASTVisitor:
         build(node.func)
         for x in node.args:
             build(x)
+        for x in node.keywords:
+            build(x.value)
         # if it's called as method, call with self (the object)
         if type(node.func) is ast.Attribute and getattr(node.func, 'calling_method', False):
             args = [node.func.value] + node.args 
         else:
             args = node.args
+        kwargs = {x.arg: x.value for x in node.keywords}
         # custom function
         if node.func.dtype is CallableType:
-            node.dtype, node.expr = callable_call(node.func.expr, args)
-        # builtin function (as defined in builtin_func_names)
+            node.dtype, node.expr = callable_call(node.func.expr, *args, **kwargs)
+        # builtin function (called by name string, as defined in builtin_func_names)
         elif node.func.dtype is BuiltinFuncType:
-            node.dtype, node.expr = builtin_func(node.func.expr, args)
+            node.dtype, node.expr = builtin_func(node.func.expr, *args, **kwargs)
         elif node.func.dtype is BuiltinFuncBuilder:
-            node.dtype, node.expr = node.func.expr.builder(args)
+            node.dtype, node.expr = node.func.expr.builder(*args, **kwargs)
         # type: cast / construct
         elif node.func.dtype is type:
             dtype = node.func.expr
-            node.dtype, node.expr = builtin_type_cast(dtype, args)
+            node.dtype, node.expr = builtin_type_cast(dtype, *args, **kwargs)
         else:
             raise TypeError(f"{node.func.dtype} is not callble")
         node.lr = 'r'
@@ -434,6 +437,13 @@ class ASTVisitor:
                 node.joined.append(x)
             else:
                 assert False
+
+    @staticmethod
+    def build_List(node):
+        node.dtype = list
+        for x in node.elts:
+            build(x)
+        node.expr = None
 
     @staticmethod
     def build_Pass(node):
