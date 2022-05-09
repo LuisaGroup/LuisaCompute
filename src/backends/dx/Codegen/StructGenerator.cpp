@@ -27,6 +27,7 @@ size_t StructureType::align() const {
             return v.begin()[0];
         }
     }
+    LUISA_ERROR_WITH_LOCATION("Invalid.");
 }
 void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc) {
     auto leftedValue = tarAlign - (structSize % tarAlign);
