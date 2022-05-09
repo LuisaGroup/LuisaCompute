@@ -4,10 +4,11 @@ from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_
     scalar_lctypes, arithmetic_dtypes, arithmetic_lctypes
 from functools import reduce
 from . import globalvars
-from .structtype import StructType
 from types import SimpleNamespace
 import ast
 from .types import BuiltinFuncBuilder, ref as ref_type
+from .array import ArrayType
+from .struct import StructType
 
 
 def wrap_with_tmp_var(node):
@@ -188,7 +189,7 @@ def builtin_bin_op(op, lhs, rhs):
                 elif exponential == 4:
                     return builtin_bin_op(ast.Mult, builtin_bin_op(ast.Mult, lhs, lhs),
                                           builtin_bin_op(ast.Mult, lhs, lhs))
-        return builtin_func("pow", [lhs, rhs])
+        return builtin_func("pow", lhs, rhs)
     dtype0, dtype1 = lhs.dtype, rhs.dtype
     length0, length1 = get_length(lhs), get_length(rhs)
     lhs_expr, rhs_expr = lhs.expr, rhs.expr
@@ -246,8 +247,8 @@ def builtin_bin_op(op, lhs, rhs):
             dtype = to_bool(dtype)
         elif op is ast.Div:
             dtype = to_float(dtype)
-            _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), [lhs])
-            _, rhs_expr = builtin_type_cast(to_float(rhs.dtype), [rhs])
+            _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), lhs)
+            _, rhs_expr = builtin_type_cast(to_float(rhs.dtype), rhs)
     return dtype, lcapi.builder().binary(to_lctype(dtype), lc_op, lhs_expr, rhs_expr)
 
 
@@ -272,17 +273,18 @@ builtin_func_names = {
     'clz', 'ctz', 'popcount', 'reverse',
     'fma', 'copysign',
     'determinant', 'transpose', 'inverse',
-    'synchronize_block'
+    'synchronize_block',
+    'array', 'struct'
 }
 
 
 # type cast or initialization
 # return dtype, expr
-def builtin_type_cast(dtype, args):
+def builtin_type_cast(dtype, *args):
     # struct with constructor
     if type(dtype) is StructType and '__init__' in dtype.method_dict:
         obj = SimpleNamespace(dtype = dtype, expr = lcapi.builder().local(to_lctype(dtype)), lr = 'l')
-        _rettype, _retexpr = callable_call(dtype.method_dict['__init__'], [obj] + args)
+        _rettype, _retexpr = callable_call(dtype.method_dict['__init__'], obj, *args)
         # if it's a constructor, make sure it doesn't return value
         if _rettype != None:
             raise TypeError(f'__init__() should return None, not {_rettype}')
@@ -298,7 +300,7 @@ def builtin_type_cast(dtype, args):
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
     lctype = to_lctype(dtype)
     if lctype.is_vector() or lctype.is_matrix():
-        return builtin_func(f"make_{dtype.__name__}", args)
+        return builtin_func(f"make_{dtype.__name__}", *args)
     # TODO: vectors / matrices
     # TODO: array
     # TODO: struct
@@ -325,7 +327,7 @@ def make_vector_call(dtype, op, args):
         if arg.dtype == convtype:
             exprlist.append(arg.expr)
         else:
-            dtype1, expr1 = builtin_type_cast(convtype, [arg])
+            dtype1, expr1 = builtin_type_cast(convtype, arg)
             exprlist.append(expr1)
     return convtype, lcapi.builder().call(to_lctype(convtype), op, exprlist)
 
@@ -342,16 +344,19 @@ def check_exact_signature(signature, args, name):
 
 
 @BuiltinFuncBuilder
-def _bitwise_cast(args):
+def _bitwise_cast(*args):
     assert len(args)==2 and args[0].dtype == type
     dtype = args[0].expr
     assert dtype in (int, float)
     op = lcapi.CastOp.BITWISE
+    # create temporary variable
+    if args[1].lr == 'r':
+        wrap_with_tmp_var(args[1])
     return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[1].expr)
 
 
 @BuiltinFuncBuilder
-def _builtin_call(args):
+def _builtin_call(*args):
     if args[0].dtype == str: # void call
         op = getattr(lcapi.CallOp, args[0].expr)
         return None, lcapi.builder().call(op, [x.expr for x in args[1:]])
@@ -362,8 +367,21 @@ def _builtin_call(args):
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args[2:]])
 
 
+# @BuiltinFuncBuilder
+# def set_block_size(x, y, z):
+#     check_exact_signature([int, int, int], (x,y,z), "set_block_size")
+#     for a in args:
+#         if type(a).__name__ != "Constant":
+#             raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
+#     lcapi.builder().set_block_size(x.value, y.value, z.value)
+
+# @BuiltinFuncBuilder
+# def synchronize_block():
+#     return None, lcapi.builder.call(lcapi.CallOp.SYNCHRONIZE_BLOCK, [])
+
+
 # return dtype, expr
-def builtin_func(name, args):
+def builtin_func(name, *args, **kwargs):
     if name == "set_block_size":
         check_exact_signature([int, int, int], args, "set_block_size")
         for a in args:
@@ -516,14 +534,14 @@ def builtin_func(name, args):
         op = lcapi.CallOp.TEXTURE_READ
         dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
         check_exact_signature([lcapi.int2], args[1:], "Texture2D.read")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]])  # convert int2 to uint2
+        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, args[1])  # convert int2 to uint2
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     if name == "texture2d_write":
         op = lcapi.CallOp.TEXTURE_WRITE
         dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
         check_exact_signature([lcapi.int2, dtype], args[1:], "Texture2D.write")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, [args[1]])  # convert int2 to uint2
+        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, args[1])  # convert int2 to uint2
         lcapi.builder().call(op, [x.expr for x in args])
         return None, None
 
@@ -588,7 +606,7 @@ def builtin_func(name, args):
         assert len(args) == 2
         for arg in args:
             if arg.dtype is not float:
-                arg.dtype, arg.expr = builtin_type_cast(to_float(arg.dtype), [arg])
+                arg.dtype, arg.expr = builtin_type_cast(to_float(arg.dtype), arg)
         return make_vector_call(float, lcapi.CallOp.POW, args)
 
     if name in ('all', 'any'):
@@ -681,6 +699,7 @@ def builtin_func(name, args):
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
+    # UNUSABLE YET
     if name in ('atomic_exchange', 'atomic_fetch_add', 'atomic_fetch_sub', 'atomic_fetch_and', 'atomic_fetch_or',
                 'atomic_fetch_xor', 'atomic_fetch_min', 'atomic_fetch_max'):
         op = getattr(lcapi.CallOp, name.upper())
@@ -693,11 +712,45 @@ def builtin_func(name, args):
     if name == 'atomic_compare_exchange':
         pass
 
+    if name == 'array': # create array from list
+        check_exact_signature([list], args, 'array')
+        # deduce array dtype & length
+        nodes = args[0].elts
+        size = len(nodes)
+        if size == 0:
+            raise TypeError("Can't create empty array")
+        dtype = nodes[0].dtype
+        for x in nodes:
+            if x.dtype != dtype:
+                raise TypeError("all elements of array must be of same type")
+        arrtype = ArrayType(dtype=dtype, size=size)
+        # create & fill array
+        arrexpr = lcapi.builder().local(to_lctype(arrtype))
+        for idx in range(size):
+            sliceexpr = lcapi.builder().literal(to_lctype(int), idx)
+            lhs = lcapi.builder().access(to_lctype(dtype), arrexpr, sliceexpr)
+            lcapi.builder().assign(lhs, nodes[idx].expr)
+        return arrtype, arrexpr
+
+    if name == 'struct': # create struct from kwargs
+        # deduce struct type
+        strtype = StructType(**{name:kwargs[name].dtype for name in kwargs})
+        # create & fill struct
+        strexpr = lcapi.builder().local(to_lctype(strtype))
+        for name in kwargs:
+            idx = strtype.idx_dict[name]
+            dtype = strtype.membertype[idx]
+            lhs = lcapi.builder().member(to_lctype(dtype), strexpr, idx)
+            lcapi.builder().assign(lhs, kwargs[name].expr)
+        return strtype, strexpr
+
     raise NameError(f'unrecognized function call {name}')
 
 
-def callable_call(func, args):
+def callable_call(func, *args):
     # get function instance by argtypes
+    if func is globalvars.current_context.func and tuple(a.dtype for a in args) == globalvars.current_context.argtypes:
+        raise Exception("Recursion is not supported")
     f = func.get_compiled(call_from_host=False, argtypes=tuple(a.dtype for a in args))
     globalvars.current_context.uses_printer |= f.uses_printer
     # create temporary var for each r-value argument

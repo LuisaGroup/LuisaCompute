@@ -80,9 +80,9 @@ def dtype_of(val):
         return str
     if type(val) in basic_type_dict:
         return type(val)
-    if type(val).__name__ == "_Array":
+    if type(val).__name__ == "Array":
         return val.arrayType
-    if type(val).__name__ == "_Struct":
+    if type(val).__name__ == "Struct":
         return val.structType
     if type(val).__name__ == "Buffer":
         return val.bufferType

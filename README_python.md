@@ -46,6 +46,8 @@ print(res)
 
 在Luisa函数中调用函数时，函数的传参规则与Python一致，即：标量类型按值传递，其它任何类型按引用传递（但不可以被赋值）。在python中并行调用时，luisa函数无论如何都不会修改python端传入的参数（这是显然的）。
 
+注：Luisa函数只支持位置参数，不支持关键词参数，且不支持参数默认值。
+
 ## 类型
 
 ### 标量类型
@@ -80,6 +82,10 @@ v1.xzzy # int4(7,9,9,8)，只读
 
 ### 数组类型
 
+===待更新===
+
+数组可以存放固定数量、同一类型的若干元素。
+
 ```python3
 # 声明了一个类型
 # 其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
@@ -92,7 +98,11 @@ a2 = arr_t([value1, ...]) # 暂时只在python(host)中支持
 a1[idx] = value1 # python/kernel 都支持
 ```
 
+注意：数组的构造和赋值均为按值复制
+
 ### 结构体类型
+
+===待更新===
 
 ```python
 # 声明了一个类型
@@ -106,6 +116,8 @@ a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
 a1.name1 = value1 # python/kernel 都支持
 ```
 
+注意：结构体的构造和赋值均为按值复制
+
 结构体可以将一个luisa函数作为方法：
 
 ```python
@@ -118,6 +130,8 @@ struct_t.add_method(f1)
 如方法名为`__init__`，该结构体在luisa函数中构造时会调用该方法。
 
 ### Buffer类型
+
+===待更新===
 
 在设备上的数组，不能直接在python中访问其元素。其元素类型可以是标量、向量、矩阵、数组或结构体。
 
@@ -155,6 +169,8 @@ TODO: 需要提供用户友好的上传下载方式，以及支持其它类型�
 
 ### Texture2D类型
 
+===待更新===
+
 在设备上的二维贴图。不能直接在python中访问其元素。
 
 创建贴图：`luisa.Texture2D(width, height, channel, dtype, [storage])`
@@ -182,6 +198,8 @@ python方法：
 上传/下载到storage对应类型的numpy.array。
 
 ### BindlessArray类型
+
+===待更新===
 
 可以放置多个 buffer / texture2d(float) 的容器。
 
@@ -213,6 +231,8 @@ a.texture2d_size(idx)
 注：目前的用法有点奇怪，可能后续会更改
 
 ### Accel类型
+
+===待更新===
 
 在设备上的（光线求交）加速结构。
 
@@ -420,6 +440,10 @@ uses_printer
 `BuiltinFuncBuilder` 该节点表示的是一个内建函数，此时`node.expr`为一个函数` (argnodes)->(dtype,expr)`
 
 `str` 该节点表示的是一个字符串，此时`node.expr`为一个字符串字面值。这种情况只允许在 `print` 函数的参数里出现
+
+`list` 是一个列表；只在array的参数中出现。
+
+
 
 ## 注1
 

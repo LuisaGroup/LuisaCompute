@@ -15,6 +15,7 @@ meshes = [[0,1,2,0,2,3], [4,5,6,4,6,7], [3,2,6,3,6,5], [2,1,7,2,7,6], [0,3,5,0,5
          [8,9,10,8,10,11,15,11,10,15,10,14,12,8,11,12,11,15,13,9,8,13,8,12,14,10,9,14,9,13,12,13,14,12,14,15], # short cube
          [16,17,18,16,18,19,20,16,19,20,19,23,23,19,18,23,18,22,22,18,17,22,17,21,21,17,16,21,16,20,20,21,22,20,22,23], # tall cube
          [24,25,26,24,26,27]] # light
+
 white, red, green = float3(0.725, 0.71, 0.68), float3(0.63, 0.065, 0.05), float3(0.14, 0.45, 0.091)
 materials = [white, white, white, green, red, white, white, white]
 camera_pos, light_pos = float3(-0.01, 0.995, 5.0), float3(-0.24, 1.98, 0.16)
@@ -55,11 +56,10 @@ def path_tracer(accum_image, display_image, frame_id, resolution):
         p0 = vertex_buffer.read(v0_id)
         p1 = vertex_buffer.read(v1_id)
         p2 = vertex_buffer.read(v2_id)
-        p = (1.0 - hit.bary.x - hit.bary.y) * p0 + hit.bary.x * p1 + hit.bary.y * p2 # or simpler, p = hit.interpolate(p0,p1,p2)
-        n = normalize(cross(p1 - p0, p2 - p0))
-        if dot(-ray.get_dir(), n) < 1e-4: # hit backside
-            break
-        albedo = material_buffer.read(hit.inst)
+        # compute hit position, normal, and albedo (surface color)
+        p = (1.0 - hit.bary.x - hit.bary.y) * p0 + hit.bary.x * p1 + hit.bary.y * p2 # or simpler, hit.interpolate(p0,p1,p2)
+        n = normalize(cross(p1 - p0, p2 - p0)) # normal
+        albedo = material_buffer.read(hit.inst) if dot(-ray.get_dir(), n) > 1e-4 else float3(0) # backside is black
 
         # sample light
         p_light = light_pos + sampler.next() * light_u + sampler.next() * light_v
@@ -94,6 +94,6 @@ while gui.running():
     frame_id += 1
     if frame_id % 16 == 0:
         gui.set_image(final_image)
-        gui.show(16)
+        gui.show()
 # save image when window is closed
 Image.fromarray(final_image.to(luisa.PixelStorage.BYTE4).numpy()).save("cornell.png")
