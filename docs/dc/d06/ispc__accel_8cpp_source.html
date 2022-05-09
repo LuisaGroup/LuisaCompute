@@ -124,31 +124,31 @@ $(document).ready(function(){initNavTree('dc/d06/ispc__accel_8cpp_source.html','
 <div class="line"><a id="l00034" name="l00034"></a><span class="lineno">   34</span> </div>
 <div class="line"><a id="l00035" name="l00035"></a><span class="lineno">   35</span>    <span class="keyword">using</span> Mod = <a class="code hl_struct" href="../../da/d7f/structluisa_1_1compute_1_1_accel_build_command_1_1_modification.html">AccelBuildCommand::Modification</a>;</div>
 <div class="line"><a id="l00036" name="l00036"></a><span class="lineno">   36</span>    pool.async([<span class="keyword">this</span>, instance_count, mods = luisa::vector&lt;Mod&gt;{mods.cbegin(), mods.cend()}]() {</div>
-<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span>        <span class="keywordflow">if</span> (instance_count &lt; _instances.size()) {<span class="comment">// remove redundant geometries</span></div>
-<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span>            <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = instance_count; i &lt; _instances.size(); i++) { rtcDetachGeometry(_handle, i); }</div>
-<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span>            _instances.resize(instance_count);</div>
+<div class="line"><a id="l00037" name="l00037"></a><span class="lineno">   37</span>        <span class="keywordflow">if</span> (instance_count &lt; _impl.size()) {<span class="comment">// remove redundant geometries</span></div>
+<div class="line"><a id="l00038" name="l00038"></a><span class="lineno">   38</span>            <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = instance_count; i &lt; _impl.size(); i++) { rtcDetachGeometry(_handle, i); }</div>
+<div class="line"><a id="l00039" name="l00039"></a><span class="lineno">   39</span>            _impl.resize(instance_count);</div>
 <div class="line"><a id="l00040" name="l00040"></a><span class="lineno">   40</span>        } <span class="keywordflow">else</span> {<span class="comment">// create new geometries</span></div>
 <div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span>            <span class="keyword">auto</span> device = rtcGetSceneDevice(_handle);</div>
-<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span>            _instances.reserve(<a class="code hl_function" href="../../d0/d38/namespaceluisa.html#a126aec1ef45bd8dd50e8b1a00a9e5cb0">next_pow2</a>(instance_count));</div>
-<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span>            <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = _instances.size(); i &lt; instance_count; i++) {</div>
+<div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span>            _impl.reserve(<a class="code hl_function" href="../../d0/d38/namespaceluisa.html#a126aec1ef45bd8dd50e8b1a00a9e5cb0">next_pow2</a>(instance_count));</div>
+<div class="line"><a id="l00043" name="l00043"></a><span class="lineno">   43</span>            <span class="keywordflow">for</span> (<span class="keyword">auto</span> i = _impl.size(); i &lt; instance_count; i++) {</div>
 <div class="line"><a id="l00044" name="l00044"></a><span class="lineno">   44</span>                <span class="keyword">auto</span> geometry = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_INSTANCE);</div>
 <div class="line"><a id="l00045" name="l00045"></a><span class="lineno">   45</span>                rtcSetGeometryBuildQuality(geometry, RTC_BUILD_QUALITY_HIGH);</div>
 <div class="line"><a id="l00046" name="l00046"></a><span class="lineno">   46</span>                rtcAttachGeometryByID(_handle, geometry, i);</div>
 <div class="line"><a id="l00047" name="l00047"></a><span class="lineno">   47</span>                rtcReleaseGeometry(geometry);<span class="comment">// already moved into the scene</span></div>
-<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span>                _instances.emplace_back().geometry = geometry;</div>
+<div class="line"><a id="l00048" name="l00048"></a><span class="lineno">   48</span>                _impl.emplace_back().geometry = geometry;</div>
 <div class="line"><a id="l00049" name="l00049"></a><span class="lineno">   49</span>            }</div>
 <div class="line"><a id="l00050" name="l00050"></a><span class="lineno">   50</span>        }</div>
 <div class="line"><a id="l00051" name="l00051"></a><span class="lineno">   51</span>        <span class="keywordflow">for</span> (<span class="keyword">auto</span> m : mods) {</div>
-<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span>            <span class="keyword">auto</span> geometry = _instances[m.index].geometry;</div>
+<div class="line"><a id="l00052" name="l00052"></a><span class="lineno">   52</span>            <span class="keyword">auto</span> geometry = _impl[m.index].geometry;</div>
 <div class="line"><a id="l00053" name="l00053"></a><span class="lineno">   53</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_mesh) { rtcSetGeometryInstancedScene(</div>
 <div class="line"><a id="l00054" name="l00054"></a><span class="lineno">   54</span>                geometry, <span class="keyword">reinterpret_cast&lt;</span><span class="keyword">const </span><a class="code hl_class" href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html">ISPCMesh</a> *<span class="keyword">&gt;</span>(m.mesh)-&gt;<a class="code hl_function" href="../../da/d75/classluisa_1_1compute_1_1ispc_1_1_i_s_p_c_mesh.html#abff1bccdb5dbcb44dc5d2768221e3f53">handle</a>()); }</div>
 <div class="line"><a id="l00055" name="l00055"></a><span class="lineno">   55</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_transform) { std::memcpy(</div>
-<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span>                _instances[m.index].affine, m.affine, <span class="keyword">sizeof</span>(m.affine)); }</div>
-<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_visibility_on) { _instances[m.index].visible = <span class="keyword">true</span>; }</div>
-<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_visibility_off) { _instances[m.index].visible = <span class="keyword">false</span>; }</div>
-<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>            _instances[m.index].dirty = <span class="keyword">true</span>;</div>
+<div class="line"><a id="l00056" name="l00056"></a><span class="lineno">   56</span>                _impl[m.index].affine, m.affine, <span class="keyword">sizeof</span>(m.affine)); }</div>
+<div class="line"><a id="l00057" name="l00057"></a><span class="lineno">   57</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_visibility_on) { _impl[m.index].visible = <span class="keyword">true</span>; }</div>
+<div class="line"><a id="l00058" name="l00058"></a><span class="lineno">   58</span>            <span class="keywordflow">if</span> (m.flags &amp; Mod::flag_visibility_off) { _impl[m.index].visible = <span class="keyword">false</span>; }</div>
+<div class="line"><a id="l00059" name="l00059"></a><span class="lineno">   59</span>            _impl[m.index].dirty = <span class="keyword">true</span>;</div>
 <div class="line"><a id="l00060" name="l00060"></a><span class="lineno">   60</span>        }</div>
-<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>        <span class="keywordflow">for</span> (<span class="keyword">auto</span> &amp;&amp;instance : _instances) {</div>
+<div class="line"><a id="l00061" name="l00061"></a><span class="lineno">   61</span>        <span class="keywordflow">for</span> (<span class="keyword">auto</span> &amp;&amp;instance : _impl) {</div>
 <div class="line"><a id="l00062" name="l00062"></a><span class="lineno">   62</span>            <span class="keywordflow">if</span> (instance.dirty) {</div>
 <div class="line"><a id="l00063" name="l00063"></a><span class="lineno">   63</span>                <span class="keyword">auto</span> geometry = instance.geometry;</div>
 <div class="line"><a id="l00064" name="l00064"></a><span class="lineno">   64</span>                rtcSetGeometryTransform(geometry, 0u, RTC_FORMAT_FLOAT3X4_ROW_MAJOR, instance.affine);</div>

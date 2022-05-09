@@ -68,6 +68,7 @@
 #include <dsl/func.h>
 #include <dsl/local.h>
 #include <dsl/operators.h>
+#include <dsl/polymorphic.h>
 #include <dsl/printer.h>
 #include <dsl/ref.h>
 #include <dsl/shared.h>

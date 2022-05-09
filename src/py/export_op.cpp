@@ -1,9 +1,16 @@
-#pragma once
+#include <pybind11/pybind11.h>
+#include <pybind11/functional.h>
+#include <pybind11/stl.h>
+#include <luisa-compute.h>
 
 namespace py = pybind11;
 using namespace luisa::compute;
 
 void export_op(py::module &m) {
+
+    py::enum_<CastOp>(m, "CastOp")
+        .value("STATIC", CastOp::STATIC)
+        .value("BITWISE", CastOp::BITWISE);
 
     py::enum_<UnaryOp>(m, "UnaryOp")
         .value("PLUS", UnaryOp::PLUS)

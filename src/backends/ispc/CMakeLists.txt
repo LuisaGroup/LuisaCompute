@@ -18,7 +18,7 @@ if (CMAKE_ISPC_COMPILER)
 endif ()
 
 if (ISPC_FOUND)
-    message(STATUS "Build with ISPC")
+    message(STATUS "Build with ISPC backend")
     set(ISPC_BACKEND_SOURCES
             ispc_device.cpp ispc_device.h
             ispc_stream.cpp ispc_stream.h

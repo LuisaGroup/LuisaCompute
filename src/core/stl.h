@@ -8,7 +8,9 @@
 #include <cmath>
 #include <memory>
 #include <string>
-#include <core/dll_export.h>
+#include <unordered_map>
+#include <unordered_set>
+
 #include <fmt/format.h>
 
 #include <EASTL/bit.h>
@@ -40,6 +42,11 @@
 #include <absl/container/flat_hash_set.h>
 #include <absl/container/btree_map.h>
 #include <absl/container/btree_set.h>
+#include <absl/container/node_hash_map.h>
+#include <absl/container/node_hash_set.h>
+
+#include <core/dll_export.h>
+#include <core/hash.h>
 
 namespace luisa {
 
@@ -66,7 +73,6 @@ struct allocator {
         return std::is_same_v<T, R>;
     }
 };
-
 template<typename T>
 [[nodiscard]] inline auto allocate(size_t n = 1u) noexcept {
     return allocator<T>{}.allocate(n);
@@ -90,6 +96,9 @@ inline void delete_with_allocator(T *p) noexcept {
     }
 }
 
+using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
+using std::string_view;
+
 using eastl::const_pointer_cast;
 using eastl::dynamic_pointer_cast;
 using eastl::enable_shared_from_this;
@@ -103,18 +112,15 @@ using eastl::static_pointer_cast;
 using eastl::unique_ptr;
 using eastl::weak_ptr;
 
-using string = std::basic_string<char, std::char_traits<char>, allocator<char>>;
-using std::string_view;
-
 using eastl::span;
 using eastl::vector;
 
 using eastl::deque;
 using eastl::list;
+using eastl::make_optional;
 using eastl::monostate;
 using eastl::move_only_function;
 using eastl::nullopt;
-using eastl::make_optional;
 using eastl::optional;
 using eastl::queue;
 using eastl::slist;
@@ -122,17 +128,23 @@ using eastl::variant;
 using eastl::variant_alternative_t;
 using eastl::variant_size_v;
 
+#define LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
+
+#ifdef LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
 template<typename K, typename V,
-         typename Hash = absl::container_internal::hash_default_hash<K>,
-         typename Eq = absl::container_internal::hash_default_eq<K>,
+         typename Hash = hash<K>,
+         typename Eq = std::equal_to<>,
          typename Allocator = luisa::allocator<std::pair<const K, V>>>
 using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
-
 template<typename K,
-         typename Hash = absl::container_internal::hash_default_hash<K>,
-         typename Eq = absl::container_internal::hash_default_eq<K>,
+         typename Hash = hash<K>,
+         typename Eq = std::equal_to<>,
          typename Allocator = luisa::allocator<const K>>
 using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
+#else
+using std::unordered_map;
+using std::unordered_set;
+#endif
 
 template<typename K, typename V,
          typename Compare = std::less<K>,
@@ -207,6 +219,10 @@ template<typename FMT, typename... Args>
     memory_buffer buffer;
     fmt::format_to(std::back_inserter(buffer), std::forward<FMT>(f), std::forward<Args>(args)...);
     return luisa::string{buffer.data(), buffer.size()};
+}
+
+[[nodiscard]] inline auto hash_to_string(uint64_t hash) noexcept {
+    return luisa::format("{:016X}", hash);
 }
 
 }// namespace luisa

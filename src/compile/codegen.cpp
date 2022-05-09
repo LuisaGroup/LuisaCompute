@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/5.
 //
 
+#include <core/logging.h>
 #include <ast/type_registry.h>
 #include <compile/codegen.h>
 
