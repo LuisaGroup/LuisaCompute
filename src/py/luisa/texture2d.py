@@ -1,7 +1,7 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import dtype_of
+from .types import dtype_of, length_of
 from functools import cache
 from .func import func
 from .builtin import _builtin_call
@@ -18,7 +18,7 @@ class Texture2D:
         self.height = height
         self.channel = channel
         self.dtype = dtype
-        self.vectype = getattr(lcapi, dtype.__name__ + str(channel))
+        self.vectype = dtype if channel == 1 else getattr(lcapi, dtype.__name__ + str(channel))
         # default storage type: max precision
         if storage is None:
             storage = getattr(lcapi.PixelStorage, dtype.__name__.upper() + str(channel))
@@ -129,7 +129,7 @@ class Texture2DType:
     def __init__(self, dtype, channel):
         self.dtype = dtype
         self.channel = channel
-        self.vectype = getattr(lcapi, dtype.__name__ + str(channel))
+        self.vectype = dtype if channel == 1 else getattr(lcapi, dtype.__name__ + str(channel))
         self.luisa_type = lcapi.Type.from_("texture<2," + dtype.__name__ + ">")
         self.read = self.get_read_method(self.vectype)
         self.write = self.get_write_method(self.vectype)
@@ -143,10 +143,12 @@ class Texture2DType:
     @staticmethod
     @cache
     def get_read_method(dtype):
+        # if length_of(dtype) == 4:
         @func
         def read(self, coord: int2):
             return _builtin_call(dtype, "TEXTURE_READ", self, make_uint2(coord))
         return read
+        # else:
     
     @staticmethod
     @cache

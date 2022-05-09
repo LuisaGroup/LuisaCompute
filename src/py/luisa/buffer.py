@@ -1,7 +1,7 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import to_lctype, basic_type_dict, dtype_of
+from .types import to_lctype, basic_dtypes, dtype_of
 from functools import cache
 from .func import func
 from .builtin import _builtin_call
@@ -9,7 +9,7 @@ from .mathtypes import *
 
 class Buffer:
     def __init__(self, size, dtype):
-        if not (dtype in basic_type_dict or hasattr(dtype, 'to_bytes')):
+        if not (dtype in basic_dtypes or hasattr(dtype, 'to_bytes')):
             raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
