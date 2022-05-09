@@ -91,9 +91,13 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
 
     // compile: write source
     {
+        static std::mutex mutex;
+        std::scoped_lock lock{mutex};
         std::ofstream src_file{source_path};
         src_file << scratch.view();
     }
+
+    // FIXME: unsafe for concurrent compilation
 
     // compile: generate object
     auto command = fmt::format(
