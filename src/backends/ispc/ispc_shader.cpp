@@ -19,12 +19,6 @@ namespace luisa::compute::ispc {
 
 ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noexcept {
 
-    Codegen::Scratch scratch;
-    ISPCCodegen codegen{scratch};
-    codegen.emit(func);
-
-    LUISA_VERBOSE_WITH_LOCATION("Generating ISPC shader:\n{}", scratch.view());
-
     // compile
 #ifdef LUISA_PLATFORM_WINDOWS
     auto ispc_exe = ctx.runtime_directory() / "ispc.exe";
@@ -89,16 +83,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noe
     for (auto o : luisa::span{ispc_options}.subspan(1u)) {
         ispc_opt_string.append(" ").append(o);
     }
-
     auto object_path = ctx.cache_directory() / luisa::format("{}.{}", name, object_ext);
-
-    // compile: write source
-    {
-        static std::mutex mutex;
-        std::scoped_lock lock{mutex};
-        std::ofstream src_file{source_path};
-        src_file << scratch.view();
-    }
 
     Clock clock;
     // FIXME: the compiled shaders never release; maybe we should try LRU?
@@ -112,6 +97,15 @@ ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noe
         }
         auto future = std::async(std::launch::deferred, [&] {
             if (!std::filesystem::exists(object_path)) {
+                {
+                    static thread_local Codegen::Scratch scratch;
+                    scratch.clear();
+                    ISPCCodegen codegen{scratch};
+                    codegen.emit(func);
+                    LUISA_VERBOSE_WITH_LOCATION("Generating ISPC shader:\n{}", scratch.view());
+                    std::ofstream src_file{source_path};
+                    src_file << scratch.view();
+                }
                 // compile: generate object
                 auto command = luisa::format(
                     R"({} {} "{}" -o "{}")",
@@ -132,11 +126,8 @@ ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noe
         return compile_futures.emplace(name, std::move(future)).first->second;
     }();
 
-    {
-        _module = module_future.get();
-        LUISA_INFO("Created ISPC shader in {} ms.", clock.toc());
-        std::scoped_lock lock{compile_mutex};
-    }
+    _module = module_future.get();
+    LUISA_INFO("Created ISPC shader in {} ms.", clock.toc());
 
     // arguments
     _argument_offsets.reserve(func.arguments().size());
