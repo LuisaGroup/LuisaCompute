@@ -1604,6 +1604,15 @@ struct lc_float4x4 {
 [[nodiscard]] __device__ constexpr auto lc_make_float4x4(lc_float3x3 m) noexcept { return lc_float4x4{lc_make_float4(m[0], 0.0f), lc_make_float4(m[1], 0.0f), lc_make_float4(m[2], 0.0f), lc_make_float4(0.0f, 0.0f, 0.0f, 1.0f)}; }
 [[nodiscard]] __device__ constexpr auto lc_make_float4x4(lc_float4x4 m) noexcept { return m; }
 
+[[nodiscard]] inline bool isinf_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return u == 0x7f800000u | u == 0xff800000u;
+}
+[[nodiscard]] inline bool isnan_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
+}
+
 template<typename T>
 [[nodiscard]] __device__ inline auto lc_select(T f, T t, bool p) noexcept { return p ? t : f; }
 [[nodiscard]] __device__ inline auto lc_select(lc_int2 f, lc_int2 t, lc_bool2 p) noexcept { return lc_make_int2(lc_select<lc_int>(f.x, t.x, p.x), lc_select<lc_int>(f.y, t.y, p.y)); }
@@ -1794,15 +1803,15 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_copysign(lc_float3 x, lc_float3 y) noexcept { return lc_make_float3(copysignf(x.x, y.x), copysignf(x.y, y.y), copysignf(x.z, y.z)); }
 [[nodiscard]] __device__ inline auto lc_copysign(lc_float4 x, lc_float4 y) noexcept { return lc_make_float4(copysignf(x.x, y.x), copysignf(x.y, y.y), copysignf(x.z, y.z), copysignf(x.w, y.w)); }
 
-[[nodiscard]] __device__ inline auto lc_isinf(lc_float x) noexcept { return isinf(x); }
-[[nodiscard]] __device__ inline auto lc_isinf(lc_float2 x) noexcept { return lc_make_bool2(isinf(x.x), isinf(x.y)); }
-[[nodiscard]] __device__ inline auto lc_isinf(lc_float3 x) noexcept { return lc_make_bool3(isinf(x.x), isinf(x.y), isinf(x.z)); }
-[[nodiscard]] __device__ inline auto lc_isinf(lc_float4 x) noexcept { return lc_make_bool4(isinf(x.x), isinf(x.y), isinf(x.z), isinf(x.w)); }
+[[nodiscard]] __device__ inline auto lc_isinf(lc_float x) noexcept { return isinf_impl(x); }
+[[nodiscard]] __device__ inline auto lc_isinf(lc_float2 x) noexcept { return lc_make_bool2(isinf_impl(x.x), isinf_impl(x.y)); }
+[[nodiscard]] __device__ inline auto lc_isinf(lc_float3 x) noexcept { return lc_make_bool3(isinf_impl(x.x), isinf_impl(x.y), isinf_impl(x.z)); }
+[[nodiscard]] __device__ inline auto lc_isinf(lc_float4 x) noexcept { return lc_make_bool4(isinf_impl(x.x), isinf_impl(x.y), isinf_impl(x.z), isinf_impl(x.w)); }
 
-[[nodiscard]] __device__ inline auto lc_isnan(lc_float x) noexcept { return isnan(x); }
-[[nodiscard]] __device__ inline auto lc_isnan(lc_float2 x) noexcept { return lc_make_bool2(isnan(x.x), isnan(x.y)); }
-[[nodiscard]] __device__ inline auto lc_isnan(lc_float3 x) noexcept { return lc_make_bool3(isnan(x.x), isnan(x.y), isnan(x.z)); }
-[[nodiscard]] __device__ inline auto lc_isnan(lc_float4 x) noexcept { return lc_make_bool4(isnan(x.x), isnan(x.y), isnan(x.z), isnan(x.w)); }
+[[nodiscard]] __device__ inline auto lc_isnan(lc_float x) noexcept { return isnan_impl(x); }
+[[nodiscard]] __device__ inline auto lc_isnan(lc_float2 x) noexcept { return lc_make_bool2(isnan_impl(x.x), isnan_impl(x.y)); }
+[[nodiscard]] __device__ inline auto lc_isnan(lc_float3 x) noexcept { return lc_make_bool3(isnan_impl(x.x), isnan_impl(x.y), isnan_impl(x.z)); }
+[[nodiscard]] __device__ inline auto lc_isnan(lc_float4 x) noexcept { return lc_make_bool4(isnan_impl(x.x), isnan_impl(x.y), isnan_impl(x.z), isnan_impl(x.w)); }
 
 [[nodiscard]] __device__ inline auto lc_clamp_impl(lc_int v, lc_int lo, lc_int hi) noexcept { return lc_min(lc_max(v, lo), hi); }
 [[nodiscard]] __device__ inline auto lc_clamp_impl(lc_uint v, lc_uint lo, lc_uint hi) noexcept { return lc_min(lc_max(v, lo), hi); }

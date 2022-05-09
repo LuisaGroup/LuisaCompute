@@ -204,16 +204,20 @@ bool4 _isnan(float4 x) {
 return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
 bool _isinf(float x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
 bool2 _isinf(float2 x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint2 u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
 bool3 _isinf(float3 x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint3 u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
 bool4 _isinf(float4 x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint4 u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
 template<typename T, typename V>
 T _select(T a, T b, V c) {
