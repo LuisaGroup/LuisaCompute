@@ -128,17 +128,31 @@ using eastl::variant;
 using eastl::variant_alternative_t;
 using eastl::variant_size_v;
 
+template<typename T = void>
+struct equal_to {
+    [[nodiscard]] bool operator()(const T &lhs, const T &rhs) const noexcept { return lhs == rhs; }
+};
+
+template<>
+struct equal_to<void> {
+    using is_transparent = void;
+    template<typename T1, typename T2>
+    [[nodiscard]] bool operator()(T1 &&lhs, T2 &&rhs) const noexcept {
+        return std::forward<T1>(lhs) == std::forward<T2>(rhs);
+    }
+};
+
 #define LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
 
 #ifdef LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
 template<typename K, typename V,
          typename Hash = hash<K>,
-         typename Eq = std::equal_to<>,
+         typename Eq = equal_to<>,
          typename Allocator = luisa::allocator<std::pair<const K, V>>>
 using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
 template<typename K,
          typename Hash = hash<K>,
-         typename Eq = std::equal_to<>,
+         typename Eq = equal_to<>,
          typename Allocator = luisa::allocator<const K>>
 using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
 #else
@@ -147,22 +161,22 @@ using std::unordered_set;
 #endif
 
 template<typename K, typename V,
-         typename Compare = std::less<K>,
+         typename Compare = std::less<>,
          typename Alloc = luisa::allocator<std::pair<const K, V>>>
 using map = absl::btree_map<K, V, Compare, Alloc>;
 
 template<typename K, typename V,
-         typename Compare = std::less<K>,
+         typename Compare = std::less<>,
          typename Alloc = luisa::allocator<std::pair<const K, V>>>
 using multimap = absl::btree_multimap<K, V, Compare, Alloc>;
 
 template<typename K,
-         typename Compare = std::less<K>,
+         typename Compare = std::less<>,
          typename Alloc = luisa::allocator<K>>
 using set = absl::btree_set<K, Compare, Alloc>;
 
 template<typename K,
-         typename Compare = std::less<K>,
+         typename Compare = std::less<>,
          typename Alloc = luisa::allocator<K>>
 using multiset = absl::btree_multiset<K, Compare, Alloc>;
 

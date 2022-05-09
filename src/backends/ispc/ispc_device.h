@@ -17,6 +17,7 @@ class ISPCDevice final : public Device::Interface {
 
 private:
     RTCDevice _rtc_device;
+    uint64_t _lib_hash{};
 
 public:
     /**
@@ -300,6 +301,12 @@ public:
      * @param image_handle handle of the 2D texture to display
      */
     void present_display_in_stream(uint64_t stream_handle, uint64_t swap_chain_handle, uint64_t image_handle) noexcept override;
+    /**
+     * @brief Hash of the device library
+     *
+     * @return Hash value
+     */
+     [[nodiscard]] auto library_hash() const noexcept { return _lib_hash; }
 };
 
 }
