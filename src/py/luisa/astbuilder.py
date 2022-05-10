@@ -4,12 +4,12 @@ import inspect
 import sys
 import traceback
 from types import SimpleNamespace, ModuleType
-from .types import from_lctype
+from .types import length_of, element_of, vector
 from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call, wrap_with_tmp_var
-from .types import dtype_of, to_lctype, CallableType, is_vector_type
+from .types import dtype_of, to_lctype, CallableType, vector_dtypes
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .array import ArrayType
@@ -85,7 +85,8 @@ class ASTVisitor:
             if node.value.dtype != None:
                 raise TypeError("Discarding non-void return value")
         else:
-            raise TypeError("Dangling expression")
+            if not isinstance(node.value, ast.Constant):
+                raise TypeError("Dangling expression")
 
     @staticmethod
     def build_Return(node):
@@ -136,7 +137,7 @@ class ASTVisitor:
     def build_Attribute(node):
         build(node.value)
         # vector swizzle
-        if is_vector_type(node.value.dtype):
+        if node.value.dtype in vector_dtypes:
             if is_swizzle_name(node.attr):
                 original_size = to_lctype(node.value.dtype).dimension()
                 swizzle_size = len(node.attr)
@@ -170,7 +171,7 @@ class ASTVisitor:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry
                 node.calling_method = True
             else:
-                raise TypeError(f"Can't access member {entry} in luisa func")
+                raise TypeError(f"Can't access attribute {node.attr} ({entry}) in luisa func")
         else:
             raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
 
@@ -181,15 +182,13 @@ class ASTVisitor:
         build(node.slice)
         if type(node.value.dtype) is ArrayType:
             node.dtype = node.value.dtype.dtype
-        elif is_vector_type(node.value.dtype):
-            node.dtype = from_lctype(to_lctype(node.value.dtype).element())
+        elif node.value.dtype in vector_dtypes:
+            node.dtype = element_of(node.value.dtype)
         elif node.value.dtype in {lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}:
-            # matrix: indexed is a column vector
-            element_dtypename = to_lctype(node.value.dtype).element().description()
-            dim = to_lctype(node.value.dtype).dimension()
-            node.dtype = getattr(lcapi, element_dtypename + str(dim))
+            # matrix indexed is a column vector
+            node.dtype = vector(float, length_of(node.value.dtype))
         else:
-            raise TypeError(f"{node.value.dtype} can't be subscripted")
+            raise TypeError(f"{node.value.dtype} object is not subscriptable")
         node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
 
     # external variable captured in kernel -> (dtype, expr, lr)
@@ -204,6 +203,8 @@ class ASTVisitor:
             return dtype, val, None
         if dtype == BuiltinFuncBuilder:
             return dtype, val, None
+        if dtype == str:
+            return dtype, val, 'r'
         lctype = to_lctype(dtype)
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val), 'r'

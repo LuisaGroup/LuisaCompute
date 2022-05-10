@@ -1,7 +1,7 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .types import dtype_of
+from .types import dtype_of, length_of, element_of, vector
 from functools import cache
 from .func import func
 from .builtin import _builtin_call
@@ -18,7 +18,7 @@ class Texture2D:
         self.height = height
         self.channel = channel
         self.dtype = dtype
-        self.vectype = getattr(lcapi, dtype.__name__ + str(channel))
+        self.vectype = dtype if channel == 1 else getattr(lcapi, dtype.__name__ + str(channel))
         # default storage type: max precision
         if storage is None:
             storage = getattr(lcapi.PixelStorage, dtype.__name__.upper() + str(channel))
@@ -129,7 +129,7 @@ class Texture2DType:
     def __init__(self, dtype, channel):
         self.dtype = dtype
         self.channel = channel
-        self.vectype = getattr(lcapi, dtype.__name__ + str(channel))
+        self.vectype = dtype if channel == 1 else getattr(lcapi, dtype.__name__ + str(channel))
         self.luisa_type = lcapi.Type.from_("texture<2," + dtype.__name__ + ">")
         self.read = self.get_read_method(self.vectype)
         self.write = self.get_write_method(self.vectype)
@@ -143,15 +143,49 @@ class Texture2DType:
     @staticmethod
     @cache
     def get_read_method(dtype):
-        @func
-        def read(self, coord: int2):
-            return _builtin_call(dtype, "TEXTURE_READ", self, make_uint2(coord))
-        return read
+        dtype4 = vector(element_of(dtype), 4)
+        if length_of(dtype) == 4:
+            @func
+            def read(self, coord: int2):
+                return _builtin_call(dtype, "TEXTURE_READ", self, make_uint2(coord))
+            return read
+        elif length_of(dtype) == 2:
+            @func
+            def read(self, coord: int2):
+                return _builtin_call(dtype4, "TEXTURE_READ", self, make_uint2(coord)).xy
+            return read
+        elif length_of(dtype) == 1:
+            @func
+            def read(self, coord: int2):
+                return _builtin_call(dtype4, "TEXTURE_READ", self, make_uint2(coord)).x
+            return read
+        else:
+            assert False
     
     @staticmethod
     @cache
     def get_write_method(dtype):
-        @func
-        def write(self, coord: int2, value: dtype):
-            _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), value)
-        return write
+        if length_of(dtype) == 4:
+            @func
+            def write(self, coord: int2, value: dtype):
+                _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), value)
+            return write
+        else:
+            # convert to vector4
+            dtype4 = vector(element_of(dtype), 4)
+            opstr = "MAKE_" + dtype4.__name__.upper()
+            zero = element_of(dtype)(0)
+            if length_of(dtype) == 2:
+                @func
+                def write(self, coord: int2, value: dtype):
+                    tmp = _builtin_call(dtype4, opstr, value, zero, zero)
+                    _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), tmp)
+                return write
+            if length_of(dtype) == 1:
+                @func
+                def write(self, coord: int2, value: dtype):
+                    tmp = _builtin_call(dtype4, opstr, value, zero, zero, zero)
+                    _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), tmp)
+                return write
+            assert False
+

@@ -5,7 +5,7 @@ from .struct import StructType
 from .array import ArrayType
 from .mathtypes import *
 from .func import func
-from .types import ref, uint
+from .types import uint
 from .builtin import _builtin_call, _bitwise_cast
 
 # Ray

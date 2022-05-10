@@ -198,6 +198,8 @@ class Printer:
             idx += 1
             if type(tag) is str:
                 print(tag, end="")
+                if tag == "[ABORT]":
+                    quit()
             else:
                 print(self.recover(tag, arr, idx), end="")
                 idx += self.get_expr_elements_count(tag)
