@@ -93,7 +93,9 @@ class StructType:
     def __hash__(self):
         return hash(self.luisa_type.description()) ^ 7178987438397
 
-    def add_method(self, name, func):
+    def add_method(self, func, name=None):
+        if name is None:
+            name = func.__name__
         # check name collision
         if name in self.idx_dict:
             raise NameError("struct method can't have same name as its data members")

@@ -23,18 +23,24 @@ v = lc.Buffer.empty(n_particles, dtype=float2)
 C = lc.Buffer.zeros(n_particles, dtype=float2x2)
 J = lc.Buffer.empty(n_particles, dtype=float)
 
-grid_v = lc.Texture2D(n_grid, n_grid, 2, dtype=float)
-grid_m = lc.Texture2D(n_grid, n_grid, 1, dtype=float)
+grid_v = lc.Buffer.empty(n_grid * n_grid * 2, dtype=float)
+grid_m = lc.Buffer.empty(n_grid * n_grid, dtype=float)
 grid_mutex = lc.Buffer.zeros(n_grid * n_grid, dtype=int)
 
 
 @lc.func
+def encode(pos: int2):
+    return pos.x + pos.y * n_grid
+
+@lc.func
 def clear_grid():
-    grid_v.write(dispatch_id().xy, float2(0))
-    grid_m.write(dispatch_id().xy, 0.)
+    grid_v.write(encode(dispatch_id().xy)*2, 0.)
+    grid_v.write(encode(dispatch_id().xy)*2+1, 0.)
+    grid_m.write(encode(dispatch_id().xy), 0.)
 
 @lc.func
 def point_to_grid():
+    set_block_size(8,1,1)
     p = dispatch_id().x
     Xp = x.read(p) / dx
     base = int2(Xp - 0.5)
@@ -57,20 +63,21 @@ def point_to_grid():
 
             dpos = (float2(offset) - fx) * dx
             weight = w[i].x * w[j].y
-            new_v = grid_v.read(base + offset) + weight * (p_mass * v.read(p) + affine * dpos)
+            old_v = float2(grid_v.read(encode(base + offset) * 2), grid_v.read(encode(base + offset) * 2 + 1))
+            new_v = old_v + weight * (p_mass * v.read(p) + affine * dpos)
             if abs(new_v.x) > 1000 or abs(new_v.y) > 1000:
                 print("!!!! new_v", new_v)
                 print("[ABORT]")
-            grid_mutex.lock
-            grid_v.write(base + offset, grid_v.read(base + offset) + weight * (p_mass * v.read(p) + affine * dpos))
-            grid_m.write(base + offset, grid_m.read(base + offset) + weight * p_mass)
-            grid_mutex.unlock
+            vadd = weight * (p_mass * v.read(p) + affine * dpos)
+            _ = grid_v.atomic_fetch_add(encode(base + offset) * 2, vadd.x)
+            _ = grid_v.atomic_fetch_add(encode(base + offset) * 2 + 1, vadd.y)
+            _ = grid_m.atomic_fetch_add(encode(base + offset), weight * p_mass)
 
 @lc.func
 def simulate_grid():
     coord = dispatch_id().xy
-    v = grid_v.read(coord)
-    m = grid_m.read(coord)
+    v = float2(grid_v.read(encode(coord) * 2), grid_v.read(encode(coord) * 2 + 1))
+    m = grid_m.read(encode(coord))
     if m > 0.0:
         v /= m
     v.y -= dt * gravity
@@ -86,7 +93,8 @@ def simulate_grid():
     if abs(v.x) > 1000 or abs(v.y) > 1000:
         print("!!!! v", v, "m", m)
         print("[ABORT]")
-    grid_v.write(coord, v)
+    grid_v.write(encode(coord) * 2, v.x)
+    grid_v.write(encode(coord) * 2 + 1, v.y)
 
 @lc.func
 def outer_product(a: float2, b: float2):
@@ -112,20 +120,20 @@ def grid_to_point():
             offset = int2(i,j)
             dpos = (float2(offset) - fx) * dx
             weight = w[i].x * w[j].y
-            g_v = grid_v.read(base + offset)
+            g_v = float2(grid_v.read(encode(base + offset) * 2), grid_v.read(encode(base + offset) * 2 + 1))
             new_v += weight * g_v
             new_C += 4 * weight * outer_product(g_v, dpos) / dx**2
     v.write(p, new_v)
     new_x = x.read(p) + dt * new_v
-    if (new_x.x < 0 or new_x.y < 0) and x.read(p).x >= 0 and x.read(p).y >= 0:
-        print(f"escaping No.{p}: {x.read(p)} -> {new_x} @v={new_v}")
-        print("w=", w)
-        for i in range(3):
-            for j in range(3):
-                offset = int2(i,j)
-                g_v = grid_v.read(base + offset)
-                print(f"g_v[{base+offset}] = {g_v}; weight={w[i].x * w[j].y}")
-        print("[ABORT]")
+    # if (new_x.x < 0 or new_x.y < 0) and x.read(p).x >= 0 and x.read(p).y >= 0:
+    #     print(f"escaping No.{p}: {x.read(p)} -> {new_x} @v={new_v}")
+    #     print("w=", w)
+    #     for i in range(3):
+    #         for j in range(3):
+    #             offset = int2(i,j)
+    #             g_v = grid_v.read(base + offset)
+    #             print(f"g_v[{base+offset}] = {g_v}; weight={w[i].x * w[j].y}")
+    #     print("[ABORT]")
     x.write(p, x.read(p) + dt * new_v)
     # if (x.read(p).y < 0):
     #     print("!!!!", x.read(p), new_v)
@@ -175,14 +183,14 @@ def draw_particle():
 
 init(dispatch_size=n_particles)
 lc.synchronize()
-for i in range(10000):
-    print("==============", i, "=============")
-    substep()
-quit()
+# for i in range(10000):
+#     print("==============", i, "=============")
+#     substep()
+# quit()
 
 gui = lc.GUI('MPM88', (res,res))
 while gui.running():
-    for s in range(5):
+    for s in range(50):
         substep()
     clear_display(dispatch_size=(res,res))
     draw_particle(dispatch_size=n_particles)
