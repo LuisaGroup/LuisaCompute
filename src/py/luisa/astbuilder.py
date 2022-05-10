@@ -4,7 +4,7 @@ import inspect
 import sys
 import traceback
 from types import SimpleNamespace, ModuleType
-from .types import from_lctype
+from .types import length_of, element_of, vector
 from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
@@ -171,7 +171,7 @@ class ASTVisitor:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry
                 node.calling_method = True
             else:
-                raise TypeError(f"Can't access member {entry} in luisa func")
+                raise TypeError(f"Can't access attribute {node.attr} ({entry}) in luisa func")
         else:
             raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
 
@@ -183,14 +183,12 @@ class ASTVisitor:
         if type(node.value.dtype) is ArrayType:
             node.dtype = node.value.dtype.dtype
         elif node.value.dtype in vector_dtypes:
-            node.dtype = from_lctype(to_lctype(node.value.dtype).element())
+            node.dtype = element_of(node.value.dtype)
         elif node.value.dtype in {lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}:
-            # matrix: indexed is a column vector
-            element_dtypename = to_lctype(node.value.dtype).element().description()
-            dim = to_lctype(node.value.dtype).dimension()
-            node.dtype = getattr(lcapi, element_dtypename + str(dim))
+            # matrix indexed is a column vector
+            node.dtype = vector(float, length_of(node.value.dtype))
         else:
-            raise TypeError(f"{node.value.dtype} can't be subscripted")
+            raise TypeError(f"{node.value.dtype} object is not subscriptable")
         node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
 
     # external variable captured in kernel -> (dtype, expr, lr)
