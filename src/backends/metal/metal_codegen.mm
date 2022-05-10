@@ -301,10 +301,12 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
 
-    _scratch << "(";
     if (is_atomic_op) {
-        _scratch << "as_atomic(";
         auto args = expr->arguments();
+        if (args[0]->type()->description() == "float") {
+            _scratch << "_float";
+        }
+        _scratch << "(as_atomic(";
         args[0]->accept(*this);
         _scratch << "), ";
         for (auto i = 1u; i < args.size(); i++) {
@@ -312,38 +314,41 @@ void MetalCodegen::visit(const CallExpr *expr) {
             _scratch << ", ";
         }
         _scratch << "memory_order_relaxed";
-    } else if (!expr->arguments().empty()) {
-        auto arg_index = 0u;
-        for (auto arg : expr->arguments()) {
-            auto by_ref = !expr->is_builtin() &&
-                          expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE &&
-                          (expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::WRITE ||
-                           expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::READ_WRITE);
-            if (by_ref) {
-                if (arg->tag() == Expression::Tag::MEMBER &&
-                    static_cast<const MemberExpr *>(arg)->is_swizzle()) {
-                    // vector elements need special handling, since taking
-                    // the address is not directly supported in Metal
-                    auto vec_arg = static_cast<const MemberExpr *>(arg);
-                    if (vec_arg->swizzle_size() != 1u) [[unlikely]] {
-                        LUISA_ERROR_WITH_LOCATION("Invalid reference to vector swizzling.");
+    } else {
+        _scratch << "(";
+        if (!expr->arguments().empty()) {
+            auto arg_index = 0u;
+            for (auto arg : expr->arguments()) {
+                auto by_ref = !expr->is_builtin() &&
+                              expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE &&
+                              (expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::WRITE ||
+                               expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::READ_WRITE);
+                if (by_ref) {
+                    if (arg->tag() == Expression::Tag::MEMBER &&
+                        static_cast<const MemberExpr *>(arg)->is_swizzle()) {
+                        // vector elements need special handling, since taking
+                        // the address is not directly supported in Metal
+                        auto vec_arg = static_cast<const MemberExpr *>(arg);
+                        if (vec_arg->swizzle_size() != 1u) [[unlikely]] {
+                            LUISA_ERROR_WITH_LOCATION("Invalid reference to vector swizzling.");
+                        }
+                        _scratch << "vector_element_ptr<" << vec_arg->swizzle_index(0u) << ">(";
+                        vec_arg->self()->accept(*this);
+                        _scratch << ")";
+                    } else {
+                        _scratch << "address_of(";
+                        arg->accept(*this);
+                        _scratch << ")";
                     }
-                    _scratch << "vector_element_ptr<" << vec_arg->swizzle_index(0u) << ">(";
-                    vec_arg->self()->accept(*this);
-                    _scratch << ")";
                 } else {
-                    _scratch << "address_of(";
                     arg->accept(*this);
-                    _scratch << ")";
                 }
-            } else {
-                arg->accept(*this);
+                _scratch << ", ";
+                arg_index++;
             }
-            _scratch << ", ";
-            arg_index++;
+            _scratch.pop_back();
+            _scratch.pop_back();
         }
-        _scratch.pop_back();
-        _scratch.pop_back();
     }
     _scratch << ")";
 }
@@ -1041,12 +1046,20 @@ template<typename T, access a, typename Value>
   return reinterpret_cast<device atomic_uint *>(&a);
 }
 
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device float &a) {
+  return reinterpret_cast<device atomic_int *>(&a);
+}
+
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup int &a) {
   return reinterpret_cast<threadgroup atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup uint &a) {
   return reinterpret_cast<threadgroup atomic_uint *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup float &a) {
+  return reinterpret_cast<threadgroup atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(device const int &a) {
@@ -1057,12 +1070,20 @@ template<typename T, access a, typename Value>
   return reinterpret_cast<device const atomic_uint *>(&a);
 }
 
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device const float &a) {
+  return reinterpret_cast<device const atomic_int *>(&a);
+}
+
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const int &a) {
   return reinterpret_cast<threadgroup const atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const uint &a) {
   return reinterpret_cast<threadgroup const atomic_uint *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const float &a) {
+  return reinterpret_cast<threadgroup const atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(device atomic_int *a, int cmp, int val, memory_order) {
@@ -1083,6 +1104,79 @@ template<typename T, access a, typename Value>
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_uint *a, uint cmp, uint val, memory_order) {
   atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
   return cmp;
+}
+
+// atomic operations for floating-point values
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_float(device atomic_int *a, float cmp_in, float val, memory_order) {
+  auto cmp = as_type<int>(cmp_in);
+  atomic_compare_exchange_weak_explicit(a, &cmp, as_type<int>(val), memory_order_relaxed, memory_order_relaxed);
+  return as_type<float>(cmp);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_float(threadgroup atomic_int *a, float cmp_in, float val, memory_order) {
+  auto cmp = as_type<int>(cmp_in);
+  atomic_compare_exchange_weak_explicit(a, &cmp, as_type<int>(val), memory_order_relaxed, memory_order_relaxed);
+  return as_type<float>(cmp);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_exchange_explicit_float(device atomic_int *a, float val, memory_order) {
+  return as_type<float>(atomic_exchange_explicit(a, as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_exchange_explicit_float(threadgroup atomic_int *a, float val, memory_order) {
+  return as_type<float>(atomic_exchange_explicit(a, as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(device atomic_int *a, float val, memory_order) {
+  for (;;) {
+    auto old = atomic_load_explicit(a, memory_order_relaxed);
+    if (atomic_compare_exchange_weak_explicit(a, &old, as_type<int>(as_type<float>(old) + val), memory_order_relaxed, memory_order_relaxed)) {
+      return as_type<float>(old);
+    }
+  }
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(threadgroup atomic_int *a, float val, memory_order) {
+  for (;;) {
+    auto old = atomic_load_explicit(a, memory_order_relaxed);
+    if (atomic_compare_exchange_weak_explicit(a, &old, as_type<int>(as_type<float>(old) + val), memory_order_relaxed, memory_order_relaxed)) {
+      return as_type<float>(old);
+    }
+  }
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(device atomic_int *a, float val, memory_order) {
+  for (;;) {
+    auto old = atomic_load_explicit(a, memory_order_relaxed);
+    if (atomic_compare_exchange_weak_explicit(a, &old, as_type<int>(as_type<float>(old) - val), memory_order_relaxed, memory_order_relaxed)) {
+      return as_type<float>(old);
+    }
+  }
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(threadgroup atomic_int *a, float val, memory_order) {
+  for (;;) {
+    auto old = atomic_load_explicit(a, memory_order_relaxed);
+    if (atomic_compare_exchange_weak_explicit(a, &old, as_type<int>(as_type<float>(old) - val), memory_order_relaxed, memory_order_relaxed)) {
+      return as_type<float>(old);
+    }
+  }
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit_float(device atomic_int *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_min_explicit(a, as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit_float(threadgroup atomic_int *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_min_explicit(a, as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit_float(device atomic_int *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_max_explicit(a, as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit_float(threadgroup atomic_int *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_max_explicit(a, as_type<int>(val), memory_order_relaxed));
 }
 
 [[gnu::always_inline, nodiscard]] inline auto is_nan(float x) {
