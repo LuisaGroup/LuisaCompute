@@ -2,6 +2,7 @@
 // Created by Mike on 2021/12/4.
 //
 
+#include "core/hash.h"
 #include "core/spin_mutex.h"
 #include <cuda.h>
 #include <mutex>

@@ -17,6 +17,7 @@ class ISPCDevice final : public Device::Interface {
 
 private:
     RTCDevice _rtc_device;
+    uint64_t _lib_hash{};
 
 public:
     /**
@@ -149,10 +150,11 @@ public:
     void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override;
     /**
      * @brief Create a stream object
-     * 
+     * @param for_present Whether the stream is used for display presentation
+     *
      * @return handle of stream
      */
-    [[nodiscard]] uint64_t create_stream() noexcept override;
+    [[nodiscard]] uint64_t create_stream(bool for_present) noexcept override;
     /**
      * @brief Destrory a stream object
      * 
@@ -299,6 +301,12 @@ public:
      * @param image_handle handle of the 2D texture to display
      */
     void present_display_in_stream(uint64_t stream_handle, uint64_t swap_chain_handle, uint64_t image_handle) noexcept override;
+    /**
+     * @brief Hash of the device library
+     *
+     * @return Hash value
+     */
+     [[nodiscard]] auto library_hash() const noexcept { return _lib_hash; }
 };
 
 }

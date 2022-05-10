@@ -229,6 +229,16 @@ struct lc_float{i}x{i} {{
                     file=file)
         print(file=file)
 
+        print('''[[nodiscard]] inline bool isinf_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return u == 0x7f800000u | u == 0xff800000u;
+}
+[[nodiscard]] inline bool isnan_impl(lc_float x) noexcept {
+    auto u = __float_as_int(x);
+    return ((u & 0x7F800000u) == 0x7F800000u) & ((u & 0x7FFFFFu) != 0u);
+}
+''', file=file)
+
 
         def generate_vector_call(name, c, types, args):
             types = [{"i": "int",
@@ -300,8 +310,8 @@ struct lc_float{i}x{i} {{
         generate_vector_call("round", "roundf", "f", ["x"])
         generate_vector_call("fma", "fmaf", "f", ["x", "y", "z"])
         generate_vector_call("copysign", "copysignf", "f", ["x", "y"])
-        generate_vector_call("isinf", "isinf", "f", ["x"])
-        generate_vector_call("isnan", "isnan", "f", ["x"])
+        generate_vector_call("isinf", "isinf_impl", "f", ["x"])
+        generate_vector_call("isnan", "isnan_impl", "f", ["x"])
 
         # clamp
         for t in ["int", "uint", "float"]:
@@ -579,6 +589,12 @@ struct lc_float{i}x{i} {{
     unsigned short val;
     asm("{  cvt.rn.f16.f32 %0, %1;}\\n" : "=h"(val) : "f"(x));
     return val;
+}
+
+template<typename D, typename S>
+[[nodiscard]] inline auto lc_bit_cast(S s) noexcept {
+    static_assert(sizeof(D) == sizeof(S));
+    return reinterpret_cast<const D &>(s);
 }
 """, file=file)
 

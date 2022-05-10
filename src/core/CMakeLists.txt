@@ -2,7 +2,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         logging.cpp
         logging.h
         concepts.h
-        hash.cpp hash.h
+        hash.h
         macro.h
         spin_mutex.h
         platform.cpp platform.h
@@ -19,7 +19,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         dirty_range.cpp dirty_range.h
         first_fit.cpp first_fit.h
         observer.cpp observer.h
-        thread_pool.cpp thread_pool.h thread_safety.h)
+        thread_pool.cpp thread_pool.h
+        thread_safety.h)
 
 find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})

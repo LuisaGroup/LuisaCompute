@@ -27,6 +27,7 @@ size_t StructureType::align() const {
             return v.begin()[0];
         }
     }
+    LUISA_ERROR_WITH_LOCATION("Invalid.");
 }
 void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc) {
     auto leftedValue = tarAlign - (structSize % tarAlign);
@@ -160,7 +161,7 @@ void StructGenerator::InitAsStruct(
             case Type::Tag::ARRAY: {
                 auto subStruct = visitor(i);
                 Align(i->element()->alignment());
-                structSize += i->size() * i->dimension();
+                structSize += i->size();
                 ele = subStruct;
             } break;
         }
@@ -170,6 +171,7 @@ void StructGenerator::InitAsStruct(
             structDesc << ":8"sv;
         }
         structDesc << ";\n"sv;
+        Align(i->alignment());
         structTypes.emplace_back(
             std::move(varName),
             ele);

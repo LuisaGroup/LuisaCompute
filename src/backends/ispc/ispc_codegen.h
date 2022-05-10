@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/hash.h"
 #include <ast/function.h>
 #include <ast/statement.h>
 #include <ast/expression.h>

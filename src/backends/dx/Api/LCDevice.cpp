@@ -19,9 +19,10 @@
 #include <Api/LCSwapChain.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
-LCDevice::LCDevice(const Context &ctx)
-    : LCDeviceInterface(ctx) {
-}
+
+LCDevice::LCDevice(const Context &ctx, uint index) noexcept
+    : LCDeviceInterface{ctx}, nativeDevice{index} {}
+
 void *LCDevice::native_handle() const noexcept {
     return nativeDevice.device.Get();
 }
@@ -135,6 +136,11 @@ uint64_t LCDevice::create_shader(Function kernel, std::string_view meta_options)
 
     auto str = CodegenUtility::Codegen(kernel);
     if (str) {
+        {
+            auto file_name = luisa::format("dx_{:016x}.hlsl", kernel.hash());
+            std::ofstream file{context().cache_directory() / file_name};
+            file << str->result.c_str();
+        }
         return reinterpret_cast<uint64_t>(
             ComputeShader::CompileCompute(
                 &nativeDevice,
@@ -178,8 +184,7 @@ uint64_t LCDevice::create_mesh(
     uint64_t t_buffer,
     size_t t_offset,
     size_t t_count,
-    AccelUsageHint hint,
-    bool allow_compact, bool allow_update) noexcept {
+    AccelUsageHint hint) noexcept {
     return reinterpret_cast<uint64>(
         (
             new BottomAccel(
@@ -192,18 +197,19 @@ uint64_t LCDevice::create_mesh(
                 t_offset * 3 * sizeof(uint),
                 t_count * 3,
                 hint,
-                allow_compact,
-                allow_update)));
+                hint != AccelUsageHint::FAST_BUILD,
+                hint != AccelUsageHint::FAST_TRACE)));
 }
 void LCDevice::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<BottomAccel *>(handle);
 }
-uint64_t LCDevice::create_accel(AccelUsageHint hint, bool allow_compact, bool allow_update) noexcept {
+uint64_t LCDevice::create_accel(AccelUsageHint hint
+                                ) noexcept {
     return reinterpret_cast<uint64>(new TopAccel(
         &nativeDevice,
         hint,
-        allow_compact,
-        allow_update));
+        hint != AccelUsageHint::FAST_BUILD,
+        hint != AccelUsageHint::FAST_TRACE));
 }
 void LCDevice::destroy_accel(uint64_t handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
@@ -238,10 +244,12 @@ void LCDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapch
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
             reinterpret_cast<RenderTexture *>(image_handle));
 }
-VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view) {
-    return new LCDevice(c);
+VSTL_EXPORT_C LCDeviceInterface *create(Context const &c, std::string_view options) {
+    auto opt = nlohmann::json::parse(options);
+    auto index = opt.value("index", 0);
+    return new_with_allocator<LCDevice>(c, index);
 }
 VSTL_EXPORT_C void destroy(LCDeviceInterface *device) {
-    delete static_cast<LCDevice *>(device);
+   delete_with_allocator(device);
 }
 }// namespace toolhub::directx

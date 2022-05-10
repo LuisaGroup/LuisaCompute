@@ -27,6 +27,10 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
     if (func != nullptr && f != func) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid function on stack top.");
     }
+    if (f->tag() == Tag::KERNEL &&
+        f->_return_type.value_or(nullptr) != nullptr) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Kernels cannot have non-void return types.");
+    }
     if (f->_raytracing &&
         (f->_using_shared_storage ||
          f->_used_builtin_callables.test(
@@ -74,15 +78,25 @@ void FunctionBuilder::continue_() noexcept {
 }
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
-    if (_ret != nullptr) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Multiple non-void return statements are not allowed.");
+    LUISA_ASSERT(_tag != Tag::KERNEL || expr == nullptr,
+                 "Kernels cannot return non-void values.");
+    if (_return_type) {// multiple return statements, check if they match
+        if (*_return_type == nullptr) {
+            LUISA_ASSERT(expr != nullptr,
+                         "Mismatched return types: {} and previously void.",
+                         expr->type()->description());
+        } else {
+            LUISA_ASSERT(expr != nullptr && *_return_type.value() == *expr->type(),
+                         "Mismatched return types: {} and previously {}.",
+                         expr == nullptr ? "void" : expr->type()->description(),
+                         _return_type.value()->description());
+        }
     }
-    if (expr == nullptr) {
+    if (expr == nullptr) {// returning void
         static thread_local ReturnStmt null_return{nullptr};
         _append(&null_return);
-    } else {
-        _ret = expr->type();
+    } else {// returning a non-void value
+        _return_type.emplace(expr->type());
         _create_and_append_statement<ReturnStmt>(expr);
     }
 }
@@ -273,14 +287,13 @@ void FunctionBuilder::mark_variable_usage(uint32_t uid, Usage usage) noexcept {
     _variable_usages[uid] = u;
 }
 
-FunctionBuilder::~FunctionBuilder() noexcept
-{
-        LUISA_VERBOSE("FunctionBuilder destructor called");
+FunctionBuilder::~FunctionBuilder() noexcept {
+    LUISA_VERBOSE("FunctionBuilder destructor called");
 }
 FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
     : _body{"__function_body"}, _hash{0ul}, _tag{tag} {
-        LUISA_VERBOSE("FunctionBuilder constructor called");
-    }
+    LUISA_VERBOSE("FunctionBuilder constructor called");
+}
 
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
@@ -329,9 +342,9 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
     _void_expr(call(nullptr, custom, args));
 }
 
-void FunctionBuilder::_compute_hash() noexcept {// FIXME: seems not good
+void FunctionBuilder::_compute_hash() noexcept {
     _hash = hash64(_body.hash(), hash64(_tag, hash64("__hash_function")));
-    if (_ret != nullptr) { _hash = hash64(_ret->hash(), _hash); }
+    _hash = hash64(_return_type ? _return_type.value()->description() : "void", _hash);
     for (auto &&arg : _arguments) { _hash = hash64(arg.hash(), _hash); }
     for (auto &&c : _captured_constants) { _hash = hash64(c.hash(), _hash); }
     _hash = hash64(_block_size, _hash);

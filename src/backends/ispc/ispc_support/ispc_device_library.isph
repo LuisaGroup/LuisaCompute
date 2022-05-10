@@ -4799,8 +4799,8 @@ LUISA_INLINE uniform float4x4 make_float4x4() {
 // make_float2x2 functions
 LUISA_INLINE uniform float2x2 make_float2x2(uniform float s) {
     uniform float2x2 m;
-    m.cols[0] = make_float2(s);
-    m.cols[1] = make_float2(s);
+    m.cols[0] = make_float2(s,0.0);
+    m.cols[1] = make_float2(0.0,s);
     return m;
 }
 LUISA_INLINE uniform float2x2 make_float2x2(uniform float2 c0, uniform float2 c1) {
@@ -4822,9 +4822,9 @@ LUISA_INLINE uniform float2x2 make_float2x2(uniform float2x2 m) { return m; }
 // make_float3x3 functions
 LUISA_INLINE uniform float3x3 make_float3x3(uniform float s) {
     uniform float3x3 m;
-    m.cols[0] = make_float3(s);
-    m.cols[1] = make_float3(s);
-    m.cols[2] = make_float3(s);
+    m.cols[0] = make_float3(s,0.0,0.0);
+    m.cols[1] = make_float3(0.0,s,0.0);
+    m.cols[2] = make_float3(0.0,0.0,s);
     return m;
 }
 LUISA_INLINE uniform float3x3 make_float3x3(uniform float3 c0, uniform float3 c1, uniform float3 c2) {
@@ -4849,10 +4849,10 @@ LUISA_INLINE uniform float3x3 make_float3x3(uniform float3x3 m) { return m; }
 // make_float4x4 functions
 LUISA_INLINE uniform float4x4 make_float4x4(uniform float s) {
     uniform float4x4 m;
-    m.cols[0] = make_float4(s);
-    m.cols[1] = make_float4(s);
-    m.cols[2] = make_float4(s);
-    m.cols[3] = make_float4(s);
+    m.cols[0] = make_float4(s,0.0,0.0,0.0);
+    m.cols[1] = make_float4(0.0,s,0.0,0.0);
+    m.cols[2] = make_float4(0.0,0.0,s,0.0);
+    m.cols[3] = make_float4(0.0,0.0,0.0,s);
     return m;
 }
 LUISA_INLINE uniform float4x4 make_float4x4(uniform float4 c0, uniform float4 c1, uniform float4 c2, uniform float4 c3) {
@@ -4947,8 +4947,8 @@ LUISA_INLINE uniform float4x4 unary_minus(uniform float4x4 m) {
 // make_float2x2 functions
 LUISA_INLINE float2x2 make_float2x2(float s) {
     float2x2 m;
-    m.cols[0] = make_float2(s);
-    m.cols[1] = make_float2(s);
+    m.cols[0] = make_float2(s,0.0);
+    m.cols[1] = make_float2(0.0,s);
     return m;
 }
 LUISA_INLINE float2x2 make_float2x2(float2 c0, float2 c1) {
@@ -4970,9 +4970,9 @@ LUISA_INLINE float2x2 make_float2x2(float2x2 m) { return m; }
 // make_float3x3 functions
 LUISA_INLINE float3x3 make_float3x3(float s) {
     float3x3 m;
-    m.cols[0] = make_float3(s);
-    m.cols[1] = make_float3(s);
-    m.cols[2] = make_float3(s);
+    m.cols[0] = make_float3(s,0.0,0.0);
+    m.cols[1] = make_float3(0.0,s,0.0);
+    m.cols[2] = make_float3(0.0,0.0,s);
     return m;
 }
 LUISA_INLINE float3x3 make_float3x3(float3 c0, float3 c1, float3 c2) {
@@ -4997,10 +4997,10 @@ LUISA_INLINE float3x3 make_float3x3(float3x3 m) { return m; }
 // make_float4x4 functions
 LUISA_INLINE float4x4 make_float4x4(float s) {
     float4x4 m;
-    m.cols[0] = make_float4(s);
-    m.cols[1] = make_float4(s);
-    m.cols[2] = make_float4(s);
-    m.cols[3] = make_float4(s);
+    m.cols[0] = make_float4(s,0.0,0.0,0.0);
+    m.cols[1] = make_float4(0.0,s,0.0,0.0);
+    m.cols[2] = make_float4(0.0,0.0,s,0.0);
+    m.cols[3] = make_float4(0.0,0.0,0.0,s);
     return m;
 }
 LUISA_INLINE float4x4 make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) {
@@ -7016,3 +7016,128 @@ LUISA_INLINE void lc_unreachable() { assert(false); }
 #define buffer_read(buf, i) buffer_access(buf, i)
 #define buffer_write(buf, i, value) ((void)(buffer_access(buf, i) = (value)))
 
+// matrix access for r-values
+float2 matrix_access_rvalue_2(float2x2 m, uint i) { return m.cols[i]; }
+float2 matrix_access_rvalue_2(uniform float2x2 m, uint i) { return m.cols[i]; }
+float2 matrix_access_rvalue_2(float2x2 m, uniform uint i) { return m.cols[i]; }
+uniform float2 matrix_access_rvalue_2(uniform float2x2 m, uniform uint i) { return m.cols[i]; }
+float3 matrix_access_rvalue_3(float3x3 m, uint i) { return m.cols[i]; }
+float3 matrix_access_rvalue_3(uniform float3x3 m, uint i) { return m.cols[i]; }
+float3 matrix_access_rvalue_3(float3x3 m, uniform uint i) { return m.cols[i]; }
+uniform float3 matrix_access_rvalue_3(uniform float3x3 m, uniform uint i) { return m.cols[i]; }
+float4 matrix_access_rvalue_4(float4x4 m, uint i) { return m.cols[i]; }
+float4 matrix_access_rvalue_4(uniform float4x4 m, uint i) { return m.cols[i]; }
+float4 matrix_access_rvalue_4(float4x4 m, uniform uint i) { return m.cols[i]; }
+uniform float4 matrix_access_rvalue_4(uniform float4x4 m, uniform uint i) { return m.cols[i]; }
+
+int vector_access_rvalue_int2(int2 v, uint i) { return v.v[i]; }
+int vector_access_rvalue_int2(uniform int2 v, uint i) { return v.v[i]; }
+int vector_access_rvalue_int2(int2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+uniform int vector_access_rvalue_int2(uniform int2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+
+int vector_access_rvalue_int3(int3 v, uint i) { return v.v[i]; }
+int vector_access_rvalue_int3(uniform int3 v, uint i) { return v.v[i]; }
+int vector_access_rvalue_int3(int3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+uniform int vector_access_rvalue_int3(uniform int3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+
+int vector_access_rvalue_int4(int4 v, uint i) { return v.v[i]; }
+int vector_access_rvalue_int4(uniform int4 v, uint i) { return v.v[i]; }
+int vector_access_rvalue_int4(int4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+uniform int vector_access_rvalue_int4(uniform int4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+
+uint vector_access_rvalue_uint2(uint2 v, uint i) { return v.v[i]; }
+uint vector_access_rvalue_uint2(uniform uint2 v, uint i) { return v.v[i]; }
+uint vector_access_rvalue_uint2(uint2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+uniform uint vector_access_rvalue_uint2(uniform uint2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+
+uint vector_access_rvalue_uint3(uint3 v, uint i) { return v.v[i]; }
+uint vector_access_rvalue_uint3(uniform uint3 v, uint i) { return v.v[i]; }
+uint vector_access_rvalue_uint3(uint3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+uniform uint vector_access_rvalue_uint3(uniform uint3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+
+uint vector_access_rvalue_uint4(uint4 v, uint i) { return v.v[i]; }
+uint vector_access_rvalue_uint4(uniform uint4 v, uint i) { return v.v[i]; }
+uint vector_access_rvalue_uint4(uint4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+uniform uint vector_access_rvalue_uint4(uniform uint4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+
+char vector_access_rvalue_char2(char2 v, uint i) { return v.v[i]; }
+char vector_access_rvalue_char2(uniform char2 v, uint i) { return v.v[i]; }
+char vector_access_rvalue_char2(char2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+uniform char vector_access_rvalue_char2(uniform char2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+
+char vector_access_rvalue_char3(char3 v, uint i) { return v.v[i]; }
+char vector_access_rvalue_char3(uniform char3 v, uint i) { return v.v[i]; }
+char vector_access_rvalue_char3(char3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+uniform char vector_access_rvalue_char3(uniform char3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+
+char vector_access_rvalue_char4(char4 v, uint i) { return v.v[i]; }
+char vector_access_rvalue_char4(uniform char4 v, uint i) { return v.v[i]; }
+char vector_access_rvalue_char4(char4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+uniform char vector_access_rvalue_char4(uniform char4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+
+float vector_access_rvalue_float2(float2 v, uint i) { return v.v[i]; }
+float vector_access_rvalue_float2(uniform float2 v, uint i) { return v.v[i]; }
+float vector_access_rvalue_float2(float2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+uniform float vector_access_rvalue_float2(uniform float2 v, uniform uint i) { lc_assume(i < 2); return v.v[i]; }
+
+float vector_access_rvalue_float3(float3 v, uint i) { return v.v[i]; }
+float vector_access_rvalue_float3(uniform float3 v, uint i) { return v.v[i]; }
+float vector_access_rvalue_float3(float3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+uniform float vector_access_rvalue_float3(uniform float3 v, uniform uint i) { lc_assume(i < 3); return v.v[i]; }
+
+float vector_access_rvalue_float4(float4 v, uint i) { return v.v[i]; }
+float vector_access_rvalue_float4(uniform float4 v, uint i) { return v.v[i]; }
+float vector_access_rvalue_float4(float4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+uniform float vector_access_rvalue_float4(uniform float4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
+
+// atomic operations for floats
+inline float atomic_swap_global_float(uniform float *varying v, uniform float x) {
+    return atomic_swap_global(v, x);
+}
+inline float atomic_compare_exchange_global_float(uniform float *varying v, uniform float cmp, uniform float x) {
+    return atomic_compare_exchange_global(v, cmp, x);
+}
+inline float atomic_add_global_float(uniform float *varying v, uniform float x) {
+    for (;;) {
+        float old = *v;
+        if (atomic_compare_exchange_global(v, old, old + x) == old) { return old; }
+    }
+}
+inline float atomic_subtract_global_float(uniform float *varying v, uniform float x) {
+    for (;;) {
+        float old = *v;
+        if (atomic_compare_exchange_global(v, old, old - x) == old) { return old; }
+    }
+}
+inline float atomic_min_global_float(uniform float *varying v, uniform float x) {
+    return floatbits(atomic_min_global((uniform int *varying)v, (uniform int)intbits(x)));
+}
+inline float atomic_max_global_float(uniform float *varying v, uniform float x) {
+    return floatbits(atomic_max_global((uniform int *varying)v, (uniform int)intbits(x)));
+}
+
+// atomic operations for floats
+inline float atomic_swap_global_float(uniform float *varying v, float x) {
+    return atomic_swap_global(v, x);
+}
+inline float atomic_compare_exchange_global_float(uniform float *varying v, float cmp, float x) {
+    return atomic_compare_exchange_global(v, cmp, x);
+}
+inline float atomic_add_global_float(uniform float *varying v, float x) {
+    for (;;) {
+        float old = *v;
+        if (atomic_compare_exchange_global(v, old, old + x) == old) { return old; }
+    }
+}
+inline float atomic_subtract_global_float(uniform float *varying v, float x) {
+    for (;;) {
+        float old = *v;
+        if (atomic_compare_exchange_global(v, old, old - x) == old) { return old; }
+    }
+}
+inline float atomic_min_global_float(uniform float *varying v, float x) {
+    return floatbits(atomic_min_global((uniform int *varying)v, (int)intbits(x)));
+}
+inline float atomic_max_global_float(uniform float *varying v, float x) {
+    return floatbits(atomic_max_global((uniform int *varying)v, (int)intbits(x)));
+}

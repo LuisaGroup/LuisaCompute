@@ -8,67 +8,49 @@
 
 namespace luisa::compute {
 
-Printer::Printer(Device &device, size_t capacity) noexcept
-    : _buffer{device.create_buffer<uint>(next_pow2(capacity) + 1u)},
-      _host_buffer(next_pow2(capacity) + 1u) {
-    std::iota(_host_buffer.begin(), _host_buffer.end(), 0u);
+Printer::Printer(Device &device, luisa::string_view name, size_t capacity) noexcept
+    : _buffer{device.create_buffer<uint>(next_pow2(capacity))},
+      _host_buffer(next_pow2(capacity)),
+      _logger{std::string{name},
+              luisa::detail::default_logger().sinks().cbegin(),
+              luisa::detail::default_logger().sinks().cend()} {
+    _logger.set_level(spdlog::level::trace);
 }
 
-void Printer::reset(Stream &stream) noexcept {
-    auto zero = 0u;
-    auto size = _buffer.size() - 1u;
-    stream << _buffer.view(size, 1u).copy_from(&zero);
+Command *Printer::reset() noexcept {
     _reset_called = true;
+    static const auto zero = 0u;
+    return _buffer.view(_buffer.size() - 1u, 1u).copy_from(&zero);
 }
 
-luisa::string_view Printer::retrieve(Stream &stream) noexcept {
+std::tuple<Command *, luisa::move_only_function<void()>, Command *>
+Printer::retrieve() noexcept {
     if (!_reset_called) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Printer results cannot be "
             "retrieved if never reset.");
     }
-    auto zero = 0u;
-    stream << _buffer.copy_to(_host_buffer.data())
-           << _buffer.view(_buffer.size() - 1u, 1u).copy_from(&zero)
-           << synchronize();
-    auto size = std::min(
-        static_cast<uint>(_buffer.size() - 1u),
-        _host_buffer.back());
-    _scratch.clear();
-    auto records = luisa::span{_host_buffer}.subspan(0u, size);
-    for (auto offset = 0u; offset < size;) {
-        auto desc_id = records[offset++];
-        auto desc = _descriptors[desc_id];
-        if (offset + desc.size() > records.size()) {
-            break;
-        }
-        for (auto &&tag : desc) {
-            auto record = records[offset++];
-            switch (tag) {
-                case Descriptor::Tag::INT:
-                    _scratch.append(luisa::format(
-                        "{}", static_cast<int>(record)));
-                    break;
-                case Descriptor::Tag::UINT:
-                    _scratch.append(luisa::format(
-                        "{}", record));
-                    break;
-                case Descriptor::Tag::FLOAT:
-                    _scratch.append(luisa::format(
-                        "{}", luisa::bit_cast<float>(record)));
-                    break;
-                case Descriptor::Tag::BOOL:
-                    _scratch.append(luisa::format(
-                        "{}", static_cast<bool>(record)));
-                    break;
-                case Descriptor::Tag::STRING:
-                    _scratch.append(_strings[record]);
-                    break;
+    auto print = [this] {
+        auto size = std::min(
+            static_cast<uint>(_buffer.size() - 1u),
+            _host_buffer.back());
+        auto offset = 0u;
+        auto truncated = _host_buffer.back() > size;
+        while (offset < size) {
+            auto data = _host_buffer.data() + offset;
+            auto &&item = _items[data[0u]];
+            offset += item.size;
+            if (offset > size) {
+                truncated = true;
+            } else {
+                item.f(data);
             }
         }
-        _scratch.append("\n");
-    }
-    return _scratch;
+        if (truncated) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION("Kernel log truncated.");
+        }
+    };
+    return {_buffer.copy_to(_host_buffer.data()), print, reset()};
 }
 
 }// namespace luisa::compute

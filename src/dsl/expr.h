@@ -389,7 +389,7 @@ public:
     };
 
     /// Atomic fetch and. Stores old & val, returns old. See also CallOp::ATOMIC_FETCH_AND.
-    auto fetch_and(Expr<T> val) &&noexcept {
+    auto fetch_and(Expr<T> val) &&noexcept requires std::integral<T> {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_AND,
             {this->_expression, val.expression()});
@@ -397,7 +397,7 @@ public:
     };
 
     /// Atomic fetch or. Stores old | val, returns old. See also CallOp::ATOMIC_FETCH_OR.
-    auto fetch_or(Expr<T> val) &&noexcept {
+    auto fetch_or(Expr<T> val) &&noexcept requires std::integral<T>  {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_OR,
             {this->_expression, val.expression()});
@@ -405,7 +405,7 @@ public:
     };
 
     /// Atomic fetch xor. Stores old ^ val, returns old. See also CallOp::ATOMIC_FETCH_XOR.
-    auto fetch_xor(Expr<T> val) &&noexcept {
+    auto fetch_xor(Expr<T> val) &&noexcept requires std::integral<T>  {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_XOR,
             {this->_expression, val.expression()});
@@ -431,13 +431,13 @@ public:
 
 namespace detail {
 
-/// Buffer expr as atomic
+/// Integer buffer expr as atomic
 template<>
 struct BufferExprAsAtomic<int> {
     /// Atomic access
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
+        requires is_integral_expr_v<I>
+            [[nodiscard]] auto
         atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         return AtomicRef<int>{FunctionBuilder::current()->access(
@@ -447,18 +447,34 @@ struct BufferExprAsAtomic<int> {
     }
 };
 
-/// Buffer expr as atomic
+/// Unsigned integer buffer expr as atomic
 template<>
 struct BufferExprAsAtomic<uint> {
     /// Atomic access
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
+        requires is_integral_expr_v<I>
+            [[nodiscard]] auto
         atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         return AtomicRef<uint>{FunctionBuilder::current()->access(
             Type::of<uint>(),
             static_cast<const Expr<Buffer<uint>> *>(this)->expression(),
+            index.expression())};
+    }
+};
+
+/// Floating point buffer expr as atomic
+template<>
+struct BufferExprAsAtomic<float> {
+    /// Atomic access
+    template<typename I>
+        requires is_integral_expr_v<I>
+            [[nodiscard]] auto
+        atomic(I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
+        return AtomicRef<float>{FunctionBuilder::current()->access(
+            Type::of<float>(),
+            static_cast<const Expr<Buffer<float>> *>(this)->expression(),
             index.expression())};
     }
 };

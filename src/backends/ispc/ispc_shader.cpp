@@ -17,20 +17,7 @@
 
 namespace luisa::compute::ispc {
 
-ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
-
-    Codegen::Scratch scratch;
-    ISPCCodegen codegen{scratch};
-    codegen.emit(func);
-
-    std::cout << "================= ISPC ===================\n";
-    std::cout << scratch.view() << "\n";
-    std::cout << "==========================================\n";
-
-
-    auto name = fmt::format("func_{:016x}", func.hash());
-    auto cache_dir_str = ctx.cache_directory().string();
-    auto source_path = ctx.cache_directory() / fmt::format("{}.ispc", name);
+ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noexcept {
 
     // compile
 #ifdef LUISA_PLATFORM_WINDOWS
@@ -58,8 +45,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
 #endif
 
     // options
-    auto include_opt = fmt::format(
-        "-I\"{}\"", ctx.runtime_directory().string());
+    auto include_opt = luisa::format("-I\"{}\"", ctx.runtime_directory().string());
     std::array ispc_options {
         "-woff",
             "--addressing=32",
@@ -73,6 +59,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             "--math-lib=fast",
             "--opt=fast-masked-vload",
             "--opt=fast-math",
+            "--enable-llvm-intrinsics",
 #if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
             "--cpu=apple-a14",
             "--arch=aarch64",
@@ -84,38 +71,63 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
             include_opt.c_str(),
             func.raytracing() ? "-DLC_ISPC_RAYTRACING" : "-DLC_ISPC_NO_RAYTRACING"
     };
+
+    auto opt_hash = hash64("__ispc_opt");
+    for (auto opt : ispc_options) { opt_hash = hash64(opt, opt_hash); }
+    auto name = luisa::format("func_{:016x}.lib_{:016x}.opt_{:016x}",
+                              func.hash(), lib_hash, opt_hash);
+    auto cache_dir_str = ctx.cache_directory().string();
+    auto source_path = ctx.cache_directory() / luisa::format("{}.ispc", name);
+
     luisa::string ispc_opt_string{ispc_options.front()};
     for (auto o : luisa::span{ispc_options}.subspan(1u)) {
         ispc_opt_string.append(" ").append(o);
     }
 
-    auto object_path = ctx.cache_directory() / fmt::format("{}.{}", name, object_ext);
-
-    // compile: write source
-    {
-        std::ofstream src_file{source_path};
-        src_file << scratch.view();
-    }
-
-    // compile: generate object
-    auto command = fmt::format(
-        R"({} {} "{}" -o "{}")",
-        ispc_exe.string(),
-        ispc_opt_string,
-        source_path.string(),
-        object_path.string());
-    LUISA_INFO("Compiling ISPC kernel: {}", command);
+    auto object_path = ctx.cache_directory() / luisa::format("{}.{}", name, object_ext);
 
     Clock clock;
-    if (auto ret = system(command.c_str()); ret != 0) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to compile ISPC kernel. "
-            "Return code: {}.",
-            ret);
-    }
+    // FIXME: the compiled shaders never release; maybe we should try LRU?
+    static luisa::unordered_map<luisa::string, std::shared_future<luisa::shared_ptr<ISPCModule>>> compile_futures;
+    static std::mutex compile_mutex;
+    auto module_future = [&] {
+        std::scoped_lock lock{compile_mutex};
+        // already in compilation...
+        if (auto iter = compile_futures.find(name); iter != compile_futures.end()) {
+            return iter->second;
+        }
+        auto future = std::async(std::launch::deferred, [&] {
+            if (!std::filesystem::exists(object_path)) {
+                {
+                    static thread_local Codegen::Scratch scratch;
+                    scratch.clear();
+                    ISPCCodegen codegen{scratch};
+                    codegen.emit(func);
+                    LUISA_VERBOSE_WITH_LOCATION("Generating ISPC shader:\n{}", scratch.view());
+                    std::ofstream src_file{source_path};
+                    src_file << scratch.view();
+                }
+                // compile: generate object
+                auto command = luisa::format(
+                    R"({} {} "{}" -o "{}")",
+                    ispc_exe.string(),
+                    ispc_opt_string,
+                    source_path.string(),
+                    object_path.string());
+                LUISA_INFO("Compiling ISPC kernel: {}", command);
+                if (auto ret = system(command.c_str()); ret != 0) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Failed to compile ISPC kernel. "
+                        "Return code: {}.",
+                        ret);
+                }
+            }
+            return load_module(object_path);
+        });
+        return compile_futures.emplace(name, std::move(future)).first->second;
+    }();
 
-    // load module
-    _module = load_module(object_path);
+    _module = module_future.get();
     LUISA_INFO("Created ISPC shader in {} ms.", clock.toc());
 
     // arguments

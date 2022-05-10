@@ -77,7 +77,7 @@ ComputeShader *ComputeShader::CompileCompute(
     }
     psoPath = path;
     psoPath << ".pso";
-    static constexpr bool USE_CACHE = true;
+    static constexpr bool USE_CACHE = false;
     if constexpr (USE_CACHE) {
         SerializeVisitor visitor(
             path,
@@ -102,10 +102,8 @@ ComputeShader *ComputeShader::CompileCompute(
 
     auto compResult = [&] {
         if constexpr (!USE_CACHE) {
-            std::cout
-                << "\n===============================\n"
-                << str.result
-                << "\n===============================\n";
+            LUISA_VERBOSE_WITH_LOCATION(
+                "Compiling shader:\n{}", str.result);
         }
         return Device::Compiler()->CompileCompute(
             str.result,

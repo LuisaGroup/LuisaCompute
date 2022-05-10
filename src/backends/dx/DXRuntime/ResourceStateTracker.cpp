@@ -32,9 +32,9 @@ void ResourceStateTracker::RecordState(
                 writeStateMap.Emplace(resource);
             }
             return State{
+                .fence = lock ? fenceCount : 0,
                 .lastState = initState,
                 .curState = state,
-                .fence = lock ? fenceCount : 0,
                 .uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && initState == state),
                 .isWrite = isWrite};
         }));

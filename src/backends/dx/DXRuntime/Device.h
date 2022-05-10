@@ -21,7 +21,7 @@ public:
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
     ComputeShader const *setAccelKernel;
-    Device();
+    explicit Device(uint index);
     Device(Device const &) = delete;
     Device(Device &&) = delete;
     ~Device();

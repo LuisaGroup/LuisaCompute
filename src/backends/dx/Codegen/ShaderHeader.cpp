@@ -204,44 +204,24 @@ bool4 _isnan(float4 x) {
 return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
 bool _isinf(float x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
 bool2 _isinf(float2 x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint2 u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
 bool3 _isinf(float3 x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint3 u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
 bool4 _isinf(float4 x) {
-return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
+uint4 u = asuint(x);
+return or(u == 0x7F800000u, u == 0xFF800000u);
 }
-template<typename T>
-T selectVec(T a, T b, bool c) {
-if (c)
-return b;
-else
-return a;
-}
-template<typename T>
-T selectVec2(T a, T b, bool2 c) {
-return T(
-selectVec(a.x, b.x, c.x),
-selectVec(a.y, b.y, c.y));
-}
-template<typename T>
-T selectVec3(T a, T b, bool3 c) {
-return T(
-selectVec(a.x, b.x, c.x),
-selectVec(a.y, b.y, c.y),
-selectVec(a.z, b.z, c.z));
-}
-template<typename T>
-T selectVec4(T a, T b, bool4 c) {
-return T(
-selectVec(a.x, b.x, c.x),
-selectVec(a.y, b.y, c.y),
-selectVec(a.z, b.z, c.z),
-selectVec(a.w, b.w, c.w));
+template<typename T, typename V>
+T _select(T a, T b, V c) {
+return select(c, b, a);
 }
 
 template<typename T>
