@@ -1,7 +1,7 @@
 import lcapi
 
 from .types import uint, to_lctype, from_lctype, dtype_of, BuiltinFuncBuilder, \
-    scalar_dtypes, arithmetic_dtypes, vector_dtypes, vector, length_of, element_of
+    scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of
 from functools import reduce
 from . import globalvars
 from types import SimpleNamespace
@@ -64,6 +64,8 @@ def to_bool(dtype):
     return vector(bool, length_of(dtype))
 
 def to_float(dtype):
+    if dtype in matrix_dtypes:
+        return dtype
     assert dtype in scalar_dtypes or dtype in vector_dtypes
     return vector(float, length_of(dtype))
 
@@ -131,15 +133,15 @@ def builtin_bin_op(op, lhs, rhs):
     lhs_expr, rhs_expr = lhs.expr, rhs.expr
     if op != ast.Mult:
         assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1), \
-            'Broadcast operations between different sized vectors not supported'
+               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)), \
+            f'Binary operation between ({dtype0} and {dtype1}) is not supported'
     else:
         assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1) or \
+               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)) or \
                (dtype0 == lcapi.float2x2 and dtype1 == lcapi.float2) or \
                (dtype0 == lcapi.float3x3 and dtype1 == lcapi.float3) or \
                (dtype0 == lcapi.float4x4 and dtype1 == lcapi.float4), \
-            'Broadcast operations between different sized vectors not supported'
+            f'Binary operation between ({dtype0} and {dtype1}) is not supported'
     scalar_operation = length0 == length1 == 1
     dtype = None
 
@@ -232,7 +234,10 @@ def builtin_type_cast(dtype, *args):
     # type cast of basic types
     # TODO may need temporary variable?
     if dtype in {int, float, bool}:
-        assert len(args) == 1 and args[0].dtype in {int, float, bool}
+        if len(args) != 1:
+            raise TypeError(f"Can't convert multiple values to {dtype.__name__}")
+        if args[0].dtype not in {int, float, bool}:
+            raise TypeError(f"Can't convert {args[0].dtype} to {dtype.__name__}")
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
     if dtype in vector_dtypes or dtype in matrix_dtypes:
         return builtin_func(f"make_{dtype.__name__}", *args)
@@ -346,8 +351,12 @@ def builtin_func(name, *args, **kwargs):
     for T in 'uint', 'int', 'float', 'bool':
         for N in 2, 3, 4:
             if name == f'make_{T}{N}':
-                if sum([length_of(x.dtype) for x in args]) not in [1, N]:
+                if sum([length_of(x.dtype) for x in args]) not in {1, N}:
                     raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {sum([length_of(x.dtype) for x in args])}")
+                # for x in args:
+                #     if element_of(x.dtype) != {'int':int, 'float':float, 'bool':bool, 'uint':uint}[T] and \
+                #         not (T == "float" and x.dtype == int):
+                #         raise TypeError(f"Can't make {T}{N} from {x.dtype} (must be of same element type)")
                 op = getattr(lcapi.CallOp, name.upper())
                 dtype = getattr(lcapi, f'{T}{N}')
                 return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -355,9 +364,20 @@ def builtin_func(name, *args, **kwargs):
     # e.g. make_float2x2(...)
     for N in 2, 3, 4:
         if name == f'make_float{N}x{N}':
-            assert (len(args) == 1 and check_type_in([float, lcapi.float2x2, lcapi.float3x3, lcapi.float4x4], args[0])) \
-                   or (len(args) == N and check_types(vector(float,N), args)) \
-                   or (len(args) == N * N and check_types(float, args)), 'type check failed'
+            # for x in args:
+            #     if element_of(x.dtype) != float and x.dtype != int:
+            #         raise TypeError(f"Can't make {T}{N}x{N} from {x.dtype} (must be of same element type)")
+            try:
+                if len(args) == 1:
+                    assert args[0].dtype in {float, int, lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}
+                elif len(args) == N:
+                    for arg in args:
+                        assert arg.dtype == vector(float,N)
+                elif len(args) == N*N:
+                    for arg in args:
+                        assert arg.dtype in {float, int}
+            except AssertionError:
+                raise TypeError(f"Can't make {T}{N}x{N} from {[x.dtype for x in args]}")
             op = getattr(lcapi.CallOp, name.upper())
             dtype = getattr(lcapi, f'float{N}x{N}')
             return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -441,35 +461,6 @@ def builtin_func(name, *args, **kwargs):
     if name == 'print':
         globalvars.printer.kernel_print(args)
         globalvars.current_context.uses_printer = True
-        return None, None
-
-    # buffer
-    if name == "buffer_read":
-        op = lcapi.CallOp.BUFFER_READ
-        dtype = args[0].dtype.dtype
-        check_exact_signature([int], args[1:], "Buffer.read")
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
-    if name == "buffer_write":
-        op = lcapi.CallOp.BUFFER_WRITE
-        dtype = args[0].dtype.dtype
-        check_exact_signature([int, dtype], args[1:], "Buffer.write")
-        lcapi.builder().call(op, [x.expr for x in args])
-        return None, None
-
-    if name == "texture2d_read":
-        op = lcapi.CallOp.TEXTURE_READ
-        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
-        check_exact_signature([lcapi.int2], args[1:], "Texture2D.read")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, args[1])  # convert int2 to uint2
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
-    if name == "texture2d_write":
-        op = lcapi.CallOp.TEXTURE_WRITE
-        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
-        check_exact_signature([lcapi.int2, dtype], args[1:], "Texture2D.write")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, args[1])  # convert int2 to uint2
-        lcapi.builder().call(op, [x.expr for x in args])
         return None, None
 
     for N in (2, 3):
