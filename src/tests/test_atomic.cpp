@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("metal");
+    auto device = context.create_device("ispc");
 
     auto buffer = device.create_buffer<uint>(4u);
     Kernel1D count_kernel = [&]() noexcept {
@@ -43,20 +43,9 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("Count: {} {}, Time: {} ms", host_buffer.x, host_buffer.w, time);
 
-    auto atomic_float_buffer = device.create_buffer<uint>(1u);
-    Callable atomic_float_add = [](BufferUInt buffer) noexcept {
-        auto gid = dispatch_x();
-        auto x = 0.1f * cast<float>(gid);
-        $loop {
-            auto old_value = buffer.read(0u);
-            auto new_value = as<uint>(x + as<float>(old_value));
-            $if (buffer.atomic(0u).compare_exchange(old_value, new_value) == old_value) {
-                $break;
-            };
-        };
-    };
-    Kernel1D add_kernel = [&](BufferUInt buffer) noexcept {
-        atomic_float_add(buffer);
+    auto atomic_float_buffer = device.create_buffer<float>(1u);
+    Kernel1D add_kernel = [&](BufferFloat buffer) noexcept {
+        buffer.atomic(0u).fetch_add(1.f);
     };
     auto add_shader = device.compile(add_kernel);
 

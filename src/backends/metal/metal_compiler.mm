@@ -29,6 +29,8 @@ MetalShader MetalCompiler::compile(
 
     // dump kernel source
     {
+        static std::mutex mutex;
+        std::lock_guard lock{mutex};
         auto file_name = luisa::format("func_{:016x}.metal", kernel.hash());
         std::ofstream file{_device->context().cache_directory() / file_name};
         file << scratch.view() << std::endl;

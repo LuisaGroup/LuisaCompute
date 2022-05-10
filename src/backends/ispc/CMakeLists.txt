@@ -32,17 +32,21 @@ if (ISPC_FOUND)
             ispc_bindless_array.cpp ispc_bindless_array.h)
     luisa_compute_add_backend(ispc SOURCES ${ISPC_BACKEND_SOURCES})
 
+    add_custom_target(luisa-compute-copy-ispc-support ALL
+            COMMENT "Copying ISPC support files")
+    add_dependencies(luisa-compute-backend-ispc luisa-compute-copy-ispc-support)
+
     # copy device libs
-    add_custom_command(TARGET luisa-compute-backend-ispc POST_BUILD
+    add_custom_command(TARGET luisa-compute-copy-ispc-support
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/ispc_support"
-            "$<TARGET_FILE_DIR:luisa-compute-backend-ispc>"
+            "$<TARGET_FILE_DIR:luisa-compute-core>"
             DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ispc_support")
     # copy the ISPC compiler
-    add_custom_command(TARGET luisa-compute-backend-ispc POST_BUILD
+    add_custom_command(TARGET luisa-compute-copy-ispc-support
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_ISPC_COMPILER}"
-            "$<TARGET_FILE_DIR:luisa-compute-backend-ispc>/"
+            "$<TARGET_FILE_DIR:luisa-compute-core>/"
             DEPENDS "${CMAKE_ISPC_COMPILER}")
 
     option(LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT "Enable LLVM JIT for ISPC kernels" ON)
