@@ -442,14 +442,13 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
         case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
-    _scratch << "(";
     auto args = expr->arguments();
     if (is_atomic) {
         auto ref = args.front();
         if (ref->type()->description() == "float") {
             _scratch << "_float";
         }
-        _scratch << "(";
+        _scratch << "((";
         _emit_type_name(ref->type());
         _scratch << " *varying)&(";
         ref->accept(*this);
@@ -459,6 +458,7 @@ void ISPCCodegen::visit(const CallExpr *expr) {
             arg->accept(*this);
         }
     } else if (!args.empty()) {
+        _scratch << "(";
         for (auto arg : args) {
             arg->accept(*this);
             _scratch << ", ";

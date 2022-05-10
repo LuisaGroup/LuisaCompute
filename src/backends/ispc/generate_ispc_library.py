@@ -1804,21 +1804,21 @@ inline float atomic_swap_global_float(uniform float *varying v, {u}float x) {{
 inline float atomic_compare_exchange_global_float(uniform float *varying v, {u}float cmp, {u}float x) {{
     return atomic_compare_exchange_global(v, cmp, x);
 }}
-inline float atomic_fetch_add_global_float(uniform float *varying v, {u}float x) {{
+inline float atomic_add_global_float(uniform float *varying v, {u}float x) {{
     for (;;) {{
         float old = *v;
-        if (atomic_compare_exchange(v, old, old + x) == old) {{ return old; }}
+        if (atomic_compare_exchange_global(v, old, old + x) == old) {{ return old; }}
     }}
 }}
-inline float atomic_fetch_subtract_global_float(uniform float *varying v, {u}float x) {{
+inline float atomic_subtract_global_float(uniform float *varying v, {u}float x) {{
     for (;;) {{
         float old = *v;
-        if (atomic_compare_exchange(v, old, old - x) == old) {{ return old; }}
+        if (atomic_compare_exchange_global(v, old, old - x) == old) {{ return old; }}
     }}
 }}
-inline float atomic_fetch_min_global_float(uniform float *varying v, {u}float x) {{
-    return floatbits(atomic_fetch_min_global((uniform int *varying)v, ({u}int)intbits(x)));
+inline float atomic_min_global_float(uniform float *varying v, {u}float x) {{
+    return floatbits(atomic_min_global((uniform int *varying)v, ({u}int)intbits(x)));
 }}
-inline float atomic_fetch_max_global_float(uniform float *varying v, {u}float x) {{
-    return floatbits(atomic_fetch_max_global((uniform int *varying)v, ({u}int)intbits(x)));
+inline float atomic_max_global_float(uniform float *varying v, {u}float x) {{
+    return floatbits(atomic_max_global((uniform int *varying)v, ({u}int)intbits(x)));
 }}''', file=file)
