@@ -340,3 +340,5 @@ doc/latex/**
 
 # Doxygen output
 doxygen_output
+
+.vscode/
