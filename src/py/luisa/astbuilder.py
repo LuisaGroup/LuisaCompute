@@ -85,7 +85,8 @@ class ASTVisitor:
             if node.value.dtype != None:
                 raise TypeError("Discarding non-void return value")
         else:
-            raise TypeError("Dangling expression")
+            if not isinstance(node.value, ast.Constant):
+                raise TypeError("Dangling expression")
 
     @staticmethod
     def build_Return(node):
