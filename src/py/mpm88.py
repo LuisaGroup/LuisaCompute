@@ -40,34 +40,18 @@ def clear_grid():
 
 @lc.func
 def point_to_grid():
-    set_block_size(8,1,1)
     p = dispatch_id().x
     Xp = x.read(p) / dx
     base = int2(Xp - 0.5)
     fx = Xp - float2(base)
-    if base.x < 0 or base.y < 0 or base.x+2 >= n_grid or base.y+2 >= n_grid:
-        print("base:", base)
-        print("[ABORT]")
     w = array([0.5 * (1.5 - fx)**2, 0.75 - (fx - 1.0)**2, 0.5 * (fx - 0.5)**2])
     stress = -dt * 4 * E * p_vol * (J.read(p) - 1) / dx**2
     affine = float2x2(stress) + p_mass * C.read(p)
     for i in range(3):
         for j in range(3):
             offset = int2(i,j)
-
-            tmp = base + offset
-            if tmp.x < 0 or tmp.y < 0 or tmp.x >= n_grid or tmp.y >= n_grid:
-                print("WTF")
-                print("[ABORT]")
-                return
-
             dpos = (float2(offset) - fx) * dx
             weight = w[i].x * w[j].y
-            old_v = float2(grid_v.read(encode(base + offset) * 2), grid_v.read(encode(base + offset) * 2 + 1))
-            new_v = old_v + weight * (p_mass * v.read(p) + affine * dpos)
-            if abs(new_v.x) > 1000 or abs(new_v.y) > 1000:
-                print("!!!! new_v", new_v)
-                print("[ABORT]")
             vadd = weight * (p_mass * v.read(p) + affine * dpos)
             _ = grid_v.atomic_fetch_add(encode(base + offset) * 2, vadd.x)
             _ = grid_v.atomic_fetch_add(encode(base + offset) * 2 + 1, vadd.y)
@@ -89,10 +73,6 @@ def simulate_grid():
         v.y = 0.0
     if coord.y > n_grid - bound and v.y > 0.0:
         v.y = 0.0
-
-    if abs(v.x) > 1000 or abs(v.y) > 1000:
-        print("!!!! v", v, "m", m)
-        print("[ABORT]")
     grid_v.write(encode(coord) * 2, v.x)
     grid_v.write(encode(coord) * 2 + 1, v.y)
 
@@ -109,8 +89,6 @@ def grid_to_point():
     p = dispatch_id().x
     Xp = x.read(p) / dx
     base = int2(Xp - 0.5)
-    if base.x < 0 or base.y < 0 or base.x >= n_grid or base.y >= n_grid:
-        print("base:", base)
     fx = Xp - float2(base)
     w = array([0.5 * (1.5 - fx)**2, 0.75 - (fx - 1.0)**2, 0.5 * (fx - 0.5)**2])
     new_v = float2(0)
@@ -124,36 +102,16 @@ def grid_to_point():
             new_v += weight * g_v
             new_C += 4 * weight * outer_product(g_v, dpos) / dx**2
     v.write(p, new_v)
-    new_x = x.read(p) + dt * new_v
-    # if (new_x.x < 0 or new_x.y < 0) and x.read(p).x >= 0 and x.read(p).y >= 0:
-    #     print(f"escaping No.{p}: {x.read(p)} -> {new_x} @v={new_v}")
-    #     print("w=", w)
-    #     for i in range(3):
-    #         for j in range(3):
-    #             offset = int2(i,j)
-    #             g_v = grid_v.read(base + offset)
-    #             print(f"g_v[{base+offset}] = {g_v}; weight={w[i].x * w[j].y}")
-    #     print("[ABORT]")
     x.write(p, x.read(p) + dt * new_v)
-    # if (x.read(p).y < 0):
-    #     print("!!!!", x.read(p), new_v)
     J.write(p, J.read(p) * (1 + dt * trace(new_C)))
     C.write(p, new_C)
 
 
 def substep():
-    print("clear grid")
     clear_grid(dispatch_size=(n_grid, n_grid))
-    lc.synchronize()
-    print("point_to_grid")
     point_to_grid(dispatch_size=n_particles)
-    lc.synchronize()
-    print("simulate_grid")
     simulate_grid(dispatch_size=(n_grid, n_grid))
-    lc.synchronize()
-    print("grid_to_point")
     grid_to_point(dispatch_size=n_particles)
-    lc.synchronize()
 
 
 @lc.func
@@ -183,15 +141,12 @@ def draw_particle():
 
 init(dispatch_size=n_particles)
 lc.synchronize()
-# for i in range(10000):
-#     print("==============", i, "=============")
-#     substep()
-# quit()
 
 gui = lc.GUI('MPM88', (res,res))
 while gui.running():
-    for s in range(50):
+    for s in range(256):
         substep()
+    lc.synchronize()
     clear_display(dispatch_size=(res,res))
     draw_particle(dispatch_size=n_particles)
     gui.set_image(display)
