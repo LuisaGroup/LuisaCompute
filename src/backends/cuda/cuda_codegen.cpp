@@ -325,23 +325,28 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
     }
-    _scratch << "(";
     auto args = expr->arguments();
     if (is_atomic) {
-        _scratch << "&(";
+        if (args.front()->type()->description() == "float") {
+            _scratch << "_float";
+        }
+        _scratch << "(&(";
         args.front()->accept(*this);
         _scratch << ")";
         for (auto arg : args.subspan(1u)) {
             _scratch << ", ";
             arg->accept(*this);
         }
-    } else if (!args.empty()) {
-        for (auto arg : args) {
-            arg->accept(*this);
-            _scratch << ", ";
+    } else {
+        _scratch << "(";
+        if (!args.empty()) {
+            for (auto arg : args) {
+                arg->accept(*this);
+                _scratch << ", ";
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
         }
-        _scratch.pop_back();
-        _scratch.pop_back();
     }
     _scratch << ")";
 }
@@ -647,9 +652,14 @@ void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::REFERENCE:
-            if (readonly || force_const) { _scratch << "const "; }
-            _emit_type_name(v.type());
-            _scratch << " &";
+            if (readonly || force_const) {
+                _scratch << "const ";
+                _emit_type_name(v.type());
+                _scratch << " ";
+            } else {
+                _emit_type_name(v.type());
+                _scratch << " &";
+            }
             _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:

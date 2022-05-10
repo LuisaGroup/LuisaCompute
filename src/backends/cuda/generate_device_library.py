@@ -21,7 +21,9 @@ if __name__ == "__main__":
                 print(
                     f"""struct alignas({vector_alignments[i] if type != 'bool' else vector_alignments[i] // 4}) lc_{type}{i} {{
     lc_{type} {', '.join(elements[:i + 1])};
-    __device__ explicit constexpr lc_{type}{i}(lc_{type} s = 0) noexcept
+    __device__ constexpr lc_{type}{i}() noexcept
+        : {', '.join(f"{m}{{}}" for m in elements)} {{}}
+    __device__ explicit constexpr lc_{type}{i}(lc_{type} s) noexcept
         : {', '.join(f"{m}{{s}}" for m in elements)} {{}}
     __device__ constexpr lc_{type}{i}({', '.join(f"lc_{type} {m}" for m in elements)}) noexcept
         : {', '.join(f"{m}{{{m}}}" for m in elements)} {{}}
@@ -180,7 +182,8 @@ if __name__ == "__main__":
             print(f"""
 struct lc_float{i}x{i} {{
     lc_float{i} cols[{i}];
-    __device__ explicit constexpr lc_float{i}x{i}(lc_float s = 1.0f) noexcept
+    __device__ constexpr lc_float{i}x{i}() noexcept : cols{{}} {{}}
+    __device__ explicit constexpr lc_float{i}x{i}(lc_float s) noexcept
         : cols{{{", ".join(f"lc_make_float{i}({init(j)})" for j in range(i))}}} {{}}
     __device__ constexpr lc_float{i}x{i}({", ".join(f"lc_float{i} c{j}" for j in range(i))}) noexcept
         : cols{{{", ".join(f"c{j}" for j in range(i))}}} {{}}
