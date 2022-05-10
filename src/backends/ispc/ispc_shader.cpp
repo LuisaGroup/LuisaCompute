@@ -95,21 +95,23 @@ ISPCShader::ISPCShader(const Context &ctx, Function func) noexcept {
         src_file << scratch.view();
     }
 
-    // compile: generate object
-    auto command = fmt::format(
-        R"({} {} "{}" -o "{}")",
-        ispc_exe.string(),
-        ispc_opt_string,
-        source_path.string(),
-        object_path.string());
-    LUISA_INFO("Compiling ISPC kernel: {}", command);
-
     Clock clock;
-    if (auto ret = system(command.c_str()); ret != 0) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to compile ISPC kernel. "
-            "Return code: {}.",
-            ret);
+    if (!std::filesystem::exists(object_path)) {
+        // compile: generate object
+        auto command = fmt::format(
+            R"({} {} "{}" -o "{}")",
+            ispc_exe.string(),
+            ispc_opt_string,
+            source_path.string(),
+            object_path.string());
+        LUISA_INFO("Compiling ISPC kernel: {}", command);
+
+        if (auto ret = system(command.c_str()); ret != 0) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to compile ISPC kernel. "
+                "Return code: {}.",
+                ret);
+        }
     }
 
     // load module
