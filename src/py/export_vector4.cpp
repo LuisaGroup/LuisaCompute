@@ -13,6 +13,8 @@ using namespace luisa::compute;
     	.def(py::init<T,T,T,T>()) \
     	.def(py::init<Vector<T,4>>()) \
     	.def("__repr__", [](Vector<T,4>& self){return format(#T"4({},{},{},{})", self.x, self.y, self.z, self.w);}) \
+        .def("__getitem__", [](Vector<T,4>& self, size_t i){return self[i];}) \
+        .def("__setitem__", [](Vector<T,4>& self, size_t i, T k){ self[i]=k; }) \
     	.def_readwrite("x", &Vector<T,4>::x) \
     	.def_readwrite("y", &Vector<T,4>::y) \
     	.def_readwrite("z", &Vector<T,4>::z) \
