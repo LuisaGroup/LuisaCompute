@@ -4,17 +4,14 @@ from luisa import array, struct
 
 
 luisa.init()
-b = luisa.Buffer.zeros(1, dtype=int)
-m = luisa.Buffer.zeros(1, dtype=int)
+b = luisa.Buffer.zeros(1, dtype=float)
 
 @luisa.func
 def add():
-    m.lock(0)
-    b.write(0, b.read(0) + 1)
-    m.unlock(0)
+    _ = b.atomic_fetch_add(0, 1.0)
 
 luisa.synchronize()
-add(dispatch_size=2)
+add(dispatch_size=100)
 luisa.synchronize()
 
 print(b.numpy())

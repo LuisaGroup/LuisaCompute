@@ -44,26 +44,26 @@ def offset_ray_origin(p: float3, n: float3):
 @func
 def get_origin(self):
     return float3(self._origin[0], self._origin[1], self._origin[2])
-Ray.add_method('get_origin', get_origin)
+Ray.add_method(get_origin)
 
 @func
 def get_dir(self):
     return float3(self._dir[0], self._dir[1], self._dir[2])
-Ray.add_method('get_dir', get_dir)
+Ray.add_method(get_dir)
 
 @func
 def set_origin(self, val: float3):
     self._origin[0] = val.x
     self._origin[1] = val.y
     self._origin[2] = val.z
-Ray.add_method('set_origin', set_origin)
+Ray.add_method(set_origin)
 
 @func
 def set_dir(self, val: float3):
     self._dir[0] = val.x
     self._dir[1] = val.y
     self._dir[2] = val.z
-Ray.add_method('set_dir', set_dir)
+Ray.add_method(set_dir)
 
 
 
@@ -74,12 +74,12 @@ UHit = StructType(16, inst=uint, prim=uint, bary=float2)
 @func
 def miss(self):
     return self.inst == -1
-Hit.add_method('miss', miss)
+Hit.add_method(miss)
 
 @func
 def interpolate(self, a, b, c):
     return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
-Hit.add_method('interpolate', interpolate)
+Hit.add_method(interpolate)
 
 # Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
 #     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
