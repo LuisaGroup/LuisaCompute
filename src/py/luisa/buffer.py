@@ -61,12 +61,9 @@ class Buffer:
         return buf
 
     @staticmethod
-    def filled(size, val, dtype=None):
+    def filled(size, val):
         buf = Buffer.empty(size, dtype)
-        if dtype is None:
-            dtype = dtype_of(val)
-        else:
-            assert dtype_of(val) == dtype
+        dtype = dtype_of(val)
         Buffer.fill_kernel(buf, val, dispatch_size=(size,1,1))
         return buf
 

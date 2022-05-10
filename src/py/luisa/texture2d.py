@@ -64,7 +64,11 @@ class Texture2D:
         return tex
 
     @staticmethod
-    def filled(width, height, channel, dtype, val, storage = None): # TODO deduce dtype
+    def filled(width, height, val, storage = None): # TODO deduce dtype
+        if type(val) not in {int, float, int2, float2, int4, float4}:
+            raise TypeError("Can only fill texture2d with int, float or their vectors of length 2 or 4")
+        dtype = element_of(type(val))
+        channel = length_of(type(val))
         tex = Texture2D.empty(width, height, channel, dtype, storage)
         assert dtype_of(val) == tex.vectype
         Texture2D.fill_kernel(tex, val, dispatch_size=(width,height,1))
@@ -103,7 +107,7 @@ class Texture2D:
         import numpy as np
         pcf = str(self.storage).split('.')[-1][:-1] # BYTE4 -> BYTE
         if self.dtype == float:
-            npf = {'BYTE': np.uint8, 'SHORT': np.uint16, 'HALF': np.half, 'FLOAT': np.float}[pcf]
+            npf = {'BYTE': np.uint8, 'SHORT': np.uint16, 'HALF': np.half, 'FLOAT': np.float32}[pcf]
         else:
             npf = {'BYTE': np.int8, 'SHORT': np.int16, 'INT': np.int32}[pcf]
         arr = np.empty((self.width, self.height, self.channel), dtype=npf)
