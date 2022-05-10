@@ -22,8 +22,8 @@ class BindlessArray:
         return arr
 
     @staticmethod
-    def empty():
-        return BindlessArray()
+    def empty(n_slots = 65536):
+        return BindlessArray(n_slots)
 
     def emplace(self, idx, res):
         if type(res) is Buffer:

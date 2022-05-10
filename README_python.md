@@ -1,5 +1,5 @@
 # Python-Luisa 用户文档
-Luisa 是一个嵌入Python的领域专用语言，面向高性能图形渲染编程，支持 Windows、Linux、MacOS 操作系统，支持多种计算后端，包括 CUDA、DirectX、Metal、ISPC。
+Luisa 是一个嵌入Python的领域专用语言（DSL），面向高性能图形渲染编程，支持 Windows、Linux、MacOS 操作系统，支持多种计算后端，包括 CUDA、DirectX、Metal、ISPC。
 
 **本项目尚在开发中，如遇问题或功能建议请[提交issue](https://github.com/LuisaGroup/LuisaCompute/issues)。**
 
@@ -19,6 +19,8 @@ python3 test.py
 ```
 
 ## 语言用例
+
+您可以从下面这个简单的程序看到Luisa的大致用法。这个程序创建了10个线程，每个线程向一个缓存里的对应位置写入了42这个值。
 
 ```python
 import luisa
@@ -215,7 +217,7 @@ luisa.Buffer.filled(size, value) # 创建一个缓存，其中每个元素均初
 b.copy_from(arr) # arr 的数据类型和长度必须和 b 一致
 ```
 
-不能直接在宿主端直接访问缓存的元素。下载 TODO 
+不能直接在宿主端（Python代码中）直接访问缓存的元素。下载 TODO 
 
 在设备端（Luisa函数中）可以对缓存的元素进行读写：
 
@@ -228,14 +230,12 @@ b.write(index, value)
 
 ### 贴图 `luisa.Texture2D`
 
-贴图用于在设备上存储二维的图像。一个贴图有[宽度×高度]个元素，每个元素是[通道数]维的向量，其中通道数可以是1、2或4。贴图
-
-由于按3通道存储会影响性能，如果您只需使用3个通道，请创建4通道的贴图并使用其元素的前3个分量。
+贴图用于在设备上存储二维的图像。一个贴图的尺寸为宽度×高度×通道数，其中通道数可以是1、2或4。由于按3通道存储会影响性能，如果您只需使用3个通道，请创建4通道的贴图并使用其前3个分量。
 
 从 numpy array 创建一个贴图：
 
 ```python
-luisa.texture2d(arr) # (width,height,channel) = arr.shape
+luisa.texture2d(arr) # arr 形状为 (width, height, channel)
 ```
 
 该操作会在设备上创建一个相应元素类型和尺寸的贴图，并上传数据。`arr`的元素类型只能是`np.int32`或 `np.float32`。
@@ -243,76 +243,67 @@ luisa.texture2d(arr) # (width,height,channel) = arr.shape
 您也可以创建一个指定元素类型（见类型标记一节）和尺寸的贴图：
 
 ```python
-luisa.Texture2D.empty(width, height, channel, dtype, [channel])  # 创建一个未初始化的缓存
-luisa.Texture2D.zeros(width, height, channel, dtype, [channel])  # 创建一个缓存，其中每个元素均初始化为 dtype(0)
-luisa.Texture2D.ones(width, height, channel, dtype, [channel])   # 创建一个缓存，其中每个元素均初始化为 dtype(1)
-luisa.Texture2D.filled(width, height, value, [channel]) # 创建一个缓存，其中每个元素均初始化为 value
+luisa.Texture2D.empty(w, h, channel, dtype, [storage])  # 创建一个未初始化的贴图
+luisa.Texture2D.zeros(w, h, channel, dtype, [storage])  # 创建一个贴图并初始化为0
+luisa.Texture2D.ones(w, h, channel, dtype, [storage])   # 创建一个贴图并初始化为1
+luisa.Texture2D.filled(w, h, value, [storage])
+# 如果value是标量，则创建1通道的贴图；如果value是2/4维向量，则创建2/4通道的贴图；并使用value初始化
 ```
 
+其中storage是可选参数 TODO 见 luisa.PixelStorage。如未指定，默认使用最高精度（和dtype一样的精度）。
 
+不能直接在宿主端（Python代码中）直接访问贴图的元素。可以将贴图下载到对应形状和类型的numpy array，或直接调用`numpy`方法返回下载结果。
 
-创建贴图：`luisa.Texture2D(width, height, channel, dtype, [storage])`
+```python
+tex.copy_to(arr) # arr 形状为 (width, height, channel), 类型 np.int32 / np.float32
+arr1 = tex.numpy()
+```
 
-channel: 1/2/4
+在设备端（Luisa函数中）可以对贴图的元素进行读写：
 
-dtype: int/float
+```python
+b.read(index)
+b.write(index, value)
+```
 
-storage 可选，像素存储格式，见 luisa.PixelStorage。如未指定，默认使用dtype同样精度。
-
-作为参数的类型标记：`luisa.Texture2DType(dtype)`
-
-kernel方法：
-
-`read(idx)`
-
-`write(idx, value)`
-
-python方法：
-
-`copy_to(arr)`
-
-`copy_from(arr)`
-
-上传/下载到storage对应类型的numpy.array。
+其中index为int2类型，表示贴图上的坐标(x,y)。对于2/4通道的贴图，读写值以向量为单位。
 
 ### 资源索引 `luisa.BindlessArray`
 
-===待更新===
+资源索引是设备上的一张表，其每个元素存储了资源描述符，可以用于索引缓存和浮点类型的贴图。索引的默认大小`n_slots`为65536。可以从一个字典创建资源索引，字典的每一项中，键为0~n_slots-1的整数，值为一个缓存或浮点类型的贴图，例如：
 
-可以放置多个 buffer / texture2d(float) 的容器。
-
-创建：
-
-```python
-a = luisa.BindlessArray()
-a.emplace(123, luisa.Buffer(...))
-a.emplace(456, luisa.Texture2D(..., dtype=float))
-a.remove_buffer(123)
-a.remove_texture2d(456)
-res in a
-a.update()
+```python3
+luisa.bindless_array({0: buf1, 42: tex1, 128: buf2})
 ```
 
-进入luisa函数使用前需要调用update
-
-作为参数的类型标记：`luisa.BindlessArray`
-
-luisa函数内方法：
+也可以创建一个空的资源索引；可以向资源索引中插入索引项或删除索引项，但注意改变索引后，在使用前必须调用`update`:
 
 ```python
-a.buffer_read(element_type, idx, element_idx)
-a.texture2d_read(idx, coord)
-a.texture2d_sample(idx, uv)
-a.texture2d_size(idx)
+a = luisa.BindlessArray.empty(131072) # 参数 n_slots 可选，默认 65536
+a = luisa.BindlessArray(131072) # 同上，别名
+a.emplace(index, res) # 在index位置放置res资源的索引
+a.remove_buffer(index) # 删除index位置的缓存索引
+a.remove_texture2d(index) # 删除index位置的贴图索引
+a.update() # 更新索引表
+res in a # 查询该资源是否在表中
 ```
 
-注：目前的用法有点奇怪，可能后续会更改
+在设备端（Luisa函数中）可以读取被索引的资源：
+
+```python
+a.buffer_read(element_type, idx, element_idx) # 返回 element_type
+a.texture2d_read(idx, coord) # 返回float4
+a.texture2d_sample(idx, uv) # 返回float4
+a.texture2d_size(idx) # 返回float4
+```
+
+注：目前的用法可能有点奇怪？可能后续会更改
 
 ### 加速结构 `luisa.Accel`
 
-===待更新===
+加速结构是在设备上的用于加速计算射线与3D空间中物体交点的数据结构。
 
-在设备上的（光线求交）加速结构。
+TODO
 
 构建例子：
 
@@ -347,6 +338,7 @@ hit1 = accel.trace_any(ray)
 hit.miss()
 hit.inst # instance ID of the hit object
 hit.prim # primitive ID of the hit object
+hit.interpolate(a,b,c)
 ```
 
 TODO: `interpolate(hit, a,b,c)`
