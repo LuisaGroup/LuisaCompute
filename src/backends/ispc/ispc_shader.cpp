@@ -83,6 +83,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noe
     for (auto o : luisa::span{ispc_options}.subspan(1u)) {
         ispc_opt_string.append(" ").append(o);
     }
+
     auto object_path = ctx.cache_directory() / luisa::format("{}.{}", name, object_ext);
 
     Clock clock;

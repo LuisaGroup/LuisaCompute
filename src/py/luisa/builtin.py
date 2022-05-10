@@ -1,12 +1,12 @@
 import lcapi
 
-from .types import to_lctype, from_lctype, basic_type_dict, dtype_of, is_vector_type, basic_lctype_dict, scalar_dtypes, \
-    scalar_lctypes, arithmetic_dtypes, arithmetic_lctypes
+from .types import uint, to_lctype, from_lctype, dtype_of, BuiltinFuncBuilder, \
+    scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of
 from functools import reduce
 from . import globalvars
 from types import SimpleNamespace
 import ast
-from .types import BuiltinFuncBuilder, ref as ref_type
+# from .types import BuiltinFuncBuilder, ref as ref_type
 from .array import ArrayType
 from .struct import StructType
 
@@ -17,24 +17,6 @@ def wrap_with_tmp_var(node):
     node.expr = tmp
     node.lr = 'l'
 
-def get_length(arg) -> int:
-    lc_type = to_lctype(arg.dtype)
-    if lc_type.is_scalar():
-        return 1
-    elif lc_type.is_array() or lc_type.is_vector() or lc_type.is_matrix() or lc_type.is_texture():
-        return lc_type.dimension()
-    else:
-        assert False, f'Unknown argument type {arg.dtype}'
-
-
-def get_inner_type(lc_type):
-    if lc_type.is_scalar():
-        return lc_type
-    elif lc_type.is_array() or lc_type.is_vector() or lc_type.is_matrix() or lc_type.is_texture():
-        return lc_type.element()
-    else:
-        assert False, 'Unknown argument type'
-
 
 def check_type(lc_type):
     return lambda argument: to_lctype(argument.dtype) == lc_type
@@ -44,19 +26,14 @@ def check_types(dtype, arguments):
     return reduce(lambda x, y: x and y, map(check_type(to_lctype(dtype)), arguments))
 
 
-def check_inner_type(lc_type):
+def check_inner_type(dtype):
     def check(argument):
-        arg_type = to_lctype(argument.dtype)
-        if arg_type.is_array() or arg_type.is_vector() or arg_type.is_matrix() or arg_type.is_texture():
-            return arg_type.element() == lc_type
-        else:
-            return arg_type == lc_type
-
+        return element_of(argument.dtype) == dtype
     return check
 
 
-def check_inner_types(lc_type, arguments):
-    return reduce(lambda x, y: x and y, map(check_inner_type(lc_type), arguments))
+def check_inner_types(dtype, arguments):
+    return reduce(lambda x, y: x and y, map(check_inner_type(dtype), arguments))
 
 
 def check_type_in(dtypes, argument):
@@ -64,11 +41,7 @@ def check_type_in(dtypes, argument):
     return to_lctype(argument.dtype) in lc_types
 
 
-def get_arg_length(arguments) -> int:
-    return sum(map(get_length, arguments))
-
-
-def implicit_coersion(dtype0, dtype1):
+def upper_scalar_dtype(dtype0, dtype1):
     if float in [dtype0, dtype1]:
         return float
     elif int in [dtype0, dtype1]:
@@ -86,58 +59,23 @@ def deduce_broadcast(dtype0, dtype1):
         return dtype1  # same size || Matrix * Vector -> Vector
 
 
-def to(target_dtype, dtype):
-    func = {
-        int: to_int,
-        float: to_float,
-        bool: to_bool
-        # int: to_uint
-    }[target_dtype]
-    return func(dtype)
-
-
 def to_bool(dtype):
-    if dtype in [float, int, int, bool]:
-        return bool
-    elif dtype in [lcapi.float2, lcapi.int2, lcapi.uint2, lcapi.bool2]:
-        return lcapi.bool2
-    elif dtype in [lcapi.float3, lcapi.int3, lcapi.uint3, lcapi.bool3]:
-        return lcapi.bool3
-    elif dtype in [lcapi.float4, lcapi.int4, lcapi.uint4, lcapi.bool4]:
-        return lcapi.bool4
-
+    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    return vector(bool, length_of(dtype))
 
 def to_float(dtype):
-    if dtype in [float, int, int, bool]:
-        return float
-    elif dtype in [lcapi.float2, lcapi.int2, lcapi.uint2, lcapi.bool2]:
-        return lcapi.float2
-    elif dtype in [lcapi.float3, lcapi.int3, lcapi.uint3, lcapi.bool3]:
-        return lcapi.float3
-    elif dtype in [lcapi.float4, lcapi.int4, lcapi.uint4, lcapi.bool4]:
-        return lcapi.float4
-
+    if dtype in matrix_dtypes:
+        return dtype
+    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    return vector(float, length_of(dtype))
 
 def to_int(dtype):
-    if dtype in [float, int, int, bool]:
-        return int
-    elif dtype in [lcapi.float2, lcapi.int2, lcapi.uint2, lcapi.bool2]:
-        return lcapi.int2
-    elif dtype in [lcapi.float3, lcapi.int3, lcapi.uint3, lcapi.bool3]:
-        return lcapi.int3
-    elif dtype in [lcapi.float4, lcapi.int4, lcapi.uint4, lcapi.bool4]:
-        return lcapi.int4
-
+    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    return vector(int, length_of(dtype))
 
 def to_uint(dtype):
-    if dtype in [float, int, int, bool]:
-        return int
-    elif dtype in [lcapi.float2, lcapi.int2, lcapi.uint2, lcapi.bool2]:
-        return lcapi.uint2
-    elif dtype in [lcapi.float3, lcapi.int3, lcapi.uint3, lcapi.bool3]:
-        return lcapi.uint3
-    elif dtype in [lcapi.float4, lcapi.int4, lcapi.uint4, lcapi.bool4]:
-        return lcapi.uint4
+    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    return vector(uint, length_of(dtype))
 
 
 def builtin_unary_op(op, operand):
@@ -148,7 +86,7 @@ def builtin_unary_op(op, operand):
         ast.Invert: lcapi.UnaryOp.BIT_NOT
     }.get(op)
     dtype = operand.dtype
-    length = get_length(operand)
+    length = length_of(operand.dtype)
     return dtype, lcapi.builder().unary(to_lctype(dtype), lc_op, operand.expr)
 
 
@@ -191,56 +129,56 @@ def builtin_bin_op(op, lhs, rhs):
                                           builtin_bin_op(ast.Mult, lhs, lhs))
         return builtin_func("pow", lhs, rhs)
     dtype0, dtype1 = lhs.dtype, rhs.dtype
-    length0, length1 = get_length(lhs), get_length(rhs)
+    length0, length1 = length_of(dtype0), length_of(dtype1)
     lhs_expr, rhs_expr = lhs.expr, rhs.expr
     if op != ast.Mult:
         assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1), \
-            'Broadcast operations between different sized vectors not supported'
+               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)), \
+            f'Binary operation between ({dtype0} and {dtype1}) is not supported'
     else:
         assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1) or \
+               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)) or \
                (dtype0 == lcapi.float2x2 and dtype1 == lcapi.float2) or \
                (dtype0 == lcapi.float3x3 and dtype1 == lcapi.float3) or \
                (dtype0 == lcapi.float4x4 and dtype1 == lcapi.float4), \
-            'Broadcast operations between different sized vectors not supported'
+            f'Binary operation between ({dtype0} and {dtype1}) is not supported'
     scalar_operation = length0 == length1 == 1
     dtype = None
 
     if op in (ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift):
-        inner_lc_type_0 = get_inner_type(to_lctype(lhs.dtype))
-        assert inner_lc_type_0 in [basic_type_dict[int], lcapi.Type.from_('uint')], \
+        inner_type_0 = element_of(lhs.dtype)
+        assert inner_type_0 in [int, uint], \
             f'operator `{op}` only supports `int` and `uint` types.'
         if scalar_operation:
-            inner_lc_type_1 = get_inner_type(to_lctype(rhs.dtype))
-            assert inner_lc_type_1 in [basic_type_dict[int], lcapi.Type.from_('uint')], \
+            inner_type_1 = element_of(rhs.dtype)
+            assert inner_type_1 in [int, uint], \
                 f'operator `{op}` only supports `int` and `uint` types.'
-            dtype = implicit_coersion(dtype0, dtype1)
+            dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
-            assert check_inner_type(inner_lc_type_0)(rhs), \
+            assert check_inner_type(inner_type_0)(rhs), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
     elif op in (ast.And, ast.Or):
-        assert check_inner_types(to_lctype(bool), [lhs, rhs]), f'operator `{op}` only supports `bool` type.'
+        assert check_inner_types(bool, [lhs, rhs]), f'operator `{op}` only supports `bool` type.'
         dtype = deduce_broadcast(dtype0, dtype1)
         # add / sub / div: int, uint and float allowed
         # relational: int, uint and float allowed
     elif op in (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
-        inner_lc_type_0 = get_inner_type(to_lctype(lhs.dtype))
-        assert inner_lc_type_0 in [basic_type_dict[int], basic_type_dict[float], lcapi.Type.from_('uint')], \
+        inner_type_0 = element_of(lhs.dtype)
+        assert inner_type_0 in [int, float, uint], \
             f'operator `{op}` only supports `int`, `uint` and `float` types.'
         if scalar_operation:
             # allow implicit type conversion
             # so check rhs's type, ensure it also satisfies the constraints.
-            inner_lc_type_1 = get_inner_type(to_lctype(rhs.dtype))
-            assert inner_lc_type_1 in [basic_type_dict[int], basic_type_dict[float], lcapi.Type.from_('uint')], \
+            inner_type_1 = element_of(rhs.dtype)
+            assert inner_type_1 in [int, float, uint], \
                 f'operator `{op}` only supports `int`, `uint` and `float` types.'
-            dtype = implicit_coersion(dtype0, dtype1)
+            dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
             # forbid implicit type conversion
             # so check rhs's type, ensure it is the same with lhs
-            assert check_inner_type(inner_lc_type_0)(rhs), \
+            assert check_inner_type(inner_type_0)(rhs), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
@@ -296,10 +234,12 @@ def builtin_type_cast(dtype, *args):
     # type cast of basic types
     # TODO may need temporary variable?
     if dtype in {int, float, bool}:
-        assert len(args) == 1 and args[0].dtype in {int, float, bool}
+        if len(args) != 1:
+            raise TypeError(f"Can't convert multiple values to {dtype.__name__}")
+        if args[0].dtype not in {int, float, bool}:
+            raise TypeError(f"Can't convert {args[0].dtype} to {dtype.__name__}")
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
-    lctype = to_lctype(dtype)
-    if lctype.is_vector() or lctype.is_matrix():
+    if dtype in vector_dtypes or dtype in matrix_dtypes:
         return builtin_func(f"make_{dtype.__name__}", *args)
     # TODO: vectors / matrices
     # TODO: array
@@ -312,16 +252,16 @@ def make_vector_call(dtype, op, args):
     assert dtype in {int, float, bool}
     dim = 1
     for arg in args:
-        if not (arg.dtype == dtype or is_vector_type(arg.dtype) and to_lctype(arg.dtype).element() == to_lctype(dtype)):
+        if not (arg.dtype == dtype or arg.dtype in vector_dtypes and element_of(arg.dtype) == dtype):
             print(arg.dtype, dtype)
             raise TypeError("arguments must be float or float vector")
-        if is_vector_type(arg.dtype):
+        if arg.dtype in vector_dtypes:
             if dim != 1:
                 if dim != to_lctype(arg.dtype).dimension():
                     raise TypeError("arguments can't contain vectors of different dimension")
             else:  # will upcast scalar to vector
                 dim = to_lctype(arg.dtype).dimension()
-    convtype = getattr(lcapi, f'{dtype.__name__}{dim}') if dim > 1 else dtype
+    convtype = vector(dtype,dim)
     exprlist = []
     for arg in args:
         if arg.dtype == convtype:
@@ -411,8 +351,12 @@ def builtin_func(name, *args, **kwargs):
     for T in 'uint', 'int', 'float', 'bool':
         for N in 2, 3, 4:
             if name == f'make_{T}{N}':
-                if get_arg_length(args) not in [1, N]:
-                    raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {get_arg_length(args)}")
+                if sum([length_of(x.dtype) for x in args]) not in {1, N}:
+                    raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {sum([length_of(x.dtype) for x in args])}")
+                # for x in args:
+                #     if element_of(x.dtype) != {'int':int, 'float':float, 'bool':bool, 'uint':uint}[T] and \
+                #         not (T == "float" and x.dtype == int):
+                #         raise TypeError(f"Can't make {T}{N} from {x.dtype} (must be of same element type)")
                 op = getattr(lcapi.CallOp, name.upper())
                 dtype = getattr(lcapi, f'{T}{N}')
                 return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -420,19 +364,25 @@ def builtin_func(name, *args, **kwargs):
     # e.g. make_float2x2(...)
     for N in 2, 3, 4:
         if name == f'make_float{N}x{N}':
-            assert (len(args) == 1 and check_type_in([float, lcapi.float2x2, lcapi.float3x3, lcapi.float4x4], args[0])) \
-                   or (len(args) == N and check_types(basic_lctype_dict[lcapi.Type.from_(f"vector<float,{N}>")], args)) \
-                   or (len(args) == N * N and check_types(float, args)), 'type check failed'
+            # for x in args:
+            #     if element_of(x.dtype) != float and x.dtype != int:
+            #         raise TypeError(f"Can't make {T}{N}x{N} from {x.dtype} (must be of same element type)")
+            try:
+                if len(args) == 1:
+                    assert args[0].dtype in {float, int, lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}
+                elif len(args) == N:
+                    for arg in args:
+                        assert arg.dtype == vector(float,N)
+                elif len(args) == N*N:
+                    for arg in args:
+                        assert arg.dtype in {float, int}
+            except AssertionError:
+                raise TypeError(f"Can't make {T}{N}x{N} from {[x.dtype for x in args]}")
             op = getattr(lcapi.CallOp, name.upper())
             dtype = getattr(lcapi, f'float{N}x{N}')
             return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     # TODO: atan2
-
-    def element_type(_dtype):
-        if _dtype in {int, float, bool}:
-            return _dtype
-        return from_lctype(to_lctype(_dtype).element())
 
     # e.g. sin(x)
     if name in ('acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
@@ -440,8 +390,7 @@ def builtin_func(name, *args, **kwargs):
                 'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round'):
         # type check: arg must be float / float vector
         assert len(args) == 1
-        assert args[0].dtype == float or \
-               (to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float))
+        assert args[0].dtype == float or args[0].dtype in vector_dtypes and element_of(args[0].dtype) == float
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -449,16 +398,14 @@ def builtin_func(name, *args, **kwargs):
     if name in ('isinf','isnan'):
         # type check: arg must be float / float vector
         assert len(args) == 1
-        assert args[0].dtype == float or \
-               (to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float))
+        assert args[0].dtype == float or args[0].dtype in vector_dtypes and element_of(args[0].dtype) == float
         op = getattr(lcapi.CallOp, name.upper())
         dtype = to_bool(args[0].dtype)
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     if name in ('abs',):
         assert len(args) == 1
-        assert args[0].dtype in (int, float) or to_lctype(args[0].dtype).is_vector() and to_lctype(
-            args[0].dtype).element() in (to_lctype(int), to_lctype(float))
+        assert args[0].dtype in (int, float) or args[0].dtype in vector_dtypes and element_of(args[0].dtype) in (int, float)
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -470,25 +417,25 @@ def builtin_func(name, *args, **kwargs):
     if name in ('min', 'max'):
         assert len(args) == 2
         op = getattr(lcapi.CallOp, name.upper())
-        return make_vector_call(element_type(args[0].dtype), op, args)
+        return make_vector_call(element_of(args[0].dtype), op, args)
 
     if name in ('length', 'length_squared'):
         assert len(args) == 1
-        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
+        assert args[0].dtype in vector_dtypes and element_of(args[0].dtype) == float
         op = getattr(lcapi.CallOp, name.upper())
         return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
 
     if name in ('normalize',):
         assert len(args) == 1
-        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
+        assert args[0].dtype in vector_dtypes and element_of(args[0].dtype) == float
         op = getattr(lcapi.CallOp, name.upper())
         return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), op, [x.expr for x in args])
 
     if name in ('dot',):
         assert len(args) == 2
-        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(float)
-        assert to_lctype(args[1].dtype).is_vector() and to_lctype(args[1].dtype).element() == to_lctype(float)
-        assert to_lctype(args[0].dtype).dimension() == to_lctype(args[1].dtype).dimension()
+        assert args[0].dtype in vector_dtypes and element_of(args[0].dtype) == float
+        assert args[1].dtype in vector_dtypes and element_of(args[1].dtype) == float
+        assert length_of(args[0].dtype) == length_of(args[1].dtype)
         op = getattr(lcapi.CallOp, name.upper())
         return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
 
@@ -507,42 +454,13 @@ def builtin_func(name, *args, **kwargs):
         assert len(args) == 3
         assert args[2].dtype in [bool, lcapi.bool2, lcapi.bool3, lcapi.bool4]
         assert args[0].dtype == args[1].dtype
-        assert args[2].dtype == bool or to_lctype(args[0].dtype).is_scalar() or \
-            to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).dimension() == to_lctype(args[2].dtype).dimension()
+        assert args[2].dtype == bool or args[0].dtype in scalar_dtypes or \
+            args[0].dtype in vector_dtypes and length_of(args[0].dtype) == length_of(args[2].dtype)
         return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
 
     if name == 'print':
         globalvars.printer.kernel_print(args)
         globalvars.current_context.uses_printer = True
-        return None, None
-
-    # buffer
-    if name == "buffer_read":
-        op = lcapi.CallOp.BUFFER_READ
-        dtype = args[0].dtype.dtype
-        check_exact_signature([int], args[1:], "Buffer.read")
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
-    if name == "buffer_write":
-        op = lcapi.CallOp.BUFFER_WRITE
-        dtype = args[0].dtype.dtype
-        check_exact_signature([int, dtype], args[1:], "Buffer.write")
-        lcapi.builder().call(op, [x.expr for x in args])
-        return None, None
-
-    if name == "texture2d_read":
-        op = lcapi.CallOp.TEXTURE_READ
-        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
-        check_exact_signature([lcapi.int2], args[1:], "Texture2D.read")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, args[1])  # convert int2 to uint2
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
-    if name == "texture2d_write":
-        op = lcapi.CallOp.TEXTURE_WRITE
-        dtype = getattr(lcapi, args[0].dtype.dtype.__name__ + "4")
-        check_exact_signature([lcapi.int2, dtype], args[1:], "Texture2D.write")
-        args[1].dtype, args[1].expr = builtin_type_cast(lcapi.uint2, args[1])  # convert int2 to uint2
-        lcapi.builder().call(op, [x.expr for x in args])
         return None, None
 
     for N in (2, 3):
@@ -612,27 +530,13 @@ def builtin_func(name, *args, **kwargs):
     if name in ('all', 'any'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 1
-        assert to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype).element() == to_lctype(bool)
+        assert args[0].dtype in vector_dtypes and element_of(args[0].dtype) is bool
         return bool, lcapi.builder().call(to_lctype(bool), op, [args[0].expr])
-
-    # if name == 'select':
-    #     op = lcapi.CallOp.SELECT
-    #     assert len(args) == 3
-    #     lctypes = [to_lctype(arg.dtype) for arg in args]
-    #     assert args[0].dtype == bool and args[1].dtype in scalar_dtypes and args[2].dtype in scalar_dtypes and \
-    #            args[1].dtype == args[2].dtype or \
-    #            lctypes[0].is_vector() and lctypes[0].element() == to_lctype(bool) and \
-    #            lctypes[1].is_vector() and lctypes[1].element() in scalar_lctypes and \
-    #            lctypes[2].is_vector() and lctypes[2].element() in scalar_lctypes and \
-    #            lctypes[0].dimension() == lctypes[1].dimension() == lctypes[2].dimension and \
-    #            lctypes[1].element() == lctypes[2].element(), "invalid parameter"
-    #     dtype = args[1].dtype
-    #     return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
 
     if name in ('clamp', 'fma'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 3
-        e = element_type(args[0].dtype)
+        e = element_of(args[0].dtype)
         if name == 'clamp':
             assert e in arithmetic_dtypes
         else:
@@ -642,23 +546,22 @@ def builtin_func(name, *args, **kwargs):
     if name == 'step':
         op = lcapi.CallOp.STEP
         assert len(args) == 2
-        lctypes = [to_lctype(arg.dtype) for arg in args]
         assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes or \
-               lctypes[0] == lctypes[1] and lctypes[0].is_vector() and lctypes[0].element() in arithmetic_lctypes, \
+               args[0].dtype == args[1].dtype and args[0].dtype in vector_dtypes and element_of(args[0].dtype) in arithmetic_dtypes, \
                "invalid parameter"
         if args[0].dtype in arithmetic_dtypes:
             # step(scalar, scalar) -> float
             dtype = float
         else:
             # step(vector<scalar>, vector<scalar>) -> vector(float)
-            dtype = lcapi.Type.from_(f"vector<float,{lctypes[0].dimension()}>")
+            dtype = vector(float, length_of(args[0].dtype))
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
 
     if name in ('clz', 'ctz', 'popcount', 'reverse'):
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 1
         assert args[0].dtype == int or \
-               to_lctype(args[0].dtype).is_vector() and to_lctype(args[0].dtype) == lcapi.Type.from_('int'), \
+                args[0].dtype in vector_dtypes and element_of(args[0].dtype) is int, \
                "invalid parameter"
         # clz(uint) -> uint
         # clz(vector<uint>) -> vector<uint>
@@ -668,9 +571,8 @@ def builtin_func(name, *args, **kwargs):
     if name == 'copysign':
         op = getattr(lcapi.CallOp, name.upper())
         assert len(args) == 2
-        lctypes = [to_lctype(arg.dtype) for arg in args]
         assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes or \
-               lctypes[0] == lctypes[1] and lctypes[0].is_vector() and lctypes[0].element() in arithmetic_lctypes, \
+               args[0].dtype == args[1].dtype and args[0].dtype in vector_dtypes and element_of(args[0].dtype) in arithmetic_dtypes, \
                "invalid parameter"
         # copysign(scalar, scalar) -> scalar
         # copysign(vector<scalar>, vector<scalar>) -> vector<scalar>
@@ -700,14 +602,14 @@ def builtin_func(name, *args, **kwargs):
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     # UNUSABLE YET
-    if name in ('atomic_exchange', 'atomic_fetch_add', 'atomic_fetch_sub', 'atomic_fetch_and', 'atomic_fetch_or',
-                'atomic_fetch_xor', 'atomic_fetch_min', 'atomic_fetch_max'):
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 2
-        assert args[0] is ref_type and args[0].dtype == args[1].dtype
-        # TODO: Finish type check for atomic operations
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
+    # if name in ('atomic_exchange', 'atomic_fetch_add', 'atomic_fetch_sub', 'atomic_fetch_and', 'atomic_fetch_or',
+    #             'atomic_fetch_xor', 'atomic_fetch_min', 'atomic_fetch_max'):
+    #     op = getattr(lcapi.CallOp, name.upper())
+    #     assert len(args) == 2
+    #     assert args[0] is ref_type and args[0].dtype == args[1].dtype
+    #     # TODO: Finish type check for atomic operations
+    #     dtype = args[0].dtype
+    #     return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
 
     if name == 'atomic_compare_exchange':
         pass

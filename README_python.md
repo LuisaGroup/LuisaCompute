@@ -1,5 +1,7 @@
 # Python-Luisa 用户文档
-多后端高性能计算库，支持 ISPC/CUDA/DirectX/Metal 后端。
+Luisa 是一个嵌入Python的领域专用语言，面向高性能图形渲染编程，支持 Windows、Linux、MacOS 操作系统，支持多种计算后端，包括 CUDA、DirectX、Metal、ISPC。
+
+**本项目尚在开发中，如遇问题或功能建议请[提交issue](https://github.com/LuisaGroup/LuisaCompute/issues)。**
 
 ## 编译与运行
 
@@ -19,36 +21,41 @@ python3 test.py
 ## 语言用例
 
 ```python
-import luisa # 引入Luisa库，初始化
-import numpy as np
+import luisa
 
-b = luisa.Buffer(100, dtype=int)
+luisa.init("cuda") # 如不提供参数，将自动选择后端
+b = luisa.Buffer(10, dtype=int)
 
 @luisa.func
 def fill(x):
     b.write(dispatch_id().x, x)
-    # dispatch_id 为内建函数，返回 int3 类型
-
-fill(42, dispatch_size=(100,1,1))
-# 并行执行，指定并行线程数量为 dispatch_size
-
-res = np.ones(100, dtype='int32')
-b.copy_to(res)
-print(res)
+    
+fill(42, dispatch_size=10) # 并行执行fill函数
+print(b.numpy()) # 输出：[42 42 42 42 42 42 42 42 42 42]
 ```
 ## Luisa函数
 
-使用修饰符 `luisa.func` 可以将一个函数标记为 Luisa 函数，这使得该函数可以在后端设备上运行。
+Luisa函数是用于进行大量运算的设施。
 
-一个 Luisa 函数可以被host端并行调用，也可以被另一个Luisa函数调用。在被调用时，该函数会被即时编译为后端设备可以执行的代码。
+使用修饰符 `luisa.func` 可以将一个函数标记为Luisa函数。编写Luisa函数使用的语法与Python语法相同，尽管使用上稍有差别，见语法参考；一个Luisa函数在被调用时会被即时编译为**静态类型**的代码，从而在后端设备上运行。
 
-函数的参数可以有（但不要求）类型标记，如 `def f(a: int)`。如有类型标记，在调用时会检查对应参数类型。
+一个Luisa函数可以被Python代码**并行地**调用，在Python代码上调用时，必须指定参数 `dispatch_size`，即并行线程的数量。例如，在上例中并行地调用了100个`fill`函数的线程，每个线程的代码相同，但`dispatch_id()`不同。Luisa函数也可以被另一个Luisa函数调用，此时即与Python中函数调用的方法相同。
 
-在Luisa函数中调用函数时，函数的传参规则与Python一致，即：标量类型按值传递，其它任何类型按引用传递（但不可以被赋值）。在python中并行调用时，luisa函数无论如何都不会修改python端传入的参数（这是显然的）。
+可以这么理解：Python代码是宿主端的代码，在CPU上运行。Luisa函数是设备端的代码，在加速设备上运行（加速设备可以是GPU，也可以是CPU自身）。宿主端用于控制发出多个设备端的线程，以及初始化与收集数据；而设备端用于执行主要的运算。
 
-注：Luisa函数只支持位置参数，不支持关键词参数，且不支持参数默认值。
+Luisa函数的参数可以有（但不要求）类型标记，如 `def f(a: int)`。如提供了类型标记，该函数在被调用时会检查传入参数的类型与对应标记一致。仅支持单一类型标记。
+
+注意：在Python中并行调用一个Luisa函数时，作为参数传入的变量并不会被这个函数内部的代码修改。在Luisa函数中调用另一个Luisa函数时，函数的传参规则与Python一致，即：标量类型按值传递，其它任何类型按引用传递。为了避免歧义，禁止在函数内给引用传递的参数直接赋值。
+
+目前Luisa函数只支持位置参数，不支持关键词参数，且不支持参数默认值。
 
 ## 类型
+
+Luisa函数是静态类型的，其支持如下几种类型。
+
+标量、向量、矩阵、数组、结构体是纯数据类型，其底层表示为存储空间中固定大小的一块内存，可以在luisa函数中创建这些类型的局部变量。其构造均为按值构造，赋值均为按值复制，传参规则见上一节。通常来说，这些类型在设备端（Luisa函数）与宿主端（Python代码）有统一的操作方式。
+
+缓存、贴图、资源数组、加速结构是资源类型，用于存储所有线程共享的资源。在luisa函数中可以引用资源，但不能创建资源类型的局部变量。这些类型在设备端（Luisa函数）与宿主端（Python代码）操作方式可能不同。
 
 ### 标量类型
 
@@ -58,27 +65,78 @@ print(res)
 
 注意 Luisa 函数中 int/float 精度相比 python 中的64位 int/float 精度较低。
 
-### 向量、矩阵类型
+### 向量类型
 
-`luisa.float3`, `luisa.float3x3` , ...
+存储了固定个数的标量，其概念对应于数学上4D以内的列向量。
 
-向量、矩阵尺寸只支持2~4，矩阵为方阵。向量元素可以为三种标量中的一种，而矩阵元素只能是float。
+```
+luisa.int2, luisa.bool2, luisa.float2,
+luisa.int3, luisa.bool3, luisa.float3,
+luisa.int4, luisa.bool4, luisa.float4
+```
 
-导入命名空间：
+为了使用方便，您可以将向量和矩阵类型导入命名空间：
 
 ```python3
 from luisa.mathtypes import *
 ```
 
-向量类型具有一类swizzle成员，可以以任意顺序将其成员组成新的向量，例如
+n维的向量（n∈{2,3,4}）可以从1个或者n个对应类型的标量构造，例如
 
 ```python
-v1 = int3(7,8,9)
-v1.x # 7，可读可写
-v1.xzzy # int4(7,9,9,8)，只读
+float3(7) # [7.0, 7.0, 7.0]
+bool2(True, False) # [True, False]
 ```
 
-矩阵类型暂不支持访问元素。
+使用下标或者成员可以访问向量中的元素：
+
+```python
+a[0] == a.x
+a[1] == a.y
+a[2] == a.z # 仅3维及以上向量
+a[3] == a.w # 仅4维向量
+```
+
+向量类型具有一类只读的swizzle成员，可以以任意顺序将其2~4个成员组成新的向量，例如
+
+```python
+int3(7,8,9).xzzy # [7,9,9,8]
+```
+
+### 矩阵类型
+
+存储了固定个数的标量，其概念对应于数学上4D以内的方阵。
+
+```
+luisa.float2x2
+luisa.float3x3
+luisa.float4x4
+```
+
+注意，只支持浮点数类型的方阵。
+
+为了使用方便，您可以将向量和矩阵类型导入命名空间：
+
+```python3
+from luisa.mathtypes import *
+```
+
+n×n的矩阵（n∈{2,3,4}）可以从1个对应类型的标量k构造，结果为k倍的单位矩阵。也可以从n×n个对应类型的标量构造，顺序为列优先。例如：
+
+```python
+float2x2(4) # [ 4 0 ]
+            # [ 0 4 ]
+float2x2(1,2,3,4) # [ 1 3 ]
+                  # [ 2 4 ]
+                  # 打印结果为 float2x2([1,2],[3,4])
+```
+
+使用下标可以从矩阵中取出一个列向量，可读可写。例如：
+
+```python
+a = float2x2(4)
+a[1] = float2(5) # a 变为 float2x2([1,2],[5,5])
+```
 
 ### 数组类型
 
