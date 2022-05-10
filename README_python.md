@@ -37,27 +37,33 @@ print(b.numpy()) # 输出：[42 42 42 42 42 42 42 42 42 42]
 
 Luisa函数是用于进行大量运算的设施。
 
-使用修饰符 `luisa.func` 可以将一个函数标记为Luisa函数。编写Luisa函数使用的语法与Python语法相同，尽管使用上稍有差别，见语法参考；一个Luisa函数在被调用时会被即时编译为**静态类型**的代码，从而在后端设备上运行。
+使用修饰符 `luisa.func` 可以将一个函数标记为Luisa函数。编写Luisa函数使用的语法与Python语法相同，尽管使用上稍有差别，见语法参考；一个Luisa函数在被调用时会被即时编译为静态类型的代码，从而在后端设备上运行。
 
 一个Luisa函数可以被Python代码**并行地**调用，在Python代码上调用时，必须指定参数 `dispatch_size`，即并行线程的数量。例如，在上例中并行地调用了100个`fill`函数的线程，每个线程的代码相同，但`dispatch_id()`不同。Luisa函数也可以被另一个Luisa函数调用，此时即与Python中函数调用的方法相同。
 
-可以这么理解：Python代码是宿主端的代码，在CPU上运行。Luisa函数是设备端的代码，在加速设备上运行（加速设备可以是GPU，也可以是CPU自身）。宿主端用于控制发出多个设备端的线程，以及初始化与收集数据；而设备端用于执行主要的运算。
+> 可以这样理解：Python代码是宿主端的代码，在CPU上运行。Luisa函数是设备端的代码，在加速设备上运行（加速设备可以是GPU，也可以是CPU自身）。宿主端用于控制发出多个设备端的线程，以及初始化与收集数据；而设备端用于执行主要的运算。
+>
+> 设备端的运算默认是异步的，这意味着在设备端运算的过程中，宿主端可以继续进行其它操作而不必等待。宿主端调用 luisa.synchronize() 可以强制同步设备端，等待设备端完成运算。
+>
+> 如果您熟悉CUDA编程，luisa.func 对应于CUDA中的 \_\_device\_\_ 或 \_\_host\_\_ （取决于它在哪里被调用）
 
 Luisa函数的参数可以有（但不要求）类型标记，如 `def f(a: int)`。如提供了类型标记，该函数在被调用时会检查传入参数的类型与对应标记一致。仅支持单一类型标记。
 
-注意：在Python中并行调用一个Luisa函数时，作为参数传入的变量并不会被这个函数内部的代码修改。在Luisa函数中调用另一个Luisa函数时，函数的传参规则与Python一致，即：标量类型按值传递，其它任何类型按引用传递。为了避免歧义，禁止在函数内给引用传递的参数直接赋值。
+注意：在Python中并行调用一个Luisa函数时，作为参数传入的变量并不会被这个函数内部的代码修改。在Luisa函数中调用另一个Luisa函数时，函数的传参规则与Python一致，即：标量类型按值传递，其它类型的**对象按引用传递**。为了避免歧义，禁止在函数内给引用传递的参数直接赋值。
+
+在Python中并行调用一个Luisa函数时，不支持函数返回值。函数输出的方式只能是向缓存或贴图（见下一节）写入数据。
 
 目前Luisa函数只支持位置参数，不支持关键词参数，且不支持参数默认值。
 
 ## 类型
 
-Luisa函数是静态类型的，其支持如下几种类型。
+与Python不同，Luisa函数是**静态类型**的，即一个变量被定义后不能被重新赋值为其他类型的值。我们提供了如下几种类型：
 
-标量、向量、矩阵、数组、结构体是纯数据类型，其底层表示为存储空间中固定大小的一块内存，可以在luisa函数中创建这些类型的局部变量。其构造均为按值构造，赋值均为按值复制，传参规则见上一节。通常来说，这些类型在设备端（Luisa函数）与宿主端（Python代码）有统一的操作方式。
+标量、向量、矩阵、数组、结构体是纯数据类型，其底层表示为存储空间中固定大小的一块内存。可以在luisa函数中创建这些类型的局部变量。其构造与赋值均为**按值复制**，传参规则见上一节。通常来说，这些类型在设备端（Luisa函数）与宿主端（Python代码）有统一的操作方式。
 
-缓存、贴图、资源数组、加速结构是资源类型，用于存储所有线程共享的资源。在luisa函数中可以引用资源，但不能创建资源类型的局部变量。这些类型在设备端（Luisa函数）与宿主端（Python代码）操作方式可能不同。
+缓存、贴图、资源索引、加速结构是资源类型，用于存储所有线程共享的资源。在luisa函数中可以引用资源，但不能创建资源类型的局部变量。这些类型在设备端（Luisa函数）与宿主端（Python代码）操作方式可能不同，通常来说，宿主端负责在运算开始前初始化资源中的数据，在运算结束后收集资源中的数据；而设备端会使用资源中的元素。
 
-### 标量类型
+### 标量
 
 - 32位有符号整形 `int`
 - 单精度浮点数 `float`
@@ -65,7 +71,7 @@ Luisa函数是静态类型的，其支持如下几种类型。
 
 注意 Luisa 函数中 int/float 精度相比 python 中的64位 int/float 精度较低。
 
-### 向量类型
+### 向量
 
 存储了固定个数的标量，其概念对应于数学上4D以内的列向量。
 
@@ -103,7 +109,7 @@ a[3] == a.w # 仅4维向量
 int3(7,8,9).xzzy # [7,9,9,8]
 ```
 
-### 矩阵类型
+### 矩阵
 
 存储了固定个数的标量，其概念对应于数学上4D以内的方阵。
 
@@ -121,7 +127,7 @@ luisa.float4x4
 from luisa.mathtypes import *
 ```
 
-n×n的矩阵（n∈{2,3,4}）可以从1个对应类型的标量k构造，结果为k倍的单位矩阵。也可以从n×n个对应类型的标量构造，顺序为列优先。例如：
+n×n的矩阵（n∈{2,3,4}）可以从1个对应类型的标量k构造，构造结果为k倍单位矩阵。也可以从n×n个对应类型的标量构造，顺序为列优先。例如：
 
 ```python
 float2x2(4) # [ 4 0 ]
@@ -138,98 +144,112 @@ a = float2x2(4)
 a[1] = float2(5) # a 变为 float2x2([1,2],[5,5])
 ```
 
-### 数组类型
+### 数组 `luisa.Array`
 
-===待更新===
+数组可以存放固定数量、同一类型的若干元素，其元素类型可以是标量、向量或矩阵。
 
-数组可以存放固定数量、同一类型的若干元素。
-
-```python3
-# 声明了一个类型
-# 其中dtype为标量/向量/矩阵类型，size为数组大小，通常较小（几千以内）。
-arr_t = luisa.ArrayType(dtype, size)
-# arr_t 可以作为func参数列表中的类型标记
-# 生成一个实例
-a1 = arr_t() # 暂时只在kernel中支持
-a2 = arr_t([value1, ...]) # 暂时只在python(host)中支持
-# 访问成员
-a1[idx] = value1 # python/kernel 都支持
-```
-
-注意：数组的构造和赋值均为按值复制
-
-### 结构体类型
-
-===待更新===
+可以从一个列表构造数组，例如：
 
 ```python
-# 声明了一个类型
-# 其中dtype为标量/向量/矩阵/数组/结构体类型
-struct_t = luisa.StructType(name1=dtype1, name2=dtype2, ...)
-# struct_t 可以作为func参数列表中的类型标记
-# 生成一个实例
-a1 = struct_t() # 暂时只在kernel中支持
-a2 = struct_t(name1=value1, ...) # 暂时只在python(host)中支持
-# 访问成员
-a1.name1 = value1 # python/kernel 都支持
+arr = luisa.array([1, 2, 3, 4, 5])
 ```
 
-注意：结构体的构造和赋值均为按值复制
+由于数组是纯数据类型，可以在每个线程中作为局部变量创建，数组的大小通常较小（几千以内）。
 
-结构体可以将一个luisa函数作为方法：
+使用下标可以访问数组中的元素，例如 `arr[4]`
+
+### 结构体 `luisa.Struct`
+
+结构体可以存放固定布局的若干成员（属性），每个成员的类型可以是标量、向量、矩阵、数组或另一个结构体。结构体的使用方式类似于Python中的类对象，但由于结构体是纯数据类型，不能动态增删成员。
+
+使用若干个关键字参数构造一个结构体，例如：
 
 ```python
-@luisa.callable
-def f1(self, ...):
+s = luisa.struct(a=42, b=3.14, c=luisa.array([1,2]))
+```
+
+使用属性运算符(.)可以访问一个结构体的成员，例如 `s.a`
+
+注意，结构体的存储布局中的成员顺序与构造时给定参数的顺序一致，因此 `luisa.struct(a=42, b=3.14)` 不等同于 `luisa.struct(b=3.14, a=42)`
+
+FIXME #45 
+
+命名的结构体类型（见类型标记一节）可以将一个luisa函数作为方法（成员函数），例如：
+
+```python
+struct_t = luisa.StructType(...)
+@luisa.func
+def f(self, ...):
     ...
-struct_t.add_method(f1)
+struct_t.add_method(f, "method_name") # 如果没有指定方法名，会自动取函数名作为方法名
 ```
 
-如方法名为`__init__`，该结构体在luisa函数中构造时会调用该方法。
+这使得从该类型创建的结构体实例，在luisa函数中可以调用方法，形如 `a.method_name(...)`
 
-### Buffer类型
+可以定义结构体的构造函数：如方法名为`__init__`，luisa函数中创建该类型的结构体实例时会调用该方法。
 
-===待更新===
+### 缓存 `luisa.Buffer`
 
-在设备上的数组，不能直接在python中访问其元素。其元素类型可以是标量、向量、矩阵、数组或结构体。
+缓存是在设备上由所有线程共享的数组，其元素类型可以是标量、向量、矩阵、数组或结构体。不同于数组类型，缓存的长度可以任意大（受限于计算设备的存储空间）。
 
-Buffer和Array的区别是，Buffer是一种资源，由所有线程共享，长度可以很大；而Array是一个长度固定且较小的变量类型，可以作为每个线程局部变量的类型。
-
-类型标记：`luisa.BufferType(dtype)`
-
-创建buffer：`luisa.Buffer(size, dtype)`
-
-kernel方法：
-
-`read(idx)`
-
-`write(idx, value)`
-
-python方法：
-
-`copy_to(arr)`
-
-`copy_from(arr)`
-
-元素为标量的buffer可以上传/下载到对应类型的numpy.array，注意必须使用int32/float32，而不是默认的64位类型。
-
-当元素类型为向量时，需要使用对应长度的标量类型的numpy.array。注意：由于对齐要求，长度为3的向量占用4个对应类型标量的空间，矩阵float3x3占用12个float32的空间。例如
+从列表或numpy array 创建一个缓存：
 
 ```python
-b = luisa.Buffer(100, luisa.float3)
-arr = numpy.zeros(400, dtype=numpy.float32)
-b.copy_from(arr)
+luisa.buffer(arr)
 ```
 
-TODO: 需要提供用户友好的上传下载方式，以及支持其它类型元素的buffer
+该操作会在设备上创建一个相应元素类型和长度的缓存，并上传数据。如果`arr`是numpy array，其元素类型只能是`bool`、`np.int32`或 `np.float32`。
 
-`copy_from` 可以从长度和元素类型一致的列表（list）上传到buffer。
+您也可以创建一个指定元素类型（见类型标记一节）和长度的缓存：
 
-### Texture2D类型
+```python
+luisa.Buffer.empty(size, dtype)  # 创建一个未初始化的缓存
+luisa.Buffer.zeros(size, dtype)  # 创建一个缓存，其中每个元素均初始化为 dtype(0)
+luisa.Buffer.ones(size, dtype)   # 创建一个缓存，其中每个元素均初始化为 dtype(1)
+luisa.Buffer.filled(size, value) # 创建一个缓存，其中每个元素均初始化为 value
+```
 
-===待更新===
+可以从列表或numpy array 向已有的缓存上传数据：
 
-在设备上的二维贴图。不能直接在python中访问其元素。
+```python
+b.copy_from(arr) # arr 的数据类型和长度必须和 b 一致
+```
+
+不能直接在宿主端直接访问缓存的元素。下载 TODO 
+
+在设备端（Luisa函数中）可以对缓存的元素进行读写：
+
+```python
+b.read(index)
+b.write(index, value)
+```
+
+除此之外，缓存还支持原子操作 TODO
+
+### 贴图 `luisa.Texture2D`
+
+贴图用于在设备上存储二维的图像。一个贴图有[宽度×高度]个元素，每个元素是[通道数]维的向量，其中通道数可以是1、2或4。贴图
+
+由于按3通道存储会影响性能，如果您只需使用3个通道，请创建4通道的贴图并使用其元素的前3个分量。
+
+从 numpy array 创建一个贴图：
+
+```python
+luisa.texture2d(arr) # (width,height,channel) = arr.shape
+```
+
+该操作会在设备上创建一个相应元素类型和尺寸的贴图，并上传数据。`arr`的元素类型只能是`np.int32`或 `np.float32`。
+
+您也可以创建一个指定元素类型（见类型标记一节）和尺寸的贴图：
+
+```python
+luisa.Texture2D.empty(width, height, channel, dtype, [channel])  # 创建一个未初始化的缓存
+luisa.Texture2D.zeros(width, height, channel, dtype, [channel])  # 创建一个缓存，其中每个元素均初始化为 dtype(0)
+luisa.Texture2D.ones(width, height, channel, dtype, [channel])   # 创建一个缓存，其中每个元素均初始化为 dtype(1)
+luisa.Texture2D.filled(width, height, value, [channel]) # 创建一个缓存，其中每个元素均初始化为 value
+```
+
+
 
 创建贴图：`luisa.Texture2D(width, height, channel, dtype, [storage])`
 
@@ -255,7 +275,7 @@ python方法：
 
 上传/下载到storage对应类型的numpy.array。
 
-### BindlessArray类型
+### 资源索引 `luisa.BindlessArray`
 
 ===待更新===
 
@@ -288,7 +308,7 @@ a.texture2d_size(idx)
 
 注：目前的用法有点奇怪，可能后续会更改
 
-### Accel类型
+### 加速结构 `luisa.Accel`
 
 ===待更新===
 
@@ -334,6 +354,12 @@ TODO: `interpolate(hit, a,b,c)`
 TODO: `offset_ray_origin(p,n)`
 
 TODO: `offset_ray_origin(p,n,w)`
+
+## 类型标记
+
+TODO
+
+## 类型规则
 
 ### 类型转换
 
