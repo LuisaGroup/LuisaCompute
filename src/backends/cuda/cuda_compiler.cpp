@@ -52,14 +52,20 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     auto cu_file_name = file_name + ".cu";
     auto ptx_file_path = cache_dir / ptx_file_name;
 
+
+    static std::mutex ptx_mutex;
+
     // try disk cache
-    if (std::ifstream ptx_file{ptx_file_path}; ptx_file.is_open()) {
-        LUISA_INFO("Found compilation cache: '{}'.", ptx_file_name);
-        luisa::string ptx{
-            std::istreambuf_iterator<char>{ptx_file},
-            std::istreambuf_iterator<char>{}};
-        _cache->update(hash, ptx);
-        return ptx;
+    {
+        std::lock_guard lock{ptx_mutex};
+        if (std::ifstream ptx_file{ptx_file_path}; ptx_file.is_open()) {
+            LUISA_INFO("Found compilation cache: '{}'.", ptx_file_name);
+            luisa::string ptx{
+                std::istreambuf_iterator<char>{ptx_file},
+                std::istreambuf_iterator<char>{}};
+            _cache->update(hash, ptx);
+            return ptx;
+        }
     }
     LUISA_INFO(
         "Failed to load compilation cache for kernel {:016X},"
@@ -76,6 +82,8 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
 
     // save the source for debugging
     {
+        static std::mutex mutex;
+        std::lock_guard lock{mutex};
         std::ofstream cu_file{cache_dir / cu_file_name};
         cu_file << source;
     }
@@ -93,7 +101,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         luisa::string log;
         log.resize(log_size - 1);
         LUISA_CHECK_NVRTC(nvrtcGetProgramLog(prog, log.data()));
-        LUISA_INFO("Compile log:\n{}", log);
+        std::cerr << "Compile log:\n" << log << std::flush;
     }
     LUISA_CHECK_NVRTC(error);
 
@@ -107,8 +115,11 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     _cache->update(hash, ptx);
 
     // save cache
-    std::ofstream ptx_file{ptx_file_path};
-    ptx_file << ptx;
+    {
+        std::lock_guard lock{ptx_mutex};
+        std::ofstream ptx_file{ptx_file_path};
+        ptx_file << ptx;
+    }
     return ptx;
 }
 

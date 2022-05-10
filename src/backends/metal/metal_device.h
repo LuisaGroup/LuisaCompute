@@ -31,6 +31,7 @@ private:
     id<MTLDevice> _handle{nullptr};
     id<MTLArgumentEncoder> _bindless_array_encoder{nullptr};
     id<MTLComputePipelineState> _update_instances_shader{nullptr};
+    id<MTLRenderPipelineState> _render_shader{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
 
 public:
@@ -41,6 +42,7 @@ public:
     void check_raytracing_supported() const noexcept;
     [[nodiscard]] auto bindless_array_encoder() const noexcept { return _bindless_array_encoder; }
     [[nodiscard]] auto instance_update_shader() const noexcept { return _update_instances_shader; }
+    [[nodiscard]] auto present_shader() const noexcept { return _render_shader; }
 
 public:
     uint64_t create_texture(PixelFormat format, uint dimension,
@@ -48,7 +50,7 @@ public:
     void destroy_texture(uint64_t handle) noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    uint64_t create_stream() noexcept override;
+    uint64_t create_stream(bool for_present) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;

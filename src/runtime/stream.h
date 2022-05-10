@@ -50,11 +50,11 @@ public:
 
         // compound commands
         template<typename... T>
-        decltype(auto) operator<<(std::tuple<T...> args) noexcept {
-            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
-                return (*this << ... << std::get<i>(a));
+        decltype(auto) operator<<(std::tuple<T...> args) &&noexcept {
+            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept -> decltype(auto) {
+                return (std::move(*this) << ... << std::move(std::get<i>(a)));
             };
-            return encode(std::move(args));
+            return encode(std::move(args), std::index_sequence_for<T...>{});
         }
     };
 
@@ -62,7 +62,7 @@ private:
     luisa::unique_ptr<CommandScheduler> _scheduler;
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
-    explicit Stream(Device::Interface *device) noexcept;
+    explicit Stream(Device::Interface *device, bool for_present = false) noexcept;
     void _synchronize() noexcept;
     luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
 
@@ -83,10 +83,10 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> args) noexcept {
-        auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept {
-            return (*this << ... << std::get<i>(a));
+        auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept -> decltype(auto) {
+            return (*this << ... << std::move(std::get<i>(a)));
         };
-        return encode(std::move(args));
+        return encode(std::move(args), std::index_sequence_for<T...>{});
     }
 };
 

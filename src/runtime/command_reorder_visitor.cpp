@@ -1,12 +1,11 @@
 #include "runtime/command.h"
-#include <core/mathematics.h>
 #include <runtime/command_reorder_visitor.h>
 #include <runtime/stream.h>
 
 namespace luisa::compute {
 template<typename Func>
     requires(std::is_invocable_v<Func, CommandReorderVisitor::ResourceView const &>)
-void CommandReorderVisitor::IterateMap(Func &&func, RangeHandle &handle, Range const &range) {
+void IterateMap(Func &&func, CommandReorderVisitor::RangeHandle &handle, CommandReorderVisitor::Range const &range) {
     for (auto &&r : handle.views) {
         if (r.first.collide(range)) {
             func(r.second);
@@ -23,8 +22,7 @@ CommandReorderVisitor::ResourceHandle *CommandReorderVisitor::GetHandle(
     uint64_t tarGetHandle,
     ResourceType target_type) {
     auto func = [&](auto &&map, auto &&pool) {
-        auto tryResult = map.try_emplace(
-            tarGetHandle);
+        auto tryResult = map.try_emplace(tarGetHandle, nullptr);
         auto &&value = tryResult.first->second;
         if (tryResult.second) {
             value = pool.create();
@@ -64,12 +62,16 @@ size_t CommandReorderVisitor::GetLastLayerWrite(NoRangeHandle *handle) {
     size_t layer = std::max<int64_t>(handle->view.readLayer + 1, handle->view.writeLayer + 1);
 
     switch (handle->type) {
-        case ResourceType::Mesh:
+        case ResourceType::Mesh: {
+            auto maxAccelLevel = std::max(maxAccelReadLevel, maxAccelWriteLevel);
             layer = std::max<int64_t>(layer, maxAccelLevel + 1);
-            break;
-        case ResourceType::Accel:
+        } break;
+        case ResourceType::Accel: {
+            auto maxAccelLevel = std::max(maxAccelReadLevel, maxAccelWriteLevel);
             layer = std::max<int64_t>(layer, maxAccelLevel + 1);
             layer = std::max<int64_t>(layer, maxMeshLevel + 1);
+        } break;
+        default: break;
     }
     return layer;
 }
@@ -89,7 +91,7 @@ size_t CommandReorderVisitor::GetLastLayerRead(RangeHandle *handle, Range range)
 size_t CommandReorderVisitor::GetLastLayerRead(NoRangeHandle *handle) {
     size_t layer = handle->view.writeLayer + 1;
     if (handle->type == ResourceType::Accel) {
-        layer = std::max<int64_t>(layer, maxAccelLevel + 1);
+        layer = std::max<int64_t>(layer, maxAccelWriteLevel + 1);
     }
     return layer;
 }
@@ -350,7 +352,7 @@ void CommandReorderVisitor::visit(const ShaderDispatchCommand *command) noexcept
         bindlessMaxLayer = std::max<int64_t>(bindlessMaxLayer, dispatchLayer);
     }
     if (useAccelInPass) {
-        maxAccelLevel = std::max<int64_t>(maxAccelLevel, dispatchLayer);
+        maxAccelReadLevel = std::max<int64_t>(maxAccelReadLevel, dispatchLayer);
     }
 }
 
@@ -362,7 +364,7 @@ void CommandReorderVisitor::visit(const BindlessArrayUpdateCommand *command) noe
 // Accel : conclude meshes and their buffer
 void CommandReorderVisitor::visit(const AccelBuildCommand *command) noexcept {
     auto layer = SetWrite(command->handle(), Range(), ResourceType::Accel);
-    maxAccelLevel = std::max<int64_t>(maxAccelLevel, layer);
+    maxAccelWriteLevel = std::max<int64_t>(maxAccelWriteLevel, layer);
     AddCommand(command, layer);
 }
 
@@ -421,7 +423,8 @@ void CommandReorderVisitor::clear() noexcept {
     noRangeResMap.clear();
     bindlessMap.clear();
     bindlessMaxLayer = -1;
-    maxAccelLevel = -1;
+    maxAccelReadLevel = -1;
+    maxAccelWriteLevel = -1;
     maxMeshLevel = -1;
     luisa::span<CommandList> sp(commandLists.data(), layerCount);
     for (auto &&i : sp) {
@@ -497,7 +500,7 @@ void CommandReorderVisitor::operator()(ShaderDispatchCommand::BufferArgument con
         ((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0);
     arg++;
 }
-void CommandReorderVisitor::operator()(ShaderDispatchCommand::UniformArgument bf) {
+void CommandReorderVisitor::operator()(ShaderDispatchCommand::UniformArgument const &bf) {
     arg++;
 }
 void CommandReorderVisitor::operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf) {

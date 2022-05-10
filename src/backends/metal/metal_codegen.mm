@@ -301,10 +301,12 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
 
-    _scratch << "(";
     if (is_atomic_op) {
-        _scratch << "as_atomic(";
         auto args = expr->arguments();
+        if (args[0]->type()->description() == "float") {
+            _scratch << "_float";
+        }
+        _scratch << "(as_atomic(";
         args[0]->accept(*this);
         _scratch << "), ";
         for (auto i = 1u; i < args.size(); i++) {
@@ -312,36 +314,41 @@ void MetalCodegen::visit(const CallExpr *expr) {
             _scratch << ", ";
         }
         _scratch << "memory_order_relaxed";
-    } else if (!expr->arguments().empty()) {
-        auto arg_index = 0u;
-        for (auto arg : expr->arguments()) {
-            auto by_ref = !expr->is_builtin() &&
-                          expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE;
-            if (by_ref) {
-                if (arg->tag() == Expression::Tag::MEMBER &&
-                    static_cast<const MemberExpr *>(arg)->is_swizzle()) {
-                    // vector elements need special handling, since taking
-                    // the address is not directly supported in Metal
-                    auto vec_arg = static_cast<const MemberExpr *>(arg);
-                    if (vec_arg->swizzle_size() != 1u) [[unlikely]] {
-                        LUISA_ERROR_WITH_LOCATION("Invalid reference to vector swizzling.");
+    } else {
+        _scratch << "(";
+        if (!expr->arguments().empty()) {
+            auto arg_index = 0u;
+            for (auto arg : expr->arguments()) {
+                auto by_ref = !expr->is_builtin() &&
+                              expr->custom().arguments()[arg_index].tag() == Variable::Tag::REFERENCE &&
+                              (expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::WRITE ||
+                               expr->custom().variable_usage(expr->custom().arguments()[arg_index].uid()) == Usage::READ_WRITE);
+                if (by_ref) {
+                    if (arg->tag() == Expression::Tag::MEMBER &&
+                        static_cast<const MemberExpr *>(arg)->is_swizzle()) {
+                        // vector elements need special handling, since taking
+                        // the address is not directly supported in Metal
+                        auto vec_arg = static_cast<const MemberExpr *>(arg);
+                        if (vec_arg->swizzle_size() != 1u) [[unlikely]] {
+                            LUISA_ERROR_WITH_LOCATION("Invalid reference to vector swizzling.");
+                        }
+                        _scratch << "vector_element_ptr<" << vec_arg->swizzle_index(0u) << ">(";
+                        vec_arg->self()->accept(*this);
+                        _scratch << ")";
+                    } else {
+                        _scratch << "address_of(";
+                        arg->accept(*this);
+                        _scratch << ")";
                     }
-                    _scratch << "vector_element_ptr<" << vec_arg->swizzle_index(0u) << ">(";
-                    vec_arg->self()->accept(*this);
-                    _scratch << ")";
                 } else {
-                    _scratch << "address_of(";
                     arg->accept(*this);
-                    _scratch << ")";
                 }
-            } else {
-                arg->accept(*this);
+                _scratch << ", ";
+                arg_index++;
             }
-            _scratch << ", ";
-            arg_index++;
+            _scratch.pop_back();
+            _scratch.pop_back();
         }
-        _scratch.pop_back();
-        _scratch.pop_back();
     }
     _scratch << ")";
 }
@@ -483,8 +490,11 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                  << "    constant uint3 &ls";
     } else if (f.tag() == Function::Tag::CALLABLE) {
         // emit templated access specifier for textures
-        if (std::any_of(f.arguments().begin(), f.arguments().end(), [](auto v) noexcept {
-                return v.tag() == Variable::Tag::TEXTURE || v.tag() == Variable::Tag::REFERENCE;
+        if (std::any_of(f.arguments().begin(), f.arguments().end(), [&f](auto v) noexcept {
+                return v.tag() == Variable::Tag::TEXTURE ||
+                       (v.tag() == Variable::Tag::REFERENCE &&
+                        (f.variable_usage(v.uid()) == Usage::WRITE ||
+                         f.variable_usage(v.uid()) == Usage::READ_WRITE));
             })) {
             _scratch << "template<";
             for (auto arg : f.arguments()) {
@@ -492,7 +502,9 @@ void MetalCodegen::_emit_function(Function f) noexcept {
                     _scratch << "access a";
                     _emit_variable_name(arg);
                     _scratch << ", ";
-                } else if (arg.tag() == Variable::Tag::REFERENCE) {
+                } else if (arg.tag() == Variable::Tag::REFERENCE &&
+                           (f.variable_usage(arg.uid()) == Usage::WRITE ||
+                            f.variable_usage(arg.uid()) == Usage::READ_WRITE)) {
                     _scratch << "typename T" << arg.uid() << ", ";
                 }
             }
@@ -538,9 +550,7 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         }
     }
     // emit body
-    _scratch << "\n";
     _emit_declarations(f.body());
-    _scratch << "\n";
     _emit_statements(f.body()->scope()->statements());
     _scratch << "}\n\n";
 }
@@ -549,7 +559,14 @@ void MetalCodegen::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
-        case Variable::Tag::REFERENCE: _scratch << "(*p" << v.uid() << ")"; break;
+        case Variable::Tag::REFERENCE:
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                _scratch << "(*p" << v.uid() << ")";
+            } else {
+                _scratch << "v" << v.uid();
+            }
+            break;
         case Variable::Tag::BUFFER: _scratch << "b" << v.uid(); break;
         case Variable::Tag::TEXTURE: _scratch << "i" << v.uid(); break;
         case Variable::Tag::BINDLESS_ARRAY: _scratch << "h" << v.uid(); break;
@@ -630,7 +647,14 @@ void MetalCodegen::_emit_argument_decl(Variable v) noexcept {
                 LUISA_ERROR_WITH_LOCATION(
                     "Invalid reference argument in kernel.");
             }
-            _scratch << "T" << v.uid() << " p" << v.uid();
+            if (auto usage = _function.variable_usage(v.uid());
+                usage == Usage::WRITE || usage == Usage::READ_WRITE) {
+                _scratch << "T" << v.uid() << " p" << v.uid();
+            } else {
+                _scratch << "const ";
+                _emit_type_name(v.type());
+                _scratch << " v" << v.uid();
+            }
             break;
         case Variable::Tag::BUFFER:
             _scratch << "device ";
@@ -1022,12 +1046,20 @@ template<typename T, access a, typename Value>
   return reinterpret_cast<device atomic_uint *>(&a);
 }
 
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device float &a) {
+  return &a;
+}
+
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup int &a) {
   return reinterpret_cast<threadgroup atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup uint &a) {
   return reinterpret_cast<threadgroup atomic_uint *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup float &a) {
+  return &a;
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(device const int &a) {
@@ -1038,12 +1070,20 @@ template<typename T, access a, typename Value>
   return reinterpret_cast<device const atomic_uint *>(&a);
 }
 
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(device const float &a) {
+  return &a;
+}
+
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const int &a) {
   return reinterpret_cast<threadgroup const atomic_int *>(&a);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const uint &a) {
   return reinterpret_cast<threadgroup const atomic_uint *>(&a);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto as_atomic(threadgroup const float &a) {
+  return &a;
 }
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(device atomic_int *a, int cmp, int val, memory_order) {
@@ -1064,6 +1104,77 @@ template<typename T, access a, typename Value>
 [[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange(threadgroup atomic_uint *a, uint cmp, uint val, memory_order) {
   atomic_compare_exchange_weak_explicit(a, &cmp, val, memory_order_relaxed, memory_order_relaxed);
   return cmp;
+}
+
+// atomic operations for floating-point values
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_float(device float *a, float cmp_in, float val, memory_order) {
+  auto cmp = as_type<int>(cmp_in);
+  atomic_compare_exchange_weak_explicit(reinterpret_cast<device atomic_int *>(a), &cmp, as_type<int>(val), memory_order_relaxed, memory_order_relaxed);
+  return as_type<float>(cmp);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_compare_exchange_float(threadgroup float *a, float cmp_in, float val, memory_order) {
+  auto cmp = as_type<int>(cmp_in);
+  atomic_compare_exchange_weak_explicit(reinterpret_cast<threadgroup atomic_int *>(a), &cmp, as_type<int>(val), memory_order_relaxed, memory_order_relaxed);
+  return as_type<float>(cmp);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_exchange_explicit_float(device float *a, float val, memory_order) {
+  return as_type<float>(atomic_exchange_explicit(reinterpret_cast<device atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_exchange_explicit_float(threadgroup float *a, float val, memory_order) {
+  return as_type<float>(atomic_exchange_explicit(reinterpret_cast<threadgroup atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(device float *a, float val, memory_order) {
+  auto ok = false;
+  auto old_val = 0.0f;
+  while (!ok) {
+    old_val = *a;
+    auto new_val = old_val + val;
+    ok = atomic_compare_exchange_weak_explicit(
+        reinterpret_cast<device atomic_int *>(a), reinterpret_cast<thread int *>(&old_val),
+        as_type<int>(new_val), memory_order_relaxed, memory_order_relaxed);
+  }
+  return old_val;
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(threadgroup float *a, float val, memory_order) {
+  auto ok = false;
+  auto old_val = 0.0f;
+  while (!ok) {
+    old_val = *a;
+    auto new_val = old_val + val;
+    ok = atomic_compare_exchange_weak_explicit(
+        reinterpret_cast<threadgroup atomic_int *>(a), reinterpret_cast<thread int *>(&old_val),
+        as_type<int>(new_val), memory_order_relaxed, memory_order_relaxed);
+  }
+  return old_val;
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(device float *a, float val, memory_order o) {
+  return atomic_fetch_add_explicit_float(a, -val, o);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(threadgroup float *a, float val, memory_order o) {
+  return atomic_fetch_add_explicit_float(a, -val, o);
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit_float(device float *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_min_explicit(reinterpret_cast<device atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit_float(threadgroup float *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_min_explicit(reinterpret_cast<threadgroup atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit_float(device float *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_max_explicit(reinterpret_cast<device atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
+}
+
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_max_explicit_float(threadgroup float *a, float val, memory_order) {
+  return as_type<float>(atomic_fetch_max_explicit(reinterpret_cast<threadgroup atomic_int *>(a), as_type<int>(val), memory_order_relaxed));
 }
 
 [[gnu::always_inline, nodiscard]] inline auto is_nan(float x) {
@@ -1225,7 +1336,7 @@ struct alignas(16) Instance {
   uint mesh_index;
 };
 
-static_assert(sizeof(Instance) == 64u);
+static_assert(sizeof(Instance) == 64u, "");
 
 struct Accel {
   instance_acceleration_structure handle;

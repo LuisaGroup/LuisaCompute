@@ -12,7 +12,6 @@
 
 #include <core/macro.h>
 #include <core/basic_types.h>
-#include <core/stl.h>
 
 namespace luisa::concepts {
 
@@ -37,7 +36,7 @@ concept string_viewable = requires(T v) {
 
 template<typename T>
 concept span_convertible = requires(T v) {
-    luisa::span{v};
+    std::span{v};
 };
 
 template<typename T, typename... Args>
@@ -178,13 +177,7 @@ concept function = std::is_function_v<T>;
 namespace detail {
 
     template<typename... T>
-    struct all_same_impl : std::false_type {};
-
-    template<>
-    struct all_same_impl<> : std::true_type {};
-
-    template<typename T>
-    struct all_same_impl<T> : std::true_type {};
+    struct all_same_impl : std::true_type {};
 
     template<typename First, typename... Other>
     struct all_same_impl<First, Other...> : std::conjunction<std::is_same<First, Other>...> {};

@@ -1,5 +1,5 @@
 if (WIN32)
-    message(STATUS "Build with DirectX")
+    message(STATUS "Build with DirectX backend")
     Set(VENGINE_SOURCE
             Api/LCCmdBuffer.cpp
             Api/LCDevice.cpp
@@ -84,29 +84,6 @@ if (WIN32)
             test_rtx.h)
     luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        target_compile_options(luisa-compute-backend-dx PRIVATE
-                /JMC
-                /permissive-
-                /GS /TP /Qpar /GL /W0 /Gy
-                /Zi /Gm-
-                /sdl- /GT
-                /QIntel-jcc-erratum
-                /WX- /Zc:forScope
-                /Zc:inline /fp:precise
-                /arch:AVX2 /Gr /Oy /Oi
-                /FC
-                /nologo /GF
-                /Ot)
-        target_link_options(luisa-compute-backend-dx PRIVATE
-                /MANIFEST
-                $<$<NOT:$<CXX_COMPILER_ID:Clang>>:/LTCG:incremental>
-                /NXCOMPAT
-                /OPT:REF /INCREMENTAL:NO
-                /NOLOGO
-                /TLBID:1
-                /OPT:ICF /ERRORREPORT:PROMPT)
-    endif ()
     target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi)
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -122,7 +99,7 @@ if (WIN32)
         add_custom_target(lc-dx-copy-support ALL
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${DX_SUPPORT_DIR}"
-                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+                "$<TARGET_FILE_DIR:luisa-compute-core>/")
         add_dependencies(luisa-compute-backend-dx lc-dx-copy-support)
     endif ()
 

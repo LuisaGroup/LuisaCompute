@@ -12,6 +12,7 @@
 #include <runtime/event.h>
 #include <dsl/expr.h>
 #include <dsl/var.h>
+#include <dsl/builtin.h>
 #include <dsl/operators.h>
 
 namespace luisa::compute {
@@ -23,100 +24,145 @@ class Stream;
 class LC_DSL_API Printer {
 
 public:
-    struct Descriptor {
-        enum struct Tag {
-            INT,
-            UINT,
-            FLOAT,
-            BOOL,
-            STRING
-        };
-        luisa::vector<Tag> value_tags;
-
-        [[nodiscard]] auto operator==(const Descriptor &rhs) const noexcept {
-            for (auto i = 0u; i < value_tags.size(); i++) {
-                if (value_tags[i] != rhs.value_tags[i]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-    };
-
-    struct DescriptorHash {
-        [[nodiscard]] uint64_t operator()(const Descriptor &desc) const noexcept {
-            return luisa::detail::xxh3_hash64(
-                desc.value_tags.data(),
-                desc.value_tags.size() * sizeof(Descriptor),
-                Hash64::default_seed);
-        }
+    struct Item {
+        uint size;
+        luisa::move_only_function<void(const uint *)> f;
+        Item(uint size, luisa::move_only_function<void(const uint *)> f) noexcept
+            : size{size}, f{std::move(f)} {}
     };
 
 private:
     Buffer<uint> _buffer;// count & records (desc_id, arg0, arg1, ...)
     luisa::vector<uint> _host_buffer;
-    luisa::unordered_map<Descriptor, uint, DescriptorHash> _desc_id;
-    luisa::unordered_map<luisa::string, uint, Hash64, std::equal_to<>> _string_id;
-    luisa::vector<luisa::span<const Descriptor::Tag>> _descriptors;
-    luisa::vector<luisa::string_view> _strings;
-    luisa::string _scratch;
-    uint _uid{};
+    luisa::vector<Item> _items;
+    spdlog::logger _logger;
     bool _reset_called{false};
 
-public:
-    /// Create printer object on device. Will create a buffer in it.
-    explicit Printer(Device &device, size_t capacity = 16_mb) noexcept;
-    /// Reset stream
-    void reset(Stream &stream) noexcept;
-    /// Retrieve stream
-    [[nodiscard]] luisa::string_view retrieve(Stream &stream) noexcept;
+private:
+    void _log_to_buffer(Expr<uint>, uint) noexcept {}
+
+    template<typename Curr, typename... Other>
+    void _log_to_buffer(Expr<uint> offset, uint index, const Curr &curr, const Other &...other) noexcept {
+        if constexpr (is_dsl_v<Curr>) {
+            index++;
+            using T = expr_value_t<Curr>;
+            if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, uint>) {
+                _buffer.write(offset + index, cast<uint>(curr));
+            } else if constexpr (std::is_same_v<T, float>) {
+                _buffer.write(offset + index, as<uint>(curr));
+            } else {
+                static_assert(always_false_v<T>, "unsupported type for printing in kernel.");
+            }
+        }
+        _log_to_buffer(offset, index, other...);
+    }
 
     /// Log in kernel
     template<typename... Args>
-    void log(Args &&...args) noexcept;
+    void _log(spdlog::level::level_enum level, luisa::string fmt, const Args &...args) noexcept;
+
+public:
+    /// Create printer object on device. Will create a buffer in it.
+    explicit Printer(Device &device, luisa::string_view name = "device", size_t capacity = 16_mb) noexcept;
+    /// Reset the printer. Must be called before any shader dispatch that uses this printer.
+    [[nodiscard]] Command *reset() noexcept;
+    /// Retrieve and print the logs. Will automatically reset the printer for future use.
+    [[nodiscard]] std::tuple<Command * /* download */,
+                             luisa::move_only_function<void()> /* print */,
+                             Command * /* reset */>
+    retrieve() noexcept;
+
+    /// Log in kernel at debug level.
+    template<typename... Args>
+    void verbose(luisa::string fmt, Args &&...args) noexcept {
+        _log(spdlog::level::debug, std::move(fmt), std::forward<Args>(args)...);
+    }
+    /// Log in kernel at information level.
+    template<typename... Args>
+    void info(luisa::string fmt, Args &&...args) noexcept {
+        _log(spdlog::level::info, std::move(fmt), std::forward<Args>(args)...);
+    }
+    /// Log in kernel at warning level.
+    template<typename... Args>
+    void warning(luisa::string fmt, Args &&...args) noexcept {
+        _log(spdlog::level::warn, std::move(fmt), std::forward<Args>(args)...);
+    }
+    /// Log in kernel at error level.
+    template<typename... Args>
+    void error(luisa::string fmt, Args &&...args) noexcept {
+        _log(spdlog::level::err, std::move(fmt), std::forward<Args>(args)...);
+    }
+    /// Log in kernel at debug level with dispatch id.
+    template<typename... Args>
+    void verbose_with_location(luisa::string fmt, Args &&...args) noexcept {
+        auto p = dispatch_id();
+        verbose(std::move(fmt.append(" [dispatch_id = ({}, {}, {})]")),
+                std::forward<Args>(args)..., p.x, p.y, p.z);
+    }
+    /// Log in kernel at information level with dispatch id.
+    template<typename... Args>
+    void info_with_location(luisa::string fmt, Args &&...args) noexcept {
+        auto p = dispatch_id();
+        info(std::move(fmt.append(" [dispatch_id = ({}, {}, {})]")),
+             std::forward<Args>(args)..., p.x, p.y, p.z);
+    }
+    /// Log in kernel at warning level with dispatch id.
+    template<typename... Args>
+    void warning_with_location(luisa::string fmt, Args &&...args) noexcept {
+        auto p = dispatch_id();
+        warning(std::move(fmt.append(" [dispatch_id = ({}, {}, {})]")),
+                std::forward<Args>(args)..., p.x, p.y, p.z);
+    }
+    /// Log in kernel at error level with dispatch id.
+    template<typename... Args>
+    void error_with_location(luisa::string fmt, Args &&...args) noexcept {
+        auto p = dispatch_id();
+        error(std::move(fmt.append(" [dispatch_id = ({}, {}, {})]")),
+              std::forward<Args>(args)..., p.x, p.y, p.z);
+    }
 };
 
 template<typename... Args>
-void Printer::log(Args &&...args) noexcept {
-    auto count = 1u /* desc_id */ + static_cast<uint>(sizeof...(args));
+void Printer::_log(spdlog::level::level_enum level, luisa::string fmt, const Args &...args) noexcept {
+    auto count = (1u /* desc_id */ + ... + static_cast<uint>(is_dsl_v<Args>));
     auto size = static_cast<uint>(_buffer.size() - 1u);
     auto offset = _buffer.atomic(size).fetch_add(count);
-    auto process_arg = [&]<typename Arg>(Arg &&arg) noexcept {
-        offset = offset + 1u;
-        using T = expr_value_t<Arg>;
-        if constexpr (std::is_same_v<T, bool>) {
-            _buffer.write(offset, cast<uint>(std::forward<Arg>(arg)));
-            return Descriptor::Tag::BOOL;
-        } else if constexpr (std::is_same_v<T, int>) {
-            _buffer.write(offset, cast<uint>(std::forward<Arg>(arg)));
-            return Descriptor::Tag::INT;
-        } else if constexpr (std::is_same_v<T, uint>) {
-            _buffer.write(offset, cast<uint>(std::forward<Arg>(arg)));
-            return Descriptor::Tag::UINT;
-        } else if constexpr (std::is_same_v<T, float>) {
-            _buffer.write(offset, as<uint>(std::forward<Arg>(arg)));
-            return Descriptor::Tag::FLOAT;
+    auto item = static_cast<uint>(_items.size());
+    if_(offset < size, [&] { _buffer.write(offset, item); });
+    if_(offset + count <= size, [&] { _log_to_buffer(offset, 0u, args...); });
+    // create decoder...
+    auto counter = 0u;
+    auto convert = [&counter]<typename T>(const T &arg) noexcept {
+        if constexpr (is_dsl_v<T>) {
+            return ++counter;
+        } else if constexpr (requires { luisa::string_view{arg}; }) {
+            return luisa::string{arg};
         } else {
-            luisa::string s{std::forward<Arg>(arg)};
-            auto [iter, not_present] = _string_id.try_emplace(
-                std::move(s), static_cast<uint>(_strings.size()));
-            if (not_present) { _strings.emplace_back(iter->first); }
-            _buffer.write(offset, iter->second);
-            return Descriptor::Tag::STRING;
+            static_assert(std::is_trivial_v<std::remove_cvref_t<T>>);
+            return arg;
         }
     };
-    auto index = offset;
-    Descriptor desc;
-    if_(offset + count <= size, [&] {
-        desc.value_tags = {
-            process_arg(std::forward<Args>(args))...};
-    });
-    if_(index < size, [&] {
-        auto [iter, not_present] = _desc_id.try_emplace(
-            std::move(desc), static_cast<uint>(_descriptors.size()));
-        if (not_present) { _descriptors.emplace_back(iter->first.value_tags); }
-        _buffer.write(index, iter->second);
-    });
+    auto decode = [this, level, f = std::move(fmt), args = std::tuple{convert(args)...}](const uint *data) noexcept {
+        auto decode_arg = [&args, data]<size_t i>() noexcept {
+            using Arg = std::tuple_element_t<i, std::tuple<Args...>>;
+            if constexpr (is_dsl_v<Arg>) {
+                auto raw = data[std::get<i>(args)];
+                using T = expr_value_t<Arg>;
+                if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, uint>) {
+                    return static_cast<T>(raw);
+                } else {
+                    return luisa::bit_cast<T>(raw);
+                }
+            } else {
+                return std::get<i>(args);
+            }
+        };
+        auto do_print = [&]<size_t... i>(std::index_sequence<i...>) noexcept {
+            _logger.log(level, f, decode_arg.template operator()<i>()...);
+        };
+        do_print(std::index_sequence_for<Args...>{});
+    };
+    _items.emplace_back(count, decode);
 }
 
 }// namespace luisa::compute

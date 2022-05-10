@@ -11,8 +11,8 @@
 
 namespace luisa::compute {
 
-Stream Device::create_stream() noexcept {
-    return _create<Stream>();
+Stream Device::create_stream(bool for_present) noexcept {
+    return _create<Stream>(for_present);
 }
 
 void Stream::_dispatch(CommandList list) noexcept {
@@ -21,25 +21,15 @@ void Stream::_dispatch(CommandList list) noexcept {
         auto commands = list.steal_commands();
         Clock clock;
         for (auto command : commands) {
-            _scheduler->add(command);
+            command->accept(*reorder_visitor);
         }
-        auto lists = _scheduler->schedule();
+        auto lists = reorder_visitor->command_lists();
         LUISA_VERBOSE_WITH_LOCATION(
             "Reordered {} commands into {} list(s) in {} ms.",
             commands.size(), lists.size(), clock.toc());
         device()->dispatch(handle(), lists);
-
-        // Clock clock;
-        // for (auto command : commands) {
-        //     command->accept(*reorder_visitor);
-        // }
-        // auto lists = reorder_visitor->command_lists();
-        // LUISA_INFO(
-        //     "Reordered {} commands into {} list(s) in {} ms.",
-        //     commands.size(), lists.size(), clock.toc());
-        // device()->dispatch(handle(), lists);
-        // reorder_visitor->clear();
-        // for (auto cmd : commands) { cmd->recycle(); }
+        reorder_visitor->clear();
+        for (auto cmd : commands) { cmd->recycle(); }
     } else {
         device()->dispatch(handle(), list);
     }
@@ -55,6 +45,7 @@ Stream &Stream::operator<<(Event::Signal signal) noexcept {
     device()->signal_event(signal.handle, handle());
     return *this;
 }
+
 Stream &Stream::operator<<(Event::Wait wait) noexcept {
     device()->wait_event(wait.handle, handle());
     return *this;
@@ -65,8 +56,8 @@ Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
     return *this;
 }
 
-Stream::Stream(Device::Interface *device) noexcept
-    : Resource{device, Tag::STREAM, device->create_stream()},
+Stream::Stream(Device::Interface *device, bool for_present) noexcept
+    : Resource{device, Tag::STREAM, device->create_stream(for_present)},
       _scheduler{luisa::make_unique<CommandScheduler>(device)},
       reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
 

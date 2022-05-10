@@ -22,7 +22,7 @@ using CompileResult = vstd::variant<
 class DXShaderCompiler final : public vstd::IOperatorNewBase {
 private:
     ComPtr<IDxcCompiler3> comp;
-    std::optional<luisa::DynamicModule> dxcCompiler;
+    luisa::optional<luisa::DynamicModule> dxcCompiler;
     CompileResult Compile(
         vstd::string_view code,
         vstd::span<LPCWSTR> args);

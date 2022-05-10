@@ -103,7 +103,7 @@ private:
     }
 
 public:
-    VolumeView(const Volume<T> &volume) noexcept : VolumeView{volume.view()} {}
+    VolumeView(const Volume<T> &volume) noexcept : VolumeView{volume.view(0u)} {}
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }

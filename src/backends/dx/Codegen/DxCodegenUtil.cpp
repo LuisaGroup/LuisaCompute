@@ -230,7 +230,20 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
     }
 }
 
-void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
+void CodegenUtility::GetFunctionDecl(Function func, vstd::string &funcDecl) {
+    vstd::string data;
+    uint64 tempIdx = 0;
+    auto GetTemplateName = [&] {
+        data << 'T';
+        vstd::to_string(tempIdx, data);
+        tempIdx++;
+    };
+    auto GetTypeName = [&](Type const *t, Usage usage) {
+        if (t->is_texture() || t->is_buffer())
+            GetTemplateName();
+        else
+            CodegenUtility::GetTypeName(*t, data, usage);
+    };
     if (func.return_type()) {
         //TODO: return type
         CodegenUtility::GetTypeName(*func.return_type(), data, Usage::READ);
@@ -247,7 +260,14 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                 data += '(';
                 for (auto &&i : func.arguments()) {
                     if (i.tag() == Variable::Tag::REFERENCE) {
-                        data += "inout ";
+                        if (auto usage = func.variable_usage(i.uid());
+                            usage == Usage::WRITE) {
+                            data += "out ";
+                        } else if (usage == Usage::READ_WRITE) {
+                            data += "inout ";
+                        } else {
+                            data += "in ";
+                        }
                     }
                     RegistStructType(i.type());
                     Usage usage = func.variable_usage(i.uid());
@@ -257,13 +277,12 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
                     if (i.type()->is_accel()) {
                         if (usage == Usage::READ) {
                             CodegenUtility::GetTypeName(*i.type(), data, usage);
-                            data << ' '
-                                 << varName << ",StructuredBuffer<MeshInst> " << varName << "Inst,"sv;
-                        } else {
-                            data << "RWStructuredBuffer<MeshInst> "sv << varName << "Inst,"sv;
+                            data << ' ' << varName << ',';
                         }
+                        GetTemplateName();
+                        data << ' ' << varName << "Inst,"sv;
                     } else {
-                        CodegenUtility::GetTypeName(*i.type(), data, usage);
+                        GetTypeName(i.type(), usage);
                         data << ' ';
                         data << varName << ',';
                     }
@@ -272,6 +291,17 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &data) {
             }
         } break;
     }
+    if (tempIdx > 0) {
+        funcDecl << "template<"sv;
+        for (auto i : vstd::range(tempIdx)) {
+            funcDecl << "typename T"sv;
+            vstd::to_string(i, funcDecl);
+            funcDecl << ',';
+        }
+        *(funcDecl.end() - 1) = '>';
+    }
+    funcDecl << '\n'
+             << data;
 }
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, StringStateVisitor &vis) {
     auto args = expr->arguments();
@@ -411,13 +441,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::ANY:
             str << "any"sv;
             break;
-        case CallOp::SELECT: {
-            auto type = args[2]->type();
-            str << "selectVec"sv;
-            if (type->tag() == Type::Tag::VECTOR) {
-                vstd::to_string(type->dimension(), str);
-            }
-        } break;
+        case CallOp::SELECT:
+             str << "_select"sv;
+             break;
         case CallOp::CLAMP:
             str << "clamp"sv;
             break;
@@ -957,8 +983,12 @@ if(any(dspId >= a.dsp_c)) return;
     } else {
         opt->isKernel = false;
     }
+    //opt->analyzer.reset();
+    //opt->analyzer.analyze(func);
+    // opt->allVariables.clear();
     StringStateVisitor vis(func, result);
-    vis.sharedVariables = (func.tag() == Function::Tag::KERNEL) ? &opt->sharedVariable : nullptr;
+    vis.sharedVariables = &opt->sharedVariable;
+    // vis.variableSet = &opt->allVariables;
     func.body()->accept(vis);
     result << "}\n"sv;
 }

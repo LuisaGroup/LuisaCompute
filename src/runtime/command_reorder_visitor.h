@@ -1,11 +1,12 @@
 #pragma once
 
-#include "runtime/command.h"
 #include <cstdint>
 
-#include <runtime/device.h>
 #include <core/hash.h>
-#include <xxhash.h>
+#include <core/stl.h>
+#include <runtime/command.h>
+#include <runtime/device.h>
+
 namespace luisa::compute {
 
 class CommandReorderVisitor : public CommandVisitor {
@@ -39,7 +40,7 @@ public:
         bool operator!=(Range const &r) const { return !operator==(r); }
     };
     struct RangeHash {
-        size_t operator()(Range const &r) const {
+        uint64_t operator()(Range const &r) const {
             return absl::container_internal::hash_default_hash<int64_t>()(r.min ^ r.max);
         }
     };
@@ -62,9 +63,6 @@ public:
     };
 
 private:
-    template<typename Func>
-        requires(std::is_invocable_v<Func, ResourceView const &>)
-    void IterateMap(Func &&func, RangeHandle &handle, Range const &range);
     Pool<RangeHandle, false> rangePool;
     Pool<NoRangeHandle, false> noRangePool;
     Pool<BindlessHandle, false> bindlessHandlePool;
@@ -73,7 +71,8 @@ private:
     luisa::unordered_map<uint64_t, BindlessHandle *> bindlessMap;
     int64_t bindlessMaxLayer = -1;
     int64_t maxMeshLevel = -1;
-    int64_t maxAccelLevel = -1;
+    int64_t maxAccelReadLevel = -1;
+    int64_t maxAccelWriteLevel = -1;
     luisa::vector<CommandList> commandLists;
     size_t layerCount = 0;
     bool useBindlessInPass;
@@ -171,7 +170,7 @@ public:
     void operator()(ShaderDispatchCommand::BufferArgument const &bf);
     void operator()(ShaderDispatchCommand::TextureArgument const &bf);
     void operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf);
-    void operator()(ShaderDispatchCommand::UniformArgument bf);
+    void operator()(ShaderDispatchCommand::UniformArgument const &bf);
     void operator()(ShaderDispatchCommand::AccelArgument const &bf);
 };
 

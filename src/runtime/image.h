@@ -115,7 +115,7 @@ private:
     }
 
 public:
-    ImageView(const Image<T> &image) noexcept : ImageView{image.view()} {}
+    ImageView(const Image<T> &image) noexcept : ImageView{image.view(0u)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }

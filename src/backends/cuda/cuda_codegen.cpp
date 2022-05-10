@@ -104,7 +104,7 @@ public:
     void operator()(float v) const noexcept {
         if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         if (std::isinf(v)) {
-            _s << (v < 0.0f ? "(1.0f/-0.0f)" : "(1.0f/+0.0f)");
+            _s << (v < 0.0f ? " __int_as_float(0xff800000)" : " __int_as_float(0x7f800000)");
         } else {
             _s << v << "f";
         }
@@ -354,9 +354,9 @@ void CUDACodegen::visit(const CastExpr *expr) {
             _scratch << ">(";
             break;
         case CastOp::BITWISE:
-            _scratch << "reinterpret_cast<const ";
+            _scratch << "lc_bit_cast<";
             _emit_type_name(expr->type());
-            _scratch << " &>(";
+            _scratch << ">(";
             break;
         default: break;
     }

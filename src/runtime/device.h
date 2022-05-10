@@ -10,6 +10,7 @@
 #include <functional>
 
 #include <core/concepts.h>
+#include <core/thread_pool.h>
 #include <ast/function.h>
 #include <meta/property.h>
 #include <runtime/context.h>
@@ -115,7 +116,7 @@ public:
         virtual void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
 
         // stream
-        [[nodiscard]] virtual uint64_t create_stream() noexcept = 0;
+        [[nodiscard]] virtual uint64_t create_stream(bool for_present) noexcept = 0;
         virtual void destroy_stream(uint64_t handle) noexcept = 0;
         virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
         virtual void dispatch(uint64_t stream_handle, const CommandList &list) noexcept = 0;
@@ -173,11 +174,11 @@ public:
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
 
-    [[nodiscard]] Stream create_stream() noexcept;// see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;  // see definition in runtime/event.cpp
+    [[nodiscard]] Stream create_stream(bool for_present = false) noexcept;// see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;                          // see definition in runtime/event.cpp
 
     [[nodiscard]] SwapChain create_swapchain(
-        uint64_t window_handle, const Stream &stream, uint width, uint height,
+        uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, uint back_buffer_count = 1) noexcept;
 
     template<typename VBuffer, typename TBuffer>
@@ -214,10 +215,18 @@ public:
     }
 
     template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel, std::string_view meta_options = {}) noexcept {
+    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
         return _create<Shader<N, Args...>>(kernel.function(), meta_options);
     }
 
+    template<size_t N, typename... Args>
+    [[nodiscard]] auto compile_async(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
+        return ThreadPool::global().async([this, f = kernel.function(), opt = luisa::string{meta_options}] {
+            return _create<Shader<N, Args...>>(f, opt);
+        });
+    }
+
+    // clang-format off
     template<size_t N, typename Func>
         requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
     [[nodiscard]] auto compile(Func &&f, std::string_view meta_options = {}) noexcept {
@@ -231,6 +240,20 @@ public:
             static_assert(always_false_v<Func>, "Invalid kernel dimension.");
         }
     }
+    template<size_t N, typename Func>
+        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
+    [[nodiscard]] auto compile_async(Func &&f, std::string_view meta_options = {}) noexcept {
+        if constexpr (N == 1u) {
+            return compile_async(Kernel1D{std::forward<Func>(f)});
+        } else if constexpr (N == 2u) {
+            return compile_async(Kernel2D{std::forward<Func>(f)});
+        } else if constexpr (N == 3u) {
+            return compile_async(Kernel3D{std::forward<Func>(f)});
+        } else {
+            static_assert(always_false_v<Func>, "Invalid kernel dimension.");
+        }
+    }
+    // clang-format on
 
     [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {
         return _impl->query(meta_expr);

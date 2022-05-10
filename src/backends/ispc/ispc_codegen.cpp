@@ -81,55 +81,117 @@ void ISPCCodegen::visit(const BinaryExpr *expr) {
 }
 
 void ISPCCodegen::visit(const MemberExpr *expr) {
-    if (expr->is_swizzle()) {
-        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
-        if (auto ss = expr->swizzle_size(); ss == 1u) {
-            expr->self()->accept(*this);
-            _scratch << "._";
-            _scratch << xyzw[expr->swizzle_index(0)];
-        } else {
-            _scratch << "make_";
-            auto elem = expr->type()->element();
-            switch (elem->tag()) {
-                case Type::Tag::BOOL: _scratch << "char"; break;
-                case Type::Tag::INT: _scratch << "int"; break;
-                case Type::Tag::UINT: _scratch << "uint"; break;
-                case Type::Tag::FLOAT: _scratch << "float"; break;
-                default: LUISA_ERROR_WITH_LOCATION(
-                    "Invalid vector element type: {}.",
-                    elem->description());
-            }
-            _scratch << ss << "(";
-            for (auto i = 0u; i < ss; i++) {
+    if (expr->usage() == Usage::WRITE || expr->usage() == Usage::READ_WRITE ||
+        expr->self()->tag() == Expression::Tag::REF) {// must be l-value
+        if (expr->is_swizzle()) {
+            static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+            if (auto ss = expr->swizzle_size(); ss == 1u) {
                 expr->self()->accept(*this);
-                _scratch << "._" << xyzw[expr->swizzle_index(i)] << ", ";
+                _scratch << "._";
+                _scratch << xyzw[expr->swizzle_index(0)];
+            } else {
+                _scratch << "make_";
+                auto elem = expr->type()->element();
+                switch (elem->tag()) {
+                    case Type::Tag::BOOL: _scratch << "char"; break;
+                    case Type::Tag::INT: _scratch << "int"; break;
+                    case Type::Tag::UINT: _scratch << "uint"; break;
+                    case Type::Tag::FLOAT: _scratch << "float"; break;
+                    default: LUISA_ERROR_WITH_LOCATION(
+                        "Invalid vector element type: {}.",
+                        elem->description());
+                }
+                _scratch << ss << "(";
+                for (auto i = 0u; i < ss; i++) {
+                    expr->self()->accept(*this);
+                    _scratch << "._" << xyzw[expr->swizzle_index(i)] << ", ";
+                }
+                _scratch.pop_back();
+                _scratch.pop_back();
+                _scratch << ")";
             }
-            _scratch.pop_back();
-            _scratch.pop_back();
+        } else {
+            expr->self()->accept(*this);
+            _scratch << ".m" << expr->member_index();
+        }
+    } else {// possibly r-value
+        if (expr->is_swizzle()) {
+            auto t = expr->self()->type();
+            if (auto ss = expr->swizzle_size(); ss == 1u) {
+                _scratch << "vector_access_rvalue_";
+                _emit_type_name(t);
+                _scratch << "(";
+                expr->self()->accept(*this);
+                _scratch << ", " << expr->swizzle_index(0) << "u)";
+            } else {
+                _scratch << "make_";
+                auto elem = expr->type()->element();
+                switch (elem->tag()) {
+                    case Type::Tag::BOOL: _scratch << "char"; break;
+                    case Type::Tag::INT: _scratch << "int"; break;
+                    case Type::Tag::UINT: _scratch << "uint"; break;
+                    case Type::Tag::FLOAT: _scratch << "float"; break;
+                    default: LUISA_ERROR_WITH_LOCATION(
+                        "Invalid vector element type: {}.",
+                        elem->description());
+                }
+                _scratch << ss << "(";
+                for (auto i = 0u; i < ss; i++) {
+                    _scratch << "vector_access_rvalue_";
+                    _emit_type_name(t);
+                    _scratch << "(";
+                    expr->self()->accept(*this);
+                    _scratch << ", " << expr->swizzle_index(i) << "u), ";
+                }
+                _scratch.pop_back();
+                _scratch.pop_back();
+                _scratch << ")";
+            }
+        } else {
+            auto h = expr->self()->type()->hash();
+            _scratch << luisa::format("struct_member_rvalue_{:016x}_{}(",
+                                      h, expr->member_index());
+            expr->self()->accept(*this);
             _scratch << ")";
         }
-    } else {
-        expr->self()->accept(*this);
-        _scratch << ".m" << expr->member_index();
     }
 }
 
 void ISPCCodegen::visit(const AccessExpr *expr) {
-    if (auto t = expr->range()->type(); t->is_array()) {
-        _scratch << "array_access(";
-    } else if (t->is_vector()) {
-        _scratch << "vector_access(";
-    } else if (t->is_matrix()) {
-        _scratch << "matrix_access(";
-    } else if (t->is_buffer()) {
-        _scratch << "buffer_access(";
-    } else {
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid range type for access expression: {}.",
-            t->description());
+    if (expr->usage() == Usage::WRITE || expr->usage() == Usage::READ_WRITE ||
+        expr->range()->tag() == Expression::Tag::REF ||
+        expr->range()->type()->is_buffer()) {// l-value
+        if (auto t = expr->range()->type(); t->is_array()) {
+            _scratch << "array_access(";
+        } else if (t->is_vector()) {
+            _scratch << "vector_access(";
+        } else if (t->is_matrix()) {
+            _scratch << "matrix_access(";
+        } else if (t->is_buffer()) {
+            _scratch << "buffer_access(";
+        } else {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid range type for access expression: {}.",
+                t->description());
+        }
+    } else {// r-value
+        if (auto t = expr->range()->type(); t->is_array()) {
+            _scratch << luisa::format("array_access_rvalue_{:016x}(", t->hash());
+        } else if (t->is_vector()) {
+            _scratch << "vector_access_rvalue_"
+                     << t->element()->description() << t->dimension()
+                     << "(";
+        } else if (t->is_matrix()) {
+            _scratch << "matrix_access_rvalue_"
+                     << t->dimension() << "(";
+        } else {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid range type for access expression: {}.",
+                t->description());
+        }
     }
     expr->range()->accept(*this);
-    _scratch << ", ";
+    _scratch << ", (uint)";
     expr->index()->accept(*this);
     _scratch << ")";
 }
@@ -199,8 +261,11 @@ public:
         for (auto col = 0u; col < 4u; col++) {
             for (auto row = 0u; row < 4u; row++) {
                 (*this)(m[col][row]);
+                _s << ", ";
             }
         }
+        _s.pop_back();
+        _s.pop_back();
         _s << ")";
     }
 
@@ -220,7 +285,6 @@ void ISPCCodegen::visit(const RefExpr *expr) {
 }
 
 void ISPCCodegen::visit(const CallExpr *expr) {
-
     auto is_atomic = false;
     switch (expr->op()) {
         case CallOp::CUSTOM:
@@ -288,7 +352,7 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::INVERSE: _scratch << "inverse"; break;
         case CallOp::SYNCHRONIZE_BLOCK:
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
-            _scratch << "barrier";
+            _scratch << "memory_barrier";
             break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomic_swap_global";
@@ -378,17 +442,23 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
         case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
-    _scratch << "(";
     auto args = expr->arguments();
     if (is_atomic) {
-        _scratch << "&(";
-        args.front()->accept(*this);
+        auto ref = args.front();
+        if (ref->type()->description() == "float") {
+            _scratch << "_float";
+        }
+        _scratch << "((";
+        _emit_type_name(ref->type());
+        _scratch << " *varying)&(";
+        ref->accept(*this);
         _scratch << ")";
         for (auto arg : args.subspan(1u)) {
             _scratch << ", ";
             arg->accept(*this);
         }
     } else if (!args.empty()) {
+        _scratch << "(";
         for (auto arg : args) {
             arg->accept(*this);
             _scratch << ", ";
@@ -426,6 +496,7 @@ void ISPCCodegen::visit(const BreakStmt *) {
 void ISPCCodegen::visit(const ContinueStmt *s) {
     // FIXME: ISPC reports error, if continue found in switch-case inside loops
     _scratch << "continue;";
+    // FIXME: goto works only if coherent
     //    auto target = _continue_analysis.continue_scopes().at(s);
     //    _scratch << luisa::format(
     //        "goto CONT_{};",
@@ -445,9 +516,9 @@ void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_scoped_variables(stmt);
     _emit_statements(stmt->statements());
-    _scratch << luisa::format(
-        "CONT_{}:;\n",
-        _scope_label(stmt));
+    //    _scratch << luisa::format(
+    //        "CONT_{}:;\n",
+    //        _scope_label(stmt));
     _scratch << "}";
 }
 
@@ -676,15 +747,12 @@ static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,floa
 static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
 
 void ISPCCodegen::visit(const Type *type) noexcept {
-    if (type->is_array() &&
-        type->description() != float_array_3) {
+    if (type->is_array() && type->description() != float_array_3) {
         _scratch << "make_array_type(";
         _emit_type_name(type);
         _scratch << ", ";
         _emit_type_name(type->element());
-        _scratch << ", "
-                 << type->dimension()
-                 << ");\n\n";
+        _scratch << ", " << type->dimension() << ");\n\n";
     } else if (type->is_structure() &&
                type->description() != ray_type_desc &&
                type->description() != hit_type_desc) {
@@ -721,6 +789,29 @@ void ISPCCodegen::visit(const Type *type) noexcept {
             }
         }
         _scratch << "};\n\n";
+    }
+
+    if (type->is_array()) {
+        for (auto qualifier : {"", "uniform "}) {
+            _scratch << "inline " << qualifier;
+            _emit_type_name(type->element());
+            _scratch << luisa::format(" array_access_rvalue_{:016x}({}",
+                                      type->hash(), qualifier);
+            _emit_type_name(type);
+            _scratch << " a, " << qualifier << "uint i) { return a.a[i]; }\n";
+        }
+    } else if (type->is_structure()) {
+        auto &&members = type->members();
+        for (auto i = 0u; i < members.size(); i++) {
+            for (auto qualifier : {"", "uniform "}) {
+                _scratch << "inline " << qualifier;
+                _emit_type_name(members[i]);
+                _scratch << luisa::format(" struct_member_rvalue_{:016x}_{}({}",
+                                          type->hash(), i, qualifier);
+                _emit_type_name(type);
+                _scratch << " s) { return s.m" << i << "; }\n";
+            }
+        }
     }
 
     // for bindless buffers
@@ -792,9 +883,14 @@ void ISPCCodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::REFERENCE:
-            if (readonly || force_const) { _scratch << "const "; }
-            _emit_type_name(v.type());
-            _scratch << " &";
+            if (readonly || force_const) {
+                _scratch << "const ";
+                _emit_type_name(v.type());
+                _scratch << " ";
+            } else {
+                _emit_type_name(v.type());
+                _scratch << " &";
+            }
             _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:
