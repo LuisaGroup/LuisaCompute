@@ -20,7 +20,7 @@ basic_dtypes = {*scalar_dtypes, *vector_dtypes, *matrix_dtypes}
 def vector(dtype, length): # (float, 2) -> float2
     if length==1:
         return dtype
-    return getattr(lcapi, dtype.__name__ + str(len))
+    return getattr(lcapi, dtype.__name__ + str(length))
 
 def length_of(dtype): # float2 -> 2
     if dtype in scalar_dtypes:
