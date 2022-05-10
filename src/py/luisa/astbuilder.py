@@ -204,6 +204,8 @@ class ASTVisitor:
             return dtype, val, None
         if dtype == BuiltinFuncBuilder:
             return dtype, val, None
+        if dtype == str:
+            return dtype, val, 'r'
         lctype = to_lctype(dtype)
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val), 'r'
