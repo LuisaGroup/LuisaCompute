@@ -247,6 +247,6 @@ class BufferType:
     @func
     def unlock(self, idx: int):
         ''' set the element to 0 '''
-        self.write(idx, 0)
+        tmp = self.atomic_exchange(idx, 0)
 
 
