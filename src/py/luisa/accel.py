@@ -25,6 +25,19 @@ def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
     return r
 
 @func
+def make_inf_ray(origin: float3, direction: float3):
+    r = Ray()
+    r._origin[0] = origin[0]
+    r._origin[1] = origin[1]
+    r._origin[2] = origin[2]
+    r._dir[0] = direction[0]
+    r._dir[1] = direction[1]
+    r._dir[2] = direction[2]
+    r.t_min = 0
+    r.t_max = 1e38
+    return r
+
+@func
 def offset_ray_origin(p: float3, n: float3):
     origin = 1 / 32
     float_scale = 1.0 / 65536.0
@@ -104,7 +117,7 @@ class Accel:
         acc = Accel.empty()
         for mesh in list:
             acc.add(mesh)
-        acc.build()
+        acc.update()
         return acc
 
     @staticmethod
@@ -114,7 +127,7 @@ class Accel:
     def add(self, mesh, transform = float4x4.identity(), visible = True):
         self._accel.emplace_back(mesh.handle, transform, visible)
 
-    def build(self):
+    def update(self):
         globalvars.stream.add(self._accel.build_command(lcapi.AccelBuildRequest.PREFER_UPDATE))
 
     @func
@@ -156,9 +169,9 @@ class Mesh:
             self.vertices.handle, 0, 16, self.vertices.size,
             self.triangles.handle, 0, self.triangles.size//3,
             lcapi.AccelUsageHint.FAST_TRACE)
-        self.build()
+        self.update()
 
-    def build(self):
+    def update(self):
         globalvars.stream.add(lcapi.MeshBuildCommand.create(
             self.handle, lcapi.AccelBuildRequest.PREFER_UPDATE,
             self.vertices.handle, 0, self.vertices.size,
