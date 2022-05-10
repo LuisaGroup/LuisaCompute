@@ -2,6 +2,7 @@ import lcapi
 from .types import to_lctype
 from .types import BuiltinFuncBuilder
 from .func import func
+from .builtin import _builtin_call
 
 # because indexed access of buffer isn't officially supported (by astbuilder),
 # here we provide the buffer access function for atomic operations
