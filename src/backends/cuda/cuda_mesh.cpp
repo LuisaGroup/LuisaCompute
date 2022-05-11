@@ -36,7 +36,7 @@ inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
     return build_input;
 }
 
-[[nodiscard]] inline auto make_build_options(AccelUsageHint hint, OptixBuildOperation op) noexcept {
+[[nodiscard]] inline auto cuda_mesh_build_options(AccelUsageHint hint, OptixBuildOperation op) noexcept {
     OptixAccelBuildOptions build_options{};
     build_options.operation = op;
     switch (hint) {
@@ -61,7 +61,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream, const MeshBuildComm
     auto build_input = _make_build_input();
     if (_handle != 0u && _build_hint != AccelUsageHint::FAST_TRACE &&
         command->request() == AccelBuildRequest::PREFER_UPDATE) {
-        auto build_options = make_build_options(
+        auto build_options = cuda_mesh_build_options(
             _build_hint, OPTIX_BUILD_OPERATION_UPDATE);
         auto cuda_stream = stream->handle();
         auto update_buffer = 0ull;
@@ -76,7 +76,7 @@ void CUDAMesh::build(CUDADevice *device, CUDAStream *stream, const MeshBuildComm
 
     Clock clock;
     OptixAccelBufferSizes sizes;
-    auto build_options = make_build_options(
+    auto build_options = cuda_mesh_build_options(
         _build_hint, OPTIX_BUILD_OPERATION_BUILD);
     LUISA_CHECK_OPTIX(optixAccelComputeMemoryUsage(
         device->handle().optix_context(), &build_options,
