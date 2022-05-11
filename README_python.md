@@ -328,7 +328,7 @@ a.texture2d_size(idx) # 返回float4
 
 ### 加速结构 `luisa.Accel`
 
-加速结构是在设备上的用于加速计算射线与场景（若干个三角网格）相交交点的数据结构。从三角网格构建加速结构：
+加速结构是在设备上的用于加速计算射线与场景相交交点的数据结构，其存储了若干个三角网格的引用，及其空间变换和可见性。从三角网格构建加速结构：
 
 ```python
 acc = luisa.accel(meshes)
@@ -336,21 +336,44 @@ acc = luisa.accel(meshes)
 
 其中 `meshes` 是一个列表，其每一个元素为 `luisa.Mesh`类型。
 
-可以创建一个空的加速结构；可以向结构中增添三角网格，并设置空间变换和可见性，也可以修改或查询这些属性。注意，当改变这一加速结构，或改变其中的三角网格后，必须调用`update`：
+可以创建一个空的加速结构：
 
 ```python
-acc.add(mesh, transform, visible)
-# transform: float4x4, 可选，表示作用在该三角网格实例上的空间变换，默认为单位矩阵
-# visible：bool，可选，表示该三角网格是否可见（可被射线交中）
+acc = luisa.Accel.empty()
+a = luisa.Accel() # 同上，别名
 ```
 
-TODO 更多host接口
+#### 场景更新
+
+可以向结构中增删三角网格，设置其空间变换和可见性等等。注意，当改变这一加速结构，或改变其中的三角网格后，必须调用`update`：
+
+```python
+acc.add(mesh, [transform], [visible])
+# transform: float4x4, 可选，表示作用在该三角网格实例上的空间变换，默认为单位矩阵
+# visible：bool，可选，表示该三角网格是否可见（可被射线交中）
+acc.set(index, mesh, [transform], [visible])
+acc.pop()
+len(acc)
+acc.set_transform_on_update(index, transform)
+acc.set_visibility_on_update(index, visibility)
+acc.update()
+```
+
+此外，也可以在设备端（Luisa函数内）查询、更新加速结构：
+
+```python
+mat = acc.instance_transform(index) # 查询变换矩阵
+acc.set_instance_transform(index, transform)
+acc.set_instance_visibility(index, visibility)
+```
+
+#### 光线求交
 
 加速结构提供了两个光线求交的函数。Trace_closest 找到射线与场景的第一个交点（即t最小的交点，t为交点到射线原点的距离），返回交点的信息；而 trace_any 只判断射线与场景是否存在交点。
 
 ```python
-hit = acc.trace_closest(ray) # Hit 类型
-anyhit = acc.trace_any(ray) # bool 类型
+hit = acc.trace_closest(ray) # 返回 Hit 类型
+anyhit = acc.trace_any(ray) # 返回 bool 类型
 ```
 
 关于加速结构的用法，您可以参考示例程序 `pt99.py`
@@ -452,8 +475,6 @@ luisa.BindlessArray, luisa.Accel # 资源索引和加速结构的类型标记即
 int(a)
 float3(b)
 ```
-
-TODO: struct / array
 
 ### 运算的类型规则
 
@@ -638,3 +659,11 @@ uses_printer
 
 
 
+## 未实现的功能
+
+- 完整的面向对象支持，包括类、多态等
+- 动态对象？待讨论
+- 插件的实现方式？待讨论
+- 函数中混合编译时计算和运行时计算？待讨论
+- BufferView、TextureView、2D Buffer
+- 上传下载slice
