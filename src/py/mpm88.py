@@ -4,9 +4,10 @@
 import luisa as lc
 from luisa.mathtypes import *
 
-lc.init()
+lc.init("metal")
 
 n_grid = 256
+n_steps = 128
 n_particles = n_grid ** 2 // 2
 dx = 1 / n_grid
 dt = 1e-4
@@ -156,7 +157,7 @@ lc.synchronize()
 
 gui = lc.GUI('MPM88', (res, res))
 while gui.running():
-    for s in range(64):
+    for s in range(n_steps):
         substep()
     lc.synchronize()
     clear_display(dispatch_size=(res, res))

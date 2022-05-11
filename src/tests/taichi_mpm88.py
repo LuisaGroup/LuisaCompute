@@ -1,9 +1,10 @@
 # MPM-MLS in 88 lines of Taichi code, originally created by @yuanming-hu
 import taichi as ti
 
-ti.init(arch=ti.cpu)
+ti.init(arch=ti.vulkan)
 
 n_grid = 256
+n_steps = 128
 n_particles = n_grid ** 2 // 2
 dx = 1 / n_grid
 dt = 1e-4
@@ -85,7 +86,7 @@ def init():
 init()
 gui = ti.GUI('MPM88')
 while gui.running and not gui.get_event(gui.ESCAPE):
-    for s in range(64):
+    for s in range(n_steps):
         substep()
     gui.clear(0x112F41)
     gui.circles(x.to_numpy(), radius=1.5, color=0x068587)
