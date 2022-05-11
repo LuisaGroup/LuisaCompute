@@ -5,15 +5,13 @@ from luisa import array, struct
 
 luisa.init()
 
-# sampler = luisa.RandomSampler(state=45)
-s = luisa.struct(a=float3(4), b=luisa.array([3,4]), c=luisa.struct(a=3, b=True))
+sampler = luisa.RandomSampler(state=45)
 
-# print(type(sampler))
+print(luisa.types.dtype_of(sampler))
 
 @luisa.func
 def add():
-    # print(sampler.next2f())
-    print(s)
+    print(sampler.next2f())
 
 add(dispatch_size=1)
 
