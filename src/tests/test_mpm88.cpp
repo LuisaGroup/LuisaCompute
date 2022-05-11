@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
     auto sqr = [](auto x) noexcept { return x * x; };
 
     Context context{argv[0]};
-    auto device = context.create_device("metal");
+    auto device = context.create_device("ispc");
 
     static constexpr auto n_grid = 128u;
     static constexpr auto n_steps = 16u;
