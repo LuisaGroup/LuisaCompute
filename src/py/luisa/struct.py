@@ -29,6 +29,9 @@ class Struct:
             for name in kwargs:
                 setattr(Struct, name, property(self.make_getter(name), self.make_setter(name)))
 
+    def copy(self):
+        return Struct(copy_source = self)
+        
     def to_bytes(self):
         packed_bytes = b''
         for idx, value in enumerate(self.values):

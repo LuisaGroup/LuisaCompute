@@ -4,11 +4,14 @@ from .types import dtype_of, to_lctype
 class Array:
     def __init__(self, arr):
         if type(arr) is Array:
-            self.arrayType = arrayType
+            self.arrayType = arr.arrayType
             self.values = arr.values.copy()
         else:
             self.arrayType = deduce_array_type(arr)
             self.values = list(arr)
+
+    def copy(self):
+        return Array(self)
 
     def to_bytes(self):
         packed_bytes = b''
