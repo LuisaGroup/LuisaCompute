@@ -1,10 +1,10 @@
 # MPM-MLS in 88 lines of Taichi code, originally created by @yuanming-hu
 import taichi as ti
 
-ti.init(arch=ti.vulkan)
+ti.init(arch=ti.cuda)
 
 n_grid = 256
-n_steps = 128
+n_steps = 1024
 n_particles = n_grid ** 2 // 2
 dx = 1 / n_grid
 dt = 1e-4

@@ -2,7 +2,11 @@
 // Created by Mike Smith on 2021/12/23.
 //
 
+#include <version>
 #include <sstream>
+#ifdef __cpp_lib_barrier
+#include <barrier>
+#endif
 #include <core/logging.h>
 #include <core/thread_pool.h>
 
@@ -28,6 +32,15 @@ static inline void check_not_in_worker_thread(std::string_view f) noexcept {
 
 }// namespace detail
 
+#ifdef __cpp_lib_barrier
+
+struct Barrier final : public std::barrier<> {
+    explicit Barrier(uint n) noexcept
+        : std::barrier<>{n} {}
+};
+
+#else
+
 // reference: https://github.com/yohhoy/yamc/blob/master/include/yamc_barrier.hpp
 class Barrier {
 
@@ -43,7 +56,7 @@ public:
         : _n{n}, _counter{n}, _phase{0u} {}
     void arrive_and_wait() noexcept {
         std::unique_lock lock{_mutex};
-       auto arrive_phase = _phase;
+        auto arrive_phase = _phase;
         if (--_counter == 0u) {
             _counter = _n;
             _phase++;
@@ -54,6 +67,8 @@ public:
         }
     }
 };
+
+#endif
 
 ThreadPool::ThreadPool(size_t num_threads) noexcept : _should_stop{false} {
     if (num_threads == 0u) {

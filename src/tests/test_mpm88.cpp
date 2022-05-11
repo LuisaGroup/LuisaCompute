@@ -13,10 +13,10 @@ int main(int argc, char *argv[]) {
     auto sqr = [](auto x) noexcept { return x * x; };
 
     Context context{argv[0]};
-    auto device = context.create_device("metal");
+    auto device = context.create_device("ispc");
 
-    static constexpr auto n_grid = 256u;
-    static constexpr auto n_steps = 128u;
+    static constexpr auto n_grid = 128u;
+    static constexpr auto n_steps = 16u;
 
     static constexpr auto n_particles = n_grid * n_grid / 2u;
     static constexpr auto dx = 1.f / n_grid;
@@ -38,7 +38,11 @@ int main(int argc, char *argv[]) {
     auto grid_m = device.create_buffer<float>(n_grid * n_grid);
     auto display = device.create_image<float>(PixelStorage::BYTE4, make_uint2(resolution));
 
-    auto index = [](auto xy) noexcept { return xy.x + xy.y * n_grid; };
+    auto index = [](auto xy) noexcept {
+        using T = vector_expr_element_t<decltype(xy)>;
+        auto p = clamp(xy, static_cast<T>(0), static_cast<T>(n_grid - 1));
+        return p.x + p.y * n_grid;
+    };
     auto outer_product = [](auto a, auto b) noexcept {
         return make_float2x2(a[0] * b[0], a[1] * b[0], a[0] * b[1], a[1] * b[1]);
     };
@@ -138,7 +142,7 @@ int main(int argc, char *argv[]) {
         command_buffer << x.copy_from(x_init.data())
                        << v.copy_from(v_init.data())
                        << J.copy_from(J_init.data())
-                       << commit();
+                       << synchronize();
     };
 
     auto clear_display = device.compile<2>([&] {
