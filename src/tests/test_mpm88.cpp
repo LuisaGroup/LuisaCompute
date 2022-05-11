@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device("ispc");
 
     static constexpr auto n_grid = 128u;
-    static constexpr auto n_steps = 16u;
+    static constexpr auto n_steps = 50u;
 
     static constexpr auto n_particles = n_grid * n_grid / 2u;
     static constexpr auto dx = 1.f / n_grid;
@@ -124,8 +124,7 @@ int main(int argc, char *argv[]) {
         command_buffer << clear_grid().dispatch(n_grid, n_grid)
                        << point_to_grid().dispatch(n_particles)
                        << simulate_grid().dispatch(n_grid, n_grid)
-                       << grid_to_point().dispatch(n_particles)
-                       << commit();
+                       << grid_to_point().dispatch(n_particles);
     };
 
     auto init = [&](CommandBuffer &command_buffer) noexcept {
@@ -139,9 +138,11 @@ int main(int argc, char *argv[]) {
         }
         luisa::vector<float2> v_init(n_particles, make_float2(0.f, -1.f));
         luisa::vector<float> J_init(n_particles, 1.f);
+        luisa::vector<float2x2> C_init(n_particles, make_float2x2(0.f));
         command_buffer << x.copy_from(x_init.data())
                        << v.copy_from(v_init.data())
                        << J.copy_from(J_init.data())
+                       << C.copy_from(C_init.data())
                        << synchronize();
     };
 
@@ -180,6 +181,5 @@ int main(int argc, char *argv[]) {
         ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
         ImGui::Text("FPS: %.1f", fps);
         ImGui::End();
-        LUISA_INFO("FPS: {}", fps);
     });
 }
