@@ -15,6 +15,7 @@ using namespace luisa::compute;
     	.def("__repr__", [](Vector<T,3>& self){return format(#T"3({},{},{})", self.x, self.y, self.z);}) \
         .def("__getitem__", [](Vector<T,3>& self, size_t i){return self[i];}) \
         .def("__setitem__", [](Vector<T,3>& self, size_t i, T k){ self[i]=k; }) \
+        .def("copy", [](Vector<T,3>& self){return Vector<T,3>(self);}) \
     	.def_readwrite("x", &Vector<T,3>::x) \
     	.def_readwrite("y", &Vector<T,3>::y) \
     	.def_readwrite("z", &Vector<T,3>::z) \

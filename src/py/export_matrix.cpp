@@ -10,6 +10,7 @@ void export_matrix(py::module &m) {
         // .def("identity", [](){return float2x2();})
         .def("__getitem__", [](float2x2& self, size_t i){return &self[i];}, py::return_value_policy::reference_internal)
         .def("__setitem__", [](float2x2& self, size_t i, float2 k){ self[i]=k; })
+        .def("copy", [](float2x2& self){return float2x2(self);})
         .def(py::init([](float a){return make_float2x2(a);}))
         .def(py::init([](float a, float b, float c, float d){return make_float2x2(a,b,c,d);}))
         .def(py::init([](float2 a, float2 b){return make_float2x2(a,b);}))
@@ -23,6 +24,7 @@ void export_matrix(py::module &m) {
         // .def("identity", [](){return float3x3();})
         .def("__getitem__", [](float3x3& self, size_t i){return &self[i];}, py::return_value_policy::reference_internal)
         .def("__setitem__", [](float3x3& self, size_t i, float3 k){ self[i]=k; })
+        .def("copy", [](float3x3& self){return float3x3(self);})
         .def(py::init([](float a){return make_float3x3(a);}))
         .def(py::init([](
             float m00, float m01, float m02,
@@ -40,6 +42,7 @@ void export_matrix(py::module &m) {
         // .def("identity", [](){return float4x4();})
         .def("__getitem__", [](float4x4& self, size_t i){return &self[i];}, py::return_value_policy::reference_internal)
         .def("__setitem__", [](float4x4& self, size_t i, float4 k){ self[i]=k; })
+        .def("copy", [](float4x4& self){return float4x4(self);})
         .def(py::init([](float a){return make_float4x4(a);}))
         .def(py::init([](
             float m00, float m01, float m02, float m03,
