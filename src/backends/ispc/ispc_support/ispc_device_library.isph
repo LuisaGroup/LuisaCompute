@@ -7102,6 +7102,7 @@ inline float atomic_add_global_float(uniform float *varying v, uniform float x) 
     float old_val = 0.f;
     while (!ok) {
         old_val = *v;
+        memory_barrier();
         float new_val = old_val + x;
         ok = intbits(old_val) == atomic_compare_exchange_global((uniform uint *varying)v, intbits(old_val), intbits(new_val));
     }
@@ -7129,6 +7130,7 @@ inline float atomic_add_global_float(uniform float *varying v, float x) {
     float old_val = 0.f;
     while (!ok) {
         old_val = *v;
+        memory_barrier();
         float new_val = old_val + x;
         ok = intbits(old_val) == atomic_compare_exchange_global((uniform uint *varying)v, intbits(old_val), intbits(new_val));
     }
