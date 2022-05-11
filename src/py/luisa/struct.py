@@ -82,7 +82,9 @@ class StructType:
     def __call__(self, **kwargs):
         # ensure order
         assert deduce_struct_type(kwargs, alignment=self.alignment) == self
-        return Struct(alignment=self.alignment, **kwargs)
+        t = Struct(alignment=self.alignment, **kwargs)
+        t.structType = self # override it's type tag to retain method_dict
+        return t
 
     def __repr__(self):
         return 'StructType(' + ','.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
