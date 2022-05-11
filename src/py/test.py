@@ -5,17 +5,22 @@ from luisa import array, struct
 
 luisa.init()
 
-sampler = luisa.RandomSampler(state=45)
-sampler1 = sampler.copy()
 
-print(luisa.types.dtype_of(sampler))
+a = float4(3)
+print(a.copy())
+y = a
+y[1] = 8
+x = a.copy()
+x[1] = 9
+print(a,x)
 
-@luisa.func
-def add():
-    print(sampler.next2f())
-    print(sampler1.next2f())
+b = float3x3(2)
+print(b.copy())
 
-add(dispatch_size=1)
+a = b[0]
+a[0] = 0
+print(b)
 
-a = luisa.array([bool2(True,False), bool2(True), bool2(False)])
-print(a, a.copy(), a.copy().copy(), a)
+a = b[0].copy()
+a[0] = 9
+print(b)
