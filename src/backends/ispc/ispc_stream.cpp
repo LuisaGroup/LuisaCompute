@@ -29,14 +29,12 @@ void check_texture_boundary(ISPCTexture *tex, uint level, uint3 size) {
 
 void ISPCStream::dispatch(const CommandList &cmd_list) noexcept {
     for (auto cmd : cmd_list) {
-//        for (;;) {
-//            auto n = _pool.task_count();
-//            if (n < _pool.size() * 4u) { break; }
-//            using namespace std::chrono_literals;
-//            LUISA_WARNING_WITH_LOCATION("Too many tasks (count = {}) submitted. "
-//                                        "Spinning for 1 us.", n);
-//            std::this_thread::sleep_for(1us);
-//        }
+        for (;;) {
+            auto n = _pool.task_count();
+            if (n < _pool.size() * 4u) { break; }
+            using namespace std::chrono_literals;
+            std::this_thread::sleep_for(50us);
+        }
         cmd->accept(*this);
     }
     _pool.barrier();

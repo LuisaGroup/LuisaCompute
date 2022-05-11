@@ -4,10 +4,10 @@
 import luisa as lc
 from luisa.mathtypes import *
 
-lc.init("cuda")
+lc.init("ispc")
 
-n_grid = 256
-n_steps = 1024
+n_grid = 128
+n_steps = 16
 n_particles = n_grid ** 2 // 2
 dx = 1 / n_grid
 dt = 1e-4
