@@ -515,4 +515,15 @@ void FunctionBuilder::pop_meta(const MetaStmt *meta) noexcept {
     _meta_stack.pop_back();
 }
 
+void FunctionBuilder::set_block_size(uint3 size) noexcept {
+    if (_tag == Tag::KERNEL) {
+        _block_size = size;
+    } else {
+        LUISA_WARNING_WITH_LOCATION(
+            "Setting block size is not valid in Callables. "
+            "Ignoring the `set_block_size({}, {}, {})` call.",
+            size.x, size.y, size.z);
+    }
+}
+
 }// namespace luisa::compute::detail
