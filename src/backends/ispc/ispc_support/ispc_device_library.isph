@@ -7098,16 +7098,17 @@ inline float atomic_compare_exchange_global_float(uniform float *varying v, unif
     return atomic_compare_exchange_global(v, cmp, x);
 }
 inline float atomic_add_global_float(uniform float *varying v, uniform float x) {
-    for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old + x) == old) { return old; }
+    bool ok = false;
+    float old_val = 0.f;
+    while (!ok) {
+        old_val = *v;
+        float new_val = old_val + x;
+        ok = intbits(old_val) == atomic_compare_exchange_global((uniform uint *varying)v, intbits(old_val), intbits(new_val));
     }
+    return old_val;
 }
 inline float atomic_subtract_global_float(uniform float *varying v, uniform float x) {
-    for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old - x) == old) { return old; }
-    }
+    return atomic_add_global_float(v, -x);
 }
 inline float atomic_min_global_float(uniform float *varying v, uniform float x) {
     return floatbits(atomic_min_global((uniform int *varying)v, (uniform int)intbits(x)));
@@ -7124,16 +7125,17 @@ inline float atomic_compare_exchange_global_float(uniform float *varying v, floa
     return atomic_compare_exchange_global(v, cmp, x);
 }
 inline float atomic_add_global_float(uniform float *varying v, float x) {
-    for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old + x) == old) { return old; }
+    bool ok = false;
+    float old_val = 0.f;
+    while (!ok) {
+        old_val = *v;
+        float new_val = old_val + x;
+        ok = intbits(old_val) == atomic_compare_exchange_global((uniform uint *varying)v, intbits(old_val), intbits(new_val));
     }
+    return old_val;
 }
 inline float atomic_subtract_global_float(uniform float *varying v, float x) {
-    for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old - x) == old) { return old; }
-    }
+    return atomic_add_global_float(v, -x);
 }
 inline float atomic_min_global_float(uniform float *varying v, float x) {
     return floatbits(atomic_min_global((uniform int *varying)v, (int)intbits(x)));
