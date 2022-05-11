@@ -457,14 +457,16 @@ void ISPCCodegen::visit(const CallExpr *expr) {
             _scratch << ", ";
             arg->accept(*this);
         }
-    } else if (!args.empty()) {
+    } else {
         _scratch << "(";
-        for (auto arg : args) {
-            arg->accept(*this);
-            _scratch << ", ";
+        if (!args.empty()) {
+            for (auto arg : args) {
+                arg->accept(*this);
+                _scratch << ", ";
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
         }
-        _scratch.pop_back();
-        _scratch.pop_back();
     }
     _scratch << ")";
 }
