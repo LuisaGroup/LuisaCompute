@@ -25,7 +25,7 @@ def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
     return r
 
 @func
-def make_inf_ray(origin: float3, direction: float3):
+def inf_ray(origin: float3, direction: float3):
     r = Ray()
     r._origin[0] = origin[0]
     r._origin[1] = origin[1]
