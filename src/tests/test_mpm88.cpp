@@ -83,8 +83,8 @@ int main(int argc, char *argv[]) {
         auto m = grid_m.read(i);
         v = ite(m > 0.f, v / m, v);
         v.y -= dt * gravity;
-        v.x = ite(coord.x < bound & v.x<0.f | coord.x> n_grid - bound, 0.f, v.x);
-        v.y = ite(coord.y < bound & v.y<0.f | coord.y> n_grid - bound, 0.f, v.y);
+        v.x = ite((coord.x < bound & v.x < 0.f) | (coord.x + bound > n_grid & v.x > 0.f), 0.f, v.x);
+        v.y = ite((coord.y < bound & v.y < 0.f) | (coord.y + bound > n_grid & v.y > 0.f), 0.f, v.y);
         grid_v.write(i * 2u, v.x);
         grid_v.write(i * 2u + 1u, v.y);
     });
@@ -120,7 +120,8 @@ int main(int argc, char *argv[]) {
         command_buffer << clear_grid().dispatch(n_grid, n_grid)
                        << point_to_grid().dispatch(n_particles)
                        << simulate_grid().dispatch(n_grid, n_grid)
-                       << grid_to_point().dispatch(n_particles);
+                       << grid_to_point().dispatch(n_particles)
+                       << commit();
     };
 
     auto init = [&](CommandBuffer &command_buffer) noexcept {
@@ -149,7 +150,7 @@ int main(int argc, char *argv[]) {
         for (auto i = -1; i <= 1; i++) {
             for (auto j = -1; j <= 1; j++) {
                 auto pos = make_int2(x.read(p) * static_cast<float>(resolution)) + make_int2(i, j);
-                $if (pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
+                $if(pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
                     display.write(make_uint2(cast<uint>(pos.x), resolution - 1u - pos.y),
                                   make_float4(.4f, .6f, .6f, 1.f));
                 };
@@ -164,17 +165,17 @@ int main(int argc, char *argv[]) {
     Window window{"MPM88", make_uint2(resolution)};
     luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
     window.run([&] {
-        for (auto i = 0u; i < n_steps; i++) {
-            substep(command_buffer);
-        }
+        for (auto i = 0u; i < n_steps; i++) { substep(command_buffer); }
         command_buffer << clear_display().dispatch(resolution, resolution)
                        << draw_particles().dispatch(n_particles)
                        << display.copy_to(display_buffer.data())
                        << synchronize();
         window.set_background(display_buffer.data(), make_uint2(resolution));
         framerate.record();
+        auto fps = framerate.report();
         ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("FPS: %.1f", framerate.report());
+        ImGui::Text("FPS: %.1f", fps);
         ImGui::End();
+        LUISA_INFO("FPS: {}", fps);
     });
 }
