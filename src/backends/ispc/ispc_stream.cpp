@@ -48,12 +48,12 @@ void ISPCStream::wait(ISPCEvent *event) noexcept {
 }
 
 void ISPCStream::visit(const BufferUploadCommand *command) noexcept {
-    luisa::vector<std::byte> temp_buffer(command->size());
-    std::memcpy(temp_buffer.data(), command->data(), command->size());
+    auto temp_buffer = luisa::make_shared<luisa::vector<std::byte>>(command->size());
+    std::memcpy(temp_buffer->data(), command->data(), command->size());
     _pool.async([src = std::move(temp_buffer),
                  buffer = command->handle(), offset = command->offset()] {
         auto dst = reinterpret_cast<void *>(buffer + offset);
-        std::memcpy(dst, src.data(), src.size());
+        std::memcpy(dst, src->data(), src->size());
     });
 }
 
@@ -131,7 +131,11 @@ void ISPCStream::visit(const ShaderDispatchCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
-    _pool.async([cmd = *command] {
+    auto byte_size = command->size().x * command->size().y * command->size().z *
+                     pixel_storage_size(command->storage());
+    auto temp_buffer = luisa::make_shared<luisa::vector<std::byte>>(byte_size);
+    std::memcpy(temp_buffer->data(), command->data(), byte_size);
+    _pool.async([cmd = *command, temp_buffer = std::move(temp_buffer)] {
         auto tex = reinterpret_cast<ISPCTexture *>(cmd.handle());
         check_texture_boundary(tex, cmd.level(), cmd.size());
         // calc stride
@@ -145,9 +149,8 @@ void ISPCStream::visit(const TextureUploadCommand *command) noexcept {
         // copy data
         for (int dz = 0; dz < cmd.size().z; ++dz)
             for (int dy = 0; dy < cmd.size().y; ++dy)
-                memcpy((unsigned char *)tex->lods[cmd.level()] + dz * tex_p_stride + dy * tex_r_stride,
-                       (unsigned char *)cmd.data() + dz * target_p_stride + dy * target_r_stride,
-                       cmd.size().x * pxsize);
+                memcpy(reinterpret_cast<unsigned char *>(tex->lods[cmd.level()]) + dz * tex_p_stride + dy * tex_r_stride,
+                       temp_buffer->data() + dz * target_p_stride + dy * target_r_stride, cmd.size().x * pxsize);
     });
 }
 
