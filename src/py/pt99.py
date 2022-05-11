@@ -96,4 +96,4 @@ while gui.running():
         gui.set_image(final_image)
         gui.show()
 # save image when window is closed
-Image.fromarray(final_image.to(luisa.PixelStorage.BYTE4).numpy()).save("cornell.png")
+Image.fromarray(final_image.to('byte').numpy()).save("cornell.png")

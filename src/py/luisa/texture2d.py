@@ -8,6 +8,11 @@ from .builtin import _builtin_call
 from .mathtypes import *
 
 
+def _check_storage(storage_name, dtype):
+    compatible = { float: {'byte','short','half','float'}, int: {'byte','short','int'} }
+    if storage_name.lower() not in compatible[dtype]:
+        raise TypeError(f"{dtype} texture is only compatible with storage: {compatible[dtype]}")
+
 class Texture2D:
     def __init__(self, width, height, channel, dtype, storage = None):
         if not dtype in {int, float}:
@@ -20,14 +25,12 @@ class Texture2D:
         self.dtype = dtype
         self.vectype = dtype if channel == 1 else getattr(lcapi, dtype.__name__ + str(channel))
         # default storage type: max precision
-        if storage is None:
-            storage = getattr(lcapi.PixelStorage, dtype.__name__.upper() + str(channel))
-        self.storage = storage
-        if lcapi.pixel_storage_channel_count(storage) != channel:
-            raise TypeError("pixel storage inconsistent with channel count")
-        self.format = getattr(lcapi, "pixel_storage_to_format_" + dtype.__name__)(storage)
+        self.storage_name = storage.upper() if storage is not None else dtype.__name__.upper()
+        _check_storage(self.storage_name, dtype)
+        self.storage = getattr(lcapi.PixelStorage, self.storage_name + str(channel))
+        self.format = getattr(lcapi, "pixel_storage_to_format_" + dtype.__name__)(self.storage)
 
-        self.bytesize = lcapi.pixel_storage_size(storage) * width * height;
+        self.bytesize = lcapi.pixel_storage_size(self.storage) * width * height;
         self.texture2DType = Texture2DType(dtype, channel)
         self.read = self.texture2DType.read
         self.write = self.texture2DType.write
@@ -105,11 +108,10 @@ class Texture2D:
 
     def numpy(self):
         import numpy as np
-        pcf = str(self.storage).split('.')[-1][:-1] # BYTE4 -> BYTE
         if self.dtype == float:
-            npf = {'BYTE': np.uint8, 'SHORT': np.uint16, 'HALF': np.half, 'FLOAT': np.float32}[pcf]
+            npf = {'BYTE': np.uint8, 'SHORT': np.uint16, 'HALF': np.half, 'FLOAT': np.float32}[self.storage_name]
         else:
-            npf = {'BYTE': np.int8, 'SHORT': np.int16, 'INT': np.int32}[pcf]
+            npf = {'BYTE': np.int8, 'SHORT': np.int16, 'INT': np.int32}[self.storage_name]
         arr = np.empty((self.width, self.height, self.channel), dtype=npf)
         self.copy_to(arr, sync=True)
         return arr
@@ -119,8 +121,6 @@ class Texture2D:
         tex2.write(dispatch_id().xy, tex1.read(dispatch_id().xy))
 
     def to(self, storage):
-        if lcapi.pixel_storage_channel_count(storage) != self.channel:
-            raise TypeError("pixel storage inconsistent with channel count")
         tex = Texture2D.empty(self.width, self.height, self.channel, self.dtype, storage)
         Texture2D.copy_kernel(self, tex, dispatch_size=(self.width, self.height, 1))
         return tex
