@@ -1,9 +1,9 @@
 # Modern path tracing in 99 lines with Luisa
+
 import luisa
 from luisa.mathtypes import *
 from math import pi
 from PIL import Image
-from luisa.accel import make_ray
 
 # position of each vertex
 vertices = list(map(lambda x:float3(*x), [[-1,0,1], [1,0,1], [1,0,-1], [-1,0,-1], [-1,2,1], [-1,2,-1], [1,2,-1], [1,2,1], # room
@@ -96,4 +96,4 @@ while gui.running():
         gui.set_image(final_image)
         gui.show()
 # save image when window is closed
-Image.fromarray(final_image.to(luisa.PixelStorage.BYTE4).numpy()).save("cornell.png")
+Image.fromarray(final_image.to('byte').numpy()).save("cornell.png")
