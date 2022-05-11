@@ -230,9 +230,9 @@ class ASTVisitor:
             expr = lcapi.builder().local(lctype)
             for idx,x in enumerate(val.values):
                 lhs = lcapi.builder().member(to_lctype(dtype.membertype[idx]), expr, idx)
-                rhs = build.captured_expr(x)
-                assert rhs.dtype == dtype.membertype[idx]
-                lcapi.builder().assign(lhs, rhs.expr)
+                rhs_dtype, rhs_expr, rhs_lr = build.captured_expr(x)
+                assert rhs_dtype == dtype.membertype[idx]
+                lcapi.builder().assign(lhs, rhs_expr)
             return dtype, expr, 'r'
         raise TypeError("unrecognized closure var type:", type(val))
 

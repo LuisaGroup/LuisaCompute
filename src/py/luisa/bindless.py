@@ -22,8 +22,8 @@ class BindlessArray:
         return arr
 
     @staticmethod
-    def empty():
-        return BindlessArray()
+    def empty(n_slots = 65536):
+        return BindlessArray(n_slots)
 
     def emplace(self, idx, res):
         if type(res) is Buffer:
@@ -45,11 +45,13 @@ class BindlessArray:
     def __contains__(self, res):
         return device().impl().is_resource_in_bindless_array(self.handle, res.handle)
 
-    def update(self, stream = None):
+    def update(self, sync = False, stream = None):
         if stream is None:
             stream = globalvars.stream
         cmd = lcapi.BindlessArrayUpdateCommand.create(self.handle)
         stream.add(cmd)
+        if sync:
+            stream.synchronize()
 
     # @func
     # def buffer_read(self: BindlessArray, dtype: type, buffer_index: int, element_index: int):

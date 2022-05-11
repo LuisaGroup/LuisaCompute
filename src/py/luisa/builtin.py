@@ -212,7 +212,8 @@ builtin_func_names = {
     'fma', 'copysign',
     'determinant', 'transpose', 'inverse',
     'synchronize_block',
-    'array', 'struct'
+    'array', 'struct',
+    'make_ray', 'inf_ray', 'offset_ray_origin'
 }
 
 
@@ -645,6 +646,18 @@ def builtin_func(name, *args, **kwargs):
             lhs = lcapi.builder().member(to_lctype(dtype), strexpr, idx)
             lcapi.builder().assign(lhs, kwargs[name].expr)
         return strtype, strexpr
+
+    if name == 'make_ray':
+        from .accel import make_ray
+        return callable_call(make_ray, *args)
+
+    if name == 'inf_ray':
+        from .accel import inf_ray
+        return callable_call(inf_ray, *args)
+        
+    if name == 'offset_ray_origin':
+        from .accel import offset_ray_origin
+        return callable_call(offset_ray_origin, *args)
 
     raise NameError(f'unrecognized function call {name}')
 

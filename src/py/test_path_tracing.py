@@ -56,13 +56,13 @@ for mesh in cornell_box.faces:
     mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
     accel.add(mesh)
     mesh_cnt += 1
-accel.build()
+accel.update()
 heap.update()
 
 @luisa.func
 def to_world(self, v: float3):
     return v.x * self.tangent + v.y * self.binormal + v.z * self.normal
-Onb.add_method("to_world", to_world)
+Onb.add_method(to_world, "to_world")
 
 from luisa.util import RandomSampler
 
