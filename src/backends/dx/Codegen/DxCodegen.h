@@ -7,6 +7,7 @@
 #include <ast/statement.h>
 #include <Shader/Shader.h>
 #include <vstl/MD5.h>
+#include <compile/definition_analysis.h>
 using namespace luisa;
 using namespace luisa::compute;
 namespace toolhub::directx {
@@ -67,7 +68,7 @@ class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
 
 public:
-    vstd::vector<Variable> *sharedVariables = nullptr;
+    DefinitionAnalysis::VariableSet *sharedVariables = nullptr;
     void visit(const UnaryExpr *expr) override;
     void visit(const BinaryExpr *expr) override;
     void visit(const MemberExpr *expr) override;
@@ -99,7 +100,6 @@ public:
 
 protected:
     vstd::string &str;
-    size_t lastIdx = 0;
 };
 template<typename T>
 struct PrintValue {};
@@ -125,13 +125,13 @@ struct PrintValue<float> {
 };
 template<>
 struct PrintValue<int> {
-    void operator()(int const &v, vstd::string &str) {
+    void operator()(int v, vstd::string &str) {
         vstd::to_string(v, str);
     }
 };
 template<>
 struct PrintValue<uint> {
-    void operator()(uint const &v, vstd::string &str) {
+    void operator()(uint v, vstd::string &str) {
         vstd::to_string(v, str);
         str << 'u';
     }
@@ -139,7 +139,7 @@ struct PrintValue<uint> {
 
 template<>
 struct PrintValue<bool> {
-    void operator()(bool const &v, vstd::string &str) {
+    void operator()(bool v, vstd::string &str) {
         if (v)
             str << "true";
         else
