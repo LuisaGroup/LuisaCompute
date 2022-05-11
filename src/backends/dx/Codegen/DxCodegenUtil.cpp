@@ -194,7 +194,11 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
                 if (ele->is_vector() && ele->dimension() == 3) {
                     typeName << "float4"sv;
                 } else {
-                    GetTypeName(*ele, typeName, usage);
+                    if (opt->kernel.is_atomic_float_used() && ele->tag() == Type::Tag::FLOAT) {
+                        typeName << "int";
+                    } else {
+                        GetTypeName(*ele, typeName, usage);
+                    }
                 }
                 auto ite = opt->structReplaceName.Find(typeName);
                 if (ite) {
@@ -442,8 +446,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "any"sv;
             break;
         case CallOp::SELECT:
-             str << "_select"sv;
-             break;
+            str << "_select"sv;
+            break;
         case CallOp::CLAMP:
             str << "clamp"sv;
             break;
@@ -595,22 +599,36 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
-            str << "_atomic_exchange"sv;
+            if (expr->type()->tag() == Type::Tag::FLOAT) {
+                str << "_atomic_exchange_float"sv;
+            } else {
+                str << "_atomic_exchange"sv;
+            }
             getPointer();
             return;
         }
         case CallOp::ATOMIC_COMPARE_EXCHANGE: {
-            str << "_atomic_compare_exchange"sv;
+            if (expr->type()->tag() == Type::Tag::FLOAT) {
+                str << "_atomic_compare_exchange_float"sv;
+            } else {
+                str << "_atomic_compare_exchange"sv;
+            }
             getPointer();
             return;
         }
         case CallOp::ATOMIC_FETCH_ADD: {
-            str << "_atomic_add"sv;
+            if (expr->type()->tag() == Type::Tag::FLOAT)
+                str << "_atomic_add_float"sv;
+            else
+                str << "_atomic_add"sv;
             getPointer();
             return;
         }
         case CallOp::ATOMIC_FETCH_SUB: {
-            str << "_atomic_sub"sv;
+            if (expr->type()->tag() == Type::Tag::FLOAT)
+                str << "_atomic_sub_float"sv;
+            else
+                str << "_atomic_sub"sv;
             getPointer();
             return;
         }
@@ -630,13 +648,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             return;
         }
         case CallOp::ATOMIC_FETCH_MIN: {
-            str << "_atomic_min"sv;
+            if (expr->type()->tag() == Type::Tag::FLOAT)
+                str << "_atomic_min_float"sv;
+            else
+                str << "_atomic_min"sv;
             getPointer();
             return;
         }
         case CallOp::ATOMIC_FETCH_MAX: {
-
-            str << "_atomic_max"sv;
+            if (expr->type()->tag() == Type::Tag::FLOAT)
+                str << "_atomic_max_float"sv;
+            else
+                str << "_atomic_max"sv;
             getPointer();
             return;
         }
@@ -676,7 +699,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
         } break;
         case CallOp::BUFFER_READ: {
-            str << "bfread"sv;
+            if (opt->kernel.is_atomic_float_used() && expr->type()->tag() == Type::Tag::FLOAT) {
+                str << "bfread_float"sv;
+            } else {
+                str << "bfread"sv;
+            }
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
@@ -700,7 +727,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "TraceAny"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
-            str << "READ_BUFFER"sv;
+            if (opt->kernel.is_atomic_float_used() && expr->type()->tag() == Type::Tag::FLOAT) {
+                str << "READ_BUFFER_FLOAT"sv;
+            } else {
+                str << "READ_BUFFER"sv;
+            }
             if (IsNumVec3(*expr->type())) {
                 str << "Vec3"sv;
             }
@@ -1029,6 +1060,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     Function kernel) {
     if (kernel.tag() != Function::Tag::KERNEL) return {};
     opt = CodegenStackData::Allocate();
+    opt->kernel = kernel;
     auto disposeOpt = vstd::create_disposer([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
