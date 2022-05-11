@@ -124,11 +124,30 @@ class Accel:
     def empty():
         return Accel()
 
-    def add(self, mesh, transform = float4x4.identity(), visible = True):
+    def add(self, mesh, transform = float4x4(1), visible = True):
         self._accel.emplace_back(mesh.handle, transform, visible)
 
-    def update(self):
+    def set(self, index, mesh, transform = float4x4(1), visible = True):
+        self._accel.set(index, mesh.handle, transform, visible)
+
+    def pop(self):
+        self._accel.pop_back()
+
+    def __len__(self):
+        return self._accel.size()
+
+    def set_transform_on_update(self, index, transform: float4x4):
+        self._accel.set_transform_on_update(index, transform)
+
+    def set_visibility_on_update(self, index, visible: bool):
+        self._accel.set_visibility_on_update(index, visible)
+
+    def update(self, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
         globalvars.stream.add(self._accel.build_command(lcapi.AccelBuildRequest.PREFER_UPDATE))
+        if sync:
+            stream.synchronize()
 
     @func
     def trace_closest(self, ray: Ray):
@@ -144,16 +163,16 @@ class Accel:
         return _builtin_call(bool, "TRACE_ANY", self, ray)
 
     @func
-    def instance_transform(self, instance_id: int):
-        return _builtin_call(float4x4, "INSTANCE_TO_WORLD_MATRIX", self, instance_id)
+    def instance_transform(self, index: int):
+        return _builtin_call(float4x4, "INSTANCE_TO_WORLD_MATRIX", self, index)
 
     @func
-    def set_instance_transform(self, instance_id: int, mat: float4x4):
-        _builtin_call("SET_INSTANCE_TRANSFORM", self, instance_id, mat)
+    def set_instance_transform(self, index: int, transform: float4x4):
+        _builtin_call("SET_INSTANCE_TRANSFORM", self, index, transform)
 
     @func
-    def set_instance_visibility(self, instance_id: int, vis: bool):
-        _builtin_call("SET_INSTANCE_VISIBILITY", self, instance_id, vis)
+    def set_instance_visibility(self, index: int, visible: bool):
+        _builtin_call("SET_INSTANCE_VISIBILITY", self, index, visible)
 
 accel = Accel.accel
 
@@ -171,8 +190,12 @@ class Mesh:
             lcapi.AccelUsageHint.FAST_TRACE)
         self.update()
 
-    def update(self):
+    def update(self, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
         globalvars.stream.add(lcapi.MeshBuildCommand.create(
             self.handle, lcapi.AccelBuildRequest.PREFER_UPDATE,
             self.vertices.handle, 0, self.vertices.size,
             self.triangles.handle, 0, self.triangles.size//3))
+        if sync:
+            stream.synchronize()
