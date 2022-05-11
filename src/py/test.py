@@ -4,24 +4,16 @@ from luisa import array, struct
 
 
 luisa.init()
-b = luisa.Buffer.zeros(1, dtype=float)
+
+# sampler = luisa.RandomSampler(state=45)
+s = luisa.struct(a=float3(4), b=luisa.array([3,4]), c=luisa.struct(a=3, b=True))
+
+# print(type(sampler))
 
 @luisa.func
 def add():
-    _ = b.atomic_fetch_add(0, 1.0)
+    # print(sampler.next2f())
+    print(s)
 
-luisa.synchronize()
-add(dispatch_size=100)
-luisa.synchronize()
-
-print(b.numpy())
-
-# @luisa.func
-# def f():
-#     print(array([2,4,6]), struct(a=4,b=struct(a=4, b=float2(0.5)), c=array([0.9])))
-
-# luisa.init()
-# f(dispatch_size=(1,1,1))
-# print(array([2,4,6]), struct(a=4,b=struct(a=4, b=float2(0.5)), c=array([0.9])))
-
+add(dispatch_size=1)
 
