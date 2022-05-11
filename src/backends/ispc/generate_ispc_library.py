@@ -1805,15 +1805,12 @@ inline float atomic_compare_exchange_global_float(uniform float *varying v, {u}f
     return atomic_compare_exchange_global(v, cmp, x);
 }}
 inline float atomic_add_global_float(uniform float *varying v, {u}float x) {{
-    bool ok = false;
-    float old_val = 0.f;
-    while (!ok) {{
-        old_val = *v;
-        memory_barrier();
-        float new_val = old_val + x;
-        ok = intbits(old_val) == atomic_compare_exchange_global((uniform uint *varying)v, intbits(old_val), intbits(new_val));
+    float old = 0.f;
+    for (;;) {{
+        old = *v;
+        if (atomic_compare_exchange_global(v, old, old + x) == old) {{ break; }}
     }}
-    return old_val;
+    return old;
 }}
 inline float atomic_subtract_global_float(uniform float *varying v, {u}float x) {{
     return atomic_add_global_float(v, -x);
