@@ -6,10 +6,10 @@ from luisa.mathtypes import *
 
 lc.init()
 
-n_particles = 8192
-n_grid = 128
+n_grid = 256
+n_particles = n_grid ** 2 // 2
 dx = 1 / n_grid
-dt = 2e-4
+dt = 1e-4
 
 p_rho = 1
 p_vol = (dx * 0.5) ** 2
@@ -25,7 +25,6 @@ J = lc.Buffer.empty(n_particles, dtype=float)
 
 grid_v = lc.Buffer.empty(n_grid * n_grid * 2, dtype=float)
 grid_m = lc.Buffer.empty(n_grid * n_grid, dtype=float)
-grid_mutex = lc.Buffer.zeros(n_grid * n_grid, dtype=int)
 
 
 @lc.func
@@ -35,6 +34,7 @@ def encode(pos: int2):
 
 @lc.func
 def clear_grid():
+    set_block_size(16, 16, 1)
     grid_v.write(encode(dispatch_id().xy) * 2, 0.)
     grid_v.write(encode(dispatch_id().xy) * 2 + 1, 0.)
     grid_m.write(encode(dispatch_id().xy), 0.)
@@ -50,31 +50,28 @@ def point_to_grid():
     w = array([0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1.0) ** 2, 0.5 * (fx - 0.5) ** 2])
     stress = -dt * 4 * E * p_vol * (J.read(p) - 1) / dx ** 2
     affine = float2x2(stress) + p_mass * C.read(p)
-    offsets = array([int2(0, 0), int2(0, 1), int2(0, 2),
-                     int2(1, 0), int2(1, 1), int2(1, 2),
-                     int2(2, 0), int2(2, 1), int2(2, 2)])
     vp = v.read(p)
     for ii in range(9):
-        offset = offsets[ii]
+        offset = int2(ii % 3, ii // 3)
         i = offset.x
         j = offset.y
         dpos = (float2(offset) - fx) * dx
         weight = w[i].x * w[j].y
         vadd = weight * (p_mass * vp + affine * dpos)
-        _ = grid_v.atomic_fetch_add(encode(base + offset) * 2, vadd.x)
-        _ = grid_v.atomic_fetch_add(encode(base + offset) * 2 + 1, vadd.y)
-        _ = grid_m.atomic_fetch_add(encode(base + offset), weight * p_mass)
+        idx = encode(base + offset)
+        _ = grid_v.atomic_fetch_add(idx * 2, vadd.x)
+        _ = grid_v.atomic_fetch_add(idx * 2 + 1, vadd.y)
+        _ = grid_m.atomic_fetch_add(idx, weight * p_mass)
 
 
 @lc.func
 def simulate_grid():
-    set_block_size(8, 8, 1)
+    set_block_size(16, 16, 1)
     coord = dispatch_id().xy
     i = encode(coord)
     v = float2(grid_v.read(i * 2), grid_v.read(i * 2 + 1))
     m = grid_m.read(i)
-    if m > 0.0:
-        v /= m
+    v = v / m if m > 0.0 else v
     v.y -= dt * gravity
     v.x = 0.0 if coord.x < bound and v.x < 0.0 or coord.x > n_grid - bound and v.x > 0.0 else v.x
     v.y = 0.0 if coord.y < bound and v.y < 0.0 or coord.y > n_grid - bound and v.y > 0.0 else v.y
@@ -102,16 +99,14 @@ def grid_to_point():
     w = array([0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1.0) ** 2, 0.5 * (fx - 0.5) ** 2])
     new_v = float2(0)
     new_C = float2x2(0)
-    offsets = array([int2(0, 0), int2(0, 1), int2(0, 2),
-                     int2(1, 0), int2(1, 1), int2(1, 2),
-                     int2(2, 0), int2(2, 1), int2(2, 2)])
     for ii in range(9):
-        offset = offsets[ii]
+        offset = int2(ii % 3, ii // 3)
         i = offset.x
         j = offset.y
         dpos = (float2(offset) - fx) * dx
         weight = w[i].x * w[j].y
-        g_v = float2(grid_v.read(encode(base + offset) * 2), grid_v.read(encode(base + offset) * 2 + 1))
+        idx = encode(base + offset)
+        g_v = float2(grid_v.read(idx * 2), grid_v.read(idx * 2 + 1))
         new_v += weight * g_v
         new_C += 4 * weight * outer_product(g_v, dpos) / dx ** 2
     v.write(p, new_v)
@@ -161,7 +156,7 @@ lc.synchronize()
 
 gui = lc.GUI('MPM88', (res, res))
 while gui.running():
-    for s in range(50):
+    for s in range(64):
         substep()
     lc.synchronize()
     clear_display(dispatch_size=(res, res))
