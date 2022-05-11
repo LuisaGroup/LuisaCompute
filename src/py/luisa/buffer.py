@@ -2,6 +2,7 @@ import lcapi
 from . import globalvars
 from .globalvars import get_global_device
 from .types import to_lctype, basic_dtypes, dtype_of
+from .types import vector_dtypes, matrix_dtypes, element_of, length_of
 from functools import cache
 from .func import func
 from .builtin import _builtin_call
@@ -12,7 +13,7 @@ from .atomic import int_atomic_functions, float_atomic_functions
 
 class Buffer:
     def __init__(self, size, dtype):
-        if not (dtype in basic_dtypes or hasattr(dtype, 'to_bytes')):
+        if dtype not in basic_dtypes and type(dtype).__name__ not in {'StructType','ArrayType'}:
             raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)
         self.read = self.bufferType.read
@@ -126,12 +127,22 @@ class Buffer:
         if sync:
             stream.synchronize()
 
-    def numpy(self): # only supports scalar
+    def numpy(self, stream = None): # only supports scalar
         import numpy as np
         npf = {int:np.int32, float:np.float32, bool:bool}[self.dtype]
         arr = np.empty(self.size, dtype=npf)
-        self.copy_to(arr, sync=True)
+        self.copy_to(arr, sync=True, stream=stream)
         return arr
+
+    def to_list(self, stream = None):
+        packed_bytes = bytes(self.bytesize)
+        dlcmd = lcapi.BufferDownloadCommand.create(self.handle, 0, self.bytesize, packed_bytes)
+        if stream is None:
+            stream = globalvars.stream
+        stream.add(dlcmd)
+        stream.synchronize()
+        elsize = to_lctype(self.dtype).size()
+        return [from_bytes(self.dtype, packed_bytes[elsize*i: elsize*(i+1)]) for i in range(self.size)]
 
 buffer = Buffer.buffer
 
@@ -173,7 +184,31 @@ class BufferType:
         return write
 
 
-    # ========== atomic operations (int buffer only) ==========
+def from_bytes(dtype, packed):
+    import struct
+    if dtype == int:
+        return struct.unpack('i', packed)[0]
+    if dtype == float:
+        return struct.unpack('f', packed)[0]
+    if dtype == bool:
+        return struct.unpack('?', packed)[0]
+    if dtype in vector_dtypes or dtype in matrix_dtypes:
+        el = element_of(dtype)
+        elsize = to_lctype(el).size()
+        return dtype(*[from_bytes(el, packed[i*elsize: (i+1)*elsize]) for i in range(0, length_of(dtype))])
+    if hasattr(dtype, 'membertype'): # struct
+        values = []
+        offset = 0
+        for el in dtype.membertype:
+            elsize = to_lctype(el).size()
+            curr_align = to_lctype(el).alignment()
+            offset = (offset + curr_align - 1) // curr_align * curr_align
+            values.append(from_bytes(el, packed[offset: offset + elsize]))
+            offset += elsize
 
-
-
+        return dtype(**{name: values[dtype.idx_dict[name]] for name in dtype.idx_dict})
+    if hasattr(dtype, 'size'): # array
+        el = dtype.dtype
+        elsize = to_lctype(el).size()
+        return dtype([from_bytes(el, packed[i*elsize: (i+1)*elsize]) for i in range(0, dtype.size)])
+    assert False
