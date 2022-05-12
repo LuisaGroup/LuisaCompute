@@ -8,10 +8,10 @@ import math
 lc.init()
 
 #dim, n_grid, steps, dt = 2, 128, 20, 2e-4
-#dim, n_grid, steps, dt = 2, 256, 32, 1e-4
-dim, n_grid, steps, dt = 3, 32, 25, 4e-4
-#dim, n_grid, steps, dt = 3, 64, 25, 2e-4
-#dim, n_grid, steps, dt = 3, 128, 25, 8e-5
+# dim, n_grid, steps, dt = 2, 256, 32, 1e-4
+# dim, n_grid, steps, dt = 3, 32, 25, 4e-4
+# dim, n_grid, steps, dt = 3, 64, 25, 2e-4
+dim, n_grid, steps, dt = 3, 128, 25, 8e-5
 
 n_particles = n_grid**dim // 2**(dim - 1)
 dx = 1 / n_grid
