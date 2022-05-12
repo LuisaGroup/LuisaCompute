@@ -714,7 +714,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::BUFFER_WRITE: {
             str << "bfwrite"sv;
             auto elem = args[0]->type()->element();
-            if (IsNumVec3(*elem)) {
+            if (opt->kernel.is_atomic_float_used() && elem->tag() == Type::Tag::FLOAT) {
+                str << "_float"sv;
+            } else if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
             } else if (elem->is_matrix()) {
                 str << "Mat";

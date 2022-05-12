@@ -225,6 +225,12 @@ T copysign(T a, T b) { return asfloat((asuint(a) & 0x7fffffffu) | (asuint(b) & 0
 template<typename T>
 T fma(T a, T b, T c) { return a * b + c; }
 
+float2x2 make_float2x2(float s) {
+return float2x2(
+s, 0.f,
+0.f, s);
+}
+
 float2x2 make_float2x2(float m00, float m01,
 float m10, float m11) {
 return float2x2(
@@ -252,8 +258,20 @@ m20, m21, m22, m23,
 m30, m31, m32, m33);
 }
 
+float4x4 make_float4x4(float s) {
+return float4x4(
+s, 0.f, 0.f, 0.f,
+0.f, s, 0.f, 0.f,
+0.f, 0.f, s, 0.f,
+0.f, 0.f, 0.f, s);
+}
+
 float3x4 make_float3x3(float3 c0, float3 c1, float3 c2) {
 return float3x4(float4(c0, 0.f), float4(c1, 0.f), float4(c2, 0.f));
+}
+
+float3x4 make_float3x3(float s) {
+return float3x4(float4(s, 0.f, 0.f, 0.f), float4(0.f, s, 0.f, 0.f), float4(0.f, 0.f, s, 0.f));
 }
 
 float2x2 make_float2x2(float2 c0, float2 c1) { return float2x2(c0, c1); }
@@ -292,6 +310,7 @@ row_major float4x4 m;
 #define bfreadVec3(bf, idx) (bf[(idx)].xyz)
 #define bfreadMat(bf, idx) (bf[idx].m)
 #define bfwrite(bf, idx, value) (bf[(idx)] = (value))
+#define bfwrite_float(bf, idx, value) (bf[idx] = asint(value))
 #define bfwriteVec3(bf, idx, value) (bf[(idx)] = float4((value), 0))
 #define bfwriteMat(bf, idx, value) (bf[idx].m = value)
 struct BdlsStruct {
