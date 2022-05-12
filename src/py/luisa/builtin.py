@@ -190,7 +190,8 @@ builtin_func_names = {
     'determinant', 'transpose', 'inverse',
     'synchronize_block',
     'array', 'struct',
-    'make_ray', 'inf_ray', 'offset_ray_origin'
+    'make_ray', 'inf_ray', 'offset_ray_origin',
+    'len'
 }
 
 
@@ -320,7 +321,7 @@ def synchronize_block():
 # return dtype, expr
 def builtin_func(name, *args, **kwargs):
 
-    for f in {set_block_size}:
+    for f in {set_block_size, synchronize_block}:
         if name == f.__name__:
             return f.builder(*args, **kwargs)
 
@@ -564,6 +565,10 @@ def builtin_func(name, *args, **kwargs):
             lhs = lcapi.builder().member(to_lctype(dtype), strexpr, idx)
             lcapi.builder().assign(lhs, kwargs[name].expr)
         return strtype, strexpr
+
+    if name == 'len':
+        assert len(args) == 1 and type(args[0].dtype) is ArrayType
+        return int, lcapi.builder().literal(to_lctype(int), args[0].dtype.size)
 
     if name == 'make_ray':
         from .accel import make_ray

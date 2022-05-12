@@ -25,7 +25,6 @@ J = lc.Buffer.empty(n_particles, dtype=float)
 
 grid_v = lc.Buffer.empty(n_grid * n_grid * 2, dtype=float)
 grid_m = lc.Buffer.empty(n_grid * n_grid, dtype=float)
-grid_mutex = lc.Buffer.zeros(n_grid * n_grid, dtype=int)
 
 
 @lc.func

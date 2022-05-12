@@ -1,14 +1,15 @@
 import luisa
-from luisa.mathtypes import *
+# from luisa.mathtypes import *
 from luisa import array, struct
 
 
 luisa.init()
 
+a = array([5,32,6,4,0])
 
 @luisa.func
 def f():
-    luisa.builtin.set_block_size(4,1,1)
+	for x in a:
+		print(x)
 
-f(dispatch_size=4)
-print(b.to_list())
+f(dispatch_size=1)
