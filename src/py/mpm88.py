@@ -153,13 +153,11 @@ def draw_particle():
 
 
 init(dispatch_size=n_particles)
-lc.synchronize()
 
 gui = lc.GUI('MPM88', (res, res))
 while gui.running():
     for s in range(n_steps):
         substep()
-    lc.synchronize()
     clear_display(dispatch_size=(res, res))
     draw_particle(dispatch_size=n_particles)
     gui.set_image(display)
