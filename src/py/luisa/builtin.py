@@ -10,8 +10,6 @@ import ast
 from .array import ArrayType
 from .struct import StructType
 
-from .. import luisa
-
 
 def wrap_with_tmp_var(node):
     tmp = lcapi.builder().local(to_lctype(node.dtype))
