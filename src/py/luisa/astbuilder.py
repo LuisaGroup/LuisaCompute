@@ -9,7 +9,7 @@ from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call, wrap_with_tmp_var
-from .types import dtype_of, to_lctype, CallableType, vector_dtypes
+from .types import dtype_of, to_lctype, CallableType, vector_dtypes, matrix_dtypes
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .array import ArrayType
@@ -184,7 +184,7 @@ class ASTVisitor:
             node.dtype = node.value.dtype.dtype
         elif node.value.dtype in vector_dtypes:
             node.dtype = element_of(node.value.dtype)
-        elif node.value.dtype in {lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}:
+        elif node.value.dtype in matrix_dtypes:
             # matrix indexed is a column vector
             node.dtype = vector(float, length_of(node.value.dtype))
         else:
@@ -401,15 +401,15 @@ class ASTVisitor:
                 build(x)
 
     @staticmethod
-    def build_array_for(node):
+    def build_container_for(node):
         range_start = lcapi.builder().literal(to_lctype(int), 0)
-        range_stop = lcapi.builder().literal(to_lctype(int), node.iter.dtype.size)
+        range_stop = lcapi.builder().literal(to_lctype(int), length_of(node.iter.dtype))
         range_step = lcapi.builder().literal(to_lctype(int), 1)
         # loop variable
         idxexpr = lcapi.builder().local(to_lctype(int))
         lcapi.builder().assign(idxexpr, range_start)
-        eltype = node.iter.dtype.dtype # element type
-        varexpr = lcapi.builder().access(to_lctype(eltype), node.iter.expr, idxexpr) # loop variable (element in array)
+        eltype = element_of(node.iter.dtype) if node.iter.dtype not in matrix_dtypes else vector(float, length_of(node.iter.dtype)) # iterating through matrix yields vectors
+        varexpr = lcapi.builder().access(to_lctype(eltype), node.iter.expr, idxexpr) # loop variable (element)
         ctx().local_variable[node.target.id] = VariableInfo(eltype, varexpr)
         # build for statement
         condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, idxexpr, range_stop)
@@ -425,8 +425,8 @@ class ASTVisitor:
         if type(node.iter) is ast.Call and type(node.iter.func) is ast.Name and node.iter.func.id == "range":
             return build.build_range_for(node)
         build(node.iter)
-        if type(node.iter.dtype) is ArrayType:
-            return build.build_array_for(node)
+        if type(node.iter.dtype) is ArrayType or node.iter.dtype in {*vector_dtypes, *matrix_dtypes}:
+            return build.build_container_for(node)
         else:
             raise TypeError(f"{node.iter.dtype} object is not iterable")
 
