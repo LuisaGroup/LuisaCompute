@@ -33,7 +33,7 @@ class ASTVisitor:
     def __call__(self, node):
         method = getattr(self, 'build_' + node.__class__.__name__, None)
         if method is None:
-            raise NotImplementedError(f'Unsupported node {node}:\n{astpretty.pformat(node)}')
+            raise NotImplementedError(f'Unsupported syntax node {node}')
         try:
             # print(astpretty.pformat(node))
             self.comment_source(node)
