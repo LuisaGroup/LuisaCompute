@@ -516,19 +516,19 @@ float3(b)
 
 ## 内建函数与方法
 
-kernel/callable中可以调用内置的函数。
+luisa函数中可以调用内置的函数，无需加前缀（模块名）。
 
-一些类型具有可调用的方法，见类型对应文档。
+一些类型具有可调用的方法，见对应类型的文档。
 
 ### 线程相关
 
 ```python
-'set_block_size',
-'synchronize_block',
-'thread_id',
-'block_id',
 'dispatch_id',
 'dispatch_size',
+'thread_id',
+'block_id',
+'set_block_size',
+'synchronize_block',
 ```
 
 ### 数学函数
@@ -608,7 +608,7 @@ len
 局部变量的类型在整个函数中保持不变。例如：
 
 ```python
-@luisa.kernel
+@luisa.func
 def fill():
     a = 1 # 定义了int类型的局部变量
     a = 2 # 赋值
@@ -617,7 +617,7 @@ def fill():
 
 ## 语法参考
 
-kernel中尚不支持 list, tuple, dict 等python提供的数据结构
+除非特定内置函数指明允许的特例，luisa函数中任何变量、参数或返回值必须是"类型"一节中列出的类型，不支持 list, tuple, dict, set 等python提供的类型。
 
 ### for 循环
 
