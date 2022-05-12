@@ -1,6 +1,4 @@
 #include <pybind11/pybind11.h>
-#include <pybind11/functional.h>
-#include <pybind11/stl.h>
 #include <luisa-compute.h>
 
 namespace py = pybind11;
@@ -20,6 +18,20 @@ using namespace luisa::compute;
         .def("__truediv__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a / b; }, py::is_operator()) \
         .def("__truediv__", [](const Vector<T,4>&a, const T&b) { return a / b; }, py::is_operator()) \
         .def("__rtruediv__", [](const Vector<T,4>&a, const T&b) { return b / a; }, py::is_operator()) \
+        .def("__gt__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a > b; }, py::is_operator()) \
+        .def("__ge__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a >= b; }, py::is_operator()) \
+        .def("__lt__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a < b; }, py::is_operator()) \
+        .def("__le__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a <= b; }, py::is_operator()) \
+        .def("__eq__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a == b; }, py::is_operator()) \
+        .def("__ne__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a != b; }, py::is_operator()) \
+        ;
+
+#define LUISA_EXPORT_BOOL_OP(T) \
+    m##T                           \
+        .def("__eq__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a == b; }, py::is_operator()) \
+        .def("__ne__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a != b; }, py::is_operator()) \
+        .def("__and__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a && b; }, py::is_operator()) \
+        .def("__or__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a || b; }, py::is_operator()) \
         ;
 
 #define LUISA_EXPORT_INT_OP(T) \
@@ -27,6 +39,9 @@ using namespace luisa::compute;
         .def("__mod__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a % b; }, py::is_operator()) \
         .def("__mod__", [](const Vector<T,4>&a, const T&b) { return a % b; }, py::is_operator()) \
         .def("__rmod__", [](const Vector<T,4>&a, const T&b) { return b % a; }, py::is_operator()) \
+        .def("__shl__", [](const Vector<T,4>&a, const T&b) { return a << b; }, py::is_operator()) \
+        .def("__shr__", [](const Vector<T,4>&a, const T&b) { return a >> b; }, py::is_operator()) \
+        .def("__xor__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return a ^ b; }, py::is_operator()) \
         ;
 
 #define LUISA_EXPORT_FLOAT_OP(T) \
@@ -442,4 +457,5 @@ void export_vector4(py::module &m) {
     LUISA_EXPORT_INT_OP(uint)
     LUISA_EXPORT_INT_OP(int)
     LUISA_EXPORT_FLOAT_OP(float)
+    LUISA_EXPORT_BOOL_OP(bool)
 }
