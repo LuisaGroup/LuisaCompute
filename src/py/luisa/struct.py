@@ -1,5 +1,5 @@
 import lcapi
-from .types import dtype_of, to_lctype
+from .types import dtype_of, to_lctype, nameof
 
 class Struct:
     @staticmethod
@@ -89,7 +89,7 @@ class StructType:
         return t
 
     def __repr__(self):
-        return f'StructType[{self.alignment}](' + ', '.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
+        return f'StructType[{self.alignment}](' + ', '.join([f'{x}:{nameof(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
 
     def __eq__(self, other):
         return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment
