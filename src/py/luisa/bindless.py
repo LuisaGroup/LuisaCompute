@@ -74,6 +74,10 @@ class BindlessArray:
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE", self, texture2d_index, uv)
 
     @func
+    def texture2d_sample_grad(self, texture2d_index: int, uv: float2, ddx: float2, ddy: float2):
+        return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE_GRAD", self, texture2d_index, uv, ddx, ddy)
+
+    @func
     def texture2d_size(self, texture2d_index: int):
         return int2(_builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index))
 
