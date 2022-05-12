@@ -55,12 +55,11 @@ class Struct:
 
     def __repr__(self):
         idd = self.structType.idx_dict
-        return '{' + ','.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
+        return '{' + ', '.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
 
-def struct(**kwargs):
+def struct(alignment = 1, **kwargs):
     assert 'copy_source' not in kwargs
-    assert 'alignment' not in kwargs
-    return Struct(**kwargs)
+    return Struct(alignment=alignment, **kwargs)
 
 def deduce_struct_type(kwargs, alignment = 1):
     return StructType(alignment, **{name: dtype_of(kwargs[name]) for name in kwargs})
@@ -90,7 +89,7 @@ class StructType:
         return t
 
     def __repr__(self):
-        return 'StructType(' + ','.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
+        return f'StructType[{self.alignment}](' + ', '.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
 
     def __eq__(self, other):
         return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment

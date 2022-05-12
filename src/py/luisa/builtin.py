@@ -636,8 +636,20 @@ def builtin_func(name, *args, **kwargs):
         return arrtype, arrexpr
 
     if name == 'struct': # create struct from kwargs
+        # get alignment
+        alignment = 1
+        if len(args) > 0:
+            if len(args) > 1 or args[0].dtype != int:
+                raise TypeError("struct only takes an optional positional argument 'alignment' (int)")
+            if type(args[0]).__name__ != "Constant":
+                raise TypeError("alignment must be compile-time constant (literal).")
+            alignment = args[0].value
+        if 'alignment' in kwargs:
+            if type(kwargs['alignment']).__name__ != "Constant":
+                raise TypeError("alignment must be compile-time constant (literal).")
+            alignment = kwargs.pop('alignment').value
         # deduce struct type
-        strtype = StructType(**{name:kwargs[name].dtype for name in kwargs})
+        strtype = StructType(alignment=alignment, **{name:kwargs[name].dtype for name in kwargs})
         # create & fill struct
         strexpr = lcapi.builder().local(to_lctype(strtype))
         for name in kwargs:
@@ -654,7 +666,7 @@ def builtin_func(name, *args, **kwargs):
     if name == 'inf_ray':
         from .accel import inf_ray
         return callable_call(inf_ray, *args)
-        
+
     if name == 'offset_ray_origin':
         from .accel import offset_ray_origin
         return callable_call(offset_ray_origin, *args)
