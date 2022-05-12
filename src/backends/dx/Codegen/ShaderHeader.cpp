@@ -204,20 +204,16 @@ bool4 _isnan(float4 x) {
 return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 }
 bool _isinf(float x) {
-uint u = asuint(x);
-return or(u == 0x7F800000u, u == 0xFF800000u);
+return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 bool2 _isinf(float2 x) {
-uint2 u = asuint(x);
-return or(u == 0x7F800000u, u == 0xFF800000u);
+return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 bool3 _isinf(float3 x) {
-uint3 u = asuint(x);
-return or(u == 0x7F800000u, u == 0xFF800000u);
+return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 bool4 _isinf(float4 x) {
-uint4 u = asuint(x);
-return or(u == 0x7F800000u, u == 0xFF800000u);
+return (asuint(x) & 0x7FFFFFFF) == 0x7F800000;
 }
 template<typename T, typename V>
 T _select(T a, T b, V c) {
@@ -291,7 +287,8 @@ struct WrappedFloat4x4 {
 row_major float4x4 m;
 };
 
-#define bfread(bf, idx) (bf[(idx)])
+#define bfread(bf, idx) (bf[idx])
+#define bfread_float(bf, idx) (asfloat(bf[idx]))
 #define bfreadVec3(bf, idx) (bf[(idx)].xyz)
 #define bfreadMat(bf, idx) (bf[idx].m)
 #define bfwrite(bf, idx, value) (bf[(idx)] = (value))
@@ -370,6 +367,7 @@ return max(Tex2DSize(arr, index) >> level, 1u);
 uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level) {
 return max(Tex3DSize(arr, index) >> level, 1u);
 }
+#define READ_BUFFER_FLOAT(arr, arrIdx, idx, bf) (asfloat(bf[arr[arrIdx].buffer][idx]))
 #define READ_BUFFER(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx])
 #define READ_BUFFERVec3(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx].xyz)
 struct MeshInst {
@@ -408,17 +406,47 @@ T r;
 InterlockedExchange(a[idx], b, r);
 return r;
 }
+template <typename Buffer, typename Idx>
+float _atomic_exchange_float(Buffer a, Idx idx, float b){
+int r;
+InterlockedExchange(a[idx], asint(b), r);
+return asfloat(r);
+}
 template<typename Buffer, typename Idx, typename T>
 T _atomic_compare_exchange(Buffer a, Idx idx, T b, T c) {
 T r;
 InterlockedCompareExchange(a[idx], b, c, r);
 return r;
 }
+template<typename Buffer, typename Idx>
+float _atomic_compare_exchange_float(Buffer a, Idx idx, float b, float c){
+int r;
+InterlockedCompareExchange(a[idx], asint(b), asint(c), r);
+return asfloat(r);
+}
 template<typename Buffer, typename Idx, typename T>
 T _atomic_add(Buffer a, Idx idx, T b) {
 T r;
 InterlockedAdd(a[idx], b, r);
 return r;
+}
+template<typename Buffer, typename Idx>
+float _atomic_add_float(Buffer a, Idx idx, float b){
+while(true){
+int old = a[idx];
+int result;
+InterlockedCompareExchange(a[idx], old, asint(asfloat(old) + b), result);
+if(old == result) return asfloat(old);
+}
+}
+template<typename Buffer, typename Idx>
+float _atomic_sub_float(Buffer a, Idx idx, float b){
+while(true){
+int old = a[idx];
+int result;
+InterlockedCompareExchange(a[idx], old, asint(asfloat(old) - b), result);
+if(old == result) return asfloat(old);
+}
 }
 template<typename Buffer, typename Idx, typename T>
 T _atomic_sub(Buffer a, Idx idx, T b) {
@@ -450,11 +478,23 @@ T r;
 InterlockedMin(a[idx], b, r);
 return r;
 }
+template<typename Buffer, typename Idx>
+float _atomic_min_float(Buffer a, Idx idx, float b) {
+int r;
+InterlockedMin(a[idx], asint(b), r);
+return asfloat(r);
+}
 template<typename Buffer, typename Idx, typename T>
 T _atomic_max(Buffer a, Idx idx, T b) {
 T r;
 InterlockedMax(a[idx], b, r);
 return r;
+}
+template<typename Buffer, typename Idx>
+float _atomic_max_float(Buffer a, Idx idx, float b) {
+int r;
+InterlockedMax(a[idx], asint(b), r);
+return asfloat(r);
 }
 struct FLOATV3 {
 float v[3];

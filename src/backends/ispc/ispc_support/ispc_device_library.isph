@@ -7091,53 +7091,26 @@ float vector_access_rvalue_float4(float4 v, uniform uint i) { lc_assume(i < 4); 
 uniform float vector_access_rvalue_float4(uniform float4 v, uniform uint i) { lc_assume(i < 4); return v.v[i]; }
 
 // atomic operations for floats
-inline float atomic_swap_global_float(uniform float *varying v, uniform float x) {
+inline float atomic_swap_global_float(float *varying v, float x) {
     return atomic_swap_global(v, x);
 }
-inline float atomic_compare_exchange_global_float(uniform float *varying v, uniform float cmp, uniform float x) {
+inline float atomic_compare_exchange_global_float(float *varying v, float cmp, float x) {
     return atomic_compare_exchange_global(v, cmp, x);
 }
-inline float atomic_add_global_float(uniform float *varying v, uniform float x) {
+inline float atomic_add_global_float(float *varying v, float x) {
+    float old = 0.f;
     for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old + x) == old) { return old; }
+        old = *v;
+        if (atomic_compare_exchange_global((uint *varying)v, intbits(old), intbits(old + x)) == intbits(old)) { break; }
     }
+    return old;
 }
-inline float atomic_subtract_global_float(uniform float *varying v, uniform float x) {
-    for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old - x) == old) { return old; }
-    }
+inline float atomic_subtract_global_float(float *varying v, float x) {
+    return atomic_add_global_float(v, -x);
 }
-inline float atomic_min_global_float(uniform float *varying v, uniform float x) {
-    return floatbits(atomic_min_global((uniform int *varying)v, (uniform int)intbits(x)));
+inline float atomic_min_global_float(float *varying v, float x) {
+    return floatbits(atomic_min_global((int *varying)v, (int)intbits(x)));
 }
-inline float atomic_max_global_float(uniform float *varying v, uniform float x) {
-    return floatbits(atomic_max_global((uniform int *varying)v, (uniform int)intbits(x)));
-}
-
-// atomic operations for floats
-inline float atomic_swap_global_float(uniform float *varying v, float x) {
-    return atomic_swap_global(v, x);
-}
-inline float atomic_compare_exchange_global_float(uniform float *varying v, float cmp, float x) {
-    return atomic_compare_exchange_global(v, cmp, x);
-}
-inline float atomic_add_global_float(uniform float *varying v, float x) {
-    for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old + x) == old) { return old; }
-    }
-}
-inline float atomic_subtract_global_float(uniform float *varying v, float x) {
-    for (;;) {
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old - x) == old) { return old; }
-    }
-}
-inline float atomic_min_global_float(uniform float *varying v, float x) {
-    return floatbits(atomic_min_global((uniform int *varying)v, (int)intbits(x)));
-}
-inline float atomic_max_global_float(uniform float *varying v, float x) {
-    return floatbits(atomic_max_global((uniform int *varying)v, (int)intbits(x)));
+inline float atomic_max_global_float(float *varying v, float x) {
+    return floatbits(atomic_max_global((int *varying)v, (int)intbits(x)));
 }

@@ -305,7 +305,7 @@ public:
 
     // config
     /// Set block size
-    void set_block_size(uint3 size) noexcept { _block_size = size; }
+    void set_block_size(uint3 size) noexcept;
 
     // built-in variables
     /// Return thread id.

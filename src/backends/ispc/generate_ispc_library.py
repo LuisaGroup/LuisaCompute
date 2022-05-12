@@ -1795,30 +1795,28 @@ uniform float4 matrix_access_rvalue_4(uniform float4x4 m, uniform uint i) { retu
 {t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uint i) {{ return v.v[i]; }}
 {t} vector_access_rvalue_{t}{i}({t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}
 uniform {t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}''', file=file)
-        for u in ["uniform ", ""]:
-            print(f'''
+        print(f'''
 // atomic operations for floats
-inline float atomic_swap_global_float(uniform float *varying v, {u}float x) {{
+inline float atomic_swap_global_float(float *varying v, float x) {{
     return atomic_swap_global(v, x);
 }}
-inline float atomic_compare_exchange_global_float(uniform float *varying v, {u}float cmp, {u}float x) {{
+inline float atomic_compare_exchange_global_float(float *varying v, float cmp, float x) {{
     return atomic_compare_exchange_global(v, cmp, x);
 }}
-inline float atomic_add_global_float(uniform float *varying v, {u}float x) {{
+inline float atomic_add_global_float(float *varying v, float x) {{
+    float old = 0.f;
     for (;;) {{
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old + x) == old) {{ return old; }}
+        old = *v;
+        if (atomic_compare_exchange_global((uint *varying)v, intbits(old), intbits(old + x)) == intbits(old)) {{ break; }}
     }}
+    return old;
 }}
-inline float atomic_subtract_global_float(uniform float *varying v, {u}float x) {{
-    for (;;) {{
-        float old = *v;
-        if (atomic_compare_exchange_global(v, old, old - x) == old) {{ return old; }}
-    }}
+inline float atomic_subtract_global_float(float *varying v, float x) {{
+    return atomic_add_global_float(v, -x);
 }}
-inline float atomic_min_global_float(uniform float *varying v, {u}float x) {{
-    return floatbits(atomic_min_global((uniform int *varying)v, ({u}int)intbits(x)));
+inline float atomic_min_global_float(float *varying v, float x) {{
+    return floatbits(atomic_min_global((int *varying)v, (int)intbits(x)));
 }}
-inline float atomic_max_global_float(uniform float *varying v, {u}float x) {{
-    return floatbits(atomic_max_global((uniform int *varying)v, ({u}int)intbits(x)));
+inline float atomic_max_global_float(float *varying v, float x) {{
+    return floatbits(atomic_max_global((int *varying)v, (int)intbits(x)));
 }}''', file=file)

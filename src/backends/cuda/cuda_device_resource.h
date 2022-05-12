@@ -780,6 +780,30 @@ inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, bool 
     accel.instances[index].mask = v ? 0xffu : 0x00u;
 }
 
+inline float atomicExch_float(float *a, float v) noexcept {
+    return atomicExch(a, v);
+}
+
+inline float atomicCAS_float(float *a, float cmp, float v) noexcept {
+    return __uint_as_float(atomicCAS(reinterpret_cast<lc_uint *>(a), __float_as_uint(cmp), __float_as_uint(v)));
+}
+
+inline float atomicAdd_float(float *a, float v) noexcept {
+    return atomicAdd(a, v);
+}
+
+inline float atomicSub_float(float *a, float v) noexcept {
+    return atomicAdd(a, -v);
+}
+
+inline float atomicMin_float(float *a, float v) noexcept {
+    return __int_as_float(atomicMin(reinterpret_cast<int *>(a), __float_as_int(v)));
+}
+
+inline float atomicMax_float(float *a, float v) noexcept {
+    return __int_as_float(atomicMax(reinterpret_cast<int *>(a), __float_as_int(v)));
+}
+
 #if LC_RAYTRACING_KERNEL
 
 template<lc_uint i>
