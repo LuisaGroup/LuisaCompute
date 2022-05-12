@@ -2,7 +2,6 @@ import ast
 import astpretty
 import inspect
 import sys
-import traceback
 from types import SimpleNamespace, ModuleType
 from .types import length_of, element_of, vector
 from . import globalvars
@@ -75,6 +74,13 @@ class ASTVisitor:
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' ' * startcol + '~' * (endcol - startcol) + clr)
+        if type(e).__name__ != "CompileError":
+            import traceback
+            traceback.print_exc(limit=-2)
+            # print("Traceback (most recent call last):")
+            # _, _, tb = sys.exc_info()
+            # traceback.print_tb(tb,limit=-1) # Fixed format
+            print() # blank line
 
     @staticmethod
     def build_FunctionDef(node):

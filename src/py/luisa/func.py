@@ -150,9 +150,9 @@ class func:
             except Exception as e:
                 if hasattr(e, "already_printed"):
                     # hide the verbose traceback in AST builder
-                    e = CompileError(f"Failed to compile luisa.func '{self.__name__}'")
-                    e.func = self
-                    raise e from None
+                    e1 = CompileError(f"Failed to compile luisa.func '{self.__name__}'")
+                    e1.func = self
+                    raise e1 from None
                 else:
                     raise
         return self.compiled_results[(call_from_host,) + argtypes]
