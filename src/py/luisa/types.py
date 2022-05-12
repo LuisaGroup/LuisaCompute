@@ -5,21 +5,16 @@ from lcapi import float2x2, float3x3, float4x4
 class uint:
     pass
 
-arithmetic_dtypes = {int, float}
 scalar_dtypes = {int, float, bool, uint}
 vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4}
 matrix_dtypes = {float2x2, float3x3, float4x4}
 basic_dtypes = {*scalar_dtypes, *vector_dtypes, *matrix_dtypes}
+arithmetic_dtypes = {int, float, int2, float2, int3, float3, int4, float4}
 
 
 def nameof(dtype):
     return getattr(dtype, '__name__', None) or repr(dtype)
 
-# arithmetic_lctypes = set(map(to_lctype, arithmetic_dtypes))
-# scalar_lctypes = set(map(to_lctype, scalar_dtypes))
-# vector_lctypes = set(map(to_lctype, vector_dtypes))
-# matrix_lctypes = set(map(to_lctype, matrix_dtypes))
-# basic_lctypes = set(map(to_lctype, basic_dtypes))
 
 def vector(dtype, length): # (float, 2) -> float2
     if length==1:

@@ -18,7 +18,6 @@ def wrap_with_tmp_var(node):
     node.lr = 'l'
 
 
-
 def upper_scalar_dtype(dtype0, dtype1):
     if float in [dtype0, dtype1]:
         return float
@@ -395,7 +394,7 @@ def builtin_func(name, *args, **kwargs):
 
     if name in ('abs',):
         assert len(args) == 1
-        assert args[0].dtype in (int, float) or args[0].dtype in vector_dtypes and element_of(args[0].dtype) in (int, float)
+        assert args[0].dtype in arithmetic_dtypes
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -471,18 +470,17 @@ def builtin_func(name, *args, **kwargs):
         assert len(args) == 3
         e = element_of(args[0].dtype)
         if name == 'clamp':
-            assert e in arithmetic_dtypes
+            assert e in {int, float}
         else:
-            assert e == 'float'
+            assert e == float
         return make_vector_call(e, op, args)
 
     if name == 'step':
         op = lcapi.CallOp.STEP
         assert len(args) == 2
-        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes or \
-               args[0].dtype == args[1].dtype and args[0].dtype in vector_dtypes and element_of(args[0].dtype) in arithmetic_dtypes, \
+        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes, \
                "invalid parameter"
-        if args[0].dtype in arithmetic_dtypes:
+        if args[0].dtype in {int, float}:
             # step(scalar, scalar) -> float
             dtype = float
         else:
@@ -500,17 +498,6 @@ def builtin_func(name, *args, **kwargs):
         # clz(vector<uint>) -> vector<uint>
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-    if name == 'copysign':
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 2
-        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes or \
-               args[0].dtype == args[1].dtype and args[0].dtype in vector_dtypes and element_of(args[0].dtype) in arithmetic_dtypes, \
-               "invalid parameter"
-        # copysign(scalar, scalar) -> scalar
-        # copysign(vector<scalar>, vector<scalar>) -> vector<scalar>
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
 
     if name == 'faceforward':
         op = getattr(lcapi.CallOp, name.upper())
@@ -533,10 +520,6 @@ def builtin_func(name, *args, **kwargs):
         assert to_lctype(args[0].dtype).is_matrix()
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-
-    if name == 'atomic_compare_exchange':
-        pass
 
     if name == 'array': # create array from list
         check_exact_signature([list], args, 'array')
