@@ -22,12 +22,17 @@ def vector(dtype, length): # (float, 2) -> float2
     return getattr(lcapi, dtype.__name__ + str(length))
 
 def length_of(dtype): # float2 -> 2
+    if hasattr(dtype, 'size'):
+        return dtype.size
     if dtype in scalar_dtypes:
         return 1
     assert dtype in vector_dtypes or dtype in matrix_dtypes
     return int(dtype.__name__[-1])
 
+# Note: matrix subscripted is vector, not its element
 def element_of(dtype): # float2 -> float
+    if hasattr(dtype, 'dtype'):
+        return dtype.dtype
     if dtype in scalar_dtypes:
         return dtype
     if dtype in matrix_dtypes:

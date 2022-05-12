@@ -567,8 +567,10 @@ def builtin_func(name, *args, **kwargs):
         return strtype, strexpr
 
     if name == 'len':
-        assert len(args) == 1 and type(args[0].dtype) is ArrayType
-        return int, lcapi.builder().literal(to_lctype(int), args[0].dtype.size)
+        assert len(args) == 1
+        if type(args[0].dtype) is ArrayType or args[0].dtype in {*vector_dtypes, *matrix_dtypes}:
+            return int, lcapi.builder().literal(to_lctype(int), length_of(args[0].dtype))
+        raise TypeError(f"{nameof(args[0].dtype)} object has no len()")
 
     if name == 'make_ray':
         from .accel import make_ray
