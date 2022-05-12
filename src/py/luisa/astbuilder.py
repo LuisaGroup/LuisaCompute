@@ -277,9 +277,31 @@ class ASTVisitor:
         node.lr = 'r'
 
     @staticmethod
+    def build_tuple_assign(lhs, rhs):
+        # tuple isn't supported in general;
+        # here we support a special case: tuple assignment
+        if type(rhs) is not ast.Tuple:
+            raise TypeError(f"can only unpack from tuple (got {rhs.dtype})")
+        if len(lhs.elts) < len(rhs.elts):
+            raise ValueError("too many values to unpack (expected {len(lhs.elts)}, got {len(rhs.elts)})")
+        if len(lhs.elts) > len(rhs.elts):
+            raise ValueError("not enough values to unpack (expected {len(lhs.elts)}, got {len(rhs.elts)})")
+        tmps = []
+        for r in rhs.elts:
+            if r.dtype == None:
+                raise TypeError("Can't assign None to variable")
+            tmpexpr = lcapi.builder().local(to_lctype(r.dtype))
+            lcapi.builder().assign(tmpexpr, r.expr)
+            tmps.append(SimpleNamespace(dtype=r.dtype, expr=tmpexpr))
+        for i in range(len(lhs.elts)):
+            build.build_assign_pair(lhs.elts[i], tmps[i])
+
+    @staticmethod
     def build_assign_pair(lhs, rhs):
         if rhs.dtype == None:
             raise TypeError("Can't assign None to variable")
+        if type(lhs) is ast.Tuple:
+            return build.build_tuple_assign(lhs, rhs)
         # allows left hand side to be undefined
         if type(lhs) is ast.Name:
             build.build_Name(lhs, allow_none=True)
@@ -483,6 +505,13 @@ class ASTVisitor:
 
     @staticmethod
     def build_List(node):
+        node.dtype = list
+        for x in node.elts:
+            build(x)
+        node.expr = None
+
+    @staticmethod
+    def build_Tuple(node):
         node.dtype = list
         for x in node.elts:
             build(x)

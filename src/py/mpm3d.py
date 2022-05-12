@@ -154,10 +154,8 @@ def T(a0: float3):
     s = sin(phi)
     C = cos(theta)
     S = sin(theta)
-    a.x = a.x * c + a.z * s
-    a.z = a.z * c - a.x * s
-    u = a.x
-    v = a.y * C + a.z * S
+    a.x, a.z = a.x * c + a.z * s, a.z * c - a.x * s
+    u, v = a.x, a.y * C + a.z * S
     return float2(u,v) + 0.5
 
 
