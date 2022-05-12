@@ -64,16 +64,18 @@ class ASTVisitor:
             red, green, bold, clr = "\x1b[31;1m", "\x1b[32;1m", "\x1b[1m", "\x1b[0m"
         else:
             red = green = bold = clr = ""
+        prefix = f"{bold}{ctx().func.filename.split('/')[-1]}:{ctx().func.lineno-2+node.lineno} {clr}"
         if type(e).__name__ == "CompileError":
-            print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} The above error occured during compilation of '{e.func.__name__}'{clr}")
+            print(f"{prefix}{red}Error:{clr}{bold} The above error occured during compilation of '{e.func.__name__}'{clr}")
         else:
-            print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+            print(f"{prefix}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
         source = ctx().sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
             print(line.rstrip('\n'))
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' ' * startcol + '~' * (endcol - startcol) + clr)
+        print(f"in luisa.func '{ctx().func.__name__}' in {ctx().func.filename}")
         if type(e).__name__ != "CompileError":
             import traceback
             traceback.print_exc(limit=-2)
@@ -374,10 +376,13 @@ class ASTVisitor:
         build(node.body)
         build(node.test)
         build(node.orelse)
-        if node.test.dtype != bool:
-            raise TypeError(f"IfExp condition must be bool, got {node.test.dtype}")
+        from lcapi import bool2, bool3, bool4
+        if node.test.dtype not in {bool, bool2, bool3, bool4}:
+            raise TypeError(f"IfExp condition must be bool or bool vector, got {node.test.dtype}")
         if node.body.dtype != node.orelse.dtype:
             raise TypeError(f"Both result expressions of IfExp must be of same type. ({node.body.dtype} vs {node.orelse.dtype})")
+        if node.test.dtype != bool and length_of(node.test.dtype) != length_of(node.body.dtype):
+            raise TypeError(f"IfExp condition must be either bool or vector of same length ({length_of(node.test.dtype)} != {length_of(node.body.dtype)})")
         node.dtype = node.body.dtype
         node.expr = lcapi.builder().call(to_lctype(node.dtype), lcapi.CallOp.SELECT, [node.orelse.expr, node.body.expr, node.test.expr])
         node.lr = 'r'

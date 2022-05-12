@@ -103,6 +103,9 @@ class func:
         self.__name__ = pyfunc.__name__
         self.__doc__ = pyfunc.__doc__
         self.compiled_results = {} # maps (arg_type_tuple) to (function, shader_handle)
+        frameinfo = inspect.getframeinfo(inspect.stack()[1][0])
+        self.filename = frameinfo.filename
+        self.lineno = frameinfo.lineno
 
     # compiles an argument-type-specialized callable/kernel
     # returns FuncInstanceInfo

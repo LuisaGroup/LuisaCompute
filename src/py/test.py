@@ -6,7 +6,11 @@ luisa.init()
 
 @luisa.func
 def f(x):
+	b = 423
 	return abs(x)
+	a = 3
+	# 31221
+	b = 423
 
 @luisa.func
 def g():
