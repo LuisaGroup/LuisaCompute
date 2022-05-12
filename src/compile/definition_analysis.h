@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "core/hash.h"
 #include <core/stl.h>
 #include <ast/interface.h>
 

@@ -81,7 +81,7 @@ void Accel::_emplace_back(uint64_t mesh_handle, float4x4 transform, bool visible
     modification.set_mesh(mesh_handle);
     modification.set_transform(transform);
     modification.set_visibility(visible);
-    _modifications[index] = modification;
+    _modifications.insert_or_assign(index, modification);
     _mesh_handles.emplace_back(mesh_handle);
 }
 
@@ -97,6 +97,10 @@ void Accel::pop_back() noexcept {
 }
 
 void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible) noexcept {
+    _set(index, mesh.handle(), transform, visible);
+}
+
+void Accel::_set(size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
     std::scoped_lock lock{*_mutex};
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
@@ -106,11 +110,11 @@ void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible
         Modification modification{static_cast<uint>(index)};
         modification.set_transform(transform);
         modification.set_visibility(visible);
-        if (mesh.handle() != _mesh_handles[index]) [[likely]] {
-            modification.set_mesh(mesh.handle());
-            _mesh_handles[index] = mesh.handle();
+        if (mesh_handle != _mesh_handles[index]) [[likely]] {
+            modification.set_mesh(mesh_handle);
+            _mesh_handles[index] = mesh_handle;
         }
-        _modifications[index] = modification;
+        _modifications.insert_or_assign(index, modification);
     }
 }
 

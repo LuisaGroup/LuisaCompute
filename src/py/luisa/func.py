@@ -11,8 +11,8 @@ import astpretty
 import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
-from .types import dtype_of, to_lctype, ref, CallableType
-from .structtype import StructType
+from .types import dtype_of, to_lctype, CallableType
+from .struct import StructType
 from .astbuilder import VariableInfo
 import textwrap
 
@@ -146,6 +146,13 @@ class func:
         get_global_device() # check device is initialized
         if stream is None:
             stream = globalvars.stream
+        # get 3D dispatch size
+        if type(dispatch_size) is int:
+            dispatch_size = (dispatch_size,1,1)
+        elif len(dispatch_size) in (1,2,3):
+            dispatch_size = (*dispatch_size, *[1]*(3-len(dispatch_size)))
+        else:
+            raise TypeError("dispatch_size must be int or tuple of 1/2/3 ints")
         # get types of arguments and compile
         argtypes = tuple(dtype_of(a) for a in args)
         f = self.get_compiled(call_from_host=True, argtypes=argtypes)

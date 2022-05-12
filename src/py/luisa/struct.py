@@ -1,9 +1,7 @@
 import lcapi
-from .types import dtype_of, to_lctype
-from .arraytype import ArrayType, _Array
+from .types import dtype_of, to_lctype, nameof
 
-
-class _Struct:
+class Struct:
     @staticmethod
     def make_getter(name):
         def f(self):
@@ -20,16 +18,20 @@ class _Struct:
         assert dtype_of(value) == dtype
         return value
 
-    def __init__(self, structType, **kwargs):
-        self.structType = structType
-        self.values = []
-        assert len(kwargs.items()) == len(self.structType.membertype)
-        for name, value in kwargs.items():
-            idx = self.structType.idx_dict[name]
-            dtype = self.structType.membertype[idx]
-            self.values.append(self.cast(dtype, value))
-            setattr(_Struct, name, property(self.make_getter(name), self.make_setter(name)))
+    def __init__(self, copy_source = None, alignment = 1, **kwargs):
+        if copy_source is not None: # copy from another struct
+            assert len(kwargs) == 0 and type(copy_source) is Struct
+            self.structType = copy_source.structType
+            self.values = copy_source.values.copy()
+        else:
+            self.structType = deduce_struct_type(kwargs, alignment=alignment)
+            self.values = [value for name, value in kwargs.items()]
+            for name in kwargs:
+                setattr(Struct, name, property(self.make_getter(name), self.make_setter(name)))
 
+    def copy(self):
+        return Struct(copy_source = self)
+        
     def to_bytes(self):
         packed_bytes = b''
         for idx, value in enumerate(self.values):
@@ -51,6 +53,16 @@ class _Struct:
         assert len(packed_bytes) == self.structType.luisa_type.size()
         return packed_bytes
 
+    def __repr__(self):
+        idd = self.structType.idx_dict
+        return '{' + ', '.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
+
+def struct(alignment = 1, **kwargs):
+    assert 'copy_source' not in kwargs
+    return Struct(alignment=alignment, **kwargs)
+
+def deduce_struct_type(kwargs, alignment = 1):
+    return StructType(alignment, **{name: dtype_of(kwargs[name]) for name in kwargs})
 
 
 class StructType:
@@ -70,10 +82,14 @@ class StructType:
         self.luisa_type = lcapi.Type.from_(type_string)
 
     def __call__(self, **kwargs):
-        return _Struct(self, **kwargs)
+        # ensure order
+        assert deduce_struct_type(kwargs, alignment=self.alignment) == self
+        t = Struct(alignment=self.alignment, **kwargs)
+        t.structType = self # override it's type tag to retain method_dict
+        return t
 
     def __repr__(self):
-        return 'StructType(' + ','.join([f'{x}:{(lambda x: getattr(x,"__name__",None) or repr(x))(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
+        return f'StructType[{self.alignment}](' + ', '.join([f'{x}:{nameof(self.membertype[self.idx_dict[x]])}' for x in self.idx_dict]) + ')'
 
     def __eq__(self, other):
         return type(other) is StructType and self.idx_dict == other.idx_dict and self.membertype == other.membertype and self.alignment == other.alignment
@@ -81,13 +97,13 @@ class StructType:
     def __hash__(self):
         return hash(self.luisa_type.description()) ^ 7178987438397
 
-    def add_method(self, name, func):
+    def add_method(self, func, name=None):
+        if name is None:
+            name = func.__name__
         # check name collision
         if name in self.idx_dict:
             raise NameError("struct method can't have same name as its data members")
         # add method to structtype
-        self.idx_dict[name] = len(self.membertype)
-        self.membertype.append(dtype_of(func))
         self.method_dict[name] = func
 
 

@@ -2,6 +2,10 @@
 // Created by Mike Smith on 2022/2/7.
 //
 
+#include <fstream>
+#include <streambuf>
+
+#include <core/stl.h>
 #include <backends/ispc/ispc_stream.h>
 #include <backends/ispc/ispc_device.h>
 #include <backends/ispc/ispc_event.h>
@@ -110,7 +114,7 @@ void *ISPCDevice::stream_native_handle(uint64_t handle) const noexcept {
 }
 
 uint64_t ISPCDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    auto shader = luisa::new_with_allocator<ISPCShader>(context(), kernel);
+    auto shader = luisa::new_with_allocator<ISPCShader>(context(), kernel, _lib_hash);
     return reinterpret_cast<uint64_t>(shader);
 }
 
@@ -162,7 +166,13 @@ void ISPCDevice::destroy_accel(uint64_t handle) noexcept {
 }
 
 ISPCDevice::ISPCDevice(const Context &ctx) noexcept
-    : Device::Interface{ctx}, _rtc_device{rtcNewDevice(nullptr)} {}
+    : Device::Interface{ctx}, _rtc_device{rtcNewDevice(nullptr)} {
+    auto library_path = ctx.runtime_directory() / "ispc_device_library.isph";
+    std::ifstream library_file{library_path};
+    luisa::string library_source{std::istreambuf_iterator<char>{library_file},
+                                 std::istreambuf_iterator<char>{}};
+    _lib_hash = hash64(library_source);
+}
 
 ISPCDevice::~ISPCDevice() noexcept { rtcReleaseDevice(_rtc_device); }
 

@@ -30,8 +30,9 @@ public:
      * 
      * @param ctx context
      * @param func kernel of shader
+     * @param lib_hash library hash
      */
-    ISPCShader(const Context &ctx, Function func) noexcept;
+    ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noexcept;
     /**
      * @brief Return module
      * 
