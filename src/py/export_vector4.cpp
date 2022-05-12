@@ -33,6 +33,45 @@ using namespace luisa::compute;
     m##T                    \
         .def("__pow__", [](const Vector<T,4>&a, const Vector<T,4>&b) { return luisa::pow(a, b); }, py::is_operator());
 
+#define LUISA_EXPORT_UNARY_FUNC(T, name) \
+    m.def(#name, [](const Vector<T,4>& v) { return luisa::name(v); });
+
+#define LUISA_EXPORT_ARITHMETIC_FUNC(T) \
+    m.def("min", [](const Vector<T,4>& a, const Vector<T,4>& b) { return luisa::min(a, b); }); \
+    m.def("min", [](const Vector<T,4>& a, const T& b){ return luisa::min(a, b); });            \
+    m.def("min", [](const T& a, const Vector<T,4>& b){ return luisa::min(a, b); });            \
+    m.def("max", [](const Vector<T,4>& a, const Vector<T,4>& b) { return luisa::max(a, b); }); \
+    m.def("max", [](const Vector<T,4>& a, const T& b){ return luisa::max(a, b); });            \
+    m.def("max", [](const T& a, const Vector<T,4>& b){ return luisa::max(a, b); });            \
+    m.def("select", [](const Vector<T,4>& a, const Vector<T,4>& b, bool pred) { return luisa::select(a, b, pred); }); \
+    m.def("clamp", [](const Vector<T,4>& v, const T& a, const T& b) { return luisa::clamp(v, a, b); }); \
+
+#define LUISA_EXPORT_FLOAT_FUNC(T) \
+    m.def("pow", [](const Vector<T,4>& a, const Vector<T,4>& b) { return luisa::pow(a, b); }); \
+    m.def("atan2", [](const Vector<T,4>& a, const Vector<T,4>& b) { return luisa::atan2(a, b); }); \
+    m.def("lerp", [](const Vector<T,4>& a, const Vector<T,4>& b, float t) { return luisa::lerp(a, b, t); }); \
+    m.def("dot", [](const Vector<T,4>& a, const Vector<T,4>& b) { return luisa::dot(a, b); });   \
+    m.def("distance", [](const Vector<T,4>& a, const Vector<T,4>& b) { return luisa::distance(a, b); });   \
+    LUISA_EXPORT_UNARY_FUNC(T, acos)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, asin)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, atan)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, cos)                                                            \
+    LUISA_EXPORT_UNARY_FUNC(T, sin)                                                            \
+    LUISA_EXPORT_UNARY_FUNC(T, tan)                                                            \
+    LUISA_EXPORT_UNARY_FUNC(T, sqrt)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, ceil)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, floor)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, round)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, exp)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, log)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, log10)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, log2)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, abs)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, radians)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, degrees)                                                        \
+    LUISA_EXPORT_UNARY_FUNC(T, length)                                                         \
+    LUISA_EXPORT_UNARY_FUNC(T, normalize)
+
 #define LUISA_EXPORT_VECTOR4(T) \
     py::class_<luisa::detail::VectorStorage<T, 4>>(m, "_vectorstorage_"#T"4"); \
     auto m##T = py::class_<Vector<T,4>, luisa::detail::VectorStorage<T, 4>>(m, #T"4") \
@@ -393,6 +432,10 @@ void export_vector4(py::module &m) {
 	LUISA_EXPORT_VECTOR4(uint)
 	LUISA_EXPORT_VECTOR4(int)
 	LUISA_EXPORT_VECTOR4(float)
+    LUISA_EXPORT_ARITHMETIC_FUNC(int)
+    LUISA_EXPORT_ARITHMETIC_FUNC(uint)
+    LUISA_EXPORT_ARITHMETIC_FUNC(float)
+    LUISA_EXPORT_FLOAT_FUNC(float)
     LUISA_EXPORT_ARITHMETIC_OP(uint)
     LUISA_EXPORT_ARITHMETIC_OP(int)
     LUISA_EXPORT_ARITHMETIC_OP(float)
