@@ -5,17 +5,16 @@ from lcapi import float2x2, float3x3, float4x4
 class uint:
     pass
 
-arithmetic_dtypes = {int, float}
 scalar_dtypes = {int, float, bool, uint}
 vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4}
 matrix_dtypes = {float2x2, float3x3, float4x4}
 basic_dtypes = {*scalar_dtypes, *vector_dtypes, *matrix_dtypes}
+arithmetic_dtypes = {int, float, int2, float2, int3, float3, int4, float4}
 
-# arithmetic_lctypes = set(map(to_lctype, arithmetic_dtypes))
-# scalar_lctypes = set(map(to_lctype, scalar_dtypes))
-# vector_lctypes = set(map(to_lctype, vector_dtypes))
-# matrix_lctypes = set(map(to_lctype, matrix_dtypes))
-# basic_lctypes = set(map(to_lctype, basic_dtypes))
+
+def nameof(dtype):
+    return getattr(dtype, '__name__', None) or repr(dtype)
+
 
 def vector(dtype, length): # (float, 2) -> float2
     if length==1:
@@ -23,12 +22,17 @@ def vector(dtype, length): # (float, 2) -> float2
     return getattr(lcapi, dtype.__name__ + str(length))
 
 def length_of(dtype): # float2 -> 2
+    if hasattr(dtype, 'size'):
+        return dtype.size
     if dtype in scalar_dtypes:
         return 1
     assert dtype in vector_dtypes or dtype in matrix_dtypes
     return int(dtype.__name__[-1])
 
+# Note: matrix subscripted is vector, not its element
 def element_of(dtype): # float2 -> float
+    if hasattr(dtype, 'dtype'):
+        return dtype.dtype
     if dtype in scalar_dtypes:
         return dtype
     if dtype in matrix_dtypes:
@@ -75,6 +79,7 @@ class BuiltinFuncType:
 class BuiltinFuncBuilder:
     def __init__(self, builder):
         self.builder = builder
+        self.__name__ = builder.__name__
     def __call__(self, *args, DO_NOT_CALL):
         pass
 
@@ -116,6 +121,8 @@ def dtype_of(val):
 def to_lctype(dtype):
     if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType"}:
         return dtype.luisa_type
+    if not hasattr(dtype, "__name__"):
+        raise TypeError(f"{dtype} is not a valid data type")
     if dtype.__name__ == "BindlessArray":
         return lcapi.Type.from_("bindless_array")
     if dtype.__name__ == "Accel":

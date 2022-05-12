@@ -1,8 +1,8 @@
 import lcapi
 
 from .types import uint, to_lctype, from_lctype, dtype_of, BuiltinFuncBuilder, \
-    scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of
-from functools import reduce
+    scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of, nameof
+import functools
 from . import globalvars
 from types import SimpleNamespace
 import ast
@@ -16,29 +16,6 @@ def wrap_with_tmp_var(node):
     lcapi.builder().assign(tmp, node.expr)
     node.expr = tmp
     node.lr = 'l'
-
-
-def check_type(lc_type):
-    return lambda argument: to_lctype(argument.dtype) == lc_type
-
-
-def check_types(dtype, arguments):
-    return reduce(lambda x, y: x and y, map(check_type(to_lctype(dtype)), arguments))
-
-
-def check_inner_type(dtype):
-    def check(argument):
-        return element_of(argument.dtype) == dtype
-    return check
-
-
-def check_inner_types(dtype, arguments):
-    return reduce(lambda x, y: x and y, map(check_inner_type(dtype), arguments))
-
-
-def check_type_in(dtypes, argument):
-    lc_types = [to_lctype(dtype) for dtype in dtypes]
-    return to_lctype(argument.dtype) in lc_types
 
 
 def upper_scalar_dtype(dtype0, dtype1):
@@ -155,12 +132,12 @@ def builtin_bin_op(op, lhs, rhs):
                 f'operator `{op}` only supports `int` and `uint` types.'
             dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
-            assert check_inner_type(inner_type_0)(rhs), \
+            assert element_of(rhs.dtype) == inner_type_0, \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
     elif op in (ast.And, ast.Or):
-        assert check_inner_types(bool, [lhs, rhs]), f'operator `{op}` only supports `bool` type.'
+        assert element_of(lhs.dtype) == element_of(rhs.dtype) == bool, f'operator `{op}` only supports `bool` type.'
         dtype = deduce_broadcast(dtype0, dtype1)
         # add / sub / div: int, uint and float allowed
         # relational: int, uint and float allowed
@@ -178,7 +155,7 @@ def builtin_bin_op(op, lhs, rhs):
         else:
             # forbid implicit type conversion
             # so check rhs's type, ensure it is the same with lhs
-            assert check_inner_type(inner_type_0)(rhs), \
+            assert element_of(rhs.dtype) == inner_type_0, \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
@@ -213,8 +190,37 @@ builtin_func_names = {
     'determinant', 'transpose', 'inverse',
     'synchronize_block',
     'array', 'struct',
-    'make_ray', 'inf_ray', 'offset_ray_origin'
+    'make_ray', 'inf_ray', 'offset_ray_origin',
+    'len'
 }
+
+
+
+# each argument can be a dtype or list/tuple of dtype
+def dtype_checked(*dtypes):
+    signature = ', '.join([nameof(x) for x in dtypes])
+    def wrapper(func_builder):
+        @functools.wraps(func_builder)
+        def decorated(*args):
+            if len(args) != len(dtypes):
+                raise TypeError(f"{nameof(func_builder)} takes exactly {len(dtypes)} arguments ({signature}), {len(args)} given.")
+            for i in range(len(dtypes)):
+                if args[i].dtype not in dtypes[i] if hasattr(dtypes[i], '__iter__') else args[i].dtype != dtypes[i]:
+                    given = ', '.join([nameof(x.dtype) for x in args])
+                    raise TypeError(f"{nameof(func_builder)} expects ({signature}). Calling with ({given})")
+            return func_builder(*args)
+        return decorated
+    return wrapper
+
+
+def check_exact_signature(signature, args, name):
+    signature_repr = ','.join([nameof(x) for x in signature])
+    giventype_repr = ','.join([nameof(x.dtype) for x in args])
+    if len(signature) != len(args):
+        raise TypeError(f"{name} takes exactly {len(signature)} arguments ({signature_repr}), {len(args)} given.")
+    for idx in range(len(args)):
+        if signature[idx] != args[idx].dtype:
+            raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
 
 
 # type cast or initialization
@@ -273,15 +279,6 @@ def make_vector_call(dtype, op, args):
     return convtype, lcapi.builder().call(to_lctype(convtype), op, exprlist)
 
 
-def check_exact_signature(signature, args, name):
-    signature_repr = ','.join([getattr(x, '__name__', None) or repr(x) for x in signature])
-    giventype_repr = ','.join([getattr(x.dtype, '__name__', None) or repr(x.dtype) for x in args])
-    if len(signature) != len(args):
-        raise TypeError(f"{name} takes exactly {len(signature)} arguments ({signature_repr}), {len(args)} given.")
-    for idx in range(len(args)):
-        if signature[idx] != args[idx].dtype:
-            raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
-
 
 
 @BuiltinFuncBuilder
@@ -308,33 +305,25 @@ def _builtin_call(*args):
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args[2:]])
 
 
-# @BuiltinFuncBuilder
-# def set_block_size(x, y, z):
-#     check_exact_signature([int, int, int], (x,y,z), "set_block_size")
-#     for a in args:
-#         if type(a).__name__ != "Constant":
-#             raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
-#     lcapi.builder().set_block_size(x.value, y.value, z.value)
+@BuiltinFuncBuilder
+@dtype_checked(int, int, int)
+def set_block_size(x, y, z):
+    for a in {x,y,z}:
+        if type(a).__name__ != "Constant":
+            raise TypeError("Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
+    return None, lcapi.builder().set_block_size(x.value, y.value, z.value)
 
-# @BuiltinFuncBuilder
-# def synchronize_block():
-#     return None, lcapi.builder.call(lcapi.CallOp.SYNCHRONIZE_BLOCK, [])
-
+@BuiltinFuncBuilder
+@dtype_checked()
+def synchronize_block():
+    return None, lcapi.builder.call(lcapi.CallOp.SYNCHRONIZE_BLOCK, [])
 
 # return dtype, expr
 def builtin_func(name, *args, **kwargs):
-    if name == "set_block_size":
-        check_exact_signature([int, int, int], args, "set_block_size")
-        for a in args:
-            if type(a).__name__ != "Constant":
-                raise TypeError(
-                    "Because set_block_size is a compile-time instruction, arguments of set_block_size must be literal (constant).")
-        lcapi.builder().set_block_size(*[a.value for a in args])
-        return None, None
 
-    if name == 'synchronize_block':
-        assert len(args) == 0
-        return None, lcapi.builder.call(None, lcapi.CallOp.SYNCHRONIZE_BLOCK, [])
+    for f in {set_block_size, synchronize_block}:
+        if name == f.__name__:
+            return f.builder(*args, **kwargs)
 
     # e.g. dispatch_id()
     for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
@@ -406,7 +395,7 @@ def builtin_func(name, *args, **kwargs):
 
     if name in ('abs',):
         assert len(args) == 1
-        assert args[0].dtype in (int, float) or args[0].dtype in vector_dtypes and element_of(args[0].dtype) in (int, float)
+        assert args[0].dtype in arithmetic_dtypes
         op = getattr(lcapi.CallOp, name.upper())
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
@@ -464,63 +453,6 @@ def builtin_func(name, *args, **kwargs):
         globalvars.current_context.uses_printer = True
         return None, None
 
-    for N in (2, 3):
-        if name == f'bindless_texture{N}d_sample':
-            op = getattr(lcapi.CallOp, name.upper())
-            uv_dtype = getattr(lcapi, f"float{N}")
-            check_exact_signature([int, uv_dtype], args[1:], f'BindlessTexture{N}D.sample')
-            # TODO: convert args[1] to uint
-            dtype = lcapi.float4
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-        if name == f'bindless_texture{N}d_sample_level':
-            op = getattr(lcapi.CallOp, name.upper())
-            uv_dtype = getattr(lcapi, f"float{N}")
-            check_exact_signature([int, uv_dtype, float], args[1:], f'BindlessTexture{N}D.sample_level')
-            # TODO: convert args[1] to uint
-            dtype = lcapi.float4
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-        if name == f'bindless_texture{N}d_sample_grad':
-            op = getattr(lcapi.CallOp, name.upper())
-            uv_dtype = getattr(lcapi, f"float{N}")
-            check_exact_signature([int, uv_dtype, uv_dtype, uv_dtype], args[1:], f'BindlessTexture{N}D.sample_grad')
-            # TODO: convert args[1] to uint
-            dtype = lcapi.float4
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-        if name == f'bindless_texture{N}d_read':
-            op = getattr(lcapi.CallOp, name.upper())
-            coord_dtype = getattr(lcapi, f"uint{N}")
-            check_exact_signature([int, coord_dtype], args[1:], f'BindlessTexture{N}d.read')
-            # TODO: convert args[1] to uint
-            dtype = lcapi.float4
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-        if name == f'bindless_texture{N}d_read_level':
-            op = getattr(lcapi.CallOp, name.upper())
-            coord_dtype = getattr(lcapi, f"uint{N}")
-            check_exact_signature([int, coord_dtype, int], args[1:], f'BindlessTexture{N}d.read_level')
-            # TODO: convert args[1] to uint
-            dtype = lcapi.float4
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-        if name == f'bindless_texture{N}d_size':
-            op = getattr(lcapi.CallOp, name.upper())
-            coord_dtype = getattr(lcapi, f"uint{N}")
-            check_exact_signature([int, coord_dtype], args[1:], f'BindlessTexture{N}d.size')
-            # TODO: convert args[1] to uint
-            dtype = getattr(lcapi, f"uint{N}")
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-        if name == f'bindless_texture{N}d_size_level':
-            op = getattr(lcapi.CallOp, name.upper())
-            coord_dtype = getattr(lcapi, f"uint{N}")
-            check_exact_signature([int, coord_dtype, int], args[1:], f'BindlessTexture{N}d.size_level')
-            # TODO: convert args[1] & args[3] to uint
-            dtype = getattr(lcapi, f"uint{N}")
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
     if name == 'pow':
         assert len(args) == 2
         for arg in args:
@@ -539,18 +471,17 @@ def builtin_func(name, *args, **kwargs):
         assert len(args) == 3
         e = element_of(args[0].dtype)
         if name == 'clamp':
-            assert e in arithmetic_dtypes
+            assert e in {int, float}
         else:
-            assert e == 'float'
+            assert e == float
         return make_vector_call(e, op, args)
 
     if name == 'step':
         op = lcapi.CallOp.STEP
         assert len(args) == 2
-        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes or \
-               args[0].dtype == args[1].dtype and args[0].dtype in vector_dtypes and element_of(args[0].dtype) in arithmetic_dtypes, \
+        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes, \
                "invalid parameter"
-        if args[0].dtype in arithmetic_dtypes:
+        if args[0].dtype in {int, float}:
             # step(scalar, scalar) -> float
             dtype = float
         else:
@@ -568,17 +499,6 @@ def builtin_func(name, *args, **kwargs):
         # clz(vector<uint>) -> vector<uint>
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-    if name == 'copysign':
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 2
-        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes or \
-               args[0].dtype == args[1].dtype and args[0].dtype in vector_dtypes and element_of(args[0].dtype) in arithmetic_dtypes, \
-               "invalid parameter"
-        # copysign(scalar, scalar) -> scalar
-        # copysign(vector<scalar>, vector<scalar>) -> vector<scalar>
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
 
     if name == 'faceforward':
         op = getattr(lcapi.CallOp, name.upper())
@@ -601,19 +521,6 @@ def builtin_func(name, *args, **kwargs):
         assert to_lctype(args[0].dtype).is_matrix()
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-    # UNUSABLE YET
-    # if name in ('atomic_exchange', 'atomic_fetch_add', 'atomic_fetch_sub', 'atomic_fetch_and', 'atomic_fetch_or',
-    #             'atomic_fetch_xor', 'atomic_fetch_min', 'atomic_fetch_max'):
-    #     op = getattr(lcapi.CallOp, name.upper())
-    #     assert len(args) == 2
-    #     assert args[0] is ref_type and args[0].dtype == args[1].dtype
-    #     # TODO: Finish type check for atomic operations
-    #     dtype = args[0].dtype
-    #     return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-    if name == 'atomic_compare_exchange':
-        pass
 
     if name == 'array': # create array from list
         check_exact_signature([list], args, 'array')
@@ -658,6 +565,12 @@ def builtin_func(name, *args, **kwargs):
             lhs = lcapi.builder().member(to_lctype(dtype), strexpr, idx)
             lcapi.builder().assign(lhs, kwargs[name].expr)
         return strtype, strexpr
+
+    if name == 'len':
+        assert len(args) == 1
+        if type(args[0].dtype) is ArrayType or args[0].dtype in {*vector_dtypes, *matrix_dtypes}:
+            return int, lcapi.builder().literal(to_lctype(int), length_of(args[0].dtype))
+        raise TypeError(f"{nameof(args[0].dtype)} object has no len()")
 
     if name == 'make_ray':
         from .accel import make_ray
