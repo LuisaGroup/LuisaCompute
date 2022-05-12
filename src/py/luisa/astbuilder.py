@@ -65,7 +65,10 @@ class ASTVisitor:
             red, green, bold, clr = "\x1b[31;1m", "\x1b[32;1m", "\x1b[1m", "\x1b[0m"
         else:
             red = green = bold = clr = ""
-        print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+        if type(e).__name__ == "CompileError":
+            print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} The above error occured during compilation of '{e.func.__name__}'{clr}")
+        else:
+            print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
         source = ctx().sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
             print(line.rstrip('\n'))

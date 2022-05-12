@@ -7,7 +7,7 @@ luisa.init()
 @luisa.func
 def f():
 	# print(int2(3)/int2(2))
-	return 3.0 < 9
+	return 0[0]
 
 @luisa.func
 def g():

@@ -17,6 +17,8 @@ from .astbuilder import VariableInfo
 import textwrap
 
 
+
+
 def create_arg_expr(dtype, allow_ref):
     # Note: scalars are always passed by value
     #       vectors/matrices/arrays/structs are passed by reference if (allow_ref==True)
@@ -87,6 +89,9 @@ class device_func:
 class host_func:
     pass
 
+class CompileError(Exception):
+    pass
+
 class func:
     # creates a luisa function with given function
     # A luisa function can be run on accelarated device (CPU/GPU).
@@ -119,8 +124,10 @@ class func:
             # push context & build function body AST
             top = globalvars.current_context
             globalvars.current_context = f
-            astbuilder.build(self.tree.body[0])
-            globalvars.current_context = top
+            try:
+                astbuilder.build(self.tree.body[0])
+            finally:
+                globalvars.current_context = top
         # build function
         # Note: must retain the builder object
         if call_from_host:
@@ -138,7 +145,16 @@ class func:
     # returns FuncInstanceInfo
     def get_compiled(self, call_from_host: bool, argtypes: tuple):
         if (call_from_host,) + argtypes not in self.compiled_results:
-            self.compiled_results[(call_from_host,) + argtypes] = self.compile(call_from_host, argtypes)
+            try:
+                self.compiled_results[(call_from_host,) + argtypes] = self.compile(call_from_host, argtypes)
+            except Exception as e:
+                if hasattr(e, "already_printed"):
+                    # hide the verbose traceback in AST builder
+                    e = CompileError(f"Failed to compile luisa.func '{self.__name__}'")
+                    e.func = self
+                    raise e from None
+                else:
+                    raise
         return self.compiled_results[(call_from_host,) + argtypes]
 
 
@@ -156,14 +172,7 @@ class func:
             raise TypeError("dispatch_size must be int or tuple of 1/2/3 ints")
         # get types of arguments and compile
         argtypes = tuple(dtype_of(a) for a in args)
-        try:
-            f = self.get_compiled(call_from_host=True, argtypes=argtypes)
-        except Exception as e:
-            if hasattr(e, "already_printed"):
-                # hide the verbose traceback in AST builder
-                raise RuntimeError(f"Error when compiling luisa.func '{self.__name__}'") from None
-            else:
-                raise
+        f = self.get_compiled(call_from_host=True, argtypes=argtypes)
         # create command
         command = lcapi.ShaderDispatchCommand.create(f.shader_handle, f.function)
         # push arguments
