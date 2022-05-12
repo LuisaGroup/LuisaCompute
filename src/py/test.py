@@ -5,13 +5,12 @@ from luisa.mathtypes import *
 luisa.init()
 
 @luisa.func
-def f():
-	# print(int2(3)/int2(2))
-	return 0[0]
+def f(x):
+	return abs(x)
 
 @luisa.func
 def g():
-	print(f())
+	print(f(True))
 
 g(dispatch_size=1)
 # print(int2(3)/int2(2))
