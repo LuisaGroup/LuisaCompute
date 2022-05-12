@@ -2,14 +2,13 @@ import ast
 import astpretty
 import inspect
 import sys
-import traceback
 from types import SimpleNamespace, ModuleType
 from .types import length_of, element_of, vector
 from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call, wrap_with_tmp_var
-from .types import dtype_of, to_lctype, CallableType, vector_dtypes
+from .types import dtype_of, to_lctype, CallableType, vector_dtypes, matrix_dtypes
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
 from .array import ArrayType
@@ -34,7 +33,7 @@ class ASTVisitor:
     def __call__(self, node):
         method = getattr(self, 'build_' + node.__class__.__name__, None)
         if method is None:
-            raise NotImplementedError(f'Unsupported node {node}:\n{astpretty.pformat(node)}')
+            raise NotImplementedError(f'Unsupported syntax node {node}')
         try:
             # print(astpretty.pformat(node))
             self.comment_source(node)
@@ -65,13 +64,25 @@ class ASTVisitor:
             red, green, bold, clr = "\x1b[31;1m", "\x1b[32;1m", "\x1b[1m", "\x1b[0m"
         else:
             red = green = bold = clr = ""
-        print(f"{bold}{ctx().__name__}:{node.lineno}:{node.col_offset}: {clr}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
+        prefix = f"{bold}{ctx().func.filename.split('/')[-1]}:{ctx().func.lineno-2+node.lineno} {clr}"
+        if type(e).__name__ == "CompileError":
+            print(f"{prefix}{red}Error:{clr}{bold} The above error occured during compilation of '{e.func.__name__}'{clr}")
+        else:
+            print(f"{prefix}{red}Error:{clr}{bold} {type(e).__name__}: {e}{clr}")
         source = ctx().sourcelines[node.lineno-1: node.end_lineno]
         for idx,line in enumerate(source):
             print(line.rstrip('\n'))
             startcol = node.col_offset if idx==0 else 0
             endcol = node.end_col_offset if idx==len(source)-1 else len(line)
             print(green + ' ' * startcol + '~' * (endcol - startcol) + clr)
+        print(f"in luisa.func '{ctx().func.__name__}' in {ctx().func.filename}")
+        if type(e).__name__ != "CompileError":
+            import traceback
+            traceback.print_exc(limit=-2)
+            # print("Traceback (most recent call last):")
+            # _, _, tb = sys.exc_info()
+            # traceback.print_tb(tb,limit=-1) # Fixed format
+            print() # blank line
 
     @staticmethod
     def build_FunctionDef(node):
@@ -184,7 +195,7 @@ class ASTVisitor:
             node.dtype = node.value.dtype.dtype
         elif node.value.dtype in vector_dtypes:
             node.dtype = element_of(node.value.dtype)
-        elif node.value.dtype in {lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}:
+        elif node.value.dtype in matrix_dtypes:
             # matrix indexed is a column vector
             node.dtype = vector(float, length_of(node.value.dtype))
         else:
@@ -266,9 +277,31 @@ class ASTVisitor:
         node.lr = 'r'
 
     @staticmethod
+    def build_tuple_assign(lhs, rhs):
+        # tuple isn't supported in general;
+        # here we support a special case: tuple assignment
+        if type(rhs) is not ast.Tuple:
+            raise TypeError(f"can only unpack from tuple (got {rhs.dtype})")
+        if len(lhs.elts) < len(rhs.elts):
+            raise ValueError("too many values to unpack (expected {len(lhs.elts)}, got {len(rhs.elts)})")
+        if len(lhs.elts) > len(rhs.elts):
+            raise ValueError("not enough values to unpack (expected {len(lhs.elts)}, got {len(rhs.elts)})")
+        tmps = []
+        for r in rhs.elts:
+            if r.dtype == None:
+                raise TypeError("Can't assign None to variable")
+            tmpexpr = lcapi.builder().local(to_lctype(r.dtype))
+            lcapi.builder().assign(tmpexpr, r.expr)
+            tmps.append(SimpleNamespace(dtype=r.dtype, expr=tmpexpr))
+        for i in range(len(lhs.elts)):
+            build.build_assign_pair(lhs.elts[i], tmps[i])
+
+    @staticmethod
     def build_assign_pair(lhs, rhs):
         if rhs.dtype == None:
             raise TypeError("Can't assign None to variable")
+        if type(lhs) is ast.Tuple:
+            return build.build_tuple_assign(lhs, rhs)
         # allows left hand side to be undefined
         if type(lhs) is ast.Name:
             build.build_Name(lhs, allow_none=True)
@@ -365,20 +398,21 @@ class ASTVisitor:
         build(node.body)
         build(node.test)
         build(node.orelse)
-        if node.test.dtype != bool:
-            raise TypeError(f"IfExp condition must be bool, got {node.test.dtype}")
+        from lcapi import bool2, bool3, bool4
+        if node.test.dtype not in {bool, bool2, bool3, bool4}:
+            raise TypeError(f"IfExp condition must be bool or bool vector, got {node.test.dtype}")
         if node.body.dtype != node.orelse.dtype:
             raise TypeError(f"Both result expressions of IfExp must be of same type. ({node.body.dtype} vs {node.orelse.dtype})")
+        if node.test.dtype != bool and length_of(node.test.dtype) != length_of(node.body.dtype):
+            raise TypeError(f"IfExp condition must be either bool or vector of same length ({length_of(node.test.dtype)} != {length_of(node.body.dtype)})")
         node.dtype = node.body.dtype
         node.expr = lcapi.builder().call(to_lctype(node.dtype), lcapi.CallOp.SELECT, [node.orelse.expr, node.body.expr, node.test.expr])
         node.lr = 'r'
 
     @staticmethod
-    def build_For(node):
-        # currently only supports for x in range(...)
-        assert type(node.target) is ast.Name
-        assert type(node.iter) is ast.Call and type(node.iter.func) is ast.Name
-        assert node.iter.func.id == "range" and len(node.iter.args) in {1,2,3}
+    def build_range_for(node):
+        if len(node.iter.args) not in {1,2,3}:
+            raise TypeError(f"'range' expects 1/2/3 arguments, got {en(node.iter.args)}")
         for x in node.iter.args:
             build(x)
             assert x.dtype is int
@@ -401,6 +435,36 @@ class ASTVisitor:
         with forstmt.body():
             for x in node.body:
                 build(x)
+
+    @staticmethod
+    def build_container_for(node):
+        range_start = lcapi.builder().literal(to_lctype(int), 0)
+        range_stop = lcapi.builder().literal(to_lctype(int), length_of(node.iter.dtype))
+        range_step = lcapi.builder().literal(to_lctype(int), 1)
+        # loop variable
+        idxexpr = lcapi.builder().local(to_lctype(int))
+        lcapi.builder().assign(idxexpr, range_start)
+        eltype = element_of(node.iter.dtype) if node.iter.dtype not in matrix_dtypes else vector(float, length_of(node.iter.dtype)) # iterating through matrix yields vectors
+        varexpr = lcapi.builder().access(to_lctype(eltype), node.iter.expr, idxexpr) # loop variable (element)
+        ctx().local_variable[node.target.id] = VariableInfo(eltype, varexpr)
+        # build for statement
+        condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, idxexpr, range_stop)
+        forstmt = lcapi.builder().for_(idxexpr, condition, range_step)
+        with forstmt.body():
+            for x in node.body:
+                build(x)
+
+    @staticmethod
+    def build_For(node):
+        # currently only supports for x in range(...)
+        assert type(node.target) is ast.Name
+        if type(node.iter) is ast.Call and type(node.iter.func) is ast.Name and node.iter.func.id == "range":
+            return build.build_range_for(node)
+        build(node.iter)
+        if type(node.iter.dtype) is ArrayType or node.iter.dtype in {*vector_dtypes, *matrix_dtypes}:
+            return build.build_container_for(node)
+        else:
+            raise TypeError(f"{node.iter.dtype} object is not iterable")
 
     @staticmethod
     def build_While(node):
@@ -441,6 +505,13 @@ class ASTVisitor:
 
     @staticmethod
     def build_List(node):
+        node.dtype = list
+        for x in node.elts:
+            build(x)
+        node.expr = None
+
+    @staticmethod
+    def build_Tuple(node):
         node.dtype = list
         for x in node.elts:
             build(x)

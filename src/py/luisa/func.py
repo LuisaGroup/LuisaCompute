@@ -17,6 +17,8 @@ from .astbuilder import VariableInfo
 import textwrap
 
 
+
+
 def create_arg_expr(dtype, allow_ref):
     # Note: scalars are always passed by value
     #       vectors/matrices/arrays/structs are passed by reference if (allow_ref==True)
@@ -87,6 +89,9 @@ class device_func:
 class host_func:
     pass
 
+class CompileError(Exception):
+    pass
+
 class func:
     # creates a luisa function with given function
     # A luisa function can be run on accelarated device (CPU/GPU).
@@ -98,13 +103,17 @@ class func:
         self.__name__ = pyfunc.__name__
         self.__doc__ = pyfunc.__doc__
         self.compiled_results = {} # maps (arg_type_tuple) to (function, shader_handle)
+        frameinfo = inspect.getframeinfo(inspect.stack()[1][0])
+        self.filename = frameinfo.filename
+        self.lineno = frameinfo.lineno
 
     # compiles an argument-type-specialized callable/kernel
     # returns FuncInstanceInfo
     def compile(self, call_from_host: bool, argtypes: tuple):
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
-        self.tree = ast.parse(textwrap.dedent(sourceinspect.getsource(self.pyfunc)))
+        self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
+        self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
         if len(argtypes) != len(self.parameters):
             raise Exception(f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} expected).")
@@ -118,8 +127,10 @@ class func:
             # push context & build function body AST
             top = globalvars.current_context
             globalvars.current_context = f
-            astbuilder.build(self.tree.body[0])
-            globalvars.current_context = top
+            try:
+                astbuilder.build(self.tree.body[0])
+            finally:
+                globalvars.current_context = top
         # build function
         # Note: must retain the builder object
         if call_from_host:
@@ -137,7 +148,16 @@ class func:
     # returns FuncInstanceInfo
     def get_compiled(self, call_from_host: bool, argtypes: tuple):
         if (call_from_host,) + argtypes not in self.compiled_results:
-            self.compiled_results[(call_from_host,) + argtypes] = self.compile(call_from_host, argtypes)
+            try:
+                self.compiled_results[(call_from_host,) + argtypes] = self.compile(call_from_host, argtypes)
+            except Exception as e:
+                if hasattr(e, "already_printed"):
+                    # hide the verbose traceback in AST builder
+                    e1 = CompileError(f"Failed to compile luisa.func '{self.__name__}'")
+                    e1.func = self
+                    raise e1 from None
+                else:
+                    raise
         return self.compiled_results[(call_from_host,) + argtypes]
 
 
