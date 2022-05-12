@@ -43,7 +43,7 @@ public:
         : _n{n}, _counter{n}, _phase{0u} {}
     void arrive_and_wait() noexcept {
         std::unique_lock lock{_mutex};
-       auto arrive_phase = _phase;
+        auto arrive_phase = _phase;
         if (--_counter == 0u) {
             _counter = _n;
             _phase++;

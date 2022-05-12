@@ -6,7 +6,9 @@ SET(LUISA_PYTHON_SOURCES
         export_vector4.cpp
         export_matrix.cpp)
 pybind11_add_module(lcapi ${LUISA_PYTHON_SOURCES})
-target_compile_options(lcapi PRIVATE $<$<CXX_COMPILER_ID:GNU>:-Wa,-mbig-obj>)
+if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_compile_options(lcapi PRIVATE -Wa,-mbig-obj)
+endif ()
 target_link_libraries(lcapi PRIVATE luisa::compute)
 add_custom_target(lcapi-copy ALL)
 add_custom_command(TARGET lcapi-copy

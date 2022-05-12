@@ -2,6 +2,8 @@
 // Created by Mike on 2021/11/8.
 //
 
+#pragma once
+
 #include <nvrtc.h>
 #include <cuda.h>
 

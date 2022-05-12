@@ -19,7 +19,7 @@ CUDAAccel::~CUDAAccel() noexcept {
     if (_bvh_buffer) { LUISA_CHECK_CUDA(cuMemFree(_bvh_buffer)); }
 }
 
-[[nodiscard]] inline auto make_build_options(AccelUsageHint hint, OptixBuildOperation op) noexcept {
+[[nodiscard]] inline auto cuda_accel_build_options(AccelUsageHint hint, OptixBuildOperation op) noexcept {
     OptixAccelBuildOptions build_options{};
     build_options.operation = op;
     switch (hint) {
@@ -40,7 +40,7 @@ CUDAAccel::~CUDAAccel() noexcept {
     return build_options;
 }
 
-[[nodiscard]] inline OptixBuildInput make_build_input(
+[[nodiscard]] inline OptixBuildInput cuda_accel_build_inputs(
     uint64_t instance_buffer, uint instance_count) noexcept {
     OptixBuildInput input{};
     input.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
@@ -110,8 +110,8 @@ void CUDAAccel::_build(CUDADevice *device, CUDAStream *stream, CUstream cuda_str
 
     // build IAS
     auto instance_count = static_cast<uint>(_meshes.size());
-    auto build_input = make_build_input(_instance_buffer, instance_count);
-    auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_BUILD);
+    auto build_input = cuda_accel_build_inputs(_instance_buffer, instance_count);
+    auto build_options = cuda_accel_build_options(_build_hint, OPTIX_BUILD_OPERATION_BUILD);
 
     Clock clock;
     OptixAccelBufferSizes sizes;
@@ -185,8 +185,8 @@ void CUDAAccel::_build(CUDADevice *device, CUDAStream *stream, CUstream cuda_str
 
 void CUDAAccel::_update(CUDADevice *device, CUDAStream *stream, CUstream cuda_stream) noexcept {
     auto instance_count = static_cast<uint>(_meshes.size());
-    auto build_input = make_build_input(_instance_buffer, instance_count);
-    auto build_options = make_build_options(_build_hint, OPTIX_BUILD_OPERATION_UPDATE);
+    auto build_input = cuda_accel_build_inputs(_instance_buffer, instance_count);
+    auto build_options = cuda_accel_build_options(_build_hint, OPTIX_BUILD_OPERATION_UPDATE);
     auto update_buffer = 0ull;
     LUISA_CHECK_CUDA(cuMemAllocAsync(&update_buffer, _update_buffer_size, cuda_stream));
     LUISA_CHECK_OPTIX(optixAccelBuild(

@@ -151,14 +151,13 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
     }
     switch (t->tag()) {
         case Type::Tag::BUFFER:
-        case Type::Tag::VECTOR: {
+        case Type::Tag::VECTOR:
             expr->range()->accept(*this);
             str << '[';
             expr->index()->accept(*this);
             str << ']';
-        }
             break;
-        case Type::Tag::MATRIX: {
+        case Type::Tag::MATRIX:
             expr->range()->accept(*this);
             str << '[';
             expr->index()->accept(*this);
@@ -166,7 +165,6 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             if (t->dimension() == 3u) {
                 str << ".xyz";
             }
-        }
             break;
         default: {
             expr->range()->accept(*this);
@@ -342,7 +340,7 @@ void StringStateVisitor::visit(const MetaStmt *stmt) {
             }
             if constexpr (collectShared) {
                 if (v.tag() == Variable::Tag::SHARED) {
-                    sharedVariables->emplace_back(v);
+                    sharedVariables->emplace(v);
                 }
             }
         }
@@ -350,7 +348,7 @@ void StringStateVisitor::visit(const MetaStmt *stmt) {
     if (sharedVariables) {
         func.operator()<true>();
     } else {
-        func.operator()<false>(); 
+        func.operator()<false>();
     }
 
     stmt->scope()->accept(*this);

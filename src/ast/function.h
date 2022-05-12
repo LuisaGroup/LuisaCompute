@@ -108,6 +108,8 @@ public:
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
     /// Cast to bool, true if builder is not nullptr
     [[nodiscard]] explicit operator bool() const noexcept { return _builder != nullptr; }
+    /// Whether the function uses atomic float operations
+    [[nodiscard]] bool is_atomic_float_used() const noexcept;
 };
 
 }// namespace luisa::compute
