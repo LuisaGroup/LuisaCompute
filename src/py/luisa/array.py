@@ -10,6 +10,16 @@ class Array:
             self.arrayType = deduce_array_type(arr)
             self.values = list(arr)
 
+    def __len__(self):
+        return self.arrayType.size
+
+    def __getitem__(self, idx):
+        return self.values[idx]
+
+    def __setitem__(self, idx, value):
+        assert dtype_of(value) == self.arrayType.dtype
+        self.values[idx] = value
+
     def copy(self):
         return Array(self)
 

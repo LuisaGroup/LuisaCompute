@@ -374,11 +374,9 @@ class ASTVisitor:
         node.lr = 'r'
 
     @staticmethod
-    def build_For(node):
-        # currently only supports for x in range(...)
-        assert type(node.target) is ast.Name
-        assert type(node.iter) is ast.Call and type(node.iter.func) is ast.Name
-        assert node.iter.func.id == "range" and len(node.iter.args) in {1,2,3}
+    def build_range_for(node):
+        if len(node.iter.args) not in {1,2,3}:
+            raise TypeError(f"'range' expects 1/2/3 arguments, got {en(node.iter.args)}")
         for x in node.iter.args:
             build(x)
             assert x.dtype is int
@@ -401,6 +399,36 @@ class ASTVisitor:
         with forstmt.body():
             for x in node.body:
                 build(x)
+
+    @staticmethod
+    def build_array_for(node):
+        range_start = lcapi.builder().literal(to_lctype(int), 0)
+        range_stop = lcapi.builder().literal(to_lctype(int), node.iter.dtype.size)
+        range_step = lcapi.builder().literal(to_lctype(int), 1)
+        # loop variable
+        idxexpr = lcapi.builder().local(to_lctype(int))
+        lcapi.builder().assign(idxexpr, range_start)
+        eltype = node.iter.dtype.dtype # element type
+        varexpr = lcapi.builder().access(to_lctype(eltype), node.iter.expr, idxexpr) # loop variable (element in array)
+        ctx().local_variable[node.target.id] = VariableInfo(eltype, varexpr)
+        # build for statement
+        condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, idxexpr, range_stop)
+        forstmt = lcapi.builder().for_(idxexpr, condition, range_step)
+        with forstmt.body():
+            for x in node.body:
+                build(x)
+
+    @staticmethod
+    def build_For(node):
+        # currently only supports for x in range(...)
+        assert type(node.target) is ast.Name
+        if type(node.iter) is ast.Call and type(node.iter.func) is ast.Name and node.iter.func.id == "range":
+            return build.build_range_for(node)
+        build(node.iter)
+        if type(node.iter.dtype) is ArrayType:
+            return build.build_array_for(node)
+        else:
+            raise TypeError(f"{node.iter.dtype} object is not iterable")
 
     @staticmethod
     def build_While(node):
