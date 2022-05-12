@@ -1,5 +1,5 @@
 import lcapi
-from .types import dtype_of, to_lctype
+from .types import dtype_of, to_lctype, nameof
 
 class Array:
     def __init__(self, arr):
@@ -38,7 +38,7 @@ class ArrayType:
         return Array(data)
 
     def __repr__(self):
-        return f'ArrayType({self.size},{getattr(self.dtype,"__name__",None) or repr(self.dtype)})'
+        return f'ArrayType({self.size},{nameof(self.dtype)})'
 
     def __eq__(self, other):
         return type(other) is ArrayType and self.dtype == other.dtype and self.size == other.size

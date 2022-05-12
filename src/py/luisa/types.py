@@ -11,6 +11,10 @@ vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, f
 matrix_dtypes = {float2x2, float3x3, float4x4}
 basic_dtypes = {*scalar_dtypes, *vector_dtypes, *matrix_dtypes}
 
+
+def nameof(dtype):
+    return getattr(dtype, '__name__', None) or repr(dtype)
+
 # arithmetic_lctypes = set(map(to_lctype, arithmetic_dtypes))
 # scalar_lctypes = set(map(to_lctype, scalar_dtypes))
 # vector_lctypes = set(map(to_lctype, vector_dtypes))
@@ -75,6 +79,7 @@ class BuiltinFuncType:
 class BuiltinFuncBuilder:
     def __init__(self, builder):
         self.builder = builder
+        self.__name__ = builder.__name__
     def __call__(self, *args, DO_NOT_CALL):
         pass
 
