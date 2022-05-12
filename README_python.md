@@ -518,30 +518,40 @@ float3(b)
 
 kernel/callable中可以调用内置的函数。
 
-```python
-# 线程信息
-dispatch_id(), dispatch_size() # 返回int3
-# 打印
-print(value1, "wow", ...) # 暂时不支持 formatted string
-# 数学函数
-isinf(x), isnan(x)
-acos(x), acosh(x), asin(x), asinh(x), atan(x), atanh(x)
-cos(x), cosh(x), sin(x), sinh(x), tan(x), tanh(x)
-exp(x), exp2(x), exp10(x), log(x), log2(x), log10(x)
-sqrt(x), rsqrt(x)
-ceil(x), floor(x), fract(x), trunc(x), round(x)
-# 向量矩阵创建
-make_bool3(x,y,z), ...
-make_float2x2(...)
-```
-
 一些类型具有可调用的方法，见类型对应文档。
+
+### 线程相关
+
+```python
+'set_block_size',
+'synchronize_block',
+'thread_id',
+'block_id',
+'dispatch_id',
+'dispatch_size',
+```
 
 ### 数学函数
 
 内建数学函数支持标量运算和向量运算。传入向量参数时会将函数广播至向量的各个维度上。
 
-### 创建向量 / 矩阵的内置函数
+```python
+'isinf', 'isnan',
+'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
+'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
+'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'abs',
+```
+
+### 向量 / 矩阵创建
+
+注：调用对应类型的构造（即不带`make_` 调用）是等效的。
+
+```python
+'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
+'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
+'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
+'make_float2x2', 'make_float3x3', 'make_float4x4',
+```
 
 对于标量类型 `T = int|uint|float|bool` 和长度 `N = 2|3|4`，都有 内置函数 `make_<T><N>`，表示创建一个 类型为 T、长度为 N 的向量。
 
@@ -565,6 +575,34 @@ make_float2x2(...)
 
 `make_float<N>x<N>` 尚不支持隐式类型转换。
 
+### 向量 / 矩阵运算
+
+```python
+'dot', 'cross',
+'length', 'length_squared', 'normalize',
+'determinant', 'transpose', 'inverse',
+```
+
+### 其它数值操作
+
+```python
+'copysign', 'fma',
+'min', 'max',
+'all', 'any',
+'select', 'clamp', 'step', 'lerp',
+'clz', 'ctz', 'popcount', 'reverse',
+```
+
+### 其它
+
+```python
+'clz', 'ctz', 'popcount', 'reverse',
+'array', 'struct',
+'make_ray', 'inf_ray', 'offset_ray_origin',
+print
+len
+```
+
 ## 变量
 
 局部变量的类型在整个函数中保持不变。例如：
@@ -583,7 +621,7 @@ kernel中尚不支持 list, tuple, dict 等python提供的数据结构
 
 ### for 循环
 
-仅支持 range for，形如 `for x in range(...)`
+可以迭代的对象包括：向量、矩阵、数组和`range(...)`
 
 
 
