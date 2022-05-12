@@ -1,15 +1,15 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .structtype import StructType
-from .arraytype import ArrayType
+from .struct import StructType
+from .array import ArrayType
 from .mathtypes import *
 from .func import func
-from .types import ref, uint
+from .types import uint
 from .builtin import _builtin_call, _bitwise_cast
 
 # Ray
-Ray = StructType(16, _origin=ArrayType(float,3), t_min=float, _dir=ArrayType(float,3), t_max=float)
+Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
 
 @func
 def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
@@ -22,6 +22,19 @@ def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
     r._dir[2] = direction[2]
     r.t_min = t_min
     r.t_max = t_max
+    return r
+
+@func
+def inf_ray(origin: float3, direction: float3):
+    r = Ray()
+    r._origin[0] = origin[0]
+    r._origin[1] = origin[1]
+    r._origin[2] = origin[2]
+    r._dir[0] = direction[0]
+    r._dir[1] = direction[1]
+    r._dir[2] = direction[2]
+    r.t_min = 0
+    r.t_max = 1e38
     return r
 
 @func
@@ -44,26 +57,26 @@ def offset_ray_origin(p: float3, n: float3):
 @func
 def get_origin(self):
     return float3(self._origin[0], self._origin[1], self._origin[2])
-Ray.add_method('get_origin', get_origin)
+Ray.add_method(get_origin)
 
 @func
 def get_dir(self):
     return float3(self._dir[0], self._dir[1], self._dir[2])
-Ray.add_method('get_dir', get_dir)
+Ray.add_method(get_dir)
 
 @func
 def set_origin(self, val: float3):
     self._origin[0] = val.x
     self._origin[1] = val.y
     self._origin[2] = val.z
-Ray.add_method('set_origin', set_origin)
+Ray.add_method(set_origin)
 
 @func
 def set_dir(self, val: float3):
     self._dir[0] = val.x
     self._dir[1] = val.y
     self._dir[2] = val.z
-Ray.add_method('set_dir', set_dir)
+Ray.add_method(set_dir)
 
 
 
@@ -74,12 +87,12 @@ UHit = StructType(16, inst=uint, prim=uint, bary=float2)
 @func
 def miss(self):
     return self.inst == -1
-Hit.add_method('miss', miss)
+Hit.add_method(miss)
 
 @func
 def interpolate(self, a, b, c):
     return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
-Hit.add_method('interpolate', interpolate)
+Hit.add_method(interpolate)
 
 # Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
 #     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
@@ -99,11 +112,42 @@ class Accel:
         self._accel = get_global_device().create_accel(lcapi.AccelUsageHint.FAST_TRACE)
         self.handle = self._accel.handle()
 
-    def add(self, mesh, transform = float4x4.identity(), visible = True):
+    @staticmethod
+    def accel(list):
+        acc = Accel.empty()
+        for mesh in list:
+            acc.add(mesh)
+        acc.update()
+        return acc
+
+    @staticmethod
+    def empty():
+        return Accel()
+
+    def add(self, mesh, transform = float4x4(1), visible = True):
         self._accel.emplace_back(mesh.handle, transform, visible)
 
-    def build(self):
+    def set(self, index, mesh, transform = float4x4(1), visible = True):
+        self._accel.set(index, mesh.handle, transform, visible)
+
+    def pop(self):
+        self._accel.pop_back()
+
+    def __len__(self):
+        return self._accel.size()
+
+    def set_transform_on_update(self, index, transform: float4x4):
+        self._accel.set_transform_on_update(index, transform)
+
+    def set_visibility_on_update(self, index, visible: bool):
+        self._accel.set_visibility_on_update(index, visible)
+
+    def update(self, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
         globalvars.stream.add(self._accel.build_command(lcapi.AccelBuildRequest.PREFER_UPDATE))
+        if sync:
+            stream.synchronize()
 
     @func
     def trace_closest(self, ray: Ray):
@@ -119,28 +163,39 @@ class Accel:
         return _builtin_call(bool, "TRACE_ANY", self, ray)
 
     @func
-    def instance_transform(self, instance_id: int):
-        return _builtin_call(float4x4, "INSTANCE_TO_WORLD_MATRIX", self, instance_id)
+    def instance_transform(self, index: int):
+        return _builtin_call(float4x4, "INSTANCE_TO_WORLD_MATRIX", self, index)
 
     @func
-    def set_instance_transform(self, instance_id: int, mat: float4x4):
-        _builtin_call("SET_INSTANCE_TRANSFORM", self, instance_id, mat)
+    def set_instance_transform(self, index: int, transform: float4x4):
+        _builtin_call("SET_INSTANCE_TRANSFORM", self, index, transform)
 
     @func
-    def set_instance_visibility(self, instance_id: int, vis: bool):
-        _builtin_call("SET_INSTANCE_VISIBILITY", self, instance_id, vis)
+    def set_instance_visibility(self, index: int, visible: bool):
+        _builtin_call("SET_INSTANCE_VISIBILITY", self, index, visible)
+
+accel = Accel.accel
 
 
 class Mesh:
     def __init__(self, vertices, triangles):
         assert vertices.dtype == float3
         assert triangles.dtype == int and triangles.size%3==0
+        self.vertices = vertices
+        self.triangles = triangles
         # TODO: support buffer of structs or arrays
         self.handle = get_global_device().impl().create_mesh(
-            vertices.handle, 0, 16, vertices.size,
-            triangles.handle, 0, triangles.size//3,
+            self.vertices.handle, 0, 16, self.vertices.size,
+            self.triangles.handle, 0, self.triangles.size//3,
             lcapi.AccelUsageHint.FAST_TRACE)
+        self.update()
+
+    def update(self, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
         globalvars.stream.add(lcapi.MeshBuildCommand.create(
             self.handle, lcapi.AccelBuildRequest.PREFER_UPDATE,
-            vertices.handle, 0, vertices.size,
-            triangles.handle, 0, triangles.size//3))
+            self.vertices.handle, 0, self.vertices.size,
+            self.triangles.handle, 0, self.triangles.size//3))
+        if sync:
+            stream.synchronize()

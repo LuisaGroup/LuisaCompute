@@ -352,7 +352,7 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::INVERSE: _scratch << "inverse"; break;
         case CallOp::SYNCHRONIZE_BLOCK:
             LUISA_ERROR_WITH_LOCATION("Not implemented.");
-            _scratch << "barrier";
+            _scratch << "memory_barrier";
             break;
         case CallOp::ATOMIC_EXCHANGE:
             _scratch << "atomic_swap_global";
@@ -442,19 +442,23 @@ void ISPCCodegen::visit(const CallExpr *expr) {
         case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
         case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
-    _scratch << "(";
     auto args = expr->arguments();
     if (is_atomic) {
-        _scratch << "(";
-        _emit_type_name(args.front()->type());
+        auto ref = args.front();
+        if (ref->type()->description() == "float") {
+            _scratch << "_float";
+        }
+        _scratch << "((";
+        _emit_type_name(ref->type());
         _scratch << " *varying)&(";
-        args.front()->accept(*this);
+        ref->accept(*this);
         _scratch << ")";
         for (auto arg : args.subspan(1u)) {
             _scratch << ", ";
             arg->accept(*this);
         }
     } else if (!args.empty()) {
+        _scratch << "(";
         for (auto arg : args) {
             arg->accept(*this);
             _scratch << ", ";

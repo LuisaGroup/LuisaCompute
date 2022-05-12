@@ -37,9 +37,9 @@ class Printer:
         if lctype.is_matrix():
             return lctype.dimension()**2
         if lctype.is_array():
-            return dtype.size * count_size(dtype.dtype)
+            return dtype.size * Printer.get_expr_elements_count(dtype.dtype)
         if lctype.is_structure():
-            return sum([count_size(t) for t in dtype.membertype])
+            return sum([Printer.get_expr_elements_count(t) for t in dtype.membertype])
         raise Exception(f"print type {dtype} not supported")
 
     # return a list of elements (int-typed expressions)
@@ -66,7 +66,7 @@ class Printer:
             for idx in range(lctype.dimension()):
                 idxexpr = lcapi.builder().literal(to_lctype(int), idx)
                 element = lcapi.builder().access(lctype.element(), expr, idxexpr)
-                res.append(lcapi.builder().cast(to_lctype(int), lcapi.CastOp.BITWISE, element))
+                res += Printer.get_expr_elements(from_lctype(lctype.element()), element)
             return res
         if lctype.is_matrix():
             column_lctype = lcapi.Type.from_(f"vector<float,{lctype.dimension()}>")
@@ -77,20 +77,20 @@ class Printer:
                 for idy in range(lctype.dimension()):
                     idyexpr = lcapi.builder().literal(to_lctype(int), idy)
                     element = lcapi.builder().access(lctype.element(), column, idyexpr)
-                    res.append(lcapi.builder().cast(to_lctype(int), lcapi.CastOp.BITWISE, element))
+                    res += Printer.get_expr_elements(from_lctype(lctype.element()), element)
             return res
         if lctype.is_array():
             res = []
             for idx in range(lctype.dimension()):
                 idxexpr = lcapi.builder().literal(to_lctype(int), idx)
                 element = lcapi.builder().access(lctype.element(), expr, idxexpr)
-                res += dtype.get_expr_elements(dtype.dtype, element)
+                res += Printer.get_expr_elements(dtype.dtype, element)
             return res
         if lctype.is_structure():
             res = []
             for idx, element_type in enumerate(dtype.membertype):
                 element = lcapi.builder().member(to_lctype(element_type), expr, idx)
-                res += dtype.get_expr_elements(element_type, element)
+                res += Printer.get_expr_elements(element_type, element)
             return res
         raise Exception(f"print type {dtype} not supported")
 
@@ -153,7 +153,7 @@ class Printer:
     @staticmethod
     def recover(dtype, arr, idx):
         if dtype is int:
-            return arr[idx]
+            return int(arr[idx])
         if dtype is float:
             b = pack('i', arr[idx])
             return unpack('f', b)[0]
@@ -177,15 +177,16 @@ class Printer:
             res = []
             for i in range(dtype.size):
                 res.append(Printer.recover(dtype.dtype, arr, idx))
-                idx += dtype.get_expr_elements_count(dtype.dtype)
+                idx += Printer.get_expr_elements_count(dtype.dtype)
             return dtype(res)
         # struct
         if lctype.is_structure():
-            res = []
-            for mtype in dtype.membertype:
-                res.append(Printer.recover(mtype, arr, idx))
-                idx += dtype.get_expr_elements_count(mtype)
-            return dtype(res)
+            res = {}
+            for name in dtype.idx_dict:
+                mtype = dtype.membertype[dtype.idx_dict[name]]
+                res[name] = Printer.recover(mtype, arr, idx)
+                idx += Printer.get_expr_elements_count(mtype)
+            return dtype(**res)
         raise Exception("recovering data of unsupported dtype")
 
     def final_print(self):
@@ -197,6 +198,8 @@ class Printer:
             idx += 1
             if type(tag) is str:
                 print(tag, end="")
+                if tag == "[ABORT]":
+                    quit()
             else:
                 print(self.recover(tag, arr, idx), end="")
                 idx += self.get_expr_elements_count(tag)

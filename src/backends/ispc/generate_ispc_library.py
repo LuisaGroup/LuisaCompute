@@ -665,8 +665,8 @@ LUISA_INLINE uniform float4x4 make_float4x4() {
 // make_float2x2 functions
 LUISA_INLINE uniform float2x2 make_float2x2(uniform float s) {
     uniform float2x2 m;
-    m.cols[0] = make_float2(s);
-    m.cols[1] = make_float2(s);
+    m.cols[0] = make_float2(s,0.0);
+    m.cols[1] = make_float2(0.0,s);
     return m;
 }
 LUISA_INLINE uniform float2x2 make_float2x2(uniform float2 c0, uniform float2 c1) {
@@ -688,9 +688,9 @@ LUISA_INLINE uniform float2x2 make_float2x2(uniform float2x2 m) { return m; }
 // make_float3x3 functions
 LUISA_INLINE uniform float3x3 make_float3x3(uniform float s) {
     uniform float3x3 m;
-    m.cols[0] = make_float3(s);
-    m.cols[1] = make_float3(s);
-    m.cols[2] = make_float3(s);
+    m.cols[0] = make_float3(s,0.0,0.0);
+    m.cols[1] = make_float3(0.0,s,0.0);
+    m.cols[2] = make_float3(0.0,0.0,s);
     return m;
 }
 LUISA_INLINE uniform float3x3 make_float3x3(uniform float3 c0, uniform float3 c1, uniform float3 c2) {
@@ -715,10 +715,10 @@ LUISA_INLINE uniform float3x3 make_float3x3(uniform float3x3 m) { return m; }
 // make_float4x4 functions
 LUISA_INLINE uniform float4x4 make_float4x4(uniform float s) {
     uniform float4x4 m;
-    m.cols[0] = make_float4(s);
-    m.cols[1] = make_float4(s);
-    m.cols[2] = make_float4(s);
-    m.cols[3] = make_float4(s);
+    m.cols[0] = make_float4(s,0.0,0.0,0.0);
+    m.cols[1] = make_float4(0.0,s,0.0,0.0);
+    m.cols[2] = make_float4(0.0,0.0,s,0.0);
+    m.cols[3] = make_float4(0.0,0.0,0.0,s);
     return m;
 }
 LUISA_INLINE uniform float4x4 make_float4x4(uniform float4 c0, uniform float4 c1, uniform float4 c2, uniform float4 c3) {
@@ -1795,3 +1795,30 @@ uniform float4 matrix_access_rvalue_4(uniform float4x4 m, uniform uint i) { retu
 {t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uint i) {{ return v.v[i]; }}
 {t} vector_access_rvalue_{t}{i}({t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}
 uniform {t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}''', file=file)
+        for u in ["uniform ", ""]:
+            print(f'''
+// atomic operations for floats
+inline float atomic_swap_global_float(uniform float *varying v, {u}float x) {{
+    return atomic_swap_global(v, x);
+}}
+inline float atomic_compare_exchange_global_float(uniform float *varying v, {u}float cmp, {u}float x) {{
+    return atomic_compare_exchange_global(v, cmp, x);
+}}
+inline float atomic_add_global_float(uniform float *varying v, {u}float x) {{
+    for (;;) {{
+        float old = *v;
+        if (atomic_compare_exchange_global(v, old, old + x) == old) {{ return old; }}
+    }}
+}}
+inline float atomic_subtract_global_float(uniform float *varying v, {u}float x) {{
+    for (;;) {{
+        float old = *v;
+        if (atomic_compare_exchange_global(v, old, old - x) == old) {{ return old; }}
+    }}
+}}
+inline float atomic_min_global_float(uniform float *varying v, {u}float x) {{
+    return floatbits(atomic_min_global((uniform int *varying)v, ({u}int)intbits(x)));
+}}
+inline float atomic_max_global_float(uniform float *varying v, {u}float x) {{
+    return floatbits(atomic_max_global((uniform int *varying)v, ({u}int)intbits(x)));
+}}''', file=file)

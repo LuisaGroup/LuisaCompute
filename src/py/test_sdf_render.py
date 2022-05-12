@@ -1,26 +1,11 @@
-import time
-
-import numpy as np
-from sys import argv
-
+import math
 import luisa
 from luisa.mathtypes import *
-from luisa.framerate import FrameRate
-from luisa.window import Window
-import dearpygui.dearpygui as dpg
-from luisa.util import RandomSampler
 
 
-if len(argv) > 1:
-    luisa.init(argv[1])
-else:
-    luisa.init("cuda")
-
-
+luisa.init()
 res = 1280, 720
-image = luisa.Texture2D(*res, 4, float)
-display = luisa.Texture2D(*res, 4, float)
-arr = np.zeros([*res, 4], dtype=np.float32)
+image = luisa.Texture2D.zeros(*res, 4, float)
 max_ray_depth = 6
 eps = 1e-4
 inf = 1e10
@@ -28,43 +13,41 @@ inf = 1e10
 fov = 0.23
 dist_limit = 100
 
-camera_pos = make_float3(0.0, 0.32, 3.7)
-light_pos = make_float3(-1.5, 0.6, 0.3)
-light_normal = make_float3(1.0, 0.0, 0.0)
+camera_pos = float3(0.0, 0.32, 3.7)
+light_pos = float3(-1.5, 0.6, 0.3)
+light_normal = float3(1.0, 0.0, 0.0)
 light_radius = 2.0
 
 next_hit_struct = luisa.StructType(closest=float, normal=float3, c=float3)
 
+
 @luisa.func
 def intersect_light(pos, d):
-    vdot = dot(-d, light_normal)
+    cosl = dot(-d, light_normal)
     dist = dot(d, light_pos - pos)
     dist_to_light = inf
-    if vdot > 0 and dist > 0:
-        D = dist / vdot
-        dist_to_center = dot(light_pos - pos - D * d, light_pos - pos - D * d)
-        if dist_to_center < light_radius * light_radius:
+    if cosl > 0 and dist > 0:
+        D = dist / cosl
+        dist_to_center = length_squared(light_pos - pos - D * d)
+        if dist_to_center < light_radius ** 2:
             dist_to_light = D
     return dist_to_light
 
 @luisa.func
 def out_dir(n, sampler):
-    u = make_float3(1.0, 0.0, 0.0)
+    u = float3(1.0, 0.0, 0.0)
     if abs(n.y) < 1 - eps:
-        u = normalize(cross(n, make_float3(0.0, 1.0, 0.0)))
+        u = normalize(cross(n, float3(0,1,0)))
     v = cross(n, u)
-    phi = 2 * 3.1415926 * sampler.next()
+    phi = 2 * math.pi * sampler.next()
     ay = sqrt(sampler.next())
-    ax = sqrt(1 - ay * ay)
+    ax = sqrt(1 - ay ** 2)
     return ax * (cos(phi) * u + sin(phi) * v) + ay * n
 
 
 @luisa.func
 def make_nested(f):
     f = f * 40.0
-    # f = (1 - fract(f) if int(f) % 2 == 0 else fract(f)) if f < 0.0 else f
-    # return (f - 0.2) * (1.0 / 40.0)
-
     i = int(f)
     if f < 0:
         if i % 2 != 0:
@@ -128,79 +111,67 @@ def next_hit(pos, d):
         t = int((hit_pos[0] + 10) * 1.1 + 0.5) % 3
         c = float3(
             0.4 + 0.3 * float(t == 0), 0.4 + 0.2 * float(t == 1), 0.4 + 0.3 * float(t == 2))
-    result = next_hit_struct()
-    result.closest = closest
-    result.normal = normal
-    result.c = c
-    return result
+    return struct(closest=closest, normal=normal, c=c)
 
 
 @luisa.func
-def render(image, frame_index):
+def render(frame_index):
     set_block_size(16,8,1)
-    res = make_float2(dispatch_size().xy)
+    res = float2(dispatch_size().xy)
     coord = dispatch_id().xy
-
-    if frame_index == 0:
-        image.write(dispatch_id().xy, make_float4(make_float3(0.0), 1.0))
-
-    sampler = RandomSampler(make_int3(coord, frame_index))
+    sampler = luisa.RandomSampler(int3(coord, frame_index))
 
     aspect_ratio = res.x / res.y
     pos = camera_pos
-    ux = sampler.next()
-    uy = sampler.next()
-    uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1 - dispatch_id().y + uy)
-    d = make_float3(
-        2.0 * fov * uv / res.y - fov * make_float2(aspect_ratio, 1.0) - 1e-5, -1.0)
+    uv = float2(coord.x + sampler.next(), res.y - 1 - coord.y + sampler.next())
+    # uv = float2(coord) + sampler.next2f()
+    d = float3(2.0 * fov * uv / res.y - fov * float2(aspect_ratio, 1.0) - 1e-5, -1.0)
+    # d = float3(
+    #         (2 * fov * (u + sampler.next()) / res[1] - fov * aspect_ratio - 1e-5),
+    #         2 * fov * (v + sampler.next()) / res[1] - fov - 1e-5, -1.0
+    #     )
     d = normalize(d)
 
-    throughput = make_float3(1.0, 1.0, 1.0)
+    throughput = float3(1)
 
     hit_light = 0.00
 
     for depth in range(max_ray_depth):
-        result = next_hit(pos, d)
-        closest = result.closest
-        normal = result.normal
-        c = result.c
+        hit = next_hit(pos, d)
         dist_to_light = intersect_light(pos, d)
-        if dist_to_light < closest:
+        if dist_to_light < hit.closest:
             hit_light = 1.0
             break
         else:
-            hit_pos = pos + closest * d
-            if dot(normal, normal) != 0:
-                d = out_dir(normal, sampler)
+            hit_pos = pos + hit.closest * d
+            if length_squared(hit.normal) != 0:
+                d = out_dir(hit.normal, sampler)
                 pos = hit_pos + 1e-4 * d
-                throughput *= c
+                throughput *= hit.c
             else:
                 break
-    accum_color = image.read(dispatch_id().xy).xyz
+    accum_color = image.read(coord).xyz
     accum_color += throughput * hit_light
-    image.write(dispatch_id().xy, make_float4(accum_color, 1.0))
-    display.write(dispatch_id().xy, make_float4(sqrt(accum_color / (1.0 + frame_index) / 0.084 * 0.24), 1.0))
+    image.write(coord, float4(accum_color, 1.0))
 
-luisa.lcapi.log_level_error()
 
-frame_rate = FrameRate(10)
-w = Window("Shader Toy", res, resizable=False, frame_rate=True)
-w.set_background(arr, res)
-dpg.draw_image("background", (0, 0), res, parent="viewport_draw")
+display = luisa.Texture2D.empty(*res, 4, float)
 
-t0 = time.time()
+@luisa.func
+def to_display(scale):
+    coord = dispatch_id().xy
+    accum_color = image.read(coord).xyz
+    display.write(coord, float4(sqrt(accum_color * scale), 1.0))
+
+
+gui = luisa.GUI("SDF Path Tracer", res)
 frame_index = 0
-def update():
-    global frame_index, arr
-    t = time.time() - t0
-    spp_per_dispatch = 256
-    for i in range(spp_per_dispatch):
-        render(image, frame_index, dispatch_size=(*res, 1))
-        frame_index += 1
-    display.copy_to(arr)
-    frame_rate.record(spp_per_dispatch)
-    w.update_frame_rate(frame_rate.report())
-    print(frame_rate.report())
-#     # w.update_frame_rate(dpg.get_frame_rate())
+while gui.running():
+    render(frame_index, dispatch_size=(*res, 1))
+    frame_index += 1
+    if frame_index % 16 == 0:
+        to_display(0.24 / (1 + frame_index) / 0.084 , dispatch_size=(*res, 1))
+        gui.set_image(display)
+        gui.show()
 
-w.run(update)
+# Image.fromarray(display.to(luisa.PixelStorage.BYTE4).numpy()).save("sdf.png")

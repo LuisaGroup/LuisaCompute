@@ -3,17 +3,17 @@ import astpretty
 import inspect
 import sys
 import traceback
-from types import SimpleNamespace
-from .types import from_lctype
+from types import SimpleNamespace, ModuleType
+from .types import length_of, element_of, vector
 from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call, wrap_with_tmp_var
-from .types import dtype_of, to_lctype, CallableType, is_vector_type
+from .types import dtype_of, to_lctype, CallableType, vector_dtypes, matrix_dtypes
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
-from .arraytype import ArrayType
-from .structtype import StructType
+from .array import ArrayType
+from .struct import StructType
 
 def ctx():
     return globalvars.current_context
@@ -85,7 +85,8 @@ class ASTVisitor:
             if node.value.dtype != None:
                 raise TypeError("Discarding non-void return value")
         else:
-            raise TypeError("Dangling expression")
+            if not isinstance(node.value, ast.Constant):
+                raise TypeError("Dangling expression")
 
     @staticmethod
     def build_Return(node):
@@ -108,20 +109,26 @@ class ASTVisitor:
         build(node.func)
         for x in node.args:
             build(x)
-        # if it's a method, call with self (the object)
-        args = [node.func.value] + node.args if type(node.func) is ast.Attribute else node.args
+        for x in node.keywords:
+            build(x.value)
+        # if it's called as method, call with self (the object)
+        if type(node.func) is ast.Attribute and getattr(node.func, 'calling_method', False):
+            args = [node.func.value] + node.args 
+        else:
+            args = node.args
+        kwargs = {x.arg: x.value for x in node.keywords}
         # custom function
         if node.func.dtype is CallableType:
-            node.dtype, node.expr = callable_call(node.func.expr, args)
-        # builtin function (as defined in builtin_func_names)
+            node.dtype, node.expr = callable_call(node.func.expr, *args, **kwargs)
+        # builtin function (called by name string, as defined in builtin_func_names)
         elif node.func.dtype is BuiltinFuncType:
-            node.dtype, node.expr = builtin_func(node.func.expr, args)
+            node.dtype, node.expr = builtin_func(node.func.expr, *args, **kwargs)
         elif node.func.dtype is BuiltinFuncBuilder:
-            node.dtype, node.expr = node.func.expr.builder(args)
+            node.dtype, node.expr = node.func.expr.builder(*args, **kwargs)
         # type: cast / construct
         elif node.func.dtype is type:
             dtype = node.func.expr
-            node.dtype, node.expr = builtin_type_cast(dtype, args)
+            node.dtype, node.expr = builtin_type_cast(dtype, *args, **kwargs)
         else:
             raise TypeError(f"{node.func.dtype} is not callble")
         node.lr = 'r'
@@ -129,35 +136,42 @@ class ASTVisitor:
     @staticmethod
     def build_Attribute(node):
         build(node.value)
-        node.lr = node.value.lr
         # vector swizzle
-        if is_vector_type(node.value.dtype):
+        if node.value.dtype in vector_dtypes:
             if is_swizzle_name(node.attr):
                 original_size = to_lctype(node.value.dtype).dimension()
                 swizzle_size = len(node.attr)
                 swizzle_code = get_swizzle_code(node.attr, original_size)
                 node.dtype = get_swizzle_resulttype(node.value.dtype, swizzle_size)
                 node.expr = lcapi.builder().swizzle(to_lctype(node.dtype), node.value.expr, swizzle_size, swizzle_code)
+                node.lr = 'l' if swizzle_size==1 else 'r'
             else:
                 raise AttributeError(f"vector has no attribute '{node.attr}'")
         # struct member
         elif type(node.value.dtype) is StructType:
-            if node.attr not in node.value.dtype.idx_dict:
-                raise AttributeError(f"struct {node.value.dtype} has no attribute '{node.attr}'")
-            idx = node.value.dtype.idx_dict[node.attr]
-            node.dtype = node.value.dtype.membertype[idx]
-            if node.dtype == CallableType: # method
-                node.expr = node.value.dtype.method_dict[node.attr]
-            else: # data member
+            if node.attr in node.value.dtype.idx_dict: # data member
+                idx = node.value.dtype.idx_dict[node.attr]
+                node.dtype = node.value.dtype.membertype[idx]
                 node.expr = lcapi.builder().member(to_lctype(node.dtype), node.value.expr, idx)
+                node.lr = node.value.lr
+            elif node.attr in node.value.dtype.method_dict: # struct method
+                node.dtype = CallableType
+                node.calling_method = True
+                node.expr = node.value.dtype.method_dict[node.attr]
+            else:
+                raise AttributeError(f"struct {node.value.dtype} has no attribute '{node.attr}'")
+        elif node.value.dtype is ModuleType:
+            node.dtype, node.expr, node.lr = build.captured_expr(getattr(node.value.expr, node.attr))
         elif hasattr(node.value.dtype, node.attr):
             entry = getattr(node.value.dtype, node.attr)
             if type(entry).__name__ == "func":
                 node.dtype, node.expr = CallableType, entry
+                node.calling_method = True
             elif type(entry) is BuiltinFuncBuilder:
                 node.dtype, node.expr = BuiltinFuncBuilder, entry
+                node.calling_method = True
             else:
-                raise TypeError(f"Can't access member {entry} in luisa func")
+                raise TypeError(f"Can't access attribute {node.attr} ({entry}) in luisa func")
         else:
             raise AttributeError(f"type {node.value.dtype} has no attribute '{node.attr}'")
 
@@ -168,27 +182,29 @@ class ASTVisitor:
         build(node.slice)
         if type(node.value.dtype) is ArrayType:
             node.dtype = node.value.dtype.dtype
-        elif is_vector_type(node.value.dtype):
-            node.dtype = from_lctype(to_lctype(node.value.dtype).element())
-        elif node.value.dtype in {lcapi.float2x2, lcapi.float3x3, lcapi.float4x4}:
-            # matrix: indexed is a column vector
-            element_dtypename = to_lctype(node.value.dtype).element().description()
-            dim = to_lctype(node.value.dtype).dimension()
-            node.dtype = getattr(lcapi, element_dtypename + str(dim))
+        elif node.value.dtype in vector_dtypes:
+            node.dtype = element_of(node.value.dtype)
+        elif node.value.dtype in matrix_dtypes:
+            # matrix indexed is a column vector
+            node.dtype = vector(float, length_of(node.value.dtype))
         else:
-            raise TypeError(f"{node.value.dtype} can't be subscripted")
+            raise TypeError(f"{node.value.dtype} object is not subscriptable")
         node.expr = lcapi.builder().access(to_lctype(node.dtype), node.value.expr, node.slice.expr)
 
     # external variable captured in kernel -> (dtype, expr, lr)
     @staticmethod
     def captured_expr(val):
         dtype = dtype_of(val)
+        if dtype == ModuleType:
+            return dtype, val, None
         if dtype == type:
             return dtype, val, None
         if dtype == CallableType:
             return dtype, val, None
         if dtype == BuiltinFuncBuilder:
             return dtype, val, None
+        if dtype == str:
+            return dtype, val, 'r'
         lctype = to_lctype(dtype)
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val), 'r'
@@ -214,9 +230,9 @@ class ASTVisitor:
             expr = lcapi.builder().local(lctype)
             for idx,x in enumerate(val.values):
                 lhs = lcapi.builder().member(to_lctype(dtype.membertype[idx]), expr, idx)
-                rhs = captured_expr(x)
-                assert rhs.dtype == dtype.membertype[idx]
-                lcapi.builder().assign(lhs, rhs.expr)
+                rhs_dtype, rhs_expr, rhs_lr = build.captured_expr(x)
+                assert rhs_dtype == dtype.membertype[idx]
+                lcapi.builder().assign(lhs, rhs_expr)
             return dtype, expr, 'r'
         raise TypeError("unrecognized closure var type:", type(val))
 
@@ -358,11 +374,9 @@ class ASTVisitor:
         node.lr = 'r'
 
     @staticmethod
-    def build_For(node):
-        # currently only supports for x in range(...)
-        assert type(node.target) is ast.Name
-        assert type(node.iter) is ast.Call and type(node.iter.func) is ast.Name
-        assert node.iter.func.id == "range" and len(node.iter.args) in {1,2,3}
+    def build_range_for(node):
+        if len(node.iter.args) not in {1,2,3}:
+            raise TypeError(f"'range' expects 1/2/3 arguments, got {en(node.iter.args)}")
         for x in node.iter.args:
             build(x)
             assert x.dtype is int
@@ -385,6 +399,36 @@ class ASTVisitor:
         with forstmt.body():
             for x in node.body:
                 build(x)
+
+    @staticmethod
+    def build_container_for(node):
+        range_start = lcapi.builder().literal(to_lctype(int), 0)
+        range_stop = lcapi.builder().literal(to_lctype(int), length_of(node.iter.dtype))
+        range_step = lcapi.builder().literal(to_lctype(int), 1)
+        # loop variable
+        idxexpr = lcapi.builder().local(to_lctype(int))
+        lcapi.builder().assign(idxexpr, range_start)
+        eltype = element_of(node.iter.dtype) if node.iter.dtype not in matrix_dtypes else vector(float, length_of(node.iter.dtype)) # iterating through matrix yields vectors
+        varexpr = lcapi.builder().access(to_lctype(eltype), node.iter.expr, idxexpr) # loop variable (element)
+        ctx().local_variable[node.target.id] = VariableInfo(eltype, varexpr)
+        # build for statement
+        condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, idxexpr, range_stop)
+        forstmt = lcapi.builder().for_(idxexpr, condition, range_step)
+        with forstmt.body():
+            for x in node.body:
+                build(x)
+
+    @staticmethod
+    def build_For(node):
+        # currently only supports for x in range(...)
+        assert type(node.target) is ast.Name
+        if type(node.iter) is ast.Call and type(node.iter.func) is ast.Name and node.iter.func.id == "range":
+            return build.build_range_for(node)
+        build(node.iter)
+        if type(node.iter.dtype) is ArrayType or node.iter.dtype in {*vector_dtypes, *matrix_dtypes}:
+            return build.build_container_for(node)
+        else:
+            raise TypeError(f"{node.iter.dtype} object is not iterable")
 
     @staticmethod
     def build_While(node):
@@ -422,6 +466,13 @@ class ASTVisitor:
                 node.joined.append(x)
             else:
                 assert False
+
+    @staticmethod
+    def build_List(node):
+        node.dtype = list
+        for x in node.elts:
+            build(x)
+        node.expr = None
 
     @staticmethod
     def build_Pass(node):
