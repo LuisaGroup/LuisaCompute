@@ -155,7 +155,14 @@ class func:
             raise TypeError("dispatch_size must be int or tuple of 1/2/3 ints")
         # get types of arguments and compile
         argtypes = tuple(dtype_of(a) for a in args)
-        f = self.get_compiled(call_from_host=True, argtypes=argtypes)
+        try:
+            f = self.get_compiled(call_from_host=True, argtypes=argtypes)
+        except Exception as e:
+            if hasattr(e, "already_printed"):
+                # hide the verbose traceback in AST builder
+                raise RuntimeError(f"Error when compiling luisa.func {self.__name__}") from None
+            else:
+                raise
         # create command
         command = lcapi.ShaderDispatchCommand.create(f.shader_handle, f.function)
         # push arguments
