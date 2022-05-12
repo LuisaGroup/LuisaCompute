@@ -121,6 +121,8 @@ def dtype_of(val):
 def to_lctype(dtype):
     if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType"}:
         return dtype.luisa_type
+    if not hasattr(dtype, "__name__"):
+        raise TypeError(f"{dtype} is not a valid data type")
     if dtype.__name__ == "BindlessArray":
         return lcapi.Type.from_("bindless_array")
     if dtype.__name__ == "Accel":

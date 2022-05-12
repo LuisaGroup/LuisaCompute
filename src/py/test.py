@@ -6,15 +6,13 @@ luisa.init()
 
 @luisa.func
 def f(x):
-	b = 423
-	return abs(x)
-	a = 3
-	# 31221
-	b = 423
+	a,b = 4,5
+	a,b = a+b, a-b
+	print(a,b)
 
 @luisa.func
 def g():
-	print(f(True))
+	f(True)
 
 g(dispatch_size=1)
 # print(int2(3)/int2(2))
