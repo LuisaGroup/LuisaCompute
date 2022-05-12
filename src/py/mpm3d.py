@@ -62,7 +62,7 @@ def point_to_grid():
     affine = float3x3(stress) + p_mass * C.read(p)
     for offset in neighbour:
         dpos = (float3(offset) - fx) * dx
-        weight = w[0][0] * w[1][1] * w[2][2]
+        weight = w[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2]
         vadd = weight * (p_mass * v.read(p) + affine * dpos)
         _ = grid_v.atomic_fetch_add(encode(base + offset)*4+0, vadd[0])
         _ = grid_v.atomic_fetch_add(encode(base + offset)*4+1, vadd[1])
@@ -79,7 +79,6 @@ def simulate_grid():
     if m > 0.0:
         v /= m
     v.y -= dt * gravity
-    # TODO
     cond = I < bound and v < 0. or I > n_grid - bound and v > 0.
     v = float3(0) if cond else v
     grid_v.write(encode(I)*4+0, v[0])
@@ -104,7 +103,6 @@ def trace(a: float3x3):
 @lc.func
 def grid_to_point():
     p = dispatch_id().x
-    p = dispatch_id().x
     Xp = x.read(p) / dx
     base = int3(Xp - 0.5)
     fx = Xp - float3(base)
@@ -113,7 +111,7 @@ def grid_to_point():
     new_C = float3x3(0)
     for offset in neighbour:
         dpos = (float3(offset) - fx) * dx
-        weight = w[0][0] * w[1][1] * w[2][2]
+        weight = w[offset[0]][0] * w[offset[1]][1] * w[offset[2]][2]
         g_v = float3(grid_v.read(encode(base + offset)*4+0),
                      grid_v.read(encode(base + offset)*4+1),
                      grid_v.read(encode(base + offset)*4+2))
@@ -127,9 +125,9 @@ def grid_to_point():
 
 
 def substep():
-    clear_grid(dispatch_size=(n_grid, n_grid))
+    clear_grid(dispatch_size=(n_grid,)*3)
     point_to_grid(dispatch_size=n_particles)
-    simulate_grid(dispatch_size=(n_grid, n_grid))
+    simulate_grid(dispatch_size=(n_grid,)*3)
     grid_to_point(dispatch_size=n_particles)
 
 
@@ -179,6 +177,8 @@ def draw_particle():
 
 
 init(dispatch_size=n_particles)
+
+import time
 
 gui = lc.GUI('MPM88', (res, res))
 while gui.running():
