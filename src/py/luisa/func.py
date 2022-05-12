@@ -104,7 +104,8 @@ class func:
     def compile(self, call_from_host: bool, argtypes: tuple):
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
-        self.tree = ast.parse(textwrap.dedent(sourceinspect.getsource(self.pyfunc)))
+        self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
+        self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
         self.parameters = inspect.signature(self.pyfunc).parameters
         if len(argtypes) != len(self.parameters):
             raise Exception(f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} expected).")
@@ -160,7 +161,7 @@ class func:
         except Exception as e:
             if hasattr(e, "already_printed"):
                 # hide the verbose traceback in AST builder
-                raise RuntimeError(f"Error when compiling luisa.func {self.__name__}") from None
+                raise RuntimeError(f"Error when compiling luisa.func '{self.__name__}'") from None
             else:
                 raise
         # create command
