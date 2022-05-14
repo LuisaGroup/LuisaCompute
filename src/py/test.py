@@ -4,11 +4,11 @@ from luisa.mathtypes import *
 
 luisa.init()
 
+a = float4
+
 @luisa.func
 def f(x):
-	a,b = 4,5
-	a,b = a+b, a-b
-	print(a,b)
+	b:int = 2
 
 @luisa.func
 def g():
