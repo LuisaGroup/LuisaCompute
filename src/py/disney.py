@@ -49,6 +49,10 @@ def saturate(x: float):
 # H -> w_h
 
 
+# signature: (mat, n, w_o, v_x, v_y, [rng])
+# pdf, w_i, brdf
+
+
 DisneyMaterial = luisa.StructType(
 	base_color= float3,
 	metallic= float,
