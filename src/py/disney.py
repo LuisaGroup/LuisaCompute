@@ -51,6 +51,7 @@ def saturate(x: float):
 
 # signature: (mat, n, w_o, v_x, v_y, [rng])
 # pdf, w_i, brdf
+# 'disney_brdf', 'disney_pdf', 'sample_disney_brdf'
 
 
 DisneyMaterial = luisa.StructType(
@@ -75,7 +76,7 @@ DisneyMaterial.default = DisneyMaterial(
     base_color      = float3(0.7),
     metallic        = float(0),
     specular        = float(0),
-    roughness       = float(1),
+    roughness       = float(0.5),
     specular_tint   = float(0),
     anisotropy      = float(0),
     sheen           = float(0),

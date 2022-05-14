@@ -21,6 +21,7 @@ meshes = [[0,1,2,0,2,3], [4,5,6,4,6,7], [3,2,6,3,6,5], [2,1,7,2,7,6], [0,3,5,0,5
          [24,25,26,24,26,27]] # light
 
 
+rr_depth = 3
 
 white = DisneyMaterial.default.copy()
 white.base_color = float3(0.725, 0.71, 0.68)
@@ -172,27 +173,26 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             pdf_light = (d_light * d_light) / (light_area * cos_light)
             bsdf = disney_brdf(material, onb.normal, wo, wi_light, onb.binormal, onb.tangent)
             pdf_bsdf = disney_pdf(material, onb.normal, wo, wi_light, onb.binormal, onb.tangent)
-
             mis_weight = balanced_heuristic(pdf_light, pdf_bsdf)
-            # radiance += beta * bsdf * light_emission
-            radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4)
+            radiance += beta * bsdf * cos_wi_light * mis_weight * light_emission / max(pdf_light, 1e-4)
 
         # sample BSDF (pdf, w_i, brdf)
         sampled = sample_disney_brdf(material, onb.normal, wo, onb.binormal, onb.tangent, sampler)
         new_direction = sampled.w_i
         ray = make_ray(pp, new_direction, 0.0, 1e30)
-        beta *= sampled.brdf
         pdf_bsdf = sampled.pdf
+        beta *= sampled.brdf * dot(sampled.w_i, n) / pdf_bsdf
 
         # rr
         l = dot(make_float3(0.212671, 0.715160, 0.072169), beta)
         if l == 0.0:
             break
-        q = max(l, 0.05)
-        r = sampler.next()
-        if r >= q:
-            break
-        beta *= 1.0 / q
+        if depth >= rr_depth and l < 1.0:
+            q = max(l, 0.05)
+            r = sampler.next()
+            if r >= q:
+                break
+            beta *= 1.0 / q
     if any(isnan(radiance)):
         radiance = make_float3(0.0)
     accum = accum_image.read(coord).xyz
