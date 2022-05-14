@@ -50,9 +50,6 @@ black.base_color = float3(0)
 # test(dispatch_size=1)
 # quit()
 
-white, red, green = float3(0.725, 0.71, 0.68), float3(0.63, 0.065, 0.05), float3(0.14, 0.45, 0.091)
-black = float3(0)
-
 materials = [white, white, white, green, red, white, white, black]
 
 # copy scene info to device
@@ -142,20 +139,19 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         p2 = vertex_buffer.read(i2)
         p = hit.interpolate(p0, p1, p2)
         n = normalize(cross(p1 - p0, p2 - p0))
-        cos_wi = dot(-ray.get_dir(), n)
-        if cos_wi < 1e-4:
+        onb = make_onb(n)
+        wo = -ray.get_dir()
+        cos_wo = dot(wo, n)
+        if cos_wo < 1e-4:
             break
-        # material = Material()
-        # material.albedo = material_buffer.read(hit.inst * 2 + 0)
-        # material.emission = material_buffer.read(hit.inst * 2 + 1)
-        albedo = material_buffer.read(hit.inst)
+        material = material_buffer.read(hit.inst)
 
         # hit light
         if hit.inst == 7:
             if depth == 0:
                 radiance += light_emission
             else:
-                pdf_light = length_squared(p - ray.get_origin()) / (light_area * cos_wi)
+                pdf_light = length_squared(p - ray.get_origin()) / (light_area * cos_wo)
                 mis_weight = balanced_heuristic(pdf_bsdf, pdf_light)
                 radiance += mis_weight * beta * light_emission
             break
@@ -174,20 +170,19 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         cos_light = -dot(light_normal, wi_light)
         if ((not occluded and cos_wi_light > 1e-4) and cos_light > 1e-4):
             pdf_light = (d_light * d_light) / (light_area * cos_light)
-            pdf_bsdf = cos_wi_light * (1 / pi)
+            bsdf = disney_brdf(material, onb.normal, wo, wi_light, onb.binormal, onb.tangent)
+            pdf_bsdf = disney_pdf(material, onb.normal, wo, wi_light, onb.binormal, onb.tangent)
+
             mis_weight = balanced_heuristic(pdf_light, pdf_bsdf)
-            bsdf = albedo * (1 / pi) * cos_wi_light
             # radiance += beta * bsdf * light_emission
             radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4)
 
-        # sample BSDF
-        onb = make_onb(n)
-        ux = sampler.next()
-        uy = sampler.next()
-        new_direction = onb.to_world(cosine_sample_hemisphere(make_float2(ux, uy)))
+        # sample BSDF (pdf, w_i, brdf)
+        sampled = sample_disney_brdf(material, onb.normal, wo, onb.binormal, onb.tangent, sampler)
+        new_direction = sampled.w_i
         ray = make_ray(pp, new_direction, 0.0, 1e30)
-        beta *= albedo
-        pdf_bsdf = cos_wi * (1 / pi)
+        beta *= sampled.brdf
+        pdf_bsdf = sampled.pdf
 
         # rr
         l = dot(make_float3(0.212671, 0.715160, 0.072169), beta)
