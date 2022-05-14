@@ -539,7 +539,7 @@ luisa函数中可以调用内置的函数，无需加前缀（模块名）。
 'isinf', 'isnan',
 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
 'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
-'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'abs',
+'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'abs', 'pow'
 ```
 
 ### 向量 / 矩阵创建

@@ -176,7 +176,7 @@ builtin_func_names = {
     'make_float2x2', 'make_float3x3', 'make_float4x4',
     'isinf', 'isnan', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
     'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
-    'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'abs',
+    'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'abs', 'pow',
     'dot', 'cross',
     'length', 'length_squared', 'normalize',
     'copysign', 'fma',
