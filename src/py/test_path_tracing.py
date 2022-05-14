@@ -180,6 +180,8 @@ def raytracing_kernel(image, accel, resolution, frame_index):
         uy = sampler.next()
         new_direction = onb.to_world(cosine_sample_hemisphere(make_float2(ux, uy)))
         ray = make_ray(pp, new_direction, 0.0, 1e30)
+        # bsdf = material.albedo / 3.1415926 * cos_wi
+        # beta *= bsdf / pdf_bsdf
         beta *= material.albedo
         pdf_bsdf = cos_wi * (1 / 3.1415926)
 
