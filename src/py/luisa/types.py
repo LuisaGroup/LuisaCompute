@@ -115,6 +115,8 @@ def dtype_of(val):
         raise Exception("list is unsupported. Convert to Array instead.")
     if type(val).__name__ in {"ArrayType", "StructType", "BufferType"} or val in basic_dtypes:
         return type
+    if type(val).__name__ == "function":
+        raise Exception(f"dtype_of ({val}): unrecognized type. Did you forget to decorate with luisa.func?")
     raise Exception(f"dtype_of ({val}): unrecognized type")
 
 
