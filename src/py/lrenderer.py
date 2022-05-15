@@ -13,6 +13,8 @@ from parseobj import parseobj
 
 if camera_fov > pi: # likely to be in degrees; convert to radian
     camera_fov *= pi / 180
+camera_right = luisa.lcapi.normalize(luisa.lcapi.cross(camera_dir, camera_up))
+camera_up = luisa.lcapi.normalize(luisa.lcapi.cross(camera_right, camera_dir))
 
 
 # load scene
@@ -160,22 +162,14 @@ def make_onb(normal: float3):
     return result
 
 
-
-@luisa.func
-def generate_ray(p: float2): # p: [-1,1]^2
-    fov = 39 / 180 * 3.1415926
-    origin = make_float3(278, 273, -800)
-    pixel = origin + make_float3(p * tan(0.5 * fov), 1.0)
-    direction = normalize(pixel - origin)
-    return make_ray(origin, direction, 0.0, 1e30) # TODO
-
 @luisa.func
 def generate_camera_ray(sampler, resolution):
     coord = dispatch_id().xy
     frame_size = float(min(resolution.x, resolution.y))
     pixel = (make_float2(coord) + sampler.next2f()) / frame_size * 2.0 - 1.0 # remapped to [-1,1] in shorter axis
-    ray = generate_ray(pixel * make_float2(1.0, -1.0))
-    return ray
+    d = make_float3(pixel * make_float2(1.0, -1.0) * tan(0.5 * camera_fov), 1.0)
+    direction = normalize(camera_right * d.x + camera_up * d.y + camera_dir * d.z)
+    return make_ray(camera_pos, direction, 0.0, 1e30) # TODO
 
 
 @luisa.func
