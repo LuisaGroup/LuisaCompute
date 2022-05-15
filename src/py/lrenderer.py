@@ -38,7 +38,6 @@ for idx, model in enumerate(models):
     materials.append(material)
     print("loading", filename)
     v,vn,f = parseobj(open(filename))
-    print(v,f)
     assert len(v) > 0
     # assert len(v) == len(vn) > 0
     # add mesh
@@ -166,7 +165,7 @@ def make_onb(normal: float3):
 def generate_camera_ray(sampler, resolution):
     coord = dispatch_id().xy
     frame_size = float(min(resolution.x, resolution.y))
-    pixel = (make_float2(coord) + sampler.next2f()) / frame_size * 2.0 - 1.0 # remapped to [-1,1] in shorter axis
+    pixel = ((make_float2(coord) + sampler.next2f()) * 2.0 - float2(resolution)) / frame_size # remapped to [-1,1] in shorter axis
     d = make_float3(pixel * make_float2(1.0, -1.0) * tan(0.5 * camera_fov), 1.0)
     direction = normalize(camera_right * d.x + camera_up * d.y + camera_dir * d.z)
     return make_ray(camera_pos, direction, 0.0, 1e30) # TODO
@@ -208,8 +207,8 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         # miss: evaluate environment light
         if hit.miss():
             # ============== DEBUG ==================
-            accum_image.write(coord, make_float4(0.0, 0.0, 0.0, 1.0))
-            return
+            # accum_image.write(coord, make_float4(0.0, 0.0, 0.0, 1.0))
+            # return
 
             emission = const_env_light
             if depth == 0:
@@ -233,7 +232,6 @@ def path_tracer(accum_image, accel, resolution, frame_index):
 
         # ============== DEBUG ==============
         radiance = n * float3(0.5) + float3(0.5)
-        # radiance = float3(hit.inst / 10 + 0.1)
         accum_image.write(coord, make_float4(radiance * float(frame_index + 1), 1.0))
         return
 
@@ -242,9 +240,10 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         onb = make_onb(n)
         # black if hit backside
         wo = -ray.get_dir()
-        cos_wo = dot(wo, n)
-        if cos_wo < 1e-4:
-            break
+        # cos_wo = dot(wo, n)
+        # if cos_wo < 1e-4:
+        #     break
+
         material = material_buffer.read(hit.inst)
         emission = emission_buffer.read(hit.inst)
 
@@ -255,26 +254,44 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             else:
                 pdf_light = mesh_light_sampled_pdf(p, ray.get_origin(), hit.inst, p0, p1, p2)
                 mis_weight = balanced_heuristic(pdf_bsdf, pdf_light)
+                mis_weight = 0.0
                 radiance += mis_weight * beta * emission
             break
 
         # sample light
         light = sample_light(p, sampler) # (wi, dist, pdf, eval)
-        shadow_ray = make_ray(offset_ray_origin(p, n), light.wi, 0.0, light.dist)
+        shadow_ray = make_ray(p, light.wi, 1e-2, light.dist)
         occluded = accel.trace_any(shadow_ray)
         cos_wi_light = dot(light.wi, n)
-        if not occluded and cos_wi_light > 1e-4:
+        # DEBUG override glass # material.specular_transmission == 0.0 and 
+        if not occluded:
             bsdf = disney_brdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             pdf_bsdf = disney_pdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             mis_weight = balanced_heuristic(light.pdf, pdf_bsdf)
+            mis_weight = 1.0
             radiance += beta * bsdf * cos_wi_light * mis_weight * light.eval / max(light.pdf, 1e-4)
 
         # sample BSDF (pdf, w_i, brdf)
-        sampled = sample_disney_brdf(material, onb.normal, wo, onb.binormal, onb.tangent, sampler)
-        new_direction = sampled.w_i
-        ray = make_ray(offset_ray_origin(p, n), new_direction, 0.0, 1e30)
-        pdf_bsdf = sampled.pdf
-        beta *= sampled.brdf * dot(sampled.w_i, n) / pdf_bsdf
+        sample = sample_disney_brdf(material, onb.normal, wo, onb.binormal, onb.tangent, sampler)
+        ray = make_ray(p, sample.w_i, 1e-2, 1e30)
+
+        # DEBUG override glass
+        # aa = dot(sample.w_i, n) > 0
+        # bb = dot(wo, n) > 0
+        # if material.specular_transmission > 0.0:
+        #     wi = sample_uniform_sphere(sampler.next2f())
+        #     ray = make_ray(p, wi, 1e-2, 1e30)
+        #     pdf_bsdf = 0.25 / pi
+        #     beta *= disney_brdf(material, onb.normal, wo, wi, onb.binormal, onb.tangent) * abs(dot(wi, n)) / pdf_bsdf
+        # else:
+        pdf_bsdf = sample.pdf
+        beta *= sample.brdf * abs(dot(sample.w_i, n)) / pdf_bsdf
+        # ================== DEBUG ==================
+        # radiance = sample.brdf / sample.pdf * 0.1
+        # # radiance = material.base_color
+        # accum = accum_image.read(coord).xyz
+        # accum_image.write(coord, make_float4(accum + clamp(radiance, 0.0, 30.0), 1.0))
+        # return
 
         # rr
         l = dot(make_float3(0.212671, 0.715160, 0.072169), beta)
@@ -313,19 +330,18 @@ def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
 
 luisa.lcapi.log_level_info()
 
-res = 1024, 1024
-accum_image = luisa.Texture2D.zeros(*res, 4, float)
-ldr_image = luisa.Texture2D.empty(*res, 4, float)
+accum_image = luisa.Texture2D.zeros(*resolution, 4, float)
+ldr_image = luisa.Texture2D.empty(*resolution, 4, float)
 
 # compute & display the progressively converging image in a window
-gui = luisa.GUI("Cornell Box", resolution=res)
+gui = luisa.GUI("Cornell Box", resolution=resolution)
 frame_id = 0
 
 while gui.running():
-    path_tracer(accum_image, accel, make_int2(*res), frame_id, dispatch_size=res)
+    path_tracer(accum_image, accel, make_int2(*resolution), frame_id, dispatch_size=resolution)
     frame_id += 1
-    if frame_id % 16 == 0:
-        hdr2ldr_kernel(accum_image, ldr_image, 1/frame_id, dispatch_size=[*res, 1])
+    if frame_id % 1 == 0:
+        hdr2ldr_kernel(accum_image, ldr_image, 1/frame_id, dispatch_size=[*resolution, 1])
         gui.set_image(ldr_image)
         gui.show()
 
