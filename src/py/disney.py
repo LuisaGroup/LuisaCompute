@@ -324,6 +324,8 @@ def disney_microfacet_transmission_isotropic(mat: DisneyMaterial, n: float3,
 
 	f = fresnel_dielectric(abs(dot(w_i, n)), eta_o, eta_i)
 	g = smith_shadowing_ggx(abs(dot(n, w_i)), alpha) * smith_shadowing_ggx(abs(dot(n, w_o)), alpha)
+	# f=0.0
+	# g=1.0
 
 	i_dot_h = dot(w_i, w_h)
 	o_dot_h = dot(w_o, w_h)
