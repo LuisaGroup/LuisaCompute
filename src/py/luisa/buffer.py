@@ -87,7 +87,7 @@ class Buffer:
             stream = globalvars.stream
         assert len(arr) == self.size
         lctype = to_lctype(self.dtype)
-        packed_bytes = b''
+        packed_bytes = bytearray()
         for x in arr:
             assert dtype_of(x) == self.dtype
             if lctype.is_basic():

@@ -1,8 +1,5 @@
 #include <pybind11/pybind11.h>
-#include <pybind11/functional.h>
-#include <pybind11/stl.h>
 #include <pybind11/operators.h>
-#include <luisa-compute.h>
 #include <dsl/builtin.h>
 
 namespace py = pybind11;
@@ -22,6 +19,20 @@ using namespace luisa::compute;
         .def("__truediv__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a / b; }, py::is_operator()) \
         .def("__truediv__", [](const Vector<T,2>&a, const T&b) { return a / b; }, py::is_operator()) \
         .def("__rtruediv__", [](const Vector<T,2>&a, const T&b) { return b / a; }, py::is_operator()) \
+        .def("__gt__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a > b; }, py::is_operator()) \
+        .def("__ge__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a >= b; }, py::is_operator()) \
+        .def("__lt__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a < b; }, py::is_operator()) \
+        .def("__le__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a <= b; }, py::is_operator()) \
+        .def("__eq__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a == b; }, py::is_operator()) \
+        .def("__ne__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a != b; }, py::is_operator()) \
+        ;
+
+#define LUISA_EXPORT_BOOL_OP(T) \
+    m##T                           \
+        .def("__eq__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a == b; }, py::is_operator()) \
+        .def("__ne__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a != b; }, py::is_operator()) \
+        .def("__and__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a && b; }, py::is_operator()) \
+        .def("__or__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a || b; }, py::is_operator()) \
         ;
 
 #define LUISA_EXPORT_INT_OP(T) \
@@ -29,11 +40,53 @@ using namespace luisa::compute;
         .def("__mod__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a % b; }, py::is_operator()) \
         .def("__mod__", [](const Vector<T,2>&a, const T&b) { return a % b; }, py::is_operator()) \
         .def("__rmod__", [](const Vector<T,2>&a, const T&b) { return b % a; }, py::is_operator()) \
+        .def("__shl__", [](const Vector<T,2>&a, const T&b) { return a << b; }, py::is_operator()) \
+        .def("__shr__", [](const Vector<T,2>&a, const T&b) { return a >> b; }, py::is_operator()) \
+        .def("__xor__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a ^ b; }, py::is_operator()) \
         ;
 
 #define LUISA_EXPORT_FLOAT_OP(T) \
     m##T                    \
         .def("__pow__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return luisa::pow(a, b); }, py::is_operator());
+
+#define LUISA_EXPORT_UNARY_FUNC(T, name) \
+    m.def(#name, [](const Vector<T,2>& v) { return luisa::name(v); });
+
+#define LUISA_EXPORT_ARITHMETIC_FUNC(T) \
+    m.def("min", [](const Vector<T,2>& a, const Vector<T,2>& b) { return luisa::min(a, b); }); \
+    m.def("min", [](const Vector<T,2>& a, const T& b){ return luisa::min(a, b); });            \
+    m.def("min", [](const T& a, const Vector<T,2>& b){ return luisa::min(a, b); });            \
+    m.def("max", [](const Vector<T,2>& a, const Vector<T,2>& b) { return luisa::max(a, b); }); \
+    m.def("max", [](const Vector<T,2>& a, const T& b){ return luisa::max(a, b); });            \
+    m.def("max", [](const T& a, const Vector<T,2>& b){ return luisa::max(a, b); });            \
+    m.def("select", [](const Vector<T,2>& a, const Vector<T,2>& b, bool pred) { return luisa::select(a, b, pred); }); \
+    m.def("clamp", [](const Vector<T,2>& v, const T& a, const T& b) { return luisa::clamp(v, a, b); }); \
+
+#define LUISA_EXPORT_FLOAT_FUNC(T) \
+    m.def("pow", [](const Vector<T,2>& a, const Vector<T,2>& b) { return luisa::pow(a, b); }); \
+    m.def("atan2", [](const Vector<T,2>& a, const Vector<T,2>& b) { return luisa::atan2(a, b); }); \
+    m.def("lerp", [](const Vector<T,2>& a, const Vector<T,2>& b, float t) { return luisa::lerp(a, b, t); }); \
+    m.def("dot", [](const Vector<T,2>& a, const Vector<T,2>& b) { return luisa::dot(a, b); });   \
+    m.def("distance", [](const Vector<T,2>& a, const Vector<T,2>& b) { return luisa::distance(a, b); });   \
+    LUISA_EXPORT_UNARY_FUNC(T, acos)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, asin)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, atan)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, cos)                                                            \
+    LUISA_EXPORT_UNARY_FUNC(T, sin)                                                            \
+    LUISA_EXPORT_UNARY_FUNC(T, tan)                                                            \
+    LUISA_EXPORT_UNARY_FUNC(T, sqrt)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, ceil)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, floor)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, round)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, exp)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, log)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, log10)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, log2)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, abs)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, radians)                                                           \
+    LUISA_EXPORT_UNARY_FUNC(T, degrees)                                                        \
+    LUISA_EXPORT_UNARY_FUNC(T, length)                                                         \
+    LUISA_EXPORT_UNARY_FUNC(T, normalize)
 
 #define LUISA_EXPORT_VECTOR2(T) \
     py::class_<luisa::detail::VectorStorage<T, 2>>(m, "_vectorstorage_"#T"2"); \
@@ -41,7 +94,7 @@ using namespace luisa::compute;
     	.def(py::init<T>()) \
     	.def(py::init<T,T>()) \
     	.def(py::init<Vector<T,2>>()) \
-    	  .def("__repr__", [](Vector<T,2>& self){return format(#T"2({},{})", self.x, self.y);}) \
+        .def("__repr__", [](Vector<T,2>& self){return format(#T"2({},{})", self.x, self.y);}) \
         .def("__getitem__", [](Vector<T,2>& self, size_t i){return self[i];}) \
         .def("__setitem__", [](Vector<T,2>& self, size_t i, T k){ self[i]=k; }) \
         .def("copy", [](Vector<T,2>& self){return Vector<T,2>(self);}) \
@@ -85,10 +138,15 @@ void export_vector2(py::module &m) {
     LUISA_EXPORT_VECTOR2(uint)
     LUISA_EXPORT_VECTOR2(int)
     LUISA_EXPORT_VECTOR2(float)
+    LUISA_EXPORT_ARITHMETIC_FUNC(int)
+    LUISA_EXPORT_ARITHMETIC_FUNC(uint)
+    LUISA_EXPORT_ARITHMETIC_FUNC(float)
+    LUISA_EXPORT_FLOAT_FUNC(float)
     LUISA_EXPORT_ARITHMETIC_OP(uint)
     LUISA_EXPORT_ARITHMETIC_OP(int)
     LUISA_EXPORT_ARITHMETIC_OP(float)
     LUISA_EXPORT_INT_OP(uint)
     LUISA_EXPORT_INT_OP(int)
     LUISA_EXPORT_FLOAT_OP(float)
+    LUISA_EXPORT_BOOL_OP(bool)
 }
