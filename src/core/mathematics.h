@@ -268,7 +268,7 @@ template<size_t N>
     return u * (1.0f / length(u));
 }
 
-template<uint N>
+template<size_t N>
 [[nodiscard]] constexpr auto distance(Vector<float, N> u, Vector<float, N> v) noexcept {
     return length(u - v);
 }
