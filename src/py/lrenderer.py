@@ -6,9 +6,9 @@ from luisa.util import RandomSampler
 
 from disney import *
 
-from spaceship import models # (filename, mat, [emission], [transform])
-from spaceship import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
-from spaceship import resolution, max_depth, rr_depth
+from water import models # (filename, mat, [emission], [transform])
+from water import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
+from water import resolution, max_depth, rr_depth
 from parseobj import parseobj
 
 if camera_fov > pi: # likely to be in degrees; convert to radian
@@ -257,6 +257,13 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         shadow_ray = make_ray(p, light.wi, 1e-4, light.dist)
         occluded = accel.trace_any(shadow_ray)
         cos_wi_light = dot(light.wi, n)
+
+        # if dispatch_id().y == 200:
+        #     accum = accum_image.read(coord).xyz
+        #     accum_image.write(coord, make_float4(accum + float3(0.5, 0.0, 0.0), 1.0))
+        #     print(light, occluded, cos_wi_light)
+        #     return
+
         # DEBUG override glass # material.specular_transmission == 0.0 and 
         if not occluded:
             bsdf = disney_brdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)

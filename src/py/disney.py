@@ -445,7 +445,7 @@ def sample_disney_brdf(mat: DisneyMaterial, n: float3,
 		component = int(rng.next() * 3.)
 		component = clamp(component, 0, 2)
 	else:
-		return glass.sample_brdf(n, w_o, v_x, v_y, rng)
+		return glass.sample_brdf(n, w_o, v_x, v_y, rng, mat.ior)
 		if dot(w_o, n) > 0.:
 			component = int(rng.next() * 4.)
 			component = clamp(component, 0, 3)
