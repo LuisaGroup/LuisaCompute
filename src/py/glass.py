@@ -11,8 +11,7 @@ def pdf():
 	return 0
 
 @luisa.func
-def sample_brdf_local(wo: float3, sampler):
-	IOR = 1.5
+def sample_brdf_local(wo: float3, sampler, IOR: float):
 	ior = IOR if wo.z > 0.0 else 1/IOR
 
 	cosi = abs(wo.z)
@@ -38,8 +37,8 @@ def sample_brdf_local(wo: float3, sampler):
 		# the 1/ior^2 coefficient is used to convert energy to radiance
 
 @luisa.func
-def sample_brdf(n: float3, w_o: float3, binormal: float3, tangent: float3, sampler):
+def sample_brdf(n: float3, w_o: float3, binormal: float3, tangent: float3, sampler, IOR: float):
 	wo_local = float3(dot(w_o, binormal), dot(w_o, tangent), dot(w_o, n))
-	s = sample_brdf_local(wo_local, sampler)
+	s = sample_brdf_local(wo_local, sampler, IOR)
 	s.w_i = s.w_i.x * binormal + s.w_i.y * tangent + s.w_i.z * n
 	return s
