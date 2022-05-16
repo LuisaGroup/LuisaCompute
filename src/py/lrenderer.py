@@ -5,6 +5,7 @@ from PIL import Image
 from luisa.util import RandomSampler
 
 from disney import *
+import glass
 
 from spaceship import models # (filename, mat, [emission], [transform])
 from spaceship import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
@@ -30,7 +31,7 @@ camera_up = luisa.lcapi.normalize(luisa.lcapi.cross(camera_right, camera_dir))
 #     n = float3(0,0,1)
 #     bn = float3(0,1,0)
 #     tang = float3(1,0,0)
-#     wo = normalize(float3(1,0,4))
+#     wo = normalize(float3(-2,0,-1))
 
 #     sampler = RandomSampler(dispatch_id())
 #     # sample BSDF (pdf, w_i, brdf)
@@ -120,7 +121,7 @@ def sample_uniform_sphere(u: float2):
     phi = 2.0 * pi * u.y
     return make_float3(r * cos(phi), r * sin(phi), z)
 
-env_prob = 0.3
+env_prob = 0.0
 
 @luisa.func
 def mesh_light_sampled_pdf(p, origin, inst, p0, p1, p2):
@@ -160,6 +161,11 @@ def sample_light(origin, sampler):
         p0 = heap.buffer_read(float3, inst * 2 + 1, i0)
         p1 = heap.buffer_read(float3, inst * 2 + 1, i1)
         p2 = heap.buffer_read(float3, inst * 2 + 1, i2)
+        # apply transform
+        transform = accel.instance_transform(inst)
+        p0 = (transform * float4(p0, 1.0)).xyz
+        p1 = (transform * float4(p1, 1.0)).xyz
+        p2 = (transform * float4(p2, 1.0)).xyz
         abc = sample_uniform_triangle(sampler.next2f())
         p = abc.x * p0 + abc.y * p1 + abc.z * p2 # point on light
         emission = emission_buffer.read(inst)
@@ -228,22 +234,11 @@ def path_tracer(accum_image, accel, resolution, frame_index):
     beta = make_float3(1.0)
     pdf_bsdf = 1e30
 
-    # light_position = make_float3(-0.24, 1.98, 0.16)
-    # light_u = make_float3(-0.24, 1.98, -0.22) - light_position
-    # light_v = make_float3(0.23, 1.98, 0.16) - light_position
-    # light_emission = make_float3(17.0, 12.0, 4.0)
-    # light_area = length(cross(light_u, light_v))
-    # light_normal = normalize(cross(light_u, light_v))
-
     for depth in range(max_depth):
         # trace
         hit = accel.trace_closest(ray)
         # miss: evaluate environment light
         if hit.miss():
-            # ============== DEBUG ==================
-            # accum_image.write(coord, make_float4(0.0, 0.0, 0.0, 1.0))
-            # return
-
             emission = const_env_light
             if depth == 0:
                 radiance += emission
@@ -259,27 +254,38 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         p0 = heap.buffer_read(float3, hit.inst * 2 + 1, i0)
         p1 = heap.buffer_read(float3, hit.inst * 2 + 1, i1)
         p2 = heap.buffer_read(float3, hit.inst * 2 + 1, i2)
+        # apply transform
+        transform = accel.instance_transform(hit.inst)
+        p0 = (transform * float4(p0, 1.0)).xyz
+        p1 = (transform * float4(p1, 1.0)).xyz
+        p2 = (transform * float4(p2, 1.0)).xyz
         # get hit position, onb and albedo (surface color)
         p = hit.interpolate(p0, p1, p2)
         n = normalize(cross(p1 - p0, p2 - p0))
 
 
-        # ============== DEBUG ==============
-        # radiance = n * float3(0.5) + float3(0.5)
-        # accum_image.write(coord, make_float4(radiance * float(frame_index + 1), 1.0))
+        if coord.y == 100:
+            accum = accum_image.read(coord).xyz
+            accum_image.write(coord, make_float4(accum + float3(0.5, 0.0, 0.0), 1.0))
+            material = material_buffer.read(hit.inst if hit.inst != -1 else 0)
+            print("hit:", hit.inst, material.base_color, "face:", dot(n, ray.get_dir()))
+            return
+
+        # accum = accum_image.read(coord).xyz
+        # accum_image.write(coord, make_float4(accum + clamp(0.1*p+0.4, 0.0, 30.0), 1.0))
         # return
 
 
         # TODO: incorporate interpolated shading normal
-        onb = make_onb(n)
         # black if hit backside
         wo = -ray.get_dir()
-        # cos_wo = dot(wo, n)
-        # if cos_wo < 1e-4:
-        #     break
 
         material = material_buffer.read(hit.inst)
         emission = emission_buffer.read(hit.inst)
+        if material.specular_transmission == 0.0:
+            if dot(wo, n) < 0:
+                n = -n
+        onb = make_onb(n)
 
         # hit light
         if any(emission != float3(0)):
@@ -294,7 +300,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
 
         # sample light
         light = sample_light(p, sampler) # (wi, dist, pdf, eval)
-        shadow_ray = make_ray(p, light.wi, 1e-2, light.dist)
+        shadow_ray = make_ray(p, light.wi, 1e-4, light.dist)
         occluded = accel.trace_any(shadow_ray)
         cos_wi_light = dot(light.wi, n)
         # DEBUG override glass # material.specular_transmission == 0.0 and 
@@ -307,25 +313,15 @@ def path_tracer(accum_image, accel, resolution, frame_index):
 
         # sample BSDF (pdf, w_i, brdf)
         sample = sample_disney_brdf(material, onb.normal, wo, onb.binormal, onb.tangent, sampler)
-        ray = make_ray(p, sample.w_i, 1e-2, 1e30)
+        # t3 = cosine_sample_hemisphere(sampler.next2f())
+        # w_i = t3.x * onb.binormal + t3.y * onb.tangent + t3.z * (n if dot(n,wo)>0 else -n)
+        # brdf = disney_brdf(material, onb.normal, wo, w_i, onb.binormal, onb.tangent)
+        # pdf = t3.z / pi
+        ray = make_ray(p, sample.w_i, 1e-4, 1e30)
 
-        # DEBUG override glass
-        # aa = dot(sample.w_i, n) > 0
-        # bb = dot(wo, n) > 0
-        # if material.specular_transmission > 0.0:
-        #     wi = sample_uniform_sphere(sampler.next2f())
-        #     ray = make_ray(p, wi, 1e-2, 1e30)
-        #     pdf_bsdf = 0.25 / pi
-        #     beta *= disney_brdf(material, onb.normal, wo, wi, onb.binormal, onb.tangent) * abs(dot(wi, n)) / pdf_bsdf
-        # else:
         pdf_bsdf = sample.pdf
         beta *= sample.brdf * abs(dot(sample.w_i, n)) / pdf_bsdf
-        # ================== DEBUG ==================
-        # radiance = sample.brdf / sample.pdf * 0.1
-        # # radiance = material.base_color
-        # accum = accum_image.read(coord).xyz
-        # accum_image.write(coord, make_float4(accum + clamp(radiance, 0.0, 30.0), 1.0))
-        # return
+
 
         # rr
         l = dot(make_float3(0.212671, 0.715160, 0.072169), beta)
