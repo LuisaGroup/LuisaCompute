@@ -6,15 +6,48 @@ from luisa.util import RandomSampler
 
 from disney import *
 
-from cbox_disney import models # (filename, mat, [emission], [transform])
-from cbox_disney import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
-from cbox_disney import resolution, max_depth, rr_depth
+from spaceship import models # (filename, mat, [emission], [transform])
+from spaceship import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
+from spaceship import resolution, max_depth, rr_depth
 from parseobj import parseobj
 
 if camera_fov > pi: # likely to be in degrees; convert to radian
     camera_fov *= pi / 180
 camera_right = luisa.lcapi.normalize(luisa.lcapi.cross(camera_dir, camera_up))
 camera_up = luisa.lcapi.normalize(luisa.lcapi.cross(camera_right, camera_dir))
+
+
+# DEBUG
+
+
+# from cbox_disney import mat_Glass
+
+# print(mat_Glass.values)
+
+# luisa.init()
+# @luisa.func
+# def f():
+#     n = float3(0,0,1)
+#     bn = float3(0,1,0)
+#     tang = float3(1,0,0)
+#     wo = normalize(float3(1,0,4))
+
+#     sampler = RandomSampler(dispatch_id())
+#     # sample BSDF (pdf, w_i, brdf)
+#     sample = sample_disney_brdf(mat_Glass, n, wo, bn, tang, sampler)
+#     brdf = sample.brdf
+#     if length(brdf) < 1e-4:
+#         if sample.w_i.z > 0:
+#             print("--")
+#         else:
+#             print("!!")
+#     else:
+#         print("sample: ", sample.w_i, sample.pdf, brdf)
+
+# f(dispatch_size=100)
+# quit()
+
+
 
 
 # load scene
@@ -69,6 +102,7 @@ emission_buffer = luisa.buffer(emission)
 tricount_buffer = luisa.buffer(tricount)
 light_array = luisa.array(light_meshid)
 light_count = len(light_meshid)
+print("???????")
 
 
 
@@ -231,9 +265,9 @@ def path_tracer(accum_image, accel, resolution, frame_index):
 
 
         # ============== DEBUG ==============
-        radiance = n * float3(0.5) + float3(0.5)
-        accum_image.write(coord, make_float4(radiance * float(frame_index + 1), 1.0))
-        return
+        # radiance = n * float3(0.5) + float3(0.5)
+        # accum_image.write(coord, make_float4(radiance * float(frame_index + 1), 1.0))
+        # return
 
 
         # TODO: incorporate interpolated shading normal

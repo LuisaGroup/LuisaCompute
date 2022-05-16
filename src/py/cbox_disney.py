@@ -10,9 +10,9 @@ def create_mat(**kwargs):
 
 LeftWall = create_mat(base_color=float3(0.63, 0.065, 0.05))
 RightWall = create_mat(base_color=float3(0.14, 0.45, 0.091))
-GrayMatte = create_mat(base_color=float3(0.725, 0.71, 0.68))
+GrayMatte = create_mat(base_color=float3(0.725, 0.71, 0.68), roughness=0.2)
 Light = create_mat(base_color=float3(0))
-mat_Glass = create_mat(base_color=float3(1.0), roughness=0.2, ior=1.1, specular_transmission=1.0)
+mat_Glass = create_mat(base_color=float3(1.0), roughness=0.1, ior=1.5, specular_transmission=1.0)
 
 
 models = [
