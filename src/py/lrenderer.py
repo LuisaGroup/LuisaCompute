@@ -5,7 +5,6 @@ from PIL import Image
 from luisa.util import RandomSampler
 
 from disney import *
-import glass
 
 from spaceship import models # (filename, mat, [emission], [transform])
 from spaceship import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
@@ -16,37 +15,6 @@ if camera_fov > pi: # likely to be in degrees; convert to radian
     camera_fov *= pi / 180
 camera_right = luisa.lcapi.normalize(luisa.lcapi.cross(camera_dir, camera_up))
 camera_up = luisa.lcapi.normalize(luisa.lcapi.cross(camera_right, camera_dir))
-
-
-# DEBUG
-
-
-# from cbox_disney import mat_Glass
-
-# print(mat_Glass.values)
-
-# luisa.init()
-# @luisa.func
-# def f():
-#     n = float3(0,0,1)
-#     bn = float3(0,1,0)
-#     tang = float3(1,0,0)
-#     wo = normalize(float3(-2,0,-1))
-
-#     sampler = RandomSampler(dispatch_id())
-#     # sample BSDF (pdf, w_i, brdf)
-#     sample = sample_disney_brdf(mat_Glass, n, wo, bn, tang, sampler)
-#     brdf = sample.brdf
-#     if length(brdf) < 1e-4:
-#         if sample.w_i.z > 0:
-#             print("--")
-#         else:
-#             print("!!")
-#     else:
-#         print("sample: ", sample.w_i, sample.pdf, brdf)
-
-# f(dispatch_size=100)
-# quit()
 
 
 
@@ -102,7 +70,6 @@ emission_buffer = luisa.buffer(emission)
 tricount_buffer = luisa.buffer(tricount)
 light_array = luisa.array(light_meshid)
 light_count = len(light_meshid)
-print("???????")
 
 
 
@@ -160,9 +127,6 @@ def sample_light(origin, sampler):
         p0 = heap.buffer_read(float3, inst * 2 + 1, i0 * 2)
         p1 = heap.buffer_read(float3, inst * 2 + 1, i1 * 2)
         p2 = heap.buffer_read(float3, inst * 2 + 1, i2 * 2)
-        # vn0 = heap.buffer_read(float3, inst * 2 + 1, i0 * 2 + 1)
-        # vn1 = heap.buffer_read(float3, inst * 2 + 1, i1 * 2 + 1)
-        # vn2 = heap.buffer_read(float3, inst * 2 + 1, i2 * 2 + 1)
         # apply transform
         transform = accel.instance_transform(inst)
         p0 = (transform * float4(p0, 1.0)).xyz
@@ -269,25 +233,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         p = hit.interpolate(p0, p1, p2)
         ng = normalize(cross(p1 - p0, p2 - p0))
         n = normalize(inverse(transpose(make_float3x3(transform))) * vn)
-        # n = (transform * float4(vn, 0.0)).xyz
-
-
-        if coord.y == 100:
-            accum = accum_image.read(coord).xyz
-            accum_image.write(coord, make_float4(accum + float3(0.5, 0.0, 0.0), 1.0))
-            material = material_buffer.read(hit.inst if hit.inst != -1 else 0)
-            print("hit:", hit.inst, material.base_color, "face:", dot(n, ray.get_dir()))
-            return
-
-        # accum = accum_image.read(coord).xyz
-        # accum_image.write(coord, make_float4(accum + clamp(0.1*p+0.4, 0.0, 30.0), 1.0))
-        # return
-
-
-        # TODO: incorporate interpolated shading normal
-        # black if hit backside
         wo = -ray.get_dir()
-
         material = material_buffer.read(hit.inst)
         emission = emission_buffer.read(hit.inst)
         if material.specular_transmission == 0.0:
@@ -329,10 +275,8 @@ def path_tracer(accum_image, accel, resolution, frame_index):
 
         pdf_bsdf = sample.pdf
         if pdf_bsdf < 1e-4:
-            print("!!!")
             break
         beta *= sample.brdf * abs(dot(sample.w_i, n)) / pdf_bsdf
-
 
         # rr
         l = dot(make_float3(0.212671, 0.715160, 0.072169), beta)
@@ -351,14 +295,12 @@ def path_tracer(accum_image, accel, resolution, frame_index):
 
 
 
-
 @luisa.func
 def linear_to_srgb(x: float3):
     return clamp(select(1.055 * x ** (1.0 / 2.4) - 0.055,
                 12.92 * x,
                 x <= 0.00031308),
                 0.0, 1.0)
-
 
 @luisa.func
 def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
@@ -369,7 +311,7 @@ def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
 
 
 
-luisa.lcapi.log_level_info()
+luisa.log_level_info()
 
 accum_image = luisa.Texture2D.zeros(*resolution, 4, float)
 ldr_image = luisa.Texture2D.empty(*resolution, 4, float)
