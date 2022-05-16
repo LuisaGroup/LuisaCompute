@@ -3,6 +3,7 @@
 import luisa
 from luisa.mathtypes import *
 import math
+import glass
 M_PI = math.pi
 M_1_PI = 1/math.pi
 
@@ -382,6 +383,9 @@ def disney_sheen(mat: DisneyMaterial, n: float3,
 def disney_brdf(mat: DisneyMaterial, n: float3,
 	w_o: float3, w_i: float3, v_x: float3, v_y: float3):
 
+	if mat.specular_transmission > 0.:
+		return float3(0.)
+		
 	if not same_hemisphere(w_o, w_i, n):
 		if mat.specular_transmission > 0.:
 			spec_trans = disney_microfacet_transmission_isotropic(mat, n, w_o, w_i)
@@ -422,6 +426,7 @@ def disney_pdf(mat: DisneyMaterial, n: float3,
 		microfacet = gtr_2_aniso_pdf(w_o, w_i, n, v_x, v_y, alpha_aniso)
 
 	if mat.specular_transmission > 0.:
+		return 0.
 		n_comp = 4. if dot(w_o, n) > 0. else 1.
 		microfacet_transmission = gtr_2_transmission_pdf(w_o, w_i, n, alpha, mat.ior)
 
@@ -440,6 +445,7 @@ def sample_disney_brdf(mat: DisneyMaterial, n: float3,
 		component = int(rng.next() * 3.)
 		component = clamp(component, 0, 2)
 	else:
+		return glass.sample_brdf(n, w_o, v_x, v_y, rng)
 		if dot(w_o, n) > 0.:
 			component = int(rng.next() * 4.)
 			component = clamp(component, 0, 3)
@@ -479,7 +485,7 @@ def sample_disney_brdf(mat: DisneyMaterial, n: float3,
 		# Sample microfacet transmission component
 		alpha = max(0.001, mat.roughness * mat.roughness)
 		w_h = sample_gtr_2_h(n, v_x, v_y, alpha, samples)
-		print(f"alpha = {alpha},  w_h = {w_h}")
+		# print(f"alpha = {alpha},  w_h = {w_h}")
 		if dot(w_o, w_h) < 0.:
 			w_h = -w_h
 		entering = dot(w_o, n) > 0.
