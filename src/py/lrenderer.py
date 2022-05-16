@@ -74,7 +74,7 @@ for idx, model in enumerate(models):
     v,vn,f = parseobj(open(filename))
     assert len(v) == len(vn) > 0
     # add mesh
-    vertex_buffer = luisa.buffer(list(map(lambda x: float3(*x), v)))
+    vertex_buffer = luisa.buffer([luisa.struct(v=float3(*v[i]), vn=float3(*vn[i])) for i in range(len(v))])
     tricount.append(len(f))
     triangle_buffer = luisa.buffer(flatten_list(f))
     mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
@@ -157,9 +157,12 @@ def sample_light(origin, sampler):
         i0 = heap.buffer_read(int, inst * 2, prim * 3 + 0)
         i1 = heap.buffer_read(int, inst * 2, prim * 3 + 1)
         i2 = heap.buffer_read(int, inst * 2, prim * 3 + 2)
-        p0 = heap.buffer_read(float3, inst * 2 + 1, i0)
-        p1 = heap.buffer_read(float3, inst * 2 + 1, i1)
-        p2 = heap.buffer_read(float3, inst * 2 + 1, i2)
+        p0 = heap.buffer_read(float3, inst * 2 + 1, i0 * 2)
+        p1 = heap.buffer_read(float3, inst * 2 + 1, i1 * 2)
+        p2 = heap.buffer_read(float3, inst * 2 + 1, i2 * 2)
+        # vn0 = heap.buffer_read(float3, inst * 2 + 1, i0 * 2 + 1)
+        # vn1 = heap.buffer_read(float3, inst * 2 + 1, i1 * 2 + 1)
+        # vn2 = heap.buffer_read(float3, inst * 2 + 1, i2 * 2 + 1)
         # apply transform
         transform = accel.instance_transform(inst)
         p0 = (transform * float4(p0, 1.0)).xyz
@@ -250,9 +253,13 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         i0 = heap.buffer_read(int, hit.inst * 2, hit.prim * 3 + 0)
         i1 = heap.buffer_read(int, hit.inst * 2, hit.prim * 3 + 1)
         i2 = heap.buffer_read(int, hit.inst * 2, hit.prim * 3 + 2)
-        p0 = heap.buffer_read(float3, hit.inst * 2 + 1, i0)
-        p1 = heap.buffer_read(float3, hit.inst * 2 + 1, i1)
-        p2 = heap.buffer_read(float3, hit.inst * 2 + 1, i2)
+        p0 = heap.buffer_read(float3, hit.inst * 2 + 1, i0 * 2)
+        p1 = heap.buffer_read(float3, hit.inst * 2 + 1, i1 * 2)
+        p2 = heap.buffer_read(float3, hit.inst * 2 + 1, i2 * 2)
+        vn0 = heap.buffer_read(float3, hit.inst * 2 + 1, i0 * 2 + 1)
+        vn1 = heap.buffer_read(float3, hit.inst * 2 + 1, i1 * 2 + 1)
+        vn2 = heap.buffer_read(float3, hit.inst * 2 + 1, i2 * 2 + 1)
+        vn = hit.interpolate(vn0, vn1, vn2)
         # apply transform
         transform = accel.instance_transform(hit.inst)
         p0 = (transform * float4(p0, 1.0)).xyz
@@ -260,7 +267,9 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         p2 = (transform * float4(p2, 1.0)).xyz
         # get hit position, onb and albedo (surface color)
         p = hit.interpolate(p0, p1, p2)
-        n = normalize(cross(p1 - p0, p2 - p0))
+        ng = normalize(cross(p1 - p0, p2 - p0))
+        n = normalize(inverse(transpose(make_float3x3(transform))) * vn)
+        # n = (transform * float4(vn, 0.0)).xyz
 
 
         if coord.y == 100:
