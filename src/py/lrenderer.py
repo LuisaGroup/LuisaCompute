@@ -72,8 +72,7 @@ for idx, model in enumerate(models):
     materials.append(material)
     print("loading", filename)
     v,vn,f = parseobj(open(filename))
-    assert len(v) > 0
-    # assert len(v) == len(vn) > 0
+    assert len(v) == len(vn) > 0
     # add mesh
     vertex_buffer = luisa.buffer(list(map(lambda x: float3(*x), v)))
     tricount.append(len(f))
@@ -121,7 +120,7 @@ def sample_uniform_sphere(u: float2):
     phi = 2.0 * pi * u.y
     return make_float3(r * cos(phi), r * sin(phi), z)
 
-env_prob = 0.0
+env_prob = 0.3
 
 @luisa.func
 def mesh_light_sampled_pdf(p, origin, inst, p0, p1, p2):
@@ -294,7 +293,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             else:
                 pdf_light = mesh_light_sampled_pdf(p, ray.get_origin(), hit.inst, p0, p1, p2)
                 mis_weight = balanced_heuristic(pdf_bsdf, pdf_light)
-                mis_weight = 0.0
+                # mis_weight = 0.0
                 radiance += mis_weight * beta * emission
             break
 
@@ -308,7 +307,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             bsdf = disney_brdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             pdf_bsdf = disney_pdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             mis_weight = balanced_heuristic(light.pdf, pdf_bsdf)
-            mis_weight = 1.0
+            # mis_weight = 1.0
             radiance += beta * bsdf * cos_wi_light * mis_weight * light.eval / max(light.pdf, 1e-4)
 
         # sample BSDF (pdf, w_i, brdf)
@@ -320,6 +319,9 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         ray = make_ray(p, sample.w_i, 1e-4, 1e30)
 
         pdf_bsdf = sample.pdf
+        if pdf_bsdf < 1e-4:
+            print("!!!")
+            break
         beta *= sample.brdf * abs(dot(sample.w_i, n)) / pdf_bsdf
 
 
