@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <functional>
+#include <fstream>
 
 #include <core/concepts.h>
 #include <core/thread_pool.h>
@@ -216,13 +217,27 @@ public:
 
     template<size_t N, typename... Args>
     [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
-        return _create<Shader<N, Args...>>(kernel.function(), meta_options);
+        Clock clock;
+        auto&& shader = _create<Shader<N, Args...>>(kernel.function(), meta_options);
+        auto compile_time = clock.toc();
+        {
+            std::ofstream file{"results.txt", std::ios::app};
+            file << "Shader compile time = " << compile_time << " ms" << std::endl;
+        }
+        return shader;
     }
 
     template<size_t N, typename... Args>
     [[nodiscard]] auto compile_async(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
         return ThreadPool::global().async([this, f = kernel.function(), opt = luisa::string{meta_options}] {
-            return _create<Shader<N, Args...>>(f, opt);
+            Clock clock;
+            auto&& shader =  _create<Shader<N, Args...>>(f, opt);
+            auto compile_time = clock.toc();
+            {
+                std::ofstream file{"results.txt", std::ios::app};
+                file << "Shader compile time = " << compile_time << " ms" << std::endl;
+            }
+            return shader;
         });
     }
 
