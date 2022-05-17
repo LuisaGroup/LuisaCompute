@@ -11,7 +11,11 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    auto device = context.create_device("metal");
+    if(argc <= 1){
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
 
     std::default_random_engine random{std::random_device{}()};
     std::uniform_real_distribution<float> dist{-1.0f, 1.0f};

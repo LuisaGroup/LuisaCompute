@@ -86,7 +86,11 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("dx");
+    if(argc <= 1){
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
     auto m4 = make_float4x4(
         1.f, 2.f, 3.f, 4.f,
         5.f, 6.f, 7.f, 8.f,
