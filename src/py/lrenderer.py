@@ -6,9 +6,9 @@ from luisa.util import RandomSampler
 
 from disney import *
 
-from water import models # (filename, mat, [emission], [transform])
-from water import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
-from water import resolution, max_depth, rr_depth
+from coffee import models # (filename, mat, [emission], [transform])
+from coffee import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
+from coffee import resolution, max_depth, rr_depth
 from parseobj import parseobj
 
 if camera_fov > pi: # likely to be in degrees; convert to radian
@@ -37,6 +37,12 @@ def flatten_list(a):
 luisa.init()
 for idx, model in enumerate(models):
     filename, material = model[0:2]
+    if type(material) is tuple:
+        if len(material) == 1:
+            material = material[0]
+        elif len(material) == 2:
+            texture, material = material
+            material.base_color = float3(0.5)
     materials.append(material)
     print("loading", filename)
     v,vn,f = parseobj(open(filename))
@@ -248,7 +254,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             else:
                 pdf_light = mesh_light_sampled_pdf(p, ray.get_origin(), hit.inst, p0, p1, p2)
                 mis_weight = balanced_heuristic(pdf_bsdf, pdf_light)
-                # mis_weight = 0.0
+                mis_weight = 0.0
                 radiance += mis_weight * beta * emission
             break
 
@@ -269,7 +275,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             bsdf = disney_brdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             pdf_bsdf = disney_pdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             mis_weight = balanced_heuristic(light.pdf, pdf_bsdf)
-            # mis_weight = 1.0
+            mis_weight = 1.0
             radiance += beta * bsdf * cos_wi_light * mis_weight * light.eval / max(light.pdf, 1e-4)
 
         # sample BSDF (pdf, w_i, brdf)
@@ -278,6 +284,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         # w_i = t3.x * onb.binormal + t3.y * onb.tangent + t3.z * (n if dot(n,wo)>0 else -n)
         # brdf = disney_brdf(material, onb.normal, wo, w_i, onb.binormal, onb.tangent)
         # pdf = t3.z / pi
+        # sample = struct(pdf=pdf, w_i=w_i, brdf=brdf)
         ray = make_ray(p, sample.w_i, 1e-4, 1e30)
 
         pdf_bsdf = sample.pdf
