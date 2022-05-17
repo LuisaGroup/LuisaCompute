@@ -6,9 +6,10 @@ from luisa.util import RandomSampler
 
 from disney import *
 
-from spaceship import models # (filename, mat, [emission], [transform])
-from spaceship import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
-from spaceship import resolution, max_depth, rr_depth
+luisa.init()
+from coffee import models, resolution, max_depth, rr_depth, \
+                   const_env_light, camera_pos, camera_dir, camera_up, camera_fov
+# models: (filename, mat, [emission], [transform])
 from parseobj import parseobj
 
 if camera_fov > pi: # likely to be in degrees; convert to radian
@@ -27,6 +28,7 @@ emission = [] # emission of each mesh
 light_meshid = [] # list of emissive meshes
 materials = []
 tricount = [] # number of triangles in each mesh
+has_texture_list = []
 
 def flatten_list(a):
     s = []
@@ -34,21 +36,42 @@ def flatten_list(a):
         s += x
     return s
 
-luisa.init()
+VertInfo = luisa.ArrayType(dtype=float, size=8)
+@luisa.func
+def vert_v(info: VertInfo):
+    return float3(info[0], info[1], info[2])
+@luisa.func
+def vert_vt(info: VertInfo):
+    return float2(info[3], info[4])
+@luisa.func
+def vert_vn(info: VertInfo):
+    return float3(info[5], info[6], info[7])
+
+
 for idx, model in enumerate(models):
     filename, material = model[0:2]
+    # texture?
+    has_texture = False
     if type(material) is tuple:
         if len(material) == 1:
             material = material[0]
         elif len(material) == 2:
             texture, material = material
+            heapindex[idx+4096] = texture
+            has_texture = True
             material.base_color = float3(0.5)
+    has_texture_list.append(has_texture)
     materials.append(material)
+    # load mesh
     print("loading", filename)
-    v,vn,f = parseobj(open(filename))
+    v,vt,vn,f = parseobj(open(filename))
     assert len(v) == len(vn) > 0
+    if len(vt) == 0:
+        vt = [[0,0]]*len(v)
+    else:
+        assert len(vt)==len(v)
     # add mesh
-    vertex_buffer = luisa.buffer([luisa.struct(v=float3(*v[i]), vn=float3(*vn[i])) for i in range(len(v))])
+    vertex_buffer = luisa.buffer([VertInfo([*v[i], *vt[i], *vn[i]]) for i in range(len(v))])
     tricount.append(len(f))
     triangle_buffer = luisa.buffer(flatten_list(f))
     mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
@@ -74,6 +97,7 @@ heap = luisa.bindless_array(heapindex)
 material_buffer = luisa.buffer(materials)
 emission_buffer = luisa.buffer(emission)
 tricount_buffer = luisa.buffer(tricount)
+has_texture_buffer = luisa.buffer(has_texture_list)
 light_array = luisa.array(light_meshid)
 light_count = len(light_meshid)
 
@@ -130,9 +154,9 @@ def sample_light(origin, sampler):
         i0 = heap.buffer_read(int, inst * 2, prim * 3 + 0)
         i1 = heap.buffer_read(int, inst * 2, prim * 3 + 1)
         i2 = heap.buffer_read(int, inst * 2, prim * 3 + 2)
-        p0 = heap.buffer_read(float3, inst * 2 + 1, i0 * 2)
-        p1 = heap.buffer_read(float3, inst * 2 + 1, i1 * 2)
-        p2 = heap.buffer_read(float3, inst * 2 + 1, i2 * 2)
+        p0 = vert_v(heap.buffer_read(VertInfo, inst * 2 + 1, i0))
+        p1 = vert_v(heap.buffer_read(VertInfo, inst * 2 + 1, i1))
+        p2 = vert_v(heap.buffer_read(VertInfo, inst * 2 + 1, i2))
         # apply transform
         transform = accel.instance_transform(inst)
         p0 = (transform * float4(p0, 1.0)).xyz
@@ -194,6 +218,12 @@ def cosine_sample_hemisphere(u: float2):
 def balanced_heuristic(pdf_a, pdf_b):
     return pdf_a / max(pdf_a + pdf_b, 1e-4)
 
+@luisa.func
+def srgb_to_linear(x: float3):
+    return select(pow((x + 0.055) * (1.0 / 1.055), 2.4),
+               x * (1. / 12.92),
+                x <= 0.04045)
+
 
 @luisa.func
 def path_tracer(accum_image, accel, resolution, frame_index):
@@ -223,12 +253,15 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         i0 = heap.buffer_read(int, hit.inst * 2, hit.prim * 3 + 0)
         i1 = heap.buffer_read(int, hit.inst * 2, hit.prim * 3 + 1)
         i2 = heap.buffer_read(int, hit.inst * 2, hit.prim * 3 + 2)
-        p0 = heap.buffer_read(float3, hit.inst * 2 + 1, i0 * 2)
-        p1 = heap.buffer_read(float3, hit.inst * 2 + 1, i1 * 2)
-        p2 = heap.buffer_read(float3, hit.inst * 2 + 1, i2 * 2)
-        vn0 = heap.buffer_read(float3, hit.inst * 2 + 1, i0 * 2 + 1)
-        vn1 = heap.buffer_read(float3, hit.inst * 2 + 1, i1 * 2 + 1)
-        vn2 = heap.buffer_read(float3, hit.inst * 2 + 1, i2 * 2 + 1)
+        vert_info0 = heap.buffer_read(VertInfo, hit.inst * 2 + 1, i0)
+        vert_info1 = heap.buffer_read(VertInfo, hit.inst * 2 + 1, i1)
+        vert_info2 = heap.buffer_read(VertInfo, hit.inst * 2 + 1, i2)
+        p0 = vert_v(vert_info0)
+        p1 = vert_v(vert_info1)
+        p2 = vert_v(vert_info2)
+        vn0 = vert_vn(vert_info0)
+        vn1 = vert_vn(vert_info1)
+        vn2 = vert_vn(vert_info2)
         vn = hit.interpolate(vn0, vn1, vn2)
         # apply transform
         transform = accel.instance_transform(hit.inst)
@@ -241,6 +274,15 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         n = normalize(inverse(transpose(make_float3x3(transform))) * vn)
         wo = -ray.get_dir()
         material = material_buffer.read(hit.inst)
+        has_texture = has_texture_buffer.read(hit.inst)
+        if has_texture:
+            vt0 = vert_vt(vert_info0)
+            vt1 = vert_vt(vert_info1)
+            vt2 = vert_vt(vert_info2)
+            uv = hit.interpolate(vt0, vt1, vt2)
+            uv.y = 1.0 - uv.y
+            srgb = heap.texture2d_sample(hit.inst + 4096, uv).xyz
+            material.base_color = srgb_to_linear(srgb)
         emission = emission_buffer.read(hit.inst)
         if material.specular_transmission == 0.0:
             if dot(wo, n) < 0:

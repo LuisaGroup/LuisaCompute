@@ -21,9 +21,9 @@ models = [
 ("cbox_disney/models/backwall.obj", GrayMatte),
 ("cbox_disney/models/rightwall.obj", RightWall),
 ("cbox_disney/models/leftwall.obj", LeftWall),
-# ("cbox_disney/models/shortblock.obj", mat_Glass),
+("cbox_disney/models/shortblock.obj", GrayMatte),
 ("cbox_disney/models/tallblock.obj", GrayMatte),
-("spaceship/models/Mesh001.obj", mat_Glass, None, float4x4(200,0,0,0, 0,200,0,0, 0,0,200,0, 200,0,0,1)),
+# ("spaceship/models/Mesh001.obj", mat_Glass, None, float4x4(200,0,0,0, 0,200,0,0, 0,0,200,0, 200,0,0,1)),
 ("cbox_disney/models/light.obj", Light, float3(17,12,4))
 ]
 
