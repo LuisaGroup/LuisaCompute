@@ -326,6 +326,16 @@ class ASTVisitor:
         lcapi.builder().assign(lhs.expr, rhs.expr)
 
     @staticmethod
+    def build_AnnAssign(node):
+        build(node.annotation)
+        if node.annotation.dtype is not type:
+            raise TypeError("invalid assign annotation")
+        build(node.value)
+        build.build_assign_pair(node.target, node.value)
+        if node.target.dtype != node.annotation.expr:
+            raise TypeError(f"assign annotation is {node.annotation.expr}, got {node.target.dtype}")
+
+    @staticmethod
     def build_Assign(node):
         build(node.value)
         if len(node.targets) == 1:

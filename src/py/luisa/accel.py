@@ -5,7 +5,7 @@ from .struct import StructType
 from .array import ArrayType
 from .mathtypes import *
 from .func import func
-from .types import uint
+from .types import uint, to_lctype
 from .builtin import _builtin_call, _bitwise_cast
 
 # Ray
@@ -116,7 +116,10 @@ class Accel:
     def accel(list):
         acc = Accel.empty()
         for mesh in list:
-            acc.add(mesh)
+            if type(mesh) is tuple:
+                acc.add(*mesh)
+            else:
+                acc.add(mesh)
         acc.update()
         return acc
 
@@ -179,13 +182,13 @@ accel = Accel.accel
 
 class Mesh:
     def __init__(self, vertices, triangles):
-        assert vertices.dtype == float3
-        assert triangles.dtype == int and triangles.size%3==0
+        assert vertices.dtype == float3 or type(vertices.dtype) == StructType and vertices.dtype.membertype[0] == float3
+        assert triangles.dtype == int and triangles.size%3==0 or triangles.dtype == ArrayType(dtype=int, size=3)
         self.vertices = vertices
         self.triangles = triangles
         # TODO: support buffer of structs or arrays
         self.handle = get_global_device().impl().create_mesh(
-            self.vertices.handle, 0, 16, self.vertices.size,
+            self.vertices.handle, 0, to_lctype(vertices.dtype).size(), self.vertices.size,
             self.triangles.handle, 0, self.triangles.size//3,
             lcapi.AccelUsageHint.FAST_TRACE)
         self.update()
@@ -199,3 +202,6 @@ class Mesh:
             self.triangles.handle, 0, self.triangles.size//3))
         if sync:
             stream.synchronize()
+
+def mesh(vertices, triangles):
+    return Mesh(vertices, triangles)
