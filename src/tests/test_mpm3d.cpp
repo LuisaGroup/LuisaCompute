@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
     auto device = context.create_device("cuda");
 
-    static constexpr auto n_grid = 128u;
+    static constexpr auto n_grid = 64;
     static constexpr auto n_steps = 25u;
 
     static constexpr auto n_particles = n_grid * n_grid * n_grid / 4u;
@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
     static constexpr auto p_vol = (dx * .5f) * (dx * .5f) * (dx * .5f);
     static constexpr auto p_mass = p_rho * p_vol;
     static constexpr auto gravity = 9.8f;
-    static constexpr auto bound = 3u;
+    static constexpr auto bound = 3;
     static constexpr auto E = 400.f;
 
     static constexpr auto resolution = 512u;
@@ -55,14 +55,17 @@ int main(int argc, char *argv[]) {
     auto trace = [](auto m) noexcept { return m[0][0] + m[1][1] + m[2][2]; };
 
     auto clear_grid = device.compile<3>([&] {
+        set_block_size(8, 8, 1);
         auto idx = index(dispatch_id().xyz());
         grid_v.write(idx * 4u, 0.f);
         grid_v.write(idx * 4u + 1u, 0.f);
         grid_v.write(idx * 4u + 2u, 0.f);
+        grid_v.write(idx * 4u + 3u, 0.f);
         grid_m.write(idx, 0.f);
     });
 
     auto point_to_grid = device.compile<1>([&] {
+        set_block_size(64, 1, 1);
         auto p = dispatch_id().x;
         auto Xp = x.read(p) / dx;
         auto base = make_int3(Xp - 0.5f);
@@ -90,21 +93,22 @@ int main(int argc, char *argv[]) {
     });
 
     auto simulate_grid = device.compile<3>([&] {
-        auto coord = dispatch_id().xyz();
+        set_block_size(8, 8, 1);
+        auto coord = make_int3(dispatch_id().xyz());
         auto i = index(coord);
         auto v = make_float3(grid_v.read(i * 4u), grid_v.read(i * 4u + 1u), grid_v.read(i * 4u + 2u));
         auto m = grid_m.read(i);
         v = ite(m > 0.f, v / m, v);
         v.y -= dt * gravity;
-        v.x = ite((coord.x < bound & v.x < 0.f) | (coord.x + bound > n_grid & v.x > 0.f), 0.f, v.x);
-        v.y = ite((coord.y < bound & v.y < 0.f) | (coord.y + bound > n_grid & v.y > 0.f), 0.f, v.y);
-        v.z = ite((coord.z < bound & v.z < 0.f) | (coord.z + bound > n_grid & v.z > 0.f), 0.f, v.z);
+        v = ite((coord < bound && v < 0.f) || (coord > n_grid - bound && v > 0.f), 0.f, v);
         grid_v.write(i * 4u, v.x);
         grid_v.write(i * 4u + 1u, v.y);
         grid_v.write(i * 4u + 2u, v.z);
+        grid_v.write(i * 4u + 3u, 0.f);
     });
 
     auto grid_to_point = device.compile<1>([&] {
+        set_block_size(64, 1, 1);
         auto p = dispatch_id().x;
         auto Xp = x.read(p) / dx;
         auto base = make_int3(Xp - 0.5f);
@@ -136,7 +140,8 @@ int main(int argc, char *argv[]) {
         command_buffer << clear_grid().dispatch(n_grid, n_grid, n_grid)
                        << point_to_grid().dispatch(n_particles)
                        << simulate_grid().dispatch(n_grid, n_grid, n_grid)
-                       << grid_to_point().dispatch(n_particles);
+                       << grid_to_point().dispatch(n_particles)
+                       << commit();
     };
 
     auto init = [&](CommandBuffer &command_buffer) noexcept {
@@ -197,22 +202,23 @@ int main(int argc, char *argv[]) {
     Framerate framerate;
     Window window{"MPM3D", make_uint2(resolution)};
     luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
-    std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
-    file << "Frame, Time(ms)\n";
+    // std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
+    // file << "Frame, Time(ms)\n";
     auto frame = 0;
     window.run([&] {
-        auto tic = std::chrono::high_resolution_clock::now();
+    // while(true){
+        // auto tic = std::chrono::high_resolution_clock::now();
         for (auto i = 0u; i < n_steps; i++) { substep(command_buffer); }
         command_buffer << clear_display().dispatch(resolution, resolution)
                        << draw_particles().dispatch(n_particles)
                        << display.copy_to(display_buffer.data())
                        << synchronize();
-        auto toc = std::chrono::high_resolution_clock::now();
-        using namespace std::chrono_literals;
-        if(frame < 1030)
-            file << frame++ << ", " << ((toc - tic) / 1ns * 1e-6) << "\n";
-        else
-            LUISA_INFO("Finished.");
+        // auto toc = std::chrono::high_resolution_clock::now();
+        // using namespace std::chrono_literals;
+        // if(frame < 260)
+            // file << frame++ << ", " << ((toc - tic) / 1ns * 1e-6) << "\n";
+        // else
+            // LUISA_INFO("Finished.");
         window.set_background(display_buffer.data(), make_uint2(resolution));
         framerate.record();
         auto fps = framerate.report();
@@ -220,4 +226,5 @@ int main(int argc, char *argv[]) {
         ImGui::Text("FPS: %.1f", fps);
         ImGui::End();
     });
+    // }
 }
