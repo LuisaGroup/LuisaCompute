@@ -431,6 +431,14 @@ def disney_pdf(mat: DisneyMaterial, n: float3,
 		n_comp = 4. if dot(w_o, n) > 0. else 1.
 		microfacet_transmission = gtr_2_transmission_pdf(w_o, w_i, n, alpha, mat.ior)
 
+
+	if mat.metallic == 1.:
+		n_comp -= 1 # don't sample diffuse
+		diffuse = 0.
+	if mat.clearcoat == 0.:
+		n_comp -= 1 # don't sample coat
+		clear_coat = 0.
+
 	return (diffuse + microfacet + microfacet_transmission + clear_coat) / n_comp
 
 
@@ -442,16 +450,25 @@ def disney_pdf(mat: DisneyMaterial, n: float3,
 def sample_disney_brdf(mat: DisneyMaterial, n: float3,
 	w_o: float3, v_x: float3, v_y: float3, rng):
 
-	if mat.specular_transmission == 0.:
-		component = int(rng.next() * 3.)
-		component = clamp(component, 0, 2)
-	else:
+	if mat.specular_transmission != 0.:
 		return glass.sample_brdf(n, w_o, v_x, v_y, rng, mat.ior)
-		if dot(w_o, n) > 0.:
-			component = int(rng.next() * 4.)
-			component = clamp(component, 0, 3)
-		else:
-			component = 3
+
+	n_component = 4
+	if mat.specular_transmission == 0.:
+		n_component -= 1
+	if mat.metallic == 1.:
+		n_component -= 1 # don't sample diffuse
+	if mat.clearcoat == 0.:
+		n_component -= 1 # don't sample coat
+
+	component = int(rng.next() * n_component)
+	component = clamp(component, 0, n_component-1)
+
+	if mat.metallic == 1.:
+		component += 1 # skip diffuse
+	if mat.clearcoat == 0.:
+		if component >= 2:
+			component += 1 # skip coat
 
 	samples = make_float2(rng.next(), rng.next())
 	if component == 0:
