@@ -364,7 +364,8 @@ def disney_clear_coat(mat: DisneyMaterial, n: float3,
 	d = gtr_1(dot(n, w_h), alpha)
 	f = lerp(0.04, 1., schlick_weight(dot(w_i, n)))
 	g = smith_shadowing_ggx(dot(n, w_i), 0.25) * smith_shadowing_ggx(dot(n, w_o), 0.25)
-	return 0.25 * mat.clearcoat * d * f * g
+	return mat.clearcoat * d * f * g
+	# return 0.25 * mat.clearcoat * d * f * g
 
 
 @luisa.func
