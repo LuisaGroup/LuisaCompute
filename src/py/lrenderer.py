@@ -6,9 +6,9 @@ from luisa.util import RandomSampler
 
 from disney import *
 
-from coffee import models # (filename, mat, [emission], [transform])
-from coffee import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
-from coffee import resolution, max_depth, rr_depth
+from spaceship import models # (filename, mat, [emission], [transform])
+from spaceship import const_env_light, camera_pos, camera_dir, camera_up, camera_fov
+from spaceship import resolution, max_depth, rr_depth
 from parseobj import parseobj
 
 if camera_fov > pi: # likely to be in degrees; convert to radian
@@ -105,7 +105,7 @@ def mesh_light_sampled_pdf(p, origin, inst, p0, p1, p2):
     cos_light = -dot(light_normal, wi_light)
     sqr_dist = length_squared(p - origin)
     area = length(c) / 2
-    pdf = (1.0 - env_prob) * sqr_dist / (n * n1 * area * cos_light)
+    pdf = (1.0 - env_prob) * sqr_dist / (n * n1 * area * abs(cos_light))
     return pdf
 
 @luisa.func
@@ -254,7 +254,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             else:
                 pdf_light = mesh_light_sampled_pdf(p, ray.get_origin(), hit.inst, p0, p1, p2)
                 mis_weight = balanced_heuristic(pdf_bsdf, pdf_light)
-                mis_weight = 0.0
+                # mis_weight = 0.0
                 radiance += mis_weight * beta * emission
             break
 
@@ -275,7 +275,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             bsdf = disney_brdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             pdf_bsdf = disney_pdf(material, onb.normal, wo, light.wi, onb.binormal, onb.tangent)
             mis_weight = balanced_heuristic(light.pdf, pdf_bsdf)
-            mis_weight = 1.0
+            # mis_weight = 1.0
             radiance += beta * bsdf * cos_wi_light * mis_weight * light.eval / max(light.pdf, 1e-4)
 
         # sample BSDF (pdf, w_i, brdf)
