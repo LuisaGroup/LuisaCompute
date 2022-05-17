@@ -181,7 +181,11 @@ int main(int argc, char* argv[])
     // log_level_info();
     log_level_verbose();
     Context context{argv[0]};
-    auto device = context.create_device("ispc");
+    if(argc <= 1){
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
 
     // for (int i=0; i<4; ++i) {
     //     TestType test_type = (TestType)i;
