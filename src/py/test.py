@@ -1,18 +1,20 @@
-import luisa
-from luisa.mathtypes import *
 
 
-luisa.init()
+from time import perf_counter
 
-@luisa.func
-def f(x):
-	a,b = 4,5
-	a,b = a+b, a-b
-	print(a,b)
+def test(n):
+    t1 = perf_counter()
+    s = sum([[2,3] for _ in range(n)], [])
+    # s = []
+    # for _ in range(n):
+    #     s += [2,3]
+    print(f"time({n}):", perf_counter()-t1)
 
-@luisa.func
-def g():
-	f(True)
-
-g(dispatch_size=1)
-# print(int2(3)/int2(2))
+test(2**15)
+test(2**16)
+test(2**17)
+test(2**18)
+test(2**19)
+test(2**20)
+test(2**21)
+test(2**22)

@@ -87,6 +87,14 @@ void export_matrix(py::module &m) {
     m.def("make_float4x4", [](float2x2 a){return make_float4x4(a);});
     m.def("make_float4x4", [](float3x3 a){return make_float4x4(a);});
     m.def("make_float4x4", [](float4x4 a){return make_float4x4(a);});
-
+    m.def("inverse", [](float2x2 a){return inverse(a);});
+    m.def("inverse", [](float3x3 a){return inverse(a);});
+    m.def("inverse", [](float4x4 a){return inverse(a);});
+    m.def("transpose", [](float2x2 a){return transpose(a);});
+    m.def("transpose", [](float3x3 a){return transpose(a);});
+    m.def("transpose", [](float4x4 a){return transpose(a);});
+    m.def("determinant", [](float2x2 a){return determinant(a);});
+    m.def("determinant", [](float3x3 a){return determinant(a);});
+    m.def("determinant", [](float4x4 a){return determinant(a);});
     // TODO export matrix operators
 }
