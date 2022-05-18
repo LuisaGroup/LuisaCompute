@@ -3,12 +3,16 @@ from luisa.mathtypes import *
 from math import pi
 from PIL import Image
 from luisa.util import RandomSampler
+from time import perf_counter
 
 from disney import *
 
-luisa.init()
-from coffee import models, resolution, max_depth, rr_depth, \
-                   const_env_light, camera_pos, camera_dir, camera_up, camera_fov
+luisa.init("dx")
+luisa.log_level_verbose()
+from water import models, resolution, max_depth, rr_depth, \
+                   const_env_light, camera_pos, camera_dir, camera_up, camera_fov, __name__ as outfile
+# max_depth, rr_depth = 8, 2
+max_depth, rr_depth = 16, 5
 # models: (filename, mat, [emission], [transform])
 from parseobj import parseobj
 
@@ -51,14 +55,14 @@ def vert_vn(info: VertInfo):
 for idx, model in enumerate(models):
     filename, material = model[0:2]
     # texture?
-    has_texture = False
+    has_texture = 0
     if type(material) is tuple:
         if len(material) == 1:
             material = material[0]
         elif len(material) == 2:
             texture, material = material
             heapindex[idx+4096] = texture
-            has_texture = True
+            has_texture = 1
             material.base_color = float3(0.5)
     has_texture_list.append(has_texture)
     materials.append(material)
@@ -275,7 +279,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
         wo = -ray.get_dir()
         material = material_buffer.read(hit.inst)
         has_texture = has_texture_buffer.read(hit.inst)
-        if has_texture:
+        if has_texture != 0:
             vt0 = vert_vt(vert_info0)
             vt1 = vert_vt(vert_info1)
             vt2 = vert_vt(vert_info2)
@@ -373,17 +377,28 @@ accum_image = luisa.Texture2D.zeros(*resolution, 4, float)
 ldr_image = luisa.Texture2D.empty(*resolution, 4, float)
 
 # compute & display the progressively converging image in a window
-gui = luisa.GUI("Cornell Box", resolution=resolution)
-frame_id = 0
 
-while gui.running():
-    path_tracer(accum_image, accel, make_int2(*resolution), frame_id, dispatch_size=resolution)
-    frame_id += 1
-    if frame_id % 1 == 0:
-        hdr2ldr_kernel(accum_image, ldr_image, 1/frame_id, dispatch_size=[*resolution, 1])
-        gui.set_image(ldr_image)
-        gui.show()
+path_tracer(accum_image, accel, make_int2(*resolution), 1234567, dispatch_size=resolution)
+luisa.synchronize()
 
+t0 = perf_counter()
+for i in range(1024):
+    path_tracer(accum_image, accel, make_int2(*resolution), i, dispatch_size=resolution)
+luisa.synchronize()
+t1 = perf_counter()
+
+hdr2ldr_kernel(accum_image, ldr_image, 1/1025, dispatch_size=[*resolution, 1])
 # save image when window is closed
-# Image.fromarray(final_image.to('byte').numpy()).save("cornell.png")
+Image.fromarray(ldr_image.to('byte').numpy()).save(outfile + str(max_depth) + "_" + "{:.2f}".format(t1 - t0) + ".png")
+print("1024 spp time:", t1-t0)
 
+
+# gui = luisa.GUI("Cornell Box", resolution=resolution)
+# frame_id = 0
+# while gui.running():
+#     path_tracer(accum_image, accel, make_int2(*resolution), frame_id, dispatch_size=resolution)
+#     frame_id += 1
+#     if frame_id % 1 == 0:
+#         hdr2ldr_kernel(accum_image, ldr_image, 1/frame_id, dispatch_size=[*resolution, 1])
+#         gui.set_image(ldr_image)
+#         gui.show()
