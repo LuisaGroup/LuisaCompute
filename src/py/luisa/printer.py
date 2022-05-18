@@ -134,20 +134,33 @@ class Printer:
         start_pos = lcapi.builder().local(to_lctype(int))
         lcapi.builder().assign(start_pos, tmp)
         offset = 0
-        # write to buffer
-        for idx, x in enumerate(elements):
-            # write element
-            self.buffer_write(self.addint(start_pos, offset), intexpr(self.get_tag_id(x.dtype if x.dtype != str else x.expr)))
-            offset += 1
-            # workaround: ISPC can't cast r-value; so creating a temporary variable
-            if x.dtype != str:
-                wrap_with_tmp_var(x)
-            elements = self.get_expr_elements(x.dtype, x.expr)
-            assert len(elements) == self.get_expr_elements_count(x.dtype)
-            for casted_expr in elements:
-                self.buffer_write(self.addint(start_pos, offset), casted_expr)
+        if count >= 1023:
+            raise ValueError("Printing too many elements!")
+        # safeguard character: tag=-1
+        # if start_pos > capacity-1024:
+        cond1 = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.GREATER, start_pos, intexpr(self.capacity-1024))
+        ifstmt1 = lcapi.builder().if_(cond1)
+        with ifstmt1.true_branch():
+            # if start_pos < capacity-1:
+            cond2 = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, start_pos, intexpr(self.capacity-1))
+            with lcapi.builder().if_(cond2).true_branch():
+                self.buffer_write(start_pos, intexpr(-1))
+        # if start_pos <= capacity-1024:
+        with ifstmt1.false_branch():
+            # write to buffer
+            for idx, x in enumerate(elements):
+                # write element
+                self.buffer_write(self.addint(start_pos, offset), intexpr(self.get_tag_id(x.dtype if x.dtype != str else x.expr)))
                 offset += 1
-        assert offset == count
+                # workaround: ISPC can't cast r-value; so creating a temporary variable
+                if x.dtype != str:
+                    wrap_with_tmp_var(x)
+                elements = self.get_expr_elements(x.dtype, x.expr)
+                assert len(elements) == self.get_expr_elements_count(x.dtype)
+                for casted_expr in elements:
+                    self.buffer_write(self.addint(start_pos, offset), casted_expr)
+                    offset += 1
+            assert offset == count
 
     # recover original data from stored buffer
     @staticmethod
@@ -194,12 +207,16 @@ class Printer:
         self.buffer.copy_to(arr, sync=True)
         idx = 0
         while idx < arr[-1]:
-            tag = self.taglist[arr[idx]]
-            idx += 1
-            if type(tag) is str:
-                print(tag, end="")
-                if tag == "[ABORT]":
-                    quit()
+            if arr[idx] == -1:
+                print("[Print buffer out of capacity]")
+                return
             else:
-                print(self.recover(tag, arr, idx), end="")
-                idx += self.get_expr_elements_count(tag)
+                tag = self.taglist[arr[idx]]
+                idx += 1
+                if type(tag) is str:
+                    print(tag, end="")
+                    if tag == "[ABORT]":
+                        quit()
+                else:
+                    print(self.recover(tag, arr, idx), end="")
+                    idx += self.get_expr_elements_count(tag)

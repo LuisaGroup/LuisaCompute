@@ -3,7 +3,7 @@
 import luisa
 from luisa.mathtypes import *
 import math
-
+import glass
 M_PI = math.pi
 M_1_PI = 1/math.pi
 
@@ -195,7 +195,7 @@ def sample_gtr_1_h(n: float3, v_x: float3, v_y: float3, alpha: float, s: float2)
 	alpha_sqr = alpha * alpha
 	cos_theta_h_sqr = (1. - pow(alpha_sqr, 1. - s.y)) / (1. - alpha_sqr)
 	cos_theta_h = sqrt(cos_theta_h_sqr)
-	sin_theta_h = 1. - cos_theta_h_sqr
+	sin_theta_h = sqrt(max(0.0, 1. - cos_theta_h_sqr))
 	hemi_dir = normalize(spherical_dir(sin_theta_h, cos_theta_h, phi_h))
 	return hemi_dir.x * v_x + hemi_dir.y * v_y + hemi_dir.z * n
 
@@ -205,7 +205,7 @@ def sample_gtr_2_h(n: float3, v_x: float3, v_y: float3, alpha: float, s: float2)
 	phi_h = 2. * M_PI * s.x
 	cos_theta_h_sqr = (1. - s.y) / (1. + (alpha * alpha - 1.) * s.y)
 	cos_theta_h = sqrt(cos_theta_h_sqr)
-	sin_theta_h = 1. - cos_theta_h_sqr
+	sin_theta_h = sqrt(max(0.0, 1. - cos_theta_h_sqr))
 	hemi_dir = normalize(spherical_dir(sin_theta_h, cos_theta_h, phi_h))
 	return hemi_dir.x * v_x + hemi_dir.y * v_y + hemi_dir.z * n
 
@@ -254,13 +254,13 @@ def gtr_2_transmission_pdf(w_o: float3, w_i: float3, n: float3,
 	entering = dot(w_o, n) > 0.
 	eta_o = 1.  if entering else ior
 	eta_i = ior if entering else 1.
-	w_h = normalize(w_o + w_i * eta_i / eta_o)
+	w_h = -normalize(w_o + w_i * eta_i / eta_o)
 	cos_theta_h = abs(dot(n, w_h))
 	i_dot_h = dot(w_i, w_h)
 	o_dot_h = dot(w_o, w_h)
 	d = gtr_2(cos_theta_h, alpha)
-	dwh_dwi = o_dot_h * pow2(eta_o) / pow2(eta_o * o_dot_h + eta_i * i_dot_h)
-	return d * cos_theta_h * abs(dwh_dwi)
+	# dwh_dwi = o_dot_h * pow2(eta_o) / pow2(eta_o * o_dot_h + eta_i * i_dot_h)
+	return d * cos_theta_h # * abs(dwh_dwi)
 
 
 @luisa.func
@@ -364,7 +364,8 @@ def disney_clear_coat(mat: DisneyMaterial, n: float3,
 	d = gtr_1(dot(n, w_h), alpha)
 	f = lerp(0.04, 1., schlick_weight(dot(w_i, n)))
 	g = smith_shadowing_ggx(dot(n, w_i), 0.25) * smith_shadowing_ggx(dot(n, w_o), 0.25)
-	return 0.25 * mat.clearcoat * d * f * g
+	return mat.clearcoat * d * f * g
+	# return 0.25 * mat.clearcoat * d * f * g
 
 
 @luisa.func
@@ -383,6 +384,9 @@ def disney_sheen(mat: DisneyMaterial, n: float3,
 def disney_brdf(mat: DisneyMaterial, n: float3,
 	w_o: float3, w_i: float3, v_x: float3, v_y: float3):
 
+	if mat.specular_transmission > 0.:
+		return float3(0.)
+		
 	if not same_hemisphere(w_o, w_i, n):
 		if mat.specular_transmission > 0.:
 			spec_trans = disney_microfacet_transmission_isotropic(mat, n, w_o, w_i)
@@ -423,8 +427,17 @@ def disney_pdf(mat: DisneyMaterial, n: float3,
 		microfacet = gtr_2_aniso_pdf(w_o, w_i, n, v_x, v_y, alpha_aniso)
 
 	if mat.specular_transmission > 0.:
-		n_comp = 4.
+		return 0.
+		n_comp = 4. if dot(w_o, n) > 0. else 1.
 		microfacet_transmission = gtr_2_transmission_pdf(w_o, w_i, n, alpha, mat.ior)
+
+
+	if mat.metallic == 1.:
+		n_comp -= 1 # don't sample diffuse
+		diffuse = 0.
+	if mat.clearcoat == 0.:
+		n_comp -= 1 # don't sample coat
+		clear_coat = 0.
 
 	return (diffuse + microfacet + microfacet_transmission + clear_coat) / n_comp
 
@@ -437,12 +450,25 @@ def disney_pdf(mat: DisneyMaterial, n: float3,
 def sample_disney_brdf(mat: DisneyMaterial, n: float3,
 	w_o: float3, v_x: float3, v_y: float3, rng):
 
+	if mat.specular_transmission != 0.:
+		return glass.sample_brdf(n, w_o, v_x, v_y, rng, mat.ior)
+
+	n_component = 4
 	if mat.specular_transmission == 0.:
-		component = int(rng.next() * 3.)
-		component = clamp(component, 0, 2)
-	else:
-		component = int(rng.next() * 4.)
-		component = clamp(component, 0, 3)
+		n_component -= 1
+	if mat.metallic == 1.:
+		n_component -= 1 # don't sample diffuse
+	if mat.clearcoat == 0.:
+		n_component -= 1 # don't sample coat
+
+	component = int(rng.next() * n_component)
+	component = clamp(component, 0, n_component-1)
+
+	if mat.metallic == 1.:
+		component += 1 # skip diffuse
+	if mat.clearcoat == 0.:
+		if component >= 2:
+			component += 1 # skip coat
 
 	samples = make_float2(rng.next(), rng.next())
 	if component == 0:
@@ -452,6 +478,7 @@ def sample_disney_brdf(mat: DisneyMaterial, n: float3,
 		alpha = max(0.001, mat.roughness * mat.roughness)
 		if mat.anisotropy == 0.:
 			w_h = sample_gtr_2_h(n, v_x, v_y, alpha, samples)
+			# print(f"alpha = {alpha},  w_h = {w_h}")
 		else:
 			aspect = sqrt(1. - mat.anisotropy * 0.9)
 			alpha_aniso = make_float2(max(0.001, alpha / aspect), max(0.001, alpha * aspect))
@@ -476,14 +503,17 @@ def sample_disney_brdf(mat: DisneyMaterial, n: float3,
 		# Sample microfacet transmission component
 		alpha = max(0.001, mat.roughness * mat.roughness)
 		w_h = sample_gtr_2_h(n, v_x, v_y, alpha, samples)
+		# print(f"alpha = {alpha},  w_h = {w_h}")
 		if dot(w_o, w_h) < 0.:
 			w_h = -w_h
 		entering = dot(w_o, n) > 0.
 		w_i = refract_ray(-w_o, w_h, 1. / mat.ior if entering else mat.ior)
 
-		# Invalid refraction, terminate ray
+		# Total internal reflection
 		if all_zero(w_i):
-			return struct(pdf=0., w_i=make_float3(0.), brdf=make_float3(0.))
+			return struct(pdf=1., w_i=reflect(-w_o, w_h if entering else -w_h), brdf=make_float3(1.))
+		# if all_zero(w_i):
+		# 	return struct(pdf=0., w_i=make_float3(0.), brdf=make_float3(0.))
 
 	return struct(
 		pdf = disney_pdf(mat, n, w_o, w_i, v_x, v_y),

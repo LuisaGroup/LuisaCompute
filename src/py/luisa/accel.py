@@ -182,7 +182,8 @@ accel = Accel.accel
 
 class Mesh:
     def __init__(self, vertices, triangles):
-        assert vertices.dtype == float3 or type(vertices.dtype) == StructType and vertices.dtype.membertype[0] == float3
+        # assert vertices.dtype == float3 or type(vertices.dtype) == StructType and vertices.dtype.membertype[0] == float3
+        assert to_lctype(vertices.dtype).size() >= to_lctype(float3).size()
         assert triangles.dtype == int and triangles.size%3==0 or triangles.dtype == ArrayType(dtype=int, size=3)
         self.vertices = vertices
         self.triangles = triangles

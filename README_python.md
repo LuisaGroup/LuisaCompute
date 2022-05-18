@@ -260,7 +260,7 @@ buf.atomic_fetch_max(idx, val) # 更新为 max(old, val)
 从 numpy array 创建一个贴图：
 
 ```python
-tex = luisa.texture2d(arr) # arr 形状为 (width, height, channel)
+tex = luisa.texture2d(arr) # arr 形状为 (height, width, channel)
 ```
 
 该操作会在设备上创建一个相应元素类型和尺寸的贴图，并上传数据。`arr`的元素类型只能是`np.int32`或 `np.float32`。
@@ -294,7 +294,7 @@ Image.fromarray(tex.to('byte').numpy()).save('output.png')
 不能直接在宿主端（Python代码中）直接访问贴图的元素。可以将贴图下载到对应形状和类型的numpy array，或直接调用`numpy`方法返回下载结果。
 
 ```python
-tex.copy_to(arr) # arr 形状为 (width, height, channel), 类型 np.int32 / np.float32
+tex.copy_to(arr) # arr 形状为 (height, width, channel), 类型和所选精度一致 (TODO：在表格中列出？)
 arr1 = tex.numpy()
 ```
 
