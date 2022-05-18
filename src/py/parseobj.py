@@ -12,9 +12,8 @@ def parseobj(file):
 			assert len(split[1:]) == 3
 			v.append(list(map(float, split[1:])))
 		elif split[0] == 'vt':
-			continue
-			# assert len(split[1:]) == 2
-			# vt.append(list(map(float, split[1:])))
+			assert len(split[1:]) == 2
+			vt.append(list(map(float, split[1:])))
 		elif split[0] == 'vn':
 			assert len(split[1:]) == 3
 			vn.append(list(map(float, split[1:])))
@@ -30,4 +29,4 @@ def parseobj(file):
 					assert xs[0] == xs[1] == xs[2]
 					tri.append(xs[0]-1)
 			f.append(tri)
-	return v,vn,f
+	return v,vt,vn,f
