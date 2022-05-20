@@ -17,5 +17,5 @@ elif [ "$ZSH_VERSION" ]; then
     export LUISA_PATH=$(dirname "$0:A")
 fi
 
-export PYTHONPATH="$LUISA_PATH/$BUILD_DIR/bin:$PYTHONPATH"
+export PYTHONPATH="$LUISA_PATH/$BUILD_DIR/bin:$LUISA_PATH/pyscenes:$PYTHONPATH"
 export PATH="$LUISA_PATH/$BUILD_DIR/bin:$PATH"
