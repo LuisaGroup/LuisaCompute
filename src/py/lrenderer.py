@@ -1,3 +1,4 @@
+from sys import argv
 import luisa
 from luisa.mathtypes import *
 from math import pi
@@ -7,7 +8,10 @@ from time import perf_counter
 
 from disney import *
 
-luisa.init("dx")
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init()
 luisa.log_level_verbose()
 from water import models, resolution, max_depth, rr_depth, \
                    const_env_light, camera_pos, camera_dir, camera_up, camera_fov, __name__ as outfile

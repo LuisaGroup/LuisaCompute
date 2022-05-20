@@ -1,9 +1,13 @@
 # Julia set demo ported from the Taichi tutorial
 
+from sys import argv
 import luisa
 from luisa.mathtypes import *
 
-luisa.init()
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init()
 
 n = 320
 pixels = luisa.Texture2D.empty(n * 2, n, 4, dtype=float)

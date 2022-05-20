@@ -1,12 +1,16 @@
 # mpm3d ported to Luisa
 
+from sys import argv
 import numpy as np
 import luisa as lc
 from luisa.mathtypes import *
 import math
 from os import makedirs
 
-lc.init("metal")
+if len(argv) > 1:
+    lc.init(argv[1])
+else:
+    lc.init()
 
 # dim, n_grid, steps, dt = 2, 128, 20, 2e-4
 # dim, n_grid, steps, dt = 2, 256, 32, 1e-4

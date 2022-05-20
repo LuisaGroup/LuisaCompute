@@ -1,9 +1,13 @@
+from sys import argv
 import luisa
 from luisa.mathtypes import *
 from PIL import Image
 
 n = 4096
-luisa.init()
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init()
 image = luisa.Texture2D.zeros(2*n, n, 4, float, 'byte')
 
 @luisa.func # makes LuisaRender handle the function
