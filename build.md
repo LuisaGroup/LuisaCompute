@@ -46,4 +46,4 @@ cmake --build build
 ## Tests
 
 1. LuisaCompute C++ tests are in build files.
-2. LuisaCompute Python tests are in `src/py` directory. Test files should be copied into build directory and run there.
+2. LuisaCompute Python tests are in `src/py` directory. You should run `set_python_path.bat/ps1/sh` before run any python test.
