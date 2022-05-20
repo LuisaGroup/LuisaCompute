@@ -13,7 +13,11 @@ int main(int argc, char *argv[]) {
     auto sqr = [](auto x) noexcept { return x * x; };
 
     Context context{argv[0]};
-    auto device = context.create_device("ispc");
+    if(argc <= 1){
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
 
     static constexpr auto n_grid = 128u;
     static constexpr auto n_steps = 50u;

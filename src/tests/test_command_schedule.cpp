@@ -10,7 +10,11 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
     Context context{argv[0]};
-    auto device = context.create_device("metal");
+    if(argc <= 1){
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
     CommandReorderVisitor commandReorderVisitor(device.impl());
     commandReorderVisitor.clear();
     auto CreateBuffer = [&](size_t byte_size) {
