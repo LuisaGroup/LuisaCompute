@@ -67,7 +67,8 @@ if (ISPC_FOUND)
             target_compile_options(luisa-compute-backend-ispc PRIVATE /wd4624 /wd4996) # do not complain about LLVM
         endif ()
     else () # fallback to DLL
-        message(STATUS "Use runtime DLL loading for ISPC kernels. You may need to manually copy linker stuff to ispc_support and re-run build.")
-        target_sources(luisa-compute-backend-ispc PRIVATE ispc_dll_module.cpp ispc_dll_module.h)
+        message(FATAL_ERROR "LLVM not found.")
+        # message(STATUS "Use runtime DLL loading for ISPC kernels. You may need to manually copy linker stuff to ispc_support and re-run build.")
+        # target_sources(luisa-compute-backend-ispc PRIVATE ispc_dll_module.cpp ispc_dll_module.h)
     endif ()
 endif ()

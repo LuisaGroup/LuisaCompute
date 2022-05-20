@@ -113,9 +113,8 @@ ComputeShader *ComputeShader::CompileCompute(
     return compResult.multi_visit_or(
         (ComputeShader *)nullptr,
         [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
-            auto f = fopen(path.c_str(), "wb");
-            if (f) {
-                if constexpr (USE_CACHE) {
+            if constexpr (USE_CACHE) {
+                if (auto f = fopen(path.c_str(), "wb")) {
                     auto disp = vstd::create_disposer([&] { fclose(f); });
                     auto serData = ShaderSerializer::Serialize(
                         str.properties,
