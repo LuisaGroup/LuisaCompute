@@ -142,7 +142,7 @@ camera_dir = float3(0.13595250248908997, -0.05167683959007263, -0.98936659097671
 camera_up = float3(0.0, 1.0, 0.0)
 camera_fov = 35.98339777135762
 
-resolution = 1280, 720
-rr_depth = 3
+resolution = 1920, 1080
+rr_depth = 2
 max_depth = 8
 

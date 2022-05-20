@@ -14,8 +14,8 @@ else:
 
 # dim, n_grid, steps, dt = 2, 128, 20, 2e-4
 # dim, n_grid, steps, dt = 2, 256, 32, 1e-4
-# dim, n_grid, steps, dt = 3, 32, 25, 4e-4
-dim, n_grid, steps, dt = 3, 64, 25, 2e-4
+dim, n_grid, steps, dt = 3, 32, 25, 4e-4
+# dim, n_grid, steps, dt = 3, 64, 25, 2e-4
 # dim, n_grid, steps, dt = 3, 128, 25, 8e-5
 
 n_particles = n_grid ** dim // 2 ** (dim - 1)
@@ -178,14 +178,12 @@ def clear_display():
 def draw_particle():
     p = dispatch_id().x
     basepos = T(x.read(p))
-    for i in range(-2, 3):
-        for j in range(-2, 3):
+    for i in range(-1, 2):
+        for j in range(-1, 2):
             pos = int2(basepos * float(res)) + int2(i, j)
             coord = make_int2(pos.x, res - 1 - pos.y)
             if all(coord >= 0 and coord < res):
-                old = display.read(coord)
-                t = (24000 / n_particles) / ((i * i + j * j) + 1)
-                display.write(coord, float4(lerp(old.xyz, 1.0, t), 1.0))
+                display.write(coord, float4(1))
 
 
 init(dispatch_size=n_particles)
