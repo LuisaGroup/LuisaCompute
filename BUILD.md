@@ -16,21 +16,14 @@
     - RTX-compatiable graphics card
 3. ISPC
     - x64 CPU with AVX256 or Apple M1 CPU
-    - LLVM 12+
+    - LLVM 12+ (for JIT executing the IR emitted by ISPC)
 4. Metal
     - macOS 12 or higher
-    - Discrete GPU or Apple M1 GPU
+    - Discrete GPU or Apple M1 GPU (older GPUs are probably also supported, but not tested)
 5. Python
     - Python 3.9+
     - Packages: astpretty, dearpygui, sourceinspect, numpy, pillow
     - Backend-specific requirements are the same as above
-
-## Build Commands
-
-```bash
-cmake  -S . -B build # optionally with CMake flags behind
-cmake --build build
-```
 
 ## CMake Flags
 
@@ -38,12 +31,19 @@ The ISPC backend is disabled by default. Other backends will automatically be en
 
 In case you need to run the ISPC backend, download the [ISPC compiler executable](https://ispc.github.io/downloads.html) of your platform and copy it to `src/backends/ispc/ispc_support/` before compiling.
 
-- `LUISA_COMPUTE_ENABLE_CUDA`: Enable CUDA backend
-- `LUISA_COMPUTE_ENABLE_DX`: Enable DirectX backend
-- `LUISA_COMPUTE_ENABLE_ISPC`: Enable ISPC backend
-- `LUISA_COMPUTE_ENABLE_METAL`: Enable Metal backend
-- `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (enabled by default)
-- `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (enabled by default)
+- `LUISA_COMPUTE_ENABLE_CUDA`: Enable CUDA backend (Default: `ON`)
+- `LUISA_COMPUTE_ENABLE_DX`: Enable DirectX backend (Default: `ON`)
+- `LUISA_COMPUTE_ENABLE_ISPC`: Enable ISPC backend (Default: `OFF`)
+- `LUISA_COMPUTE_ENABLE_METAL`: Enable Metal backend (Default: `ON`)
+- `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
+- `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
+
+## Build Commands
+
+```bash
+cmake  -S . -B build	# optionally with CMake flags above
+cmake --build build
+```
 
 ## Tests
 
