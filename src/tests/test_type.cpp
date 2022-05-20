@@ -180,7 +180,4 @@ int main() {
     foo<std::initializer_list<int>>({1, 2, 3, 4});
 
     auto [m, n] = std::array{1, 2};
-
-    auto fuck = 0;
-    auto shit = 1;
 }
