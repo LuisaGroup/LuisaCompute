@@ -22,7 +22,11 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    if(argc <= 1){
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
 
     std::array vertices{
         float3(-0.5f, -0.5f, 0.0f),

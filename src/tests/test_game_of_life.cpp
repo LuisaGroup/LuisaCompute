@@ -33,7 +33,11 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    if(argc <= 1){
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
 
     Callable read_state = [](Var<ImagePair> pair, UInt2 uv) noexcept {
         return pair.prev.read(uv).x == 1.0f;

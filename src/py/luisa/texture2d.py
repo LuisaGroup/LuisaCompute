@@ -78,10 +78,25 @@ class Texture2D:
         return tex
 
     @staticmethod
-    def from_array(arr):
+    def from_array(arr): # arr: numpy array
         # TODO deduce dtype & storage
         assert len(arr.shape) == 3 and arr.shape[0]>0 and arr.shape[1]>0 and arr.shape[2] in (1,2,4)
         tex = Texture2D.empty(arr.shape[0], arr.shape[1], arr.shape[2], dtype_of(arr[0][0][0].item()))
+        tex.copy_from_array(arr)
+        return tex
+
+    @staticmethod
+    def from_image(path):
+        # load 8-bit 4-channel image from file
+        from PIL import Image
+        import numpy as np
+        arr = np.asarray(Image.open(path))
+        assert len(arr.shape) == 3 and arr.shape[2] in {3,4}
+        assert arr.dtype == np.uint8
+        if arr.shape[2] == 3:
+            arr = np.concatenate((arr, np.full((arr.shape[0], arr.shape[1], 1), 255, dtype=np.uint8)), axis=2)
+        # save as SRGB 8-bit texture
+        tex = Texture2D.empty(arr.shape[1], arr.shape[0], 4, float, 'byte')
         tex.copy_from_array(arr)
         return tex
 
@@ -112,7 +127,7 @@ class Texture2D:
             npf = {'BYTE': np.uint8, 'SHORT': np.uint16, 'HALF': np.half, 'FLOAT': np.float32}[self.storage_name]
         else:
             npf = {'BYTE': np.int8, 'SHORT': np.int16, 'INT': np.int32}[self.storage_name]
-        arr = np.empty((self.width, self.height, self.channel), dtype=npf)
+        arr = np.empty((self.height, self.width, self.channel), dtype=npf)
         self.copy_to(arr, sync=True)
         return arr
 

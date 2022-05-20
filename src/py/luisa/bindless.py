@@ -31,7 +31,7 @@ class BindlessArray:
         elif type(res) is Texture2D:
             if res.dtype != float:
                 raise TypeError("Type of emplaced Texture2D must be float")
-            sampler = lcapi.Sampler(lcapi.Sampler.Filter.POINT, lcapi.Sampler.Address.EDGE)
+            sampler = lcapi.Sampler(lcapi.Sampler.Filter.LINEAR_POINT, lcapi.Sampler.Address.REPEAT)
             device().impl().emplace_tex2d_in_bindless_array(self.handle, idx, res.handle, sampler)
         else:
             raise TypeError(f"can't emplace {type(res)} in bindless array")
