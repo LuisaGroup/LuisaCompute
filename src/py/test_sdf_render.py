@@ -1,9 +1,14 @@
 import math
+from time import perf_counter
 import luisa
 from luisa.mathtypes import *
+import numpy as np
 
 
-luisa.init()
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init()
 res = 1280, 720
 image = luisa.Texture2D.zeros(*res, 4, float)
 max_ray_depth = 6
@@ -163,15 +168,33 @@ def to_display(scale):
     accum_color = image.read(coord).xyz
     display.write(coord, float4(sqrt(accum_color * scale), 1.0))
 
-
-gui = luisa.GUI("SDF Path Tracer", res)
-frame_index = 0
-while gui.running():
-    render(frame_index, dispatch_size=(*res, 1))
-    frame_index += 1
-    if frame_index % 16 == 0:
-        to_display(0.24 / (1 + frame_index) / 0.084 , dispatch_size=(*res, 1))
-        gui.set_image(display)
-        gui.show()
+ENABLE_DISPLAY = False
+if ENABLE_DISPLAY:
+    gui = luisa.GUI("SDF Path Tracer", res)
+    frame_index = 0
+    while gui.running():
+        render(frame_index, dispatch_size=(*res, 1))
+        frame_index += 1
+        if frame_index % 16 == 0:
+            to_display(0.24 / (1 + frame_index) / 0.084 , dispatch_size=(*res, 1))
+            gui.set_image(display)
+            gui.show()
 
 # Image.fromarray(display.to(luisa.PixelStorage.BYTE4).numpy()).save("sdf.png")
+
+else:
+    warm_up_spp = 128
+    total_spp = 8192
+    interval = 4096
+    frame_index = 0
+    buffer = np.zeros([res[0] * res[1] * 4], dtype=np.float32)
+    for i in range(warm_up_spp):
+        render(i, dispatch_size=(*res, 1))
+    display.copy_to(buffer)
+    tic = perf_counter()
+    for i in range(0, total_spp, interval):
+        for j in range(interval):
+            render(i + j + warm_up_spp, dispatch_size=(*res, 1))
+        display.copy_to(buffer)
+    toc = perf_counter()
+    print("Speed = {:.2f} spp/s".format(total_spp / (toc - tic)))

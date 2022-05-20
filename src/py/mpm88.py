@@ -1,10 +1,14 @@
 # MPM-MLS in 88 lines of Taichi code, originally created by @yuanming-hu
 # ported to Luisa
 
+from sys import argv
 import luisa as lc
 from luisa.mathtypes import *
 
-lc.init("ispc")
+if len(argv) > 1:
+    luisa.init(argv[1])
+else:
+    luisa.init()
 
 n_grid = 128
 n_steps = 16

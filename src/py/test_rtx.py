@@ -14,7 +14,7 @@ from luisa.texture2d import Texture2D
 if len(argv) > 1:
     luisa.init(argv[1])
 else:
-    luisa.init("cuda")
+    luisa.init()
 
 res = 1280, 720
 image = luisa.Buffer(res[0] * res[1], float4)
