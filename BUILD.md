@@ -22,7 +22,7 @@
     - Discrete GPU or Apple M1 GPU
 5. Python
     - Python 3.9+
-    - Packages: TODO
+    - Packages: astpretty, dearpygui, sourceinspect, numpy, pillow
     - Backend-specific requirements are the same as above
 
 ## Build Commands
@@ -48,5 +48,5 @@ In case you need to run the ISPC backend, download the [ISPC compiler executable
 ## Tests
 
 1. LuisaCompute C++ tests are in the `build/bin` folder.
-2. LuisaCompute Python tests are in the `src/py` directory. Run `set_python_path.bat/ps1/sh` to set environment path to `luisa` before running any python test.
+2. LuisaCompute Python tests are in the `src/py` directory. Run `set_python_path.bat/ps1/sh` to set environment path to `luisa` before running any python test. To run `lrenderer.py`, copy files in `pyscenes` to the same directory of `lrenderer.py`.
 3. All tests accept a command-line argument specifying backend, which can be chosen from `cuda`/`dx`/`ispc`/`metal`.
