@@ -38,10 +38,16 @@ CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
 
 void CommandQueue::AddEvent(LCEvent const *evt) {
     executedAllocators.Push(evt, uint64(evt->fenceIndex));
+    {
+        std::scoped_lock lock{mtx};
+    }
     waitCv.notify_one();
 }
 void CommandQueue::Callback(vstd::move_only_func<void()> &&f) {
     executedAllocators.Push(std::move(f));
+    {
+        std::scoped_lock lock{mtx};
+    }
     waitCv.notify_one();
 }
 void CommandQueue::ExecuteDuringWaiting() {
@@ -55,7 +61,7 @@ void CommandQueue::ExecuteThread() {
             b.first->Reset(this);
             allocatorPool.Push(std::move(b.first));
             {
-                std::lock_guard lck(mtx);
+                std::scoped_lock lck(mtx);
                 executedFrame = b.second;
             }
             mainCv.notify_all();
@@ -66,7 +72,7 @@ void CommandQueue::ExecuteThread() {
             auto tarFrame = pair.second;
             device->WaitFence(evt->fence.Get(), tarFrame);
             {
-                std::lock_guard lck(evt->globalMtx);
+                std::scoped_lock lck(evt->globalMtx);
                 evt->finishedEvent = tarFrame;
             }
             evt->cv.notify_all();
@@ -92,14 +98,14 @@ void CommandQueue::ForceSync(
     alloc->Complete_Async(this, cmdFence.Get(), curFrame);
     alloc->Reset(this);
     {
-        std::lock_guard lck(mtx);
+        std::scoped_lock lck(mtx);
         executedFrame = curFrame;
     }
     cb.Reset();
 }
 CommandQueue::~CommandQueue() {
     {
-        std::lock_guard lck(mtx);
+        std::scoped_lock lck(mtx);
         enabled = false;
     }
     waitCv.notify_one();
@@ -110,6 +116,9 @@ uint64 CommandQueue::Execute(AllocatorPtr &&alloc) {
     auto curFrame = ++lastFrame;
     alloc->Execute(this, cmdFence.Get(), curFrame);
     executedAllocators.Push(std::move(alloc), curFrame);
+    {
+        std::scoped_lock lock{mtx};
+    }
     waitCv.notify_one();
     return curFrame;
 }
@@ -121,6 +130,9 @@ uint64 CommandQueue::ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *sw
     auto curFrame = ++lastFrame;
     alloc->ExecuteAndPresent(this, cmdFence.Get(), curFrame, swapChain);
     executedAllocators.Push(std::move(alloc), curFrame);
+    {
+        std::scoped_lock lock{mtx};
+    }
     waitCv.notify_one();
     return curFrame;
 }
