@@ -40,6 +40,8 @@ In case you need to run the ISPC backend, download the [ISPC compiler executable
 
 ## Build Commands
 
+> Note: build directory should be named to be `build`, so that the set path script can set python path correctly.
+
 ```bash
 cmake  -S . -B build	# optionally with CMake flags above
 cmake --build build
