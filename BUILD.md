@@ -21,7 +21,7 @@
     - macOS 12 or higher
     - Discrete GPU or Apple M1 GPU (older GPUs are probably also supported, but not tested)
 5. Python
-    - Python 3.9+
+    - Python 3.9+ (please use the system one because virtual environments might cause mismatches between the linked Python library and the intepreter)
     - Packages: astpretty, dearpygui, sourceinspect, numpy, pillow
     - Backend-specific requirements are the same as above
 
