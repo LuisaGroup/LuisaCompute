@@ -327,18 +327,14 @@ CMakeSettings.json
 #white list
 !src/backends/dx/dx_support/dxcompiler.dll
 !src/backends/dx/dx_support/dxil.dll
+
 **/imgui.ini
 *.vcxproj
 *.vcxprojbackup
 *.sln
 *.user
-llvm/
 BuildTools/
-llvm-c/
-opencv2/
 doc/latex/**
 
 # Doxygen output
 doxygen_output
-
-.vscode/
