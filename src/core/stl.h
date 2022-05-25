@@ -56,6 +56,10 @@ LC_CORE_API void allocator_deallocate(void *p, size_t alignment) noexcept;
 LC_CORE_API void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept;
 }// namespace detail
 
+[[nodiscard]] inline auto align(size_t s, size_t a) noexcept {
+    return (s + a - 1u) / a * a;
+}
+
 template<typename T = std::byte>
 struct allocator {
     using value_type = T;

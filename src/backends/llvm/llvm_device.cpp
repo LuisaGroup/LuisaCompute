@@ -2,15 +2,7 @@
 // Created by Mike Smith on 2022/5/23.
 //
 
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/Support/SourceMgr.h>
-#include <llvm/Support/Host.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/Analysis/TargetTransformInfo.h>
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
-#include <llvm/Target/TargetOptions.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <backends/llvm/llvm_codegen.h>
 #include <backends/llvm/llvm_device.h>
 
 namespace luisa::compute::llvm {
@@ -131,6 +123,53 @@ void LLVMDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swap
 
 uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
 
+    // codegen
+    auto llvm_ctx = luisa::make_unique<::llvm::LLVMContext>();
+    LLVMCodegen codegen{*llvm_ctx};
+    auto module = codegen.emit(kernel);
+    module->print(::llvm::errs(), nullptr);
+
+    // optimize
+    ::llvm::PassManagerBuilder pass_manager_builder;
+    pass_manager_builder.OptLevel = ::llvm::CodeGenOpt::Aggressive;
+    pass_manager_builder.Inliner = ::llvm::createFunctionInliningPass(
+        pass_manager_builder.OptLevel, 0, false);
+    pass_manager_builder.LoopsInterleaved = true;
+    pass_manager_builder.LoopVectorize = true;
+    pass_manager_builder.SLPVectorize = true;
+    pass_manager_builder.MergeFunctions = true;
+    pass_manager_builder.EnablePGOCSInstrGen = false;
+    pass_manager_builder.EnablePGOCSInstrUse = false;
+    pass_manager_builder.EnablePGOInstrGen = false;
+    pass_manager_builder.CallGraphProfile = false;
+    pass_manager_builder.PerformThinLTO = true;
+    _machine->adjustPassManager(pass_manager_builder);
+    module->setDataLayout(_machine->createDataLayout());
+
+    // optimize: function passes
+    {
+        ::llvm::legacy::FunctionPassManager pass_manager{module.get()};
+        pass_manager_builder.populateFunctionPassManager(pass_manager);
+        pass_manager.add(::llvm::createTargetTransformInfoWrapperPass(
+            _machine->getTargetIRAnalysis()));
+        pass_manager_builder.populateFunctionPassManager(pass_manager);
+        pass_manager.doInitialization();
+        for (auto &&f : module->functions()) { pass_manager.run(f); }
+        pass_manager.doFinalization();
+    }
+
+    // optimize: module passes
+    {
+        ::llvm::legacy::PassManager pass_manager;
+        pass_manager.add(
+            ::llvm::createTargetTransformInfoWrapperPass(
+                _machine->getTargetIRAnalysis()));
+        pass_manager_builder.populateModulePassManager(pass_manager);
+        pass_manager.run(*module);
+    }
+
+    LUISA_INFO("After optimization");
+    module->print(::llvm::errs(), nullptr);
     return 0;
 }
 
