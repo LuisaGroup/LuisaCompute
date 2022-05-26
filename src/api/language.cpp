@@ -201,11 +201,6 @@ const void *luisa_compute_ast_accel_argument() LUISA_NOEXCEPT {
 
 const void *luisa_compute_ast_literal_expr(const void *t, const void *value, const char *meta_value) LUISA_NOEXCEPT {
     auto v = [type = static_cast<const Type *>(t), value, meta_value]() noexcept -> LiteralExpr::Value {
-        if (meta_value != nullptr) {
-            return LiteralExpr::MetaValue{
-                type,
-                meta_value};
-        }
         switch (type->tag()) {
             case Type::Tag::BOOL:
                 return *static_cast<const bool *>(value);

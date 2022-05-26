@@ -10,6 +10,7 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Support/Host.h>
@@ -41,6 +42,7 @@ private:
         luisa::unordered_map<uint, ::llvm::Value *> variables;
         luisa::vector<::llvm::BasicBlock *> break_targets;
         luisa::vector<::llvm::BasicBlock *> continue_targets;
+        luisa::vector<::llvm::SwitchInst *> switch_stack;
         FunctionContext(Function f, ::llvm::Function *ir, ::llvm::Value *ret,
                         ::llvm::BasicBlock *exit_block,
                         luisa::unique_ptr<::llvm::IRBuilder<>> builder,

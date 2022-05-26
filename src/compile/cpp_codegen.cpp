@@ -139,10 +139,6 @@ public:
         }
         _s << ")";
     }
-
-    void operator()(const LiteralExpr::MetaValue &s) const noexcept {
-        // TODO...
-    }
 };
 
 }// namespace detail

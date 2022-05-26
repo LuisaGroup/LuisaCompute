@@ -118,7 +118,6 @@ PixelStorage LLVMDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
 }
 
 void LLVMDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-
 }
 
 uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
@@ -146,29 +145,30 @@ uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_option
     _machine->adjustPassManager(pass_manager_builder);
     module->setDataLayout(_machine->createDataLayout());
 
-    // optimize: function passes
-    {
-        ::llvm::legacy::FunctionPassManager pass_manager{module.get()};
-        pass_manager_builder.populateFunctionPassManager(pass_manager);
-        pass_manager.add(::llvm::createTargetTransformInfoWrapperPass(
+    for (auto i = 0u; i < 2u; i++) {
+        ::llvm::errs() << "\nOptimization Pass #" << i << "\n";
+        // optimize: function passes
+        ::llvm::legacy::FunctionPassManager function_pass_manager{module.get()};
+        pass_manager_builder.populateFunctionPassManager(function_pass_manager);
+        function_pass_manager.add(::llvm::createTargetTransformInfoWrapperPass(
             _machine->getTargetIRAnalysis()));
-        pass_manager_builder.populateFunctionPassManager(pass_manager);
-        pass_manager.doInitialization();
-        for (auto &&f : module->functions()) { pass_manager.run(f); }
-        pass_manager.doFinalization();
-    }
-
-    // optimize: module passes
-    {
-        ::llvm::legacy::PassManager pass_manager;
-        pass_manager.add(
+        pass_manager_builder.populateFunctionPassManager(function_pass_manager);
+        for (auto &&f : module->functions()) {
+            function_pass_manager.doInitialization();
+            function_pass_manager.run(f);
+            function_pass_manager.doFinalization();
+        }
+        ::llvm::errs() << "\nOptimization Pass #" << i << ": After Function Passes" << "\n";
+        module->print(::llvm::errs(), nullptr);
+        // optimize: module passes
+        ::llvm::legacy::PassManager module_pass_manager;
+        module_pass_manager.add(
             ::llvm::createTargetTransformInfoWrapperPass(
                 _machine->getTargetIRAnalysis()));
-        pass_manager_builder.populateModulePassManager(pass_manager);
-        pass_manager.run(*module);
+        pass_manager_builder.populateModulePassManager(module_pass_manager);
+        module_pass_manager.run(*module);
     }
-
-    LUISA_INFO("After optimization");
+    ::llvm::errs() << "\nAfter Optimization" << "\n";
     module->print(::llvm::errs(), nullptr);
     return 0;
 }
