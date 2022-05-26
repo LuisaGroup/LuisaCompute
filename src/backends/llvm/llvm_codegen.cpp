@@ -211,6 +211,7 @@ void LLVMCodegen::visit(const ForStmt *stmt) {
 }
 
 void LLVMCodegen::visit(const CommentStmt *stmt) {
+    auto ctx = _current_context();
     // do nothing
 }
 
@@ -672,11 +673,17 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
     for (auto i = 0u; i < expr->arguments().size(); i++) {
         auto arg = expr->arguments()[i];
         auto call_arg = _create_expr(arg);
-        if (auto t = expr->custom().arguments()[i].type();
-            t->is_basic() || t->is_array() || t->is_structure()) {
-            call_arg = _convert(t, arg->type(), _create_expr(arg));
-            call_arg = ctx->builder->CreateLoad(
-                _create_type(t), call_arg, "load");
+        if (auto expected_arg = expr->custom().arguments()[i];
+            expected_arg.type()->is_basic() ||
+            expected_arg.type()->is_array() ||
+            expected_arg.type()->is_structure()) {
+            call_arg = _convert(expected_arg.type(), arg->type(), _create_expr(arg));
+            if (auto usage = expr->custom().variable_usage(expected_arg.uid());
+                expected_arg.tag() != Variable::Tag::REFERENCE ||
+                (usage == Usage::NONE || usage == Usage::READ)) {
+                call_arg = ctx->builder->CreateLoad(
+                    _create_type(expected_arg.type()), call_arg, "load");
+            }
         }
         args.emplace_back(call_arg);
     }
