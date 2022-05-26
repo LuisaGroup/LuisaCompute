@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     luisa::log_level_verbose();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -85,6 +85,10 @@ int main(int argc, char *argv[]) {
         Var am = add_mul(v_int, v_int);
         Var a_copy = am.get<0>();
         Var m_copy = am.get<1>();
+
+        loop([] {
+            if_(true, break_);
+        });
 
         for (auto v : range(v_int)) {
             v_int += v;
@@ -143,8 +147,8 @@ int main(int argc, char *argv[]) {
     auto command = kernel(float_buffer, 12u).dispatch(1024u);
     auto launch_command = static_cast<ShaderDispatchCommand *>(command);
     LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
-    command->recycle();
-    launch_command->recycle();
+//    command->recycle();
+//    launch_command->recycle();
 
     //    clock.tic();
     //    Codegen::Scratch scratch;

@@ -145,9 +145,6 @@ public:
         _s.pop_back();
         _s << ")";
     }
-
-    void operator()(const LiteralExpr::MetaValue &s) const noexcept {
-    }
 };
 
 }// namespace detail

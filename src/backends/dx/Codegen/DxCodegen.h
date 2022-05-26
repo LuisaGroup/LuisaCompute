@@ -200,11 +200,4 @@ struct PrintValue<Matrix<N>> {
     }
 };
 
-template<>
-struct PrintValue<LiteralExpr::MetaValue> {
-    void operator()(const LiteralExpr::MetaValue &s, vstd::string &varName) const noexcept {
-        // TODO...
-    }
-};
-
 }// namespace toolhub::directx

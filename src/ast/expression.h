@@ -308,25 +308,7 @@ class LiteralExpr final : public Expression {
     friend class AstSerializer;
 
 public:
-    /// TODO
-    class MetaValue {
-    private:
-        const Type *_type;
-        luisa::string _expr;
-
-    public:
-        MetaValue(const Type *type, luisa::string expr) noexcept
-            : _type{type}, _expr{std::move(expr)} {
-            if (!type->is_basic()) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Invalid type for meta-value: {}",
-                    type->description());
-            }
-        }
-        [[nodiscard]] auto type() const noexcept { return _type; }
-        [[nodiscard]] auto expr() const noexcept { return std::string_view{_expr}; }
-    };
-    using Value = detail::make_literal_value_t<tuple_join_t<basic_types, std::tuple<MetaValue>>>;
+    using Value = detail::make_literal_value_t<basic_types>;
 
 private:
     Value _value;
@@ -334,15 +316,7 @@ private:
 protected:
     void _mark(Usage) const noexcept override {}
     uint64_t _compute_hash() const noexcept override {
-        return luisa::visit(
-            [](auto &&v) noexcept {
-                if constexpr (std::is_same_v<std::remove_cvref_t<decltype(v)>, MetaValue>) {
-                    return hash64(v.expr(), v.type()->hash());
-                } else {
-                    return hash64(v);
-                }
-            },
-            _value);
+        return luisa::visit([](auto &&v) noexcept { return hash64(v); }, _value);
     }
 
 public:
