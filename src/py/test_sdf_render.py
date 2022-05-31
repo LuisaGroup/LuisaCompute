@@ -3,6 +3,7 @@ from time import perf_counter
 import luisa
 from luisa.mathtypes import *
 import numpy as np
+from sys import argv
 
 
 if len(argv) > 1:

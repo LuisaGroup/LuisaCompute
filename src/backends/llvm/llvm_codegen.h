@@ -87,6 +87,7 @@ private:
     [[nodiscard]] ::llvm::Value *_create_ref_expr(const RefExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_constant_expr(const ConstantExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_call_expr(const CallExpr *expr) noexcept;
+    [[nodiscard]] ::llvm::Value *_create_builtin_call_expr(const Type *ret_type, CallOp op, luisa::span<const Expression *const> args) noexcept;
     [[nodiscard]] ::llvm::Value *_create_cast_expr(const CastExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_stack_variable(::llvm::Value *v, luisa::string_view name = "") noexcept;
     [[nodiscard]] FunctionContext *_current_context() noexcept;
@@ -97,6 +98,41 @@ private:
     [[nodiscard]] ::llvm::Value *_scalar_to_uint(const Type *src_type, ::llvm::Value *p_src) noexcept;
     [[nodiscard]] ::llvm::Value *_scalar_to_vector(const Type *src_type, uint dst_dim, ::llvm::Value *p_src) noexcept;
     void _create_assignment(const Type *dst_type, const Type *src_type, ::llvm::Value *p_dst, ::llvm::Value *p_src) noexcept;
+
+    // built-in make_vector functions
+    [[nodiscard]] ::llvm::Value *_make_int2(::llvm::Value *px, ::llvm::Value *py) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_int3(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_int4(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz, ::llvm::Value *pw) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_bool2(::llvm::Value *px, ::llvm::Value *py) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_bool3(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_bool4(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz, ::llvm::Value *pw) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_float2(::llvm::Value *px, ::llvm::Value *py) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_float3(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_float4(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz, ::llvm::Value *pw) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_float2x2(::llvm::Value *p0, ::llvm::Value *p1) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_float3x3(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2) noexcept;
+    [[nodiscard]] ::llvm::Value *_make_float4x4(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2, ::llvm::Value *p3) noexcept;
+
+    // built-in short-cut logical operators
+    [[nodiscard]] ::llvm::Value *_operator_logical_and_shortcut(const Expression *lhs, const Expression *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_operator_logical_or_shortcut(const Expression *lhs, const Expression *rhs) noexcept;
+
+    // built-in operators
+    [[nodiscard]] ::llvm::Value *_operator_logical_and(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_operator_logical_or(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+
+    // built-in functions builders
+    [[nodiscard]] ::llvm::Value *_builtin_all(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_any(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_select(const Type *t_pred, const Type *t_value, ::llvm::Value *pred,
+                                                 ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_clamp(const Type *t, ::llvm::Value *v, ::llvm::Value *lo, ::llvm::Value *hi) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_lerp(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *x) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_step(const Type *t, ::llvm::Value *edge, ::llvm::Value *x) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_abs(const Type *t, ::llvm::Value *x) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
+
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;
