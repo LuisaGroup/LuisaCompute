@@ -36,10 +36,9 @@ void LLVMCodegen::visit(const ReturnStmt *stmt) {
 void LLVMCodegen::visit(const ScopeStmt *stmt) {
     for (auto s : stmt->statements()) {
         s->accept(*this);
-        if (s->tag() == Statement::Tag::BREAK ||
-            s->tag() == Statement::Tag::CONTINUE ||
-            s->tag() == Statement::Tag::RETURN) {
-            break;// terminator instruction
+        if (auto block = _current_context()->builder->GetInsertBlock();
+            block->getTerminator() != nullptr /* terminated */) {
+            break;// remaining code is dead
         }
     }
 }
@@ -54,20 +53,19 @@ void LLVMCodegen::visit(const IfStmt *stmt) {
     auto then_block = ::llvm::BasicBlock::Create(_context, "if.then", ctx->ir);
     auto else_block = ::llvm::BasicBlock::Create(_context, "if.else", ctx->ir);
     auto end_block = ::llvm::BasicBlock::Create(_context, "if.end", ctx->ir);
-    auto current_block = ctx->builder->GetInsertBlock();
-    then_block->moveAfter(current_block);
-    else_block->moveAfter(then_block);
-    end_block->moveAfter(else_block);
     ctx->builder->CreateCondBr(cond, then_block, else_block);
     // true branch
+    then_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->builder->SetInsertPoint(then_block);
     stmt->true_branch()->accept(*this);
     if (ctx->builder->GetInsertBlock()->getTerminator() == nullptr) {
         ctx->builder->CreateBr(end_block);
     }
     // false branch
+    else_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->builder->SetInsertPoint(else_block);
     stmt->false_branch()->accept(*this);
+    end_block->moveAfter(ctx->builder->GetInsertBlock());
     if (ctx->builder->GetInsertBlock()->getTerminator() == nullptr) {
         ctx->builder->CreateBr(end_block);
     }
@@ -79,9 +77,7 @@ void LLVMCodegen::visit(const LoopStmt *stmt) {
     auto ctx = _current_context();
     auto loop_block = ::llvm::BasicBlock::Create(_context, "loop", ctx->ir);
     auto loop_exit_block = ::llvm::BasicBlock::Create(_context, "loop.exit", ctx->ir);
-    auto current_block = ctx->builder->GetInsertBlock();
-    loop_block->moveAfter(current_block);
-    loop_exit_block->moveAfter(loop_block);
+    loop_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->continue_targets.emplace_back(loop_block);
     ctx->break_targets.emplace_back(loop_exit_block);
     ctx->builder->CreateBr(loop_block);
@@ -92,6 +88,7 @@ void LLVMCodegen::visit(const LoopStmt *stmt) {
     }
     ctx->continue_targets.pop_back();
     ctx->break_targets.pop_back();
+    loop_exit_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->builder->SetInsertPoint(loop_exit_block);
 }
 
@@ -320,7 +317,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
             case Variable::Tag::ACCEL: {
                 auto arg_name = _variable_name(arg);
                 auto pr = builder->CreateStructGEP(arg_struct_type, ir->getArg(0u), arg_struct_indices[arg_id],
-                                                   luisa::string_view{luisa::format("p_{}", arg_name)});
+                                                   luisa::string_view{luisa::format("{}.addr", arg_name)});
                 auto r = builder->CreateAlignedLoad(_create_type(arg.type()), pr, ::llvm::Align{16ull},
                                                     luisa::string_view{arg_name});
                 arguments.emplace_back(r);
@@ -346,12 +343,12 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     // dispatch size
     auto p_dispatch_size = builder->CreateStructGEP(
         arg_struct_type, ir->getArg(0),
-        arg_struct_indices.back(), "p_dispatch_size");
+        arg_struct_indices.back(), "dispatch_size.addr");
     auto dispatch_size = builder->CreateAlignedLoad(
         _create_type(Type::of<uint3>()), p_dispatch_size,
         ::llvm::Align{16u}, "dispatch_size");
     // loop
-    auto p_index = builder->CreateAlloca(::llvm::Type::getInt32Ty(_context), nullptr, "p_index");
+    auto p_index = builder->CreateAlloca(::llvm::Type::getInt32Ty(_context), nullptr, "index.addr");
     builder->CreateStore(builder->getInt32(0u), p_index);
     auto loop_block = ::llvm::BasicBlock::Create(_context, "loop", ir, exit_block);
     builder->CreateBr(loop_block);
@@ -512,7 +509,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
     ::llvm::Value *ret = nullptr;
     if (auto ret_type = f.return_type()) {
         builder->SetInsertPoint(body_block);
-        ret = builder->CreateAlloca(return_type, nullptr, "retval");
+        ret = builder->CreateAlloca(return_type, nullptr, "retval.addr");
         builder->SetInsertPoint(exit_block);
         builder->CreateRet(builder->CreateLoad(return_type, ret));
     } else {// return void
@@ -661,10 +658,8 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
 
 ::llvm::Value *LLVMCodegen::_create_call_expr(const CallExpr *expr) noexcept {
     if (expr->is_builtin()) {
-        // TODO: implement
-        auto ctx = _current_context();
-        if (expr->type() == nullptr) { return nullptr; }
-        return ctx->builder->CreateAlloca(_create_type(expr->type()), nullptr, "tmp");
+        return _create_builtin_call_expr(
+            expr->type(), expr->op(), expr->arguments());
     }
     // custom
     auto f = _create_function(expr->custom());
@@ -691,13 +686,13 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
     auto call = ctx->builder->CreateCall(f->getFunctionType(), f, args_ref);
     if (expr->type() == nullptr) { return call; }
     call->setName("result");
-    return _create_stack_variable(call, "p_result");
+    return _create_stack_variable(call, "result.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_create_cast_expr(const CastExpr *expr) noexcept {
     // TODO: implement
     auto ctx = _current_context();
-    return ctx->builder->CreateAlloca(_create_type(expr->type()), nullptr, "tmp");
+    return ctx->builder->CreateAlloca(_create_type(expr->type()), nullptr, "tmp.addr");
 }
 
 luisa::string LLVMCodegen::_variable_name(Variable v) const noexcept {
@@ -816,7 +811,11 @@ LLVMCodegen::FunctionContext *LLVMCodegen::_current_context() noexcept {
 
 ::llvm::Value *LLVMCodegen::_create_stack_variable(::llvm::Value *x, luisa::string_view name) noexcept {
     auto builder = _current_context()->builder.get();
-    if (x->getType()->isIntegerTy(1)) {// special handling for int1
+    if (auto t = x->getType();
+        t->isIntegerTy(1) ||
+        (t->isVectorTy() &&
+         static_cast<::llvm::VectorType *>(t)->getElementType()->isIntegerTy(1))) {
+        // special handling for int1 (or its vectors)
         return _create_stack_variable(
             builder->CreateZExt(x, builder->getInt8Ty(), "bit2bool"), name);
     }
@@ -830,6 +829,382 @@ void LLVMCodegen::_create_assignment(const Type *dst_type, const Type *src_type,
     auto builder = _current_context()->builder.get();
     auto dst = builder->CreateLoad(_create_type(dst_type), p_rhs, "load");
     builder->CreateStore(dst, p_dst);
+}
+
+::llvm::Value *LLVMCodegen::_create_builtin_call_expr(const Type *ret_type, CallOp op, luisa::span<const Expression *const> args) noexcept {
+    switch (op) {
+        case CallOp::ALL: return _builtin_all(
+            args[0]->type(), _create_expr(args[0]));
+        case CallOp::ANY: return _builtin_any(
+            args[0]->type(), _create_expr(args[0]));
+        case CallOp::SELECT: return _builtin_select(
+            args[2]->type(), args[0]->type(), _create_expr(args[2]),
+            _create_expr(args[1]), _create_expr(args[1]));
+        case CallOp::CLAMP: return _builtin_clamp(
+            args[0]->type(), _create_expr(args[0]),
+            _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::LERP: return _builtin_lerp(
+            args[0]->type(), _create_expr(args[0]),
+            _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::STEP: return _builtin_step(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ABS: return _builtin_abs(
+            args[0]->type(), _create_expr(args[0]));
+        case CallOp::MIN: return _builtin_min(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::MAX: return _builtin_max(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::CLZ: break;
+        case CallOp::CTZ: break;
+        case CallOp::POPCOUNT: break;
+        case CallOp::REVERSE: break;
+        case CallOp::ISINF: break;
+        case CallOp::ISNAN: break;
+        case CallOp::ACOS: break;
+        case CallOp::ACOSH: break;
+        case CallOp::ASIN: break;
+        case CallOp::ASINH: break;
+        case CallOp::ATAN: break;
+        case CallOp::ATAN2: break;
+        case CallOp::ATANH: break;
+        case CallOp::COS: break;
+        case CallOp::COSH: break;
+        case CallOp::SIN: break;
+        case CallOp::SINH: break;
+        case CallOp::TAN: break;
+        case CallOp::TANH: break;
+        case CallOp::EXP: break;
+        case CallOp::EXP2: break;
+        case CallOp::EXP10: break;
+        case CallOp::LOG: break;
+        case CallOp::LOG2: break;
+        case CallOp::LOG10: break;
+        case CallOp::POW: break;
+        case CallOp::SQRT: break;
+        case CallOp::RSQRT: break;
+        case CallOp::CEIL: break;
+        case CallOp::FLOOR: break;
+        case CallOp::FRACT: break;
+        case CallOp::TRUNC: break;
+        case CallOp::ROUND: break;
+        case CallOp::FMA: break;
+        case CallOp::COPYSIGN: break;
+        case CallOp::CROSS: break;
+        case CallOp::DOT: break;
+        case CallOp::LENGTH: break;
+        case CallOp::LENGTH_SQUARED: break;
+        case CallOp::NORMALIZE: break;
+        case CallOp::FACEFORWARD: break;
+        case CallOp::DETERMINANT: break;
+        case CallOp::TRANSPOSE: break;
+        case CallOp::INVERSE: break;
+        case CallOp::SYNCHRONIZE_BLOCK: break;
+        case CallOp::ATOMIC_EXCHANGE: break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: break;
+        case CallOp::ATOMIC_FETCH_ADD: break;
+        case CallOp::ATOMIC_FETCH_SUB: break;
+        case CallOp::ATOMIC_FETCH_AND: break;
+        case CallOp::ATOMIC_FETCH_OR: break;
+        case CallOp::ATOMIC_FETCH_XOR: break;
+        case CallOp::ATOMIC_FETCH_MIN: break;
+        case CallOp::ATOMIC_FETCH_MAX: break;
+        case CallOp::BUFFER_READ: break;
+        case CallOp::BUFFER_WRITE: break;
+        case CallOp::TEXTURE_READ: break;
+        case CallOp::TEXTURE_WRITE: break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: break;
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: break;
+        case CallOp::BINDLESS_TEXTURE2D_READ: break;
+        case CallOp::BINDLESS_TEXTURE3D_READ: break;
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: break;
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE: break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE: break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: break;
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: break;
+        case CallOp::BINDLESS_BUFFER_READ: break;
+        case CallOp::MAKE_BOOL2: break;
+        case CallOp::MAKE_BOOL3: break;
+        case CallOp::MAKE_BOOL4: break;
+        case CallOp::MAKE_INT2: break;
+        case CallOp::MAKE_INT3: break;
+        case CallOp::MAKE_INT4: break;
+        case CallOp::MAKE_UINT2: break;
+        case CallOp::MAKE_UINT3: break;
+        case CallOp::MAKE_UINT4: break;
+        case CallOp::MAKE_FLOAT2: break;
+        case CallOp::MAKE_FLOAT3: break;
+        case CallOp::MAKE_FLOAT4: break;
+        case CallOp::MAKE_FLOAT2X2: break;
+        case CallOp::MAKE_FLOAT3X3: break;
+        case CallOp::MAKE_FLOAT4X4: break;
+        case CallOp::ASSUME: break;
+        case CallOp::UNREACHABLE: break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: break;
+        case CallOp::SET_INSTANCE_TRANSFORM: break;
+        case CallOp::SET_INSTANCE_VISIBILITY: break;
+        case CallOp::TRACE_CLOSEST: break;
+        case CallOp::TRACE_ANY: break;
+        default: break;
+    }
+    LUISA_WARNING_WITH_LOCATION("Not implemented.");
+
+    // TODO: implement
+    auto ctx = _current_context();
+    if (ret_type == nullptr) { return nullptr; }
+    return ctx->builder->CreateAlloca(_create_type(ret_type), nullptr, "tmp.addr");
+}
+
+::llvm::Value *LLVMCodegen::_operator_logical_and(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    LUISA_ASSERT(t->is_vector() && t->element()->tag() == Type::Tag::BOOL,
+                 "Expected bool vector but got '{}'.", t->description());
+    auto ctx = _current_context();
+    auto result = ctx->builder->CreateLogicalAnd(lhs, rhs, "and");
+    return _create_stack_variable(result, "and.addr");
+}
+
+::llvm::Value *LLVMCodegen::_operator_logical_or(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    LUISA_ASSERT(t->is_vector() && t->element()->tag() == Type::Tag::BOOL,
+                 "Expected bool vector but got '{}'.", t->description());
+    auto ctx = _current_context();
+    auto result = ctx->builder->CreateLogicalOr(lhs, rhs, "or");
+    return _create_stack_variable(result, "or.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_all(const Type *t, ::llvm::Value *v) noexcept {
+    return nullptr;
+}
+
+::llvm::Value *LLVMCodegen::_builtin_any(const Type *t, ::llvm::Value *v) noexcept {
+    return nullptr;
+}
+
+::llvm::Value *LLVMCodegen::_builtin_select(const Type *t_pred, const Type *t_value, ::llvm::Value *pred, ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept {
+    return nullptr;
+}
+::llvm::Value *LLVMCodegen::_builtin_clamp(const Type *t, ::llvm::Value *v, ::llvm::Value *lo, ::llvm::Value *hi) noexcept {
+    return nullptr;
+}
+::llvm::Value *LLVMCodegen::_builtin_lerp(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *x) noexcept {
+    return nullptr;
+}
+::llvm::Value *LLVMCodegen::_builtin_step(const Type *t, ::llvm::Value *edge, ::llvm::Value *x) noexcept {
+    return nullptr;
+}
+::llvm::Value *LLVMCodegen::_builtin_abs(const Type *t, ::llvm::Value *x) noexcept {
+    return nullptr;
+}
+::llvm::Value *LLVMCodegen::_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
+    return nullptr;
+}
+::llvm::Value *LLVMCodegen::_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
+    return nullptr;
+}
+
+::llvm::Value *LLVMCodegen::_operator_logical_and_shortcut(const Expression *lhs, const Expression *rhs) noexcept {
+    LUISA_ASSERT(lhs->type()->tag() == Type::Tag::BOOL &&
+                     rhs->type()->tag() == Type::Tag::BOOL,
+                 "Expected (bool && bool) but got ({} && {}).",
+                 lhs->type()->description(), rhs->type()->description());
+    auto ctx = _current_context();
+    auto value = _create_expr(lhs);
+    auto lhs_is_true = ctx->builder->CreateICmpEQ(
+        ctx->builder->CreateLoad(_create_type(lhs->type()), value, "load"),
+        ctx->builder->getInt8(0), "cmp");
+    auto next_block = ::llvm::BasicBlock::Create(_context, "and.next", ctx->ir);
+    auto out_block = ::llvm::BasicBlock::Create(_context, "and.out", ctx->ir);
+    next_block->moveAfter(ctx->builder->GetInsertBlock());
+    ctx->builder->CreateCondBr(lhs_is_true, next_block, out_block);
+    ctx->builder->SetInsertPoint(next_block);
+    auto rhs_value = _create_expr(rhs);
+    _create_assignment(Type::of<bool>(), rhs->type(), value, _create_expr(rhs));
+    out_block->moveAfter(ctx->builder->GetInsertBlock());
+    ctx->builder->CreateBr(out_block);
+    ctx->builder->SetInsertPoint(out_block);
+    return value;
+}
+
+::llvm::Value *LLVMCodegen::_operator_logical_or_shortcut(const Expression *lhs, const Expression *rhs) noexcept {
+    LUISA_ASSERT(lhs->type()->tag() == Type::Tag::BOOL &&
+                     rhs->type()->tag() == Type::Tag::BOOL,
+                 "Expected (bool || bool) but got ({} || {}).",
+                 lhs->type()->description(), rhs->type()->description());
+    auto ctx = _current_context();
+    auto value = _create_expr(lhs);
+    auto lhs_is_true = ctx->builder->CreateICmpEQ(
+        ctx->builder->CreateLoad(_create_type(lhs->type()), value, "load"),
+        ctx->builder->getInt8(0), "cmp");
+    auto next_block = ::llvm::BasicBlock::Create(_context, "or.next", ctx->ir);
+    auto out_block = ::llvm::BasicBlock::Create(_context, "or.out", ctx->ir);
+    next_block->moveAfter(ctx->builder->GetInsertBlock());
+    ctx->builder->CreateCondBr(lhs_is_true, out_block, next_block);
+    ctx->builder->SetInsertPoint(next_block);
+    auto rhs_value = _create_expr(rhs);
+    _create_assignment(Type::of<bool>(), rhs->type(), value, _create_expr(rhs));
+    out_block->moveAfter(ctx->builder->GetInsertBlock());
+    ctx->builder->CreateBr(out_block);
+    ctx->builder->SetInsertPoint(out_block);
+    return value;
+}
+
+::llvm::Value *LLVMCodegen::_make_int2(::llvm::Value *px, ::llvm::Value *py) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getInt32Ty(), px, "v.x");
+    auto y = b->CreateLoad(b->getInt32Ty(), py, "v.y");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<int2>())));
+    v = b->CreateInsertElement(v, x, 0ull, "int2.x");
+    v = b->CreateInsertElement(v, y, 1ull, "int2.xy");
+    return _create_stack_variable(v, "int2.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_int3(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getInt32Ty(), px, "v.x");
+    auto y = b->CreateLoad(b->getInt32Ty(), py, "v.y");
+    auto z = b->CreateLoad(b->getInt32Ty(), pz, "v.z");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<int3>())));
+    v = b->CreateInsertElement(v, x, 0ull, "int3.x");
+    v = b->CreateInsertElement(v, y, 1ull, "int3.xy");
+    v = b->CreateInsertElement(v, z, 2ull, "int3.xyz");
+    return _create_stack_variable(v, "int3.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_int4(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz, ::llvm::Value *pw) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getInt32Ty(), px, "v.x");
+    auto y = b->CreateLoad(b->getInt32Ty(), py, "v.y");
+    auto z = b->CreateLoad(b->getInt32Ty(), pz, "v.z");
+    auto w = b->CreateLoad(b->getInt32Ty(), pw, "v.w");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<int4>())));
+    v = b->CreateInsertElement(v, x, 0ull, "int4.x");
+    v = b->CreateInsertElement(v, y, 1ull, "int4.xy");
+    v = b->CreateInsertElement(v, z, 2ull, "int4.xyz");
+    v = b->CreateInsertElement(v, w, 3ull, "int4.xyzw");
+    return _create_stack_variable(v, "int4.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_bool2(::llvm::Value *px, ::llvm::Value *py) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getInt8Ty(), px, "v.x");
+    auto y = b->CreateLoad(b->getInt8Ty(), py, "v.y");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<bool2>())));
+    v = b->CreateInsertElement(v, x, 0ull, "bool2.x");
+    v = b->CreateInsertElement(v, y, 1ull, "bool2.xy");
+    return _create_stack_variable(v, "bool2.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_bool3(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getInt8Ty(), px, "v.x");
+    auto y = b->CreateLoad(b->getInt8Ty(), py, "v.y");
+    auto z = b->CreateLoad(b->getInt8Ty(), pz, "v.z");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<bool3>())));
+    v = b->CreateInsertElement(v, x, 0ull, "bool3.x");
+    v = b->CreateInsertElement(v, y, 1ull, "bool3.xy");
+    v = b->CreateInsertElement(v, z, 2ull, "bool3.xyz");
+    return _create_stack_variable(v, "bool3.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_bool4(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz, ::llvm::Value *pw) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getInt8Ty(), px, "v.x");
+    auto y = b->CreateLoad(b->getInt8Ty(), py, "v.y");
+    auto z = b->CreateLoad(b->getInt8Ty(), pz, "v.z");
+    auto w = b->CreateLoad(b->getInt8Ty(), pw, "v.w");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<bool4>())));
+    v = b->CreateInsertElement(v, x, 0ull, "bool4.x");
+    v = b->CreateInsertElement(v, y, 1ull, "bool4.xy");
+    v = b->CreateInsertElement(v, z, 2ull, "bool4.xyz");
+    v = b->CreateInsertElement(v, w, 3ull, "bool4.xyzw");
+    return _create_stack_variable(v, "bool4.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_float2(::llvm::Value *px, ::llvm::Value *py) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getFloatTy(), px, "v.x");
+    auto y = b->CreateLoad(b->getFloatTy(), py, "v.y");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<float2>())));
+    v = b->CreateInsertElement(v, x, 0ull, "float2.x");
+    v = b->CreateInsertElement(v, y, 1ull, "float2.xy");
+    return _create_stack_variable(v, "float2.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_float3(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getFloatTy(), px, "v.x");
+    auto y = b->CreateLoad(b->getFloatTy(), py, "v.y");
+    auto z = b->CreateLoad(b->getFloatTy(), pz, "v.z");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<float3>())));
+    v = b->CreateInsertElement(v, x, 0ull, "float3.x");
+    v = b->CreateInsertElement(v, y, 1ull, "float3.xy");
+    v = b->CreateInsertElement(v, z, 2ull, "float3.xyz");
+    return _create_stack_variable(v, "float3.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_float4(::llvm::Value *px, ::llvm::Value *py, ::llvm::Value *pz, ::llvm::Value *pw) noexcept {
+    auto b = _current_context()->builder.get();
+    auto x = b->CreateLoad(b->getFloatTy(), px, "v.x");
+    auto y = b->CreateLoad(b->getFloatTy(), py, "v.y");
+    auto z = b->CreateLoad(b->getFloatTy(), pz, "v.z");
+    auto w = b->CreateLoad(b->getFloatTy(), pw, "v.w");
+    auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
+        _create_type(Type::of<float4>())));
+    v = b->CreateInsertElement(v, x, 0ull, "float4.x");
+    v = b->CreateInsertElement(v, y, 1ull, "float4.xy");
+    v = b->CreateInsertElement(v, z, 2ull, "float4.xyz");
+    v = b->CreateInsertElement(v, w, 3ull, "float4.xyzw");
+    return _create_stack_variable(v, "float4.addr");
+}
+
+::llvm::Value *LLVMCodegen::_make_float2x2(::llvm::Value *p0, ::llvm::Value *p1) noexcept {
+    auto b = _current_context()->builder.get();
+    auto t = _create_type(Type::of<float2x2>());
+    auto m = b->CreateAlloca(t, nullptr, "float2x2.addr");
+    auto m0 = b->CreateStructGEP(t, m, 0u, "float2x2.a");
+    auto m1 = b->CreateStructGEP(t, m, 1u, "float2x2.b");
+    b->CreateStore(b->CreateLoad(p0->getType(), p0, "m.a"), m0);
+    b->CreateStore(b->CreateLoad(p1->getType(), p1, "m.b"), m1);
+    return m;
+}
+
+::llvm::Value *LLVMCodegen::_make_float3x3(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2) noexcept {
+    auto b = _current_context()->builder.get();
+    auto t = _create_type(Type::of<float3x3>());
+    auto m = b->CreateAlloca(t, nullptr, "float3x3.addr");
+    auto m0 = b->CreateStructGEP(t, m, 0u, "float3x3.a");
+    auto m1 = b->CreateStructGEP(t, m, 1u, "float3x3.b");
+    auto m2 = b->CreateStructGEP(t, m, 2u, "float3x3.c");
+    b->CreateStore(b->CreateLoad(p0->getType(), p0, "m.a"), m0);
+    b->CreateStore(b->CreateLoad(p1->getType(), p1, "m.b"), m1);
+    b->CreateStore(b->CreateLoad(p2->getType(), p2, "m.c"), m2);
+    return m;
+}
+
+::llvm::Value *LLVMCodegen::_make_float4x4(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2, ::llvm::Value *p3) noexcept {
+    auto b = _current_context()->builder.get();
+    auto t = _create_type(Type::of<float4x4>());
+    auto m = b->CreateAlloca(t, nullptr, "float4x4.addr");
+    auto m0 = b->CreateStructGEP(t, m, 0u, "float4x4.a");
+    auto m1 = b->CreateStructGEP(t, m, 1u, "float4x4.b");
+    auto m2 = b->CreateStructGEP(t, m, 2u, "float4x4.c");
+    auto m3 = b->CreateStructGEP(t, m, 3u, "float4x4.d");
+    b->CreateStore(b->CreateLoad(p0->getType(), p0, "m.a"), m0);
+    b->CreateStore(b->CreateLoad(p1->getType(), p1, "m.b"), m1);
+    b->CreateStore(b->CreateLoad(p2->getType(), p2, "m.c"), m2);
+    b->CreateStore(b->CreateLoad(p3->getType(), p3, "m.d"), m3);
+    return m;
 }
 
 }// namespace luisa::compute::llvm
