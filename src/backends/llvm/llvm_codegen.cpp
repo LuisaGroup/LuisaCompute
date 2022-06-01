@@ -887,7 +887,9 @@ void LLVMCodegen::_create_assignment(const Type *dst_type, const Type *src_type,
         case CallOp::FRACT: break;
         case CallOp::TRUNC: break;
         case CallOp::ROUND: break;
-        case CallOp::FMA: break;
+        case CallOp::FMA: return _builtin_fma(
+            args[0]->type(), _create_expr(args[0]),
+            _create_expr(args[1]), _create_expr(args[2]));
         case CallOp::COPYSIGN: break;
         case CallOp::CROSS: break;
         case CallOp::DOT: break;
@@ -959,53 +961,159 @@ void LLVMCodegen::_create_assignment(const Type *dst_type, const Type *src_type,
     return ctx->builder->CreateAlloca(_create_type(ret_type), nullptr, "tmp.addr");
 }
 
-::llvm::Value *LLVMCodegen::_operator_logical_and(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    LUISA_ASSERT(t->is_vector() && t->element()->tag() == Type::Tag::BOOL,
-                 "Expected bool vector but got '{}'.", t->description());
-    auto ctx = _current_context();
-    auto result = ctx->builder->CreateLogicalAnd(lhs, rhs, "and");
-    return _create_stack_variable(result, "and.addr");
-}
-
-::llvm::Value *LLVMCodegen::_operator_logical_or(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    LUISA_ASSERT(t->is_vector() && t->element()->tag() == Type::Tag::BOOL,
-                 "Expected bool vector but got '{}'.", t->description());
-    auto ctx = _current_context();
-    auto result = ctx->builder->CreateLogicalOr(lhs, rhs, "or");
-    return _create_stack_variable(result, "or.addr");
-}
-
 ::llvm::Value *LLVMCodegen::_builtin_all(const Type *t, ::llvm::Value *v) noexcept {
-    return nullptr;
+    auto ctx = _current_context();
+    auto result = static_cast<::llvm::Value *>(ctx->builder->getInt1(true));
+    auto bv = ctx->builder->CreateLoad(_create_type(t), v, "load");
+    static constexpr std::array elem_names{"v.x", "v.y", "v.z", "v.w"};
+    static constexpr std::array cmp_names{"cmp.x", "cmp.y", "cmp.z", "cmp.w"};
+    for (auto i = 0u; i < t->dimension(); i++) {
+        auto elem = ctx->builder->CreateExtractElement(v, i, elem_names[i]);
+        auto elem_not_zero = ctx->builder->CreateICmpNE(elem, ctx->builder->getInt8(0), cmp_names[i]);
+        result = ctx->builder->CreateLogicalAnd(result, elem, "and");
+    }
+    return _create_stack_variable(result, "all.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_any(const Type *t, ::llvm::Value *v) noexcept {
-    return nullptr;
+    auto ctx = _current_context();
+    auto result = static_cast<::llvm::Value *>(ctx->builder->getInt1(false));
+    auto bv = ctx->builder->CreateLoad(_create_type(t), v, "load");
+    static constexpr std::array elem_names{"v.x", "v.y", "v.z", "v.w"};
+    static constexpr std::array cmp_names{"cmp.x", "cmp.y", "cmp.z", "cmp.w"};
+    for (auto i = 0u; i < t->dimension(); i++) {
+        auto elem = ctx->builder->CreateExtractElement(v, i, elem_names[i]);
+        auto elem_not_zero = ctx->builder->CreateICmpNE(elem, ctx->builder->getInt8(0), cmp_names[i]);
+        result = ctx->builder->CreateLogicalOr(result, elem_not_zero, "or");
+    }
+    return _create_stack_variable(result, "any.addr");
 }
 
-::llvm::Value *LLVMCodegen::_builtin_select(const Type *t_pred, const Type *t_value, ::llvm::Value *pred, ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept {
-    return nullptr;
+::llvm::Value *LLVMCodegen::_builtin_select(const Type *t_pred, const Type *t_value,
+                                            ::llvm::Value *pred, ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept {
+    auto ctx = _current_context();
+    auto pred_load = ctx->builder->CreateLoad(_create_type(t_pred), pred, "pred.load");
+    auto bv = [&] {
+        auto zero = static_cast<::llvm::Value *>(ctx->builder->getInt8(0));
+        auto dim = t_value->dimension() == 3u ? 4u : t_value->dimension();
+        if (t_pred->is_vector()) { zero = ctx->builder->CreateVectorSplat(dim, zero, "zeros"); }
+        return ctx->builder->CreateICmpNE(pred_load, zero, "pred");
+    }();
+    auto v_true_load = ctx->builder->CreateLoad(_create_type(t_value), v_true, "v_true.load");
+    auto v_false_load = ctx->builder->CreateLoad(_create_type(t_value), v_false, "v_false.load");
+    auto result = ctx->builder->CreateSelect(bv, v_true_load, v_false_load, "select");
+    return _create_stack_variable(result, "select.addr");
 }
+
 ::llvm::Value *LLVMCodegen::_builtin_clamp(const Type *t, ::llvm::Value *v, ::llvm::Value *lo, ::llvm::Value *hi) noexcept {
-    return nullptr;
-}
-::llvm::Value *LLVMCodegen::_builtin_lerp(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *x) noexcept {
-    return nullptr;
-}
-::llvm::Value *LLVMCodegen::_builtin_step(const Type *t, ::llvm::Value *edge, ::llvm::Value *x) noexcept {
-    return nullptr;
-}
-::llvm::Value *LLVMCodegen::_builtin_abs(const Type *t, ::llvm::Value *x) noexcept {
-    return nullptr;
-}
-::llvm::Value *LLVMCodegen::_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
-    return nullptr;
-}
-::llvm::Value *LLVMCodegen::_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
-    return nullptr;
+    return _builtin_min(t, _builtin_max(t, v, lo), hi);
 }
 
-::llvm::Value *LLVMCodegen::_operator_logical_and_shortcut(const Expression *lhs, const Expression *rhs) noexcept {
+::llvm::Value *LLVMCodegen::_builtin_lerp(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *x) noexcept {
+    auto s = _builtin_sub(t, b, a);
+    return _builtin_fma(t, x, s, a);// lerp(a, b, x) == x * (b - a) + a == fma(x, (b - a), a)
+}
+
+::llvm::Value *LLVMCodegen::_builtin_step(const Type *t, ::llvm::Value *edge, ::llvm::Value *x) noexcept {
+    auto b = _current_context()->builder.get();
+    auto zero = static_cast<::llvm::Value *>(::llvm::ConstantFP::get(b->getFloatTy(), 0.f));
+    auto one = static_cast<::llvm::Value *>(::llvm::ConstantFP::get(b->getFloatTy(), 1.f));
+    if (t->is_vector()) {
+        auto dim = t->dimension() == 3u ? 4u : t->dimension();
+        zero = b->CreateVectorSplat(dim, zero, "zeros");
+        one = b->CreateVectorSplat(dim, one, "ones");
+    }
+    return _builtin_select(Type::from(luisa::format("vector<bool,{}>", t->dimension())),
+                           t, _builtin_lt(t, x, edge), zero, one);
+}
+
+[[nodiscard]] inline auto is_scalar_or_vector(const Type *t, Type::Tag tag) noexcept {
+    return t->tag() == tag ||
+           (t->is_vector() && t->element()->tag() == tag);
+}
+
+::llvm::Value *LLVMCodegen::_builtin_abs(const Type *t, ::llvm::Value *x) noexcept {
+    auto ctx = _current_context();
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) { return x; }
+    auto ir_type = _create_type(t);
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::abs, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "iabs.x")},
+            nullptr, "iabs");
+        return _create_stack_variable(m, "iabs.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::fabs, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "fabs.x")},
+            nullptr, "fabs");
+        return _create_stack_variable(m, "fabs.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid type '{}' for abs", t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::minnum, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "fmin.x"),
+             ctx->builder->CreateLoad(ir_type, y, "fmin.y")},
+            nullptr, "fmin");
+        return _create_stack_variable(m, "fmin.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::smin, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "imin.x"),
+             ctx->builder->CreateLoad(ir_type, y, "imin.y")},
+            nullptr, "imin");
+        return _create_stack_variable(m, "imin.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::umin, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "umin.x"),
+             ctx->builder->CreateLoad(ir_type, y, "umin.y")},
+            nullptr, "umin");
+        return _create_stack_variable(m, "umin.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid type '{}' for min.", t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::maxnum, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "fmax.x"),
+             ctx->builder->CreateLoad(ir_type, y, "fmax.y")},
+            nullptr, "fmax");
+        return _create_stack_variable(m, "fmax.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::smax, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "imax.x"),
+             ctx->builder->CreateLoad(ir_type, y, "imax.y")},
+            nullptr, "imax");
+        return _create_stack_variable(m, "imax.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        auto m = ctx->builder->CreateIntrinsic(
+            ::llvm::Intrinsic::umax, {ir_type},
+            {ctx->builder->CreateLoad(ir_type, x, "umax.x"),
+             ctx->builder->CreateLoad(ir_type, y, "umax.y")},
+            nullptr, "umax");
+        return _create_stack_variable(m, "umax.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION("Invalid type '{}' for max.", t->description());
+}
+
+::llvm::Value *LLVMCodegen::_shortcut_and(const Expression *lhs, const Expression *rhs) noexcept {
     LUISA_ASSERT(lhs->type()->tag() == Type::Tag::BOOL &&
                      rhs->type()->tag() == Type::Tag::BOOL,
                  "Expected (bool && bool) but got ({} && {}).",
@@ -1028,7 +1136,7 @@ void LLVMCodegen::_create_assignment(const Type *dst_type, const Type *src_type,
     return value;
 }
 
-::llvm::Value *LLVMCodegen::_operator_logical_or_shortcut(const Expression *lhs, const Expression *rhs) noexcept {
+::llvm::Value *LLVMCodegen::_shortcut_or(const Expression *lhs, const Expression *rhs) noexcept {
     LUISA_ASSERT(lhs->type()->tag() == Type::Tag::BOOL &&
                      rhs->type()->tag() == Type::Tag::BOOL,
                  "Expected (bool || bool) but got ({} || {}).",
@@ -1205,6 +1313,312 @@ void LLVMCodegen::_create_assignment(const Type *dst_type, const Type *src_type,
     b->CreateStore(b->CreateLoad(p2->getType(), p2, "m.c"), m2);
     b->CreateStore(b->CreateLoad(p3->getType(), p3, "m.d"), m3);
     return m;
+}
+
+::llvm::Value *LLVMCodegen::_builtin_fma(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *c) noexcept {
+    auto ir_type = _create_type(t);
+    auto ctx = _current_context();
+    auto m = ctx->builder->CreateIntrinsic(
+        ::llvm::Intrinsic::fma, {ir_type},
+        {ctx->builder->CreateLoad(ir_type, a, "fma.a"),
+         ctx->builder->CreateLoad(ir_type, b, "fma.b"),
+         ctx->builder->CreateLoad(ir_type, c, "fma.c")},
+        nullptr, "fma");
+    return _create_stack_variable(m, "fma.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_add(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "add.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "add.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateNSWAdd(lhs_v, rhs_v, "add"),
+            "add.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateAdd(lhs_v, rhs_v, "add"),
+            "add.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFAdd(lhs_v, rhs_v, "add"),
+            "add.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for add.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_sub(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "sub.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "sub.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateNSWSub(lhs_v, rhs_v, "sub"),
+            "sub.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateSub(lhs_v, rhs_v, "sub"),
+            "sub.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFSub(lhs_v, rhs_v, "sub"),
+            "sub.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for sub.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_mul(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "mul.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "mul.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateNSWMul(lhs_v, rhs_v, "mul"),
+            "mul.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateMul(lhs_v, rhs_v, "mul"),
+            "mul.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFMul(lhs_v, rhs_v, "mul"),
+            "mul.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for mul.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_div(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "div.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "div.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateSDiv(lhs_v, rhs_v, "div"),
+            "div.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateUDiv(lhs_v, rhs_v, "div"),
+            "div.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFDiv(lhs_v, rhs_v, "div"),
+            "div.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for div.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_mod(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "mod.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "mod.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateSRem(lhs_v, rhs_v, "mod"),
+            "mod.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateURem(lhs_v, rhs_v, "mod"),
+            "mod.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for mod.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_and(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    LUISA_ASSERT(t->is_vector() && t->element()->tag() == Type::Tag::BOOL,
+                 "Expected bool vector but got '{}'.", t->description());
+    auto ctx = _current_context();
+    auto result = ctx->builder->CreateAnd(lhs, rhs, "and");
+    return _create_stack_variable(result, "and.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_or(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    LUISA_ASSERT(t->is_vector() && t->element()->tag() == Type::Tag::BOOL,
+                 "Expected bool vector but got '{}'.", t->description());
+    auto ctx = _current_context();
+    auto result = ctx->builder->CreateOr(lhs, rhs, "or");
+    return _create_stack_variable(result, "or.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_xor(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    LUISA_ASSERT(t->is_vector() && t->element()->tag() == Type::Tag::BOOL,
+                 "Expected bool vector but got '{}'.", t->description());
+    auto ctx = _current_context();
+    auto result = ctx->builder->CreateXor(lhs, rhs, "or");
+    return _create_stack_variable(result, "or.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_lt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "lt.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "lt.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpSLT(lhs_v, rhs_v, "lt"),
+            "lt.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpULT(lhs_v, rhs_v, "lt"),
+            "lt.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFCmpOLT(lhs_v, rhs_v, "lt"),
+            "lt.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for lt.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_le(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "le.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "le.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpSLE(lhs_v, rhs_v, "le"),
+            "le.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpULE(lhs_v, rhs_v, "le"),
+            "le.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFCmpOLE(lhs_v, rhs_v, "le"),
+            "le.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for le.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_gt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "gt.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "gt.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpSGT(lhs_v, rhs_v, "gt"),
+            "gt.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpUGT(lhs_v, rhs_v, "gt"),
+            "gt.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFCmpOGT(lhs_v, rhs_v, "gt"),
+            "gt.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for gt.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_ge(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "ge.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "ge.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpSGE(lhs_v, rhs_v, "ge"),
+            "ge.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpUGE(lhs_v, rhs_v, "ge"),
+            "ge.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFCmpOGE(lhs_v, rhs_v, "ge"),
+            "ge.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for ge.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_eq(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "eq.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "eq.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpEQ(lhs_v, rhs_v, "eq"),
+            "eq.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpEQ(lhs_v, rhs_v, "eq"),
+            "eq.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFCmpOEQ(lhs_v, rhs_v, "eq"),
+            "eq.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for eq.",
+        t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_neq(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    auto ctx = _current_context();
+    auto ir_type = _create_type(t);
+    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "neq.lhs");
+    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "neq.rhs");
+    if (is_scalar_or_vector(t, Type::Tag::INT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpNE(lhs_v, rhs_v, "neq"),
+            "neq.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::UINT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateICmpNE(lhs_v, rhs_v, "neq"),
+            "neq.addr");
+    }
+    if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
+        return _create_stack_variable(
+            ctx->builder->CreateFCmpONE(lhs_v, rhs_v, "neq"),
+            "neq.addr");
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid operand type '{}' for neq.",
+        t->description());
 }
 
 }// namespace luisa::compute::llvm

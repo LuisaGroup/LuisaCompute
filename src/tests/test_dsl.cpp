@@ -81,6 +81,12 @@ int main(int argc, char *argv[]) {
         Shared<float4> shared_floats{16};
 
         Var v_int = 10;
+        Var t = make_int3(1, 2, 3);
+        Var vv = ite(t == 10, 1, 2);
+
+        Var vvv = min(vv, 10);
+        Var xxx = make_uint4(5);
+        Var vvvv = min(xxx, 1u);
 
         Var am = add_mul(v_int, v_int);
         Var a_copy = am.get<0>();
