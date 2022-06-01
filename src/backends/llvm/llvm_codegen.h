@@ -114,12 +114,24 @@ private:
     [[nodiscard]] ::llvm::Value *_make_float4x4(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2, ::llvm::Value *p3) noexcept;
 
     // built-in short-cut logical operators
-    [[nodiscard]] ::llvm::Value *_operator_logical_and_shortcut(const Expression *lhs, const Expression *rhs) noexcept;
-    [[nodiscard]] ::llvm::Value *_operator_logical_or_shortcut(const Expression *lhs, const Expression *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_shortcut_and(const Expression *lhs, const Expression *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_shortcut_or(const Expression *lhs, const Expression *rhs) noexcept;
 
     // built-in operators
-    [[nodiscard]] ::llvm::Value *_operator_logical_and(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
-    [[nodiscard]] ::llvm::Value *_operator_logical_or(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_and(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_or(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_xor(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_add(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_sub(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_mul(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_div(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_mod(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_lt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_le(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_gt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_ge(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_eq(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_neq(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
 
     // built-in functions builders
     [[nodiscard]] ::llvm::Value *_builtin_all(const Type *t, ::llvm::Value *v) noexcept;
@@ -132,6 +144,7 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_abs(const Type *t, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_fma(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *c) noexcept;
 
 
 public:
