@@ -47,8 +47,8 @@ private:
                         ::llvm::BasicBlock *exit_block,
                         luisa::unique_ptr<::llvm::IRBuilder<>> builder,
                         luisa::unordered_map<uint, ::llvm::Value *> variables) noexcept
-        : function{f}, ir{ir}, ret{ret}, exit_block{exit_block},
-          builder{std::move(builder)}, variables{std::move(variables)} {}
+            : function{f}, ir{ir}, ret{ret}, exit_block{exit_block},
+              builder{std::move(builder)}, variables{std::move(variables)} {}
     };
 
 public:
@@ -113,6 +113,27 @@ private:
     [[nodiscard]] ::llvm::Value *_make_float3x3(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2) noexcept;
     [[nodiscard]] ::llvm::Value *_make_float4x4(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2, ::llvm::Value *p3) noexcept;
 
+    // constants
+    [[nodiscard]] ::llvm::Value *_literal(int x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(uint x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(bool x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(float x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(int2 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(uint2 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(bool2 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(float2 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(int3 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(uint3 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(bool3 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(float3 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(int4 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(uint4 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(bool4 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(float4 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(float2x2 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(float3x3 x) noexcept;
+    [[nodiscard]] ::llvm::Value *_literal(float4x4 x) noexcept;
+
     // built-in short-cut logical operators
     [[nodiscard]] ::llvm::Value *_shortcut_and(const Expression *lhs, const Expression *rhs) noexcept;
     [[nodiscard]] ::llvm::Value *_shortcut_or(const Expression *lhs, const Expression *rhs) noexcept;
@@ -145,7 +166,6 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_fma(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *c) noexcept;
-
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;

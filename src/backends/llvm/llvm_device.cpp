@@ -127,6 +127,7 @@ uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_option
     LLVMCodegen codegen{*llvm_ctx};
     auto module = codegen.emit(kernel);
     module->print(::llvm::errs(), nullptr);
+    ::llvm::verifyModule(*module, &::llvm::errs());
 
     // optimize
     ::llvm::PassManagerBuilder pass_manager_builder;
@@ -144,31 +145,13 @@ uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_option
     pass_manager_builder.PerformThinLTO = true;
     _machine->adjustPassManager(pass_manager_builder);
     module->setDataLayout(_machine->createDataLayout());
-
-    for (auto i = 0u; i < 2u; i++) {
-        ::llvm::errs() << "\nOptimization Pass #" << i << "\n";
-        // optimize: function passes
-        ::llvm::legacy::FunctionPassManager function_pass_manager{module.get()};
-        pass_manager_builder.populateFunctionPassManager(function_pass_manager);
-        function_pass_manager.add(::llvm::createTargetTransformInfoWrapperPass(
+    ::llvm::legacy::PassManager module_pass_manager;
+    module_pass_manager.add(
+        ::llvm::createTargetTransformInfoWrapperPass(
             _machine->getTargetIRAnalysis()));
-        pass_manager_builder.populateFunctionPassManager(function_pass_manager);
-        for (auto &&f : module->functions()) {
-            function_pass_manager.doInitialization();
-            function_pass_manager.run(f);
-            function_pass_manager.doFinalization();
-        }
-        ::llvm::errs() << "\nOptimization Pass #" << i << ": After Function Passes" << "\n";
-        module->print(::llvm::errs(), nullptr);
-        // optimize: module passes
-        ::llvm::legacy::PassManager module_pass_manager;
-        module_pass_manager.add(
-            ::llvm::createTargetTransformInfoWrapperPass(
-                _machine->getTargetIRAnalysis()));
-        pass_manager_builder.populateModulePassManager(module_pass_manager);
-        module_pass_manager.run(*module);
-    }
-    ::llvm::errs() << "\nAfter Optimization" << "\n";
+    pass_manager_builder.populateModulePassManager(module_pass_manager);
+    module_pass_manager.run(*module);
+    ::llvm::errs() << "\nAfter Optimization\n";
     module->print(::llvm::errs(), nullptr);
     return 0;
 }
