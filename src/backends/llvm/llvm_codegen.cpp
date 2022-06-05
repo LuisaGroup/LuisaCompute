@@ -4,6 +4,9 @@
 
 #include <backends/llvm/llvm_codegen.h>
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-pro-type-static-cast-downcast"
+
 namespace luisa::compute::llvm {
 
 LLVMCodegen::LLVMCodegen(::llvm::LLVMContext &ctx) noexcept
@@ -641,9 +644,12 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
 }
 
 ::llvm::Value *LLVMCodegen::_create_literal_expr(const LiteralExpr *expr) noexcept {
-    // TODO: implement
-    auto ctx = _current_context();
-    return ctx->builder->CreateAlloca(_create_type(expr->type()), nullptr, "tmp");
+    return luisa::visit(
+        [this](auto x) noexcept {
+            return _create_stack_variable(
+                _literal(x), "const.addr");
+        },
+        expr->value());
 }
 
 ::llvm::Value *LLVMCodegen::_create_ref_expr(const RefExpr *expr) noexcept {
@@ -1621,4 +1627,108 @@ void LLVMCodegen::_create_assignment(const Type *dst_type, const Type *src_type,
         t->description());
 }
 
+::llvm::Value *LLVMCodegen::_literal(int x) noexcept {
+    auto b = _current_context()->builder.get();
+    return b->getInt32(x);
+}
+
+::llvm::Value *LLVMCodegen::_literal(uint x) noexcept {
+    auto b = _current_context()->builder.get();
+    return b->getInt32(x);
+}
+
+::llvm::Value *LLVMCodegen::_literal(bool x) noexcept {
+    auto b = _current_context()->builder.get();
+    return b->getInt1(x);
+}
+
+::llvm::Value *LLVMCodegen::_literal(float x) noexcept {
+    auto b = _current_context()->builder.get();
+    return ::llvm::ConstantFP::get(b->getFloatTy(), x);
+}
+
+::llvm::Value *LLVMCodegen::_literal(int2 x) noexcept {
+    return _literal(make_uint2(x));
+}
+
+::llvm::Value *LLVMCodegen::_literal(uint2 x) noexcept {
+    return ::llvm::ConstantDataVector::get(
+        _context, std::array{x.x, x.y});
+}
+
+::llvm::Value *LLVMCodegen::_literal(bool2 x) noexcept {
+    return ::llvm::ConstantDataVector::get(
+        _context, std::array{static_cast<uint8_t>(x.x),
+                             static_cast<uint8_t>(x.y)});
+}
+
+::llvm::Value *LLVMCodegen::_literal(float2 x) noexcept {
+    return ::llvm::ConstantDataVector::get(
+        _context, std::array{x.x, x.y});
+}
+
+::llvm::Value *LLVMCodegen::_literal(int3 x) noexcept {
+    return _literal(make_uint3(x));
+}
+
+::llvm::Value *LLVMCodegen::_literal(uint3 x) noexcept {
+    return _literal(make_uint4(x, 0u));
+}
+
+::llvm::Value *LLVMCodegen::_literal(bool3 x) noexcept {
+    return _literal(make_bool4(x, false));
+}
+
+::llvm::Value *LLVMCodegen::_literal(float3 x) noexcept {
+    return _literal(make_float4(x, 0.0f));
+}
+
+::llvm::Value *LLVMCodegen::_literal(int4 x) noexcept {
+    return _literal(make_uint4(x));
+}
+
+::llvm::Value *LLVMCodegen::_literal(uint4 x) noexcept {
+    return ::llvm::ConstantDataVector::get(
+        _context, std::array{x.x, x.y, x.z, x.w});
+}
+
+::llvm::Value *LLVMCodegen::_literal(bool4 x) noexcept {
+    return ::llvm::ConstantDataVector::get(
+        _context, std::array{static_cast<uint8_t>(x.x),
+                             static_cast<uint8_t>(x.y),
+                             static_cast<uint8_t>(x.z),
+                             static_cast<uint8_t>(x.w)});
+}
+
+::llvm::Value *LLVMCodegen::_literal(float4 x) noexcept {
+    return ::llvm::ConstantDataVector::get(
+        _context, std::array{x.x, x.y, x.z, x.w});
+}
+
+::llvm::Value *LLVMCodegen::_literal(float2x2 x) noexcept {
+    return ::llvm::ConstantStruct::get(
+        static_cast<::llvm::StructType *>(_create_type(Type::of<float2x2>())),
+        static_cast<::llvm::Constant *>(_literal(x[0])),
+        static_cast<::llvm::Constant *>(_literal(x[1])));
+}
+
+::llvm::Value *LLVMCodegen::_literal(float3x3 x) noexcept {
+    return ::llvm::ConstantStruct::get(
+        static_cast<::llvm::StructType *>(_create_type(Type::of<float3x3>())),
+        static_cast<::llvm::Constant *>(_literal(x[0])),
+        static_cast<::llvm::Constant *>(_literal(x[1])),
+        static_cast<::llvm::Constant *>(_literal(x[2])));
+}
+
+::llvm::Value *LLVMCodegen::_literal(float4x4 x) noexcept {
+    return ::llvm::ConstantStruct::get(
+        static_cast<::llvm::StructType *>(_create_type(Type::of<float4x4>())),
+        static_cast<::llvm::Constant *>(_literal(x[0])),
+        static_cast<::llvm::Constant *>(_literal(x[1])),
+        static_cast<::llvm::Constant *>(_literal(x[2])),
+        static_cast<::llvm::Constant *>(_literal(x[3])));
+}
+
 }// namespace luisa::compute::llvm
+
+#pragma clang diagnostic pop

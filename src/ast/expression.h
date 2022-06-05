@@ -327,7 +327,7 @@ public:
      * @param v value
      */
     LiteralExpr(const Type *type, Value v) noexcept
-        : Expression{Tag::LITERAL, type}, _value{std::move(v)} {}
+        : Expression{Tag::LITERAL, type}, _value{v} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
