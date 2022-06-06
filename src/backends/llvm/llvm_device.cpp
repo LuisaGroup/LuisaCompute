@@ -33,7 +33,7 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept : Interface{ctx} {
     _machine = target->createTargetMachine(
         target_triple, mcpu,
 #if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
-        "+neon",
+        "+neon,+zcz",
 #else
         "+avx2",
 #endif
@@ -122,12 +122,20 @@ void LLVMDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swap
 
 uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
 
+    std::error_code ec;
+
     // codegen
     auto llvm_ctx = luisa::make_unique<::llvm::LLVMContext>();
+    Clock clk;
     LLVMCodegen codegen{*llvm_ctx};
     auto module = codegen.emit(kernel);
-    module->print(::llvm::errs(), nullptr);
-    ::llvm::verifyModule(*module, &::llvm::errs());
+    LUISA_INFO("Codegen: {} ms.", clk.toc());
+    ::llvm::raw_fd_ostream file{"kernel.ll", ec};
+    module->print(file, nullptr);
+    if (::llvm::verifyModule(*module, &::llvm::errs())) {
+        ::llvm::errs().flush();
+        LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
+    }
 
     // optimize
     ::llvm::PassManagerBuilder pass_manager_builder;
@@ -138,11 +146,6 @@ uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_option
     pass_manager_builder.LoopVectorize = true;
     pass_manager_builder.SLPVectorize = true;
     pass_manager_builder.MergeFunctions = true;
-    pass_manager_builder.EnablePGOCSInstrGen = false;
-    pass_manager_builder.EnablePGOCSInstrUse = false;
-    pass_manager_builder.EnablePGOInstrGen = false;
-    pass_manager_builder.CallGraphProfile = false;
-    pass_manager_builder.PerformThinLTO = true;
     _machine->adjustPassManager(pass_manager_builder);
     module->setDataLayout(_machine->createDataLayout());
     ::llvm::legacy::PassManager module_pass_manager;
@@ -150,14 +153,17 @@ uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_option
         ::llvm::createTargetTransformInfoWrapperPass(
             _machine->getTargetIRAnalysis()));
     pass_manager_builder.populateModulePassManager(module_pass_manager);
+    clk.tic();
     module_pass_manager.run(*module);
-    ::llvm::errs() << "\nAfter Optimization\n";
-    module->print(::llvm::errs(), nullptr);
+    LUISA_INFO("Optimize: {} ms.", clk.toc());
+    ::llvm::raw_fd_ostream file_opt{"kernel.opt.ll", ec};
+    module->print(file_opt, nullptr);
     return 0;
 }
 
 void LLVMDevice::destroy_shader(uint64_t handle) noexcept {
 }
+
 uint64_t LLVMDevice::create_event() noexcept {
     return 0;
 }

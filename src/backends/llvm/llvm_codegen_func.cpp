@@ -7,7 +7,7 @@
 namespace luisa::compute::llvm {
 
 luisa::string LLVMCodegen::_function_name(Function f) const noexcept {
-    return luisa::format("{}_{:016x}",
+    return luisa::format("{}.{:016x}",
                          f.tag() == Function::Tag::KERNEL ? "kernel" : "custom",
                          f.hash());
 }
@@ -69,7 +69,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
                  f.return_type()->description());
     auto function_type = ::llvm::FunctionType::get(
         ::llvm::Type::getVoidTy(_context), arg_types, false);
-    auto name = _function_name(f).append("_driver");
+    auto name = _function_name(f).append(".driver");
     auto ir = ::llvm::Function::Create(
         function_type, ::llvm::Function::ExternalLinkage,
         ::llvm::StringRef{name.data(), name.size()}, _module);
