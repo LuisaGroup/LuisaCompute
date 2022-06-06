@@ -67,6 +67,7 @@ private:
     ::llvm::LLVMContext &_context;
     ::llvm::Module *_module{nullptr};
     luisa::unordered_map<uint64_t, LLVMStruct> _struct_types;
+    luisa::unordered_map<uint64_t, ::llvm::Value *> _constants;
     luisa::vector<luisa::unique_ptr<FunctionContext>> _function_stack;
 
 private:
@@ -87,16 +88,9 @@ private:
     [[nodiscard]] ::llvm::Value *_create_ref_expr(const RefExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_constant_expr(const ConstantExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_call_expr(const CallExpr *expr) noexcept;
-    [[nodiscard]] ::llvm::Value *_create_builtin_call_expr(const Type *ret_type, CallOp op, luisa::span<const Expression *const> args) noexcept;
     [[nodiscard]] ::llvm::Value *_create_cast_expr(const CastExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_stack_variable(::llvm::Value *v, luisa::string_view name = "") noexcept;
     [[nodiscard]] FunctionContext *_current_context() noexcept;
-    [[nodiscard]] ::llvm::Value *_convert(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept;
-    [[nodiscard]] ::llvm::Value *_scalar_to_bool(const Type *src_type, ::llvm::Value *p_src) noexcept;
-    [[nodiscard]] ::llvm::Value *_scalar_to_float(const Type *src_type, ::llvm::Value *p_src) noexcept;
-    [[nodiscard]] ::llvm::Value *_scalar_to_int(const Type *src_type, ::llvm::Value *p_src) noexcept;
-    [[nodiscard]] ::llvm::Value *_scalar_to_uint(const Type *src_type, ::llvm::Value *p_src) noexcept;
-    [[nodiscard]] ::llvm::Value *_scalar_to_vector(const Type *src_type, uint dst_dim, ::llvm::Value *p_src) noexcept;
     void _create_assignment(const Type *dst_type, const Type *src_type, ::llvm::Value *p_dst, ::llvm::Value *p_src) noexcept;
 
     // built-in make_vector functions
@@ -113,7 +107,7 @@ private:
     [[nodiscard]] ::llvm::Value *_make_float3x3(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2) noexcept;
     [[nodiscard]] ::llvm::Value *_make_float4x4(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2, ::llvm::Value *p3) noexcept;
 
-    // constants
+    // literals
     [[nodiscard]] ::llvm::Value *_literal(int x) noexcept;
     [[nodiscard]] ::llvm::Value *_literal(uint x) noexcept;
     [[nodiscard]] ::llvm::Value *_literal(bool x) noexcept;
@@ -134,11 +128,18 @@ private:
     [[nodiscard]] ::llvm::Value *_literal(float3x3 x) noexcept;
     [[nodiscard]] ::llvm::Value *_literal(float4x4 x) noexcept;
 
+    // constant data
+    [[nodiscard]] ::llvm::Value *_create_constant(ConstantData c) noexcept;
+
     // built-in short-cut logical operators
-    [[nodiscard]] ::llvm::Value *_shortcut_and(const Expression *lhs, const Expression *rhs) noexcept;
-    [[nodiscard]] ::llvm::Value *_shortcut_or(const Expression *lhs, const Expression *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_short_circuit_and(const Expression *lhs, const Expression *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_short_circuit_or(const Expression *lhs, const Expression *rhs) noexcept;
 
     // built-in operators
+    [[nodiscard]] ::llvm::Value *_builtin_unary_plus(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_unary_minus(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_unary_not(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_unary_bit_not(const Type *t, ::llvm::Value *p) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_and(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_or(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_xor(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
@@ -152,9 +153,52 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_gt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_ge(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_eq(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
-    [[nodiscard]] ::llvm::Value *_builtin_neq(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_ne(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_shl(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_shr(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_add_matrix_scalar(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_add_scalar_matrix(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_add_matrix_matrix(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_sub_matrix_scalar(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_sub_scalar_matrix(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_sub_matrix_matrix(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_mul_matrix_scalar(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_mul_scalar_matrix(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_mul_matrix_matrix(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_mul_matrix_vector(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_div_matrix_scalar(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_div_scalar_matrix(
+        const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept;
+
+    // built-in cast operators
+    [[nodiscard]] ::llvm::Value *_builtin_static_cast(const Type *t_dst, const Type *t_src, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bitwise_cast(const Type *t_dst, const Type *t_src, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_scalar_to_bool(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_scalar_to_float(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_scalar_to_int(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_scalar_to_uint(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_scalar_to_vector(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_vector_to_vector(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_vector_to_bool_vector(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_vector_to_float_vector(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_vector_to_int_vector(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_vector_to_uint_vector(const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_scalar_to_matrix(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept;
+    [[nodiscard]] ::llvm::Value *_matrix_to_matrix(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept;
 
     // built-in functions builders
+    [[nodiscard]] ::llvm::Value *_create_builtin_call_expr(const Type *ret_type, CallOp op, luisa::span<const Expression *const> args) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_all(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_any(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_select(const Type *t_pred, const Type *t_value, ::llvm::Value *pred,
@@ -166,6 +210,16 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_fma(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *c) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_clz(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_ctz(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_popcount(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_reverse(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_isinf(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_isnan(const Type *t, ::llvm::Value *p) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_buffer_read(const Type *t_value, ::llvm::Value *buffer, ::llvm::Value *p_index) noexcept;
+    void _builtin_buffer_write(const Type *t_value, ::llvm::Value *buffer, ::llvm::Value *p_index, ::llvm::Value *p_value) noexcept;
+    void _builtin_assume(::llvm::Value *p) noexcept;
+    void _builtin_unreachable() noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;

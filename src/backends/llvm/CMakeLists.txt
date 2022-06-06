@@ -5,7 +5,13 @@ endif ()
 if (LLVM_FOUND) # link with llvm for jit
     set(LC_BACKEND_LLVM_SRC
             llvm_device.cpp llvm_device.h
-            llvm_codegen.cpp llvm_codegen.h)
+            llvm_codegen.cpp llvm_codegen.h
+            llvm_codegen_value.cpp
+            llvm_codegen_builtin.cpp
+            llvm_codegen_type.cpp
+            llvm_codegen_expr.cpp
+            llvm_codegen_func.cpp
+            llvm_codegen_stmt.cpp)
     luisa_compute_add_backend(llvm SOURCES ${LC_BACKEND_LLVM_SRC})
     message(STATUS "Build with LLVM backend")
     llvm_map_components_to_libnames(LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)
@@ -14,6 +20,6 @@ if (LLVM_FOUND) # link with llvm for jit
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         target_compile_options(luisa-compute-backend-llvm PRIVATE /wd4624 /wd4996) # do not complain about LLVM
     endif ()
-else()
+else ()
     message(WARNING "LLVM not found. LLVM backend will not be built.")
 endif ()

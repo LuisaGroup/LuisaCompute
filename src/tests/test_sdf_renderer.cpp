@@ -137,19 +137,14 @@ int main(int argc, char *argv[]) {
         auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
         auto global_id = coord.x + coord.y * dispatch_size_x();
-
-//        $meta(meta::supports_custom_block_size, "hello") {
-            $if(frame_index == 0u) {
-                $meta("nested") { $comment("good\nbad\n"); };
-                seed_image.write(global_id, tea(coord.x, coord.y));
-                accum_image.write(global_id, make_float4(make_float3(0.0f), 1.0f));
-            };
-//        };
+        $if(frame_index == 0u) {
+            seed_image.write(global_id, tea(coord.x, coord.y));
+            accum_image.write(global_id, make_float4(make_float3(0.0f), 1.0f));
+        };
 
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
         auto seed = seed_image.read(global_id);
-        //        auto seed = frame_index + 1u;
         auto ux = rand(seed);
         auto uy = rand(seed);
         auto uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1u - dispatch_id().y + uy);
@@ -182,17 +177,18 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
     auto device = context.create_device(argv[1]);
+    auto render = device.compile(render_kernel);
+    exit(0);
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
     auto seed_image = device.create_buffer<uint>(width * height);
     auto accum_image = device.create_buffer<float4>(width * height);
-    auto render = device.compile(render_kernel);
     auto stream = device.create_stream();
     auto copy_event = device.create_event();
 

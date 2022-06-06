@@ -330,7 +330,7 @@ res in a # 查询该资源是否在表中
 在设备端（Luisa函数中）可以读取被索引的资源：
 
 ```python
-a.buffer_read(element_type, idx, element_idx) # 返回 element_type
+a.buffer_read(E, idx, element_idx) # 返回 E
 a.texture2d_read(idx, coord) # 返回float4
 a.texture2d_sample(idx, uv) # 返回float4
 a.texture2d_size(idx) # 返回float4
