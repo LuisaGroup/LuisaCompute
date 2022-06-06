@@ -204,9 +204,7 @@ void LLVMCodegen::visit(const ForStmt *stmt) {
     ctx->builder->SetInsertPoint(loop_exit);
 }
 
-void LLVMCodegen::visit(const CommentStmt *stmt) {
-    // do nothing
-}
+void LLVMCodegen::visit(const CommentStmt *stmt) { /* do nothing */ }
 
 void LLVMCodegen::visit(const MetaStmt *stmt) {
     auto ctx = _current_context();

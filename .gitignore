@@ -338,3 +338,7 @@ doc/latex/**
 
 # Doxygen output
 doxygen_output
+
+*.ll
+*.bc
+*.S

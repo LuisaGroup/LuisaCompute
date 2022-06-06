@@ -360,9 +360,14 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_vector_to_vector(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept {
     LUISA_ASSERT(src_type->is_vector(), "Invalid source type: {}.", src_type->description());
     LUISA_ASSERT(dst_type->is_vector(), "Invalid destination type: {}.", dst_type->description());
-    LUISA_ASSERT(src_type->dimension() == dst_type->dimension(), "Invalid conversion from '{}' to '{}'.",
-                 src_type->description(), dst_type->description());
     auto builder = _current_context()->builder.get();
+    if (dst_type->dimension() == 2u && src_type->dimension() > 2u) {
+        auto src = builder->CreateLoad(_create_type(src_type), p_src, "cast.vector_to_vector.src");
+        auto shuffle = builder->CreateShuffleVector(src, {0, 1}, "cast.vector_to_vector.shuffle");
+        return _vector_to_vector(
+            dst_type, Type::from(luisa::format("vector<{},2>", src_type->element()->description())),
+            _create_stack_variable(shuffle, "cast.vector_to_vector.addr"));
+    }
     switch (dst_type->element()->tag()) {
         case Type::Tag::BOOL: return _vector_to_bool_vector(src_type, p_src);
         case Type::Tag::FLOAT: return _vector_to_float_vector(src_type, p_src);

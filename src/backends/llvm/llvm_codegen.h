@@ -220,6 +220,36 @@ private:
     void _builtin_buffer_write(const Type *t_value, ::llvm::Value *buffer, ::llvm::Value *p_index, ::llvm::Value *p_value) noexcept;
     void _builtin_assume(::llvm::Value *p) noexcept;
     void _builtin_unreachable() noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_sqrt(const Type *t, ::llvm::Value *x) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_rsqrt(const Type *t, ::llvm::Value *x) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_dot(const Type *t, ::llvm::Value *a, ::llvm::Value *b) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_length_squared(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_normalize(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_floor(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_fract(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_ceil(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_trunc(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_round(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_sin(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_cos(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_tan(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_exp(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_exp2(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_exp10(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_log(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_log2(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_log10(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_pow(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_copysign(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_faceforward(
+        const Type *t, ::llvm::Value *n, ::llvm::Value *i, ::llvm::Value *nref) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_cross(const Type *t, ::llvm::Value *a, ::llvm::Value *b) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_make_vector2_overloaded(const Type *t_vec, luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_make_vector3_overloaded(const Type *t_vec, luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_make_vector4_overloaded(const Type *t_vec, luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_make_matrix2_overloaded(luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_make_matrix3_overloaded(luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_make_matrix4_overloaded(luisa::span<const Expression *const> args) noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;
