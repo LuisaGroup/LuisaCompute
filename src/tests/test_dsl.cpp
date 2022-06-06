@@ -80,6 +80,9 @@ int main(int argc, char *argv[]) {
     Kernel1D<Buffer<float>, uint> kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
         Shared<float4> shared_floats{16};
 
+        Constant float_consts = {1.0f, 2.0f};
+        auto ff = float_consts.read(0);
+
         Var v_int = 10;
         Var t = make_int3(1, 2, 3);
         Var vv = ite(t == 10, 1, 2);
