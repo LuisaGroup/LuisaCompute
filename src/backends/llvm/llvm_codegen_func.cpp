@@ -59,20 +59,17 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     };
     auto [arg_struct_type, arg_struct_indices] = create_argument_struct();
     auto arg_buffer_type = ::llvm::PointerType::get(arg_struct_type, 0);
-    ::llvm::SmallVector<::llvm::Type *, 4u> arg_types;
+    ::llvm::SmallVector<::llvm::Type *, 2u> arg_types;
     arg_types.emplace_back(arg_buffer_type);
-    arg_types.emplace_back(::llvm::Type::getInt32Ty(_context));
-    arg_types.emplace_back(::llvm::Type::getInt32Ty(_context));
-    arg_types.emplace_back(::llvm::Type::getInt32Ty(_context));
+    arg_types.emplace_back(::llvm::PointerType::get(_create_type(Type::of<uint3>()), 0));
     LUISA_ASSERT(f.return_type() == nullptr,
                  "Invalid return type '{}' for kernel. Only void is allowed.",
                  f.return_type()->description());
     auto function_type = ::llvm::FunctionType::get(
         ::llvm::Type::getVoidTy(_context), arg_types, false);
-    auto name = _function_name(f).append(".driver");
     auto ir = ::llvm::Function::Create(
         function_type, ::llvm::Function::ExternalLinkage,
-        ::llvm::StringRef{name.data(), name.size()}, _module);
+        "kernel_main", _module);
     auto builder = luisa::make_unique<::llvm::IRBuilder<>>(_context);
     auto body_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
     builder->SetInsertPoint(body_block);
@@ -105,11 +102,8 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     // create simple schedule...
     builder->SetInsertPoint(body_block);
     // block id
-    auto block_id = static_cast<::llvm::Value *>(
-        ::llvm::UndefValue::get(_create_type(Type::of<uint3>())));
-    block_id = builder->CreateInsertElement(block_id, ir->getArg(1), 0ull, "block_id_x");
-    block_id = builder->CreateInsertElement(block_id, ir->getArg(2), 1ull, "block_id_xy");
-    block_id = builder->CreateInsertElement(block_id, ir->getArg(3), 2ull, "block_id");
+    auto block_id = builder->CreateLoad(
+        _create_type(Type::of<uint3>()), ir->getArg(1), "block_id");
     // dispatch size
     auto p_dispatch_size = builder->CreateStructGEP(
         arg_struct_type, ir->getArg(0),
@@ -133,14 +127,14 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     thread_id = builder->CreateInsertElement(thread_id, thread_x, 0ull, "thread_x");
     thread_id = builder->CreateInsertElement(thread_id, thread_y, 1ull, "thread_xy");
     thread_id = builder->CreateInsertElement(thread_id, thread_z, 2ull, "thread_id");
-    auto dispatch_x = builder->CreateNUWAdd(thread_x, builder->CreateNUWMul(ir->getArg(1), builder->getInt32(f.block_size().x), "block_offset_x"), "dispatch_x");
-    auto dispatch_y = builder->CreateNUWAdd(thread_y, builder->CreateNUWMul(ir->getArg(2), builder->getInt32(f.block_size().y), "block_offset_y"), "dispatch_y");
-    auto dispatch_z = builder->CreateNUWAdd(thread_z, builder->CreateNUWMul(ir->getArg(3), builder->getInt32(f.block_size().z), "block_offset_z"), "dispatch_z");
+    auto dispatch_x = builder->CreateNUWAdd(thread_x, builder->CreateNUWMul(builder->CreateExtractElement(block_id, 0ull, "block.x"), builder->getInt32(f.block_size().x), "block_offset.x"), "dispatch.x");
+    auto dispatch_y = builder->CreateNUWAdd(thread_y, builder->CreateNUWMul(builder->CreateExtractElement(block_id, 1ull, "block.y"), builder->getInt32(f.block_size().y), "block_offset.y"), "dispatch.y");
+    auto dispatch_z = builder->CreateNUWAdd(thread_z, builder->CreateNUWMul(builder->CreateExtractElement(block_id, 2ull, "block.z"), builder->getInt32(f.block_size().z), "block_offset.z"), "dispatch.z");
     auto dispatch_id = static_cast<::llvm::Value *>(
         ::llvm::UndefValue::get(_create_type(Type::of<uint3>())));
-    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_x, 0ull, "dispatch_x");
-    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_y, 1ull, "dispatch_xy");
-    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_z, 2ull, "dispatch_id");
+    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_x, 0ull, "dispatch.x");
+    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_y, 1ull, "dispatch.xy");
+    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_z, 2ull, "dispatch.id");
     auto valid_thread_xyz = builder->CreateICmpULT(thread_id, dispatch_size, "valid_thread_xyz");
     auto valid_thread = builder->CreateLogicalAnd(
         builder->CreateLogicalAnd(
