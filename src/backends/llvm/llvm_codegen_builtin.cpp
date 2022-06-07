@@ -604,13 +604,13 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
             p_atomic, ::llvm::PointerType::get(ctx->builder->getInt32Ty(), 0),
             "atomic.compare.exchange.atomic.int");
     }
-    auto old_and_modified = ctx->builder->CreateAtomicCmpXchg(
+    auto old_and_success = ctx->builder->CreateAtomicCmpXchg(
         p_atomic, expected, desired, {},
         atomic_operation_order,
         atomic_operation_order);
-    old_and_modified->setName("atomic.compare.exchange.old_and_modified");
+    old_and_success->setName("atomic.compare.exchange.old_and_success");
     auto old = ctx->builder->CreateExtractValue(
-        old_and_modified, 0, "atomic.compare.exchange.old");
+        old_and_success, 0, "atomic.compare.exchange.old");
     if (t->tag() == Type::Tag::FLOAT) {
         old = ctx->builder->CreateBitCast(
             old, ctx->builder->getFloatTy(),
@@ -619,30 +619,58 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
     return _create_stack_variable(old, "atomic.compare.exchange.addr");
 }
 
+// TODO: atomic_fetch_add for float seems not correct, hence it is manually implemented with atomic_compare_exchange
+[[nodiscard]] inline ::llvm::Value *_atomic_fetch_add_float(::llvm::IRBuilder<> *builder, ::llvm::Value *ptr, ::llvm::Value *v_float) noexcept {
+    auto p_old = builder->CreateAlloca(builder->getFloatTy(), nullptr, "atomic.fetch.add.old.addr");
+    auto v_int = builder->CreateBitCast(v_float, builder->getInt32Ty(), "atomic.fetch.add.value.int");
+    auto ptr_int = builder->CreateBitOrPointerCast(ptr, ::llvm::PointerType::get(builder->getInt32Ty(), 0), "atomic.fetch.add.ptr.int");
+    auto func = builder->GetInsertBlock()->getParent();
+    auto loop = ::llvm::BasicBlock::Create(builder->getContext(), "atomic.fetch.add.loop", func);
+    auto loop_out = ::llvm::BasicBlock::Create(builder->getContext(), "atomic.fetch.add.loop.out", func);
+    loop->moveAfter(builder->GetInsertBlock());
+    builder->CreateBr(loop);
+    builder->SetInsertPoint(loop);
+    auto expected = builder->CreateLoad(builder->getFloatTy(), ptr, "atomic.fetch.add.expected");
+    builder->CreateStore(expected, p_old);
+    auto desired = builder->CreateFAdd(expected, v_float, "atomic.fetch.add.desired");
+    auto desired_int = builder->CreateBitCast(desired, builder->getInt32Ty(), "atomic.fetch.add.desired.int");
+    auto expected_int = builder->CreateBitCast(expected, builder->getInt32Ty(), "atomic.fetch.add.expected.int");
+    auto old_and_success = builder->CreateAtomicCmpXchg(
+        ptr_int, expected_int, desired_int, {}, atomic_operation_order, atomic_operation_order);
+    old_and_success->setName("atomic.fetch.add.old_and_success");
+    auto success = builder->CreateExtractValue(old_and_success, 1, "atomic.fetch.add.success");
+    builder->CreateCondBr(success, loop_out, loop);
+    loop_out->moveAfter(builder->GetInsertBlock());
+    builder->SetInsertPoint(loop_out);
+    return p_old;
+}
+
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_add(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
     auto ctx = _current_context();
     auto value = ctx->builder->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.add.value");
-    // FIXME: atomic_fetch_add for float seems not correct...
-    auto op = t->tag() == Type::Tag::FLOAT ?
-                  ::llvm::AtomicRMWInst::FAdd :
-                  ::llvm::AtomicRMWInst::Add;
+    if (t->tag() == Type::Tag::FLOAT) {
+        return _atomic_fetch_add_float(
+            ctx->builder.get(), p_atomic, value);
+    }
     auto old = ctx->builder->CreateAtomicRMW(
-        op, p_atomic, value, {}, atomic_operation_order);
+        ::llvm::AtomicRMWInst::Add, p_atomic,
+        value, {}, atomic_operation_order);
     old->setName("atomic.fetch.add.old");
     return _create_stack_variable(old, "atomic.fetch.add.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_sub(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
     auto ctx = _current_context();
+    if (t->tag() == Type::Tag::FLOAT) {
+        return _builtin_atomic_fetch_add(
+            t, p_atomic, _builtin_unary_minus(t, p_value));
+    }
     auto value = ctx->builder->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.sub.value");
-    // FIXME: atomic_fetch_sub for float seems not correct...
-    auto op = t->tag() == Type::Tag::FLOAT ?
-                  ::llvm::AtomicRMWInst::FSub :
-                  ::llvm::AtomicRMWInst::Sub;
     auto old = ctx->builder->CreateAtomicRMW(
-        op, p_atomic, value, {}, atomic_operation_order);
+        ::llvm::AtomicRMWInst::Sub, p_atomic,
+        value, {}, atomic_operation_order);
     old->setName("atomic.fetch.sub.old");
     return _create_stack_variable(old, "atomic.fetch.sub.addr");
 }
