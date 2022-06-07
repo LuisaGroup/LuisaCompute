@@ -203,7 +203,7 @@ private:
     [[nodiscard]] ::llvm::Value *_scalar_to_matrix(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept;
     [[nodiscard]] ::llvm::Value *_matrix_to_matrix(const Type *dst_type, const Type *src_type, ::llvm::Value *p_src) noexcept;
 
-    // built-in functions builders
+    // built-in functions
     [[nodiscard]] ::llvm::Value *_create_builtin_call_expr(const Type *ret_type, CallOp op, luisa::span<const Expression *const> args) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_all(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_any(const Type *t, ::llvm::Value *v) noexcept;
@@ -256,6 +256,25 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_make_matrix2_overloaded(luisa::span<const Expression *const> args) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_make_matrix3_overloaded(luisa::span<const Expression *const> args) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_make_matrix4_overloaded(luisa::span<const Expression *const> args) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_exchange(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_desired) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_compare_exchange(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_expected, ::llvm::Value *p_desired) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_add(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_sub(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_and(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_or(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_xor(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_min(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_max(
+        const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
+
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;

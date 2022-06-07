@@ -26,12 +26,11 @@ class ISPCJITModule final : public ISPCModule {
 
 private:
     luisa::unique_ptr<llvm::LLVMContext> _context;
-    std::unique_ptr<llvm::ExecutionEngine> _engine;
+    llvm::ExecutionEngine *_engine{nullptr};
 
 private:
-    ISPCJITModule(
-        luisa::unique_ptr<llvm::LLVMContext> ctx,
-        std::unique_ptr<llvm::ExecutionEngine> engine) noexcept;
+    ISPCJITModule(luisa::unique_ptr<llvm::LLVMContext> ctx,
+                  llvm::ExecutionEngine *engine) noexcept;
 
 public:
     ~ISPCJITModule() noexcept override;
