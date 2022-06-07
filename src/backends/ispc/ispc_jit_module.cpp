@@ -25,9 +25,8 @@ namespace luisa::compute::ispc {
 
 ISPCJITModule::ISPCJITModule(
     luisa::unique_ptr<llvm::LLVMContext> ctx,
-    std::unique_ptr<llvm::ExecutionEngine> engine) noexcept
-    : _context{std::move(ctx)},
-      _engine{std::move(engine)} {
+    llvm::ExecutionEngine *engine) noexcept
+    : _context{std::move(ctx)}, _engine{engine} {
     _f_ptr = reinterpret_cast<function_type *>(
         _engine->getFunctionAddress("kernel_main"));
 }
@@ -127,12 +126,11 @@ luisa::shared_ptr<ISPCModule> ISPCJITModule::load(
 
     // jit
     std::string err;
-    std::unique_ptr<llvm::ExecutionEngine> engine{
-        llvm::EngineBuilder{std::move(module)}
-            .setErrorStr(&err)
-            .setOptLevel(llvm::CodeGenOpt::Aggressive)
-            .setEngineKind(llvm::EngineKind::JIT)
-            .create(machine)};
+    auto engine = llvm::EngineBuilder{std::move(module)}
+                      .setErrorStr(&err)
+                      .setOptLevel(llvm::CodeGenOpt::Aggressive)
+                      .setEngineKind(llvm::EngineKind::JIT)
+                      .create(machine);
     engine->DisableLazyCompilation(true);
     engine->DisableSymbolSearching(false);// to support print in ispc
     engine->addGlobalMapping("fflush", reinterpret_cast<uint64_t>(&fflush));
@@ -141,11 +139,10 @@ luisa::shared_ptr<ISPCModule> ISPCJITModule::load(
     engine->addGlobalMapping("vsnprintf", reinterpret_cast<uint64_t>(&vsnprintf));
     if (engine == nullptr) {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to create execution engine: {}.",
-            err);
+            "Failed to create execution engine: {}.", err);
     }
     return luisa::make_shared<ISPCJITModule>(
-        ISPCJITModule{std::move(context), std::move(engine)});
+        ISPCJITModule{std::move(context), engine});
 }
 
 }// namespace luisa::compute::ispc

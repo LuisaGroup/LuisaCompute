@@ -146,6 +146,10 @@ namespace luisa::compute::llvm {
     auto lhs_elem_type = lhs_type->is_scalar() ? lhs_type : lhs_type->element();
     auto rhs_elem_type = rhs_type->is_scalar() ? rhs_type : rhs_type->element();
     auto promoted_elem_type = [&] {
+        if (expr->op() == BinaryOp::AND ||
+            expr->op() == BinaryOp::OR) {
+            return Type::of<bool>();
+        }
         switch (lhs_elem_type->tag()) {
             case Type::Tag::BOOL: return rhs_elem_type;
             case Type::Tag::FLOAT: return lhs_elem_type;

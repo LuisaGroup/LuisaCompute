@@ -82,15 +82,14 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
 
     // compile
     std::string err;
-    auto engine = ::llvm::EngineBuilder{std::move(module)}
+    _engine = ::llvm::EngineBuilder{std::move(module)}
                       .setErrorStr(&err)
                       .setOptLevel(::llvm::CodeGenOpt::Aggressive)
                       .setEngineKind(::llvm::EngineKind::JIT)
                       .create(machine);
-    engine->DisableLazyCompilation(true);
-    engine->DisableSymbolSearching(false);
-    LUISA_ASSERT(engine != nullptr, "Failed to create execution engine: {}.", err);
-    _engine.reset(engine);
+    _engine->DisableLazyCompilation(true);
+    _engine->DisableSymbolSearching(false);
+    LUISA_ASSERT(_engine != nullptr, "Failed to create execution engine: {}.", err);
     _kernel_entry = reinterpret_cast<kernel_entry_t *>(
         _engine->getFunctionAddress("kernel_main"));
     LUISA_ASSERT(_kernel_entry != nullptr, "Failed to find kernel entry.");

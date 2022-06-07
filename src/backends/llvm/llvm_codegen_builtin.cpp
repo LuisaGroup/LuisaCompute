@@ -54,8 +54,7 @@ namespace luisa::compute::llvm {
         case CallOp::SIN: return _builtin_sin(
             args[0]->type(), _create_expr(args[0]));
         case CallOp::SINH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::TAN: return _builtin_tan(
-            args[0]->type(), _create_expr(args[0]));
+        case CallOp::TAN: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::TANH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::EXP: return _builtin_exp(
             args[0]->type(), _create_expr(args[0]));
@@ -106,16 +105,29 @@ namespace luisa::compute::llvm {
         case CallOp::DETERMINANT: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::TRANSPOSE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::INVERSE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::SYNCHRONIZE_BLOCK: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_EXCHANGE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_FETCH_ADD: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_FETCH_SUB: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_FETCH_AND: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_FETCH_OR: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_FETCH_XOR: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_FETCH_MIN: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATOMIC_FETCH_MAX: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::SYNCHRONIZE_BLOCK:
+            LUISA_WARNING_WITH_LOCATION(
+                "Block synchronization is not "
+                "supported on LLVM backend.");
+            return nullptr;
+        case CallOp::ATOMIC_EXCHANGE: return _builtin_atomic_exchange(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: return _builtin_atomic_compare_exchange(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::ATOMIC_FETCH_ADD: return _builtin_atomic_fetch_add(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ATOMIC_FETCH_SUB: return _builtin_atomic_fetch_sub(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ATOMIC_FETCH_AND: return _builtin_atomic_fetch_and(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ATOMIC_FETCH_OR: return _builtin_atomic_fetch_or(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ATOMIC_FETCH_XOR: return _builtin_atomic_fetch_xor(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ATOMIC_FETCH_MIN: return _builtin_atomic_fetch_min(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::ATOMIC_FETCH_MAX: return _builtin_atomic_fetch_max(
+            args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
         case CallOp::BUFFER_READ: return _builtin_buffer_read(
             args[0]->type()->element(), _create_expr(args[0]), _create_expr(args[1]));
         case CallOp::BUFFER_WRITE:
@@ -560,6 +572,180 @@ namespace luisa::compute::llvm {
         t, Type::of<float>(),
         _create_stack_variable(_literal(1.f), "rsqrt.one"));
     return _builtin_div(t, one, s);
+}
+
+static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic;
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_exchange(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_desired) noexcept {
+    auto ctx = _current_context();
+    auto desired = ctx->builder->CreateLoad(
+        _create_type(t), p_desired, "atomic.exchange.desired");
+    auto old = ctx->builder->CreateAtomicRMW(
+        ::llvm::AtomicRMWInst::Xchg, p_atomic,
+        desired, {}, atomic_operation_order);
+    old->setName("atomic.exchange.old");
+    return _create_stack_variable(old, "atomic.exchange.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_compare_exchange(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_expected, ::llvm::Value *p_desired) noexcept {
+    auto ctx = _current_context();
+    auto expected = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+        _create_type(t), p_expected, "atomic.compare.exchange.expected"));
+    auto desired = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+        _create_type(t), p_desired, "atomic.compare.exchange.desired"));
+    if (t->tag() == Type::Tag::FLOAT) {
+        expected = ctx->builder->CreateBitCast(
+            expected, ctx->builder->getInt32Ty(),
+            "atomic.compare.exchange.expected.int");
+        desired = ctx->builder->CreateBitCast(
+            desired, ctx->builder->getInt32Ty(),
+            "atomic.compare.exchange.desired.int");
+        p_atomic = ctx->builder->CreateBitOrPointerCast(
+            p_atomic, ::llvm::PointerType::get(ctx->builder->getInt32Ty(), 0),
+            "atomic.compare.exchange.atomic.int");
+    }
+    auto old_and_modified = ctx->builder->CreateAtomicCmpXchg(
+        p_atomic, expected, desired, {},
+        atomic_operation_order,
+        atomic_operation_order);
+    old_and_modified->setName("atomic.compare.exchange.old_and_modified");
+    auto old = ctx->builder->CreateExtractValue(
+        old_and_modified, 0, "atomic.compare.exchange.old");
+    if (t->tag() == Type::Tag::FLOAT) {
+        old = ctx->builder->CreateBitCast(
+            old, ctx->builder->getFloatTy(),
+            "atomic.compare.exchange.old.float");
+    }
+    return _create_stack_variable(old, "atomic.compare.exchange.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_add(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
+    auto ctx = _current_context();
+    auto value = ctx->builder->CreateLoad(
+        _create_type(t), p_value, "atomic.fetch.add.value");
+    // FIXME: atomic_fetch_add for float seems not correct...
+    auto op = t->tag() == Type::Tag::FLOAT ?
+                  ::llvm::AtomicRMWInst::FAdd :
+                  ::llvm::AtomicRMWInst::Add;
+    auto old = ctx->builder->CreateAtomicRMW(
+        op, p_atomic, value, {}, atomic_operation_order);
+    old->setName("atomic.fetch.add.old");
+    return _create_stack_variable(old, "atomic.fetch.add.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_sub(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
+    auto ctx = _current_context();
+    auto value = ctx->builder->CreateLoad(
+        _create_type(t), p_value, "atomic.fetch.sub.value");
+    // FIXME: atomic_fetch_sub for float seems not correct...
+    auto op = t->tag() == Type::Tag::FLOAT ?
+                  ::llvm::AtomicRMWInst::FSub :
+                  ::llvm::AtomicRMWInst::Sub;
+    auto old = ctx->builder->CreateAtomicRMW(
+        op, p_atomic, value, {}, atomic_operation_order);
+    old->setName("atomic.fetch.sub.old");
+    return _create_stack_variable(old, "atomic.fetch.sub.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_and(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
+    auto ctx = _current_context();
+    auto value = ctx->builder->CreateLoad(
+        _create_type(t), p_value, "atomic.fetch.and.value");
+    auto old = ctx->builder->CreateAtomicRMW(
+        ::llvm::AtomicRMWInst::And, p_atomic,
+        value, {}, atomic_operation_order);
+    old->setName("atomic.fetch.and.old");
+    return _create_stack_variable(old, "atomic.fetch.and.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_or(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
+    auto ctx = _current_context();
+    auto value = ctx->builder->CreateLoad(
+        _create_type(t), p_value, "atomic.fetch.or.value");
+    auto old = ctx->builder->CreateAtomicRMW(
+        ::llvm::AtomicRMWInst::Or, p_atomic,
+        value, {}, atomic_operation_order);
+    old->setName("atomic.fetch.or.old");
+    return _create_stack_variable(old, "atomic.fetch.or.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_xor(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
+    auto ctx = _current_context();
+    auto value = ctx->builder->CreateLoad(
+        _create_type(t), p_value, "atomic.fetch.xor.value");
+    auto old = ctx->builder->CreateAtomicRMW(
+        ::llvm::AtomicRMWInst::Xor, p_atomic,
+        value, {}, atomic_operation_order);
+    old->setName("atomic.fetch.xor.old");
+    return _create_stack_variable(old, "atomic.fetch.xor.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_min(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
+    auto ctx = _current_context();
+    auto value = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+        _create_type(t), p_value, "atomic.fetch.min.value"));
+    if (t->tag() == Type::Tag::UINT) {
+        auto old = ctx->builder->CreateAtomicRMW(
+            ::llvm::AtomicRMWInst::UMin, p_atomic,
+            value, {}, atomic_operation_order);
+        old->setName("atomic.fetch.min.old");
+        return _create_stack_variable(old, "atomic.fetch.min.addr");
+    }
+    if (t->tag() == Type::Tag::FLOAT) {
+        auto elem_type = ctx->builder->getInt32Ty();
+        value = ctx->builder->CreateBitCast(
+            value, elem_type, "atomic.fetch.min.value.int");
+        p_atomic = ctx->builder->CreateBitOrPointerCast(
+            p_atomic, ::llvm::PointerType::get(elem_type, 0),
+            "atomic.fetch.min.addr.int");
+        auto old = static_cast<::llvm::Value *>(
+            ctx->builder->CreateAtomicRMW(
+                ::llvm::AtomicRMWInst::Min, p_atomic,
+                value, {}, atomic_operation_order));
+        old->setName("atomic.fetch.min.old.int");
+        old = ctx->builder->CreateBitCast(
+            old, ctx->builder->getFloatTy(), "atomic.fetch.min.old");
+        return _create_stack_variable(old, "atomic.fetch.min.addr");
+    }
+    auto old = ctx->builder->CreateAtomicRMW(
+        ::llvm::AtomicRMWInst::Min, p_atomic,
+        value, {}, atomic_operation_order);
+    old->setName("atomic.fetch.min.old");
+    return _create_stack_variable(old, "atomic.fetch.min.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_max(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
+    auto ctx = _current_context();
+    auto value = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+        _create_type(t), p_value, "atomic.fetch.max.value"));
+    if (t->tag() == Type::Tag::UINT) {
+        auto old = ctx->builder->CreateAtomicRMW(
+            ::llvm::AtomicRMWInst::UMax, p_atomic,
+            value, {}, atomic_operation_order);
+        old->setName("atomic.fetch.max.old");
+        return _create_stack_variable(old, "atomic.fetch.max.addr");
+    }
+    if (t->tag() == Type::Tag::FLOAT) {
+        auto elem_type = ctx->builder->getInt32Ty();
+        value = ctx->builder->CreateBitCast(
+            value, elem_type, "atomic.fetch.max.value.int");
+        p_atomic = ctx->builder->CreateBitOrPointerCast(
+            p_atomic, ::llvm::PointerType::get(elem_type, 0),
+            "atomic.fetch.max.addr.int");
+        auto old = static_cast<::llvm::Value *>(
+            ctx->builder->CreateAtomicRMW(
+                ::llvm::AtomicRMWInst::Max, p_atomic,
+                value, {}, atomic_operation_order));
+        old->setName("atomic.fetch.max.old.int");
+        old = ctx->builder->CreateBitCast(
+            old, ctx->builder->getFloatTy(), "atomic.fetch.max.old");
+        return _create_stack_variable(old, "atomic.fetch.max.addr");
+    }
+    auto old = ctx->builder->CreateAtomicRMW(
+        ::llvm::AtomicRMWInst::Max, p_atomic,
+        value, {}, atomic_operation_order);
+    old->setName("atomic.fetch.max.old");
+    return _create_stack_variable(old, "atomic.fetch.max.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_normalize(const Type *t, ::llvm::Value *v) noexcept {

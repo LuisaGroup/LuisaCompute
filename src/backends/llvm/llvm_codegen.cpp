@@ -17,10 +17,7 @@ std::unique_ptr<::llvm::Module> LLVMCodegen::emit(Function f) noexcept {
     auto _ = _create_function(f);
     _module = nullptr;
     _constants.clear();
-    LUISA_ASSERT(
-        _function_stack.empty(),
-        "Function stack is not empty after emitting function.");
-    ::llvm::verifyModule(*module, &::llvm::errs());
+    _struct_types.clear();
     return module;
 }
 

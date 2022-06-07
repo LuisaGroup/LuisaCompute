@@ -2,21 +2,12 @@
 // Created by Mike Smith on 2022/5/23.
 //
 
-#include <backends/llvm/llvm_codegen.h>
-#include <backends/llvm/llvm_device.h>
-
-//
-// Created by Mike Smith on 2022/2/7.
-//
-
-#include <fstream>
-#include <streambuf>
-
 #include <core/stl.h>
 #include <backends/llvm/llvm_stream.h>
 #include <backends/llvm/llvm_device.h>
 #include <backends/llvm/llvm_event.h>
 #include <backends/llvm/llvm_shader.h>
+#include <backends/llvm/llvm_codegen.h>
 
 namespace luisa::compute::llvm {
 
@@ -44,7 +35,7 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept : Interface{ctx} {
     _machine = target->createTargetMachine(
         target_triple, mcpu,
 #if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
-        "+neon",
+        "+neon,+zcz",
 #else
         "+avx2",
 #endif

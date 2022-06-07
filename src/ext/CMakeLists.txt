@@ -74,7 +74,7 @@ endif ()
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext PUBLIC EASTL)
 
-if (LUISA_COMPUTE_ENABLE_ISPC)
+if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
     find_package(embree 3 QUIET)
     if (NOT embree_FOUND)
         set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
