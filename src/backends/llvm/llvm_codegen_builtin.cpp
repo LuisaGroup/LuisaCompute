@@ -14,7 +14,7 @@ namespace luisa::compute::llvm {
             args[0]->type(), _create_expr(args[0]));
         case CallOp::SELECT: return _builtin_select(
             args[2]->type(), args[0]->type(), _create_expr(args[2]),
-            _create_expr(args[1]), _create_expr(args[1]));
+            _create_expr(args[1]), _create_expr(args[0]));
         case CallOp::CLAMP: return _builtin_clamp(
             args[0]->type(), _create_expr(args[0]),
             _create_expr(args[1]), _create_expr(args[2]));
@@ -210,19 +210,20 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_builtin_select(const Type *t_pred, const Type *t_value,
                                             ::llvm::Value *pred, ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept {
     auto ctx = _current_context();
-    auto pred_load = ctx->builder->CreateLoad(_create_type(t_pred), pred, "pred.load");
+    auto pred_load = ctx->builder->CreateLoad(_create_type(t_pred), pred, "sel.pred");
     auto bv = [&] {
-        auto zero = static_cast<::llvm::Value *>(ctx->builder->getInt8(0));
-        if (t_pred->is_vector()) {
-            auto dim = t_value->dimension() == 3u ? 4u : t_value->dimension();
-            zero = ctx->builder->CreateVectorSplat(dim, zero, "zeros");
-        }
-        return ctx->builder->CreateICmpNE(pred_load, zero, "pred");
+        auto zero = ctx->builder->CreateLoad(
+            _create_type(t_pred),
+            _builtin_static_cast(
+                t_pred, Type::of<bool>(),
+                _create_stack_variable(_literal(false), "sel.zero.addr")),
+            "sel.zero");
+        return ctx->builder->CreateICmpNE(pred_load, zero, "sel.cmp");
     }();
-    auto v_true_load = ctx->builder->CreateLoad(_create_type(t_value), v_true, "v_true.load");
-    auto v_false_load = ctx->builder->CreateLoad(_create_type(t_value), v_false, "v_false.load");
-    auto result = ctx->builder->CreateSelect(bv, v_true_load, v_false_load, "select");
-    return _create_stack_variable(result, "select.addr");
+    auto v_true_load = ctx->builder->CreateLoad(_create_type(t_value), v_true, "sel.true");
+    auto v_false_load = ctx->builder->CreateLoad(_create_type(t_value), v_false, "sel.false");
+    auto result = ctx->builder->CreateSelect(bv, v_true_load, v_false_load, "sel");
+    return _create_stack_variable(result, "sel.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_clamp(const Type *t, ::llvm::Value *v, ::llvm::Value *lo, ::llvm::Value *hi) noexcept {
@@ -236,16 +237,15 @@ namespace luisa::compute::llvm {
 
 ::llvm::Value *LLVMCodegen::_builtin_step(const Type *t, ::llvm::Value *edge, ::llvm::Value *x) noexcept {
     auto b = _current_context()->builder.get();
-    auto zero = static_cast<::llvm::Value *>(::llvm::ConstantFP::get(b->getFloatTy(), 0.f));
-    auto one = static_cast<::llvm::Value *>(::llvm::ConstantFP::get(b->getFloatTy(), 1.f));
-    if (t->is_vector()) {
-        auto dim = t->dimension() == 3u ? 4u : t->dimension();
-        zero = b->CreateVectorSplat(dim, zero, "zeros");
-        one = b->CreateVectorSplat(dim, one, "ones");
-        return _builtin_select(Type::from(luisa::format("vector<bool,{}>", dim)),
-                               t, _builtin_lt(t, x, edge), zero, one);
-    }
-    return _builtin_select(Type::of<bool>(), t, _builtin_lt(t, x, edge), zero, one);
+    auto zero = _builtin_static_cast(
+        t, Type::of<float>(), _create_stack_variable(_literal(0.0f), "step.zero.addr"));
+    auto one = _builtin_static_cast(
+        t, Type::of<float>(), _create_stack_variable(_literal(1.0f), "step.one.addr"));
+    if (t->is_scalar()) { return _builtin_select(Type::of<bool>(), t, _builtin_lt(t, x, edge), zero, one); }
+    if (t->dimension() == 2u) { return _builtin_select(Type::of<bool2>(), t, _builtin_lt(t, x, edge), zero, one); }
+    if (t->dimension() == 3u) { return _builtin_select(Type::of<bool3>(), t, _builtin_lt(t, x, edge), zero, one); }
+    if (t->dimension() == 4u) { return _builtin_select(Type::of<bool4>(), t, _builtin_lt(t, x, edge), zero, one); }
+    LUISA_ERROR_WITH_LOCATION("Invalid type '{}' for step.", t->description());
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_abs(const Type *t, ::llvm::Value *x) noexcept {
@@ -274,7 +274,7 @@ namespace luisa::compute::llvm {
     auto ir_type = _create_type(t);
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         auto m = ctx->builder->CreateIntrinsic(
-            ::llvm::Intrinsic::minnum, {ir_type},
+            ::llvm::Intrinsic::minimum, {ir_type},
             {ctx->builder->CreateLoad(ir_type, x, "fmin.x"),
              ctx->builder->CreateLoad(ir_type, y, "fmin.y")},
             nullptr, "fmin");
@@ -304,7 +304,7 @@ namespace luisa::compute::llvm {
     auto ir_type = _create_type(t);
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         auto m = ctx->builder->CreateIntrinsic(
-            ::llvm::Intrinsic::maxnum, {ir_type},
+            ::llvm::Intrinsic::maximum, {ir_type},
             {ctx->builder->CreateLoad(ir_type, x, "fmax.x"),
              ctx->builder->CreateLoad(ir_type, y, "fmax.y")},
             nullptr, "fmax");
@@ -782,6 +782,7 @@ namespace luisa::compute::llvm {
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_le(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
+    LUISA_INFO("less equal");
     auto ctx = _current_context();
     auto ir_type = _create_type(t);
     auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "le.lhs");

@@ -32,6 +32,12 @@ namespace luisa::compute::llvm {
 
 class LLVMCodegen : public StmtVisitor {
 
+public:
+    static constexpr auto accel_handle_size = sizeof(const void *);
+    static constexpr auto buffer_handle_size = sizeof(const void *);
+    static constexpr auto texture_handle_size = sizeof(const void *);
+    static constexpr auto bindless_array_handle_size = sizeof(const void *);
+
 private:
     struct FunctionContext {
         Function function;
@@ -267,7 +273,7 @@ public:
     void visit(const ForStmt *stmt) override;
     void visit(const CommentStmt *stmt) override;
     void visit(const MetaStmt *stmt) override;
-    luisa::unique_ptr<::llvm::Module> emit(Function f) noexcept;
+    [[nodiscard]] std::unique_ptr<::llvm::Module> emit(Function f) noexcept;
 };
 
 }// namespace luisa::compute::llvm

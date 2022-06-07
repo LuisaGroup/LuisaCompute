@@ -9,7 +9,7 @@
 
 #ifdef OPENCV_ENABLED
 #include <opencv2/opencv.hpp>
-//#define ENABLE_DISPLAY
+#define ENABLE_DISPLAY
 #endif
 
 #include <runtime/context.h>
@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
     }
     auto device = context.create_device(argv[1]);
     auto render = device.compile(render_kernel);
-    exit(0);
+//    exit(0);
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
@@ -192,7 +192,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
     auto copy_event = device.create_event();
 
-    static constexpr auto interval = 64u;
+    static constexpr auto interval = 4u;
 
 #ifdef ENABLE_DISPLAY
     cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};

@@ -96,12 +96,8 @@ namespace luisa::compute::llvm {
     auto rhs_type = expr->rhs()->type();
     // logical and/or should be short-circuit.
     if (lhs_type->is_scalar() && rhs_type->is_scalar()) {
-        if (expr->op() == BinaryOp::AND) {
-            return _short_circuit_and(expr->lhs(), expr->rhs());
-        }
-        if (expr->op() == BinaryOp::OR) {
-            return _short_circuit_or(expr->lhs(), expr->rhs());
-        }
+        if (expr->op() == BinaryOp::AND) { return _short_circuit_and(expr->lhs(), expr->rhs()); }
+        if (expr->op() == BinaryOp::OR) { return _short_circuit_or(expr->lhs(), expr->rhs()); }
     }
     // matrices have to be handled separately
     auto p_lhs = _create_expr(expr->lhs());
@@ -147,28 +143,54 @@ namespace luisa::compute::llvm {
                      (rhs_type->is_scalar() || rhs_type->is_vector()),
                  "Expected (scalar op vector) or (scalar op vector) but got ({} op {}).",
                  lhs_type->description(), rhs_type->description());
-    auto dst_type = expr->type();
-    auto lhs_v = _builtin_static_cast(dst_type, lhs_type, p_lhs);
-    auto rhs_v = _builtin_static_cast(dst_type, rhs_type, p_rhs);
+    auto lhs_elem_type = lhs_type->is_scalar() ? lhs_type : lhs_type->element();
+    auto rhs_elem_type = rhs_type->is_scalar() ? rhs_type : rhs_type->element();
+    auto promoted_elem_type = [&] {
+        switch (lhs_elem_type->tag()) {
+            case Type::Tag::BOOL: return rhs_elem_type;
+            case Type::Tag::FLOAT: return lhs_elem_type;
+            case Type::Tag::INT:
+                return rhs_elem_type->tag() == Type::Tag::UINT ||
+                               rhs_elem_type->tag() == Type::Tag::FLOAT ?
+                           rhs_elem_type :
+                           lhs_elem_type;
+            case Type::Tag::UINT:
+                return rhs_elem_type->tag() == Type::Tag::FLOAT ?
+                           rhs_elem_type :
+                           lhs_elem_type;
+            default: break;
+        }
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid types '{}' and '{}' for binary operator.",
+            lhs_elem_type->description(), rhs_elem_type->description());
+    }();
+    auto promoted_type = expr->type()->is_vector() ?
+                             Type::from(luisa::format(
+                                 "vector<{},{}>",
+                                 promoted_elem_type->description(),
+                                 expr->type()->dimension())) :
+                             promoted_elem_type;
+    auto lhs_v = _builtin_static_cast(promoted_type, lhs_type, p_lhs);
+    auto rhs_v = _builtin_static_cast(promoted_type, rhs_type, p_rhs);
     switch (expr->op()) {
-        case BinaryOp::ADD: return _builtin_add(dst_type, lhs_v, rhs_v);
-        case BinaryOp::SUB: return _builtin_sub(dst_type, lhs_v, rhs_v);
-        case BinaryOp::MUL: return _builtin_mul(dst_type, lhs_v, rhs_v);
-        case BinaryOp::DIV: return _builtin_div(dst_type, lhs_v, rhs_v);
-        case BinaryOp::MOD: return _builtin_mod(dst_type, lhs_v, rhs_v);
-        case BinaryOp::BIT_AND: return _builtin_and(dst_type, lhs_v, rhs_v);
-        case BinaryOp::BIT_OR: return _builtin_or(dst_type, lhs_v, rhs_v);
-        case BinaryOp::BIT_XOR: return _builtin_xor(dst_type, lhs_v, rhs_v);
-        case BinaryOp::SHL: return _builtin_shl(dst_type, lhs_v, rhs_v);
-        case BinaryOp::SHR: return _builtin_shr(dst_type, lhs_v, rhs_v);
-        case BinaryOp::AND: return _builtin_and(dst_type, lhs_v, rhs_v);
-        case BinaryOp::OR: return _builtin_or(dst_type, lhs_v, rhs_v);
-        case BinaryOp::LESS: return _builtin_lt(dst_type, lhs_v, rhs_v);
-        case BinaryOp::GREATER: return _builtin_gt(dst_type, lhs_v, rhs_v);
-        case BinaryOp::LESS_EQUAL: return _builtin_le(dst_type, lhs_v, rhs_v);
-        case BinaryOp::GREATER_EQUAL: return _builtin_ge(dst_type, lhs_v, rhs_v);
-        case BinaryOp::EQUAL: return _builtin_eq(dst_type, lhs_v, rhs_v);
-        case BinaryOp::NOT_EQUAL: return _builtin_ne(dst_type, lhs_v, rhs_v);
+        case BinaryOp::ADD: return _builtin_add(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::SUB: return _builtin_sub(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::MUL: return _builtin_mul(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::DIV: return _builtin_div(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::MOD: return _builtin_mod(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::BIT_AND: return _builtin_and(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::BIT_OR: return _builtin_or(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::BIT_XOR: return _builtin_xor(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::SHL: return _builtin_shl(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::SHR: return _builtin_shr(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::AND: return _builtin_and(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::OR: return _builtin_or(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::LESS: return _builtin_lt(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::GREATER: return _builtin_gt(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::LESS_EQUAL: return _builtin_le(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::GREATER_EQUAL: return _builtin_ge(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::EQUAL: return _builtin_eq(promoted_type, lhs_v, rhs_v);
+        case BinaryOp::NOT_EQUAL: return _builtin_ne(promoted_type, lhs_v, rhs_v);
     }
     LUISA_ERROR_WITH_LOCATION("Invalid binary operator.");
 }

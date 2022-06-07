@@ -9,9 +9,9 @@ namespace luisa::compute::llvm {
 LLVMCodegen::LLVMCodegen(::llvm::LLVMContext &ctx) noexcept
     : _context{ctx} {}
 
-luisa::unique_ptr<::llvm::Module> LLVMCodegen::emit(Function f) noexcept {
+std::unique_ptr<::llvm::Module> LLVMCodegen::emit(Function f) noexcept {
     auto module_name = luisa::format("module_{:016x}", f.hash());
-    auto module = luisa::make_unique<::llvm::Module>(
+    auto module = std::make_unique<::llvm::Module>(
         ::llvm::StringRef{module_name.data(), module_name.size()}, _context);
     _module = module.get();
     auto _ = _create_function(f);
