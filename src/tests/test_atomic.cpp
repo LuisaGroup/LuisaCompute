@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
 
     auto atomic_float_buffer = device.create_buffer<float>(1u);
     Kernel1D add_kernel = [&](BufferFloat buffer) noexcept {
-        buffer.atomic(0u).fetch_sub(1.f);
+        buffer.atomic(0u).fetch_sub(-1.f);
     };
     auto add_shader = device.compile(add_kernel);
 
