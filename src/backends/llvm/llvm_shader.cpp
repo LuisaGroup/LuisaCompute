@@ -2,11 +2,20 @@
 // Created by Mike Smith on 2022/2/11.
 //
 
+#include <cmath>
+#include <core/mathematics.h>
 #include <backends/llvm/llvm_shader.h>
 #include <backends/llvm/llvm_device.h>
 #include <backends/llvm/llvm_codegen.h>
 
 namespace luisa::compute::llvm {
+
+using llvm_float2 = float __attribute__((ext_vector_type(2)));
+using llvm_float4 = float __attribute__((ext_vector_type(4)));
+[[nodiscard]] static float rsqrt(float x) noexcept { return 1.f / std::sqrt(x); }
+[[nodiscard]] static llvm_float2 normalize_v2(llvm_float2 v) noexcept { return v * rsqrt(v.x * v.x + v.y * v.y); }
+[[nodiscard]] static llvm_float4 normalize_v3(llvm_float4 v) noexcept { return v * rsqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+[[nodiscard]] static llvm_float4 normalize_v4(llvm_float4 v) noexcept { return v * rsqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w); }
 
 LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     // compute argument offsets

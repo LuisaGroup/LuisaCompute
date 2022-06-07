@@ -15,6 +15,14 @@ std::unique_ptr<::llvm::Module> LLVMCodegen::emit(Function f) noexcept {
         ::llvm::StringRef{module_name.data(), module_name.size()}, _context);
     _module = module.get();
     auto _ = _create_function(f);
+    for (auto &&func : _module->functions()) {
+        for (auto &&bb : func) {
+            for (auto &&inst : bb) {
+                inst.setFast(true);
+                inst.setIsExact(false);
+            }
+        }
+    }
     _module = nullptr;
     _constants.clear();
     _struct_types.clear();

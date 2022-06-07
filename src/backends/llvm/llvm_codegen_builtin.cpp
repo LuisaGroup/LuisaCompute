@@ -6,7 +6,73 @@
 
 namespace luisa::compute::llvm {
 
+[[nodiscard]] ::llvm::Function *_declare_external_math_function(
+    ::llvm::Module *module, luisa::string_view name, size_t n_args) noexcept {
+    auto func_name = luisa::format("{}f", name);
+    auto f = module->getFunction(luisa::string_view{func_name});
+    auto ir_type = ::llvm::Type::getFloatTy(module->getContext());
+    if (f == nullptr) {
+        ::llvm::SmallVector<::llvm::Type *, 2u> arg_types(n_args, ir_type);
+        f = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(ir_type, arg_types, false),
+            ::llvm::Function::ExternalLinkage,
+            luisa::string_view{func_name},
+            module);
+        f->setNoSync();
+        f->setWillReturn();
+        f->setDoesNotThrow();
+        f->setMustProgress();
+        f->setSpeculatable();
+        f->setDoesNotAccessMemory();
+        f->setDoesNotFreeMemory();
+    }
+    return f;
+}
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-pro-type-static-cast-downcast"
+[[nodiscard]] ::llvm::Value *_call_external_math_function(
+    ::llvm::Module *module, ::llvm::IRBuilder<> *builder, const Type *t,
+    luisa::string_view name, ::llvm::SmallVector<::llvm::Value *, 2u> p_args) noexcept {
+    auto f = _declare_external_math_function(module, name, p_args.size());
+    ::llvm::SmallVector<::llvm::Value *, 2u> args;
+    for (auto i = 0u; i < p_args.size(); i++) {
+        args.emplace_back(builder->CreateLoad(
+            p_args[i]->getType()->getPointerElementType(), p_args[i],
+            luisa::string_view{luisa::format("{}.arg{}", name, i)}));
+    }
+    // TODO: vectorize...
+    if (t->is_vector()) {
+        ::llvm::SmallVector<::llvm::Value *, 4u> v;
+        for (auto i = 0u; i < t->dimension(); i++) {
+            ::llvm::SmallVector<::llvm::Value *, 2u> args_i;
+            for (auto a = 0u; a < args.size(); a++) {
+                args_i.emplace_back(builder->CreateExtractElement(args[a], i));
+            }
+            v.emplace_back(builder->CreateCall(f, args_i));
+        }
+        auto dim = t->dimension() == 3u ? 4u : t->dimension();
+        auto vec_type = ::llvm::VectorType::get(
+            ::llvm::Type::getFloatTy(module->getContext()), dim, false);
+        auto vec = static_cast<::llvm::Value *>(::llvm::UndefValue::get(vec_type));
+        for (auto i = 0u; i < t->dimension(); i++) {
+            vec = builder->CreateInsertElement(vec, v[i], i);
+        }
+        auto p_vec = builder->CreateAlloca(vec_type);
+        builder->CreateStore(vec, p_vec);
+        return p_vec;
+    }
+    // scalar
+    auto y = builder->CreateCall(f, args, luisa::string_view{luisa::format("{}.call", name)});
+    auto py = builder->CreateAlloca(p_args.front()->getType()->getPointerElementType(),
+                                    nullptr, luisa::string_view{luisa::format("{}.addr", name)});
+    builder->CreateStore(y, py);
+    return py;
+}
+#pragma clang diagnostic pop
+
 ::llvm::Value *LLVMCodegen::_create_builtin_call_expr(const Type *ret_type, CallOp op, luisa::span<const Expression *const> args) noexcept {
+    auto builder = _current_context()->builder.get();
     switch (op) {
         case CallOp::ALL: return _builtin_all(
             args[0]->type(), _create_expr(args[0]));
@@ -41,21 +107,33 @@ namespace luisa::compute::llvm {
             args[0]->type(), _create_expr(args[0]));
         case CallOp::ISNAN: return _builtin_isnan(
             args[0]->type(), _create_expr(args[0]));
-        case CallOp::ACOS: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ACOSH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ASIN: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ASINH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATAN: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATAN2: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::ATANH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::ACOS: return _call_external_math_function(
+            _module, builder, args[0]->type(), "acos", {_create_expr(args[0])});
+        case CallOp::ACOSH: return _call_external_math_function(
+            _module, builder, args[0]->type(), "acosh", {_create_expr(args[0])});
+        case CallOp::ASIN: return _call_external_math_function(
+            _module, builder, args[0]->type(), "asin", {_create_expr(args[0])});
+        case CallOp::ASINH: return _call_external_math_function(
+            _module, builder, args[0]->type(), "asinh", {_create_expr(args[0])});
+        case CallOp::ATAN: return _call_external_math_function(
+            _module, builder, args[0]->type(), "atan", {_create_expr(args[0])});
+        case CallOp::ATAN2: return _call_external_math_function(
+            _module, builder, args[0]->type(), "atan2",
+            {_create_expr(args[0]), _create_expr(args[1])});
+        case CallOp::ATANH: return _call_external_math_function(
+            _module, builder, args[0]->type(), "atanh", {_create_expr(args[0])});
         case CallOp::COS: return _builtin_cos(
             args[0]->type(), _create_expr(args[0]));
-        case CallOp::COSH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::COSH: return _call_external_math_function(
+            _module, builder, args[0]->type(), "cosh", {_create_expr(args[0])});
         case CallOp::SIN: return _builtin_sin(
             args[0]->type(), _create_expr(args[0]));
-        case CallOp::SINH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::TAN: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::TANH: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::SINH: return _call_external_math_function(
+            _module, builder, args[0]->type(), "sinh", {_create_expr(args[0])});
+        case CallOp::TAN: return _call_external_math_function(
+            _module, builder, args[0]->type(), "tan", {_create_expr(args[0])});
+        case CallOp::TANH: return _call_external_math_function(
+            _module, builder, args[0]->type(), "tanh", {_create_expr(args[0])});
         case CallOp::EXP: return _builtin_exp(
             args[0]->type(), _create_expr(args[0]));
         case CallOp::EXP2: return _builtin_exp2(
@@ -621,6 +699,18 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 
 // TODO: atomic_fetch_add for float seems not correct, hence it is manually implemented with atomic_compare_exchange
 [[nodiscard]] inline ::llvm::Value *_atomic_fetch_add_float(::llvm::IRBuilder<> *builder, ::llvm::Value *ptr, ::llvm::Value *v_float) noexcept {
+#define LUISA_COMPUTE_LLVM_USE_ATOMIC_FADD 0
+#if LUISA_COMPUTE_LLVM_USE_ATOMIC_FADD
+    auto old = builder->CreateAtomicRMW(
+        ::llvm::AtomicRMWInst::FAdd, ptr,
+        v_float, {}, atomic_operation_order);
+    old->setName("atomic.fetch.add.old");
+    auto p_old = builder->CreateAlloca(
+        builder->getFloatTy(), nullptr,
+        "atomic.fetch.add.old.addr");
+    builder->CreateStore(old, p_old);
+    return p_old;
+#else
     auto p_old = builder->CreateAlloca(builder->getFloatTy(), nullptr, "atomic.fetch.add.old.addr");
     auto v_int = builder->CreateBitCast(v_float, builder->getInt32Ty(), "atomic.fetch.add.value.int");
     auto ptr_int = builder->CreateBitOrPointerCast(ptr, ::llvm::PointerType::get(builder->getInt32Ty(), 0), "atomic.fetch.add.ptr.int");
@@ -643,6 +733,8 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
     loop_out->moveAfter(builder->GetInsertBlock());
     builder->SetInsertPoint(loop_out);
     return p_old;
+#endif
+#undef LUISA_COMPUTE_LLVM_USE_ATOMIC_FADD
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_add(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
