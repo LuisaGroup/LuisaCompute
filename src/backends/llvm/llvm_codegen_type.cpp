@@ -571,10 +571,9 @@ namespace luisa::compute::llvm {
             return struct_type;
         }
         case Type::Tag::BUFFER: return ::llvm::PointerType::get(_create_type(t->element()), 0);
-        case Type::Tag::TEXTURE: return ::llvm::StructType::get(
-            ::llvm::Type::getInt64Ty(_context), ::llvm::Type::getInt64Ty(_context));
+        case Type::Tag::TEXTURE: return ::llvm::Type::getInt128Ty(_context);
         case Type::Tag::BINDLESS_ARRAY: /* TODO: implement */ break;
-        case Type::Tag::ACCEL: /* TODO: implement */ break;
+        case Type::Tag::ACCEL: return ::llvm::Type::getInt64Ty(_context);
     }
     LUISA_ERROR_WITH_LOCATION("Invalid type: {}.", t->description());
 }

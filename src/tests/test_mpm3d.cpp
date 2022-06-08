@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
     }
     auto device = context.create_device(argv[1]);
 
-    static constexpr auto n_grid = 64;
+    static constexpr auto n_grid = 32;
     static constexpr auto n_steps = 25u;
 
     static constexpr auto n_particles = n_grid * n_grid * n_grid / 4u;

@@ -9,10 +9,13 @@
 #include <backends/llvm/llvm_shader.h>
 #include <backends/llvm/llvm_codegen.h>
 #include <backends/llvm/llvm_texture.h>
+#include <backends/llvm/llvm_mesh.h>
+#include <backends/llvm/llvm_accel.h>
 
 namespace luisa::compute::llvm {
 
-LLVMDevice::LLVMDevice(const Context &ctx) noexcept : Interface{ctx} {
+LLVMDevice::LLVMDevice(const Context &ctx) noexcept
+    : Interface{ctx}, _rtc_device{rtcNewDevice(nullptr)} {
 
     static std::once_flag flag;
     std::call_once(flag, [] {
@@ -176,26 +179,24 @@ void LLVMDevice::synchronize_event(uint64_t handle) noexcept {
 uint64_t LLVMDevice::create_mesh(
     uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
     uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
-    //    auto mesh = luisa::new_with_allocator<LLVMMesh>(
-    //        _rtc_device, hint,
-    //        v_buffer, v_offset, v_stride, v_count,
-    //        t_buffer, t_offset, t_count);
-    //    return reinterpret_cast<uint64_t>(mesh);
-    return 0;
+    auto mesh = luisa::new_with_allocator<LLVMMesh>(
+        _rtc_device, hint,
+        v_buffer, v_offset, v_stride, v_count,
+        t_buffer, t_offset, t_count);
+    return reinterpret_cast<uint64_t>(mesh);
 }
 
 void LLVMDevice::destroy_mesh(uint64_t handle) noexcept {
-    //    luisa::delete_with_allocator(reinterpret_cast<LLVMMesh *>(handle));
+    luisa::delete_with_allocator(reinterpret_cast<LLVMMesh *>(handle));
 }
 
 uint64_t LLVMDevice::create_accel(AccelUsageHint hint) noexcept {
-    //    auto accel = luisa::new_with_allocator<LLVMAccel>(_rtc_device, hint);
-    //    return reinterpret_cast<uint64_t>(accel);
-    return 0;
+    auto accel = luisa::new_with_allocator<LLVMAccel>(_rtc_device, hint);
+    return reinterpret_cast<uint64_t>(accel);
 }
 
 void LLVMDevice::destroy_accel(uint64_t handle) noexcept {
-    //    luisa::delete_with_allocator(reinterpret_cast<LLVMAccel *>(handle));
+    luisa::delete_with_allocator(reinterpret_cast<LLVMAccel *>(handle));
 }
 
 uint64_t LLVMDevice::create_swap_chain(
@@ -215,6 +216,10 @@ PixelStorage LLVMDevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
 void LLVMDevice::present_display_in_stream(
     uint64_t stream_handle, uint64_t swap_chain_handle, uint64_t image_handle) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+LLVMDevice::~LLVMDevice() noexcept {
+    rtcReleaseDevice(_rtc_device);
 }
 
 }// namespace luisa::compute::llvm

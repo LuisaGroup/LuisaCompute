@@ -111,8 +111,8 @@ int main(int argc, char *argv[]) {
     stream << mesh.build()
            << accel.build();
 
-    auto raytracing_shader = device.compile(raytracing_kernel);
     auto colorspace_shader = device.compile(colorspace_kernel);
+    auto raytracing_shader = device.compile(raytracing_kernel);
 
     static constexpr auto width = 512u;
     static constexpr auto height = 512u;
@@ -145,5 +145,5 @@ int main(int argc, char *argv[]) {
            << synchronize();
     auto time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_rtx_cuda.png", width, height, 4, pixels.data(), 0);
+    stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);
 }

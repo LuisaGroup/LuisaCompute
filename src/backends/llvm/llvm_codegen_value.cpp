@@ -18,7 +18,7 @@ namespace luisa::compute::llvm {
 
 ::llvm::Value *LLVMCodegen::_literal(bool x) noexcept {
     auto b = _current_context()->builder.get();
-    return b->getInt1(x);
+    return b->getInt8(x);
 }
 
 ::llvm::Value *LLVMCodegen::_literal(float x) noexcept {
@@ -123,6 +123,7 @@ namespace luisa::compute::llvm {
         return _create_stack_variable(builder->CreateZExt(x, dst_type, "bit_to_bool"), name);
     }
     auto p = builder->CreateAlloca(x->getType(), nullptr, name);
+    p->setAlignment(::llvm::Align{16u});
     builder->CreateStore(x, p);
     return p;
 }

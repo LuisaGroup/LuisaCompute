@@ -7,6 +7,7 @@
 #include <backends/llvm/llvm_shader.h>
 #include <backends/llvm/llvm_device.h>
 #include <backends/llvm/llvm_codegen.h>
+#include <backends/llvm/llvm_accel.h>
 
 namespace luisa::compute::llvm {
 
@@ -106,8 +107,10 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
             {"_texture.write.2d.uint"sv, reinterpret_cast<void *>(&texture_write_2d_uint)},
             {"_texture.write.3d.uint"sv, reinterpret_cast<void *>(&texture_write_3d_uint)},
             {"_texture.write.2d.float"sv, reinterpret_cast<void *>(&texture_write_2d_float)},
-            {"_texture.write.3d.float"sv, reinterpret_cast<void *>(&texture_write_3d_float)}};
-        LUISA_VERBOSE_WITH_LOCATION("Searching for symbol '{}' in JIT.", name);
+            {"_texture.write.3d.float"sv, reinterpret_cast<void *>(&texture_write_3d_float)},
+            {"_accel.trace.closest"sv, reinterpret_cast<void *>(&accel_trace_closest)},
+            {"_accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)}};
+        LUISA_INFO("Searching for symbol '{}' in JIT.", name);
         auto iter = symbols.find(name);
         return iter == symbols.end() ? nullptr : iter->second;
     });
