@@ -92,8 +92,23 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     _engine->DisableLazyCompilation(true);
     _engine->DisableSymbolSearching(false);
     _engine->InstallLazyFunctionCreator([](auto name) noexcept -> void * {
+        using namespace std::string_view_literals;
+        static const luisa::unordered_map<luisa::string_view, void *> symbols{
+            {"_texture.read.2d.int"sv, reinterpret_cast<void *>(&texture_read_2d_int)},
+            {"_texture.read.3d.int"sv, reinterpret_cast<void *>(&texture_read_3d_int)},
+            {"_texture.read.2d.uint"sv, reinterpret_cast<void *>(&texture_read_2d_uint)},
+            {"_texture.read.3d.uint"sv, reinterpret_cast<void *>(&texture_read_3d_uint)},
+            {"_texture.read.2d.float"sv, reinterpret_cast<void *>(&texture_read_2d_float)},
+            {"_texture.read.3d.float"sv, reinterpret_cast<void *>(&texture_read_3d_float)},
+            {"_texture.write.2d.int"sv, reinterpret_cast<void *>(&texture_write_2d_int)},
+            {"_texture.write.3d.int"sv, reinterpret_cast<void *>(&texture_write_3d_int)},
+            {"_texture.write.2d.uint"sv, reinterpret_cast<void *>(&texture_write_2d_uint)},
+            {"_texture.write.3d.uint"sv, reinterpret_cast<void *>(&texture_write_3d_uint)},
+            {"_texture.write.2d.float"sv, reinterpret_cast<void *>(&texture_write_2d_float)},
+            {"_texture.write.3d.float"sv, reinterpret_cast<void *>(&texture_write_3d_float)}};
         LUISA_INFO("Searching for '{}'.", name);
-        return nullptr;
+        auto iter = symbols.find(name);
+        return iter == symbols.end() ? nullptr : iter->second;
     });
     LUISA_ASSERT(_engine != nullptr, "Failed to create execution engine: {}.", err);
     _kernel_entry = reinterpret_cast<kernel_entry_t *>(
