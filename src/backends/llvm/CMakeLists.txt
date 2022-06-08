@@ -15,7 +15,9 @@ if (LLVM_FOUND) # link with llvm for jit
             llvm_event.cpp llvm_event.h
             llvm_shader.cpp llvm_shader.h
             llvm_stream.cpp llvm_stream.h
-            llvm_texture.cpp llvm_texture.h)
+            llvm_texture.cpp llvm_texture.h
+            llvm_mesh.cpp llvm_mesh.h
+            llvm_accel.cpp llvm_accel.h)
     luisa_compute_add_backend(llvm SOURCES ${LC_BACKEND_LLVM_SRC})
     message(STATUS "Build with LLVM backend")
     llvm_map_components_to_libnames(LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)

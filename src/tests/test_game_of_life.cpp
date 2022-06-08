@@ -12,7 +12,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <dsl/syntax.h>
+#include <dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;

@@ -2,6 +2,10 @@ add_library(luisa-compute-ext SHARED dummy.cpp)
 set_target_properties(luisa-compute-ext PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
+add_custom_target(luisa-compute-ext-copy ALL
+        COMMENT "Copy necessary files for third-party libraries")
+add_dependencies(luisa-compute-ext-copy luisa-compute-ext)
+
 set(FMT_OS OFF CACHE BOOL "" FORCE)
 add_subdirectory(fmt)
 target_compile_definitions(fmt-header-only INTERFACE
@@ -75,14 +79,10 @@ add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext PUBLIC EASTL)
 
 if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
-    find_package(embree 3 QUIET)
+    #    find_package(embree 3 QUIET)
     if (NOT embree_FOUND)
         set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
         set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
-        set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
-        set(EMBREE_ISA_SSE42 OFF CACHE BOOL "" FORCE)
-        set(EMBREE_ISA_AVX ON CACHE BOOL "" FORCE)
-        set(EMBREE_ISA_AVX2 ON CACHE BOOL "" FORCE)
         set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
         set(EMBREE_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
         set(EMBREE_RAY_MASK ON CACHE BOOL "" FORCE)
@@ -100,16 +100,14 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
         add_subdirectory(embree)
     endif ()
     target_link_libraries(luisa-compute-ext PUBLIC embree)
-    add_custom_command(TARGET luisa-compute-ext POST_BUILD
+    add_custom_command(TARGET luisa-compute-ext-copy
             DEPENDS "$<TARGET_FILE:embree>"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>"
-            VERBATIM)
-    add_custom_command(TARGET luisa-compute-ext POST_BUILD
+            "$<TARGET_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+    add_custom_command(TARGET luisa-compute-ext-copy
             DEPENDS "$<TARGET_LINKER_FILE:embree>"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>"
-            VERBATIM)
+            "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)

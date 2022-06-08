@@ -274,6 +274,8 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_inverse(const Type *t, ::llvm::Value *pm) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_determinant(const Type *t, ::llvm::Value *pm) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_transpose(const Type *t, ::llvm::Value *pm) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_trace_closest(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_trace_any(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;

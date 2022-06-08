@@ -265,9 +265,20 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
         if (is_out_reference(lc_arg)) {
             variables.emplace(lc_arg.uid(), &arg);
         } else {
-            auto p_arg = builder->CreateAlloca(arg.getType());
-            builder->CreateStore(&arg, p_arg);
-            variables.emplace(lc_arg.uid(), p_arg);
+            switch (lc_arg.tag()) {
+                case Variable::Tag::BUFFER:
+                case Variable::Tag::TEXTURE:
+                case Variable::Tag::BINDLESS_ARRAY:
+                case Variable::Tag::ACCEL:
+                    variables.emplace(lc_arg.uid(), &arg);
+                    break;
+                default: {
+                    auto p_arg = builder->CreateAlloca(arg.getType());
+                    builder->CreateStore(&arg, p_arg);
+                    variables.emplace(lc_arg.uid(), p_arg);
+                    break;
+                }
+            }
         }
     }
     ::llvm::Value *ret = nullptr;

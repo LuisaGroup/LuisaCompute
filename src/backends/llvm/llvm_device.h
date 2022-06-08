@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <embree3/rtcore_device.h>
 #include <runtime/device.h>
 
 namespace llvm {
@@ -15,11 +16,12 @@ namespace luisa::compute::llvm {
 class LLVMDevice : public Device::Interface {
 
 private:
+    RTCDevice _rtc_device;
     ::llvm::TargetMachine *_machine{nullptr};
 
 public:
     explicit LLVMDevice(const Context &ctx) noexcept;
-    ~LLVMDevice() noexcept override = default;
+    ~LLVMDevice() noexcept override;
     [[nodiscard]] ::llvm::TargetMachine *target_machine() const noexcept { return _machine; }
     void *native_handle() const noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
