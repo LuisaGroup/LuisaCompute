@@ -4,6 +4,7 @@ function(luisa_compute_add_backend name)
     add_library(luisa-compute-backend-${name} MODULE ${BACKEND_SOURCES})
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
             luisa-compute-ast
+            luisa-compute-dsl
             luisa-compute-runtime
             luisa-compute-compile
             luisa-compute-gui

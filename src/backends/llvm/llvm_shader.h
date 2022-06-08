@@ -23,7 +23,7 @@ public:
 
 private:
     luisa::unique_ptr<::llvm::LLVMContext> _context;
-    ::llvm::ExecutionEngine *_engine;
+    ::llvm::ExecutionEngine *_engine{nullptr};
     luisa::unordered_map<uint, size_t> _argument_offsets;
     kernel_entry_t *_kernel_entry{nullptr};
     size_t _argument_buffer_size{};

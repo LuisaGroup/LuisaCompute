@@ -2,9 +2,222 @@
 // Created by Mike Smith on 2022/5/23.
 //
 
+#include <dsl/sugar.h>
 #include <backends/llvm/llvm_codegen.h>
 
 namespace luisa::compute::llvm {
+
+[[nodiscard]] static Function _float2x2_inverse() noexcept {
+    static Callable inverse = [](Float2x2 m) noexcept {
+        auto inv_det = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
+        return inv_det * make_float2x2(m[1][1], -m[0][1], -m[1][0], +m[0][0]);
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float3x3_inverse() noexcept {
+    static Callable inverse = [](Float3x3 m) noexcept {
+        auto inv_det = 1.0f /
+                       (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) -
+                        m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z) +
+                        m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
+        auto mm = make_float3x3(
+            m[1].y * m[2].z - m[2].y * m[1].z,
+            m[2].y * m[0].z - m[0].y * m[2].z,
+            m[0].y * m[1].z - m[1].y * m[0].z,
+            m[2].x * m[1].z - m[1].x * m[2].z,
+            m[0].x * m[2].z - m[2].x * m[0].z,
+            m[1].x * m[0].z - m[0].x * m[1].z,
+            m[1].x * m[2].y - m[2].x * m[1].y,
+            m[2].x * m[0].y - m[0].x * m[2].y,
+            m[0].x * m[1].y - m[1].x * m[0].y);
+        return inv_det * mm;
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float4x4_inverse() noexcept {
+    static Callable inverse = [](Float4x4 m) noexcept {
+        auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+        auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+        auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+        auto coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+        auto coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+        auto coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+        auto coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+        auto coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+        auto coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+        auto coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+        auto coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+        auto coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+        auto coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+        auto coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+        auto coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+        auto coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+        auto coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+        auto coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+        auto fac0 = make_float4(coef00, coef00, coef02, coef03);
+        auto fac1 = make_float4(coef04, coef04, coef06, coef07);
+        auto fac2 = make_float4(coef08, coef08, coef10, coef11);
+        auto fac3 = make_float4(coef12, coef12, coef14, coef15);
+        auto fac4 = make_float4(coef16, coef16, coef18, coef19);
+        auto fac5 = make_float4(coef20, coef20, coef22, coef23);
+        auto Vec0 = make_float4(m[1].x, m[0].x, m[0].x, m[0].x);
+        auto Vec1 = make_float4(m[1].y, m[0].y, m[0].y, m[0].y);
+        auto Vec2 = make_float4(m[1].z, m[0].z, m[0].z, m[0].z);
+        auto Vec3 = make_float4(m[1].w, m[0].w, m[0].w, m[0].w);
+        auto inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+        auto inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+        auto inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+        auto inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+        auto sign_a = make_float4(+1.0f, -1.0f, +1.0f, -1.0f);
+        auto sign_b = make_float4(-1.0f, +1.0f, -1.0f, +1.0f);
+        auto inv_0 = inv0 * sign_a;
+        auto inv_1 = inv1 * sign_b;
+        auto inv_2 = inv2 * sign_a;
+        auto inv_3 = inv3 * sign_b;
+        auto dot0 = m[0] * make_float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x);
+        auto dot1 = dot0.x + dot0.y + dot0.z + dot0.w;
+        auto inv_det = 1.0f / dot1;
+        return inv_det * make_float4x4(inv_0, inv_1, inv_2, inv_3);
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float2x2_det() noexcept {
+    static Callable inverse = [](Float2x2 m) noexcept {
+        return m[0][0] * m[1][1] - m[1][0] * m[0][1];
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float3x3_det() noexcept {
+    static Callable inverse = [](Float3x3 m) noexcept {
+        return m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) -
+               m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z) +
+               m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z);
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float4x4_det() noexcept {
+    static Callable inverse = [](Float4x4 m) noexcept {
+        auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
+        auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
+        auto coef03 = m[1].z * m[2].w - m[2].z * m[1].w;
+        auto coef04 = m[2].y * m[3].w - m[3].y * m[2].w;
+        auto coef06 = m[1].y * m[3].w - m[3].y * m[1].w;
+        auto coef07 = m[1].y * m[2].w - m[2].y * m[1].w;
+        auto coef08 = m[2].y * m[3].z - m[3].y * m[2].z;
+        auto coef10 = m[1].y * m[3].z - m[3].y * m[1].z;
+        auto coef11 = m[1].y * m[2].z - m[2].y * m[1].z;
+        auto coef12 = m[2].x * m[3].w - m[3].x * m[2].w;
+        auto coef14 = m[1].x * m[3].w - m[3].x * m[1].w;
+        auto coef15 = m[1].x * m[2].w - m[2].x * m[1].w;
+        auto coef16 = m[2].x * m[3].z - m[3].x * m[2].z;
+        auto coef18 = m[1].x * m[3].z - m[3].x * m[1].z;
+        auto coef19 = m[1].x * m[2].z - m[2].x * m[1].z;
+        auto coef20 = m[2].x * m[3].y - m[3].x * m[2].y;
+        auto coef22 = m[1].x * m[3].y - m[3].x * m[1].y;
+        auto coef23 = m[1].x * m[2].y - m[2].x * m[1].y;
+        auto fac0 = make_float4(coef00, coef00, coef02, coef03);
+        auto fac1 = make_float4(coef04, coef04, coef06, coef07);
+        auto fac2 = make_float4(coef08, coef08, coef10, coef11);
+        auto fac3 = make_float4(coef12, coef12, coef14, coef15);
+        auto fac4 = make_float4(coef16, coef16, coef18, coef19);
+        auto fac5 = make_float4(coef20, coef20, coef22, coef23);
+        auto Vec0 = make_float4(m[1].x, m[0].x, m[0].x, m[0].x);
+        auto Vec1 = make_float4(m[1].y, m[0].y, m[0].y, m[0].y);
+        auto Vec2 = make_float4(m[1].z, m[0].z, m[0].z, m[0].z);
+        auto Vec3 = make_float4(m[1].w, m[0].w, m[0].w, m[0].w);
+        auto inv0 = Vec1 * fac0 - Vec2 * fac1 + Vec3 * fac2;
+        auto inv1 = Vec0 * fac0 - Vec2 * fac3 + Vec3 * fac4;
+        auto inv2 = Vec0 * fac1 - Vec1 * fac3 + Vec3 * fac5;
+        auto inv3 = Vec0 * fac2 - Vec1 * fac4 + Vec2 * fac5;
+        auto sign_a = make_float4(+1.0f, -1.0f, +1.0f, -1.0f);
+        auto sign_b = make_float4(-1.0f, +1.0f, -1.0f, +1.0f);
+        auto inv_0 = inv0 * sign_a;
+        auto inv_1 = inv1 * sign_b;
+        auto inv_2 = inv2 * sign_a;
+        auto inv_3 = inv3 * sign_b;
+        auto dot0 = m[0] * make_float4(inv_0.x, inv_1.x, inv_2.x, inv_3.x);
+        return dot0.x + dot0.y + dot0.z + dot0.w;
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float2x2_transpose() noexcept {
+    static Callable inverse = [](Float2x2 m) noexcept {
+        return make_float2x2(m[0].x, m[1].x, m[0].y, m[1].y);
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float3x3_transpose() noexcept {
+    static Callable inverse = [](Float3x3 m) noexcept {
+        return make_float3x3(
+            m[0].x, m[1].x, m[2].x,
+            m[0].y, m[1].y, m[2].y,
+            m[0].z, m[1].z, m[2].z);
+    };
+    return inverse.function();
+}
+
+[[nodiscard]] static Function _float4x4_transpose() noexcept {
+    static Callable inverse = [](Float4x4 m) noexcept {
+        return make_float4x4(
+            m[0].x, m[1].x, m[2].x, m[3].x,
+            m[0].y, m[1].y, m[2].y, m[3].y,
+            m[0].z, m[1].z, m[2].z, m[3].z,
+            m[0].w, m[1].w, m[2].w, m[3].w);
+    };
+    return inverse.function();
+}
+
+::llvm::Value *LLVMCodegen::_builtin_inverse(const Type *t, ::llvm::Value *pm) noexcept {
+    LUISA_ASSERT(t->is_matrix(), "Expected matrix type.");
+    auto ast = [t] {
+        if (t->dimension() == 2u) { return _float2x2_inverse(); }
+        if (t->dimension() == 3u) { return _float3x3_inverse(); }
+        if (t->dimension() == 4u) { return _float4x4_inverse(); }
+        LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension {}.", t->dimension());
+    }();
+    auto func = _create_function(ast);
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateLoad(_create_type(t), pm, "inverse.m");
+    auto ret = b->CreateCall(func->getFunctionType(), func, m, "inverse.ret");
+    return _create_stack_variable(ret, "inverse.ret.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_determinant(const Type *t, ::llvm::Value *pm) noexcept {
+    LUISA_ASSERT(t->is_matrix(), "Expected matrix type.");
+    auto ast = [t] {
+        if (t->dimension() == 2u) { return _float2x2_det(); }
+        if (t->dimension() == 3u) { return _float3x3_det(); }
+        if (t->dimension() == 4u) { return _float4x4_det(); }
+        LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension {}.", t->dimension());
+    }();
+    auto func = _create_function(ast);
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateLoad(_create_type(t), pm, "determinant.m");
+    auto ret = b->CreateCall(func->getFunctionType(), func, m, "determinant.ret");
+    return _create_stack_variable(ret, "determinant.ret.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_transpose(const Type *t, ::llvm::Value *pm) noexcept {
+    LUISA_ASSERT(t->is_matrix(), "Expected matrix type.");
+    auto ast = [t] {
+        if (t->dimension() == 2u) { return _float2x2_transpose(); }
+        if (t->dimension() == 3u) { return _float3x3_transpose(); }
+        if (t->dimension() == 4u) { return _float4x4_transpose(); }
+        LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension {}.", t->dimension());
+    }();
+    auto func = _create_function(ast);
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateLoad(_create_type(t), pm, "transpose.m");
+    auto ret = b->CreateCall(func->getFunctionType(), func, m, "transpose.ret");
+    return _create_stack_variable(ret, "transpose.ret.addr");
+}
 
 [[nodiscard]] ::llvm::Function *_declare_external_math_function(
     ::llvm::Module *module, luisa::string_view name, size_t n_args) noexcept {
@@ -180,9 +393,12 @@ namespace luisa::compute::llvm {
         case CallOp::FACEFORWARD: return _builtin_faceforward(
             args[0]->type(), _create_expr(args[0]),
             _create_expr(args[1]), _create_expr(args[2]));
-        case CallOp::DETERMINANT: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::TRANSPOSE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::INVERSE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::DETERMINANT: return _builtin_determinant(
+            args[0]->type(), _create_expr(args[0]));
+        case CallOp::TRANSPOSE: return _builtin_transpose(
+            args[0]->type(), _create_expr(args[0]));
+        case CallOp::INVERSE: return _builtin_inverse(
+            args[0]->type(), _create_expr(args[0]));
         case CallOp::SYNCHRONIZE_BLOCK:
             LUISA_WARNING_WITH_LOCATION(
                 "Block synchronization is not "
@@ -645,6 +861,28 @@ namespace luisa::compute::llvm {
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_rsqrt(const Type *t, ::llvm::Value *x) noexcept {
+    //    auto ctx = _current_context();
+    //    auto v = static_cast<::llvm::Value *>(
+    //        ctx->builder->CreateLoad(_create_type(t), x, "rsqrt.x"));
+    //    auto vectorize = [ctx, t](auto s) noexcept {
+    //        if (t->is_scalar()) { return s; }
+    //        auto dim = t->dimension() == 3u ? 4u : t->dimension();
+    //        return ctx->builder->CreateVectorSplat(dim, s);
+    //    };
+    //    auto half_f32 = vectorize(_literal(0.5f));
+    //    auto one_i32 = vectorize(_literal(1));
+    //    auto magic_i32 = vectorize(_literal(0x5f375a86u));
+    //    auto three_halves_f32 = vectorize(_literal(1.5f));
+    //    auto x_half = ctx->builder->CreateFMul(v, half_f32, "rsqrt.x.half");
+    //    auto i = ctx->builder->CreateBitCast(v, one_i32->getType(), "rsqrt.vi");
+    //    i = ctx->builder->CreateLShr(i, one_i32);
+    //    i = ctx->builder->CreateSub(magic_i32, i);
+    //    x = ctx->builder->CreateBitCast(i, v->getType(), "rsqrt.vf");
+    //    auto xx = ctx->builder->CreateFMul(x, x);
+    //    auto xx_x_half = ctx->builder->CreateFMul(xx, x_half);
+    //    auto sub = ctx->builder->CreateFSub(three_halves_f32, xx_x_half);
+    //    v = ctx->builder->CreateFMul(x, sub);
+    //    return _create_stack_variable(v, "rsqrt.addr");
     auto s = _builtin_sqrt(t, x);
     auto one = _builtin_static_cast(
         t, Type::of<float>(),
@@ -1088,7 +1326,6 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_le(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    LUISA_INFO("less equal");
     auto ctx = _current_context();
     auto ir_type = _create_type(t);
     auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "le.lhs");

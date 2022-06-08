@@ -20,7 +20,7 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept : Interface{ctx} {
         LLVMLinkInMCJIT();
     });
     std::string err;
-    auto target_triple = ::llvm::sys::getDefaultTargetTriple();
+    auto target_triple = ::llvm::sys::getProcessTriple();
     LUISA_INFO("Target: {}.", target_triple);
     auto target = ::llvm::TargetRegistry::lookupTarget(target_triple, err);
     LUISA_ASSERT(target != nullptr, "Failed to get target machine: {}.", err);
@@ -31,11 +31,12 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept : Interface{ctx} {
     options.NoNaNsFPMath = true;
     options.NoTrappingFPMath = true;
     options.GuaranteedTailCallOpt = true;
+    options.EnableIPRA = true;
     auto mcpu = ::llvm::sys::getHostCPUName();
     _machine = target->createTargetMachine(
         target_triple, mcpu,
 #if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
-        "+neon,+zcz",
+        "+neon",
 #else
         "+avx2",
 #endif

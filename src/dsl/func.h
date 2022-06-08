@@ -389,6 +389,9 @@ public:
               }
           })} {}
 
+    /// Get the underlying AST
+    [[nodiscard]] auto function() const noexcept { return Function{_builder.get()}; }
+
     /// Call the callable.
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
         detail::CallableInvoke invoke;
