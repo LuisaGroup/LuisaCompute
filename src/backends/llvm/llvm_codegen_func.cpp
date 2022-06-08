@@ -29,11 +29,11 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
             }
             auto arg_size = [arg]() noexcept -> size_t {
                 switch (arg.tag()) {
-                    case Variable::Tag::REFERENCE: return 8u;
-                    case Variable::Tag::BUFFER: return buffer_argument_size;
-                    case Variable::Tag::TEXTURE: return texture_argument_size;
-                    case Variable::Tag::BINDLESS_ARRAY: return bindless_array_argument_size;
-                    case Variable::Tag::ACCEL: return accel_argument_size;
+                    case Variable::Tag::REFERENCE: return sizeof(void *);
+                    case Variable::Tag::BUFFER: return buffer_handle_size;
+                    case Variable::Tag::TEXTURE: return texture_handle_size;
+                    case Variable::Tag::BINDLESS_ARRAY: return bindless_array_handle_size;
+                    case Variable::Tag::ACCEL: return accel_handle_size;
                     default: break;
                 }
                 return arg.type()->size();

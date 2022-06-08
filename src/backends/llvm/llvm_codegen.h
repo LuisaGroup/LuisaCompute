@@ -27,6 +27,7 @@
 #include <ast/expression.h>
 #include <ast/statement.h>
 #include <ast/function_builder.h>
+#include <backends/llvm/llvm_texture.h>
 
 namespace luisa::compute::llvm {
 
@@ -35,7 +36,7 @@ class LLVMCodegen : public StmtVisitor {
 public:
     static constexpr auto accel_handle_size = sizeof(const void *);
     static constexpr auto buffer_handle_size = sizeof(const void *);
-    static constexpr auto texture_handle_size = sizeof(const void *);
+    static constexpr auto texture_handle_size = sizeof(LLVMTextureView);
     static constexpr auto bindless_array_handle_size = sizeof(const void *);
 
 private:
@@ -56,12 +57,6 @@ private:
             : function{f}, ir{ir}, ret{ret}, exit_block{exit_block},
               builder{std::move(builder)}, variables{std::move(variables)} {}
     };
-
-public:
-    static constexpr auto buffer_argument_size = 8u;
-    static constexpr auto texture_argument_size = 8u;
-    static constexpr auto accel_argument_size = 8u;
-    static constexpr auto bindless_array_argument_size = 8u;
 
 private:
     struct LLVMStruct {
@@ -226,6 +221,8 @@ private:
     void _builtin_buffer_write(const Type *t_value, ::llvm::Value *buffer, ::llvm::Value *p_index, ::llvm::Value *p_value) noexcept;
     void _builtin_assume(::llvm::Value *p) noexcept;
     void _builtin_unreachable() noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_texture_read(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord) noexcept;
+    void _builtin_texture_write(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_sqrt(const Type *t, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_rsqrt(const Type *t, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_dot(const Type *t, ::llvm::Value *a, ::llvm::Value *b) noexcept;

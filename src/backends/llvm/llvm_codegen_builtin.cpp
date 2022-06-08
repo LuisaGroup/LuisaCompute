@@ -429,8 +429,13 @@ namespace luisa::compute::llvm {
                 args[0]->type()->element(), _create_expr(args[0]), _create_expr(args[1]),
                 _builtin_static_cast(args[0]->type()->element(), args[2]->type(), _create_expr(args[2])));
             return nullptr;
-        case CallOp::TEXTURE_READ: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::TEXTURE_WRITE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::TEXTURE_READ: return _builtin_texture_read(
+            ret_type, _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::TEXTURE_WRITE:
+            _builtin_texture_write(
+                args[2]->type(), _create_expr(args[0]),
+                _create_expr(args[1]), _create_expr(args[2]));
+            return nullptr;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
@@ -2022,6 +2027,85 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
     auto index = ctx->builder->CreateLoad(_create_type(Type::of<uint>()), p_index, "buffer.write.index");
     auto ptr = ctx->builder->CreateInBoundsGEP(value_type, buffer, index, "buffer.write.ptr");
     _create_assignment(t_value, t_value, ptr, p_value);
+}
+
+::llvm::Value *LLVMCodegen::_builtin_texture_read(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord) noexcept {
+    LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
+                 "Invalid type '{}' for texture-read.",
+                 t->description());
+    auto value_type = static_cast<::llvm::FixedVectorType *>(_create_type(t));
+    auto elem_type = value_type->getElementType();
+    auto coord_type = static_cast<::llvm::FixedVectorType *>(p_coord->getType()->getPointerElementType());
+    auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
+    auto func_name = luisa::format("texture.read.{}d.{}", dim, t->element()->description());
+    auto func = _module->getFunction(luisa::string_view{func_name});
+    ::llvm::SmallVector<::llvm::Type *, 4u> coord_elements(
+        coord_type->getNumElements(), coord_type->getElementType());
+    auto coord_struct_type = ::llvm::StructType::get(_context, coord_elements);
+    auto value_struct_type = ::llvm::StructType::get(elem_type, elem_type, elem_type, elem_type);
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(value_struct_type, {texture->getType(), coord_struct_type}, false),
+            ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
+        func->setNoSync();
+        func->setWillReturn();
+        func->setDoesNotThrow();
+        func->setMustProgress();
+        func->setSpeculatable();
+        func->setOnlyReadsMemory();
+        func->setDoesNotFreeMemory();
+        func->setOnlyAccessesInaccessibleMemory();
+    }
+    auto ctx = _current_context();
+    auto coord_ptr = ctx->builder->CreateBitOrPointerCast(
+        p_coord, coord_struct_type->getPointerTo(0), "texture.read.coord.addr");
+    auto coord = ctx->builder->CreateLoad(coord_struct_type, coord_ptr, "texture.write.coord");
+    auto value = ctx->builder->CreateCall(func->getFunctionType(), func, {texture, coord}, "texture.read.struct");
+    auto value_vector = static_cast<::llvm::Value *>(::llvm::UndefValue::get(value_type));
+    for (auto i = 0; i < value_type->getNumElements(); i++) {
+        auto elem = ctx->builder->CreateExtractValue(value, i, "texture.read.struct.extract");
+        value_vector = ctx->builder->CreateInsertElement(value_vector, elem, i, "texture.read.struct.insert");
+    }
+    return _create_stack_variable(value_vector, "texture.read.addr");
+}
+
+void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept {
+    LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
+                 "Invalid type '{}' for texture-read.",
+                 t->description());
+    auto value_type = static_cast<::llvm::FixedVectorType *>(_create_type(t));
+    auto elem_type = value_type->getElementType();
+    auto coord_type = static_cast<::llvm::FixedVectorType *>(p_coord->getType()->getPointerElementType());
+    auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
+    auto func_name = luisa::format("texture.write.{}d.{}", dim, t->element()->description());
+    auto func = _module->getFunction(luisa::string_view{func_name});
+    ::llvm::SmallVector<::llvm::Type *, 4u> coord_elements(
+        coord_type->getNumElements(), coord_type->getElementType());
+    auto coord_struct_type = ::llvm::StructType::get(_context, coord_elements);
+    auto value_struct_type = ::llvm::StructType::get(elem_type, elem_type, elem_type, elem_type);
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                ::llvm::Type::getVoidTy(_context),
+                {texture->getType(), coord_struct_type, value_struct_type}, false),
+            ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
+        func->setNoSync();
+        func->setWillReturn();
+        func->setDoesNotThrow();
+        func->setMustProgress();
+        func->setSpeculatable();
+        func->setDoesNotReadMemory();
+        func->setDoesNotFreeMemory();
+        func->setOnlyAccessesInaccessibleMemory();
+    }
+    auto ctx = _current_context();
+    auto coord_ptr = ctx->builder->CreateBitOrPointerCast(
+        p_coord, coord_struct_type->getPointerTo(0), "texture.write.coord.addr");
+    auto value_ptr = ctx->builder->CreateBitOrPointerCast(
+        p_value, value_struct_type->getPointerTo(0), "texture.write.value.addr");
+    auto coord = ctx->builder->CreateLoad(coord_struct_type, coord_ptr, "texture.write.coord");
+    auto value = ctx->builder->CreateLoad(value_struct_type, value_ptr, "texture.write.value");
+    ctx->builder->CreateCall(func->getFunctionType(), func, {texture, coord, value});
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_length_squared(const Type *t, ::llvm::Value *v) noexcept {
