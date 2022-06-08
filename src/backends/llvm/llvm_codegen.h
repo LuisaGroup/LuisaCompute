@@ -274,7 +274,9 @@ private:
         const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_atomic_fetch_max(
         const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept;
-
+    [[nodiscard]] ::llvm::Value *_builtin_inverse(const Type *t, ::llvm::Value *pm) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_determinant(const Type *t, ::llvm::Value *pm) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_transpose(const Type *t, ::llvm::Value *pm) noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;

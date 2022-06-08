@@ -10,13 +10,6 @@
 
 namespace luisa::compute::llvm {
 
-using llvm_float2 = float __attribute__((ext_vector_type(2)));
-using llvm_float4 = float __attribute__((ext_vector_type(4)));
-[[nodiscard]] static float rsqrt(float x) noexcept { return 1.f / std::sqrt(x); }
-[[nodiscard]] static llvm_float2 normalize_v2(llvm_float2 v) noexcept { return v * rsqrt(v.x * v.x + v.y * v.y); }
-[[nodiscard]] static llvm_float4 normalize_v3(llvm_float4 v) noexcept { return v * rsqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
-[[nodiscard]] static llvm_float4 normalize_v4(llvm_float4 v) noexcept { return v * rsqrt(v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w); }
-
 LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     // compute argument offsets
     _argument_offsets.reserve(func.arguments().size());
@@ -92,12 +85,16 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     // compile
     std::string err;
     _engine = ::llvm::EngineBuilder{std::move(module)}
-                      .setErrorStr(&err)
-                      .setOptLevel(::llvm::CodeGenOpt::Aggressive)
-                      .setEngineKind(::llvm::EngineKind::JIT)
-                      .create(machine);
+                  .setErrorStr(&err)
+                  .setOptLevel(::llvm::CodeGenOpt::Aggressive)
+                  .setEngineKind(::llvm::EngineKind::JIT)
+                  .create(machine);
     _engine->DisableLazyCompilation(true);
     _engine->DisableSymbolSearching(false);
+    _engine->InstallLazyFunctionCreator([](auto name) noexcept -> void * {
+        LUISA_INFO("Searching for '{}'.", name);
+        return nullptr;
+    });
     LUISA_ASSERT(_engine != nullptr, "Failed to create execution engine: {}.", err);
     _kernel_entry = reinterpret_cast<kernel_entry_t *>(
         _engine->getFunctionAddress("kernel_main"));
