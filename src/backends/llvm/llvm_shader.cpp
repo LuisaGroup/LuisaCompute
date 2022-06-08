@@ -83,6 +83,7 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     module->print(file_opt, nullptr);
 
     // compile
+    clk.tic();
     std::string err;
     _engine = ::llvm::EngineBuilder{std::move(module)}
                   .setErrorStr(&err)
@@ -106,7 +107,7 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
             {"_texture.write.3d.uint"sv, reinterpret_cast<void *>(&texture_write_3d_uint)},
             {"_texture.write.2d.float"sv, reinterpret_cast<void *>(&texture_write_2d_float)},
             {"_texture.write.3d.float"sv, reinterpret_cast<void *>(&texture_write_3d_float)}};
-        LUISA_INFO("Searching for '{}'.", name);
+        LUISA_VERBOSE_WITH_LOCATION("Searching for symbol '{}' in JIT.", name);
         auto iter = symbols.find(name);
         return iter == symbols.end() ? nullptr : iter->second;
     });
@@ -114,6 +115,7 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     _kernel_entry = reinterpret_cast<kernel_entry_t *>(
         _engine->getFunctionAddress("kernel_main"));
     LUISA_ASSERT(_kernel_entry != nullptr, "Failed to find kernel entry.");
+    LUISA_INFO("Compile: {} ms.", clk.toc());
 }
 
 LLVMShader::~LLVMShader() noexcept = default;

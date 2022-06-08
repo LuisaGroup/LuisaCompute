@@ -19,6 +19,14 @@ LLVMTexture::LLVMTexture(PixelStorage storage, uint3 size, uint levels) noexcept
     _data = luisa::allocate<std::byte>(size_bytes);
 }
 
+LLVMTexture::~LLVMTexture() noexcept { luisa::deallocate(_data); }
+
+LLVMTextureView LLVMTexture::view(uint level) const noexcept {
+    auto size = luisa::max(make_uint2(_size[0], _size[1]) >> level, 1u);
+    return LLVMTextureView{_data + _mip_offsets[level], size.x, size.y,
+                           _storage, _pixel_stride};
+}
+
 void texture_write_2d_float(LLVMTextureView tex, uint2 xy, float4 v) noexcept { tex.write2d<float>(xy, v); }
 void texture_write_3d_float(LLVMTextureView tex, uint3 xyz, float4 v) noexcept { tex.write3d<float>(xyz, v); }
 void texture_write_2d_int(LLVMTextureView tex, uint2 xy, int4 v) noexcept { tex.write2d<int>(xy, v); }
