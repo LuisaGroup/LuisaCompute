@@ -61,11 +61,11 @@ void LLVMStream::visit(const BufferCopyCommand *command) noexcept {
 
 void LLVMStream::visit(const BufferToTextureCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
-        auto dst = reinterpret_cast<void *>(cmd.buffer() + cmd.buffer_offset());
+        auto src = reinterpret_cast<const void *>(cmd.buffer() + cmd.buffer_offset());
         auto tex = reinterpret_cast<LLVMTexture *>(cmd.texture())->view(cmd.level());
         auto size_bytes = cmd.size().x * cmd.size().y * cmd.size().z *
                           pixel_storage_size(cmd.storage());
-        std::memcpy(dst, tex.data(), size_bytes);
+        std::memcpy(tex.data(), src, size_bytes);
     });
 }
 
