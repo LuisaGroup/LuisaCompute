@@ -272,8 +272,9 @@ namespace luisa::compute::llvm {
     auto m = b->CreateAlloca(t, nullptr, "float2x2.addr");
     auto m0 = b->CreateStructGEP(t, m, 0u, "float2x2.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float2x2.b");
-    b->CreateStore(b->CreateLoad(p0->getType(), p0, "m.a"), m0);
-    b->CreateStore(b->CreateLoad(p1->getType(), p1, "m.b"), m1);
+    auto col_type = _create_type(Type::of<float2>());
+    b->CreateStore(b->CreateLoad(col_type, p0, "m.a"), m0);
+    b->CreateStore(b->CreateLoad(col_type, p1, "m.b"), m1);
     return m;
 }
 
@@ -284,9 +285,10 @@ namespace luisa::compute::llvm {
     auto m0 = b->CreateStructGEP(t, m, 0u, "float3x3.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float3x3.b");
     auto m2 = b->CreateStructGEP(t, m, 2u, "float3x3.c");
-    b->CreateStore(b->CreateLoad(p0->getType(), p0, "m.a"), m0);
-    b->CreateStore(b->CreateLoad(p1->getType(), p1, "m.b"), m1);
-    b->CreateStore(b->CreateLoad(p2->getType(), p2, "m.c"), m2);
+    auto col_type = _create_type(Type::of<float3>());
+    b->CreateStore(b->CreateLoad(col_type, p0, "m.a"), m0);
+    b->CreateStore(b->CreateLoad(col_type, p1, "m.b"), m1);
+    b->CreateStore(b->CreateLoad(col_type, p2, "m.c"), m2);
     return m;
 }
 
@@ -298,10 +300,11 @@ namespace luisa::compute::llvm {
     auto m1 = b->CreateStructGEP(t, m, 1u, "float4x4.b");
     auto m2 = b->CreateStructGEP(t, m, 2u, "float4x4.c");
     auto m3 = b->CreateStructGEP(t, m, 3u, "float4x4.d");
-    b->CreateStore(b->CreateLoad(p0->getType(), p0, "m.a"), m0);
-    b->CreateStore(b->CreateLoad(p1->getType(), p1, "m.b"), m1);
-    b->CreateStore(b->CreateLoad(p2->getType(), p2, "m.c"), m2);
-    b->CreateStore(b->CreateLoad(p3->getType(), p3, "m.d"), m3);
+    auto col_type = _create_type(Type::of<float4>());
+    b->CreateStore(b->CreateLoad(col_type, p0, "m.a"), m0);
+    b->CreateStore(b->CreateLoad(col_type, p1, "m.b"), m1);
+    b->CreateStore(b->CreateLoad(col_type, p2, "m.c"), m2);
+    b->CreateStore(b->CreateLoad(col_type, p3, "m.d"), m3);
     return m;
 }
 
