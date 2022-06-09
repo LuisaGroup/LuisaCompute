@@ -93,7 +93,7 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
                   .create(machine);
     _engine->DisableLazyCompilation(true);
     _engine->DisableSymbolSearching(false);
-    _engine->InstallLazyFunctionCreator([](auto name) noexcept -> void * {
+    _engine->InstallLazyFunctionCreator([](auto &&name) noexcept -> void * {
         using namespace std::string_view_literals;
         static const luisa::unordered_map<luisa::string_view, void *> symbols{
             {"texture.read.2d.int"sv, reinterpret_cast<void *>(&texture_read_2d_int)},
@@ -112,9 +112,10 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
             {"accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)},
             {"bindless.texture.2d.read", reinterpret_cast<void *>(&bindless_texture_2d_read)},
             {"bindless.texture.3d.read", reinterpret_cast<void *>(&bindless_texture_3d_read)}};
-        if (name.starts_with('_')) { name = name.substr(1u); }
-        LUISA_INFO("Searching for symbol '{}' in JIT.", name);
-        auto iter = symbols.find(name);
+        auto name_view = luisa::string_view{name};
+        if (name_view.starts_with('_')) { name_view = name_view.substr(1u); }
+        LUISA_INFO("Searching for symbol '{}' in JIT.", name_view);
+        auto iter = symbols.find(name_view);
         return iter == symbols.end() ? nullptr : iter->second;
     });
     LUISA_ASSERT(_engine != nullptr, "Failed to create execution engine: {}.", err);

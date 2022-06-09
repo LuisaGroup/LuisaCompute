@@ -6,9 +6,9 @@ import luisa as lc
 from luisa.mathtypes import *
 
 if len(argv) > 1:
-    luisa.init(argv[1])
+    lc.init(argv[1])
 else:
-    luisa.init()
+    lc.init()
 
 n_grid = 128
 n_steps = 16
