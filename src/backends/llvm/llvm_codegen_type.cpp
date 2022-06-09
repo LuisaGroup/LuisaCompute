@@ -34,7 +34,9 @@ namespace luisa::compute::llvm {
     switch (src_type->tag()) {
         case Type::Tag::BOOL: return _create_stack_variable(
             builder->CreateSelect(
-                builder->CreateLoad(_create_type(src_type), p_src, "cast.bool_to_float.src"),
+                builder->CreateICmpEQ(
+                    builder->CreateLoad(_create_type(src_type), p_src, "cast.bool_to_float.src"),
+                    _literal(true), "cast.bool_to_float.cmp"),
                 _literal(1.f), _literal(0.f), "cast.bool_to_float.select"),
             "cast.bool_to_float.addr");
         case Type::Tag::FLOAT: return p_src;
@@ -160,17 +162,20 @@ namespace luisa::compute::llvm {
             switch (src_type->dimension()) {
                 case 2u: return _create_stack_variable(
                     builder->CreateSelect(
-                        builder->CreateLoad(_create_type(src_type), p_src, "cast.bool2_to_float2.src"),
+                        builder->CreateICmpEQ(builder->CreateLoad(_create_type(src_type), p_src, "cast.bool2_to_float2.src"),
+                                              _literal(make_bool2(true)), "cast.bool2_to_float2.cmp"),
                         _literal(make_float2(1.f)), _literal(make_float2(0.f)), "cast.bool2_to_float2.select"),
                     "cast.bool2_to_float2.addr");
                 case 3u: return _create_stack_variable(
                     builder->CreateSelect(
-                        builder->CreateLoad(_create_type(src_type), p_src, "cast.bool3_to_float3.src"),
+                        builder->CreateICmpEQ(builder->CreateLoad(_create_type(src_type), p_src, "cast.bool3_to_float3.src"),
+                                              _literal(make_bool2(true)), "cast.bool3_to_float3.cmp"),
                         _literal(make_float3(1.f)), _literal(make_float3(0.f)), "cast.bool3_to_float3.select"),
                     "cast.bool3_to_float3.addr");
                 case 4u: return _create_stack_variable(
                     builder->CreateSelect(
-                        builder->CreateLoad(_create_type(src_type), p_src, "cast.bool4_to_float4.src"),
+                        builder->CreateICmpEQ(builder->CreateLoad(_create_type(src_type), p_src, "cast.bool4_to_float4.src"),
+                                              _literal(make_bool2(true)), "cast.bool4_to_float4.cmp"),
                         _literal(make_float4(1.f)), _literal(make_float4(0.f)), "cast.bool4_to_float4.select"),
                     "cast.bool4_to_float4.addr");
                 default: break;
