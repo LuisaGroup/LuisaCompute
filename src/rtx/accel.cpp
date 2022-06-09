@@ -71,10 +71,10 @@ void Accel::set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) cons
 }
 
 void Accel::emplace_back(const Mesh &mesh, float4x4 transform, bool visible) noexcept {
-    _emplace_back(mesh.handle(), transform, visible);
+    emplace_back_mesh_with_handle(mesh.handle(), transform, visible);
 }
 
-void Accel::_emplace_back(uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
+void Accel::emplace_back_mesh_with_handle(uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
     std::scoped_lock lock{*_mutex};
     auto index = static_cast<uint>(_mesh_handles.size());
     Modification modification{index};
@@ -97,7 +97,7 @@ void Accel::pop_back() noexcept {
 }
 
 void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible) noexcept {
-    set(index, mesh.handle(), transform, visible);
+    set_mesh_with_handle(index, mesh.handle(), transform, visible);
 }
 
 void Accel::set_mesh_with_handle(size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
