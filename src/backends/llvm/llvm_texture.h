@@ -187,6 +187,7 @@ template<typename T>
     }
     return {};
 }
+
 template<typename T>
 inline void write_pixel(PixelStorage storage, std::byte *p, Vector<T, 4u> v) noexcept {
     switch (storage) {
@@ -240,8 +241,9 @@ private:
     std::byte *_data;           // 8B
     uint _width : 16u;          // 10B
     uint _height : 16u;         // 12B
-    PixelStorage _storage : 16u;// 14B
-    uint _pixel_stride : 16u;   // 16B
+    uint _depth : 16u;          // 14B
+    PixelStorage _storage : 8u;// 15B
+    uint _pixel_stride : 8u;   // 16B
 
 private:
     [[nodiscard]] inline std::byte *_pixel2d(uint2 xy) const noexcept {
@@ -252,29 +254,39 @@ private:
         auto offset = _pixel_stride * (xyz[0] + xyz[1] * _width + xyz[2] * _width * _height);
         return _data + offset;
     }
+    [[nodiscard]] inline auto _out_of_bounds(uint2 xy) const noexcept {
+        return !(xy[0] < _width & xy[1] < _height);
+    }
+    [[nodiscard]] inline auto _out_of_bounds(uint3 xyz) const noexcept {
+        return !(xyz[0] < _width & xyz[1] < _height & xyz[2] < _depth);
+    }
 
 private:
     friend class LLVMTexture;
-    LLVMTextureView(std::byte *data, uint w, uint h,
+    LLVMTextureView(std::byte *data, uint w, uint h, uint d,
                     PixelStorage storage, uint pixel_stride) noexcept
-        : _data(data), _width{w}, _height{h},
+        : _data(data), _width{w}, _height{h}, _depth{d},
           _storage(storage), _pixel_stride(pixel_stride) {}
 
 public:
     template<typename T>
     [[nodiscard]] inline Vector<T, 4u> read2d(uint2 xy) const noexcept {
+        if (_out_of_bounds(xy)) [[unlikely]] { return {}; }
         return detail::read_pixel<T>(_storage, _pixel2d(xy));
     }
     template<typename T>
     [[nodiscard]] inline Vector<T, 4u> read3d(uint3 xyz) const noexcept {
+        if (_out_of_bounds(xyz)) [[unlikely]] { return {}; }
         return detail::read_pixel<T>(_storage, _pixel3d(xyz));
     }
     template<typename T>
     inline void write2d(uint2 xy, Vector<T, 4u> value) const noexcept {
+        if (_out_of_bounds(xy)) [[unlikely]] { return; }
         detail::write_pixel<T>(_storage, _pixel2d(xy), value);
     }
     template<typename T>
     inline void write3d(uint3 xyz, Vector<T, 4u> value) const noexcept {
+        if (_out_of_bounds(xyz)) [[unlikely]] { return; }
         detail::write_pixel<T>(_storage, _pixel3d(xyz), value);
     }
     [[nodiscard]] inline auto data() const noexcept { return _data; }

@@ -9,6 +9,7 @@
 #include <backends/llvm/llvm_texture.h>
 #include <backends/llvm/llvm_mesh.h>
 #include <backends/llvm/llvm_accel.h>
+#include <backends/llvm/llvm_bindless_array.h>
 
 namespace luisa::compute::llvm {
 
@@ -85,9 +86,9 @@ void LLVMStream::visit(const ShaderDispatchCommand *command) noexcept {
             auto handle = texture->view(argument.level);
             std::memcpy(ptr, &handle, sizeof(handle));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-            //            auto array = reinterpret_cast<const LLVMBindlessArray *>(argument.handle);
-            //            auto handle = array->handle();
-            //            std::memcpy(ptr, &handle, sizeof(handle));
+            auto array = reinterpret_cast<const LLVMBindlessArray *>(argument.handle);
+            auto handle = array->handle();
+            std::memcpy(ptr, &handle, sizeof(handle));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
             auto handle = reinterpret_cast<LLVMAccel *>(argument.handle)->handle();
             std::memcpy(ptr, &handle, sizeof(handle));
@@ -159,7 +160,7 @@ void LLVMStream::visit(const MeshBuildCommand *command) noexcept {
 }
 
 void LLVMStream::visit(const BindlessArrayUpdateCommand *command) noexcept {
-    //        reinterpret_cast<LLVMBindlessArray *>(command->handle())->update(_pool);
+    reinterpret_cast<LLVMBindlessArray *>(command->handle())->update(_pool);
 }
 
 void LLVMStream::dispatch(luisa::move_only_function<void()> &&f) noexcept {

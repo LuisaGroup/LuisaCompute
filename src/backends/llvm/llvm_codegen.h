@@ -81,6 +81,8 @@ private:
     [[nodiscard]] luisa::unique_ptr<FunctionContext> _create_kernel_context(Function f) noexcept;
     [[nodiscard]] luisa::unique_ptr<FunctionContext> _create_callable_context(Function f) noexcept;
     [[nodiscard]] ::llvm::Type *_create_type(const Type *t) noexcept;
+    [[nodiscard]] ::llvm::Type *_bindless_item_type() noexcept;
+    [[nodiscard]] ::llvm::Type *_bindless_texture_type() noexcept;
     [[nodiscard]] ::llvm::Value *_create_expr(const Expression *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_unary_expr(const UnaryExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_binary_expr(const BinaryExpr *expr) noexcept;
@@ -280,6 +282,10 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_instance_transform(::llvm::Value *accel, ::llvm::Value *p_index) noexcept;
     void _builtin_set_instance_transform(::llvm::Value *accel, ::llvm::Value *p_index, ::llvm::Value *p_mat) noexcept;
     void _builtin_set_instance_visibility(::llvm::Value *accel, ::llvm::Value *p_index, ::llvm::Value *p_vis) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_size2d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_size3d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_buffer_read(const Type *t, ::llvm::Value *p_items,
+                                                               ::llvm::Value *p_buffer_index, ::llvm::Value *p_elem_index) noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;

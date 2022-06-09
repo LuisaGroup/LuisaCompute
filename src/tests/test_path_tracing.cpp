@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -101,13 +101,14 @@ int main(int argc, char *argv[]) {
         stream << triangle_buffer.copy_from(indices.data())
                << mesh.build();
     }
-    stream << heap.update();
 
     auto accel = device.create_accel();
     for (auto &&m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f));
     }
-    stream << accel.build();
+    stream << heap.update()
+           << accel.build()
+           << synchronize();
 
     std::vector<Material> materials;
     materials.reserve(accel.size());
@@ -149,7 +150,8 @@ int main(int argc, char *argv[]) {
         constexpr auto lcg_a = 1664525u;
         constexpr auto lcg_c = 1013904223u;
         state = lcg_a * state + lcg_c;
-        return cast<float>(state & 0x00ffffffu) * (1.0f / static_cast<float>(0x01000000u));
+        return cast<float>(state & 0x00ffffffu) *
+               (1.0f / static_cast<float>(0x01000000u));
     };
 
     Callable make_onb = [](const Float3 &normal) noexcept {
@@ -272,8 +274,8 @@ int main(int argc, char *argv[]) {
         auto p = dispatch_id().xy();
         auto accum = accum_image.read(p);
         auto curr = curr_image.read(p).xyz();
-        auto t = 1.0f / (accum.w + 1.0f);
-        accum_image.write(p, make_float4(lerp(accum.xyz(), curr, t), accum.w + 1.0f));
+//        auto t = 1.0f / (accum.w + 1.0f);
+        accum_image.write(p, accum + make_float4(curr, 1.f));
     };
 
     Callable aces_tonemapping = [](Float3 x) noexcept {
@@ -292,7 +294,7 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
-        auto ldr = linear_to_srgb(hdr.xyz() * scale);
+        auto ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -311,7 +313,8 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     stream << clear_shader(accum_image).dispatch(resolution)
-           << make_sampler_shader(seed_image).dispatch(resolution);
+           << make_sampler_shader(seed_image).dispatch(resolution)
+           << synchronize();
 
     Framerate framerate;
     Window window{"Display", resolution};
@@ -323,17 +326,17 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 1u;
+        static constexpr auto spp_per_dispatch = 4u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution)
                                   .dispatch(resolution)
                            << accumulate_shader(accum_image, framebuffer)
                                   .dispatch(resolution);
         }
-        command_buffer // << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
-                       << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
-                       << ldr_image.copy_to(host_image.data())
-                       << commit();
+        command_buffer// << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
+            << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
+            << ldr_image.copy_to(host_image.data())
+            << commit();
         stream << synchronize();
         window.set_background(host_image.data(), resolution);
         framerate.record(spp_per_dispatch);

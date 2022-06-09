@@ -66,8 +66,9 @@ LLVMTexture::LLVMTexture(PixelStorage storage, uint3 size, uint levels) noexcept
 LLVMTexture::~LLVMTexture() noexcept { luisa::deallocate(_data); }
 
 LLVMTextureView LLVMTexture::view(uint level) const noexcept {
-    auto size = luisa::max(make_uint2(_size[0], _size[1]) >> level, 1u);
-    return LLVMTextureView{_data + _mip_offsets[level], size.x, size.y,
+    auto size = luisa::max(make_uint3(_size[0], _size[1], _size[2]) >> level, 1u);
+    return LLVMTextureView{_data + _mip_offsets[level],
+                           size.x, size.y, size.z,
                            _storage, _pixel_stride};
 }
 
