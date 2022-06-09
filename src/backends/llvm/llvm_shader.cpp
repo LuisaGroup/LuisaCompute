@@ -109,7 +109,9 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
             {"texture.write.2d.float"sv, reinterpret_cast<void *>(&texture_write_2d_float)},
             {"texture.write.3d.float"sv, reinterpret_cast<void *>(&texture_write_3d_float)},
             {"accel.trace.closest"sv, reinterpret_cast<void *>(&accel_trace_closest)},
-            {"accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)}};
+            {"accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)},
+            {"bindless.texture.2d.read", reinterpret_cast<void *>(&bindless_texture_2d_read)},
+            {"bindless.texture.3d.read", reinterpret_cast<void *>(&bindless_texture_3d_read)}};
         if (name.starts_with('_')) { name = name.substr(1u); }
         LUISA_INFO("Searching for symbol '{}' in JIT.", name);
         auto iter = symbols.find(name);

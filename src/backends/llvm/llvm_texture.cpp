@@ -139,4 +139,14 @@ detail::ulong2 texture_read_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint
             detail::decode_uint3(c0, c1)));
 }
 
+detail::ulong2 bindless_texture_2d_read(const LLVMTexture *tex, uint level, uint x, uint y) noexcept {
+    auto v = tex->view(level).read2d<float>(make_uint2(x, y));
+    return detail::encode_float4(v);
+}
+
+detail::ulong2 bindless_texture_3d_read(const LLVMTexture *tex, uint level, uint x, uint y, uint z) noexcept {
+    auto v = tex->view(level).read3d<float>(make_uint3(x, y, z));
+    return detail::encode_float4(v);
+}
+
 }// namespace luisa::compute::llvm

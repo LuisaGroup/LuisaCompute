@@ -307,4 +307,8 @@ void texture_write_3d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, u
 void texture_write_2d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
 void texture_write_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
 
+[[nodiscard]] detail::ulong2 bindless_texture_2d_read(const LLVMTexture *tex, uint level, uint x, uint y) noexcept;
+[[nodiscard]] detail::ulong2 bindless_texture_3d_read(const LLVMTexture *tex, uint level, uint x, uint y, uint z) noexcept;
+
+
 }// namespace luisa::compute::llvm

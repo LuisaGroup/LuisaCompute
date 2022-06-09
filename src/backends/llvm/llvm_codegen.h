@@ -286,6 +286,10 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_size3d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_bindless_buffer_read(const Type *t, ::llvm::Value *p_items,
                                                                ::llvm::Value *p_buffer_index, ::llvm::Value *p_elem_index) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_read2d(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level, ::llvm::Value *p_uv) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_read3d(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level, ::llvm::Value *p_uvw) noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;
