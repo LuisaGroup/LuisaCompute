@@ -38,7 +38,7 @@ public:
     // host interfaces
     void _emplace_back(uint64_t mesh_handle, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
     void emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
-    void _set(size_t index, uint64_t mesh_handle, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
+    void set(size_t index, uint64_t mesh_handle, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
     void set(size_t index, const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;

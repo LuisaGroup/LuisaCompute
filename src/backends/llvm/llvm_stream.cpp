@@ -89,7 +89,7 @@ void LLVMStream::visit(const ShaderDispatchCommand *command) noexcept {
             //            auto handle = array->handle();
             //            std::memcpy(ptr, &handle, sizeof(handle));
         } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-            auto handle = argument.handle;
+            auto handle = reinterpret_cast<LLVMAccel *>(argument.handle)->handle();
             std::memcpy(ptr, &handle, sizeof(handle));
         } else {// uniform
             static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);

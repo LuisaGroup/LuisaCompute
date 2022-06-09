@@ -632,7 +632,9 @@ namespace luisa::compute::llvm {
         case Type::Tag::TEXTURE: return ::llvm::StructType::get(
             ::llvm::Type::getInt64Ty(_context), ::llvm::Type::getInt64Ty(_context));
         case Type::Tag::BINDLESS_ARRAY: /* TODO: implement */ break;
-        case Type::Tag::ACCEL: return ::llvm::Type::getInt64Ty(_context);
+        case Type::Tag::ACCEL: return ::llvm::StructType::get(
+            ::llvm::Type::getInt64Ty(_context),
+            _create_type(Type::of<LLVMAccelInstance>())->getPointerTo());
     }
     LUISA_ERROR_WITH_LOCATION("Invalid type: {}.", t->description());
 }
