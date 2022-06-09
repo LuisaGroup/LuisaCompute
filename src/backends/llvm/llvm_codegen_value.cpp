@@ -156,8 +156,8 @@ namespace luisa::compute::llvm {
     auto y = b->CreateLoad(b->getInt32Ty(), py, "v.y");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<int2>())));
-    v = b->CreateInsertElement(v, x, 0ull, "int2.x");
-    v = b->CreateInsertElement(v, y, 1ull, "int2.xy");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "int2.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "int2.xy");
     return _create_stack_variable(v, "int2.addr");
 }
 
@@ -168,9 +168,9 @@ namespace luisa::compute::llvm {
     auto z = b->CreateLoad(b->getInt32Ty(), pz, "v.z");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<int3>())));
-    v = b->CreateInsertElement(v, x, 0ull, "int3.x");
-    v = b->CreateInsertElement(v, y, 1ull, "int3.xy");
-    v = b->CreateInsertElement(v, z, 2ull, "int3.xyz");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "int3.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "int3.xy");
+    v = b->CreateInsertElement(v, z, static_cast<uint64_t>(2u), "int3.xyz");
     return _create_stack_variable(v, "int3.addr");
 }
 
@@ -182,10 +182,10 @@ namespace luisa::compute::llvm {
     auto w = b->CreateLoad(b->getInt32Ty(), pw, "v.w");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<int4>())));
-    v = b->CreateInsertElement(v, x, 0ull, "int4.x");
-    v = b->CreateInsertElement(v, y, 1ull, "int4.xy");
-    v = b->CreateInsertElement(v, z, 2ull, "int4.xyz");
-    v = b->CreateInsertElement(v, w, 3ull, "int4.xyzw");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "int4.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "int4.xy");
+    v = b->CreateInsertElement(v, z, static_cast<uint64_t>(2u), "int4.xyz");
+    v = b->CreateInsertElement(v, w, static_cast<uint64_t>(3u), "int4.xyzw");
     return _create_stack_variable(v, "int4.addr");
 }
 
@@ -195,8 +195,8 @@ namespace luisa::compute::llvm {
     auto y = b->CreateLoad(b->getInt8Ty(), py, "v.y");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<bool2>())));
-    v = b->CreateInsertElement(v, x, 0ull, "bool2.x");
-    v = b->CreateInsertElement(v, y, 1ull, "bool2.xy");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "bool2.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "bool2.xy");
     return _create_stack_variable(v, "bool2.addr");
 }
 
@@ -207,9 +207,9 @@ namespace luisa::compute::llvm {
     auto z = b->CreateLoad(b->getInt8Ty(), pz, "v.z");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<bool3>())));
-    v = b->CreateInsertElement(v, x, 0ull, "bool3.x");
-    v = b->CreateInsertElement(v, y, 1ull, "bool3.xy");
-    v = b->CreateInsertElement(v, z, 2ull, "bool3.xyz");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "bool3.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "bool3.xy");
+    v = b->CreateInsertElement(v, z, static_cast<uint64_t>(2u), "bool3.xyz");
     return _create_stack_variable(v, "bool3.addr");
 }
 
@@ -221,10 +221,10 @@ namespace luisa::compute::llvm {
     auto w = b->CreateLoad(b->getInt8Ty(), pw, "v.w");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<bool4>())));
-    v = b->CreateInsertElement(v, x, 0ull, "bool4.x");
-    v = b->CreateInsertElement(v, y, 1ull, "bool4.xy");
-    v = b->CreateInsertElement(v, z, 2ull, "bool4.xyz");
-    v = b->CreateInsertElement(v, w, 3ull, "bool4.xyzw");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "bool4.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "bool4.xy");
+    v = b->CreateInsertElement(v, z, static_cast<uint64_t>(2u), "bool4.xyz");
+    v = b->CreateInsertElement(v, w, static_cast<uint64_t>(3u), "bool4.xyzw");
     return _create_stack_variable(v, "bool4.addr");
 }
 
@@ -234,8 +234,8 @@ namespace luisa::compute::llvm {
     auto y = b->CreateLoad(b->getFloatTy(), py, "v.y");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<float2>())));
-    v = b->CreateInsertElement(v, x, 0ull, "float2.x");
-    v = b->CreateInsertElement(v, y, 1ull, "float2.xy");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "float2.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "float2.xy");
     return _create_stack_variable(v, "float2.addr");
 }
 
@@ -246,9 +246,9 @@ namespace luisa::compute::llvm {
     auto z = b->CreateLoad(b->getFloatTy(), pz, "v.z");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<float3>())));
-    v = b->CreateInsertElement(v, x, 0ull, "float3.x");
-    v = b->CreateInsertElement(v, y, 1ull, "float3.xy");
-    v = b->CreateInsertElement(v, z, 2ull, "float3.xyz");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "float3.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "float3.xy");
+    v = b->CreateInsertElement(v, z, static_cast<uint64_t>(2u), "float3.xyz");
     return _create_stack_variable(v, "float3.addr");
 }
 
@@ -260,10 +260,10 @@ namespace luisa::compute::llvm {
     auto w = b->CreateLoad(b->getFloatTy(), pw, "v.w");
     auto v = static_cast<::llvm::Value *>(::llvm::UndefValue::get(
         _create_type(Type::of<float4>())));
-    v = b->CreateInsertElement(v, x, 0ull, "float4.x");
-    v = b->CreateInsertElement(v, y, 1ull, "float4.xy");
-    v = b->CreateInsertElement(v, z, 2ull, "float4.xyz");
-    v = b->CreateInsertElement(v, w, 3ull, "float4.xyzw");
+    v = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "float4.x");
+    v = b->CreateInsertElement(v, y, static_cast<uint64_t>(1u), "float4.xy");
+    v = b->CreateInsertElement(v, z, static_cast<uint64_t>(2u), "float4.xyz");
+    v = b->CreateInsertElement(v, w, static_cast<uint64_t>(3u), "float4.xyzw");
     return _create_stack_variable(v, "float4.addr");
 }
 

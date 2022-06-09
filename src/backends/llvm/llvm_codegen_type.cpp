@@ -421,10 +421,18 @@ namespace luisa::compute::llvm {
             auto m1 = builder->CreateLoad(
                 col_type, builder->CreateStructGEP(matrix_type, p_src, 1, "cast.matrix_to_matrix.m1.addr"),
                 "cast.matrix_to_matrix.m1");
-            auto m00 = _create_stack_variable(builder->CreateExtractElement(m0, 0ull, "cast.matrix_to_matrix.m00"), "cast.matrix_to_matrix.m00.addr");
-            auto m01 = _create_stack_variable(builder->CreateExtractElement(m0, 1ull, "cast.matrix_to_matrix.m01"), "cast.matrix_to_matrix.m01.addr");
-            auto m10 = _create_stack_variable(builder->CreateExtractElement(m1, 0ull, "cast.matrix_to_matrix.m10"), "cast.matrix_to_matrix.m10.addr");
-            auto m11 = _create_stack_variable(builder->CreateExtractElement(m1, 1ull, "cast.matrix_to_matrix.m11"), "cast.matrix_to_matrix.m11.addr");
+            auto m00 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m00"),
+                "cast.matrix_to_matrix.m00.addr");
+            auto m01 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m01"),
+                "cast.matrix_to_matrix.m01.addr");
+            auto m10 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m10"),
+                "cast.matrix_to_matrix.m10.addr");
+            auto m11 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m11"),
+                "cast.matrix_to_matrix.m11.addr");
             if (dst_type->dimension() == 3u) {
                 return _make_float3x3(
                     _make_float3(m00, m01, zero),
@@ -452,15 +460,33 @@ namespace luisa::compute::llvm {
             auto m2 = builder->CreateLoad(
                 col_type, builder->CreateStructGEP(matrix_type, p_src, 2, "cast.matrix_to_matrix.m2.addr"),
                 "cast.matrix_to_matrix.m2");
-            auto m00 = _create_stack_variable(builder->CreateExtractElement(m0, 0ull, "cast.matrix_to_matrix.m00"), "cast.matrix_to_matrix.m00.addr");
-            auto m01 = _create_stack_variable(builder->CreateExtractElement(m0, 1ull, "cast.matrix_to_matrix.m01"), "cast.matrix_to_matrix.m01.addr");
-            auto m02 = _create_stack_variable(builder->CreateExtractElement(m0, 2ull, "cast.matrix_to_matrix.m02"), "cast.matrix_to_matrix.m02.addr");
-            auto m10 = _create_stack_variable(builder->CreateExtractElement(m1, 0ull, "cast.matrix_to_matrix.m10"), "cast.matrix_to_matrix.m10.addr");
-            auto m11 = _create_stack_variable(builder->CreateExtractElement(m1, 1ull, "cast.matrix_to_matrix.m11"), "cast.matrix_to_matrix.m11.addr");
-            auto m12 = _create_stack_variable(builder->CreateExtractElement(m1, 2ull, "cast.matrix_to_matrix.m12"), "cast.matrix_to_matrix.m12.addr");
-            auto m20 = _create_stack_variable(builder->CreateExtractElement(m2, 0ull, "cast.matrix_to_matrix.m20"), "cast.matrix_to_matrix.m20.addr");
-            auto m21 = _create_stack_variable(builder->CreateExtractElement(m2, 1ull, "cast.matrix_to_matrix.m21"), "cast.matrix_to_matrix.m21.addr");
-            auto m22 = _create_stack_variable(builder->CreateExtractElement(m2, 2ull, "cast.matrix_to_matrix.m22"), "cast.matrix_to_matrix.m22.addr");
+            auto m00 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m00"),
+                "cast.matrix_to_matrix.m00.addr");
+            auto m01 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m01"),
+                "cast.matrix_to_matrix.m01.addr");
+            auto m02 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(2u), "cast.matrix_to_matrix.m02"),
+                "cast.matrix_to_matrix.m02.addr");
+            auto m10 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m10"),
+                "cast.matrix_to_matrix.m10.addr");
+            auto m11 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m11"),
+                "cast.matrix_to_matrix.m11.addr");
+            auto m12 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(2u), "cast.matrix_to_matrix.m12"),
+                "cast.matrix_to_matrix.m12.addr");
+            auto m20 = _create_stack_variable(
+                builder->CreateExtractElement(m2, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m20"),
+                "cast.matrix_to_matrix.m20.addr");
+            auto m21 = _create_stack_variable(
+                builder->CreateExtractElement(m2, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m21"),
+                "cast.matrix_to_matrix.m21.addr");
+            auto m22 = _create_stack_variable(
+                builder->CreateExtractElement(m2, static_cast<uint64_t>(2u), "cast.matrix_to_matrix.m22"),
+                "cast.matrix_to_matrix.m22.addr");
             if (dst_type->dimension() == 2u) {
                 return _make_float2x2(
                     _make_float2(m00, m01),
@@ -490,22 +516,54 @@ namespace luisa::compute::llvm {
             auto m3 = builder->CreateLoad(
                 col_type, builder->CreateStructGEP(matrix_type, p_src, 3, "cast.matrix_to_matrix.m3.addr"),
                 "cast.matrix_to_matrix.m3");
-            auto m00 = _create_stack_variable(builder->CreateExtractElement(m0, 0ull, "cast.matrix_to_matrix.m00"), "cast.matrix_to_matrix.m00.addr");
-            auto m01 = _create_stack_variable(builder->CreateExtractElement(m0, 1ull, "cast.matrix_to_matrix.m01"), "cast.matrix_to_matrix.m01.addr");
-            auto m02 = _create_stack_variable(builder->CreateExtractElement(m0, 2ull, "cast.matrix_to_matrix.m02"), "cast.matrix_to_matrix.m02.addr");
-            auto m03 = _create_stack_variable(builder->CreateExtractElement(m0, 3ull, "cast.matrix_to_matrix.m03"), "cast.matrix_to_matrix.m03.addr");
-            auto m10 = _create_stack_variable(builder->CreateExtractElement(m1, 0ull, "cast.matrix_to_matrix.m10"), "cast.matrix_to_matrix.m10.addr");
-            auto m11 = _create_stack_variable(builder->CreateExtractElement(m1, 1ull, "cast.matrix_to_matrix.m11"), "cast.matrix_to_matrix.m11.addr");
-            auto m12 = _create_stack_variable(builder->CreateExtractElement(m1, 2ull, "cast.matrix_to_matrix.m12"), "cast.matrix_to_matrix.m12.addr");
-            auto m13 = _create_stack_variable(builder->CreateExtractElement(m1, 3ull, "cast.matrix_to_matrix.m13"), "cast.matrix_to_matrix.m13.addr");
-            auto m20 = _create_stack_variable(builder->CreateExtractElement(m2, 0ull, "cast.matrix_to_matrix.m20"), "cast.matrix_to_matrix.m20.addr");
-            auto m21 = _create_stack_variable(builder->CreateExtractElement(m2, 1ull, "cast.matrix_to_matrix.m21"), "cast.matrix_to_matrix.m21.addr");
-            auto m22 = _create_stack_variable(builder->CreateExtractElement(m2, 2ull, "cast.matrix_to_matrix.m22"), "cast.matrix_to_matrix.m22.addr");
-            auto m23 = _create_stack_variable(builder->CreateExtractElement(m2, 3ull, "cast.matrix_to_matrix.m23"), "cast.matrix_to_matrix.m23.addr");
-            auto m30 = _create_stack_variable(builder->CreateExtractElement(m3, 0ull, "cast.matrix_to_matrix.m30"), "cast.matrix_to_matrix.m30.addr");
-            auto m31 = _create_stack_variable(builder->CreateExtractElement(m3, 1ull, "cast.matrix_to_matrix.m31"), "cast.matrix_to_matrix.m31.addr");
-            auto m32 = _create_stack_variable(builder->CreateExtractElement(m3, 2ull, "cast.matrix_to_matrix.m32"), "cast.matrix_to_matrix.m32.addr");
-            auto m33 = _create_stack_variable(builder->CreateExtractElement(m3, 3ull, "cast.matrix_to_matrix.m33"), "cast.matrix_to_matrix.m33.addr");
+            auto m00 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m00"),
+                "cast.matrix_to_matrix.m00.addr");
+            auto m01 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m01"),
+                "cast.matrix_to_matrix.m01.addr");
+            auto m02 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(2u), "cast.matrix_to_matrix.m02"),
+                "cast.matrix_to_matrix.m02.addr");
+            auto m03 = _create_stack_variable(
+                builder->CreateExtractElement(m0, static_cast<uint64_t>(3u), "cast.matrix_to_matrix.m03"),
+                "cast.matrix_to_matrix.m03.addr");
+            auto m10 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m10"),
+                "cast.matrix_to_matrix.m10.addr");
+            auto m11 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m11"),
+                "cast.matrix_to_matrix.m11.addr");
+            auto m12 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(2u), "cast.matrix_to_matrix.m12"),
+                "cast.matrix_to_matrix.m12.addr");
+            auto m13 = _create_stack_variable(
+                builder->CreateExtractElement(m1, static_cast<uint64_t>(3u), "cast.matrix_to_matrix.m13"),
+                "cast.matrix_to_matrix.m13.addr");
+            auto m20 = _create_stack_variable(
+                builder->CreateExtractElement(m2, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m20"),
+                "cast.matrix_to_matrix.m20.addr");
+            auto m21 = _create_stack_variable(
+                builder->CreateExtractElement(m2, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m21"),
+                "cast.matrix_to_matrix.m21.addr");
+            auto m22 = _create_stack_variable(
+                builder->CreateExtractElement(m2, static_cast<uint64_t>(2u), "cast.matrix_to_matrix.m22"),
+                "cast.matrix_to_matrix.m22.addr");
+            auto m23 = _create_stack_variable(
+                builder->CreateExtractElement(m2, static_cast<uint64_t>(3u), "cast.matrix_to_matrix.m23"),
+                "cast.matrix_to_matrix.m23.addr");
+            auto m30 = _create_stack_variable(
+                builder->CreateExtractElement(m3, static_cast<uint64_t>(0u), "cast.matrix_to_matrix.m30"),
+                "cast.matrix_to_matrix.m30.addr");
+            auto m31 = _create_stack_variable(
+                builder->CreateExtractElement(m3, static_cast<uint64_t>(1u), "cast.matrix_to_matrix.m31"),
+                "cast.matrix_to_matrix.m31.addr");
+            auto m32 = _create_stack_variable(
+                builder->CreateExtractElement(m3, static_cast<uint64_t>(2u), "cast.matrix_to_matrix.m32"),
+                "cast.matrix_to_matrix.m32.addr");
+            auto m33 = _create_stack_variable(
+                builder->CreateExtractElement(m3, static_cast<uint64_t>(3u), "cast.matrix_to_matrix.m33"),
+                "cast.matrix_to_matrix.m33.addr");
             if (dst_type->dimension() == 2u) {
                 return _make_float2x2(
                     _make_float2(m00, m01),
