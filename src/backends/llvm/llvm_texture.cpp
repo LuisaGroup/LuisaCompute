@@ -8,6 +8,10 @@ namespace luisa::compute::llvm {
 
 namespace detail {
 
+[[nodiscard]] inline auto decode_texture_view(uint64_t t0, uint64_t t1) noexcept {
+    return luisa::bit_cast<LLVMTextureView>(ulong2{t0, t1});
+}
+
 // from tinyexr: https://github.com/syoyo/tinyexr/blob/master/tinyexr.h
 uint float_to_half(float f) noexcept {
     auto bits = luisa::bit_cast<uint>(f);
@@ -67,18 +71,71 @@ LLVMTextureView LLVMTexture::view(uint level) const noexcept {
                            _storage, _pixel_stride};
 }
 
-int4 texture_read_2d_int(LLVMTextureView tex, uint2 xy) noexcept { return tex.read2d<int>(xy); }
-int4 texture_read_3d_int(LLVMTextureView tex, uint3 xyz) noexcept { return tex.read3d<int>(xyz); }
-uint4 texture_read_2d_uint(LLVMTextureView tex, uint2 xy) noexcept { return tex.read2d<uint>(xy); }
-uint4 texture_read_3d_uint(LLVMTextureView tex, uint3 xyz) noexcept { return tex.read3d<uint>(xyz); }
-float4 texture_read_2d_float(LLVMTextureView tex, uint2 xy) noexcept { return tex.read2d<float>(xy); }
-float4 texture_read_3d_float(LLVMTextureView tex, uint3 xyz) noexcept { return tex.read3d<float>(xyz); }
+void texture_write_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
+    detail::decode_texture_view(t0, t1).write2d<int>(
+        detail::decode_uint2(c0), detail::decode_int4(v0, v1));
+}
 
-void texture_write_2d_int(LLVMTextureView tex, uint2 xy, int4 v) noexcept { tex.write2d<int>(xy, v); }
-void texture_write_3d_int(LLVMTextureView tex, uint3 xyz, int4 v) noexcept { tex.write3d<int>(xyz, v); }
-void texture_write_2d_uint(LLVMTextureView tex, uint2 xy, uint4 v) noexcept { tex.write2d<uint>(xy, v); }
-void texture_write_3d_uint(LLVMTextureView tex, uint3 xyz, uint4 v) noexcept { tex.write3d<uint>(xyz, v); }
-void texture_write_2d_float(LLVMTextureView tex, uint2 xy, float4 v) noexcept { tex.write2d<float>(xy, v); }
-void texture_write_3d_float(LLVMTextureView tex, uint3 xyz, float4 v) noexcept { tex.write3d<float>(xyz, v); }
+void texture_write_3d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
+    detail::decode_texture_view(t0, t1).write3d<int>(
+        detail::decode_uint3(c0, c1), detail::decode_int4(v0, v1));
+}
+
+void texture_write_2d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
+    detail::decode_texture_view(t0, t1).write2d<uint>(
+        detail::decode_uint2(c0),
+        detail::decode_uint4(v0, v1));
+}
+
+void texture_write_3d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
+    detail::decode_texture_view(t0, t1).write3d<uint>(
+        detail::decode_uint3(c0, c1), detail::decode_uint4(v0, v1));
+}
+
+void texture_write_2d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
+    detail::decode_texture_view(t0, t1).write2d<float>(
+        detail::decode_uint2(c0), detail::decode_float4(v0, v1));
+}
+
+void texture_write_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
+    detail::decode_texture_view(t0, t1).write3d<float>(
+        detail::decode_uint3(c0, c1), detail::decode_float4(v0, v1));
+}
+
+detail::ulong2 texture_read_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept {
+    return detail::encode_int4(
+        detail::decode_texture_view(t0, t1).read2d<int>(
+            detail::decode_uint2(c0)));
+}
+
+detail::ulong2 texture_read_3d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept {
+    return detail::encode_int4(
+        detail::decode_texture_view(t0, t1).read3d<int>(
+            detail::decode_uint3(c0, c1)));
+}
+
+detail::ulong2 texture_read_2d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept {
+    return detail::encode_uint4(
+        detail::decode_texture_view(t0, t1).read2d<uint>(
+            detail::decode_uint2(c0)));
+}
+
+detail::ulong2 texture_read_3d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept {
+    return detail::encode_uint4(
+        detail::decode_texture_view(t0, t1).read3d<uint>(
+            detail::decode_uint3(c0, c1)));
+}
+
+detail::ulong2 texture_read_2d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept {
+    return detail::encode_float4(
+        detail::decode_texture_view(t0, t1).read2d<float>(
+            detail::decode_uint2(c0)));
+}
+
+detail::ulong2 texture_read_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept {
+    return detail::encode_float4(
+        detail::decode_texture_view(t0, t1).read3d<float>(
+            detail::decode_uint3(c0, c1)));
+}
 
 }// namespace luisa::compute::llvm

@@ -10,6 +10,7 @@
 #include <core/thread_pool.h>
 #include <core/dirty_range.h>
 #include <rtx/accel.h>
+#include <backends/llvm/llvm_abi.h>
 
 namespace luisa::compute::llvm {
 
@@ -44,7 +45,7 @@ public:
     [[nodiscard]] bool trace_any(Ray ray) const noexcept;
 };
 
-[[nodiscard]] Hit accel_trace_closest(const LLVMAccel *accel, const Ray &ray) noexcept;
-[[nodiscard]] bool accel_trace_any(const LLVMAccel *accel, const Ray &ray) noexcept;
+[[nodiscard]] detail::ulong2 accel_trace_closest(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept;
+[[nodiscard]] bool accel_trace_any(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept;
 
 }// namespace luisa::compute::llvm

@@ -4,6 +4,7 @@ endif ()
 
 if (LLVM_FOUND) # link with llvm for jit
     set(LC_BACKEND_LLVM_SRC
+            llvm_abi.h
             llvm_device.cpp llvm_device.h
             llvm_codegen.cpp llvm_codegen.h
             llvm_codegen_value.cpp

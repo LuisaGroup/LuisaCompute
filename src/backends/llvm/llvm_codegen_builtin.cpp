@@ -589,7 +589,7 @@ namespace luisa::compute::llvm {
     auto ir_type = _create_type(t);
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         auto m = ctx->builder->CreateIntrinsic(
-            ::llvm::Intrinsic::minimum, {ir_type},
+            ::llvm::Intrinsic::minnum, {ir_type},
             {ctx->builder->CreateLoad(ir_type, x, "fmin.x"),
              ctx->builder->CreateLoad(ir_type, y, "fmin.y")},
             nullptr, "fmin");
@@ -619,7 +619,7 @@ namespace luisa::compute::llvm {
     auto ir_type = _create_type(t);
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         auto m = ctx->builder->CreateIntrinsic(
-            ::llvm::Intrinsic::maximum, {ir_type},
+            ::llvm::Intrinsic::maxnum, {ir_type},
             {ctx->builder->CreateLoad(ir_type, x, "fmax.x"),
              ctx->builder->CreateLoad(ir_type, y, "fmax.y")},
             nullptr, "fmax");
@@ -2041,20 +2041,23 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
     LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
                  "Invalid type '{}' for texture-read.",
                  t->description());
-    auto value_type = static_cast<::llvm::FixedVectorType *>(_create_type(t));
-    auto elem_type = value_type->getElementType();
-    auto coord_type = static_cast<::llvm::FixedVectorType *>(p_coord->getType()->getPointerElementType());
+    // { i64, i64 } texture.read.Nd.type(i64 t0, i64 t1, i64 c0, i64 c2)
+    auto ctx = _current_context();
+    auto coord = ctx->builder->CreateLoad(
+        p_coord->getType()->getPointerElementType(),
+        p_coord, "texture.read.coord");
+    auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
     auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
     auto func_name = luisa::format("texture.read.{}d.{}", dim, t->element()->description());
     auto func = _module->getFunction(luisa::string_view{func_name});
-    auto coord_struct_type = dim == 2u ? ::llvm::Type::getInt64Ty(_context) :
-                                         ::llvm::Type::getInt128Ty(_context);
-    auto value_struct_type = elem_type->isFloatTy() ?
-                                 ::llvm::StructType::get(elem_type, elem_type, elem_type, elem_type) :
-                                 static_cast<::llvm::Type *>(::llvm::Type::getInt128Ty(_context));
+    auto i64_type = ::llvm::Type::getInt64Ty(_context);
+    auto i64v2_type = ::llvm::StructType::get(i64_type, i64_type);
     if (func == nullptr) {
         func = ::llvm::Function::Create(
-            ::llvm::FunctionType::get(value_struct_type, {texture->getType(), coord_struct_type}, false),
+            ::llvm::FunctionType::get(
+                i64v2_type,
+                {i64_type, i64_type, i64_type, i64_type},
+                false),
             ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
         func->setNoSync();
         func->setWillReturn();
@@ -2065,38 +2068,47 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemory();
     }
-    auto ctx = _current_context();
-    auto coord_ptr = ctx->builder->CreateBitOrPointerCast(
-        p_coord, coord_struct_type->getPointerTo(0), "texture.read.coord.addr");
-    auto coord = ctx->builder->CreateLoad(coord_struct_type, coord_ptr, "texture.write.coord");
-    auto value = ctx->builder->CreateCall(func->getFunctionType(), func, {texture, coord}, "texture.read.struct");
-    auto value_vector = static_cast<::llvm::Value *>(::llvm::UndefValue::get(value_type));
-    for (auto i = 0; i < value_type->getNumElements(); i++) {
-        auto elem = ctx->builder->CreateExtractValue(value, i, "texture.read.struct.extract");
-        value_vector = ctx->builder->CreateInsertElement(value_vector, elem, i, "texture.read.struct.insert");
-    }
-    return _create_stack_variable(value_vector, "texture.read.addr");
+    auto t0 = ctx->builder->CreateExtractValue(texture, 0u, "texture.read.texture.t0");
+    auto t1 = ctx->builder->CreateExtractValue(texture, 1u, "texture.read.texture.t1");
+    std::array<int, 4> shuffle{0, 1, 0, 0};
+    if (dim == 3u) { shuffle[2] = 2; }
+    auto coord_vector = _create_stack_variable(
+        ctx->builder->CreateShuffleVector(
+            coord, shuffle, "texture.read.coord.vector"),
+        "texture.read.coord.vector.addr");
+    p_coord = ctx->builder->CreateBitOrPointerCast(
+        coord_vector, i64v2_type->getPointerTo(0),
+        "texture.read.coord.ulong2.addr");
+    coord = ctx->builder->CreateLoad(i64v2_type, p_coord, "texture.read.coord.ulong2");
+    auto c0 = ctx->builder->CreateExtractValue(coord, 0u, "texture.read.coord.c0");
+    auto c1 = ctx->builder->CreateExtractValue(coord, 1u, "texture.read.coord.c1");
+    auto value = ctx->builder->CreateCall(func, {t0, t1, c0, c1}, "texture.read");
+    auto p_value = _create_stack_variable(value, "texture.read.value.addr");
+    return ctx->builder->CreateBitOrPointerCast(
+        p_value, _create_type(t)->getPointerTo(0),
+        "texture.read.addr");
 }
 
 void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept {
     LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
                  "Invalid type '{}' for texture-read.",
                  t->description());
-    auto value_type = static_cast<::llvm::FixedVectorType *>(_create_type(t));
-    auto elem_type = value_type->getElementType();
-    auto coord_type = static_cast<::llvm::FixedVectorType *>(p_coord->getType()->getPointerElementType());
+    // texture.write.Nd.type(i64 t0, i64 t1, i64 c0, i64 c1, i64 v0, i64 v1)
+    auto ctx = _current_context();
+    auto coord = ctx->builder->CreateLoad(
+        p_coord->getType()->getPointerElementType(),
+        p_coord, "texture.write.coord");
+    auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
     auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
     auto func_name = luisa::format("texture.write.{}d.{}", dim, t->element()->description());
     auto func = _module->getFunction(luisa::string_view{func_name});
-    auto coord_struct_type = dim == 2u ? ::llvm::Type::getInt64Ty(_context) : ::llvm::Type::getInt128Ty(_context);
-    auto value_struct_type = elem_type->isFloatTy() ?
-                                 static_cast<::llvm::Type *>(::llvm::ArrayType::get(elem_type, 4u)) :
-                                 ::llvm::Type::getInt128Ty(_context);
+    auto i64_type = ::llvm::Type::getInt64Ty(_context);
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
                 ::llvm::Type::getVoidTy(_context),
-                {texture->getType(), coord_struct_type, value_struct_type}, false),
+                {i64_type, i64_type, i64_type, i64_type, i64_type, i64_type},
+                false),
             ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
         func->setNoSync();
         func->setWillReturn();
@@ -2107,23 +2119,41 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemory();
     }
-    auto ctx = _current_context();
-    auto coord_ptr = ctx->builder->CreateBitOrPointerCast(
-        p_coord, coord_struct_type->getPointerTo(0), "texture.write.coord.addr");
-    auto value_ptr = ctx->builder->CreateBitOrPointerCast(
-        p_value, value_struct_type->getPointerTo(0), "texture.write.value.addr");
-    auto coord = ctx->builder->CreateLoad(coord_struct_type, coord_ptr, "texture.write.coord");
-    auto value = ctx->builder->CreateLoad(value_struct_type, value_ptr, "texture.write.value");
-    ctx->builder->CreateCall(func->getFunctionType(), func, {texture, coord, value});
+    auto t0 = ctx->builder->CreateExtractValue(texture, 0u, "texture.write.texture.t0");
+    auto t1 = ctx->builder->CreateExtractValue(texture, 1u, "texture.write.texture.t1");
+    std::array<int, 4> shuffle{0, 1, 0, 0};
+    if (dim == 3u) { shuffle[2] = 2; }
+    auto i64v2_type = ::llvm::StructType::get(i64_type, i64_type);
+    auto coord_vector = _create_stack_variable(
+        ctx->builder->CreateShuffleVector(
+            coord, shuffle, "texture.write.coord.vector"),
+        "texture.write.coord.vector.addr");
+    p_coord = ctx->builder->CreateBitOrPointerCast(
+        coord_vector, i64v2_type->getPointerTo(0),
+        "texture.write.coord.ulong2.addr");
+    coord = ctx->builder->CreateLoad(i64v2_type, p_coord, "texture.write.coord.ulong2");
+    auto c0 = ctx->builder->CreateExtractValue(coord, 0u, "texture.write.coord.c0");
+    auto c1 = ctx->builder->CreateExtractValue(coord, 1u, "texture.write.coord.c1");
+    p_value = ctx->builder->CreateBitOrPointerCast(
+        p_value, i64v2_type->getPointerTo(0), "texture.write.value.ulong2.addr");
+    auto value = ctx->builder->CreateLoad(i64v2_type, p_value, "texture.write.value.ulong");
+    auto v0 = ctx->builder->CreateExtractValue(value, 0u, "texture.write.value.v0");
+    auto v1 = ctx->builder->CreateExtractValue(value, 1u, "texture.write.value.v1");
+    ctx->builder->CreateCall(func->getFunctionType(), func, {t0, t1, c0, c1, v0, v1});
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_trace_closest(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept {
+    // { i64, i64 } trace_closest(i64 accel, i64 r0, i64 r1, i64 r2, i64 r3)
+    auto ctx = _current_context();
+    auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto func_name = "accel.trace.closest";
     auto func = _module->getFunction(func_name);
-    auto hit_struct_type = ::llvm::Type::getInt128Ty(_context);
     if (func == nullptr) {
         func = ::llvm::Function::Create(
-            ::llvm::FunctionType::get(hit_struct_type, {accel->getType(), p_ray->getType()}, false),
+            ::llvm::FunctionType::get(
+                ::llvm::StructType::get(i64_type, i64_type),
+                {accel->getType(), i64_type, i64_type, i64_type, i64_type},
+                false),
             ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
         func->setNoSync();
         func->setWillReturn();
@@ -2134,21 +2164,37 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setOnlyReadsMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
     }
-    auto ctx = _current_context();
-    auto hit_struct = ctx->builder->CreateCall(
-        func->getFunctionType(), func, {accel, p_ray}, "accel.trace.closest.struct");
-    auto hit_struct_ptr = _create_stack_variable(hit_struct, "accel.trace.closest.struct.addr");
+    auto ray_struct_type = ::llvm::StructType::get(
+        i64_type, i64_type, i64_type, i64_type);
+    p_ray = ctx->builder->CreateBitOrPointerCast(
+        p_ray, ray_struct_type->getPointerTo(0),
+        "trace_closest.ray.struct.addr");
+    auto ray = ctx->builder->CreateLoad(ray_struct_type, p_ray, "trace_closest.ray.struct");
+    auto r0 = ctx->builder->CreateExtractValue(ray, 0u, "trace_closest.ray.r0");
+    auto r1 = ctx->builder->CreateExtractValue(ray, 1u, "trace_closest.ray.r1");
+    auto r2 = ctx->builder->CreateExtractValue(ray, 2u, "trace_closest.ray.r2");
+    auto r3 = ctx->builder->CreateExtractValue(ray, 3u, "trace_closest.ray.r3");
+    auto hit = ctx->builder->CreateCall(
+        func->getFunctionType(), func, {accel, r0, r1, r2, r3},
+        "accel.trace.closest.struct");
+    auto hit_struct_ptr = _create_stack_variable(hit, "accel.trace.closest.struct.addr");
     return ctx->builder->CreateBitOrPointerCast(
-        hit_struct_ptr, _create_type(Type::of<Hit>())->getPointerTo(0), "accel.trace.closest.addr");
+        hit_struct_ptr, _create_type(Type::of<Hit>())->getPointerTo(0),
+        "accel.trace.closest.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_trace_any(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept {
+    // i8 trace_closest(i64 accel, i64 r0, i64 r1, i64 r2, i64 r3)
+    auto ctx = _current_context();
+    auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto func_name = "accel.trace.any";
     auto func = _module->getFunction(func_name);
     if (func == nullptr) {
         func = ::llvm::Function::Create(
-            ::llvm::FunctionType::get(::llvm::Type::getInt8Ty(_context),
-                                      {accel->getType(), p_ray->getType()}, false),
+            ::llvm::FunctionType::get(
+                ::llvm::Type::getInt8Ty(_context),
+                {accel->getType(), i64_type, i64_type, i64_type, i64_type},
+                false),
             ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
         func->setNoSync();
         func->setWillReturn();
@@ -2159,9 +2205,19 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
     }
-    auto ctx = _current_context();
+    auto ray_struct_type = ::llvm::StructType::get(
+        i64_type, i64_type, i64_type, i64_type);
+    p_ray = ctx->builder->CreateBitOrPointerCast(
+        p_ray, ray_struct_type->getPointerTo(0),
+        "trace_any.ray.struct.addr");
+    auto ray = ctx->builder->CreateLoad(ray_struct_type, p_ray, "trace_any.ray.struct");
+    auto r0 = ctx->builder->CreateExtractValue(ray, 0u, "trace_any.ray.r0");
+    auto r1 = ctx->builder->CreateExtractValue(ray, 1u, "trace_any.ray.r1");
+    auto r2 = ctx->builder->CreateExtractValue(ray, 2u, "trace_any.ray.r2");
+    auto r3 = ctx->builder->CreateExtractValue(ray, 3u, "trace_any.ray.r3");
     auto hit = ctx->builder->CreateCall(
-        func->getFunctionType(), func, {accel, p_ray}, "accel.trace.any.hit");
+        func->getFunctionType(), func, {accel, r0, r1, r2, r3},
+        "accel.trace.any.hit");
     return _create_stack_variable(hit, "accel.trace.any.hit.addr");
 }
 
