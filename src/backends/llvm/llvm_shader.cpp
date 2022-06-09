@@ -109,7 +109,21 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
             {"_texture.write.2d.float"sv, reinterpret_cast<void *>(&texture_write_2d_float)},
             {"_texture.write.3d.float"sv, reinterpret_cast<void *>(&texture_write_3d_float)},
             {"_accel.trace.closest"sv, reinterpret_cast<void *>(&accel_trace_closest)},
-            {"_accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)}};
+            {"_accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)},
+            {"texture.read.2d.int"sv, reinterpret_cast<void *>(&texture_read_2d_int)},
+            {"texture.read.3d.int"sv, reinterpret_cast<void *>(&texture_read_3d_int)},
+            {"texture.read.2d.uint"sv, reinterpret_cast<void *>(&texture_read_2d_uint)},
+            {"texture.read.3d.uint"sv, reinterpret_cast<void *>(&texture_read_3d_uint)},
+            {"texture.read.2d.float"sv, reinterpret_cast<void *>(&texture_read_2d_float)},
+            {"texture.read.3d.float"sv, reinterpret_cast<void *>(&texture_read_3d_float)},
+            {"texture.write.2d.int"sv, reinterpret_cast<void *>(&texture_write_2d_int)},
+            {"texture.write.3d.int"sv, reinterpret_cast<void *>(&texture_write_3d_int)},
+            {"texture.write.2d.uint"sv, reinterpret_cast<void *>(&texture_write_2d_uint)},
+            {"texture.write.3d.uint"sv, reinterpret_cast<void *>(&texture_write_3d_uint)},
+            {"texture.write.2d.float"sv, reinterpret_cast<void *>(&texture_write_2d_float)},
+            {"texture.write.3d.float"sv, reinterpret_cast<void *>(&texture_write_3d_float)},
+            {"accel.trace.closest"sv, reinterpret_cast<void *>(&accel_trace_closest)},
+            {"accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)}};
         LUISA_INFO("Searching for symbol '{}' in JIT.", name);
         auto iter = symbols.find(name);
         return iter == symbols.end() ? nullptr : iter->second;

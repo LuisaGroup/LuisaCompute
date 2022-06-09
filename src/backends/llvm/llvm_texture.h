@@ -8,6 +8,7 @@
 #include <core/mathematics.h>
 #include <core/stl.h>
 #include <runtime/pixel.h>
+#include <backends/llvm/llvm_abi.h>
 
 namespace luisa::compute::llvm {
 
@@ -281,17 +282,17 @@ public:
 
 static_assert(sizeof(LLVMTextureView) == 16u);
 
-int4 texture_read_2d_int(LLVMTextureView tex, uint2 xy) noexcept;
-int4 texture_read_3d_int(LLVMTextureView tex, uint3 xyz) noexcept;
-uint4 texture_read_2d_uint(LLVMTextureView tex, uint2 xy) noexcept;
-uint4 texture_read_3d_uint(LLVMTextureView tex, uint3 xyz) noexcept;
-float4 texture_read_2d_float(LLVMTextureView tex, uint2 xy) noexcept;
-float4 texture_read_3d_float(LLVMTextureView tex, uint3 xyz) noexcept;
-void texture_write_2d_int(LLVMTextureView tex, uint2 xy, int4 v) noexcept;
-void texture_write_3d_int(LLVMTextureView tex, uint3 xyz, int4 v) noexcept;
-void texture_write_2d_uint(LLVMTextureView tex, uint2 xy, uint4 v) noexcept;
-void texture_write_3d_uint(LLVMTextureView tex, uint3 xyz, uint4 v) noexcept;
-void texture_write_2d_float(LLVMTextureView tex, uint2 xy, float4 v) noexcept;
-void texture_write_3d_float(LLVMTextureView tex, uint3 xyz, float4 v) noexcept;
+[[nodiscard]] detail::ulong2 texture_read_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
+[[nodiscard]] detail::ulong2 texture_read_3d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
+[[nodiscard]] detail::ulong2 texture_read_2d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
+[[nodiscard]] detail::ulong2 texture_read_3d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
+[[nodiscard]] detail::ulong2 texture_read_2d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
+[[nodiscard]] detail::ulong2 texture_read_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
+void texture_write_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
+void texture_write_3d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
+void texture_write_2d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
+void texture_write_3d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
+void texture_write_2d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
+void texture_write_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
 
 }// namespace luisa::compute::llvm
