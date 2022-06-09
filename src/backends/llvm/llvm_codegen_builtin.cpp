@@ -499,10 +499,14 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE2D_READ: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE3D_READ: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BINDLESS_TEXTURE2D_READ: return _builtin_bindless_texture_read2d(
+            _create_expr(args[0]), _create_expr(args[1]), nullptr, _create_expr(args[2]));
+        case CallOp::BINDLESS_TEXTURE3D_READ: return _builtin_bindless_texture_read3d(
+            _create_expr(args[0]), _create_expr(args[1]), nullptr, _create_expr(args[2]));
+        case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: return _builtin_bindless_texture_read2d(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[3]), _create_expr(args[2]));
+        case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: return _builtin_bindless_texture_read3d(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[3]), _create_expr(args[2]));
         case CallOp::BINDLESS_TEXTURE2D_SIZE: return _builtin_bindless_texture_size2d(
             _create_expr(args[0]), _create_expr(args[1]), nullptr);
         case CallOp::BINDLESS_TEXTURE3D_SIZE: return _builtin_bindless_texture_size3d(
@@ -2637,6 +2641,53 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto elem_ptr = b->CreateInBoundsGEP(elem_type, buffer, elem_index, "bindless.buffer.read.elem.ptr");
     auto elem = b->CreateLoad(elem_type, elem_ptr, "bindless.buffer.read.elem");
     return _create_stack_variable(elem, "bindless.buffer.read.elem.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_read2d(
+    ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level, ::llvm::Value *p_uv) noexcept {
+    auto b = _current_context()->builder.get();
+    auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.read.2d.level");
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.read.2d.index");
+    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.read.2d.texture.ptr");
+    auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.read.2d.texture");
+    auto coord = b->CreateLoad(_create_type(Type::of<uint2>()), p_uv, "bindless.texture.read.2d.uv");
+    auto coord_x = b->CreateExtractElement(coord, _literal(0u), "bindless.texture.read.2d.uv.x");
+    auto coord_y = b->CreateExtractElement(coord, _literal(1u), "bindless.texture.read.2d.uv.y");
+    auto func = _module->getFunction("bindless.texture.2d.read");
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty()),
+                {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.2d.read", _module);
+    }
+    auto ret = b->CreateCall(func, {texture, level, coord_x, coord_y}, "bindless.texture.read.2d.ret");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.read.2d.ret.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.read.2d.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_read3d(
+    ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level, ::llvm::Value *p_uvw) noexcept {
+    auto b = _current_context()->builder.get();
+    auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.read.3d.level");
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.read.3d.index");
+    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.read.3d.texture.ptr");
+    auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.read.3d.texture");
+    auto coord = b->CreateLoad(_create_type(Type::of<uint3>()), p_uvw, "bindless.texture.read.3d.uvw");
+    auto coord_x = b->CreateExtractElement(coord, _literal(0u), "bindless.texture.read.3d.uvw.x");
+    auto coord_y = b->CreateExtractElement(coord, _literal(1u), "bindless.texture.read.3d.uvw.y");
+    auto coord_z = b->CreateExtractElement(coord, _literal(2u), "bindless.texture.read.3d.uvw.z");
+    auto func = _module->getFunction("bindless.texture.3d.read");
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty()),
+                {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.3d.read", _module);
+    }
+    auto ret = b->CreateCall(func, {texture, level, coord_x, coord_y, coord_z}, "bindless.texture.read.3d.ret");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.read.3d.ret.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.read.3d.addr");
 }
 
 }// namespace luisa::compute::llvm
