@@ -20,7 +20,7 @@ public:
      * 
      */
     struct Handle {
-        // Note: remember t modify the
+        // Note: remember to modify the
         // `generate_ispc_library.py`
         // script as well
         const void *ptr;// TODO

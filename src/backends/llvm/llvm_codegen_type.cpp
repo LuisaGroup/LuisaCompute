@@ -631,12 +631,27 @@ namespace luisa::compute::llvm {
         case Type::Tag::BUFFER: return ::llvm::PointerType::get(_create_type(t->element()), 0);
         case Type::Tag::TEXTURE: return ::llvm::StructType::get(
             ::llvm::Type::getInt64Ty(_context), ::llvm::Type::getInt64Ty(_context));
-        case Type::Tag::BINDLESS_ARRAY: /* TODO: implement */ break;
+        case Type::Tag::BINDLESS_ARRAY: return _bindless_item_type()->getPointerTo();
         case Type::Tag::ACCEL: return ::llvm::StructType::get(
             ::llvm::Type::getInt64Ty(_context),
             _create_type(Type::of<LLVMAccelInstance>())->getPointerTo());
     }
     LUISA_ERROR_WITH_LOCATION("Invalid type: {}.", t->description());
+}
+
+::llvm::Type *LLVMCodegen::_bindless_item_type() noexcept {
+    return ::llvm::StructType::get(
+        ::llvm::Type::getInt8PtrTy(_context),
+        _bindless_texture_type()->getPointerTo(),
+        _bindless_texture_type()->getPointerTo(),
+        ::llvm::Type::getInt32Ty(_context),
+        ::llvm::Type::getInt32Ty(_context));
+}
+
+::llvm::Type *LLVMCodegen::_bindless_texture_type() noexcept {
+    return ::llvm::StructType::get(
+        ::llvm::Type::getInt64Ty(_context),
+        ::llvm::FixedVectorType::get(::llvm::Type::getInt16Ty(_context), 4));
 }
 
 }// namespace luisa::compute::llvm

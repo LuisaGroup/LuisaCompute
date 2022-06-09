@@ -3,7 +3,6 @@
 //
 
 #include <dsl/sugar.h>
-#include <rtx/ray.h>
 #include <rtx/hit.h>
 #include <backends/llvm/llvm_codegen.h>
 
@@ -333,10 +332,10 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
     auto b = _current_context()->builder.get();
     auto ptr = b->CreateExtractValue(accel, 1, "accel.instance.visibility.instances");
     auto index = b->CreateLoad(b->getInt32Ty(), p_index, "accel.instance.visibility.index");
-    auto ptr_vis = b->CreateGEP(ptr->getType()->getPointerElementType(), ptr,
-                               {index, _literal(1)}, "accel.instance.visibility.vis.ptr");
-    auto ptr_dirty = b->CreateGEP(ptr->getType()->getPointerElementType(), ptr,
-                                  {index, _literal(2)}, "accel.instance.visibility.dirty.ptr");
+    auto ptr_vis = b->CreateInBoundsGEP(ptr->getType()->getPointerElementType(), ptr,
+                                        {index, _literal(1)}, "accel.instance.visibility.vis.ptr");
+    auto ptr_dirty = b->CreateInBoundsGEP(ptr->getType()->getPointerElementType(), ptr,
+                                          {index, _literal(2)}, "accel.instance.visibility.dirty.ptr");
     auto vis = b->CreateLoad(b->getInt32Ty(), p_vis, "accel.instance.visibility.vis");
     b->CreateStore(vis, ptr_vis);
     b->CreateStore(_literal(true), ptr_dirty);
@@ -504,11 +503,16 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
         case CallOp::BINDLESS_TEXTURE3D_READ: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
         case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_BUFFER_READ: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BINDLESS_TEXTURE2D_SIZE: return _builtin_bindless_texture_size2d(
+            _create_expr(args[0]), _create_expr(args[1]), nullptr);
+        case CallOp::BINDLESS_TEXTURE3D_SIZE: return _builtin_bindless_texture_size3d(
+            _create_expr(args[0]), _create_expr(args[1]), nullptr);
+        case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: return _builtin_bindless_texture_size2d(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: return _builtin_bindless_texture_size3d(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::BINDLESS_BUFFER_READ: return _builtin_bindless_buffer_read(
+            ret_type, _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
         case CallOp::MAKE_BOOL2: return _builtin_make_vector2_overloaded(ret_type, args);
         case CallOp::MAKE_BOOL3: return _builtin_make_vector3_overloaded(ret_type, args);
         case CallOp::MAKE_BOOL4: return _builtin_make_vector4_overloaded(ret_type, args);
@@ -556,30 +560,30 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 
 ::llvm::Value *LLVMCodegen::_builtin_all(const Type *t, ::llvm::Value *v) noexcept {
     auto ctx = _current_context();
-    auto result = static_cast<::llvm::Value *>(ctx->builder->getInt1(true));
     auto bv = ctx->builder->CreateLoad(_create_type(t), v, "load");
     static constexpr std::array elem_names{"v.x", "v.y", "v.z", "v.w"};
     static constexpr std::array cmp_names{"cmp.x", "cmp.y", "cmp.z", "cmp.w"};
-    for (auto i = 0u; i < t->dimension(); i++) {
-        auto elem = ctx->builder->CreateExtractElement(v, i, elem_names[i]);
-        auto elem_not_zero = ctx->builder->CreateICmpNE(elem, ctx->builder->getInt8(0), cmp_names[i]);
-        result = ctx->builder->CreateLogicalAnd(result, elem, "and");
+    auto elem = ctx->builder->CreateExtractElement(bv, static_cast<uint64_t>(0u), elem_names[0]);
+    for (auto i = 1u; i < t->dimension(); i++) {
+        elem = ctx->builder->CreateAnd(
+            ctx->builder->CreateExtractElement(bv, i, elem_names[i]),
+            elem, "and");
     }
-    return _create_stack_variable(result, "all.addr");
+    return _create_stack_variable(elem, "all.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_any(const Type *t, ::llvm::Value *v) noexcept {
     auto ctx = _current_context();
-    auto result = static_cast<::llvm::Value *>(ctx->builder->getInt1(false));
     auto bv = ctx->builder->CreateLoad(_create_type(t), v, "load");
     static constexpr std::array elem_names{"v.x", "v.y", "v.z", "v.w"};
     static constexpr std::array cmp_names{"cmp.x", "cmp.y", "cmp.z", "cmp.w"};
-    for (auto i = 0u; i < t->dimension(); i++) {
-        auto elem = ctx->builder->CreateExtractElement(v, i, elem_names[i]);
-        auto elem_not_zero = ctx->builder->CreateICmpNE(elem, ctx->builder->getInt8(0), cmp_names[i]);
-        result = ctx->builder->CreateLogicalOr(result, elem_not_zero, "or");
+    auto elem = ctx->builder->CreateExtractElement(bv, static_cast<uint64_t>(0u), elem_names[0]);
+    for (auto i = 1u; i < t->dimension(); i++) {
+        elem = ctx->builder->CreateOr(
+            ctx->builder->CreateExtractElement(bv, i, elem_names[i]),
+            elem, "or");
     }
-    return _create_stack_variable(result, "any.addr");
+    return _create_stack_variable(elem, "all.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_select(const Type *t_pred, const Type *t_value,
@@ -1361,7 +1365,7 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
     auto result = ctx->builder->CreateXor(
         ctx->builder->CreateLoad(_create_type(t), lhs, "xor.lhs"),
         ctx->builder->CreateLoad(_create_type(t), rhs, "xor.rhs"), "xor");
-    return _create_stack_variable(result, "or.addr");
+    return _create_stack_variable(result, "xor.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_lt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
@@ -2123,10 +2127,9 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
         func->setWillReturn();
         func->setDoesNotThrow();
         func->setMustProgress();
-        func->setSpeculatable();
+        func->setDoesNotRecurse();
         func->setOnlyReadsMemory();
         func->setDoesNotFreeMemory();
-        func->setOnlyAccessesInaccessibleMemory();
     }
     auto t0 = ctx->builder->CreateExtractValue(texture, 0u, "texture.read.texture.t0");
     auto t1 = ctx->builder->CreateExtractValue(texture, 1u, "texture.read.texture.t1");
@@ -2174,10 +2177,9 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setWillReturn();
         func->setDoesNotThrow();
         func->setMustProgress();
-        func->setSpeculatable();
+        func->setDoesNotRecurse();
         func->setDoesNotReadMemory();
         func->setDoesNotFreeMemory();
-        func->setOnlyAccessesInaccessibleMemory();
     }
     auto t0 = ctx->builder->CreateExtractValue(texture, 0u, "texture.write.texture.t0");
     auto t1 = ctx->builder->CreateExtractValue(texture, 1u, "texture.write.texture.t1");
@@ -2590,6 +2592,51 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto c3 = _make_float4(_create_expr(args[12]), _create_expr(args[13]),
                            _create_expr(args[14]), _create_expr(args[15]));
     return _make_float4x4(c0, c1, c2, c3);
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_size2d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level) noexcept {
+    auto b = _current_context()->builder.get();
+    auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.size.2d.level");
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.size.2d.index");
+    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.size.2d.texture.ptr");
+    auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.size.2d.texture");
+    auto texture_size = b->CreateExtractValue(texture, 1u, "bindless.texture.size.2d.texture.size.i16");
+    texture_size = b->CreateShuffleVector(texture_size, {0, 1}, "bindless.texture.size.2d.texture.i16.v2");
+    texture_size = b->CreateZExt(texture_size, _create_type(Type::of<uint2>()), "bindless.texture.size.2d.texture.size.i32");
+    auto shift = b->CreateVectorSplat(2u, level, "bindless.texture.size.2d.shift");
+    texture_size = b->CreateLShr(texture_size, shift, "bindless.texture.size.2d.shifted");
+    auto one = b->CreateVectorSplat(2u, _literal(1u), "bindless.texture.size.2d.one");
+    texture_size = b->CreateMaxNum(texture_size, one, "bindless.texture.size.2d.max");
+    return _create_stack_variable(texture_size, "bindless.texture.size.2d.size.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_size3d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level) noexcept {
+    auto b = _current_context()->builder.get();
+    auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.size.3d.level");
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.size.3d.index");
+    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.size.3d.texture.ptr");
+    auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.size.3d.texture");
+    auto texture_size = b->CreateExtractValue(texture, 1u, "bindless.texture.size.3d.texture.size.i16");
+    texture_size = b->CreateZExt(texture_size, _create_type(Type::of<uint3>()), "bindless.texture.size.3d.texture.size.i32");
+    auto shift = b->CreateVectorSplat(4u, level, "bindless.texture.size.3d.shift");
+    texture_size = b->CreateLShr(texture_size, shift, "bindless.texture.size.3d.shifted");
+    auto one = b->CreateVectorSplat(4u, _literal(1u), "bindless.texture.size.3d.one");
+    texture_size = b->CreateMaxNum(texture_size, one, "bindless.texture.size.3d.max");
+    return _create_stack_variable(texture_size, "bindless.texture.size.3d.size.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_buffer_read(
+    const Type *t, ::llvm::Value *p_items, ::llvm::Value *p_buffer_index, ::llvm::Value *p_elem_index) noexcept {
+    auto elem_type = _create_type(t);
+    auto b = _current_context()->builder.get();
+    auto buffer_index = b->CreateLoad(b->getInt32Ty(), p_buffer_index, "bindless.buffer.read.buffer.index");
+    auto buffer_ptr = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {buffer_index, _literal(0u)}, "bindless.buffer.read.buffer.ptr");
+    auto typeless_buffer = b->CreateLoad(b->getInt8PtrTy(), buffer_ptr, "bindless.buffer.read.buffer.typeless");
+    auto buffer = b->CreateBitOrPointerCast(typeless_buffer, elem_type->getPointerTo(), "bindless.buffer.read.buffer");
+    auto elem_index = b->CreateLoad(b->getInt32Ty(), p_elem_index, "bindless.buffer.read.elem.index");
+    auto elem_ptr = b->CreateInBoundsGEP(elem_type, buffer, elem_index, "bindless.buffer.read.elem.ptr");
+    auto elem = b->CreateLoad(elem_type, elem_ptr, "bindless.buffer.read.elem");
+    return _create_stack_variable(elem, "bindless.buffer.read.elem.addr");
 }
 
 }// namespace luisa::compute::llvm
