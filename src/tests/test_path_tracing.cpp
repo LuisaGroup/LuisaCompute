@@ -200,7 +200,7 @@ int main(int argc, char *argv[]) {
         auto light_area = length(cross(light_u, light_v));
         auto light_normal = normalize(cross(light_u, light_v));
 
-        $for(depth, 5u) {
+        $for(depth, 10u) {
 
             // trace
             auto hit = accel.trace_closest(ray);
