@@ -124,23 +124,37 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     auto thread_z = builder->CreateBinOp(::llvm::Instruction::UDiv, thread_yz, builder->getInt32(f.block_size().y), "thread_z");
     auto thread_id = static_cast<::llvm::Value *>(
         ::llvm::UndefValue::get(_create_type(Type::of<uint3>())));
-    thread_id = builder->CreateInsertElement(thread_id, thread_x, 0ull, "thread_x");
-    thread_id = builder->CreateInsertElement(thread_id, thread_y, 1ull, "thread_xy");
-    thread_id = builder->CreateInsertElement(thread_id, thread_z, 2ull, "thread_id");
-    auto dispatch_x = builder->CreateNUWAdd(thread_x, builder->CreateNUWMul(builder->CreateExtractElement(block_id, 0ull, "block.x"), builder->getInt32(f.block_size().x), "block_offset.x"), "dispatch.x");
-    auto dispatch_y = builder->CreateNUWAdd(thread_y, builder->CreateNUWMul(builder->CreateExtractElement(block_id, 1ull, "block.y"), builder->getInt32(f.block_size().y), "block_offset.y"), "dispatch.y");
-    auto dispatch_z = builder->CreateNUWAdd(thread_z, builder->CreateNUWMul(builder->CreateExtractElement(block_id, 2ull, "block.z"), builder->getInt32(f.block_size().z), "block_offset.z"), "dispatch.z");
-    auto dispatch_id = static_cast<::llvm::Value *>(
-        ::llvm::UndefValue::get(_create_type(Type::of<uint3>())));
-    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_x, 0ull, "dispatch.x");
-    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_y, 1ull, "dispatch.xy");
-    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_z, 2ull, "dispatch.id");
+    thread_id = builder->CreateInsertElement(thread_id, thread_x, static_cast<uint64_t>(0u), "thread_x");
+    thread_id = builder->CreateInsertElement(thread_id, thread_y, static_cast<uint64_t>(1u), "thread_xy");
+    thread_id = builder->CreateInsertElement(thread_id, thread_z, static_cast<uint64_t>(2u), "thread_id");
+    auto dispatch_x = builder->CreateNUWAdd(
+        thread_x,
+        builder->CreateNUWMul(
+            builder->CreateExtractElement(block_id, static_cast<uint64_t>(0ull), "block.x"),
+            builder->getInt32(f.block_size().x), "block_offset.x"),
+        "dispatch.x");
+    auto dispatch_y = builder->CreateNUWAdd(
+        thread_y,
+        builder->CreateNUWMul(
+            builder->CreateExtractElement(block_id, static_cast<uint64_t>(1ull), "block.y"),
+            builder->getInt32(f.block_size().y), "block_offset.y"),
+        "dispatch.y");
+    auto dispatch_z = builder->CreateNUWAdd(
+        thread_z,
+        builder->CreateNUWMul(
+            builder->CreateExtractElement(block_id, static_cast<uint64_t>(2ull), "block.z"),
+            builder->getInt32(f.block_size().z), "block_offset.z"),
+        "dispatch.z");
+    auto dispatch_id = static_cast<::llvm::Value *>(::llvm::UndefValue::get(_create_type(Type::of<uint3>())));
+    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_x, static_cast<uint64_t>(0u), "dispatch.x");
+    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_y, static_cast<uint64_t>(1u), "dispatch.xy");
+    dispatch_id = builder->CreateInsertElement(dispatch_id, dispatch_z, static_cast<uint64_t>(2u), "dispatch.id");
     auto valid_thread_xyz = builder->CreateICmpULT(thread_id, dispatch_size, "valid_thread_xyz");
     auto valid_thread = builder->CreateLogicalAnd(
         builder->CreateLogicalAnd(
-            builder->CreateExtractElement(valid_thread_xyz, 0ull, "valid_thread_x"),
-            builder->CreateExtractElement(valid_thread_xyz, 1ull, "valid_thread_y"), "valid_thread_xy"),
-        builder->CreateExtractElement(valid_thread_xyz, 2ull, "valid_thread_z"), "valid_thread");
+            builder->CreateExtractElement(valid_thread_xyz, static_cast<uint64_t>(0ull), "valid_thread_x"),
+            builder->CreateExtractElement(valid_thread_xyz, static_cast<uint64_t>(1ull), "valid_thread_y"), "valid_thread_xy"),
+        builder->CreateExtractElement(valid_thread_xyz, static_cast<uint64_t>(2ull), "valid_thread_z"), "valid_thread");
     auto call_block = ::llvm::BasicBlock::Create(_context, "work", ir, exit_block);
     auto loop_update_block = ::llvm::BasicBlock::Create(_context, "loop.update", ir, exit_block);
     builder->CreateCondBr(valid_thread, call_block, loop_update_block);

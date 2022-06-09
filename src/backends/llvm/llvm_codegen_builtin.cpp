@@ -2177,12 +2177,12 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto type = _create_type(t);
     a = ctx->builder->CreateLoad(type, a, "cross.a");
     b = ctx->builder->CreateLoad(type, b, "cross.b");
-    auto a_x = ctx->builder->CreateExtractElement(a, 0ull, "cross.a.x");
-    auto a_y = ctx->builder->CreateExtractElement(a, 1ull, "cross.a.y");
-    auto a_z = ctx->builder->CreateExtractElement(a, 2ull, "cross.a.z");
-    auto b_x = ctx->builder->CreateExtractElement(b, 0ull, "cross.b.x");
-    auto b_y = ctx->builder->CreateExtractElement(b, 1ull, "cross.b.y");
-    auto b_z = ctx->builder->CreateExtractElement(b, 2ull, "cross.b.z");
+    auto a_x = ctx->builder->CreateExtractElement(a, static_cast<uint64_t>(0u), "cross.a.x");
+    auto a_y = ctx->builder->CreateExtractElement(a, static_cast<uint64_t>(1u), "cross.a.y");
+    auto a_z = ctx->builder->CreateExtractElement(a, static_cast<uint64_t>(2u), "cross.a.z");
+    auto b_x = ctx->builder->CreateExtractElement(b, static_cast<uint64_t>(0u), "cross.b.x");
+    auto b_y = ctx->builder->CreateExtractElement(b, static_cast<uint64_t>(1u), "cross.b.y");
+    auto b_z = ctx->builder->CreateExtractElement(b, static_cast<uint64_t>(2u), "cross.b.z");
     auto x = ctx->builder->CreateFSub(
         ctx->builder->CreateFMul(a_y, b_z),
         ctx->builder->CreateFMul(a_z, b_y),
@@ -2228,9 +2228,11 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
             auto yz = b->CreateLoad(
                 _create_type(args[1]->type()), _create_expr(args[1]), "make.vector3.yz");
             auto y = _create_stack_variable(
-                b->CreateExtractElement(yz, 0ull, "make.vector3.x"), "make.vector3.y.addr");
+                b->CreateExtractElement(yz, static_cast<uint64_t>(0u), "make.vector3.x"),
+                "make.vector3.y.addr");
             auto z = _create_stack_variable(
-                b->CreateExtractElement(yz, 1ull, "make.vector3.y"), "make.vector3.z.addr");
+                b->CreateExtractElement(yz, static_cast<uint64_t>(1u), "make.vector3.y"),
+                "make.vector3.z.addr");
             return _make_float3(_create_expr(args[0]), y, z);
         }
         LUISA_ASSERT(args[0]->type()->is_vector() && args[0]->type()->dimension() == 2u &&
@@ -2241,9 +2243,11 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         auto xy = b->CreateLoad(
             _create_type(args[0]->type()), _create_expr(args[0]), "make.vector3.xy");
         auto x = _create_stack_variable(
-            b->CreateExtractElement(xy, 0ull, "make.vector3.x"), "make.vector3.x.addr");
+            b->CreateExtractElement(xy, static_cast<uint64_t>(0u), "make.vector3.x"),
+            "make.vector3.x.addr");
         auto y = _create_stack_variable(
-            b->CreateExtractElement(xy, 1ull, "make.vector3.y"), "make.vector3.y.addr");
+            b->CreateExtractElement(xy, static_cast<uint64_t>(1u), "make.vector3.y"),
+            "make.vector3.y.addr");
         return _make_float3(x, y, _create_expr(args[1]));
     }
     if (args.size() == 3u) {
@@ -2272,11 +2276,14 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
             auto yzw = b->CreateLoad(
                 _create_type(args[1]->type()), _create_expr(args[1]), "make.vector4.yzw");
             auto y = _create_stack_variable(
-                b->CreateExtractElement(yzw, 0ull, "make.vector4.x"), "make.vector4.y.addr");
+                b->CreateExtractElement(yzw, static_cast<uint64_t>(0u), "make.vector4.x"),
+                "make.vector4.y.addr");
             auto z = _create_stack_variable(
-                b->CreateExtractElement(yzw, 1ull, "make.vector4.y"), "make.vector4.z.addr");
+                b->CreateExtractElement(yzw, static_cast<uint64_t>(1u), "make.vector4.y"),
+                "make.vector4.z.addr");
             auto w = _create_stack_variable(
-                b->CreateExtractElement(yzw, 2ull, "make.vector4.z"), "make.vector4.w.addr");
+                b->CreateExtractElement(yzw, static_cast<uint64_t>(2u), "make.vector4.z"),
+                "make.vector4.w.addr");
             return _make_float4(_create_expr(args[0]), y, z, w);
         }
         LUISA_ASSERT(args[0]->type()->is_vector(),
@@ -2292,11 +2299,14 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
             auto xyz = b->CreateLoad(
                 _create_type(args[0]->type()), _create_expr(args[0]), "make.vector4.xyz");
             auto x = _create_stack_variable(
-                b->CreateExtractElement(xyz, 0ull, "make.vector4.x"), "make.vector4.x.addr");
+                b->CreateExtractElement(xyz, static_cast<uint64_t>(0u), "make.vector4.x"),
+                "make.vector4.x.addr");
             auto y = _create_stack_variable(
-                b->CreateExtractElement(xyz, 1ull, "make.vector4.y"), "make.vector4.y.addr");
+                b->CreateExtractElement(xyz, static_cast<uint64_t>(1u), "make.vector4.y"),
+                "make.vector4.y.addr");
             auto z = _create_stack_variable(
-                b->CreateExtractElement(xyz, 2ull, "make.vector4.z"), "make.vector4.z.addr");
+                b->CreateExtractElement(xyz, static_cast<uint64_t>(2u), "make.vector4.z"),
+                "make.vector4.z.addr");
             return _make_float4(x, y, z, _create_expr(args[1]));
         }
         // (xy, zw)
@@ -2310,13 +2320,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         auto zw = b->CreateLoad(
             _create_type(args[1]->type()), _create_expr(args[1]), "make.vector4.zw");
         auto x = _create_stack_variable(
-            b->CreateExtractElement(xy, 0ull, "make.vector4.x"), "make.vector4.x.addr");
+            b->CreateExtractElement(xy, static_cast<uint64_t>(0u), "make.vector4.x"),
+            "make.vector4.x.addr");
         auto y = _create_stack_variable(
-            b->CreateExtractElement(xy, 1ull, "make.vector4.y"), "make.vector4.y.addr");
+            b->CreateExtractElement(xy, static_cast<uint64_t>(1u), "make.vector4.y"),
+            "make.vector4.y.addr");
         auto z = _create_stack_variable(
-            b->CreateExtractElement(zw, 0ull, "make.vector4.z"), "make.vector4.z.addr");
+            b->CreateExtractElement(zw, static_cast<uint64_t>(0u), "make.vector4.z"),
+            "make.vector4.z.addr");
         auto w = _create_stack_variable(
-            b->CreateExtractElement(zw, 1ull, "make.vector4.w"), "make.vector4.w.addr");
+            b->CreateExtractElement(zw, static_cast<uint64_t>(1u), "make.vector4.w"),
+            "make.vector4.w.addr");
         return _make_float4(x, y, z, w);
     }
     if (args.size() == 3u) {
@@ -2332,9 +2346,11 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 auto vec = b->CreateLoad(
                     _create_type(arg->type()), _create_expr(arg), "make.vector4.v");
                 v.emplace_back(_create_stack_variable(
-                    b->CreateExtractElement(vec, 0ull, "make.vector4.v.x"), "make.vector4.v.x.addr"));
+                    b->CreateExtractElement(vec, static_cast<uint64_t>(0u), "make.vector4.v.x"),
+                    "make.vector4.v.x.addr"));
                 v.emplace_back(_create_stack_variable(
-                    b->CreateExtractElement(vec, 1ull, "make.vector4.v.y"), "make.vector4.v.y.addr"));
+                    b->CreateExtractElement(vec, static_cast<uint64_t>(1u), "make.vector4.v.y"),
+                    "make.vector4.v.y.addr"));
             }
         }
         LUISA_ASSERT(v.size() == 4u, "Invalid argument types ('{}', '{}', '{}') to make {}.",
