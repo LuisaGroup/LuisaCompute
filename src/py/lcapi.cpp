@@ -273,7 +273,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<Accel>(m, "Accel")
         .def("size", &Accel::size)
         .def("handle", [](Accel& self){ return self.handle(); })
-        .def("emplace_back", &Accel::_emplace_back)
+        .def("emplace_back", &Accel::emplace_back_mesh_with_handle)
         .def("set", &Accel::set_mesh_with_handle)
         .def("pop_back", &Accel::pop_back)
         .def("set_transform_on_update", &Accel::set_transform_on_update)
