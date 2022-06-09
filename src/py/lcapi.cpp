@@ -274,7 +274,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("size", &Accel::size)
         .def("handle", [](Accel& self){ return self.handle(); })
         .def("emplace_back", &Accel::_emplace_back)
-        .def("set", &Accel::_set)
+        .def("set", &Accel::set)
         .def("pop_back", &Accel::pop_back)
         .def("set_transform_on_update", &Accel::set_transform_on_update)
         .def("set_visibility_on_update", &Accel::set_visibility_on_update)

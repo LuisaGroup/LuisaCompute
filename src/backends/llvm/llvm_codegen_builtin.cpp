@@ -9,7 +9,7 @@
 
 namespace luisa::compute::llvm {
 
-[[nodiscard]] static Function _float2x2_inverse() noexcept {
+[[nodiscard]] static Function float2x2_inverse() noexcept {
     static Callable inverse = [](Float2x2 m) noexcept {
         auto inv_det = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
         return inv_det * make_float2x2(m[1][1], -m[0][1], -m[1][0], +m[0][0]);
@@ -17,7 +17,7 @@ namespace luisa::compute::llvm {
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float3x3_inverse() noexcept {
+[[nodiscard]] static Function float3x3_inverse() noexcept {
     static Callable inverse = [](Float3x3 m) noexcept {
         auto inv_det = 1.0f /
                        (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) -
@@ -38,7 +38,7 @@ namespace luisa::compute::llvm {
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float4x4_inverse() noexcept {
+[[nodiscard]] static Function float4x4_inverse() noexcept {
     static Callable inverse = [](Float4x4 m) noexcept {
         auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
         auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
@@ -86,14 +86,14 @@ namespace luisa::compute::llvm {
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float2x2_det() noexcept {
+[[nodiscard]] static Function float2x2_det() noexcept {
     static Callable inverse = [](Float2x2 m) noexcept {
         return m[0][0] * m[1][1] - m[1][0] * m[0][1];
     };
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float3x3_det() noexcept {
+[[nodiscard]] static Function float3x3_det() noexcept {
     static Callable inverse = [](Float3x3 m) noexcept {
         return m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z) -
                m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z) +
@@ -102,7 +102,7 @@ namespace luisa::compute::llvm {
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float4x4_det() noexcept {
+[[nodiscard]] static Function float4x4_det() noexcept {
     static Callable inverse = [](Float4x4 m) noexcept {
         auto coef00 = m[2].z * m[3].w - m[3].z * m[2].w;
         auto coef02 = m[1].z * m[3].w - m[3].z * m[1].w;
@@ -148,14 +148,14 @@ namespace luisa::compute::llvm {
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float2x2_transpose() noexcept {
+[[nodiscard]] static Function float2x2_transpose() noexcept {
     static Callable inverse = [](Float2x2 m) noexcept {
         return make_float2x2(m[0].x, m[1].x, m[0].y, m[1].y);
     };
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float3x3_transpose() noexcept {
+[[nodiscard]] static Function float3x3_transpose() noexcept {
     static Callable inverse = [](Float3x3 m) noexcept {
         return make_float3x3(
             m[0].x, m[1].x, m[2].x,
@@ -165,7 +165,7 @@ namespace luisa::compute::llvm {
     return inverse.function();
 }
 
-[[nodiscard]] static Function _float4x4_transpose() noexcept {
+[[nodiscard]] static Function float4x4_transpose() noexcept {
     static Callable inverse = [](Float4x4 m) noexcept {
         return make_float4x4(
             m[0].x, m[1].x, m[2].x, m[3].x,
@@ -179,9 +179,9 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_builtin_inverse(const Type *t, ::llvm::Value *pm) noexcept {
     LUISA_ASSERT(t->is_matrix(), "Expected matrix type.");
     auto ast = [t] {
-        if (t->dimension() == 2u) { return _float2x2_inverse(); }
-        if (t->dimension() == 3u) { return _float3x3_inverse(); }
-        if (t->dimension() == 4u) { return _float4x4_inverse(); }
+        if (t->dimension() == 2u) { return float2x2_inverse(); }
+        if (t->dimension() == 3u) { return float3x3_inverse(); }
+        if (t->dimension() == 4u) { return float4x4_inverse(); }
         LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension {}.", t->dimension());
     }();
     auto func = _create_function(ast);
@@ -194,9 +194,9 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_builtin_determinant(const Type *t, ::llvm::Value *pm) noexcept {
     LUISA_ASSERT(t->is_matrix(), "Expected matrix type.");
     auto ast = [t] {
-        if (t->dimension() == 2u) { return _float2x2_det(); }
-        if (t->dimension() == 3u) { return _float3x3_det(); }
-        if (t->dimension() == 4u) { return _float4x4_det(); }
+        if (t->dimension() == 2u) { return float2x2_det(); }
+        if (t->dimension() == 3u) { return float3x3_det(); }
+        if (t->dimension() == 4u) { return float4x4_det(); }
         LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension {}.", t->dimension());
     }();
     auto func = _create_function(ast);
@@ -209,9 +209,9 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_builtin_transpose(const Type *t, ::llvm::Value *pm) noexcept {
     LUISA_ASSERT(t->is_matrix(), "Expected matrix type.");
     auto ast = [t] {
-        if (t->dimension() == 2u) { return _float2x2_transpose(); }
-        if (t->dimension() == 3u) { return _float3x3_transpose(); }
-        if (t->dimension() == 4u) { return _float4x4_transpose(); }
+        if (t->dimension() == 2u) { return float2x2_transpose(); }
+        if (t->dimension() == 3u) { return float3x3_transpose(); }
+        if (t->dimension() == 4u) { return float4x4_transpose(); }
         LUISA_ERROR_WITH_LOCATION("Invalid matrix dimension {}.", t->dimension());
     }();
     auto func = _create_function(ast);
@@ -285,6 +285,62 @@ namespace luisa::compute::llvm {
     return py;
 }
 #pragma clang diagnostic pop
+
+::llvm::Value *LLVMCodegen::_builtin_instance_transform(::llvm::Value *accel, ::llvm::Value *p_index) noexcept {
+    static Callable impl = [](BufferVar<LLVMAccelInstance> instances, UInt index) noexcept {
+        auto m = instances.read(index).affine;
+        return make_float4x4(
+            m[0], m[4], m[8], 0.f,
+            m[1], m[5], m[9], 0.f,
+            m[2], m[6], m[10], 0.f,
+            m[3], m[7], m[11], 1.f);
+    };
+    auto func = _create_function(impl.function());
+    auto b = _current_context()->builder.get();
+    auto instances = b->CreateExtractValue(accel, 1, "accel.instance.transform.instances");
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "accel.instance.transform.index");
+    auto ret = b->CreateCall(func->getFunctionType(), func, {instances, index}, "accel.instance.transform.ret");
+    return _create_stack_variable(ret, "accel.instance.transform.ret.addr");
+}
+
+void LLVMCodegen::_builtin_set_instance_transform(::llvm::Value *accel, ::llvm::Value *p_index, ::llvm::Value *p_mat) noexcept {
+    static Callable impl = [](BufferVar<LLVMAccelInstance> instances, UInt index, Float4x4 m) noexcept {
+        auto inst = instances.read(index);
+        inst.dirty = true;
+        inst.affine[0] = m[0].x;
+        inst.affine[1] = m[1].x;
+        inst.affine[2] = m[2].x;
+        inst.affine[3] = m[3].x;
+        inst.affine[4] = m[0].y;
+        inst.affine[5] = m[1].y;
+        inst.affine[6] = m[2].y;
+        inst.affine[7] = m[3].y;
+        inst.affine[8] = m[0].z;
+        inst.affine[9] = m[1].z;
+        inst.affine[10] = m[2].z;
+        inst.affine[11] = m[3].z;
+        instances.write(index, inst);
+    };
+    auto func = _create_function(impl.function());
+    auto b = _current_context()->builder.get();
+    auto instances = b->CreateExtractValue(accel, 1, "accel.instance.transform.instances");
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "accel.instance.transform.index");
+    auto mat = b->CreateLoad(b->getFloatTy()->getPointerTo(), p_mat, "accel.instance.transform.mat");
+    b->CreateCall(func->getFunctionType(), func, {instances, index, mat});
+}
+
+void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm::Value *p_index, ::llvm::Value *p_vis) noexcept {
+    auto b = _current_context()->builder.get();
+    auto ptr = b->CreateExtractValue(accel, 1, "accel.instance.visibility.instances");
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "accel.instance.visibility.index");
+    auto ptr_vis = b->CreateGEP(ptr->getType()->getPointerElementType(), ptr,
+                               {index, _literal(1)}, "accel.instance.visibility.vis.ptr");
+    auto ptr_dirty = b->CreateGEP(ptr->getType()->getPointerElementType(), ptr,
+                                  {index, _literal(2)}, "accel.instance.visibility.dirty.ptr");
+    auto vis = b->CreateLoad(b->getInt32Ty(), p_vis, "accel.instance.visibility.vis");
+    b->CreateStore(vis, ptr_vis);
+    b->CreateStore(_literal(true), ptr_dirty);
+}
 
 ::llvm::Value *LLVMCodegen::_create_builtin_call_expr(const Type *ret_type, CallOp op, luisa::span<const Expression *const> args) noexcept {
     auto builder = _current_context()->builder.get();
@@ -474,19 +530,23 @@ namespace luisa::compute::llvm {
         case CallOp::UNREACHABLE:
             _builtin_unreachable();
             return nullptr;
-        case CallOp::INSTANCE_TO_WORLD_MATRIX: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::SET_INSTANCE_TRANSFORM: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::SET_INSTANCE_VISIBILITY: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::INSTANCE_TO_WORLD_MATRIX: return _builtin_instance_transform(
+            _create_expr(args[0]), _create_expr(args[1]));
+        case CallOp::SET_INSTANCE_TRANSFORM:
+            _builtin_set_instance_transform(
+                _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+            return nullptr;
+        case CallOp::SET_INSTANCE_VISIBILITY:
+            _builtin_set_instance_visibility(
+                _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+            return nullptr;
         case CallOp::TRACE_CLOSEST: return _builtin_trace_closest(
             _create_expr(args[0]), _create_expr(args[1]));
         case CallOp::TRACE_ANY: return _builtin_trace_any(
             _create_expr(args[0]), _create_expr(args[1]));
         default: break;
     }
-    // TODO: implement
-    auto ctx = _current_context();
-    if (ret_type == nullptr) { return nullptr; }
-    return ctx->builder->CreateAlloca(_create_type(ret_type), nullptr, "tmp.addr");
+    LUISA_ERROR_WITH_LOCATION("Invalid built-in call.");
 }
 
 [[nodiscard]] inline auto is_scalar_or_vector(const Type *t, Type::Tag tag) noexcept {
@@ -2148,6 +2208,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto func_name = "accel.trace.closest";
     auto func = _module->getFunction(func_name);
+    accel = ctx->builder->CreateExtractValue(accel, 0u, "trace_closest.accel.handle");
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
@@ -2189,6 +2250,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto func_name = "accel.trace.any";
     auto func = _module->getFunction(func_name);
+    accel = ctx->builder->CreateExtractValue(accel, 0u, "trace_closest.accel.handle");
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(

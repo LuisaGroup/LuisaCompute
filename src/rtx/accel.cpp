@@ -97,10 +97,10 @@ void Accel::pop_back() noexcept {
 }
 
 void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, bool visible) noexcept {
-    _set(index, mesh.handle(), transform, visible);
+    set(index, mesh.handle(), transform, visible);
 }
 
-void Accel::_set(size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
+void Accel::set(size_t index, uint64_t mesh_handle, float4x4 transform, bool visible) noexcept {
     std::scoped_lock lock{*_mutex};
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(

@@ -28,13 +28,14 @@
 #include <ast/statement.h>
 #include <ast/function_builder.h>
 #include <backends/llvm/llvm_texture.h>
+#include <backends/llvm/llvm_accel.h>
 
 namespace luisa::compute::llvm {
 
 class LLVMCodegen : public StmtVisitor {
 
 public:
-    static constexpr auto accel_handle_size = sizeof(const void *);
+    static constexpr auto accel_handle_size = sizeof(LLVMAccel::Handle);
     static constexpr auto buffer_handle_size = sizeof(const void *);
     static constexpr auto texture_handle_size = sizeof(LLVMTextureView);
     static constexpr auto bindless_array_handle_size = sizeof(const void *);
@@ -276,6 +277,9 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_transpose(const Type *t, ::llvm::Value *pm) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_trace_closest(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_trace_any(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_instance_transform(::llvm::Value *accel, ::llvm::Value *p_index) noexcept;
+    void _builtin_set_instance_transform(::llvm::Value *accel, ::llvm::Value *p_index, ::llvm::Value *p_mat) noexcept;
+    void _builtin_set_instance_visibility(::llvm::Value *accel, ::llvm::Value *p_index, ::llvm::Value *p_vis) noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;

@@ -28,9 +28,14 @@ public:
     };
     static_assert(sizeof(Instance) == 64u);
 
+    struct alignas(16) Handle {
+        const LLVMAccel *accel;
+        Instance *instances;
+    };
+
 private:
     RTCScene _handle;
-    luisa::vector<Instance> _instances;
+    mutable luisa::vector<Instance> _instances;
 
 private:
     [[nodiscard]] static std::array<float, 12> _compress(float4x4 m) noexcept;
@@ -43,9 +48,22 @@ public:
                luisa::span<const AccelBuildCommand::Modification> mods) noexcept;
     [[nodiscard]] Hit trace_closest(Ray ray) const noexcept;
     [[nodiscard]] bool trace_any(Ray ray) const noexcept;
+    [[nodiscard]] auto handle() const noexcept { return Handle{this, _instances.data()}; }
 };
 
 [[nodiscard]] detail::ulong2 accel_trace_closest(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept;
 [[nodiscard]] bool accel_trace_any(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept;
 
+struct alignas(16) LLVMAccelInstance {
+    float affine[12];
+    bool visible;
+    bool dirty;
+    uint pad;
+    uint geom0;
+    uint geom1;
+};
+
 }// namespace luisa::compute::llvm
+
+LUISA_STRUCT(luisa::compute::llvm::LLVMAccelInstance,
+             affine, visible, dirty, pad, geom0, geom1) {};
