@@ -9,7 +9,7 @@ if __name__ == "__main__":
         lines += [line.strip() for line in file.readlines()]
 
     builtin_functions = ["make_float2x2", "make_float3x3", "make_float4x4",
-                         "dispatch_id", "thread_id", "block_id",
+                         "dispatch_id", "thread_id", "block_id", "make_ray",
                          "dispatch_size", "set_block_size", "array", "struct"]
     builtin_classes = {"float2x2": [], "float3x3": [], "float4x4": []}
     for t in ["int", "uint", "float", "bool"]:

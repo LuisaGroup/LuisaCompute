@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
                 if (dx != 0 || dy != 0) {
                     Var q = p + make_int2(dx, dy) + make_int2(size);
                     Var neighbor = pair.prev.read(make_uint2(q) % size).x;
-                    count += neighbor;
+                    count += ite(neighbor > .5f, 1u, 0u);
                 }
             }
         }
