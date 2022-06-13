@@ -38,13 +38,23 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     LLVMCodegen codegen{*_context};
     auto module = codegen.emit(func);
     LUISA_INFO("Codegen: {} ms.", clk.toc());
-    ::llvm::raw_fd_ostream file{"kernel.ll", ec};
-    if (ec) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to create file 'kernel.ll': {}.",
-            ec.message());
+    {
+        auto file_path = device->context().cache_directory() /
+                         luisa::format("kernel.{:016x}.llvm.ll", func.hash());
+        auto file_path_string = file_path.string();
+        static std::mutex file_mutex;
+        std::scoped_lock lock{file_mutex};
+        ::llvm::raw_fd_ostream file{file_path_string, ec};
+        if (ec) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to create file '{}': {}.",
+                file_path_string, ec.message());
+        } else {
+            LUISA_INFO("Saving LLVM kernel to '{}'.",
+                       file_path_string);
+            module->print(file, nullptr);
+        }
     }
-    module->print(file, nullptr);
     if (::llvm::verifyModule(*module, &::llvm::errs())) {
         LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
     }
@@ -75,15 +85,25 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
         LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
     }
     LUISA_INFO("Optimize: {} ms.", clk.toc());
-    ::llvm::raw_fd_ostream file_opt{"kernel.opt.ll", ec};
-    if (ec) {
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to create file 'kernel.opt.ll': {}.",
-            ec.message());
+    {
+        auto file_path = device->context().cache_directory() /
+                             luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
+        auto file_path_string = file_path.string();
+        static std::mutex file_mutex;
+        std::scoped_lock lock{file_mutex};
+        ::llvm::raw_fd_ostream file_opt{file_path_string, ec};
+        if (ec) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to create file '{}': {}.",
+                file_path_string, ec.message());
+        } else {
+            LUISA_INFO("Saving optimized LLVM kernel to '{}'.",
+                       file_path_string);
+            module->print(file_opt, nullptr);
+        }
     }
-    module->print(file_opt, nullptr);
 
-    // compile
+    // compile to machine code
     clk.tic();
     std::string err;
     _engine = ::llvm::EngineBuilder{std::move(module)}
