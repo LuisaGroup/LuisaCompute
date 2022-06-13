@@ -72,6 +72,38 @@ LLVMTextureView LLVMTexture::view(uint level) const noexcept {
                            _storage, _pixel_stride};
 }
 
+float4 LLVMTexture::read2d(uint level, uint2 uv) const noexcept {
+    return view(level).read2d<float>(uv);
+}
+
+float4 LLVMTexture::read3d(uint level, uint3 uvw) const noexcept {
+    return view(level).read3d<float>(uvw);
+}
+
+float4 LLVMTexture::sample2d(Sampler sampler, float2 uv) const noexcept {
+    return {};
+}
+
+float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw) const noexcept {
+    return {};
+}
+
+float4 LLVMTexture::sample2d(Sampler sampler, float2 uv, float lod) const noexcept {
+    return {};
+}
+
+float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw, float lod) const noexcept {
+    return {};
+}
+
+float4 LLVMTexture::sample2d(Sampler sampler, float2 uv, float2 dpdx, float2 dpdy) const noexcept {
+    return {};
+}
+
+float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw, float3 dpdx, float3 dpdy) const noexcept {
+    return {};
+}
+
 void texture_write_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
     detail::decode_texture_view(t0, t1).write2d<int>(
         detail::decode_uint2(c0), detail::decode_int4(v0, v1));
@@ -140,13 +172,48 @@ detail::ulong2 texture_read_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint
 }
 
 detail::ulong2 bindless_texture_2d_read(const LLVMTexture *tex, uint level, uint x, uint y) noexcept {
-    auto v = tex->view(level).read2d<float>(make_uint2(x, y));
-    return detail::encode_float4(v);
+    return detail::encode_float4(tex->read2d(level, make_uint2(x, y)));
 }
 
 detail::ulong2 bindless_texture_3d_read(const LLVMTexture *tex, uint level, uint x, uint y, uint z) noexcept {
-    auto v = tex->view(level).read3d<float>(make_uint3(x, y, z));
-    return detail::encode_float4(v);
+    return detail::encode_float4(tex->read3d(level, make_uint3(x, y, z)));
+}
+
+detail::ulong2 bindless_texture_2d_sample(const LLVMTexture *tex, uint sampler, float u, float v) noexcept {
+    return detail::encode_float4(tex->sample2d(Sampler::decode(sampler), make_float2(u, v)));
+}
+
+detail::ulong2 bindless_texture_3d_sample(const LLVMTexture *tex, uint sampler, float u, float v, float w) noexcept {
+    return detail::encode_float4(tex->sample3d(Sampler::decode(sampler), make_float3(u, v, w)));
+}
+
+detail::ulong2 bindless_texture_2d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float lod) noexcept {
+    return detail::encode_float4(tex->sample2d(Sampler::decode(sampler), make_float2(u, v), lod));
+}
+
+detail::ulong2 bindless_texture_3d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float w, float lod) noexcept {
+    return detail::encode_float4(tex->sample3d(Sampler::decode(sampler), make_float3(u, v, w), lod));
+}
+
+detail::ulong2 bindless_texture_2d_sample_grad(const LLVMTexture *tex, uint sampler, float u, float v, uint64_t dpdx, uint64_t dpdy) noexcept {
+    return detail::encode_float4(tex->sample2d(
+        Sampler::decode(sampler), make_float2(u, v),
+        detail::decode_float2(dpdx), detail::decode_float2(dpdy)));
+}
+
+detail::ulong2 bindless_texture_3d_sample_grad(const LLVMTexture *tex, uint64_t sampler_w, uint64_t uv, uint64_t dudxy, uint64_t dvdxy, uint64_t dwdxy) noexcept {
+    struct alignas(8) sampler_and_float {
+        uint sampler;
+        float w;
+    };
+    auto du_dxy = detail::decode_float2(dudxy);
+    auto dv_dxy = detail::decode_float2(dvdxy);
+    auto dw_dxy = detail::decode_float2(dwdxy);
+    auto dpdx = make_float3(du_dxy.x, dv_dxy.x, dw_dxy.x);
+    auto dpdy = make_float3(du_dxy.y, dv_dxy.y, dw_dxy.y);
+    auto [sampler, w] = luisa::bit_cast<sampler_and_float>(sampler_w);
+    auto uvw = make_float3(detail::decode_float2(uv), w);
+    return detail::encode_float4(tex->sample3d(Sampler::decode(sampler), uvw, dpdx, dpdy));
 }
 
 }// namespace luisa::compute::llvm

@@ -493,12 +493,20 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
                 args[2]->type(), _create_expr(args[0]),
                 _create_expr(args[1]), _create_expr(args[2]));
             return nullptr;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: LUISA_WARNING_WITH_LOCATION("Not implemented."); break;
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE: return _builtin_bindless_texture_sample2d(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: return _builtin_bindless_texture_sample2d_level(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]), _create_expr(args[3]));
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: return _builtin_bindless_texture_sample2d_grad(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]),
+            _create_expr(args[3]), _create_expr(args[4]));
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE: return _builtin_bindless_texture_sample3d(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: return _builtin_bindless_texture_sample3d_level(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]), _create_expr(args[3]));
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: return _builtin_bindless_texture_sample3d_grad(
+            _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]),
+            _create_expr(args[3]), _create_expr(args[4]));
         case CallOp::BINDLESS_TEXTURE2D_READ: return _builtin_bindless_texture_read2d(
             _create_expr(args[0]), _create_expr(args[1]), nullptr, _create_expr(args[2]));
         case CallOp::BINDLESS_TEXTURE3D_READ: return _builtin_bindless_texture_read3d(
@@ -2602,7 +2610,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto b = _current_context()->builder.get();
     auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.size.2d.level");
     auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.size.2d.index");
-    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.size.2d.texture.ptr");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.size.2d.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.size.2d.texture.ptr");
     auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.size.2d.texture");
     auto texture_size = b->CreateExtractValue(texture, 1u, "bindless.texture.size.2d.texture.size.i16");
     texture_size = b->CreateShuffleVector(texture_size, {0, 1}, "bindless.texture.size.2d.texture.i16.v2");
@@ -2618,7 +2627,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto b = _current_context()->builder.get();
     auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.size.3d.level");
     auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.size.3d.index");
-    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.size.3d.texture.ptr");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.size.3d.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.size.3d.texture.ptr");
     auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.size.3d.texture");
     auto texture_size = b->CreateExtractValue(texture, 1u, "bindless.texture.size.3d.texture.size.i16");
     texture_size = b->CreateZExt(texture_size, _create_type(Type::of<uint3>()), "bindless.texture.size.3d.texture.size.i32");
@@ -2648,8 +2658,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto b = _current_context()->builder.get();
     auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.read.2d.level");
     auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.read.2d.index");
-    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.read.2d.texture.ptr");
-    auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.read.2d.texture");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.read.2d.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.read.2d.texture.ptr");
     auto coord = b->CreateLoad(_create_type(Type::of<uint2>()), p_uv, "bindless.texture.read.2d.uv");
     auto coord_x = b->CreateExtractElement(coord, _literal(0u), "bindless.texture.read.2d.uv.x");
     auto coord_y = b->CreateExtractElement(coord, _literal(1u), "bindless.texture.read.2d.uv.y");
@@ -2661,7 +2671,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.read", _module);
     }
-    auto ret = b->CreateCall(func, {texture, level, coord_x, coord_y}, "bindless.texture.read.2d.ret");
+    auto ret = b->CreateCall(func, {p_texture, level, coord_x, coord_y}, "bindless.texture.read.2d.ret");
     auto p_ret = _create_stack_variable(ret, "bindless.texture.read.2d.ret.addr");
     return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.read.2d.addr");
 }
@@ -2671,8 +2681,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto b = _current_context()->builder.get();
     auto level = p_level == nullptr ? _literal(0u) : b->CreateLoad(b->getInt32Ty(), p_level, "bindless.texture.read.3d.level");
     auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.read.3d.index");
-    auto p_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.read.3d.texture.ptr");
-    auto texture = b->CreateLoad(_bindless_texture_type(), p_texture, "bindless.texture.read.3d.texture");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.read.3d.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.read.3d.texture.ptr");
     auto coord = b->CreateLoad(_create_type(Type::of<uint3>()), p_uvw, "bindless.texture.read.3d.uvw");
     auto coord_x = b->CreateExtractElement(coord, _literal(0u), "bindless.texture.read.3d.uvw.x");
     auto coord_y = b->CreateExtractElement(coord, _literal(1u), "bindless.texture.read.3d.uvw.y");
@@ -2685,9 +2695,194 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.read", _module);
     }
-    auto ret = b->CreateCall(func, {texture, level, coord_x, coord_y, coord_z}, "bindless.texture.read.3d.ret");
+    auto ret = b->CreateCall(func, {p_texture, level, coord_x, coord_y, coord_z}, "bindless.texture.read.3d.ret");
     auto p_ret = _create_stack_variable(ret, "bindless.texture.read.3d.ret.addr");
     return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.read.3d.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv) noexcept {
+    auto b = _current_context()->builder.get();
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.sample.2d.index");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.sample.2d.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.sample.2d.texture.ptr");
+    auto p_sampler = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(3)}, "bindless.texture.sample.2d.sampler.ptr");
+    auto sampler = b->CreateLoad(b->getInt32Ty(), p_sampler, "bindless.texture.sample.2d.sampler");
+    auto uv = b->CreateLoad(_create_type(Type::of<float2>()), p_uv, "bindless.texture.sample.2d.uv");
+    auto uv_x = b->CreateExtractElement(uv, _literal(0u), "bindless.texture.sample.2d.uv.x");
+    auto uv_y = b->CreateExtractElement(uv, _literal(1u), "bindless.texture.sample.2d.uv.y");
+    auto func = _module->getFunction("bindless.texture.2d.sample");
+    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                i64v2_type,
+                {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
+                 b->getFloatTy(), b->getFloatTy()},
+                false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample", _module);
+    }
+    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y}, "bindless.texture.sample.2d.struct.ret");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.2d.ret.struct.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.2d.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw) noexcept {
+    auto b = _current_context()->builder.get();
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.sample.3d.index");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.sample.3d.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.sample.3d.texture.ptr");
+    auto p_sampler = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(4)}, "bindless.texture.sample.3d.sampler.ptr");
+    auto sampler = b->CreateLoad(b->getInt32Ty(), p_sampler, "bindless.texture.sample.3d.sampler");
+    auto uvw = b->CreateLoad(_create_type(Type::of<float3>()), p_uvw, "bindless.texture.sample.3d.uvw");
+    auto uvw_x = b->CreateExtractElement(uvw, _literal(0u), "bindless.texture.sample.3d.uvw.x");
+    auto uvw_y = b->CreateExtractElement(uvw, _literal(1u), "bindless.texture.sample.3d.uvw.y");
+    auto uvw_z = b->CreateExtractElement(uvw, _literal(2u), "bindless.texture.sample.3d.uvw.z");
+    auto func = _module->getFunction("bindless.texture.3d.sample");
+    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                i64v2_type,
+                {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
+                 b->getFloatTy(), b->getFloatTy(), b->getFloatTy()},
+                false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample", _module);
+    }
+    auto ret = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z}, "bindless.texture.sample.3d.struct.ret");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.ret.struct.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.3d.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d_level(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_lod) noexcept {
+    auto b = _current_context()->builder.get();
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.sample.2d.level.index");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.sample.2d.level.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.sample.2d.level.texture.ptr");
+    auto p_sampler = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(3)}, "bindless.texture.sample.2d.level.sampler.ptr");
+    auto sampler = b->CreateLoad(b->getInt32Ty(), p_sampler, "bindless.texture.sample.2d.level.sampler");
+    auto uv = b->CreateLoad(_create_type(Type::of<float2>()), p_uv, "bindless.texture.sample.2d.level.uv");
+    auto uv_x = b->CreateExtractElement(uv, _literal(0u), "bindless.texture.sample.2d.level.uv.x");
+    auto uv_y = b->CreateExtractElement(uv, _literal(1u), "bindless.texture.sample.2d.level.uv.y");
+    auto lod = b->CreateLoad(b->getFloatTy(), p_lod, "bindless.texture.sample.2d.level.lod");
+    auto func = _module->getFunction("bindless.texture.2d.sample.level");
+    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                i64v2_type,
+                {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
+                 b->getFloatTy(), b->getFloatTy(), b->getFloatTy()},
+                false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.level", _module);
+    }
+    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, lod}, "bindless.texture.sample.2d.level.struct.ret");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.2d.level.ret.struct.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.2d.level.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d_level(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_lod) noexcept {
+    auto b = _current_context()->builder.get();
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.sample.3d.level.index");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(2)}, "bindless.texture.sample.3d.level.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.sample.3d.level.texture.ptr");
+    auto p_sampler = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(4)}, "bindless.texture.sample.3d.level.sampler.ptr");
+    auto sampler = b->CreateLoad(b->getInt32Ty(), p_sampler, "bindless.texture.sample.3d.level.sampler");
+    auto uvw = b->CreateLoad(_create_type(Type::of<float3>()), p_uvw, "bindless.texture.sample.3d.level.uvw");
+    auto uvw_x = b->CreateExtractElement(uvw, _literal(0u), "bindless.texture.sample.3d.level.uvw.x");
+    auto uvw_y = b->CreateExtractElement(uvw, _literal(1u), "bindless.texture.sample.3d.level.uvw.y");
+    auto uvw_z = b->CreateExtractElement(uvw, _literal(2u), "bindless.texture.sample.3d.level.uvw.z");
+    auto lod = b->CreateLoad(b->getFloatTy(), p_lod, "bindless.texture.sample.3d.level.lod");
+    auto func = _module->getFunction("bindless.texture.3d.sample.level");
+    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                i64v2_type,
+                {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
+                 b->getFloatTy(), b->getFloatTy(), b->getFloatTy(), b->getFloatTy()},
+                false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample.level", _module);
+    }
+    auto ret = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z, lod}, "bindless.texture.sample.3d.level.struct.ret");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.level.ret.struct.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.3d.level.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d_grad(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept {
+    auto b = _current_context()->builder.get();
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.sample.2d.grad.index");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.sample.2d.grad.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.sample.2d.grad.texture.ptr");
+    auto p_sampler = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(3)}, "bindless.texture.sample.2d.grad.sampler.ptr");
+    auto sampler = b->CreateLoad(b->getInt32Ty(), p_sampler, "bindless.texture.sample.2d.grad.sampler");
+    auto uv = b->CreateLoad(_create_type(Type::of<float2>()), p_uv, "bindless.texture.sample.2d.grad.uv");
+    auto uv_x = b->CreateExtractElement(uv, _literal(0u), "bindless.texture.sample.2d.grad.uv.x");
+    auto uv_y = b->CreateExtractElement(uv, _literal(1u), "bindless.texture.sample.2d.grad.uv.y");
+    p_dpdx = b->CreateBitOrPointerCast(p_dpdx, b->getInt64Ty()->getPointerTo(), "bindless.texture.sample.2d.grad.dpdx.addr");
+    p_dpdy = b->CreateBitOrPointerCast(p_dpdy, b->getInt64Ty()->getPointerTo(), "bindless.texture.sample.2d.grad.dpdy.addr");
+    auto dpdx = b->CreateLoad(b->getInt64Ty(), p_dpdx, "bindless.texture.sample.2d.grad.dpdx");
+    auto dpdy = b->CreateLoad(b->getInt64Ty(), p_dpdy, "bindless.texture.sample.2d.grad.dpdy");
+    auto func = _module->getFunction("bindless.texture.2d.sample.grad");
+    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                i64v2_type,
+                {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
+                 b->getFloatTy(), b->getFloatTy(), b->getInt64Ty(), b->getInt64Ty()},
+                false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.grad", _module);
+    }
+    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, dpdx, dpdy}, "bindless.texture.sample.2d.grad.struct.ret");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.2d.grad.ret.struct.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.2d.grad.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d_grad(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept {
+auto b = _current_context()->builder.get();
+    auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.sample.3d.grad.index");
+    auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.sample.3d.grad.texture.ptr.ptr");
+    auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.sample.3d.grad.texture.ptr");
+    auto p_sampler = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(3)}, "bindless.texture.sample.3d.grad.sampler.ptr");
+    p_uvw = _builtin_bitwise_cast(Type::of<uint3>(), Type::of<float3>(), p_uvw);
+    p_dpdx = _builtin_bitwise_cast(Type::of<uint3>(), Type::of<float3>(), p_dpdx);
+    p_dpdy = _builtin_bitwise_cast(Type::of<uint3>(), Type::of<float3>(), p_dpdy);
+    auto uvw = b->CreateLoad(_create_type(Type::of<uint3>()), p_uvw, "bindless.texture.sample.3d.grad.uvw");
+    auto dpdx = b->CreateLoad(_create_type(Type::of<uint3>()), p_dpdx, "bindless.texture.sample.3d.grad.dpdx");
+    auto dpdy = b->CreateLoad(_create_type(Type::of<uint3>()), p_dpdy, "bindless.texture.sample.3d.grad.dpdy");
+    auto p_u = _create_stack_variable(b->CreateExtractElement(uvw, _literal(0u), "bindless.texture.sample.3d.grad.uvw.x"), "bindless.texture.sample.3d.grad.uvw.x.addr");
+    auto p_v = _create_stack_variable(b->CreateExtractElement(uvw, _literal(1u), "bindless.texture.sample.3d.grad.uvw.y"), "bindless.texture.sample.3d.grad.uvw.y.addr");
+    auto p_w = _create_stack_variable(b->CreateExtractElement(uvw, _literal(2u), "bindless.texture.sample.3d.grad.uvw.z"), "bindless.texture.sample.3d.grad.uvw.z.addr");
+    auto p_dudx = _create_stack_variable(b->CreateExtractElement(dpdx, _literal(0u), "bindless.texture.sample.3d.grad.dpdx.x"), "bindless.texture.sample.3d.grad.dpdx.x.addr");
+    auto p_dvdx = _create_stack_variable(b->CreateExtractElement(dpdy, _literal(1u), "bindless.texture.sample.3d.grad.dpdy.y"), "bindless.texture.sample.3d.grad.dpdy.y.addr");
+    auto p_dwdx = _create_stack_variable(b->CreateExtractElement(dpdy, _literal(2u), "bindless.texture.sample.3d.grad.dpdy.z"), "bindless.texture.sample.3d.grad.dpdy.z.addr");
+    auto p_dudy = _create_stack_variable(b->CreateExtractElement(dpdx, _literal(1u), "bindless.texture.sample.3d.grad.dpdx.y"), "bindless.texture.sample.3d.grad.dpdx.y.addr");
+    auto p_dvdy = _create_stack_variable(b->CreateExtractElement(dpdy, _literal(0u), "bindless.texture.sample.3d.grad.dpdy.x"), "bindless.texture.sample.3d.grad.dpdy.x.addr");
+    auto p_dwdy = _create_stack_variable(b->CreateExtractElement(dpdy, _literal(2u), "bindless.texture.sample.3d.grad.dpdy.z"), "bindless.texture.sample.3d.grad.dpdy.z.addr");
+    auto p_sampler_and_w = b->CreateBitOrPointerCast(_make_int2(p_sampler, p_w), b->getInt64Ty()->getPointerTo(), "bindless.texture.sample.3d.grad.sampler.w.addr");
+    auto p_uv = b->CreateBitOrPointerCast(_make_int2(p_u, p_v), b->getInt64Ty()->getPointerTo(), "bindless.texture.sample.3d.grad.uv.addr");
+    auto p_dudxy = b->CreateBitOrPointerCast(_make_int2(p_dudx, p_dudy), b->getInt64Ty()->getPointerTo(), "bindless.texture.sample.3d.grad.dudxy.addr");
+    auto p_dvdxy = b->CreateBitOrPointerCast(_make_int2(p_dvdx, p_dvdy), b->getInt64Ty()->getPointerTo(), "bindless.texture.sample.3d.grad.dvdxy.addr");
+    auto p_dwdxy = b->CreateBitOrPointerCast(_make_int2(p_dwdx, p_dwdy), b->getInt64Ty()->getPointerTo(), "bindless.texture.sample.3d.grad.dwdxy.addr");
+    auto sampler_and_w = b->CreateLoad(b->getInt64Ty(), p_sampler_and_w, "bindless.texture.sample.3d.grad.sampler.and.w");
+    auto uv = b->CreateLoad(b->getInt64Ty(), p_uv, "bindless.texture.sample.3d.grad.uv");
+    auto dudxy = b->CreateLoad(b->getInt64Ty(), p_dudxy, "bindless.texture.sample.3d.grad.dudxy");
+    auto dvdxy = b->CreateLoad(b->getInt64Ty(), p_dvdxy, "bindless.texture.sample.3d.grad.dvdxy");
+    auto dwdxy = b->CreateLoad(b->getInt64Ty(), p_dwdxy, "bindless.texture.sample.3d.grad.dwdxy");
+    auto func = _module->getFunction("bindless.texture.sample.3d.grad");
+    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
+    if (func == nullptr) {
+        func = ::llvm::Function::Create(
+            ::llvm::FunctionType::get(
+                i64v2_type,
+                {_bindless_texture_type()->getPointerTo(), b->getInt64Ty(),
+                 b->getFloatTy(), b->getFloatTy(), b->getInt64Ty(), b->getInt64Ty()},
+                false),
+            ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.grad", _module);
+    }
+    auto ret = b->CreateCall(func, {p_texture, sampler_and_w, uv, dudxy, dvdxy, dwdxy}, "bindless.texture.sample.3d.grad.ret.struct");
+    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.grad.ret.struct.addr");
+    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>()), "bindless.texture.sample.3d.grad.ret.addr");
 }
 
 }// namespace luisa::compute::llvm

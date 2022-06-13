@@ -40,6 +40,10 @@ struct alignas(16) ulong4 {
     return luisa::bit_cast<uint2>(x);
 }
 
+[[nodiscard]] inline auto decode_float2(uint64_t x) noexcept {
+    return luisa::bit_cast<float2>(x);
+}
+
 [[nodiscard]] inline auto encode_int4(int4 x) noexcept {
     return luisa::bit_cast<ulong2>(x);
 }

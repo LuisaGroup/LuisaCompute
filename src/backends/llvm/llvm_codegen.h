@@ -290,6 +290,18 @@ private:
         ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level, ::llvm::Value *p_uv) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_read3d(
         ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_level, ::llvm::Value *p_uvw) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_sample2d(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_sample3d(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_sample2d_level(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_lod) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_sample3d_level(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_lod) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_sample2d_grad(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_sample3d_grad(
+        ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;
