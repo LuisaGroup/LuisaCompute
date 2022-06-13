@@ -274,7 +274,6 @@ int main(int argc, char *argv[]) {
         auto p = dispatch_id().xy();
         auto accum = accum_image.read(p);
         auto curr = curr_image.read(p).xyz();
-//        auto t = 1.0f / (accum.w + 1.0f);
         accum_image.write(p, accum + make_float4(curr, 1.f));
     };
 
