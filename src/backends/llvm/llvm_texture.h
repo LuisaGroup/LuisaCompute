@@ -221,9 +221,10 @@ class alignas(16u) LLVMTexture {
 private:
     std::byte *_data{nullptr};           // 8B
     std::array<uint16_t, 3u> _size{};    // 14B
-    PixelStorage _storage : 8u;          // 15B
-    uint _pixel_stride : 8u;             // 16B
-    std::array<uint, 16u> _mip_offsets{};// 80B
+    PixelStorage _storage : 16u;         // 16B
+    uint _pixel_stride : 16u;            // 18B
+    uint _mip_levels : 16u;              // 20B
+    std::array<uint, 15u> _mip_offsets{};// 80B
 
 public:
     LLVMTexture(PixelStorage storage, uint3 size, uint levels) noexcept;
@@ -251,10 +252,10 @@ public:
 class alignas(16u) LLVMTextureView {
 
 private:
-    std::byte *_data;           // 8B
-    uint _width : 16u;          // 10B
-    uint _height : 16u;         // 12B
-    uint _depth : 16u;          // 14B
+    std::byte *_data;          // 8B
+    uint _width : 16u;         // 10B
+    uint _height : 16u;        // 12B
+    uint _depth : 16u;         // 14B
     PixelStorage _storage : 8u;// 15B
     uint _pixel_stride : 8u;   // 16B
 

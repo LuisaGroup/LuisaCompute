@@ -51,7 +51,8 @@ uint float_to_half(float f) noexcept {
 }// namespace detail
 
 LLVMTexture::LLVMTexture(PixelStorage storage, uint3 size, uint levels) noexcept
-    : _storage{storage}, _pixel_stride{static_cast<uint>(pixel_storage_size(storage))} {
+    : _storage{storage}, _mip_levels{levels},
+      _pixel_stride{static_cast<uint>(pixel_storage_size(storage))} {
     for (auto i = 0u; i < 3u; i++) { _size[i] = size[i]; }
     _mip_offsets[0] = 0u;
     for (auto i = 1u; i < levels; i++) {

@@ -54,10 +54,12 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
         field_indices.emplace_back(member_index++);
         ::llvm::ArrayRef<::llvm::Type *> fields_ref{field_types.data(), field_types.size()};
         return std::make_pair(
-            ::llvm::StructType::get(_context, fields_ref),
+            ::llvm::StructType::create(_context, fields_ref),
             std::move(field_indices));
     };
     auto [arg_struct_type, arg_struct_indices] = create_argument_struct();
+    auto arg_struct_name = luisa::format("arg.buffer.struct.{:016x}", f.hash());
+    arg_struct_type->setName(luisa::string_view{arg_struct_name});
     auto arg_buffer_type = ::llvm::PointerType::get(arg_struct_type, 0);
     ::llvm::SmallVector<::llvm::Type *, 2u> arg_types;
     arg_types.emplace_back(arg_buffer_type);
@@ -67,9 +69,10 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
                  f.return_type()->description());
     auto function_type = ::llvm::FunctionType::get(
         ::llvm::Type::getVoidTy(_context), arg_types, false);
+    auto main_name = luisa::format("kernel.{:016x}.main", f.hash());
     auto ir = ::llvm::Function::Create(
         function_type, ::llvm::Function::ExternalLinkage,
-        "kernel_main", _module);
+        luisa::string_view{main_name}, _module);
     auto builder = luisa::make_unique<::llvm::IRBuilder<>>(_context);
     auto body_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
     builder->SetInsertPoint(body_block);

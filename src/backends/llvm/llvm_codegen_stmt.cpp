@@ -101,7 +101,7 @@ void LLVMCodegen::visit(const SwitchStmt *stmt) {
     auto inst = ctx->builder->CreateSwitch(cond, end_block);
     ctx->break_targets.emplace_back(end_block);
     ctx->switch_stack.emplace_back(inst);
-    stmt->body()->accept(*this);
+    for (auto c : stmt->body()->statements()) { c->accept(*this); }
     ctx->break_targets.pop_back();
     ctx->switch_stack.pop_back();
     end_block->moveAfter(ctx->builder->GetInsertBlock());
