@@ -259,8 +259,7 @@ struct ExprEnableBitwiseCast {
 template<typename T>
 struct ExprEnableSubscriptAccess {
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
+        requires is_integral_expr_v<I> [[nodiscard]] auto
         operator[](I &&index) const noexcept {
         auto self = def<T>(static_cast<const T *>(this)->expression());
         using Elem = std::remove_cvref_t<

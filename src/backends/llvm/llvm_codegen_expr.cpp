@@ -51,7 +51,7 @@ namespace luisa::compute::llvm {
                  lhs->type()->description(), rhs->type()->description());
     auto ctx = _current_context();
     auto value = _create_expr(lhs);
-    auto lhs_is_true = ctx->builder->CreateICmpEQ(
+    auto lhs_is_true = ctx->builder->CreateICmpNE(
         ctx->builder->CreateLoad(_create_type(lhs->type()), value, "load"),
         ctx->builder->getInt8(0), "cmp");
     auto next_block = ::llvm::BasicBlock::Create(_context, "and.next", ctx->ir);
@@ -59,7 +59,6 @@ namespace luisa::compute::llvm {
     next_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->builder->CreateCondBr(lhs_is_true, next_block, out_block);
     ctx->builder->SetInsertPoint(next_block);
-    auto rhs_value = _create_expr(rhs);
     _create_assignment(Type::of<bool>(), rhs->type(), value, _create_expr(rhs));
     out_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->builder->CreateBr(out_block);
@@ -74,7 +73,7 @@ namespace luisa::compute::llvm {
                  lhs->type()->description(), rhs->type()->description());
     auto ctx = _current_context();
     auto value = _create_expr(lhs);
-    auto lhs_is_true = ctx->builder->CreateICmpEQ(
+    auto lhs_is_true = ctx->builder->CreateICmpNE(
         ctx->builder->CreateLoad(_create_type(lhs->type()), value, "load"),
         ctx->builder->getInt8(0), "cmp");
     auto next_block = ::llvm::BasicBlock::Create(_context, "or.next", ctx->ir);
@@ -82,7 +81,6 @@ namespace luisa::compute::llvm {
     next_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->builder->CreateCondBr(lhs_is_true, out_block, next_block);
     ctx->builder->SetInsertPoint(next_block);
-    auto rhs_value = _create_expr(rhs);
     _create_assignment(Type::of<bool>(), rhs->type(), value, _create_expr(rhs));
     out_block->moveAfter(ctx->builder->GetInsertBlock());
     ctx->builder->CreateBr(out_block);
@@ -262,7 +260,7 @@ namespace luisa::compute::llvm {
             _create_expr(expr->index())),
         "access.index");
     auto elem_type = _create_type(expr->type());
-    auto ptr_type = ::llvm::PointerType::get(elem_type, 0);
+    auto ptr_type = elem_type->getPointerTo();
     auto range_type = expr->range()->type();
     if (range_type->is_buffer()) {
         return ctx->builder->CreateInBoundsGEP(elem_type, range, index, "access.addr");

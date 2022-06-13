@@ -35,7 +35,7 @@ index_buffer.copy_from(indices)
 accel = luisa.Accel()
 mesh = luisa.Mesh(vertex_buffer, index_buffer)
 accel.add(mesh)
-accel.build()
+accel.update()
 
 @luisa.func
 def linear_to_srgb(x: float3):

@@ -34,7 +34,8 @@ grid_m = lc.Buffer.empty(n_grid * n_grid, dtype=float)
 
 @lc.func
 def encode(pos: int2):
-    return pos.x + pos.y * n_grid
+    p = clamp(pos, int2(0), int2(n_grid - 1))
+    return p.x + p.y * n_grid
 
 
 @lc.func

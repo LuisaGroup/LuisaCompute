@@ -130,12 +130,7 @@ def render(frame_index):
     aspect_ratio = res.x / res.y
     pos = camera_pos
     uv = float2(coord.x + sampler.next(), res.y - 1 - coord.y + sampler.next())
-    # uv = float2(coord) + sampler.next2f()
     d = float3(2.0 * fov * uv / res.y - fov * float2(aspect_ratio, 1.0) - 1e-5, -1.0)
-    # d = float3(
-    #         (2 * fov * (u + sampler.next()) / res[1] - fov * aspect_ratio - 1e-5),
-    #         2 * fov * (v + sampler.next()) / res[1] - fov - 1e-5, -1.0
-    #     )
     d = normalize(d)
 
     throughput = float3(1)
@@ -169,23 +164,21 @@ def to_display(scale):
     accum_color = image.read(coord).xyz
     display.write(coord, float4(sqrt(accum_color * scale), 1.0))
 
-ENABLE_DISPLAY = False
+ENABLE_DISPLAY = True
 if ENABLE_DISPLAY:
     gui = luisa.GUI("SDF Path Tracer", res)
     frame_index = 0
     while gui.running():
         render(frame_index, dispatch_size=(*res, 1))
         frame_index += 1
-        if frame_index % 16 == 0:
-            to_display(0.24 / (1 + frame_index) / 0.084 , dispatch_size=(*res, 1))
+        if frame_index % 4 == 0:
+            to_display(0.24 / (1 + frame_index) / 0.084, dispatch_size=(*res, 1))
             gui.set_image(display)
             gui.show()
 
-# Image.fromarray(display.to(luisa.PixelStorage.BYTE4).numpy()).save("sdf.png")
-
 else:
     warm_up_spp = 128
-    total_spp = 8192
+    total_spp = 128
     interval = 4096
     frame_index = 0
     buffer = np.zeros([res[0] * res[1] * 4], dtype=np.float32)

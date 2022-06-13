@@ -244,7 +244,7 @@ clear_kernel(accum_image, dispatch_size=[*res, 1])
 
 t0 = time.time()
 frame_index = 0
-sample_per_pass = 256
+sample_per_pass = 1
 def update():
     global frame_index, arr
     t = time.time() - t0
