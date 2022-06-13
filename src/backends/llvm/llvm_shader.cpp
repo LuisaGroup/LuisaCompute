@@ -87,7 +87,7 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     LUISA_INFO("Optimize: {} ms.", clk.toc());
     {
         auto file_path = device->context().cache_directory() /
-                             luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
+                         luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
         auto file_path_string = file_path.string();
         static std::mutex file_mutex;
         std::scoped_lock lock{file_mutex};
@@ -131,7 +131,13 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
             {"accel.trace.closest"sv, reinterpret_cast<void *>(&accel_trace_closest)},
             {"accel.trace.any"sv, reinterpret_cast<void *>(&accel_trace_any)},
             {"bindless.texture.2d.read", reinterpret_cast<void *>(&bindless_texture_2d_read)},
-            {"bindless.texture.3d.read", reinterpret_cast<void *>(&bindless_texture_3d_read)}};
+            {"bindless.texture.3d.read", reinterpret_cast<void *>(&bindless_texture_3d_read)},
+            {"bindless.texture.2d.sample", reinterpret_cast<void *>(&bindless_texture_2d_sample)},
+            {"bindless.texture.3d.sample", reinterpret_cast<void *>(&bindless_texture_3d_sample)},
+            {"bindless.texture.2d.sample.level", reinterpret_cast<void *>(&bindless_texture_2d_sample_level)},
+            {"bindless.texture.3d.sample.level", reinterpret_cast<void *>(&bindless_texture_3d_sample_level)},
+            {"bindless.texture.2d.sample.grad", reinterpret_cast<void *>(&bindless_texture_2d_sample_grad)},
+            {"bindless.texture.3d.sample.grad", reinterpret_cast<void *>(&bindless_texture_3d_sample_grad)}};
         auto name_view = luisa::string_view{name};
         if (name_view.starts_with('_')) { name_view = name_view.substr(1u); }
         LUISA_INFO("Searching for symbol '{}' in JIT.", name_view);

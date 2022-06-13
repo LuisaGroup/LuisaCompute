@@ -8,6 +8,7 @@
 #include <core/mathematics.h>
 #include <core/stl.h>
 #include <runtime/pixel.h>
+#include <runtime/sampler.h>
 #include <backends/llvm/llvm_abi.h>
 
 namespace luisa::compute::llvm {
@@ -233,6 +234,18 @@ public:
     LLVMTexture &operator=(const LLVMTexture &) noexcept = delete;
     [[nodiscard]] LLVMTextureView view(uint level) const noexcept;
     [[nodiscard]] auto storage() const noexcept { return _storage; }
+
+    // reading
+    [[nodiscard]] float4 read2d(uint level, uint2 uv) const noexcept;
+    [[nodiscard]] float4 read3d(uint level, uint3 uvw) const noexcept;
+
+    // sampling
+    [[nodiscard]] float4 sample2d(Sampler sampler, float2 uv) const noexcept;
+    [[nodiscard]] float4 sample3d(Sampler sampler, float3 uvw) const noexcept;
+    [[nodiscard]] float4 sample2d(Sampler sampler, float2 uv, float lod) const noexcept;
+    [[nodiscard]] float4 sample3d(Sampler sampler, float3 uvw, float lod) const noexcept;
+    [[nodiscard]] float4 sample2d(Sampler sampler, float2 uv, float2 dpdx, float2 dpdy) const noexcept;
+    [[nodiscard]] float4 sample3d(Sampler sampler, float3 uvw, float3 dpdx, float3 dpdy) const noexcept;
 };
 
 class alignas(16u) LLVMTextureView {
@@ -309,6 +322,11 @@ void texture_write_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, 
 
 [[nodiscard]] detail::ulong2 bindless_texture_2d_read(const LLVMTexture *tex, uint level, uint x, uint y) noexcept;
 [[nodiscard]] detail::ulong2 bindless_texture_3d_read(const LLVMTexture *tex, uint level, uint x, uint y, uint z) noexcept;
-
+[[nodiscard]] detail::ulong2 bindless_texture_2d_sample(const LLVMTexture *tex, uint sampler, float u, float v) noexcept;
+[[nodiscard]] detail::ulong2 bindless_texture_3d_sample(const LLVMTexture *tex, uint sampler, float u, float v, float w) noexcept;
+[[nodiscard]] detail::ulong2 bindless_texture_2d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float lod) noexcept;
+[[nodiscard]] detail::ulong2 bindless_texture_3d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float w, float lod) noexcept;
+[[nodiscard]] detail::ulong2 bindless_texture_2d_sample_grad(const LLVMTexture *tex, uint sampler, float u, float v, uint64_t dpdx, uint64_t dpdy) noexcept;
+[[nodiscard]] detail::ulong2 bindless_texture_3d_sample_grad(const LLVMTexture *tex, uint64_t sampler_w, uint64_t uv, uint64_t dudxy, uint64_t dvdxy, uint64_t dwdxy) noexcept;
 
 }// namespace luisa::compute::llvm
