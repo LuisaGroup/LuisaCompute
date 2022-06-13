@@ -232,7 +232,7 @@ class ASTVisitor:
             expr = lcapi.builder().local(lctype)
             for idx,x in enumerate(val.values):
                 sliceexpr = lcapi.builder().literal(to_lctype(int), idx)
-                lhs = lcapi.builder().access(lctype, expr, sliceexpr)
+                lhs = lcapi.builder().access(lctype.element(), expr, sliceexpr)
                 rhs = lcapi.builder().literal(lctype.element(), x)
                 lcapi.builder().assign(lhs, rhs)
             return dtype, expr, 'r'

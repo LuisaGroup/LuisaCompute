@@ -2341,7 +2341,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         LUISA_ASSERT(args[0]->type()->is_scalar() && args[1]->type()->is_scalar(),
                      "Invalid argument types '{}' and '{}' for make-vector2.",
                      args[0]->type()->description(), args[1]->type()->description());
-        return _make_float2(_create_expr(args[0]), _create_expr(args[1]));
+        return _make_float2(_builtin_static_cast(t_vec->element(), args[0]->type(), _create_expr(args[0])),
+                            _builtin_static_cast(t_vec->element(), args[1]->type(), _create_expr(args[1])));
     }
     LUISA_ERROR_WITH_LOCATION("Invalid number of arguments '{}' for make-vector2.", args.size());
 }
@@ -2365,7 +2366,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
             auto z = _create_stack_variable(
                 b->CreateExtractElement(yz, static_cast<uint64_t>(1u), "make.vector3.y"),
                 "make.vector3.z.addr");
-            return _make_float3(_create_expr(args[0]), y, z);
+            auto x = _builtin_static_cast(t_vec->element(), args[0]->type(), _create_expr(args[0]));
+            return _make_float3(x, y, z);
         }
         LUISA_ASSERT(args[0]->type()->is_vector() && args[0]->type()->dimension() == 2u &&
                          args[1]->type()->is_scalar(),
@@ -2380,7 +2382,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         auto y = _create_stack_variable(
             b->CreateExtractElement(xy, static_cast<uint64_t>(1u), "make.vector3.y"),
             "make.vector3.y.addr");
-        return _make_float3(x, y, _create_expr(args[1]));
+        auto z = _builtin_static_cast(t_vec->element(), args[1]->type(), _create_expr(args[1]));
+        return _make_float3(x, y, z);
     }
     if (args.size() == 3u) {
         LUISA_ASSERT(args[0]->type()->is_scalar() && args[1]->type()->is_scalar() &&
@@ -2388,7 +2391,9 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                      "Invalid argument types ('{}', '{}', '{}') for make-vector3.",
                      args[0]->type()->description(), args[1]->type()->description(),
                      args[2]->type()->description());
-        return _make_float3(_create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
+        return _make_float3(_builtin_static_cast(t_vec->element(), args[0]->type(), _create_expr(args[0])),
+                            _builtin_static_cast(t_vec->element(), args[1]->type(), _create_expr(args[1])),
+                            _builtin_static_cast(t_vec->element(), args[2]->type(), _create_expr(args[2])));
     }
     LUISA_ERROR_WITH_LOCATION("Invalid number of arguments '{}' for make-vector3.", args.size());
 }
@@ -2416,7 +2421,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
             auto w = _create_stack_variable(
                 b->CreateExtractElement(yzw, static_cast<uint64_t>(2u), "make.vector4.z"),
                 "make.vector4.w.addr");
-            return _make_float4(_create_expr(args[0]), y, z, w);
+            auto x = _builtin_static_cast(t_vec->element(), args[0]->type(), _create_expr(args[0]));
+            return _make_float4(x, y, z, w);
         }
         LUISA_ASSERT(args[0]->type()->is_vector(),
                      "Invalid argument types ('{}', '{}') to make {}.",
@@ -2439,7 +2445,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
             auto z = _create_stack_variable(
                 b->CreateExtractElement(xyz, static_cast<uint64_t>(2u), "make.vector4.z"),
                 "make.vector4.z.addr");
-            return _make_float4(x, y, z, _create_expr(args[1]));
+            auto w = _builtin_static_cast(t_vec->element(), args[1]->type(), _create_expr(args[1]));
+            return _make_float4(x, y, z, w);
         }
         // (xy, zw)
         LUISA_ASSERT(args[0]->type()->dimension() == 2u &&
@@ -2469,7 +2476,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         ::llvm::SmallVector<::llvm::Value *, 4u> v;
         for (auto arg : args) {
             if (arg->type()->is_scalar()) {
-                v.emplace_back(_create_expr(arg));
+                v.emplace_back(_builtin_static_cast(
+                    t_vec->element(), arg->type(), _create_expr(arg)));
             } else {
                 LUISA_ASSERT(arg->type()->is_vector() && arg->type()->dimension() == 2u,
                              "Invalid argument types ('{}', '{}', '{}') to make {}.",
@@ -2497,8 +2505,10 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                  args[0]->type()->description(), args[1]->type()->description(),
                  args[2]->type()->description(), args[3]->type()->description(),
                  t_vec->description());
-    return _make_float4(_create_expr(args[0]), _create_expr(args[1]),
-                        _create_expr(args[2]), _create_expr(args[3]));
+    return _make_float4(_builtin_static_cast(t_vec->element(), args[0]->type(), _create_expr(args[0])),
+                        _builtin_static_cast(t_vec->element(), args[1]->type(), _create_expr(args[1])),
+                        _builtin_static_cast(t_vec->element(), args[2]->type(), _create_expr(args[2])),
+                        _builtin_static_cast(t_vec->element(), args[3]->type(), _create_expr(args[3])));
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_make_matrix2_overloaded(luisa::span<const Expression *const> args) noexcept {
@@ -2520,8 +2530,10 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                  "Invalid argument types ('{}', '{}', '{}', '{}') for float2x2 constructor.",
                  args[0]->type()->description(), args[1]->type()->description(),
                  args[2]->type()->description(), args[3]->type()->description());
-    auto c0 = _make_float2(_create_expr(args[0]), _create_expr(args[1]));
-    auto c1 = _make_float2(_create_expr(args[2]), _create_expr(args[3]));
+    auto c0 = _make_float2(_builtin_static_cast(Type::of<float>(), args[0]->type(), _create_expr(args[0])),
+                           _builtin_static_cast(Type::of<float>(), args[1]->type(), _create_expr(args[1])));
+    auto c1 = _make_float2(_builtin_static_cast(Type::of<float>(), args[2]->type(), _create_expr(args[2])),
+                           _builtin_static_cast(Type::of<float>(), args[3]->type(), _create_expr(args[3])));
     return _make_float2x2(c0, c1);
 }
 
@@ -2553,9 +2565,15 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                  args[4]->type()->description(), args[5]->type()->description(),
                  args[6]->type()->description(), args[7]->type()->description(),
                  args[8]->type()->description());
-    auto c0 = _make_float3(_create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
-    auto c1 = _make_float3(_create_expr(args[3]), _create_expr(args[4]), _create_expr(args[5]));
-    auto c2 = _make_float3(_create_expr(args[6]), _create_expr(args[7]), _create_expr(args[8]));
+    auto c0 = _make_float3(_builtin_static_cast(Type::of<float>(), args[0]->type(), _create_expr(args[0])),
+                           _builtin_static_cast(Type::of<float>(), args[1]->type(), _create_expr(args[1])),
+                           _builtin_static_cast(Type::of<float>(), args[2]->type(), _create_expr(args[2])));
+    auto c1 = _make_float3(_builtin_static_cast(Type::of<float>(), args[3]->type(), _create_expr(args[3])),
+                           _builtin_static_cast(Type::of<float>(), args[4]->type(), _create_expr(args[4])),
+                           _builtin_static_cast(Type::of<float>(), args[5]->type(), _create_expr(args[5])));
+    auto c2 = _make_float3(_builtin_static_cast(Type::of<float>(), args[6]->type(), _create_expr(args[6])),
+                           _builtin_static_cast(Type::of<float>(), args[7]->type(), _create_expr(args[7])),
+                           _builtin_static_cast(Type::of<float>(), args[8]->type(), _create_expr(args[8])));
     return _make_float3x3(c0, c1, c2);
 }
 
@@ -2595,14 +2613,22 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                  args[10]->type()->description(), args[11]->type()->description(),
                  args[12]->type()->description(), args[13]->type()->description(),
                  args[14]->type()->description(), args[15]->type()->description());
-    auto c0 = _make_float4(_create_expr(args[0]), _create_expr(args[1]),
-                           _create_expr(args[2]), _create_expr(args[3]));
-    auto c1 = _make_float4(_create_expr(args[4]), _create_expr(args[5]),
-                           _create_expr(args[6]), _create_expr(args[7]));
-    auto c2 = _make_float4(_create_expr(args[8]), _create_expr(args[9]),
-                           _create_expr(args[10]), _create_expr(args[11]));
-    auto c3 = _make_float4(_create_expr(args[12]), _create_expr(args[13]),
-                           _create_expr(args[14]), _create_expr(args[15]));
+    auto c0 = _make_float4(_builtin_static_cast(Type::of<float>(), args[0]->type(), _create_expr(args[0])),
+                           _builtin_static_cast(Type::of<float>(), args[1]->type(), _create_expr(args[1])),
+                           _builtin_static_cast(Type::of<float>(), args[2]->type(), _create_expr(args[2])),
+                           _builtin_static_cast(Type::of<float>(), args[3]->type(), _create_expr(args[3])));
+    auto c1 = _make_float4(_builtin_static_cast(Type::of<float>(), args[4]->type(), _create_expr(args[4])),
+                           _builtin_static_cast(Type::of<float>(), args[5]->type(), _create_expr(args[5])),
+                           _builtin_static_cast(Type::of<float>(), args[6]->type(), _create_expr(args[6])),
+                           _builtin_static_cast(Type::of<float>(), args[7]->type(), _create_expr(args[7])));
+    auto c2 = _make_float4(_builtin_static_cast(Type::of<float>(), args[8]->type(), _create_expr(args[8])),
+                           _builtin_static_cast(Type::of<float>(), args[9]->type(), _create_expr(args[9])),
+                           _builtin_static_cast(Type::of<float>(), args[10]->type(), _create_expr(args[10])),
+                           _builtin_static_cast(Type::of<float>(), args[11]->type(), _create_expr(args[11])));
+    auto c3 = _make_float4(_builtin_static_cast(Type::of<float>(), args[12]->type(), _create_expr(args[12])),
+                           _builtin_static_cast(Type::of<float>(), args[13]->type(), _create_expr(args[13])),
+                           _builtin_static_cast(Type::of<float>(), args[14]->type(), _create_expr(args[14])),
+                           _builtin_static_cast(Type::of<float>(), args[15]->type(), _create_expr(args[15])));
     return _make_float4x4(c0, c1, c2, c3);
 }
 
@@ -2839,7 +2865,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d_grad(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept {
-auto b = _current_context()->builder.get();
+    auto b = _current_context()->builder.get();
     auto index = b->CreateLoad(b->getInt32Ty(), p_index, "bindless.texture.sample.3d.grad.index");
     auto pp_texture = b->CreateInBoundsGEP(_bindless_item_type(), p_items, {index, _literal(1)}, "bindless.texture.sample.3d.grad.texture.ptr.ptr");
     auto p_texture = b->CreateLoad(_bindless_texture_type()->getPointerTo(), pp_texture, "bindless.texture.sample.3d.grad.texture.ptr");
@@ -2878,7 +2904,7 @@ auto b = _current_context()->builder.get();
                 {_bindless_texture_type()->getPointerTo(), b->getInt64Ty(),
                  b->getFloatTy(), b->getFloatTy(), b->getInt64Ty(), b->getInt64Ty()},
                 false),
-            ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.grad", _module);
+            ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample.grad", _module);
     }
     auto ret = b->CreateCall(func, {p_texture, sampler_and_w, uv, dudxy, dvdxy, dwdxy}, "bindless.texture.sample.3d.grad.ret.struct");
     auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.grad.ret.struct.addr");

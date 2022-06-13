@@ -73,17 +73,9 @@ def main_kernel(image, time: float):
     uuv = ro + cf * 3.0 + uv.x * cs + uv.y * cu
     rd = normalize(uuv - ro)
     col = rm(ro, rd, time)
-    color = col.xyz
-    alpha = col.w
-    old = make_float3(
-        image.read(coord * 4),
-        image.read(coord * 4 + 1),
-        image.read(coord * 4 + 2)
-    )
-    accum = lerp(color, old, alpha)
-    image.write(coord * 4, accum.x)
-    image.write(coord * 4 + 1, accum.y)
-    image.write(coord * 4 + 2, accum.z)
+    image.write(coord * 4, col.x)
+    image.write(coord * 4 + 1, col.y)
+    image.write(coord * 4 + 2, col.z)
     image.write(coord * 4 + 3, 1.0)
 
 @luisa.func
@@ -111,7 +103,7 @@ t0 = time.time()
 def update():
     # frame_rate.record()
     t = time.time() - t0
-    for i in range(16):
+    for i in range(1):
         main_kernel(image, t, dispatch_size=(1024, 1024, 1))
     image.copy_to(arr)
     # w.update_frame_rate(frame_rate.report())
