@@ -49,11 +49,13 @@ ISPCJITModule::~ISPCJITModule() noexcept = default;
     }
     llvm::TargetOptions options;
     options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+    options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
     options.UnsafeFPMath = true;
     options.NoInfsFPMath = true;
     options.NoNaNsFPMath = true;
     options.NoTrappingFPMath = true;
-    options.GuaranteedTailCallOpt = true;
+    options.EnableIPRA = true;
+    options.StackSymbolOrdering = true;
     auto mcpu = llvm::sys::getHostCPUName();
     auto machine = target->createTargetMachine(
         target_triple, mcpu,
