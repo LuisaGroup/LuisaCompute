@@ -34,8 +34,8 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept
     options.NoInfsFPMath = true;
     options.NoNaNsFPMath = true;
     options.NoTrappingFPMath = true;
-    options.GuaranteedTailCallOpt = true;
     options.EnableIPRA = true;
+    options.StackSymbolOrdering = true;
     auto mcpu = ::llvm::sys::getHostCPUName();
     _machine = target->createTargetMachine(
         target_triple, mcpu,
