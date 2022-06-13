@@ -106,6 +106,8 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     // compile to machine code
     clk.tic();
     std::string err;
+    static std::mutex engine_mutex;
+    std::scoped_lock lock{engine_mutex};
     _engine = ::llvm::EngineBuilder{std::move(module)}
                   .setErrorStr(&err)
                   .setOptLevel(::llvm::CodeGenOpt::Aggressive)
@@ -145,8 +147,9 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
         return iter == symbols.end() ? nullptr : iter->second;
     });
     LUISA_ASSERT(_engine != nullptr, "Failed to create execution engine: {}.", err);
+    auto main_name = luisa::format("kernel.{:016x}.main", func.hash());
     _kernel_entry = reinterpret_cast<kernel_entry_t *>(
-        _engine->getFunctionAddress("kernel_main"));
+        _engine->getFunctionAddress(std::string{main_name}));
     LUISA_ASSERT(_kernel_entry != nullptr, "Failed to find kernel entry.");
     LUISA_INFO("Compile: {} ms.", clk.toc());
 }
