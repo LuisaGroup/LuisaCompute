@@ -94,15 +94,17 @@ template<typename T>
 
 [[nodiscard]] inline auto texture_coord_linear(Sampler::Address address, float2 uv, float2 size) noexcept {
     auto s = make_float2(size);
-    auto c_min = texture_coord_point(address, uv - .5f * s, s);
-    auto c_max = texture_coord_point(address, uv + .5f * s, s);
+    auto inv_s = 1.f / s;
+    auto c_min = texture_coord_point(address, uv - .5f * inv_s, s);
+    auto c_max = texture_coord_point(address, uv + .5f * inv_s, s);
     return std::make_pair(luisa::min(c_min, c_max), luisa::max(c_min, c_max));
 }
 
 [[nodiscard]] inline auto texture_coord_linear(Sampler::Address address, float3 uv, float3 size) noexcept {
     auto s = make_float3(size);
-    auto c_min = texture_coord_point(address, uv - .5f * s, s);
-    auto c_max = texture_coord_point(address, uv + .5f * s, s);
+    auto inv_s = 1.f / s;
+    auto c_min = texture_coord_point(address, uv - .5f * inv_s, s);
+    auto c_max = texture_coord_point(address, uv + .5f * inv_s, s);
     return std::make_pair(luisa::min(c_min, c_max), luisa::max(c_min, c_max));
 }
 

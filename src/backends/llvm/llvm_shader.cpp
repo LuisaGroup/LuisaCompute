@@ -55,9 +55,9 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
 //            module->print(file, nullptr);
 //        }
 //    }
-//    if (::llvm::verifyModule(*module, &::llvm::errs())) {
-//        LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
-//    }
+    if (::llvm::verifyModule(*module, &::llvm::errs())) {
+        LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
+    }
 
     // optimize
     ::llvm::PassManagerBuilder pass_manager_builder;
