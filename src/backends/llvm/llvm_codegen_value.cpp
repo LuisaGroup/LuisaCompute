@@ -4,6 +4,9 @@
 
 #include <backends/llvm/llvm_codegen.h>
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-pro-type-static-cast-downcast"
+
 namespace luisa::compute::llvm {
 
 ::llvm::Value *LLVMCodegen::_literal(int x) noexcept {
@@ -339,3 +342,5 @@ luisa::string LLVMCodegen::_variable_name(Variable v) const noexcept {
 }
 
 }// namespace luisa::compute::llvm
+
+#pragma clang diagnostic pop
