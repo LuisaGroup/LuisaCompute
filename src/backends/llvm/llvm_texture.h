@@ -304,6 +304,8 @@ public:
         detail::write_pixel<T>(_storage, _pixel3d(xyz), value);
     }
     [[nodiscard]] inline auto data() const noexcept { return _data; }
+    [[nodiscard]] inline auto size2d() const noexcept { return make_uint2(_width, _height); }
+    [[nodiscard]] inline auto size3d() const noexcept { return make_uint3(_width, _height, _depth); }
 };
 
 static_assert(sizeof(LLVMTextureView) == 16u);

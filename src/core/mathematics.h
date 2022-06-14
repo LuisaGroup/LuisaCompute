@@ -45,6 +45,7 @@ using std::sqrt;
 using std::ceil;
 using std::floor;
 using std::round;
+using std::fmod;
 
 using std::exp;
 using std::log;
@@ -56,6 +57,10 @@ using std::abs;
 
 using std::max;
 using std::min;
+
+[[nodiscard]] inline auto fract(float x) noexcept {
+    return x - std::floor(x);
+}
 
 /// Convert degree to radian
 [[nodiscard]] constexpr float radians(float deg) noexcept { return deg * constants::pi / 180.0f; }
@@ -77,6 +82,7 @@ LUISA_MAKE_VECTOR_UNARY_FUNC(tan)
 LUISA_MAKE_VECTOR_UNARY_FUNC(sqrt)
 LUISA_MAKE_VECTOR_UNARY_FUNC(ceil)
 LUISA_MAKE_VECTOR_UNARY_FUNC(floor)
+LUISA_MAKE_VECTOR_UNARY_FUNC(fract)
 LUISA_MAKE_VECTOR_UNARY_FUNC(round)
 LUISA_MAKE_VECTOR_UNARY_FUNC(exp)
 LUISA_MAKE_VECTOR_UNARY_FUNC(log)
@@ -114,6 +120,7 @@ LUISA_MAKE_VECTOR_BINARY_FUNC(atan2)
 LUISA_MAKE_VECTOR_BINARY_FUNC(pow)
 LUISA_MAKE_VECTOR_BINARY_FUNC(min)
 LUISA_MAKE_VECTOR_BINARY_FUNC(max)
+LUISA_MAKE_VECTOR_BINARY_FUNC(fmod)
 
 #undef LUISA_MAKE_VECTOR_BINARY_FUNC
 

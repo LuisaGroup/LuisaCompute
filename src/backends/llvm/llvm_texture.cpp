@@ -81,28 +81,143 @@ float4 LLVMTexture::read3d(uint level, uint3 uvw) const noexcept {
     return view(level).read3d<float>(uvw);
 }
 
+template<typename T>
+[[nodiscard]] inline auto texture_coord_point(Sampler::Address address, T uv, T s) noexcept {
+    switch (address) {
+        case Sampler::Address::EDGE: return luisa::clamp(uv, 0.0f, one_minus_epsilon) * s;
+        case Sampler::Address::REPEAT: return luisa::fract(uv) * s;
+        case Sampler::Address::MIRROR: return luisa::fract(luisa::fmod(uv, T{2.f})) * s;
+        case Sampler::Address::ZERO: return luisa::select(uv * s, T{65536.f}, uv < 0.f || uv >= s);
+    }
+    return T{65536.f};
+}
+
+[[nodiscard]] inline auto texture_coord_linear(Sampler::Address address, float2 uv, float2 size) noexcept {
+    auto s = make_float2(size);
+    auto c_min = texture_coord_point(address, uv - .5f * s, s);
+    auto c_max = texture_coord_point(address, uv + .5f * s, s);
+    return std::make_pair(luisa::min(c_min, c_max), luisa::max(c_min, c_max));
+}
+
+[[nodiscard]] inline auto texture_coord_linear(Sampler::Address address, float3 uv, float3 size) noexcept {
+    auto s = make_float3(size);
+    auto c_min = texture_coord_point(address, uv - .5f * s, s);
+    auto c_max = texture_coord_point(address, uv + .5f * s, s);
+    return std::make_pair(luisa::min(c_min, c_max), luisa::max(c_min, c_max));
+}
+
+[[nodiscard]] inline auto texture_sample_linear(LLVMTextureView view, Sampler::Address address, float2 uv, float2 size) noexcept {
+    auto [st_min, st_max] = texture_coord_linear(address, uv, size);
+    auto t = 1.f - luisa::fract(st_max);
+    auto c0 = make_uint2(st_min);
+    auto c1 = make_uint2(st_max);
+    auto v00 = view.read2d<float>(c0);
+    auto v01 = view.read2d<float>(make_uint2(c1.x, c0.y));
+    auto v10 = view.read2d<float>(make_uint2(c0.x, c1.y));
+    auto v11 = view.read2d<float>(c1);
+    return luisa::lerp(luisa::lerp(v00, v01, t.x),
+                       luisa::lerp(v10, v11, t.x), t.y);
+}
+
+[[nodiscard]] inline auto texture_sample_linear(LLVMTextureView view, Sampler::Address address, float3 uvw, float3 size) noexcept {
+    auto [st_min, st_max] = texture_coord_linear(address, uvw, size);
+    auto t = 1.f - luisa::fract(st_max);
+    auto c0 = make_uint3(st_min);
+    auto c1 = make_uint3(st_max);
+    auto v000 = view.read3d<float>(make_uint3(c0.x, c0.y, c0.z));
+    auto v001 = view.read3d<float>(make_uint3(c1.x, c0.y, c0.z));
+    auto v010 = view.read3d<float>(make_uint3(c0.x, c1.y, c0.z));
+    auto v011 = view.read3d<float>(make_uint3(c1.x, c1.y, c0.z));
+    auto v100 = view.read3d<float>(make_uint3(c0.x, c0.y, c1.z));
+    auto v101 = view.read3d<float>(make_uint3(c1.x, c0.y, c1.z));
+    auto v110 = view.read3d<float>(make_uint3(c0.x, c1.y, c1.z));
+    auto v111 = view.read3d<float>(make_uint3(c1.x, c1.y, c1.z));
+    return luisa::lerp(
+        luisa::lerp(luisa::lerp(v000, v001, t.x),
+                    luisa::lerp(v010, v011, t.x), t.y),
+        luisa::lerp(luisa::lerp(v100, v101, t.x),
+                    luisa::lerp(v110, v111, t.x), t.y),
+        t.z);
+}
+
+[[nodiscard]] inline auto texture_sample_point(LLVMTextureView view, Sampler::Address address, float2 uv, float2 size) noexcept {
+    auto c = make_uint2(texture_coord_point(address, uv, size));
+    return view.read2d<float>(c);
+}
+
+[[nodiscard]] inline auto texture_sample_point(LLVMTextureView view, Sampler::Address address, float3 uvw, float3 size) noexcept {
+    auto c = make_uint3(texture_coord_point(address, uvw, size));
+    return view.read3d<float>(c);
+}
+
 float4 LLVMTexture::sample2d(Sampler sampler, float2 uv) const noexcept {
-    return {};
+    auto size = make_float2(_size[0], _size[1]);
+    return sampler.filter() == Sampler::Filter::POINT ?
+               texture_sample_point(view(0), sampler.address(), uv, size) :
+               texture_sample_linear(view(0), sampler.address(), uv, size);
 }
 
 float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw) const noexcept {
-    return {};
+    auto size = make_float3(_size[0], _size[1], _size[2]);
+    return sampler.filter() == Sampler::Filter::POINT ?
+               texture_sample_point(view(0), sampler.address(), uvw, size) :
+               texture_sample_linear(view(0), sampler.address(), uvw, size);
 }
 
 float4 LLVMTexture::sample2d(Sampler sampler, float2 uv, float lod) const noexcept {
-    return {};
+    auto filter = sampler.filter();
+    if (lod <= 0.f || _mip_levels == 0u ||
+        filter == Sampler::Filter::POINT) {
+        return sample2d(sampler, uv);
+    }
+    auto level0 = std::min(static_cast<uint32_t>(lod),
+                           _mip_levels - 1u);
+    auto view0 = view(level0);
+    auto v0 = texture_sample_linear(
+        view0, sampler.address(), uv,
+        make_float2(view0.size2d()));
+    if (level0 == _mip_levels - 1u ||
+        filter == Sampler::Filter::LINEAR_POINT) {
+        return v0;
+    }
+    auto view1 = view(level0 + 1u);
+    auto v1 = texture_sample_linear(
+        view1, sampler.address(), uv,
+        make_float2(view1.size2d()));
+    return luisa::lerp(v0, v1, luisa::fract(lod));
 }
 
 float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw, float lod) const noexcept {
-    return {};
+    auto filter = sampler.filter();
+    if (lod <= 0.f || _mip_levels == 0u ||
+        filter == Sampler::Filter::POINT) {
+        return sample3d(sampler, uvw);
+    }
+    auto level0 = std::min(static_cast<uint32_t>(lod),
+                           _mip_levels - 1u);
+    auto view0 = view(level0);
+    auto v0 = texture_sample_linear(
+        view0, sampler.address(), uvw,
+        make_float3(view0.size3d()));
+    if (level0 == _mip_levels - 1u ||
+        filter == Sampler::Filter::LINEAR_POINT) {
+        return v0;
+    }
+    auto view1 = view(level0 + 1u);
+    auto v1 = texture_sample_linear(
+        view1, sampler.address(), uvw,
+        make_float3(view1.size3d()));
+    return luisa::lerp(v0, v1, luisa::fract(lod));
 }
 
 float4 LLVMTexture::sample2d(Sampler sampler, float2 uv, float2 dpdx, float2 dpdy) const noexcept {
-    return {};
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    return {};// TODO
 }
 
 float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw, float3 dpdx, float3 dpdy) const noexcept {
-    return {};
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    return {};// TODO
 }
 
 void texture_write_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {
