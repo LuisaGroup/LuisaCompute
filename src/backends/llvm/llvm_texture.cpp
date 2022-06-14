@@ -48,6 +48,35 @@ uint float_to_half(float f) noexcept {
     return fp16;
 }
 
+float half_to_float(uint h) noexcept {
+    static_assert(std::endian::native == std::endian::little,
+                  "Only little endian is supported");
+    union FP32 {
+        unsigned int u;
+        float f;
+        struct {// FIXME: assuming little endian here
+            unsigned int Mantissa : 23;
+            unsigned int Exponent : 8;
+            unsigned int Sign : 1;
+        } s;
+    };
+    constexpr auto magic = FP32{113u << 23u};
+    constexpr auto shifted_exp = 0x7c00u << 13u;// exponent mask after shift
+    auto o = FP32{(h & 0x7fffu) << 13u};        // exponent/mantissa bits
+    auto exp_ = shifted_exp & o.u;              // just the exponent
+    o.u += (127u - 15u) << 23u;                 // exponent adjust
+
+    // handle exponent special cases
+    if (exp_ == shifted_exp) {     // Inf/NaN?
+        o.u += (128u - 16u) << 23u;// extra exp adjust
+    } else if (exp_ == 0u) {       // Zero/Denormal?
+        o.u += 1u << 23u;          // extra exp adjust
+        o.f -= magic.f;            // renormalize
+    }
+    o.u |= (h & 0x8000u) << 16u;// sign bit
+    return o.f;
+}
+
 }// namespace detail
 
 LLVMTexture::LLVMTexture(PixelStorage storage, uint3 size, uint levels) noexcept

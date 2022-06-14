@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <bit>
+
 #include <core/basic_types.h>
 #include <core/mathematics.h>
 #include <core/stl.h>
@@ -16,13 +18,7 @@ namespace luisa::compute::llvm {
 namespace detail {
 
 [[nodiscard]] uint float_to_half(float f) noexcept;
-
-[[nodiscard]] inline float half_to_float(uint h) noexcept {
-    auto x = ((h & 0x8000u) << 16u) |
-             (((h & 0x7c00u) + 0x1c000u) << 13u) |
-             ((h & 0x03ffu) << 13u);
-    return luisa::bit_cast<float>(x);
-}
+[[nodiscard]] float half_to_float(uint h) noexcept;
 
 template<typename T>
 [[nodiscard]] inline float scalar_to_float(T x) noexcept {
