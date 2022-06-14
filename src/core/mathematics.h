@@ -213,7 +213,7 @@ template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 }
 
 [[nodiscard]] constexpr auto lerp(float a, float b, float t) noexcept {
-    return a + t * (b - a);
+    return (1 - t) * a + t * b;
 }
 
 [[nodiscard]] constexpr auto lerp(float2 a, float2 b, float t) noexcept {

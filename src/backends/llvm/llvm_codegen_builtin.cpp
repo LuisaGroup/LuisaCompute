@@ -1678,8 +1678,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
             "isnan.bits");
         auto is_nan = ctx->builder->CreateLogicalAnd(
             ctx->builder->CreateICmpEQ(
-                ctx->builder->CreateAnd(bits, _literal(0x7ff00000u), "isnan.exp"),
-                _literal(0x7ff00000u), "isnan.exp.cmp"),
+                ctx->builder->CreateAnd(bits, _literal(0x7f800000u), "isnan.exp"),
+                _literal(0x7f800000u), "isnan.exp.cmp"),
             ctx->builder->CreateICmpNE(
                 ctx->builder->CreateAnd(bits, _literal(0x7fffffu), "isnan.mant"),
                 _literal(0u), "isnan.mant.cmp"),
@@ -1694,8 +1694,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
                 "isnan.bits");
             auto is_nan = ctx->builder->CreateLogicalAnd(
                 ctx->builder->CreateICmpEQ(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint2(0x7ff00000u)), "isnan.exp"),
-                    _literal(make_uint2(0x7ff00000u)), "isnan.exp.cmp"),
+                    ctx->builder->CreateAnd(bits, _literal(make_uint2(0x7f800000u)), "isnan.exp"),
+                    _literal(make_uint2(0x7f800000u)), "isnan.exp.cmp"),
                 ctx->builder->CreateICmpNE(
                     ctx->builder->CreateAnd(bits, _literal(make_uint2(0x7fffffu)), "isnan.mant"),
                     _literal(make_uint2(0u)), "isnan.mant.cmp"),
@@ -1709,8 +1709,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
                 "isnan.bits");
             auto is_nan = ctx->builder->CreateLogicalAnd(
                 ctx->builder->CreateICmpEQ(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint3(0x7ff00000u)), "isnan.exp"),
-                    _literal(make_uint3(0x7ff00000u)), "isnan.exp.cmp"),
+                    ctx->builder->CreateAnd(bits, _literal(make_uint3(0x7f800000u)), "isnan.exp"),
+                    _literal(make_uint3(0x7f800000u)), "isnan.exp.cmp"),
                 ctx->builder->CreateICmpNE(
                     ctx->builder->CreateAnd(bits, _literal(make_uint3(0x7fffffu)), "isnan.mant"),
                     _literal(make_uint3(0u)), "isnan.mant.cmp"),
@@ -1724,8 +1724,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
                 "isnan.bits");
             auto is_nan = ctx->builder->CreateLogicalAnd(
                 ctx->builder->CreateICmpEQ(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint4(0x7ff00000u)), "isnan.exp"),
-                    _literal(make_uint4(0x7ff00000u)), "isnan.exp.cmp"),
+                    ctx->builder->CreateAnd(bits, _literal(make_uint4(0x7f800000u)), "isnan.exp"),
+                    _literal(make_uint4(0x7f800000u)), "isnan.exp.cmp"),
                 ctx->builder->CreateICmpNE(
                     ctx->builder->CreateAnd(bits, _literal(make_uint4(0x7fffffu)), "isnan.mant"),
                     _literal(make_uint4(0u)), "isnan.mant.cmp"),
