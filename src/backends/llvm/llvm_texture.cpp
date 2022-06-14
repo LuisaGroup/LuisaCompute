@@ -86,8 +86,12 @@ template<typename T>
     switch (address) {
         case Sampler::Address::EDGE: return luisa::clamp(uv, 0.0f, one_minus_epsilon) * s;
         case Sampler::Address::REPEAT: return luisa::fract(uv) * s;
-        case Sampler::Address::MIRROR: return luisa::fract(luisa::fmod(uv, T{2.f})) * s;
-        case Sampler::Address::ZERO: return luisa::select(uv * s, T{65536.f}, uv < 0.f || uv >= s);
+        case Sampler::Address::MIRROR: {
+            uv = luisa::fmod(luisa::abs(uv), T{2.0f});
+            uv = luisa::abs(1.f - uv);
+            return luisa::min(uv, one_minus_epsilon) * s;
+        }
+        case Sampler::Address::ZERO: return luisa::select(uv * s, T{65536.f}, uv < 0.f || uv >= 1.f);
     }
     return T{65536.f};
 }

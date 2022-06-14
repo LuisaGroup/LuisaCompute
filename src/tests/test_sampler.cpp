@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
 
     Kernel2D fill_image_kernel = [&](BindlessVar heap, ImageVar<float> image) noexcept {
         Var coord = dispatch_id().xy();
-        Var uv = make_float2(coord) / make_float2(dispatch_size().xy());
+        Var uv = make_float2(coord) * 2.f / make_float2(dispatch_size().xy());
         Var r = length(uv - 0.5f);
         Var t = log(sin(sqrt(r) * 100.0f - constants::pi_over_two) + 2.0f);
         image.write(coord, sample(heap, 2.0f*uv-make_float2(0.5f), t * 7.0f));
@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
     auto out_pixels = mipmaps.data();
 
     // generate mip-maps
-    stream << heap.emplace(0u, texture, Sampler::linear_linear_repeat()).update()
+    stream << heap.emplace(0u, texture, Sampler::linear_linear_mirror()).update()
         << texture.copy_from(image_pixels);
 
     LUISA_INFO("Mip Level: {}", texture.mip_levels());
