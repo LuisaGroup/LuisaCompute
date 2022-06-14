@@ -110,7 +110,7 @@ template<typename T>
 
 [[nodiscard]] inline auto texture_sample_linear(LLVMTextureView view, Sampler::Address address, float2 uv, float2 size) noexcept {
     auto [st_min, st_max] = texture_coord_linear(address, uv, size);
-    auto t = 1.f - luisa::fract(st_max);
+    auto t = luisa::fract(st_max);
     auto c0 = make_uint2(st_min);
     auto c1 = make_uint2(st_max);
     auto v00 = view.read2d<float>(c0);
@@ -123,7 +123,7 @@ template<typename T>
 
 [[nodiscard]] inline auto texture_sample_linear(LLVMTextureView view, Sampler::Address address, float3 uvw, float3 size) noexcept {
     auto [st_min, st_max] = texture_coord_linear(address, uvw, size);
-    auto t = 1.f - luisa::fract(st_max);
+    auto t = luisa::fract(st_max);
     auto c0 = make_uint3(st_min);
     auto c1 = make_uint3(st_max);
     auto v000 = view.read3d<float>(make_uint3(c0.x, c0.y, c0.z));

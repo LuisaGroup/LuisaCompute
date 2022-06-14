@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     };
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return heap.tex2d(0u).sample(uv);
+        return heap.tex2d(0u).sample(uv, mip);
     };
 
     Kernel1D useless_kernel = [](BindlessVar heap) noexcept {
@@ -95,7 +95,7 @@ int main(int argc, char *argv[]) {
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()
-           << fill_image(heap,device_image).dispatch(1024u, 1024u)
+           << fill_image(heap, device_image).dispatch(1024u, 1024u)
            << device_image.copy_to(host_image.data())
            << event.signal()
            << synchronize();
