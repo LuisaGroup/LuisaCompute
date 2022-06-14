@@ -116,6 +116,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
         ::llvm::Align{16u}, "dispatch_size");
     // loop
     auto p_index = builder->CreateAlloca(::llvm::Type::getInt32Ty(_context), nullptr, "index.addr");
+    p_index->setAlignment(::llvm::Align{16});
     builder->CreateStore(builder->getInt32(0u), p_index);
     auto loop_block = ::llvm::BasicBlock::Create(_context, "loop", ir, exit_block);
     builder->CreateBr(loop_block);
@@ -214,6 +215,7 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
     luisa::unordered_map<uint, ::llvm::Value *> variables;
     auto make_alloca = [&](::llvm::Value *x, luisa::string_view name = "") noexcept {
         auto p = builder->CreateAlloca(x->getType(), nullptr, name);
+        p->setAlignment(::llvm::Align{16});
         builder->CreateStore(x, p);
         return p;
     };
@@ -291,6 +293,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
                     break;
                 default: {
                     auto p_arg = builder->CreateAlloca(arg.getType());
+                    p_arg->setAlignment(::llvm::Align{16});
                     builder->CreateStore(&arg, p_arg);
                     variables.emplace(lc_arg.uid(), p_arg);
                     break;
@@ -301,7 +304,9 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
     ::llvm::Value *ret = nullptr;
     if (auto ret_type = f.return_type()) {
         builder->SetInsertPoint(body_block);
-        ret = builder->CreateAlloca(return_type, nullptr, "retval.addr");
+        auto p_ret = builder->CreateAlloca(return_type, nullptr, "retval.addr");
+        p_ret->setAlignment(::llvm::Align{16});
+        ret = p_ret;
         builder->SetInsertPoint(exit_block);
         builder->CreateRet(builder->CreateLoad(return_type, ret));
     } else {// return void

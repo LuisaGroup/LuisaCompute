@@ -280,6 +280,7 @@ namespace luisa::compute::llvm {
     auto b = _current_context()->builder.get();
     auto t = _create_type(Type::of<float2x2>());
     auto m = b->CreateAlloca(t, nullptr, "float2x2.addr");
+    m->setAlignment(::llvm::Align{16});
     auto m0 = b->CreateStructGEP(t, m, 0u, "float2x2.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float2x2.b");
     auto col_type = _create_type(Type::of<float2>());
@@ -292,6 +293,7 @@ namespace luisa::compute::llvm {
     auto b = _current_context()->builder.get();
     auto t = _create_type(Type::of<float3x3>());
     auto m = b->CreateAlloca(t, nullptr, "float3x3.addr");
+    m->setAlignment(::llvm::Align{16});
     auto m0 = b->CreateStructGEP(t, m, 0u, "float3x3.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float3x3.b");
     auto m2 = b->CreateStructGEP(t, m, 2u, "float3x3.c");
@@ -306,6 +308,7 @@ namespace luisa::compute::llvm {
     auto b = _current_context()->builder.get();
     auto t = _create_type(Type::of<float4x4>());
     auto m = b->CreateAlloca(t, nullptr, "float4x4.addr");
+    m->setAlignment(::llvm::Align{16});
     auto m0 = b->CreateStructGEP(t, m, 0u, "float4x4.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float4x4.b");
     auto m2 = b->CreateStructGEP(t, m, 2u, "float4x4.c");
