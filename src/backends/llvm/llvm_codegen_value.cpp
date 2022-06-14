@@ -2,6 +2,9 @@
 // Created by Mike Smith on 2022/5/23.
 //
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-pro-type-static-cast-downcast"
+
 #include <backends/llvm/llvm_codegen.h>
 
 namespace luisa::compute::llvm {
@@ -336,3 +339,5 @@ luisa::string LLVMCodegen::_variable_name(Variable v) const noexcept {
 }
 
 }// namespace luisa::compute::llvm
+
+#pragma clang diagnostic pop
