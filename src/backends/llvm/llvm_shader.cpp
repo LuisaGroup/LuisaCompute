@@ -38,26 +38,26 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept {
     LLVMCodegen codegen{*_context};
     auto module = codegen.emit(func);
     LUISA_INFO("Codegen: {} ms.", clk.toc());
-    {
-        auto file_path = device->context().cache_directory() /
-                         luisa::format("kernel.{:016x}.llvm.ll", func.hash());
-        auto file_path_string = file_path.string();
-        static std::mutex file_mutex;
-        std::scoped_lock lock{file_mutex};
-        ::llvm::raw_fd_ostream file{file_path_string, ec};
-        if (ec) {
-            LUISA_WARNING_WITH_LOCATION(
-                "Failed to create file '{}': {}.",
-                file_path_string, ec.message());
-        } else {
-            LUISA_INFO("Saving LLVM kernel to '{}'.",
-                       file_path_string);
-            module->print(file, nullptr);
-        }
-    }
-    if (::llvm::verifyModule(*module, &::llvm::errs())) {
-        LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
-    }
+//    {
+//        auto file_path = device->context().cache_directory() /
+//                         luisa::format("kernel.{:016x}.llvm.ll", func.hash());
+//        auto file_path_string = file_path.string();
+//        static std::mutex file_mutex;
+//        std::scoped_lock lock{file_mutex};
+//        ::llvm::raw_fd_ostream file{file_path_string, ec};
+//        if (ec) {
+//            LUISA_WARNING_WITH_LOCATION(
+//                "Failed to create file '{}': {}.",
+//                file_path_string, ec.message());
+//        } else {
+//            LUISA_INFO("Saving LLVM kernel to '{}'.",
+//                       file_path_string);
+//            module->print(file, nullptr);
+//        }
+//    }
+//    if (::llvm::verifyModule(*module, &::llvm::errs())) {
+//        LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
+//    }
 
     // optimize
     ::llvm::PassManagerBuilder pass_manager_builder;
