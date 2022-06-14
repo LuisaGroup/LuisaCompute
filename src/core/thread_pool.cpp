@@ -2,6 +2,12 @@
 // Created by Mike Smith on 2021/12/23.
 //
 
+#define LUISA_COMPUTE_USE_STD_BARRIER
+
+#ifdef LUISA_COMPUTE_USE_STD_BARRIER
+#include <barrier>
+#endif
+
 #include <sstream>
 #include <core/logging.h>
 #include <core/thread_pool.h>
@@ -16,6 +22,7 @@ namespace detail {
 }
 
 static inline void check_not_in_worker_thread(std::string_view f) noexcept {
+#ifndef NDEBUG
     if (is_worker_thread()) [[unlikely]] {
         std::ostringstream oss;
         oss << std::this_thread::get_id();
@@ -24,13 +31,18 @@ static inline void check_not_in_worker_thread(std::string_view f) noexcept {
             "from worker thread {}.",
             f, oss.str());
     }
+#endif
 }
 
 }// namespace detail
 
+#ifdef LUISA_COMPUTE_USE_STD_BARRIER
+struct Barrier : std::barrier<> {
+    using std::barrier<>::barrier;
+};
+#else
 // reference: https://github.com/yohhoy/yamc/blob/master/include/yamc_barrier.hpp
 class Barrier {
-
 private:
     uint _n;
     uint _counter;
@@ -54,6 +66,7 @@ public:
         }
     }
 };
+#endif
 
 ThreadPool::ThreadPool(size_t num_threads) noexcept : _should_stop{false} {
     if (num_threads == 0u) {
