@@ -213,9 +213,11 @@ void LLVMCodegen::visit(const MetaStmt *stmt) {
             auto p = ctx->builder->CreateAlloca(
                 _create_type(v.type()), nullptr,
                 luisa::string_view{_variable_name(v)});
+            p->setAlignment(::llvm::Align{16});
             ctx->variables.emplace(v.uid(), p);
-            ctx->builder->CreateMemSet(p, ctx->builder->getInt8(0),
-                                       v.type()->size(), ::llvm::MaybeAlign{});
+            ctx->builder->CreateMemSet(
+                p, ctx->builder->getInt8(0),
+                v.type()->size(), ::llvm::Align{16});
         }
     }
     stmt->scope()->accept(*this);
