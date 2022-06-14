@@ -273,6 +273,7 @@ namespace luisa::compute::llvm {
             vec = builder->CreateInsertElement(vec, v[i], i);
         }
         auto p_vec = builder->CreateAlloca(vec_type);
+        p_vec->setAlignment(::llvm::Align{16});
         builder->CreateStore(vec, p_vec);
         return p_vec;
     }
@@ -280,6 +281,7 @@ namespace luisa::compute::llvm {
     auto y = builder->CreateCall(f, args, luisa::string_view{luisa::format("{}.call", name)});
     auto py = builder->CreateAlloca(p_args.front()->getType()->getPointerElementType(),
                                     nullptr, luisa::string_view{luisa::format("{}.addr", name)});
+    py->setAlignment(::llvm::Align{16});
     builder->CreateStore(y, py);
     return py;
 }
@@ -1031,10 +1033,12 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
     auto p_old = builder->CreateAlloca(
         builder->getFloatTy(), nullptr,
         "atomic.fetch.add.old.addr");
+    p_old->setAlignment(::llvm::Align{16});
     builder->CreateStore(old, p_old);
     return p_old;
 #else
     auto p_old = builder->CreateAlloca(builder->getFloatTy(), nullptr, "atomic.fetch.add.old.addr");
+    p_old->setAlignment(::llvm::Align{16});
     auto v_int = builder->CreateBitCast(v_float, builder->getInt32Ty(), "atomic.fetch.add.value.int");
     auto ptr_int = builder->CreateBitOrPointerCast(ptr, ::llvm::PointerType::get(builder->getInt32Ty(), 0), "atomic.fetch.add.ptr.int");
     auto func = builder->GetInsertBlock()->getParent();
@@ -2234,7 +2238,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setWillReturn();
         func->setDoesNotThrow();
         func->setMustProgress();
-        func->setSpeculatable();
+//        func->setSpeculatable();
         func->setDoesNotFreeMemory();
         func->setOnlyReadsMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
@@ -2276,7 +2280,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setWillReturn();
         func->setDoesNotThrow();
         func->setMustProgress();
-        func->setSpeculatable();
+//        func->setSpeculatable();
         func->setOnlyReadsMemory();
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
