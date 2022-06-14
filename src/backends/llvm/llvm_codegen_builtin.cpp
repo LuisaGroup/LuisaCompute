@@ -2238,7 +2238,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setWillReturn();
         func->setDoesNotThrow();
         func->setMustProgress();
-//        func->setSpeculatable();
+        func->setSpeculatable();
         func->setDoesNotFreeMemory();
         func->setOnlyReadsMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
@@ -2280,7 +2280,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setWillReturn();
         func->setDoesNotThrow();
         func->setMustProgress();
-//        func->setSpeculatable();
+        func->setSpeculatable();
         func->setOnlyReadsMemory();
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();

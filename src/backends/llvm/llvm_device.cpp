@@ -146,6 +146,7 @@ void *LLVMDevice::stream_native_handle(uint64_t handle) const noexcept {
 }
 
 uint64_t LLVMDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
+    // FIXME: allow parallel compilation
     auto shader = luisa::new_with_allocator<LLVMShader>(this, kernel);
     return reinterpret_cast<uint64_t>(shader);
 }

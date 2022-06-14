@@ -93,6 +93,7 @@ private:
     [[nodiscard]] ::llvm::Value *_create_constant_expr(const ConstantExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_call_expr(const CallExpr *expr) noexcept;
     [[nodiscard]] ::llvm::Value *_create_cast_expr(const CastExpr *expr) noexcept;
+    [[nodiscard]] ::llvm::Value *_create_alloca(::llvm::Type *t, luisa::string_view name) noexcept;
     [[nodiscard]] ::llvm::Value *_create_stack_variable(::llvm::Value *v, luisa::string_view name = "") noexcept;
     [[nodiscard]] FunctionContext *_current_context() noexcept;
     void _create_assignment(const Type *dst_type, const Type *src_type, ::llvm::Value *p_dst, ::llvm::Value *p_src) noexcept;
