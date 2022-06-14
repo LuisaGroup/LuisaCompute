@@ -69,19 +69,19 @@ template<typename T, uint dim>
     auto value = reinterpret_cast<const T *>(pixel);
     if constexpr (dim == 1u) {
         return make_float4(
-            scalar_to_float(value[0]),
+            scalar_to_float<T>(value[0]),
             0.f, 0.0f, 0.f);
     } else if constexpr (dim == 2u) {
         return make_float4(
-            scalar_to_float(value[0]),
-            scalar_to_float(value[1]),
+            scalar_to_float<T>(value[0]),
+            scalar_to_float<T>(value[1]),
             0.0f, 0.f);
     } else if constexpr (dim == 4u) {
         return make_float4(
-            scalar_to_float(value[0]),
-            scalar_to_float(value[1]),
-            scalar_to_float(value[2]),
-            scalar_to_float(value[3]));
+            scalar_to_float<T>(value[0]),
+            scalar_to_float<T>(value[1]),
+            scalar_to_float<T>(value[2]),
+            scalar_to_float<T>(value[3]));
     } else {
         return make_float4();
     }
@@ -108,19 +108,19 @@ template<typename T, uint dim>
     auto value = reinterpret_cast<const T *>(pixel);
     if constexpr (dim == 1u) {
         return make_uint4(
-            scalar_to_int(value[0]),
+            scalar_to_int<T>(value[0]),
             0u, 0u, 0u);
     } else if constexpr (dim == 2u) {
         return make_uint4(
-            scalar_to_int(value[0]),
-            scalar_to_int(value[1]),
+            scalar_to_int<T>(value[0]),
+            scalar_to_int<T>(value[1]),
             0u, 0u);
     } else if constexpr (dim == 4u) {
         return make_uint4(
-            scalar_to_int(value[0]),
-            scalar_to_int(value[1]),
-            scalar_to_int(value[2]),
-            scalar_to_int(value[3]));
+            scalar_to_int<T>(value[0]),
+            scalar_to_int<T>(value[1]),
+            scalar_to_int<T>(value[2]),
+            scalar_to_int<T>(value[3]));
     } else {
         return make_uint4();
     }

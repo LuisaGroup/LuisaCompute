@@ -119,6 +119,13 @@ namespace luisa::compute::llvm {
         static_cast<::llvm::Constant *>(_literal(x[3])));
 }
 
+::llvm::Value *LLVMCodegen::_create_alloca(::llvm::Type *t, luisa::string_view name) noexcept {
+    auto ctx = _current_context();
+    auto p = ctx->builder->CreateAlloca(t, nullptr, name);
+    p->setAlignment(::llvm::Align{16u});
+    return p;
+}
+
 ::llvm::Value *LLVMCodegen::_create_stack_variable(::llvm::Value *x, luisa::string_view name) noexcept {
     auto builder = _current_context()->builder.get();
     auto t = x->getType();
@@ -133,8 +140,7 @@ namespace luisa::compute::llvm {
         auto dst_type = ::llvm::VectorType::get(builder->getInt8Ty(), dim);
         return _create_stack_variable(builder->CreateZExt(x, dst_type, "bit_to_bool"), name);
     }
-    auto p = builder->CreateAlloca(x->getType(), nullptr, name);
-    p->setAlignment(::llvm::Align{16u});
+    auto p = _create_alloca(t, name);
     builder->CreateStore(x, p);
     return p;
 }
@@ -285,8 +291,7 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_make_float2x2(::llvm::Value *p0, ::llvm::Value *p1) noexcept {
     auto b = _current_context()->builder.get();
     auto t = _create_type(Type::of<float2x2>());
-    auto m = b->CreateAlloca(t, nullptr, "float2x2.addr");
-    m->setAlignment(::llvm::Align{16});
+    auto m = _create_alloca(t, "float2x2.addr");
     auto m0 = b->CreateStructGEP(t, m, 0u, "float2x2.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float2x2.b");
     auto col_type = _create_type(Type::of<float2>());
@@ -298,8 +303,7 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_make_float3x3(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2) noexcept {
     auto b = _current_context()->builder.get();
     auto t = _create_type(Type::of<float3x3>());
-    auto m = b->CreateAlloca(t, nullptr, "float3x3.addr");
-    m->setAlignment(::llvm::Align{16});
+    auto m = _create_alloca(t, "float3x3.addr");
     auto m0 = b->CreateStructGEP(t, m, 0u, "float3x3.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float3x3.b");
     auto m2 = b->CreateStructGEP(t, m, 2u, "float3x3.c");
@@ -313,8 +317,7 @@ namespace luisa::compute::llvm {
 ::llvm::Value *LLVMCodegen::_make_float4x4(::llvm::Value *p0, ::llvm::Value *p1, ::llvm::Value *p2, ::llvm::Value *p3) noexcept {
     auto b = _current_context()->builder.get();
     auto t = _create_type(Type::of<float4x4>());
-    auto m = b->CreateAlloca(t, nullptr, "float4x4.addr");
-    m->setAlignment(::llvm::Align{16});
+    auto m = _create_alloca(t, "float4x4.addr");
     auto m0 = b->CreateStructGEP(t, m, 0u, "float4x4.a");
     auto m1 = b->CreateStructGEP(t, m, 1u, "float4x4.b");
     auto m2 = b->CreateStructGEP(t, m, 2u, "float4x4.c");

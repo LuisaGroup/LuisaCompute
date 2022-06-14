@@ -210,10 +210,7 @@ void LLVMCodegen::visit(const MetaStmt *stmt) {
     auto ctx = _current_context();
     for (auto v : stmt->variables()) {
         if (v.tag() == Variable::Tag::LOCAL) {
-            auto p = ctx->builder->CreateAlloca(
-                _create_type(v.type()), nullptr,
-                luisa::string_view{_variable_name(v)});
-            p->setAlignment(::llvm::Align{16});
+            auto p = _create_alloca(_create_type(v.type()), _variable_name(v));
             ctx->variables.emplace(v.uid(), p);
             ctx->builder->CreateMemSet(
                 p, ctx->builder->getInt8(0),

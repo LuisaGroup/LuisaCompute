@@ -19,9 +19,10 @@ class LLVMDevice;
 class LLVMShader {
 
 public:
-    using kernel_entry_t = void(const std::byte *, const uint3 *);
+    using kernel_entry_t = void(const std::byte *, uint, uint, uint, uint, uint, uint);
 
 private:
+    luisa::string _name;
     luisa::unique_ptr<::llvm::LLVMContext> _context;
     ::llvm::ExecutionEngine *_engine{nullptr};
     luisa::unordered_map<uint, size_t> _argument_offsets;
@@ -33,7 +34,7 @@ public:
     ~LLVMShader() noexcept;
     [[nodiscard]] auto argument_buffer_size() const noexcept { return _argument_buffer_size; }
     [[nodiscard]] size_t argument_offset(uint uid) const noexcept;
-    void invoke(const std::byte *args, uint3 block_id) const noexcept;
+    void invoke(const std::byte *args, uint3 dispatch_size, uint3 block_id) const noexcept;
 };
 
 }// namespace luisa::compute::llvm
