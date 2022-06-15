@@ -214,16 +214,20 @@ class LLVMTextureView;
 
 class alignas(16u) LLVMTexture {
 
+public:
+    static constexpr auto block_size = 4u;
+
 private:
     std::byte *_data{nullptr};           // 8B
     std::array<uint16_t, 3u> _size{};    // 14B
     PixelStorage _storage : 16u;         // 16B
-    uint _pixel_stride : 16u;            // 18B
-    uint _mip_levels : 16u;              // 20B
+    uint _pixel_stride_shift : 8u;      // 18B
+    uint _mip_levels : 8u;              // 19B
+    uint _dimension : 8u;               // 20B
     std::array<uint, 15u> _mip_offsets{};// 80B
 
 public:
-    LLVMTexture(PixelStorage storage, uint3 size, uint levels) noexcept;
+    LLVMTexture(PixelStorage storage, uint dim, uint3 size, uint levels) noexcept;
     ~LLVMTexture() noexcept;
     LLVMTexture(LLVMTexture &&) noexcept = delete;
     LLVMTexture(const LLVMTexture &) noexcept = delete;
@@ -248,21 +252,36 @@ public:
 class alignas(16u) LLVMTextureView {
 
 private:
-    std::byte *_data;          // 8B
-    uint _width : 16u;         // 10B
-    uint _height : 16u;        // 12B
-    uint _depth : 16u;         // 14B
-    PixelStorage _storage : 8u;// 15B
-    uint _pixel_stride : 8u;   // 16B
+    std::byte *_data;             // 8B
+    uint _width : 16u;            // 10B
+    uint _height : 16u;           // 12B
+    uint _depth : 16u;            // 14B
+    PixelStorage _storage : 8u;   // 15B
+    uint _dimension : 4u;
+    uint _pixel_stride_shift : 4u;// 16B
+
+public:
+    static constexpr auto block_size = LLVMTexture::block_size;
 
 private:
     [[nodiscard]] inline std::byte *_pixel2d(uint2 xy) const noexcept {
-        auto offset = _pixel_stride * (xy[0] + xy[1] * _width);
-        return _data + offset;
+        auto block = (xy + block_size - 1u) / block_size;
+        auto pixel = xy % block_size;
+        auto grid_width = (_width + block_size - 1u) / block_size;
+        auto block_index = grid_width * block.y + block.x;
+        auto pixel_index = block_index * block_size * block_size +
+                           pixel.y * block_size + pixel.x;
+        return _data + (pixel_index << _pixel_stride_shift);
     }
     [[nodiscard]] inline std::byte *_pixel3d(uint3 xyz) const noexcept {
-        auto offset = _pixel_stride * (xyz[0] + xyz[1] * _width + xyz[2] * _width * _height);
-        return _data + offset;
+        auto block = (xyz + block_size - 1u) / block_size;
+        auto pixel = xyz % block_size;
+        auto grid_width = (_width + block_size - 1u) / block_size;
+        auto grid_height = (_height + block_size - 1u) / block_size;
+        auto block_index = grid_width * grid_height * block.z + grid_width * block.y + block.x;
+        auto pixel_index = block_index * block_size * block_size * block_size +
+                           (pixel.z * block_size + pixel.y) * block_size + pixel.x;
+        return _data + (pixel_index << _pixel_stride_shift);
     }
     [[nodiscard]] inline auto _out_of_bounds(uint2 xy) const noexcept {
         return !(xy[0] < _width & xy[1] < _height);
@@ -273,10 +292,10 @@ private:
 
 private:
     friend class LLVMTexture;
-    LLVMTextureView(std::byte *data, uint w, uint h, uint d,
-                    PixelStorage storage, uint pixel_stride) noexcept
-        : _data(data), _width{w}, _height{h}, _depth{d},
-          _storage(storage), _pixel_stride(pixel_stride) {}
+    LLVMTextureView(std::byte *data, uint dim, uint w, uint h, uint d,
+                    PixelStorage storage, uint pixel_stride_shift) noexcept
+        : _data(data), _width{w}, _height{h}, _depth{d}, _storage(storage),
+          _dimension{dim}, _pixel_stride_shift(pixel_stride_shift) {}
 
 public:
     template<typename T>
@@ -299,9 +318,12 @@ public:
         if (_out_of_bounds(xyz)) [[unlikely]] { return; }
         detail::write_pixel<T>(_storage, _pixel3d(xyz), value);
     }
-    [[nodiscard]] inline auto data() const noexcept { return _data; }
-    [[nodiscard]] inline auto size2d() const noexcept { return make_uint2(_width, _height); }
-    [[nodiscard]] inline auto size3d() const noexcept { return make_uint3(_width, _height, _depth); }
+    [[nodiscard]] auto size2d() const noexcept { return make_uint2(_width, _height); }
+    [[nodiscard]] auto size3d() const noexcept { return make_uint3(_width, _height, _depth); }
+    [[nodiscard]] auto size_bytes() const noexcept { return (_width * _height * _depth) << _pixel_stride_shift; }
+    void copy_from(const void *data) const noexcept;
+    void copy_to(void *data) const noexcept;
+    void copy_from(LLVMTextureView dst) const noexcept;
 };
 
 static_assert(sizeof(LLVMTextureView) == 16u);

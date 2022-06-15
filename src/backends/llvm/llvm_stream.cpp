@@ -66,9 +66,7 @@ void LLVMStream::visit(const BufferToTextureCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
         auto src = reinterpret_cast<const void *>(cmd.buffer() + cmd.buffer_offset());
         auto tex = reinterpret_cast<LLVMTexture *>(cmd.texture())->view(cmd.level());
-        auto size_bytes = cmd.size().x * cmd.size().y * cmd.size().z *
-                          pixel_storage_size(cmd.storage());
-        std::memcpy(tex.data(), src, size_bytes);
+        tex.copy_from(src);
     });
 }
 
@@ -115,16 +113,14 @@ void LLVMStream::visit(const TextureUploadCommand *command) noexcept {
     std::memcpy(temp_buffer->data(), command->data(), byte_size);
     _pool.async([cmd = *command, temp_buffer = std::move(temp_buffer)] {
         auto tex = reinterpret_cast<LLVMTexture *>(cmd.handle())->view(cmd.level());
-        std::memcpy(tex.data(), temp_buffer->data(), temp_buffer->size());
+        tex.copy_from(temp_buffer->data());
     });
 }
 
 void LLVMStream::visit(const TextureDownloadCommand *command) noexcept {
     _pool.async([cmd = *command] {
         auto tex = reinterpret_cast<LLVMTexture *>(cmd.handle())->view(cmd.level());
-        auto size_bytes = cmd.size().x * cmd.size().y * cmd.size().z *
-                          pixel_storage_size(cmd.storage());
-        std::memcpy(cmd.data(), tex.data(), size_bytes);
+        tex.copy_to(cmd.data());
     });
 }
 
@@ -132,8 +128,7 @@ void LLVMStream::visit(const TextureCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
         auto src_tex = reinterpret_cast<LLVMTexture *>(cmd.src_handle())->view(cmd.src_level());
         auto dst_tex = reinterpret_cast<LLVMTexture *>(cmd.dst_handle())->view(cmd.dst_level());
-        auto size_bytes = cmd.size().x * cmd.size().y * cmd.size().z * pixel_storage_size(cmd.storage());
-        std::memcpy(dst_tex.data(), src_tex.data(), size_bytes);
+        dst_tex.copy_from(src_tex);
     });
 }
 
@@ -141,8 +136,7 @@ void LLVMStream::visit(const TextureToBufferCopyCommand *command) noexcept {
     _pool.async([cmd = *command] {
         auto tex = reinterpret_cast<LLVMTexture *>(cmd.texture())->view(cmd.level());
         auto dst = reinterpret_cast<void *>(cmd.buffer() + cmd.buffer_offset());
-        auto size_bytes = cmd.size().x * cmd.size().y * cmd.size().z * pixel_storage_size(cmd.storage());
-        std::memcpy(dst, tex.data(), size_bytes);
+        tex.copy_to(dst);
     });
 }
 
