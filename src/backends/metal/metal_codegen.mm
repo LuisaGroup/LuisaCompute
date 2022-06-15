@@ -1215,8 +1215,8 @@ template<typename T>
 
 struct alignas(16) BindlessItem {
   device const void *buffer;
-  metal::ushort sampler2d;
-  metal::ushort sampler3d;
+  metal::uint sampler2d;
+  metal::uint sampler3d;
   metal::texture2d<float> handle2d;
   metal::texture3d<float> handle3d;
 };

@@ -33,7 +33,9 @@ int main(int argc, char *argv[]) {
     };
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return heap.tex2d(0u).sample(uv, make_float2(0.001f, 0.01f * mip), make_float2(0.001f, 0.01f * mip));
+        auto dir = normalize(uv);
+        dir = make_float2(uv.y, -uv.x);
+        return heap.tex2d(0u).sample(uv, 0.01f * mip * dir, 0.01f * dir * mip);
     };
 
     Kernel1D useless_kernel = [](BindlessVar heap) noexcept {
@@ -56,7 +58,7 @@ int main(int argc, char *argv[]) {
     auto image_width = 0;
     auto image_height = 0;
     auto image_channels = 0;
-    auto image_pixels = stbi_load("src/tests/logo.png", &image_width, &image_height, &image_channels, 4);
+    auto image_pixels = stbi_load("test_path_tracing.png", &image_width, &image_height, &image_channels, 4);
     auto texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 0u);
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
     std::vector<uint8_t> host_image(1024u * 1024u * 4u);
