@@ -33,9 +33,9 @@ int main(int argc, char *argv[]) {
     };
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        auto dir = normalize(uv);
-        dir = make_float2(uv.y, -uv.x);
-        return heap.tex2d(0u).sample(uv, 0.01f * mip * dir, 0.01f * dir * mip);
+        auto dx = normalize(uv);
+        auto dy = make_float2(-dx.y, dx.x);
+        return heap.tex2d(0u).sample(uv, .01f * mip * dx, .01f * mip * dy);
     };
 
     Kernel1D useless_kernel = [](BindlessVar heap) noexcept {

@@ -212,7 +212,7 @@ template<typename T>
 [[nodiscard]] inline auto texture_sample_ewa(LLVMTextureView view, Sampler::Address address,
                                              float2 uv, float2 dst0, float2 dst1) noexcept {
     auto size = make_float2(view.size2d());
-    auto st = texture_coord_point(address, uv, size) - .5f;
+    auto st = uv * size - .5f;
     dst0 = dst0 * size;
     dst1 = dst1 * size;
 
@@ -244,8 +244,8 @@ template<typename T>
     auto inv_size = 1.f / size;
     for (auto t = t_min; t <= t_max; t++) {
         for (auto s = s_min; s <= s_max; s++) {
-            auto tt = static_cast<float>(t) - st.y;
             auto ss = static_cast<float>(s) - st.x;
+            auto tt = static_cast<float>(t) - st.y;
             // Compute squared radius and filter texel if it is inside the ellipse
             if (auto rr = A * sqr(ss) + B * ss * tt + C * sqr(tt); rr < 1.f) {
                 constexpr auto lut_size = static_cast<float>(detail::ewa_filter_weight_lut.size());
