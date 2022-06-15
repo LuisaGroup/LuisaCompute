@@ -296,7 +296,7 @@ template<typename T>
     dst1 = dst1 * size;
 
     constexpr auto sqr = [](float x) noexcept { return x * x; };
-    constexpr auto safe_sqrt = [](float x) noexcept { return select(std::sqrt(x), 0.f, x <= 0.f); };
+    constexpr auto safe_sqrt = [](float x) noexcept { return luisa::select(std::sqrt(x), 0.f, x <= 0.f); };
 
     // Find ellipse coefficients that bound EWA filter region
     auto A = sqr(dst0.y) + sqr(dst1.y) + 1.f;
