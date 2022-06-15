@@ -66,8 +66,9 @@ void *LLVMDevice::buffer_native_handle(uint64_t handle) const noexcept {
 }
 
 uint64_t LLVMDevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
-    auto size = dimension == 2u ? make_uint3(width, height, 1u) : make_uint3(width, height, depth);
-    auto texture = luisa::new_with_allocator<LLVMTexture>(pixel_format_to_storage(format), size, mipmap_levels);
+    auto texture = luisa::new_with_allocator<LLVMTexture>(
+        pixel_format_to_storage(format), dimension,
+        make_uint3(width, height, depth), mipmap_levels);
     return reinterpret_cast<uint64_t>(texture);
 }
 

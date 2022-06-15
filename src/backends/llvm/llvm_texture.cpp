@@ -6,6 +6,81 @@
 
 namespace luisa::compute::llvm {
 
+void LLVMTextureView::copy_from(const void *data) const noexcept {
+#define LC_TEXTURE_COPY(dim, stride)                                                  \
+    [p = static_cast<const std::byte *>(data), this]() mutable noexcept {             \
+        for (auto z = 0u; z < _depth; z++) {                                          \
+            for (auto y = 0u; y < _height; y++) {                                     \
+                for (auto x = 0u; x < _width; x++) {                                  \
+                    auto pixel = _pixel##dim##d(make_uint##dim(make_uint3(x, y, z))); \
+                    std::memcpy(pixel, p, stride);                                    \
+                    p += stride;                                                      \
+                }                                                                     \
+            }                                                                         \
+        }                                                                             \
+    }()
+    if (_dimension == 2u) {
+        switch (_pixel_stride_shift) {
+            case 0: LC_TEXTURE_COPY(2, 1u); break;
+            case 1: LC_TEXTURE_COPY(2, 2u); break;
+            case 2: LC_TEXTURE_COPY(2, 4u); break;
+            case 3: LC_TEXTURE_COPY(2, 8u); break;
+            case 4: LC_TEXTURE_COPY(2, 16u); break;
+            default: LUISA_ERROR("Unsupported pixel stride: {}.", 1u << _pixel_stride_shift);
+        }
+    } else {
+        switch (_pixel_stride_shift) {
+            case 0: LC_TEXTURE_COPY(3, 1u); break;
+            case 1: LC_TEXTURE_COPY(3, 2u); break;
+            case 2: LC_TEXTURE_COPY(3, 4u); break;
+            case 3: LC_TEXTURE_COPY(3, 8u); break;
+            case 4: LC_TEXTURE_COPY(3, 16u); break;
+            default: LUISA_ERROR("Unsupported pixel stride: {}.", 1u << _pixel_stride_shift);
+        }
+    }
+#undef LC_TEXTURE_COPY
+}
+
+void LLVMTextureView::copy_to(void *data) const noexcept {
+#define LC_TEXTURE_COPY(dim, stride)                                                  \
+    [p = static_cast<std::byte *>(data), this]() mutable noexcept {                   \
+        for (auto z = 0u; z < _depth; z++) {                                          \
+            for (auto y = 0u; y < _height; y++) {                                     \
+                for (auto x = 0u; x < _width; x++) {                                  \
+                    auto pixel = _pixel##dim##d(make_uint##dim(make_uint3(x, y, z))); \
+                    std::memcpy(p, pixel, stride);                                    \
+                    p += stride;                                                      \
+                }                                                                     \
+            }                                                                         \
+        }                                                                             \
+    }()
+    if (_dimension == 2u) {
+        switch (_pixel_stride_shift) {
+            case 0: LC_TEXTURE_COPY(2, 1u); break;
+            case 1: LC_TEXTURE_COPY(2, 2u); break;
+            case 2: LC_TEXTURE_COPY(2, 4u); break;
+            case 3: LC_TEXTURE_COPY(2, 8u); break;
+            case 4: LC_TEXTURE_COPY(2, 16u); break;
+            default: LUISA_ERROR("Unsupported pixel stride: {}.", 1u << _pixel_stride_shift);
+        }
+    } else {
+        switch (_pixel_stride_shift) {
+            case 0: LC_TEXTURE_COPY(3, 1u); break;
+            case 1: LC_TEXTURE_COPY(3, 2u); break;
+            case 2: LC_TEXTURE_COPY(3, 4u); break;
+            case 3: LC_TEXTURE_COPY(3, 8u); break;
+            case 4: LC_TEXTURE_COPY(3, 16u); break;
+            default: LUISA_ERROR("Unsupported pixel stride: {}.", 1u << _pixel_stride_shift);
+        }
+    }
+#undef LC_TEXTURE_COPY
+}
+
+void LLVMTextureView::copy_from(LLVMTextureView dst) const noexcept {
+    LUISA_ASSERT(size_bytes() == dst.size_bytes(), "Texture sizes must match.");
+    std::memcpy(dst._data, _data, size_bytes());
+}
+
 namespace detail {
 
 [[nodiscard]] inline auto decode_texture_view(uint64_t t0, uint64_t t1) noexcept {
@@ -98,17 +173,22 @@ static constexpr const std::array ewa_filter_weight_lut{
 
 }// namespace detail
 
-LLVMTexture::LLVMTexture(PixelStorage storage, uint3 size, uint levels) noexcept
-    : _storage{storage}, _mip_levels{levels},
-      _pixel_stride{static_cast<uint>(pixel_storage_size(storage))} {
+LLVMTexture::LLVMTexture(PixelStorage storage, uint dim, uint3 size, uint levels) noexcept
+    : _storage{storage}, _mip_levels{levels}, _dimension{dim},
+      _pixel_stride_shift{std::bit_width(static_cast<uint>(pixel_storage_size(storage))) - 1u} {
+    if (dim == 2u) { size[2] = 1u; }
     for (auto i = 0u; i < 3u; i++) { _size[i] = size[i]; }
     _mip_offsets[0] = 0u;
     for (auto i = 1u; i < levels; i++) {
+        auto s = (size + block_size - 1u) / block_size * block_size;
         _mip_offsets[i] = _mip_offsets[i - 1u] +
-                          _size[0] * _size[1] * _size[2] * _pixel_stride;
+                          ((s.x * s.y * s.z) << _pixel_stride_shift);
+        size = luisa::max(size >> 1u, 1u);
+        if (dim == 2u) { size[2] = 1u; }
     }
+    auto s = (size + block_size - 1u) / block_size * block_size;
     auto size_bytes = _mip_offsets[levels - 1u] +
-                      _size[0] * _size[1] * _size[2] * _pixel_stride;
+                      ((s.x * s.y * s.z) << _pixel_stride_shift);
     _data = luisa::allocate<std::byte>(size_bytes);
 }
 
@@ -116,9 +196,8 @@ LLVMTexture::~LLVMTexture() noexcept { luisa::deallocate(_data); }
 
 LLVMTextureView LLVMTexture::view(uint level) const noexcept {
     auto size = luisa::max(make_uint3(_size[0], _size[1], _size[2]) >> level, 1u);
-    return LLVMTextureView{_data + _mip_offsets[level],
-                           size.x, size.y, size.z,
-                           _storage, _pixel_stride};
+    return LLVMTextureView{_data + _mip_offsets[level], _dimension,
+                           size.x, size.y, size.z, _storage, _pixel_stride_shift};
 }
 
 float4 LLVMTexture::read2d(uint level, uint2 uv) const noexcept {
