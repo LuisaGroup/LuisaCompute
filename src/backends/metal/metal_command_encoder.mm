@@ -16,10 +16,8 @@
 namespace luisa::compute::metal {
 
 MetalCommandEncoder::MetalCommandEncoder(
-    MetalDevice *device,
-    MetalStream *stream) noexcept
-    : _device{device},
-      _stream{stream},
+    MetalDevice *device, MetalStream *stream) noexcept
+    : _device{device}, _stream{stream},
       _command_buffer{stream->command_buffer()} {}
 
 [[nodiscard]] inline static auto to_buffer(uint64_t handle) noexcept {
