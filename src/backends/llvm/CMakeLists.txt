@@ -28,11 +28,9 @@ if (LLVM_FOUND) # link with llvm for jit
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         target_compile_options(luisa-compute-backend-llvm PRIVATE
                 /wd4624 /wd4996 # do not complain about LLVM
-                /fp:precise /fp:contract /fp:except-)
+                /fp:fast /fp:contract /fp:except-)
     else ()
-        target_compile_options(luisa-compute-backend-llvm PRIVATE
-                -fno-math-errno -fno-rounding-math -fno-signaling-nans -fexcess-precision=fast
-                -fno-trapping-math -freciprocal-math -fno-signed-zeros -ffinite-math-only)
+        target_compile_options(luisa-compute-backend-llvm PRIVATE -ffast-math)
     endif ()
 else ()
     message(WARNING "LLVM not found. LLVM backend will not be built.")

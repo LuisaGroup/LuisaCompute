@@ -44,8 +44,8 @@ using std::sqrt;
 
 using std::ceil;
 using std::floor;
-using std::round;
 using std::fmod;
+using std::round;
 
 using std::exp;
 using std::log;
@@ -123,6 +123,24 @@ LUISA_MAKE_VECTOR_BINARY_FUNC(max)
 LUISA_MAKE_VECTOR_BINARY_FUNC(fmod)
 
 #undef LUISA_MAKE_VECTOR_BINARY_FUNC
+
+[[nodiscard]] inline auto isnan(float x) noexcept {
+    auto u = 0u;
+    std::memcpy(&u, &x, sizeof(float));
+    return (u & 0x7f800000u) == 0x7f800000u && (u & 0x007fffffu) != 0u;
+}
+[[nodiscard]] inline auto isnan(float2 v) noexcept { return make_bool2(isnan(v.x), isnan(v.y)); }
+[[nodiscard]] inline auto isnan(float3 v) noexcept { return make_bool3(isnan(v.x), isnan(v.y), isnan(v.z)); }
+[[nodiscard]] inline auto isnan(float4 v) noexcept { return make_bool4(isnan(v.x), isnan(v.y), isnan(v.z), isnan(v.w)); }
+
+[[nodiscard]] inline auto isinf(float x) noexcept {
+    auto u = 0u;
+    std::memcpy(&u, &x, sizeof(float));
+    return (u & 0x7f800000u) == 0x7f800000u && (u & 0x007fffffu) == 0u;
+}
+[[nodiscard]] inline auto isinf(float2 v) noexcept { return make_bool2(isinf(v.x), isinf(v.y)); }
+[[nodiscard]] inline auto isinf(float3 v) noexcept { return make_bool3(isinf(v.x), isinf(v.y), isinf(v.z)); }
+[[nodiscard]] inline auto isinf(float4 v) noexcept { return make_bool4(isinf(v.x), isinf(v.y), isinf(v.z), isinf(v.w)); }
 
 // min
 template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
@@ -212,46 +230,23 @@ template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
                         select(f.w, t.w, pred.w)};
 }
 
-[[nodiscard]] constexpr auto lerp(float a, float b, float t) noexcept {
-    return (1 - t) * a + t * b;
+template<typename A, typename B, typename T,
+         std::enable_if_t<std::conjunction_v<
+             std::disjunction<is_scalar<A>, is_vector<A>>,
+             std::disjunction<is_scalar<B>, is_vector<B>>,
+             std::disjunction<is_scalar<T>, is_vector<T>>>, int> = 0>
+[[nodiscard]] constexpr auto lerp(A a, B b, T t) noexcept {
+    auto v = t * (b - a) + a;
+    return select(v, a + b, isinf(a) || isinf(b));
 }
 
-[[nodiscard]] constexpr auto lerp(float2 a, float2 b, float t) noexcept {
-    return float2{lerp(a.x, b.x, t),
-                  lerp(a.y, b.y, t)};
-}
-
-[[nodiscard]] constexpr auto lerp(float3 a, float3 b, float t) noexcept {
-    return float3{lerp(a.x, b.x, t),
-                  lerp(a.y, b.y, t),
-                  lerp(a.z, b.z, t)};
-}
-
-[[nodiscard]] constexpr auto lerp(float4 a, float4 b, float t) noexcept {
-    return float4{lerp(a.x, b.x, t),
-                  lerp(a.y, b.y, t),
-                  lerp(a.z, b.z, t),
-                  lerp(a.w, b.w, t)};
-}
-
-template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
-[[nodiscard]] constexpr auto clamp(T x, T a, T b) noexcept {
-    return std::clamp(x, a, b);
-}
-
-template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
-[[nodiscard]] constexpr auto clamp(Vector<T, 2> v, T a, T b) noexcept {
-    return Vector<T, 2>{clamp(v.x, a, b), clamp(v.y, a, b)};
-}
-
-template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
-[[nodiscard]] constexpr auto clamp(Vector<T, 3> v, T a, T b) noexcept {
-    return Vector<T, 3>{clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b)};
-}
-
-template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
-[[nodiscard]] constexpr auto clamp(Vector<T, 4> v, T a, T b) noexcept {
-    return Vector<T, 4>{clamp(v.x, a, b), clamp(v.y, a, b), clamp(v.z, a, b), clamp(v.w, a, b)};
+template<typename X, typename A, typename B,
+         std::enable_if_t<std::conjunction_v<
+             std::disjunction<is_scalar<X>, is_vector<X>>,
+             std::disjunction<is_scalar<A>, is_vector<A>>,
+             std::disjunction<is_scalar<B>, is_vector<B>>>, int> = 0>
+[[nodiscard]] constexpr auto clamp(X x, A a, B b) noexcept {
+    return min(max(x, a), b);
 }
 
 // Vector Functions
