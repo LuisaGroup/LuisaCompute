@@ -117,7 +117,7 @@ template<typename T>
         case Sampler::Address::REPEAT: return luisa::fract(uv) * s;
         case Sampler::Address::MIRROR: {
             uv = luisa::fmod(luisa::abs(uv), T{2.0f});
-            uv = luisa::abs(1.f - uv);
+            uv = select(2.f - uv, uv, uv < T{1.f});
             return luisa::min(uv, one_minus_epsilon) * s;
         }
         case Sampler::Address::ZERO: return luisa::select(uv * s, T{65536.f}, uv < 0.f || uv >= 1.f);
@@ -246,13 +246,23 @@ float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw, float lod) const noexc
 }
 
 float4 LLVMTexture::sample2d(Sampler sampler, float2 uv, float2 dpdx, float2 dpdy) const noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-    return {};// TODO
+    if (sampler.filter() != Sampler::Filter::ANISOTROPIC) {
+        auto s = make_float2(_size[0], _size[1]);
+        constexpr auto ll = [](float2 v) noexcept { return dot(v, v); };
+        auto level = .5f * std::log2(std::max(ll(dpdx * s), ll(dpdy * s)));
+        return sample2d(sampler, uv, level);
+    }
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");// TODO: implement
 }
 
 float4 LLVMTexture::sample3d(Sampler sampler, float3 uvw, float3 dpdx, float3 dpdy) const noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-    return {};// TODO
+    if (sampler.filter() != Sampler::Filter::ANISOTROPIC) {
+        auto s = make_float3(_size[0], _size[1], _size[2]);
+        constexpr auto ll = [](float3 v) noexcept { return dot(v, v); };
+        auto level = .5f * std::log2(std::max(ll(dpdx * s), ll(dpdy * s)));
+        return sample3d(sampler, uvw, level);
+    }
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");// TODO: implement
 }
 
 void texture_write_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept {

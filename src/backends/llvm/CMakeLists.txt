@@ -26,7 +26,12 @@ if (LLVM_FOUND) # link with llvm for jit
     target_include_directories(luisa-compute-backend-llvm PRIVATE ${LLVM_INCLUDE_DIRS})
     target_link_libraries(luisa-compute-backend-llvm PRIVATE ${LLVM_LIBS})
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        target_compile_options(luisa-compute-backend-llvm PRIVATE /wd4624 /wd4996) # do not complain about LLVM
+        target_compile_options(luisa-compute-backend-llvm PRIVATE
+                /wd4624 /wd4996 # do not complain about LLVM
+                /fp:fast /fp:contract /fp:except-)
+    else ()
+        target_compile_options(luisa-compute-backend-llvm PRIVATE
+                -ffast-math -fno-trapping-math)
     endif ()
 else ()
     message(WARNING "LLVM not found. LLVM backend will not be built.")
