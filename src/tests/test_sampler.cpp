@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device(argv[1]);
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
-        return heap.tex2d(0u).sample(uv);
+        return heap.tex2d(0u).sample(uv, mip);
     };
 
     Kernel2D fill_image_kernel = [&](BindlessVar heap, ImageVar<float> image) noexcept {
