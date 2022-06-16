@@ -35,4 +35,19 @@ Resource &Resource::operator=(Resource &&rhs) noexcept {
 Resource::Resource(Device::Interface *device, Resource::Tag tag, uint64_t handle) noexcept
     : _device{device->shared_from_this()}, _handle{handle}, _tag{tag} {}
 
+void *Resource::native_handle() const noexcept {
+    switch (_tag) {
+        case Tag::BUFFER: return _device->buffer_native_handle(_handle);
+        case Tag::TEXTURE: return _device->texture_native_handle(_handle);
+        case Tag::BINDLESS_ARRAY: LUISA_ERROR_WITH_LOCATION("Native handles of bindless arrays are not obtainable yet.");
+        case Tag::MESH: LUISA_ERROR_WITH_LOCATION("Native handles of meshes are not obtainable yet.");
+        case Tag::ACCEL: LUISA_ERROR_WITH_LOCATION("Native handles of acceleration structures are not obtainable yet.");
+        case Tag::STREAM: return _device->stream_native_handle(_handle);
+        case Tag::EVENT: LUISA_ERROR_WITH_LOCATION("Native handles of events are not obtainable yet.");
+        case Tag::SHADER: LUISA_ERROR_WITH_LOCATION("Native handles of shaders are not obtainable yet.");
+        case Tag::SWAP_CHAIN: LUISA_ERROR_WITH_LOCATION("Native handles of swap chains are not obtainable yet.");
+    }
+    LUISA_ERROR_WITH_LOCATION("Unknown resource tag.");
+}
+
 }// namespace luisa::compute
