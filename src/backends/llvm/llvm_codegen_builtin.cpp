@@ -574,31 +574,31 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_all(const Type *t, ::llvm::Value *v) noexcept {
-    auto ctx = _current_context();
-    auto pred_type = ::llvm::FixedVectorType::get(ctx->builder->getInt1Ty(), t->dimension());
-    v = ctx->builder->CreateLoad(_create_type(t), v, "all.load");
-    v = ctx->builder->CreateTrunc(v, pred_type, "all.pred");
-    return _create_stack_variable(ctx->builder->CreateAndReduce(v), "all.addr");
+    auto b = _current_context()->builder.get();
+    auto pred_type = ::llvm::FixedVectorType::get(b->getInt1Ty(), t->dimension());
+    v = b->CreateLoad(_create_type(t), v, "all.load");
+    v = b->CreateTrunc(v, pred_type, "all.pred");
+    return _create_stack_variable(b->CreateAndReduce(v), "all.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_any(const Type *t, ::llvm::Value *v) noexcept {
-    auto ctx = _current_context();
-    auto pred_type = ::llvm::FixedVectorType::get(ctx->builder->getInt1Ty(), t->dimension());
-    v = ctx->builder->CreateLoad(_create_type(t), v, "any.load");
-    v = ctx->builder->CreateTrunc(v, pred_type, "any.pred");
-    return _create_stack_variable(ctx->builder->CreateOrReduce(v), "any.addr");
+    auto b = _current_context()->builder.get();
+    auto pred_type = ::llvm::FixedVectorType::get(b->getInt1Ty(), t->dimension());
+    v = b->CreateLoad(_create_type(t), v, "any.load");
+    v = b->CreateTrunc(v, pred_type, "any.pred");
+    return _create_stack_variable(b->CreateOrReduce(v), "any.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_select(const Type *t_pred, const Type *t_value,
                                             ::llvm::Value *pred, ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept {
-    auto ctx = _current_context();
-    auto pred_type = static_cast<::llvm::Type *>(ctx->builder->getInt1Ty());
+    auto b = _current_context()->builder.get();
+    auto pred_type = static_cast<::llvm::Type *>(b->getInt1Ty());
     if (t_pred->is_vector()) { pred_type = ::llvm::FixedVectorType::get(pred_type, t_pred->dimension()); }
-    auto pred_load = ctx->builder->CreateLoad(_create_type(t_pred), pred, "sel.pred.load");
-    auto bv = ctx->builder->CreateTrunc(pred_load, pred_type, "sel.pred.bv");
-    auto v_true_load = ctx->builder->CreateLoad(_create_type(t_value), v_true, "sel.true");
-    auto v_false_load = ctx->builder->CreateLoad(_create_type(t_value), v_false, "sel.false");
-    auto result = ctx->builder->CreateSelect(bv, v_true_load, v_false_load, "sel");
+    auto pred_load = b->CreateLoad(_create_type(t_pred), pred, "sel.pred.load");
+    auto bv = b->CreateTrunc(pred_load, pred_type, "sel.pred.bv");
+    auto v_true_load = b->CreateLoad(_create_type(t_value), v_true, "sel.true");
+    auto v_false_load = b->CreateLoad(_create_type(t_value), v_false, "sel.false");
+    auto result = b->CreateSelect(bv, v_true_load, v_false_load, "sel");
     return _create_stack_variable(result, "sel.addr");
 }
 
@@ -625,20 +625,20 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_abs(const Type *t, ::llvm::Value *x) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     if (is_scalar_or_vector(t, Type::Tag::UINT)) { return x; }
     auto ir_type = _create_type(t);
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::abs, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "iabs.x")},
+            {b->CreateLoad(ir_type, x, "iabs.x")},
             nullptr, "iabs");
         return _create_stack_variable(m, "iabs.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::fabs, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "fabs.x")},
+            {b->CreateLoad(ir_type, x, "fabs.x")},
             nullptr, "fabs");
         return _create_stack_variable(m, "fabs.addr");
     }
@@ -646,29 +646,29 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_min(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::minnum, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "fmin.x"),
-             ctx->builder->CreateLoad(ir_type, y, "fmin.y")},
+            {b->CreateLoad(ir_type, x, "fmin.x"),
+             b->CreateLoad(ir_type, y, "fmin.y")},
             nullptr, "fmin");
         return _create_stack_variable(m, "fmin.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::smin, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "imin.x"),
-             ctx->builder->CreateLoad(ir_type, y, "imin.y")},
+            {b->CreateLoad(ir_type, x, "imin.x"),
+             b->CreateLoad(ir_type, y, "imin.y")},
             nullptr, "imin");
         return _create_stack_variable(m, "imin.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::umin, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "umin.x"),
-             ctx->builder->CreateLoad(ir_type, y, "umin.y")},
+            {b->CreateLoad(ir_type, x, "umin.x"),
+             b->CreateLoad(ir_type, y, "umin.y")},
             nullptr, "umin");
         return _create_stack_variable(m, "umin.addr");
     }
@@ -676,29 +676,29 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_max(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::maxnum, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "fmax.x"),
-             ctx->builder->CreateLoad(ir_type, y, "fmax.y")},
+            {b->CreateLoad(ir_type, x, "fmax.x"),
+             b->CreateLoad(ir_type, y, "fmax.y")},
             nullptr, "fmax");
         return _create_stack_variable(m, "fmax.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::smax, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "imax.x"),
-             ctx->builder->CreateLoad(ir_type, y, "imax.y")},
+            {b->CreateLoad(ir_type, x, "imax.x"),
+             b->CreateLoad(ir_type, y, "imax.y")},
             nullptr, "imax");
         return _create_stack_variable(m, "imax.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
-        auto m = ctx->builder->CreateIntrinsic(
+        auto m = b->CreateIntrinsic(
             ::llvm::Intrinsic::umax, {ir_type},
-            {ctx->builder->CreateLoad(ir_type, x, "umax.x"),
-             ctx->builder->CreateLoad(ir_type, y, "umax.y")},
+            {b->CreateLoad(ir_type, x, "umax.x"),
+             b->CreateLoad(ir_type, y, "umax.y")},
             nullptr, "umax");
         return _create_stack_variable(m, "umax.addr");
     }
@@ -706,73 +706,73 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_clz(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto x = ctx->builder->CreateIntrinsic(
+    auto x = b->CreateIntrinsic(
         ::llvm::Intrinsic::ctlz, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, p, "clz.x")},
+        {b->CreateLoad(ir_type, p, "clz.x")},
         nullptr, "clz");
     return _create_stack_variable(x, "clz.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_ctz(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto x = ctx->builder->CreateIntrinsic(
+    auto x = b->CreateIntrinsic(
         ::llvm::Intrinsic::cttz, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, p, "ctz.x")},
+        {b->CreateLoad(ir_type, p, "ctz.x")},
         nullptr, "ctz");
     return _create_stack_variable(x, "ctz.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_popcount(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto x = ctx->builder->CreateIntrinsic(
+    auto x = b->CreateIntrinsic(
         ::llvm::Intrinsic::ctpop, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, p, "popcount.x")},
+        {b->CreateLoad(ir_type, p, "popcount.x")},
         nullptr, "popcount");
     return _create_stack_variable(x, "popcount.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_reverse(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto x = ctx->builder->CreateIntrinsic(
+    auto x = b->CreateIntrinsic(
         ::llvm::Intrinsic::bitreverse, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, p, "reverse.x")},
+        {b->CreateLoad(ir_type, p, "reverse.x")},
         nullptr, "reverse");
     return _create_stack_variable(x, "reverse.addr");
 }
 
-::llvm::Value *LLVMCodegen::_builtin_fma(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *c) noexcept {
+::llvm::Value *LLVMCodegen::_builtin_fma(const Type *t, ::llvm::Value *pa, ::llvm::Value *pb, ::llvm::Value *pc) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::fma, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, a, "fma.a"),
-         ctx->builder->CreateLoad(ir_type, b, "fma.b"),
-         ctx->builder->CreateLoad(ir_type, c, "fma.c")},
+        {b->CreateLoad(ir_type, pa, "fma.a"),
+         b->CreateLoad(ir_type, pb, "fma.b"),
+         b->CreateLoad(ir_type, pc, "fma.c")},
         nullptr, "fma");
     return _create_stack_variable(m, "fma.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_exp(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::exp, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "exp.x")},
+        {b->CreateLoad(ir_type, v, "exp.x")},
         nullptr, "exp");
     return _create_stack_variable(m, "exp.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_exp2(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::exp2, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "exp2.x")},
+        {b->CreateLoad(ir_type, v, "exp2.x")},
         nullptr, "exp2");
     return _create_stack_variable(m, "exp2.addr");
 }
@@ -786,30 +786,30 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 
 ::llvm::Value *LLVMCodegen::_builtin_log(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::log, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "log.x")},
+        {b->CreateLoad(ir_type, v, "log.x")},
         nullptr, "log");
     return _create_stack_variable(m, "log.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_log2(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::log2, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "log2.x")},
+        {b->CreateLoad(ir_type, v, "log2.x")},
         nullptr, "log2");
     return _create_stack_variable(m, "log2.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_log10(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::log10, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "log10.x")},
+        {b->CreateLoad(ir_type, v, "log10.x")},
         nullptr, "log10");
     return _create_stack_variable(m, "log10.addr");
 }
@@ -821,47 +821,47 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 
 ::llvm::Value *LLVMCodegen::_builtin_copysign(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::copysign, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, x, "copysign.x"),
-         ctx->builder->CreateLoad(ir_type, y, "copysign.y")},
+        {b->CreateLoad(ir_type, x, "copysign.x"),
+         b->CreateLoad(ir_type, y, "copysign.y")},
         nullptr, "copysign");
     return _create_stack_variable(m, "copysign.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_faceforward(const Type *t, ::llvm::Value *n, ::llvm::Value *i, ::llvm::Value *nref) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto dot = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto dot = b->CreateLoad(
         _create_type(Type::of<float>()),
         _builtin_dot(t, nref, i), "faceforward.dot");
-    auto pos_n = ctx->builder->CreateLoad(
+    auto pos_n = b->CreateLoad(
         ir_type, n, "faceforward.pos_n");
-    auto neg_n = ctx->builder->CreateFNeg(
+    auto neg_n = b->CreateFNeg(
         pos_n, "faceforward.neg_n");
-    auto m = ctx->builder->CreateSelect(
-        ctx->builder->CreateFCmpOLT(dot, _literal(0.f)),
+    auto m = b->CreateSelect(
+        b->CreateFCmpOLT(dot, _literal(0.f)),
         pos_n, neg_n, "faceforward.select");
     return _create_stack_variable(m, "faceforward.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_sin(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::sin, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "sin.x")},
+        {b->CreateLoad(ir_type, v, "sin.x")},
         nullptr, "sin");
     return _create_stack_variable(m, "sin.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_cos(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::cos, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "cos.x")},
+        {b->CreateLoad(ir_type, v, "cos.x")},
         nullptr, "cos");
     return _create_stack_variable(m, "cos.addr");
 }
@@ -874,10 +874,10 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 
 ::llvm::Value *LLVMCodegen::_builtin_sqrt(const Type *t, ::llvm::Value *x) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::sqrt, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, x, "sqrt.x")},
+        {b->CreateLoad(ir_type, x, "sqrt.x")},
         nullptr, "sqrt");
     return _create_stack_variable(m, "sqrt.addr");
 }
@@ -888,40 +888,40 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 
 ::llvm::Value *LLVMCodegen::_builtin_floor(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::floor, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "floor.x")},
+        {b->CreateLoad(ir_type, v, "floor.x")},
         nullptr, "floor");
     return _create_stack_variable(m, "floor.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_ceil(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::ceil, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "ceil.x")},
+        {b->CreateLoad(ir_type, v, "ceil.x")},
         nullptr, "ceil");
     return _create_stack_variable(m, "ceil.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_trunc(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::trunc, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "trunc.x")},
+        {b->CreateLoad(ir_type, v, "trunc.x")},
         nullptr, "trunc");
     return _create_stack_variable(m, "trunc.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_round(const Type *t, ::llvm::Value *v) noexcept {
     auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
         ::llvm::Intrinsic::round, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, v, "round.x")},
+        {b->CreateLoad(ir_type, v, "round.x")},
         nullptr, "round");
     return _create_stack_variable(m, "round.addr");
 }
@@ -937,10 +937,10 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic;
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_exchange(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_desired) noexcept {
-    auto ctx = _current_context();
-    auto desired = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto desired = b->CreateLoad(
         _create_type(t), p_desired, "atomic.exchange.desired");
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::Xchg, p_atomic,
         desired, {}, atomic_operation_order);
     old->setName("atomic.exchange.old");
@@ -948,32 +948,32 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_compare_exchange(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_expected, ::llvm::Value *p_desired) noexcept {
-    auto ctx = _current_context();
-    auto expected = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto expected = static_cast<::llvm::Value *>(b->CreateLoad(
         _create_type(t), p_expected, "atomic.compare.exchange.expected"));
-    auto desired = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+    auto desired = static_cast<::llvm::Value *>(b->CreateLoad(
         _create_type(t), p_desired, "atomic.compare.exchange.desired"));
     if (t->tag() == Type::Tag::FLOAT) {
-        expected = ctx->builder->CreateBitCast(
-            expected, ctx->builder->getInt32Ty(),
+        expected = b->CreateBitCast(
+            expected, b->getInt32Ty(),
             "atomic.compare.exchange.expected.int");
-        desired = ctx->builder->CreateBitCast(
-            desired, ctx->builder->getInt32Ty(),
+        desired = b->CreateBitCast(
+            desired, b->getInt32Ty(),
             "atomic.compare.exchange.desired.int");
-        p_atomic = ctx->builder->CreateBitOrPointerCast(
-            p_atomic, ::llvm::PointerType::get(ctx->builder->getInt32Ty(), 0),
+        p_atomic = b->CreateBitOrPointerCast(
+            p_atomic, ::llvm::PointerType::get(b->getInt32Ty(), 0),
             "atomic.compare.exchange.atomic.int");
     }
-    auto old_and_success = ctx->builder->CreateAtomicCmpXchg(
+    auto old_and_success = b->CreateAtomicCmpXchg(
         p_atomic, expected, desired, {},
         atomic_operation_order,
         atomic_operation_order);
     old_and_success->setName("atomic.compare.exchange.old_and_success");
-    auto old = ctx->builder->CreateExtractValue(
+    auto old = b->CreateExtractValue(
         old_and_success, 0, "atomic.compare.exchange.old");
     if (t->tag() == Type::Tag::FLOAT) {
-        old = ctx->builder->CreateBitCast(
-            old, ctx->builder->getFloatTy(),
+        old = b->CreateBitCast(
+            old, b->getFloatTy(),
             "atomic.compare.exchange.old.float");
     }
     return _create_stack_variable(old, "atomic.compare.exchange.addr");
@@ -1022,14 +1022,13 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_add(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
-    auto value = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto value = b->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.add.value");
     if (t->tag() == Type::Tag::FLOAT) {
-        return _atomic_fetch_add_float(
-            ctx->builder.get(), p_atomic, value);
+        return _atomic_fetch_add_float(b, p_atomic, value);
     }
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::Add, p_atomic,
         value, {}, atomic_operation_order);
     old->setName("atomic.fetch.add.old");
@@ -1037,14 +1036,14 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_sub(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     if (t->tag() == Type::Tag::FLOAT) {
         return _builtin_atomic_fetch_add(
             t, p_atomic, _builtin_unary_minus(t, p_value));
     }
-    auto value = ctx->builder->CreateLoad(
+    auto value = b->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.sub.value");
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::Sub, p_atomic,
         value, {}, atomic_operation_order);
     old->setName("atomic.fetch.sub.old");
@@ -1052,10 +1051,10 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_and(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
-    auto value = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto value = b->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.and.value");
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::And, p_atomic,
         value, {}, atomic_operation_order);
     old->setName("atomic.fetch.and.old");
@@ -1063,10 +1062,10 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_or(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
-    auto value = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto value = b->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.or.value");
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::Or, p_atomic,
         value, {}, atomic_operation_order);
     old->setName("atomic.fetch.or.old");
@@ -1074,10 +1073,10 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_xor(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
-    auto value = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto value = b->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.xor.value");
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::Xor, p_atomic,
         value, {}, atomic_operation_order);
     old->setName("atomic.fetch.xor.old");
@@ -1085,33 +1084,33 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_min(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
-    auto value = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto value = static_cast<::llvm::Value *>(b->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.min.value"));
     if (t->tag() == Type::Tag::UINT) {
-        auto old = ctx->builder->CreateAtomicRMW(
+        auto old = b->CreateAtomicRMW(
             ::llvm::AtomicRMWInst::UMin, p_atomic,
             value, {}, atomic_operation_order);
         old->setName("atomic.fetch.min.old");
         return _create_stack_variable(old, "atomic.fetch.min.addr");
     }
     if (t->tag() == Type::Tag::FLOAT) {
-        auto elem_type = ctx->builder->getInt32Ty();
-        value = ctx->builder->CreateBitCast(
+        auto elem_type = b->getInt32Ty();
+        value = b->CreateBitCast(
             value, elem_type, "atomic.fetch.min.value.int");
-        p_atomic = ctx->builder->CreateBitOrPointerCast(
+        p_atomic = b->CreateBitOrPointerCast(
             p_atomic, ::llvm::PointerType::get(elem_type, 0),
             "atomic.fetch.min.addr.int");
         auto old = static_cast<::llvm::Value *>(
-            ctx->builder->CreateAtomicRMW(
+            b->CreateAtomicRMW(
                 ::llvm::AtomicRMWInst::Min, p_atomic,
                 value, {}, atomic_operation_order));
         old->setName("atomic.fetch.min.old.int");
-        old = ctx->builder->CreateBitCast(
-            old, ctx->builder->getFloatTy(), "atomic.fetch.min.old");
+        old = b->CreateBitCast(
+            old, b->getFloatTy(), "atomic.fetch.min.old");
         return _create_stack_variable(old, "atomic.fetch.min.addr");
     }
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::Min, p_atomic,
         value, {}, atomic_operation_order);
     old->setName("atomic.fetch.min.old");
@@ -1119,33 +1118,33 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_atomic_fetch_max(const Type *t, ::llvm::Value *p_atomic, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
-    auto value = static_cast<::llvm::Value *>(ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto value = static_cast<::llvm::Value *>(b->CreateLoad(
         _create_type(t), p_value, "atomic.fetch.max.value"));
     if (t->tag() == Type::Tag::UINT) {
-        auto old = ctx->builder->CreateAtomicRMW(
+        auto old = b->CreateAtomicRMW(
             ::llvm::AtomicRMWInst::UMax, p_atomic,
             value, {}, atomic_operation_order);
         old->setName("atomic.fetch.max.old");
         return _create_stack_variable(old, "atomic.fetch.max.addr");
     }
     if (t->tag() == Type::Tag::FLOAT) {
-        auto elem_type = ctx->builder->getInt32Ty();
-        value = ctx->builder->CreateBitCast(
+        auto elem_type = b->getInt32Ty();
+        value = b->CreateBitCast(
             value, elem_type, "atomic.fetch.max.value.int");
-        p_atomic = ctx->builder->CreateBitOrPointerCast(
+        p_atomic = b->CreateBitOrPointerCast(
             p_atomic, ::llvm::PointerType::get(elem_type, 0),
             "atomic.fetch.max.addr.int");
         auto old = static_cast<::llvm::Value *>(
-            ctx->builder->CreateAtomicRMW(
+            b->CreateAtomicRMW(
                 ::llvm::AtomicRMWInst::Max, p_atomic,
                 value, {}, atomic_operation_order));
         old->setName("atomic.fetch.max.old.int");
-        old = ctx->builder->CreateBitCast(
-            old, ctx->builder->getFloatTy(), "atomic.fetch.max.old");
+        old = b->CreateBitCast(
+            old, b->getFloatTy(), "atomic.fetch.max.old");
         return _create_stack_variable(old, "atomic.fetch.max.addr");
     }
-    auto old = ctx->builder->CreateAtomicRMW(
+    auto old = b->CreateAtomicRMW(
         ::llvm::AtomicRMWInst::Max, p_atomic,
         value, {}, atomic_operation_order);
     old->setName("atomic.fetch.max.old");
@@ -1158,35 +1157,35 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
     return _builtin_mul(t, v, norm_v);
 }
 
-::llvm::Value *LLVMCodegen::_builtin_dot(const Type *t, ::llvm::Value *a, ::llvm::Value *b) noexcept {
-    auto ctx = _current_context();
+::llvm::Value *LLVMCodegen::_builtin_dot(const Type *t, ::llvm::Value *va, ::llvm::Value *vb) noexcept {
+    auto b = _current_context()->builder.get();
     auto type = _create_type(t);
-    a = ctx->builder->CreateLoad(type, a, "dot.a");
-    b = ctx->builder->CreateLoad(type, b, "dot.b");
-    auto mul = ctx->builder->CreateFMul(a, b, "dot.mul");
-    auto sum = ctx->builder->CreateFAddReduce(_literal(0.f), mul);
+    va = b->CreateLoad(type, va, "dot.a");
+    vb = b->CreateLoad(type, vb, "dot.b");
+    auto mul = b->CreateFMul(va, vb, "dot.mul");
+    auto sum = b->CreateFAddReduce(_literal(0.f), mul);
     sum->setName("dot.sum");
     return _create_stack_variable(sum, "dot.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_add(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "add.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "add.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "add.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "add.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateNSWAdd(lhs_v, rhs_v, "add"),
+            b->CreateNSWAdd(lhs_v, rhs_v, "add"),
             "add.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateAdd(lhs_v, rhs_v, "add"),
+            b->CreateAdd(lhs_v, rhs_v, "add"),
             "add.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFAdd(lhs_v, rhs_v, "add"),
+            b->CreateFAdd(lhs_v, rhs_v, "add"),
             "add.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1195,23 +1194,23 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_sub(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "sub.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "sub.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "sub.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "sub.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateNSWSub(lhs_v, rhs_v, "sub"),
+            b->CreateNSWSub(lhs_v, rhs_v, "sub"),
             "sub.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateSub(lhs_v, rhs_v, "sub"),
+            b->CreateSub(lhs_v, rhs_v, "sub"),
             "sub.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFSub(lhs_v, rhs_v, "sub"),
+            b->CreateFSub(lhs_v, rhs_v, "sub"),
             "sub.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1220,23 +1219,23 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_mul(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "mul.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "mul.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "mul.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "mul.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateNSWMul(lhs_v, rhs_v, "mul"),
+            b->CreateNSWMul(lhs_v, rhs_v, "mul"),
             "mul.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateMul(lhs_v, rhs_v, "mul"),
+            b->CreateMul(lhs_v, rhs_v, "mul"),
             "mul.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFMul(lhs_v, rhs_v, "mul"),
+            b->CreateFMul(lhs_v, rhs_v, "mul"),
             "mul.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1245,23 +1244,23 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_div(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "div.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "div.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "div.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "div.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateSDiv(lhs_v, rhs_v, "div"),
+            b->CreateSDiv(lhs_v, rhs_v, "div"),
             "div.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateUDiv(lhs_v, rhs_v, "div"),
+            b->CreateUDiv(lhs_v, rhs_v, "div"),
             "div.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFDiv(lhs_v, rhs_v, "div"),
+            b->CreateFDiv(lhs_v, rhs_v, "div"),
             "div.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1270,18 +1269,18 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_mod(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "mod.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "mod.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "mod.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "mod.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateSRem(lhs_v, rhs_v, "mod"),
+            b->CreateSRem(lhs_v, rhs_v, "mod"),
             "mod.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateURem(lhs_v, rhs_v, "mod"),
+            b->CreateURem(lhs_v, rhs_v, "mod"),
             "mod.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1294,10 +1293,10 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
                      is_scalar_or_vector(t, Type::Tag::UINT) ||
                      is_scalar_or_vector(t, Type::Tag::BOOL),
                  "Invalid type '{}' for and.", t->description());
-    auto ctx = _current_context();
-    auto result = ctx->builder->CreateAnd(
-        ctx->builder->CreateLoad(_create_type(t), lhs, "and.lhs"),
-        ctx->builder->CreateLoad(_create_type(t), rhs, "and.rhs"), "and");
+    auto b = _current_context()->builder.get();
+    auto result = b->CreateAnd(
+        b->CreateLoad(_create_type(t), lhs, "and.lhs"),
+        b->CreateLoad(_create_type(t), rhs, "and.rhs"), "and");
     return _create_stack_variable(result, "and.addr");
 }
 
@@ -1306,10 +1305,10 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
                      is_scalar_or_vector(t, Type::Tag::UINT) ||
                      is_scalar_or_vector(t, Type::Tag::BOOL),
                  "Invalid type '{}' for or.", t->description());
-    auto ctx = _current_context();
-    auto result = ctx->builder->CreateOr(
-        ctx->builder->CreateLoad(_create_type(t), lhs, "or.lhs"),
-        ctx->builder->CreateLoad(_create_type(t), rhs, "or.rhs"), "or");
+    auto b = _current_context()->builder.get();
+    auto result = b->CreateOr(
+        b->CreateLoad(_create_type(t), lhs, "or.lhs"),
+        b->CreateLoad(_create_type(t), rhs, "or.rhs"), "or");
     return _create_stack_variable(result, "or.addr");
 }
 
@@ -1318,36 +1317,36 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
                      is_scalar_or_vector(t, Type::Tag::UINT) ||
                      is_scalar_or_vector(t, Type::Tag::BOOL),
                  "Invalid type '{}' for xor.", t->description());
-    auto ctx = _current_context();
-    auto result = ctx->builder->CreateXor(
-        ctx->builder->CreateLoad(_create_type(t), lhs, "xor.lhs"),
-        ctx->builder->CreateLoad(_create_type(t), rhs, "xor.rhs"), "xor");
+    auto b = _current_context()->builder.get();
+    auto result = b->CreateXor(
+        b->CreateLoad(_create_type(t), lhs, "xor.lhs"),
+        b->CreateLoad(_create_type(t), rhs, "xor.rhs"), "xor");
     return _create_stack_variable(result, "xor.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_lt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "lt.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "lt.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "lt.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "lt.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpSLT(lhs_v, rhs_v, "lt"),
+            b->CreateICmpSLT(lhs_v, rhs_v, "lt"),
             "lt.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpULT(lhs_v, rhs_v, "lt"),
+            b->CreateICmpULT(lhs_v, rhs_v, "lt"),
             "lt.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFCmpOLT(lhs_v, rhs_v, "lt"),
+            b->CreateFCmpOLT(lhs_v, rhs_v, "lt"),
             "lt.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::BOOL)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpULT(lhs_v, rhs_v, "lt"),
+            b->CreateICmpULT(lhs_v, rhs_v, "lt"),
             "lt.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1356,28 +1355,28 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_le(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "le.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "le.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "le.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "le.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpSLE(lhs_v, rhs_v, "le"),
+            b->CreateICmpSLE(lhs_v, rhs_v, "le"),
             "le.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpULE(lhs_v, rhs_v, "le"),
+            b->CreateICmpULE(lhs_v, rhs_v, "le"),
             "le.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFCmpOLE(lhs_v, rhs_v, "le"),
+            b->CreateFCmpOLE(lhs_v, rhs_v, "le"),
             "le.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::BOOL)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpULE(lhs_v, rhs_v, "le"),
+            b->CreateICmpULE(lhs_v, rhs_v, "le"),
             "le.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1386,28 +1385,28 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_gt(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "gt.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "gt.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "gt.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "gt.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpSGT(lhs_v, rhs_v, "gt"),
+            b->CreateICmpSGT(lhs_v, rhs_v, "gt"),
             "gt.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpUGT(lhs_v, rhs_v, "gt"),
+            b->CreateICmpUGT(lhs_v, rhs_v, "gt"),
             "gt.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFCmpOGT(lhs_v, rhs_v, "gt"),
+            b->CreateFCmpOGT(lhs_v, rhs_v, "gt"),
             "gt.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::BOOL)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpUGT(lhs_v, rhs_v, "gt"),
+            b->CreateICmpUGT(lhs_v, rhs_v, "gt"),
             "gt.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1416,28 +1415,28 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_ge(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "ge.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "ge.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "ge.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "ge.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpSGE(lhs_v, rhs_v, "ge"),
+            b->CreateICmpSGE(lhs_v, rhs_v, "ge"),
             "ge.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpUGE(lhs_v, rhs_v, "ge"),
+            b->CreateICmpUGE(lhs_v, rhs_v, "ge"),
             "ge.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFCmpOGE(lhs_v, rhs_v, "ge"),
+            b->CreateFCmpOGE(lhs_v, rhs_v, "ge"),
             "ge.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::BOOL)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpUGE(lhs_v, rhs_v, "ge"),
+            b->CreateICmpUGE(lhs_v, rhs_v, "ge"),
             "ge.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1446,28 +1445,28 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_eq(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "eq.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "eq.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "eq.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "eq.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpEQ(lhs_v, rhs_v, "eq"),
+            b->CreateICmpEQ(lhs_v, rhs_v, "eq"),
             "eq.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpEQ(lhs_v, rhs_v, "eq"),
+            b->CreateICmpEQ(lhs_v, rhs_v, "eq"),
             "eq.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFCmpOEQ(lhs_v, rhs_v, "eq"),
+            b->CreateFCmpOEQ(lhs_v, rhs_v, "eq"),
             "eq.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::BOOL)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpEQ(lhs_v, rhs_v, "eq"),
+            b->CreateICmpEQ(lhs_v, rhs_v, "eq"),
             "eq.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1476,28 +1475,28 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_ne(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "neq.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "neq.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "neq.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "neq.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpNE(lhs_v, rhs_v, "neq"),
+            b->CreateICmpNE(lhs_v, rhs_v, "neq"),
             "neq.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpNE(lhs_v, rhs_v, "neq"),
+            b->CreateICmpNE(lhs_v, rhs_v, "neq"),
             "neq.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::FLOAT)) {
         return _create_stack_variable(
-            ctx->builder->CreateFCmpONE(lhs_v, rhs_v, "neq"),
+            b->CreateFCmpONE(lhs_v, rhs_v, "neq"),
             "neq.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::BOOL)) {
         return _create_stack_variable(
-            ctx->builder->CreateICmpNE(lhs_v, rhs_v, "neq"),
+            b->CreateICmpNE(lhs_v, rhs_v, "neq"),
             "neq.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1506,14 +1505,14 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_shl(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "shl.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "shl.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "shl.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "shl.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT) ||
         is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateShl(lhs_v, rhs_v, "shl"),
+            b->CreateShl(lhs_v, rhs_v, "shl"),
             "shl.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1522,18 +1521,18 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_shr(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto lhs_v = ctx->builder->CreateLoad(ir_type, lhs, "shr.lhs");
-    auto rhs_v = ctx->builder->CreateLoad(ir_type, rhs, "shr.rhs");
+    auto lhs_v = b->CreateLoad(ir_type, lhs, "shr.lhs");
+    auto rhs_v = b->CreateLoad(ir_type, rhs, "shr.rhs");
     if (is_scalar_or_vector(t, Type::Tag::INT)) {
         return _create_stack_variable(
-            ctx->builder->CreateAShr(lhs_v, rhs_v, "shr"),
+            b->CreateAShr(lhs_v, rhs_v, "shr"),
             "shr.addr");
     }
     if (is_scalar_or_vector(t, Type::Tag::UINT)) {
         return _create_stack_variable(
-            ctx->builder->CreateLShr(lhs_v, rhs_v, "shr"),
+            b->CreateLShr(lhs_v, rhs_v, "shr"),
             "shr.addr");
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -1542,12 +1541,12 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 }
 
 void LLVMCodegen::_builtin_assume(::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
-    auto pred = ctx->builder->CreateICmpNE(
-        ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto pred = b->CreateICmpNE(
+        b->CreateLoad(
             _create_type(Type::of<bool>()), p, "assume.load"),
         _literal(false), "assume.pred");
-    ctx->builder->CreateAssumption(pred);
+    b->CreateAssumption(pred);
 }
 
 void LLVMCodegen::_builtin_unreachable() noexcept {
@@ -1555,50 +1554,50 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_isinf(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
     if (t->is_scalar()) {
-        auto bits = ctx->builder->CreateLoad(
-            ctx->builder->getInt32Ty(),
+        auto bits = b->CreateLoad(
+            b->getInt32Ty(),
             _builtin_bitwise_cast(Type::of<uint>(), t, p),
             "isinf.bits");
-        auto is_inf = ctx->builder->CreateLogicalOr(
-            ctx->builder->CreateICmpEQ(bits, _literal(0x7f800000u), "isinf.pos"),
-            ctx->builder->CreateICmpEQ(bits, _literal(0xff800000u), "isinf.neg"),
+        auto is_inf = b->CreateLogicalOr(
+            b->CreateICmpEQ(bits, _literal(0x7f800000u), "isinf.pos"),
+            b->CreateICmpEQ(bits, _literal(0xff800000u), "isinf.neg"),
             "isinf.pred");
         return _create_stack_variable(is_inf, "isinf.addr");
     }
     switch (t->dimension()) {
         case 2u: {
-            auto bits = ctx->builder->CreateLoad(
+            auto bits = b->CreateLoad(
                 _create_type(Type::of<uint2>()),
                 _builtin_bitwise_cast(Type::of<uint2>(), t, p),
                 "isinf.bits");
-            auto is_inf = ctx->builder->CreateLogicalOr(
-                ctx->builder->CreateICmpEQ(bits, _literal(make_uint2(0x7f800000u)), "isinf.pos"),
-                ctx->builder->CreateICmpEQ(bits, _literal(make_uint2(0xff800000u)), "isinf.neg"),
+            auto is_inf = b->CreateLogicalOr(
+                b->CreateICmpEQ(bits, _literal(make_uint2(0x7f800000u)), "isinf.pos"),
+                b->CreateICmpEQ(bits, _literal(make_uint2(0xff800000u)), "isinf.neg"),
                 "isinf.pred");
             return _create_stack_variable(is_inf, "isinf.addr");
         }
         case 3u: {
-            auto bits = ctx->builder->CreateLoad(
+            auto bits = b->CreateLoad(
                 _create_type(Type::of<uint3>()),
                 _builtin_bitwise_cast(Type::of<uint3>(), t, p),
                 "isinf.bits");
-            auto is_inf = ctx->builder->CreateLogicalOr(
-                ctx->builder->CreateICmpEQ(bits, _literal(make_uint3(0x7f800000u)), "isinf.pos"),
-                ctx->builder->CreateICmpEQ(bits, _literal(make_uint3(0xff800000u)), "isinf.neg"),
+            auto is_inf = b->CreateLogicalOr(
+                b->CreateICmpEQ(bits, _literal(make_uint3(0x7f800000u)), "isinf.pos"),
+                b->CreateICmpEQ(bits, _literal(make_uint3(0xff800000u)), "isinf.neg"),
                 "isinf.pred");
             return _create_stack_variable(is_inf, "isinf.addr");
         }
         case 4u: {
-            auto bits = ctx->builder->CreateLoad(
+            auto bits = b->CreateLoad(
                 _create_type(Type::of<uint4>()),
                 _builtin_bitwise_cast(Type::of<uint4>(), t, p),
                 "isinf.bits");
-            auto is_inf = ctx->builder->CreateLogicalOr(
-                ctx->builder->CreateICmpEQ(bits, _literal(make_uint4(0x7f800000u)), "isinf.pos"),
-                ctx->builder->CreateICmpEQ(bits, _literal(make_uint4(0xff800000u)), "isinf.neg"),
+            auto is_inf = b->CreateLogicalOr(
+                b->CreateICmpEQ(bits, _literal(make_uint4(0x7f800000u)), "isinf.pos"),
+                b->CreateICmpEQ(bits, _literal(make_uint4(0xff800000u)), "isinf.neg"),
                 "isinf.pred");
             return _create_stack_variable(is_inf, "isinf.addr");
         }
@@ -1610,65 +1609,65 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_isnan(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
     if (t->is_scalar()) {
-        auto bits = ctx->builder->CreateLoad(
-            ctx->builder->getInt32Ty(),
+        auto bits = b->CreateLoad(
+            b->getInt32Ty(),
             _builtin_bitwise_cast(Type::of<uint>(), t, p),
             "isnan.bits");
-        auto is_nan = ctx->builder->CreateLogicalAnd(
-            ctx->builder->CreateICmpEQ(
-                ctx->builder->CreateAnd(bits, _literal(0x7f800000u), "isnan.exp"),
+        auto is_nan = b->CreateLogicalAnd(
+            b->CreateICmpEQ(
+                b->CreateAnd(bits, _literal(0x7f800000u), "isnan.exp"),
                 _literal(0x7f800000u), "isnan.exp.cmp"),
-            ctx->builder->CreateICmpNE(
-                ctx->builder->CreateAnd(bits, _literal(0x7fffffu), "isnan.mant"),
+            b->CreateICmpNE(
+                b->CreateAnd(bits, _literal(0x7fffffu), "isnan.mant"),
                 _literal(0u), "isnan.mant.cmp"),
             "isnan.pred");
         return _create_stack_variable(is_nan, "isnan.addr");
     }
     switch (t->dimension()) {
         case 2u: {
-            auto bits = ctx->builder->CreateLoad(
+            auto bits = b->CreateLoad(
                 _create_type(Type::of<uint2>()),
                 _builtin_bitwise_cast(Type::of<uint2>(), t, p),
                 "isnan.bits");
-            auto is_nan = ctx->builder->CreateLogicalAnd(
-                ctx->builder->CreateICmpEQ(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint2(0x7f800000u)), "isnan.exp"),
+            auto is_nan = b->CreateLogicalAnd(
+                b->CreateICmpEQ(
+                    b->CreateAnd(bits, _literal(make_uint2(0x7f800000u)), "isnan.exp"),
                     _literal(make_uint2(0x7f800000u)), "isnan.exp.cmp"),
-                ctx->builder->CreateICmpNE(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint2(0x7fffffu)), "isnan.mant"),
+                b->CreateICmpNE(
+                    b->CreateAnd(bits, _literal(make_uint2(0x7fffffu)), "isnan.mant"),
                     _literal(make_uint2(0u)), "isnan.mant.cmp"),
                 "isnan.pred");
             return _create_stack_variable(is_nan, "isnan.addr");
         }
         case 3u: {
-            auto bits = ctx->builder->CreateLoad(
+            auto bits = b->CreateLoad(
                 _create_type(Type::of<uint3>()),
                 _builtin_bitwise_cast(Type::of<uint3>(), t, p),
                 "isnan.bits");
-            auto is_nan = ctx->builder->CreateLogicalAnd(
-                ctx->builder->CreateICmpEQ(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint3(0x7f800000u)), "isnan.exp"),
+            auto is_nan = b->CreateLogicalAnd(
+                b->CreateICmpEQ(
+                    b->CreateAnd(bits, _literal(make_uint3(0x7f800000u)), "isnan.exp"),
                     _literal(make_uint3(0x7f800000u)), "isnan.exp.cmp"),
-                ctx->builder->CreateICmpNE(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint3(0x7fffffu)), "isnan.mant"),
+                b->CreateICmpNE(
+                    b->CreateAnd(bits, _literal(make_uint3(0x7fffffu)), "isnan.mant"),
                     _literal(make_uint3(0u)), "isnan.mant.cmp"),
                 "isnan.pred");
             return _create_stack_variable(is_nan, "isnan.addr");
         }
         case 4u: {
-            auto bits = ctx->builder->CreateLoad(
+            auto bits = b->CreateLoad(
                 _create_type(Type::of<uint4>()),
                 _builtin_bitwise_cast(Type::of<uint4>(), t, p),
                 "isnan.bits");
-            auto is_nan = ctx->builder->CreateLogicalAnd(
-                ctx->builder->CreateICmpEQ(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint4(0x7f800000u)), "isnan.exp"),
+            auto is_nan = b->CreateLogicalAnd(
+                b->CreateICmpEQ(
+                    b->CreateAnd(bits, _literal(make_uint4(0x7f800000u)), "isnan.exp"),
                     _literal(make_uint4(0x7f800000u)), "isnan.exp.cmp"),
-                ctx->builder->CreateICmpNE(
-                    ctx->builder->CreateAnd(bits, _literal(make_uint4(0x7fffffu)), "isnan.mant"),
+                b->CreateICmpNE(
+                    b->CreateAnd(bits, _literal(make_uint4(0x7fffffu)), "isnan.mant"),
                     _literal(make_uint4(0u)), "isnan.mant.cmp"),
                 "isnan.pred");
             return _create_stack_variable(is_nan, "isnan.addr");
@@ -1705,11 +1704,11 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     LUISA_ASSERT(t_dst->size() == t_src->size(),
                  "Invalid bitwise cast: {} to {}.",
                  t_src->description(), t_dst->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto src_ir_type = _create_type(t_src);
     auto dst_ir_type = _create_type(t_dst);
-    auto p_dst = ctx->builder->CreateBitOrPointerCast(p, dst_ir_type->getPointerTo(), "bitcast.ptr");
-    auto dst = ctx->builder->CreateLoad(dst_ir_type, p_dst, "bitcast.dst");
+    auto p_dst = b->CreateBitOrPointerCast(p, dst_ir_type->getPointerTo(), "bitcast.ptr");
+    auto dst = b->CreateLoad(dst_ir_type, p_dst, "bitcast.dst");
     return _create_stack_variable(dst, "bitcast.addr");
 }
 
@@ -1718,47 +1717,47 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_unary_minus(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
     if (t->is_matrix()) {
         std::array<::llvm::Value *, 4u> m{};
         for (auto i = 0u; i < t->dimension(); ++i) {
             auto name = fmt::format("unary.minus.m{}.addr", i);
-            m[i] = ctx->builder->CreateStructGEP(ir_type, p, i, luisa::string_view{name});
+            m[i] = b->CreateStructGEP(ir_type, p, i, luisa::string_view{name});
         }
         if (t->dimension() == 2u) {
             return _make_float2x2(
-                ctx->builder->CreateFNeg(m[0]),
-                ctx->builder->CreateFNeg(m[1]));
+                b->CreateFNeg(m[0]),
+                b->CreateFNeg(m[1]));
         }
         if (t->dimension() == 3u) {
             return _make_float3x3(
-                ctx->builder->CreateFNeg(m[0]),
-                ctx->builder->CreateFNeg(m[1]),
-                ctx->builder->CreateFNeg(m[2]));
+                b->CreateFNeg(m[0]),
+                b->CreateFNeg(m[1]),
+                b->CreateFNeg(m[2]));
         }
         if (t->dimension() == 4u) {
             return _make_float4x4(
-                ctx->builder->CreateFNeg(m[0]),
-                ctx->builder->CreateFNeg(m[1]),
-                ctx->builder->CreateFNeg(m[2]),
-                ctx->builder->CreateFNeg(m[3]));
+                b->CreateFNeg(m[0]),
+                b->CreateFNeg(m[1]),
+                b->CreateFNeg(m[2]),
+                b->CreateFNeg(m[3]));
         }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid matrix dimension '{}' for unary minus.",
             t->dimension());
     }
-    auto x = ctx->builder->CreateLoad(ir_type, p, "unary.minus.load");
+    auto x = b->CreateLoad(ir_type, p, "unary.minus.load");
     switch (auto tag = t->is_scalar() ? t->tag() : t->element()->tag()) {
         case Type::Tag::BOOL: return _create_stack_variable(
-            ctx->builder->CreateNot(x, "unary.minus"),
+            b->CreateNot(x, "unary.minus"),
             "unary.minus.addr");
         case Type::Tag::FLOAT: return _create_stack_variable(
-            ctx->builder->CreateFNeg(x, "unary.minus"),
+            b->CreateFNeg(x, "unary.minus"),
             "unary.minus.addr");
         case Type::Tag::INT:
         case Type::Tag::UINT: return _create_stack_variable(
-            ctx->builder->CreateNeg(x, "unary.minus"),
+            b->CreateNeg(x, "unary.minus"),
             "unary.minus.addr");
         default: break;
     }
@@ -1768,16 +1767,13 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_unary_not(const Type *t, ::llvm::Value *p) noexcept {
-    auto ctx = _current_context();
-    auto pred = t->is_scalar() ? _scalar_to_bool(t, p) : _vector_to_bool_vector(t, p);
-    auto pred_type = pred->getType()->getPointerElementType();
-    auto b = ctx->builder->CreateLoad(pred_type, pred, "unary.not.load");
-    auto zero = static_cast<::llvm::Value *>(_literal(false));
-    if (pred->getType()->isVectorTy()) {
-        auto dim = static_cast<::llvm::FixedVectorType *>(pred_type)->getNumElements();
-        zero = ctx->builder->CreateVectorSplat(dim, zero, "unary.not.zero");
-    }
-    return _create_stack_variable(ctx->builder->CreateICmpEQ(b, zero, "unary.not.cmp"), "unary.not.addr");
+    auto b = _current_context()->builder.get();
+    p = t->is_scalar() ? _scalar_to_bool(t, p) : _vector_to_bool_vector(t, p);
+    auto type = static_cast<::llvm::Type *>(b->getInt1Ty());
+    if (t->is_vector()) { type = ::llvm::FixedVectorType::get(type, t->dimension()); }
+    auto v = b->CreateLoad(p->getType()->getPointerElementType(), p);
+    auto nv = b->CreateNot(b->CreateTrunc(v, type), "unary.not");
+    return _create_stack_variable(nv, "unary.not.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_unary_bit_not(const Type *t, ::llvm::Value *p) noexcept {
@@ -1786,24 +1782,24 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
                      (t->is_vector() && t->element()->tag() == Type::Tag::UINT),
                  "Invalid argument type '{}' for bitwise not.",
                  t->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto ir_type = _create_type(t);
-    auto x = ctx->builder->CreateLoad(ir_type, p, "unary.bitnot.load");
-    return _create_stack_variable(ctx->builder->CreateNot(x, "unary.bitnot"), "unary.bitnot.addr");
+    auto x = b->CreateLoad(ir_type, p, "unary.bitnot.load");
+    return _create_stack_variable(b->CreateNot(x, "unary.bitnot"), "unary.bitnot.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_add_matrix_scalar(const Type *t_lhs, const Type *t_rhs, ::llvm::Value *p_lhs, ::llvm::Value *p_rhs) noexcept {
     LUISA_ASSERT(t_lhs->is_matrix() && t_rhs->is_scalar(),
                  "Invalid argument types '{}' and '{}' for matrix-scalar addition.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto lhs_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     auto rhs = _scalar_to_vector(col_type, t_rhs, p_rhs);
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("add.lhs.m{}.addr", i);
-        auto col = ctx->builder->CreateStructGEP(
+        auto col = b->CreateStructGEP(
             lhs_type, p_lhs, i, luisa::string_view{name});
         m[i] = _builtin_add(col_type, col, rhs);
     }
@@ -1824,16 +1820,16 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
                      t_lhs->dimension() == t_rhs->dimension(),
                  "Invalid argument types '{}' and '{}' for matrix-matrix addition.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto matrix_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto lhs_name = fmt::format("add.lhs.m{}.addr", i);
         auto rhs_name = fmt::format("add.rhs.m{}.addr", i);
-        auto lhs = ctx->builder->CreateStructGEP(
+        auto lhs = b->CreateStructGEP(
             matrix_type, p_lhs, i, luisa::string_view{lhs_name});
-        auto rhs = ctx->builder->CreateStructGEP(
+        auto rhs = b->CreateStructGEP(
             matrix_type, p_rhs, i, luisa::string_view{rhs_name});
         m[i] = _builtin_add(col_type, lhs, rhs);
     }
@@ -1849,14 +1845,14 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     LUISA_ASSERT(t_lhs->is_matrix() && t_rhs->is_scalar(),
                  "Invalid argument types '{}' and '{}' for matrix-scalar subtraction.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto lhs_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     auto rhs = _scalar_to_vector(col_type, t_rhs, p_rhs);
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("sub.lhs.m{}.addr", i);
-        auto col = ctx->builder->CreateStructGEP(
+        auto col = b->CreateStructGEP(
             lhs_type, p_lhs, i, luisa::string_view{name});
         m[i] = _builtin_sub(col_type, col, rhs);
     }
@@ -1872,14 +1868,14 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     LUISA_ASSERT(t_lhs->is_scalar() && t_rhs->is_matrix(),
                  "Invalid argument types '{}' and '{}' for matrix-scalar subtraction.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto matrix_type = _create_type(t_rhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     auto lhs = _scalar_to_vector(col_type, t_lhs, p_lhs);
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("add.rhs.m{}.addr", i);
-        auto rhs_col = ctx->builder->CreateStructGEP(
+        auto rhs_col = b->CreateStructGEP(
             matrix_type, p_rhs, i, luisa::string_view{name});
         m[i] = _builtin_sub(col_type, lhs, rhs_col);
     }
@@ -1896,16 +1892,16 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
                      t_lhs->dimension() == t_rhs->dimension(),
                  "Invalid argument types '{}' and '{}' for matrix-matrix subtraction.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto matrix_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto lhs_name = fmt::format("sub.lhs.m{}.addr", i);
         auto rhs_name = fmt::format("sub.rhs.m{}.addr", i);
-        auto lhs = ctx->builder->CreateStructGEP(
+        auto lhs = b->CreateStructGEP(
             matrix_type, p_lhs, i, luisa::string_view{lhs_name});
-        auto rhs = ctx->builder->CreateStructGEP(
+        auto rhs = b->CreateStructGEP(
             matrix_type, p_rhs, i, luisa::string_view{rhs_name});
         m[i] = _builtin_sub(col_type, lhs, rhs);
     }
@@ -1921,14 +1917,14 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     LUISA_ASSERT(t_lhs->is_matrix() && t_rhs->is_scalar(),
                  "Invalid argument types '{}' and '{}' for matrix-scalar multiplication.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto lhs_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     auto rhs = _scalar_to_vector(col_type, t_rhs, p_rhs);
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("mul.lhs.m{}.addr", i);
-        auto col = ctx->builder->CreateStructGEP(
+        auto col = b->CreateStructGEP(
             lhs_type, p_lhs, i, luisa::string_view{name});
         m[i] = _builtin_mul(col_type, col, rhs);
     }
@@ -1952,10 +1948,10 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     std::array<::llvm::Value *, 4u> m{};
     auto matrix_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto rhs_name = fmt::format("mul.rhs.m{}.addr", i);
-        auto rhs_col = ctx->builder->CreateStructGEP(
+        auto rhs_col = b->CreateStructGEP(
             matrix_type, p_rhs, i, luisa::string_view{rhs_name});
         m[i] = _builtin_mul_matrix_vector(t_lhs, col_type, p_lhs, rhs_col);
     }
@@ -1973,16 +1969,16 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
                  "Invalid argument types '{}' and '{}' for matrix-vector multiplication.",
                  t_lhs->description(), t_rhs->description());
     std::array<::llvm::Value *, 4u> m{};
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto matrix_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
-    auto rhs = ctx->builder->CreateLoad(_create_type(t_rhs), p_rhs, "mul.rhs");
+    auto rhs = b->CreateLoad(_create_type(t_rhs), p_rhs, "mul.rhs");
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto col_name = fmt::format("mul.lhs.m{}.addr", i);
-        auto col = ctx->builder->CreateStructGEP(matrix_type, p_lhs, i, luisa::string_view{col_name});
+        auto col = b->CreateStructGEP(matrix_type, p_lhs, i, luisa::string_view{col_name});
         auto v_name = fmt::format("mul.rhs.v{}", i);
         ::llvm::SmallVector<int, 4u> masks(t_rhs->dimension(), static_cast<int>(i));
-        auto v = ctx->builder->CreateShuffleVector(rhs, masks, luisa::string_view{v_name});
+        auto v = b->CreateShuffleVector(rhs, masks, luisa::string_view{v_name});
         auto pv_name = fmt::format("mul.rhs.v{}.addr", i);
         m[i] = _builtin_mul(col_type, col, _create_stack_variable(v, luisa::string_view{pv_name}));
     }
@@ -1998,14 +1994,14 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     LUISA_ASSERT(t_lhs->is_matrix() && t_rhs->is_scalar(),
                  "Invalid argument types '{}' and '{}' for matrix-scalar division.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto lhs_type = _create_type(t_lhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     auto rhs = _scalar_to_vector(col_type, t_rhs, p_rhs);
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("div.lhs.m{}.addr", i);
-        auto col = ctx->builder->CreateStructGEP(
+        auto col = b->CreateStructGEP(
             lhs_type, p_lhs, i, luisa::string_view{name});
         m[i] = _builtin_div(col_type, col, rhs);
     }
@@ -2021,14 +2017,14 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     LUISA_ASSERT(t_lhs->is_scalar() && t_rhs->is_matrix(),
                  "Invalid argument types '{}' and '{}' for matrix-scalar division.",
                  t_lhs->description(), t_rhs->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto matrix_type = _create_type(t_rhs);
     auto col_type = Type::from(luisa::format("vector<float,{}>", t_lhs->dimension()));
     auto lhs = _scalar_to_vector(col_type, t_lhs, p_lhs);
     std::array<::llvm::Value *, 4u> m{};
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("add.rhs.m{}.addr", i);
-        auto rhs_col = ctx->builder->CreateStructGEP(
+        auto rhs_col = b->CreateStructGEP(
             matrix_type, p_rhs, i, luisa::string_view{name});
         m[i] = _builtin_div(col_type, lhs, rhs_col);
     }
@@ -2041,20 +2037,35 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_buffer_read(const Type *t_value, ::llvm::Value *buffer, ::llvm::Value *p_index) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto value_type = _create_type(t_value);
-    auto index = ctx->builder->CreateLoad(_create_type(Type::of<uint>()), p_index, "buffer.read.index");
-    auto ptr = ctx->builder->CreateInBoundsGEP(value_type, buffer, index, "buffer.read.ptr");
-    auto value = ctx->builder->CreateLoad(value_type, ptr, "buffer.read");
+    auto index = b->CreateLoad(_create_type(Type::of<uint>()), p_index, "buffer.read.index");
+    auto ptr = b->CreateInBoundsGEP(value_type, buffer, index, "buffer.read.ptr");
+    auto value = b->CreateLoad(value_type, ptr, "buffer.read");
     return _create_stack_variable(value, "buffer.read.addr");
 }
 
 void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buffer, ::llvm::Value *p_index, ::llvm::Value *p_value) noexcept {
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto value_type = _create_type(t_value);
-    auto index = ctx->builder->CreateLoad(_create_type(Type::of<uint>()), p_index, "buffer.write.index");
-    auto ptr = ctx->builder->CreateInBoundsGEP(value_type, buffer, index, "buffer.write.ptr");
+    auto index = b->CreateLoad(_create_type(Type::of<uint>()), p_index, "buffer.write.index");
+    auto ptr = b->CreateInBoundsGEP(value_type, buffer, index, "buffer.write.ptr");
     _create_assignment(t_value, t_value, ptr, p_value);
+}
+
+[[nodiscard]] inline ::llvm::Value *decode_i64v2(::llvm::IRBuilder<> *b, ::llvm::Type *t, ::llvm::Value *value) noexcept {
+    auto xy = b->CreateExtractValue(value, 0, "decode.xy");
+    auto zw = b->CreateExtractValue(value, 1, "decode.zw");
+    auto x = b->CreateTrunc(xy, b->getInt32Ty(), "decode.x");
+    auto y = b->CreateTrunc(b->CreateLShr(xy, 32u), b->getInt32Ty(), "decode.y");
+    auto z = b->CreateTrunc(zw, b->getInt32Ty(), "decode.z");
+    auto w = b->CreateTrunc(b->CreateLShr(zw, 32u), b->getInt32Ty(), "decode.w");
+    auto v = ::llvm::UndefValue::get(::llvm::FixedVectorType::get(b->getInt32Ty(), 4u));
+    auto v_x = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "decode.v.x");
+    auto v_xy = b->CreateInsertElement(v_x, y, static_cast<uint64_t>(1u), "decode.v.xy");
+    auto v_xyz = b->CreateInsertElement(v_xy, z, static_cast<uint64_t>(2u), "decode.v.xyz");
+    auto v_xyzw = b->CreateInsertElement(v_xyz, w, static_cast<uint64_t>(3u), "decode.v.xyzw");
+    return b->CreateBitCast(v_xyzw, t, "decode.v");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_texture_read(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord) noexcept {
@@ -2062,8 +2073,8 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
                  "Invalid type '{}' for texture-read.",
                  t->description());
     // { i64, i64 } texture.read.Nd.type(i64 t0, i64 t1, i64 c0, i64 c2)
-    auto ctx = _current_context();
-    auto coord = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto coord = b->CreateLoad(
         p_coord->getType()->getPointerElementType(),
         p_coord, "texture.read.coord");
     auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
@@ -2087,34 +2098,31 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
         func->setOnlyReadsMemory();
         func->setDoesNotFreeMemory();
     }
-    auto t0 = ctx->builder->CreateExtractValue(texture, 0u, "texture.read.texture.t0");
-    auto t1 = ctx->builder->CreateExtractValue(texture, 1u, "texture.read.texture.t1");
+    auto t0 = b->CreateExtractValue(texture, 0u, "texture.read.texture.t0");
+    auto t1 = b->CreateExtractValue(texture, 1u, "texture.read.texture.t1");
     std::array<int, 4> shuffle{0, 1, 0, 0};
     if (dim == 3u) { shuffle[2] = 2; }
     auto coord_vector = _create_stack_variable(
-        ctx->builder->CreateShuffleVector(
+        b->CreateShuffleVector(
             coord, shuffle, "texture.read.coord.vector"),
         "texture.read.coord.vector.addr");
-    p_coord = ctx->builder->CreateBitOrPointerCast(
+    p_coord = b->CreateBitOrPointerCast(
         coord_vector, i64v2_type->getPointerTo(0),
         "texture.read.coord.ulong2.addr");
-    coord = ctx->builder->CreateLoad(i64v2_type, p_coord, "texture.read.coord.ulong2");
-    auto c0 = ctx->builder->CreateExtractValue(coord, 0u, "texture.read.coord.c0");
-    auto c1 = ctx->builder->CreateExtractValue(coord, 1u, "texture.read.coord.c1");
-    auto value = ctx->builder->CreateCall(func, {t0, t1, c0, c1}, "texture.read");
-    auto p_value = _create_stack_variable(value, "texture.read.value.addr");
-    return ctx->builder->CreateBitOrPointerCast(
-        p_value, _create_type(t)->getPointerTo(0),
-        "texture.read.addr");
+    coord = b->CreateLoad(i64v2_type, p_coord, "texture.read.coord.ulong2");
+    auto c0 = b->CreateExtractValue(coord, 0u, "texture.read.coord.c0");
+    auto c1 = b->CreateExtractValue(coord, 1u, "texture.read.coord.c1");
+    auto ret_struct = b->CreateCall(func, {t0, t1, c0, c1}, "texture.read.ret.struct");
+    return _create_stack_variable(decode_i64v2(b, _create_type(t), ret_struct), "texture.read.addr");
 }
 
 void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept {
     LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
-                 "Invalid type '{}' for texture-read.",
+                 "Invalid type '{}' for texture-write.",
                  t->description());
     // texture.write.Nd.type(i64 t0, i64 t1, i64 c0, i64 c1, i64 v0, i64 v1)
-    auto ctx = _current_context();
-    auto coord = ctx->builder->CreateLoad(
+    auto b = _current_context()->builder.get();
+    auto coord = b->CreateLoad(
         p_coord->getType()->getPointerElementType(),
         p_coord, "texture.write.coord");
     auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
@@ -2137,36 +2145,36 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setDoesNotReadMemory();
         func->setDoesNotFreeMemory();
     }
-    auto t0 = ctx->builder->CreateExtractValue(texture, 0u, "texture.write.texture.t0");
-    auto t1 = ctx->builder->CreateExtractValue(texture, 1u, "texture.write.texture.t1");
+    auto t0 = b->CreateExtractValue(texture, 0u, "texture.write.texture.t0");
+    auto t1 = b->CreateExtractValue(texture, 1u, "texture.write.texture.t1");
     std::array<int, 4> shuffle{0, 1, 0, 0};
     if (dim == 3u) { shuffle[2] = 2; }
     auto i64v2_type = ::llvm::StructType::get(i64_type, i64_type);
     auto coord_vector = _create_stack_variable(
-        ctx->builder->CreateShuffleVector(
+        b->CreateShuffleVector(
             coord, shuffle, "texture.write.coord.vector"),
         "texture.write.coord.vector.addr");
-    p_coord = ctx->builder->CreateBitOrPointerCast(
+    p_coord = b->CreateBitOrPointerCast(
         coord_vector, i64v2_type->getPointerTo(0),
         "texture.write.coord.ulong2.addr");
-    coord = ctx->builder->CreateLoad(i64v2_type, p_coord, "texture.write.coord.ulong2");
-    auto c0 = ctx->builder->CreateExtractValue(coord, 0u, "texture.write.coord.c0");
-    auto c1 = ctx->builder->CreateExtractValue(coord, 1u, "texture.write.coord.c1");
-    p_value = ctx->builder->CreateBitOrPointerCast(
+    coord = b->CreateLoad(i64v2_type, p_coord, "texture.write.coord.ulong2");
+    auto c0 = b->CreateExtractValue(coord, 0u, "texture.write.coord.c0");
+    auto c1 = b->CreateExtractValue(coord, 1u, "texture.write.coord.c1");
+    p_value = b->CreateBitOrPointerCast(
         p_value, i64v2_type->getPointerTo(0), "texture.write.value.ulong2.addr");
-    auto value = ctx->builder->CreateLoad(i64v2_type, p_value, "texture.write.value.ulong");
-    auto v0 = ctx->builder->CreateExtractValue(value, 0u, "texture.write.value.v0");
-    auto v1 = ctx->builder->CreateExtractValue(value, 1u, "texture.write.value.v1");
-    ctx->builder->CreateCall(func->getFunctionType(), func, {t0, t1, c0, c1, v0, v1});
+    auto value = b->CreateLoad(i64v2_type, p_value, "texture.write.value.ulong");
+    auto v0 = b->CreateExtractValue(value, 0u, "texture.write.value.v0");
+    auto v1 = b->CreateExtractValue(value, 1u, "texture.write.value.v1");
+    b->CreateCall(func->getFunctionType(), func, {t0, t1, c0, c1, v0, v1});
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_trace_closest(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept {
     // { i64, i64 } trace_closest(i64 accel, i64 r0, i64 r1, i64 r2, i64 r3)
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto func_name = "accel.trace.closest";
     auto func = _module->getFunction(func_name);
-    accel = ctx->builder->CreateExtractValue(accel, 0u, "trace_closest.accel.handle");
+    accel = b->CreateExtractValue(accel, 0u, "trace_closest.accel.handle");
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
@@ -2185,30 +2193,40 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     }
     auto ray_struct_type = ::llvm::StructType::get(
         i64_type, i64_type, i64_type, i64_type);
-    p_ray = ctx->builder->CreateBitOrPointerCast(
+    p_ray = b->CreateBitOrPointerCast(
         p_ray, ray_struct_type->getPointerTo(0),
         "trace_closest.ray.struct.addr");
-    auto ray = ctx->builder->CreateLoad(ray_struct_type, p_ray, "trace_closest.ray.struct");
-    auto r0 = ctx->builder->CreateExtractValue(ray, 0u, "trace_closest.ray.r0");
-    auto r1 = ctx->builder->CreateExtractValue(ray, 1u, "trace_closest.ray.r1");
-    auto r2 = ctx->builder->CreateExtractValue(ray, 2u, "trace_closest.ray.r2");
-    auto r3 = ctx->builder->CreateExtractValue(ray, 3u, "trace_closest.ray.r3");
-    auto hit = ctx->builder->CreateCall(
+    auto ray = b->CreateLoad(ray_struct_type, p_ray, "trace_closest.ray.struct");
+    auto r0 = b->CreateExtractValue(ray, 0u, "trace_closest.ray.r0");
+    auto r1 = b->CreateExtractValue(ray, 1u, "trace_closest.ray.r1");
+    auto r2 = b->CreateExtractValue(ray, 2u, "trace_closest.ray.r2");
+    auto r3 = b->CreateExtractValue(ray, 3u, "trace_closest.ray.r3");
+    auto ret = b->CreateCall(
         func->getFunctionType(), func, {accel, r0, r1, r2, r3},
         "accel.trace.closest.struct");
-    auto hit_struct_ptr = _create_stack_variable(hit, "accel.trace.closest.struct.addr");
-    return ctx->builder->CreateBitOrPointerCast(
-        hit_struct_ptr, _create_type(Type::of<Hit>())->getPointerTo(0),
-        "accel.trace.closest.addr");
+    auto inst_and_prim = b->CreateExtractValue(ret, 0u, "trace_closest.hit.a");
+    auto inst = b->CreateTrunc(inst_and_prim, b->getInt32Ty(), "trace_closest.hit.inst");
+    auto prim = b->CreateTrunc(b->CreateLShr(inst_and_prim, 32u), b->getInt32Ty(), "trace_closest.hit.prim");
+    auto bary_x_and_y = b->CreateExtractValue(ret, 1u, "trace_closest.hit.b");
+    auto bary_x = b->CreateTrunc(bary_x_and_y, b->getInt32Ty(), "trace_closest.hit.bary.x");
+    auto bary_y = b->CreateTrunc(b->CreateLShr(bary_x_and_y, 32u), b->getInt32Ty(), "trace_closest.hit.bary.y");
+    auto bary = static_cast<::llvm::Value *>(::llvm::UndefValue::get(_create_type(Type::of<float2>())));
+    bary = b->CreateInsertElement(bary, b->CreateBitCast(bary_x, b->getFloatTy()), _literal(0u));
+    bary = b->CreateInsertElement(bary, b->CreateBitCast(bary_y, b->getFloatTy()), _literal(1u), "trace_closest.hit.bary");
+    auto hit = static_cast<::llvm::Value *>(::llvm::UndefValue::get(_create_type(Type::of<Hit>())));
+    hit = b->CreateInsertValue(hit, inst, 0u);
+    hit = b->CreateInsertValue(hit, prim, 1u);
+    hit = b->CreateInsertValue(hit, bary, 2u, "trace_closest.hit");
+    return _create_stack_variable(hit, "trace_closest.hit.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_trace_any(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept {
     // i8 trace_closest(i64 accel, i64 r0, i64 r1, i64 r2, i64 r3)
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto func_name = "accel.trace.any";
     auto func = _module->getFunction(func_name);
-    accel = ctx->builder->CreateExtractValue(accel, 0u, "trace_closest.accel.handle");
+    accel = b->CreateExtractValue(accel, 0u, "trace_closest.accel.handle");
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
@@ -2227,18 +2245,18 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     }
     auto ray_struct_type = ::llvm::StructType::get(
         i64_type, i64_type, i64_type, i64_type);
-    p_ray = ctx->builder->CreateBitOrPointerCast(
+    p_ray = b->CreateBitOrPointerCast(
         p_ray, ray_struct_type->getPointerTo(0),
         "trace_any.ray.struct.addr");
-    auto ray = ctx->builder->CreateLoad(ray_struct_type, p_ray, "trace_any.ray.struct");
-    auto r0 = ctx->builder->CreateExtractValue(ray, 0u, "trace_any.ray.r0");
-    auto r1 = ctx->builder->CreateExtractValue(ray, 1u, "trace_any.ray.r1");
-    auto r2 = ctx->builder->CreateExtractValue(ray, 2u, "trace_any.ray.r2");
-    auto r3 = ctx->builder->CreateExtractValue(ray, 3u, "trace_any.ray.r3");
-    auto ret = ctx->builder->CreateCall(
+    auto ray = b->CreateLoad(ray_struct_type, p_ray, "trace_any.ray.struct");
+    auto r0 = b->CreateExtractValue(ray, 0u, "trace_any.ray.r0");
+    auto r1 = b->CreateExtractValue(ray, 1u, "trace_any.ray.r1");
+    auto r2 = b->CreateExtractValue(ray, 2u, "trace_any.ray.r2");
+    auto r3 = b->CreateExtractValue(ray, 3u, "trace_any.ray.r3");
+    auto ret = b->CreateCall(
         func->getFunctionType(), func, {accel, r0, r1, r2, r3},
         "accel.trace.any.ret");
-    auto hit = ctx->builder->CreateTrunc(ret, ctx->builder->getInt1Ty());
+    auto hit = b->CreateTrunc(ret, b->getInt1Ty());
     hit->setName("accel.trace.any.hit");
     return _create_stack_variable(hit, "accel.trace.any.hit.addr");
 }
@@ -2247,36 +2265,26 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     return _builtin_dot(t, v, v);
 }
 
-::llvm::Value *LLVMCodegen::_builtin_cross(const Type *t, ::llvm::Value *a, ::llvm::Value *b) noexcept {
+::llvm::Value *LLVMCodegen::_builtin_cross(const Type *t, ::llvm::Value *va, ::llvm::Value *vb) noexcept {
     LUISA_ASSERT(t->is_vector() && t->dimension() == 3u,
                  "Invalid argument types '{}' and '{}' for cross product.",
                  t->description(), t->description());
-    auto ctx = _current_context();
+    auto b = _current_context()->builder.get();
     auto type = _create_type(t);
-    a = ctx->builder->CreateLoad(type, a, "cross.a");
-    b = ctx->builder->CreateLoad(type, b, "cross.b");
-    auto a_x = ctx->builder->CreateExtractElement(a, static_cast<uint64_t>(0u), "cross.a.x");
-    auto a_y = ctx->builder->CreateExtractElement(a, static_cast<uint64_t>(1u), "cross.a.y");
-    auto a_z = ctx->builder->CreateExtractElement(a, static_cast<uint64_t>(2u), "cross.a.z");
-    auto b_x = ctx->builder->CreateExtractElement(b, static_cast<uint64_t>(0u), "cross.b.x");
-    auto b_y = ctx->builder->CreateExtractElement(b, static_cast<uint64_t>(1u), "cross.b.y");
-    auto b_z = ctx->builder->CreateExtractElement(b, static_cast<uint64_t>(2u), "cross.b.z");
-    auto x = ctx->builder->CreateFSub(
-        ctx->builder->CreateFMul(a_y, b_z),
-        ctx->builder->CreateFMul(a_z, b_y),
-        "cross.x");
-    auto y = ctx->builder->CreateFSub(
-        ctx->builder->CreateFMul(a_z, b_x),
-        ctx->builder->CreateFMul(a_x, b_z),
-        "cross.y");
-    auto z = ctx->builder->CreateFSub(
-        ctx->builder->CreateFMul(a_x, b_y),
-        ctx->builder->CreateFMul(a_y, b_x),
-        "cross.z");
-    return _make_float3(
-        _create_stack_variable(x, "cross.x.addr"),
-        _create_stack_variable(y, "cross.y.addr"),
-        _create_stack_variable(z, "cross.z.addr"));
+    va = b->CreateLoad(type, va, "cross.a");
+    vb = b->CreateLoad(type, vb, "cross.b");
+    auto a_x = b->CreateExtractElement(va, static_cast<uint64_t>(0u), "cross.a.x");
+    auto a_y = b->CreateExtractElement(va, static_cast<uint64_t>(1u), "cross.a.y");
+    auto a_z = b->CreateExtractElement(va, static_cast<uint64_t>(2u), "cross.a.z");
+    auto b_x = b->CreateExtractElement(vb, static_cast<uint64_t>(0u), "cross.b.x");
+    auto b_y = b->CreateExtractElement(vb, static_cast<uint64_t>(1u), "cross.b.y");
+    auto b_z = b->CreateExtractElement(vb, static_cast<uint64_t>(2u), "cross.b.z");
+    auto x = b->CreateFSub(b->CreateFMul(a_y, b_z), b->CreateFMul(a_z, b_y), "cross.x");
+    auto y = b->CreateFSub(b->CreateFMul(a_z, b_x), b->CreateFMul(a_x, b_z), "cross.y");
+    auto z = b->CreateFSub(b->CreateFMul(a_x, b_y), b->CreateFMul(a_y, b_x), "cross.z");
+    return _make_float3(_create_stack_variable(x, "cross.x.addr"),
+                        _create_stack_variable(y, "cross.y.addr"),
+                        _create_stack_variable(z, "cross.z.addr"));
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_make_vector2_overloaded(const Type *t_vec, luisa::span<const Expression *const> args) noexcept {
@@ -2643,9 +2651,10 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.read", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, level, coord_x, coord_y}, "bindless.texture.read.2d.ret");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.read.2d.ret.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.read.2d.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, level, coord_x, coord_y}, "bindless.texture.read.2d.ret.struct");
+    auto ret = b->CreateBitCast(b->CreateBitCast(ret_struct, b->getInt128Ty()),
+                                _create_type(Type::of<float4>()), "bindless.texture.read.2d.ret");
+    return _create_stack_variable(ret, "bindless.texture.read.2d.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_read3d(
@@ -2667,9 +2676,10 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.read", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, level, coord_x, coord_y, coord_z}, "bindless.texture.read.3d.ret");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.read.3d.ret.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.read.3d.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, level, coord_x, coord_y, coord_z}, "bindless.texture.read.3d.ret.struct");
+    auto ret = b->CreateBitCast(b->CreateBitCast(ret_struct, b->getInt128Ty()),
+                                _create_type(Type::of<float4>()), "bindless.texture.read.3d.ret");
+    return _create_stack_variable(ret, "bindless.texture.read.3d.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv) noexcept {
@@ -2693,9 +2703,9 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y}, "bindless.texture.sample.2d.struct.ret");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.2d.ret.struct.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.2d.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y}, "bindless.texture.sample.2d.ret.struct");
+    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
+                                  "bindless.texture.sample.2d.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw) noexcept {
@@ -2720,9 +2730,9 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z}, "bindless.texture.sample.3d.struct.ret");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.ret.struct.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.3d.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z}, "bindless.texture.sample.3d.ret.struct");
+    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
+                                  "bindless.texture.sample.3d.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d_level(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_lod) noexcept {
@@ -2747,9 +2757,9 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.level", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, lod}, "bindless.texture.sample.2d.level.struct.ret");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.2d.level.ret.struct.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.2d.level.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, lod}, "bindless.texture.sample.2d.level.ret.struct");
+    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
+                                  "bindless.texture.sample.2d.level.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d_level(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_lod) noexcept {
@@ -2775,9 +2785,9 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample.level", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z, lod}, "bindless.texture.sample.3d.level.struct.ret");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.level.ret.struct.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.3d.level.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z, lod}, "bindless.texture.sample.3d.level.ret.struct");
+    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
+                                  "bindless.texture.sample.3d.level.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d_grad(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept {
@@ -2805,9 +2815,9 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.grad", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, dpdx, dpdy}, "bindless.texture.sample.2d.grad.struct.ret");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.2d.grad.ret.struct.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>())->getPointerTo(), "bindless.texture.sample.2d.grad.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, dpdx, dpdy}, "bindless.texture.sample.2d.grad.ret.struct");
+    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
+                                  "bindless.texture.sample.2d.grad.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d_grad(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept {
@@ -2852,9 +2862,11 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample.grad", _module);
     }
-    auto ret = b->CreateCall(func, {p_texture, sampler_and_w, uv, dudxy, dvdxy, dwdxy}, "bindless.texture.sample.3d.grad.ret.struct");
-    auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.grad.ret.struct.addr");
-    return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>()), "bindless.texture.sample.3d.grad.ret.addr");
+    auto ret_struct = b->CreateCall(func, {p_texture, sampler_and_w, uv, dudxy, dvdxy, dwdxy}, "bindless.texture.sample.3d.grad.ret.struct");
+    auto ret = b->CreateBitCast(b->CreateBitCast(ret_struct, b->getInt128Ty()),
+                                _create_type(Type::of<float4>()), "bindless.texture.sample.3d.grad.ret");
+    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
+                                  "bindless.texture.sample.3d.grad.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_asinh(const Type *t, ::llvm::Value *v) noexcept {
