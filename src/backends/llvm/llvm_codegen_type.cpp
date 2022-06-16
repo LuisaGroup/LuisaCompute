@@ -348,13 +348,12 @@ namespace luisa::compute::llvm {
     }
     auto builder = _current_context()->builder.get();
     auto src = builder->CreateLoad(_create_type(src_type), p_src, "cast.scalar.to.vector.src");
-    auto dim = dst_type->dimension() == 3u ? 4u : dst_type->dimension();
     switch (src_type->tag()) {
         case Type::Tag::BOOL:
         case Type::Tag::FLOAT:
         case Type::Tag::INT:
         case Type::Tag::UINT: return _create_stack_variable(
-            builder->CreateVectorSplat(dim, src, "cast.scalar.to.vector.splat"),
+            builder->CreateVectorSplat(dst_type->dimension(), src, "cast.scalar.to.vector.splat"),
             "cast.scalar.to.vector.addr");
         default: break;
     }
@@ -595,8 +594,7 @@ namespace luisa::compute::llvm {
         case Type::Tag::INT: [[fallthrough]];
         case Type::Tag::UINT: return ::llvm::Type::getInt32Ty(_context);
         case Type::Tag::VECTOR: return ::llvm::VectorType::get(
-            _create_type(t->element()),
-            t->dimension() == 3u ? 4u : t->dimension(), false);
+            _create_type(t->element()), t->dimension(), false);
         case Type::Tag::MATRIX: return ::llvm::ArrayType::get(
             _create_type(Type::from(luisa::format(
                 "vector<{},{}>", t->element()->description(), t->dimension()))),
@@ -619,7 +617,8 @@ namespace luisa::compute::llvm {
                     field_types.emplace_back(padding);
                     member_index++;
                 }
-                field_types.emplace_back(_create_type(member));
+                auto member_type = _create_type(member);
+                field_types.emplace_back(member_type);
                 field_indices.emplace_back(member_index++);
                 size = aligned_offset + member->size();
             }
