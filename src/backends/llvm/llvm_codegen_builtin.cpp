@@ -575,45 +575,27 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 
 ::llvm::Value *LLVMCodegen::_builtin_all(const Type *t, ::llvm::Value *v) noexcept {
     auto ctx = _current_context();
-    auto bv = ctx->builder->CreateLoad(_create_type(t), v, "load");
-    static constexpr std::array elem_names{"v.x", "v.y", "v.z", "v.w"};
-    static constexpr std::array cmp_names{"cmp.x", "cmp.y", "cmp.z", "cmp.w"};
-    auto elem = ctx->builder->CreateExtractElement(bv, static_cast<uint64_t>(0u), elem_names[0]);
-    for (auto i = 1u; i < t->dimension(); i++) {
-        elem = ctx->builder->CreateAnd(
-            ctx->builder->CreateExtractElement(bv, i, elem_names[i]),
-            elem, "and");
-    }
-    return _create_stack_variable(elem, "all.addr");
+    auto pred_type = ::llvm::FixedVectorType::get(ctx->builder->getInt1Ty(), t->dimension());
+    v = ctx->builder->CreateLoad(_create_type(t), v, "all.load");
+    v = ctx->builder->CreateTrunc(v, pred_type, "all.pred");
+    return _create_stack_variable(ctx->builder->CreateAndReduce(v), "all.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_any(const Type *t, ::llvm::Value *v) noexcept {
     auto ctx = _current_context();
-    auto bv = ctx->builder->CreateLoad(_create_type(t), v, "load");
-    static constexpr std::array elem_names{"v.x", "v.y", "v.z", "v.w"};
-    static constexpr std::array cmp_names{"cmp.x", "cmp.y", "cmp.z", "cmp.w"};
-    auto elem = ctx->builder->CreateExtractElement(bv, static_cast<uint64_t>(0u), elem_names[0]);
-    for (auto i = 1u; i < t->dimension(); i++) {
-        elem = ctx->builder->CreateOr(
-            ctx->builder->CreateExtractElement(bv, i, elem_names[i]),
-            elem, "or");
-    }
-    return _create_stack_variable(elem, "all.addr");
+    auto pred_type = ::llvm::FixedVectorType::get(ctx->builder->getInt1Ty(), t->dimension());
+    v = ctx->builder->CreateLoad(_create_type(t), v, "any.load");
+    v = ctx->builder->CreateTrunc(v, pred_type, "any.pred");
+    return _create_stack_variable(ctx->builder->CreateOrReduce(v), "any.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_select(const Type *t_pred, const Type *t_value,
                                             ::llvm::Value *pred, ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept {
     auto ctx = _current_context();
-    auto pred_load = ctx->builder->CreateLoad(_create_type(t_pred), pred, "sel.pred");
-    auto bv = [&] {
-        auto zero = ctx->builder->CreateLoad(
-            _create_type(t_pred),
-            _builtin_static_cast(
-                t_pred, Type::of<bool>(),
-                _create_stack_variable(_literal(false), "sel.zero.addr")),
-            "sel.zero");
-        return ctx->builder->CreateICmpNE(pred_load, zero, "sel.cmp");
-    }();
+    auto pred_type = static_cast<::llvm::Type *>(ctx->builder->getInt1Ty());
+    if (t_pred->is_vector()) { pred_type = ::llvm::FixedVectorType::get(pred_type, t_pred->dimension()); }
+    auto pred_load = ctx->builder->CreateLoad(_create_type(t_pred), pred, "sel.pred.load");
+    auto bv = ctx->builder->CreateTrunc(pred_load, pred_type, "sel.pred.bv");
     auto v_true_load = ctx->builder->CreateLoad(_create_type(t_value), v_true, "sel.true");
     auto v_false_load = ctx->builder->CreateLoad(_create_type(t_value), v_false, "sel.false");
     auto result = ctx->builder->CreateSelect(bv, v_true_load, v_false_load, "sel");
@@ -1178,29 +1160,13 @@ static constexpr auto atomic_operation_order = ::llvm::AtomicOrdering::Monotonic
 
 ::llvm::Value *LLVMCodegen::_builtin_dot(const Type *t, ::llvm::Value *a, ::llvm::Value *b) noexcept {
     auto ctx = _current_context();
-    auto mul = ctx->builder->CreateLoad(
-        _create_type(t), _builtin_mul(t, a, b), "dot.mul");
-    std::array<::llvm::Value *, 4> v{};
-    for (auto i = 0; i < t->dimension(); i++) {
-        auto elem_name = luisa::format("dot.sum.{}", i);
-        auto var_name = luisa::format("dot.sum.{}.addr", i);
-        v[i] = _create_stack_variable(
-            ctx->builder->CreateExtractElement(
-                mul, i, luisa::string_view{elem_name}),
-            luisa::string_view{var_name});
-    }
-    if (t->dimension() == 2u) {
-        return _builtin_add(t->element(), v[0], v[1]);
-    }
-    if (t->dimension() == 3u) {
-        return _builtin_add(t->element(), v[0],
-                            _builtin_add(t->element(), v[1], v[2]));
-    }
-    if (t->dimension() == 4u) {
-        return _builtin_add(t->element(), _builtin_add(t->element(), v[0], v[1]),
-                            _builtin_add(t->element(), v[2], v[3]));
-    }
-    LUISA_ERROR_WITH_LOCATION("Invalid dimension {} for dot.", t->dimension());
+    auto type = _create_type(t);
+    a = ctx->builder->CreateLoad(type, a, "dot.a");
+    b = ctx->builder->CreateLoad(type, b, "dot.b");
+    auto mul = ctx->builder->CreateFMul(a, b, "dot.mul");
+    auto sum = ctx->builder->CreateFAddReduce(_literal(0.f), mul);
+    sum->setName("dot.sum");
+    return _create_stack_variable(sum, "dot.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_add(const Type *t, ::llvm::Value *lhs, ::llvm::Value *rhs) noexcept {
