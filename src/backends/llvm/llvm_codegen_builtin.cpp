@@ -267,9 +267,8 @@ namespace luisa::compute::llvm {
             }
             v.emplace_back(builder->CreateCall(f, args_i));
         }
-        auto dim = t->dimension() == 3u ? 4u : t->dimension();
         auto vec_type = ::llvm::VectorType::get(
-            ::llvm::Type::getFloatTy(module->getContext()), dim, false);
+            ::llvm::Type::getFloatTy(module->getContext()), t->dimension(), false);
         auto vec = static_cast<::llvm::Value *>(::llvm::UndefValue::get(vec_type));
         for (auto i = 0u; i < t->dimension(); i++) {
             vec = builder->CreateInsertElement(vec, v[i], i);
@@ -946,28 +945,6 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_rsqrt(const Type *t, ::llvm::Value *x) noexcept {
-    //    auto ctx = _current_context();
-    //    auto v = static_cast<::llvm::Value *>(
-    //        ctx->builder->CreateLoad(_create_type(t), x, "rsqrt.x"));
-    //    auto vectorize = [ctx, t](auto s) noexcept {
-    //        if (t->is_scalar()) { return s; }
-    //        auto dim = t->dimension() == 3u ? 4u : t->dimension();
-    //        return ctx->builder->CreateVectorSplat(dim, s);
-    //    };
-    //    auto half_f32 = vectorize(_literal(0.5f));
-    //    auto one_i32 = vectorize(_literal(1));
-    //    auto magic_i32 = vectorize(_literal(0x5f375a86u));
-    //    auto three_halves_f32 = vectorize(_literal(1.5f));
-    //    auto x_half = ctx->builder->CreateFMul(v, half_f32, "rsqrt.x.half");
-    //    auto i = ctx->builder->CreateBitCast(v, one_i32->getType(), "rsqrt.vi");
-    //    i = ctx->builder->CreateLShr(i, one_i32);
-    //    i = ctx->builder->CreateSub(magic_i32, i);
-    //    x = ctx->builder->CreateBitCast(i, v->getType(), "rsqrt.vf");
-    //    auto xx = ctx->builder->CreateFMul(x, x);
-    //    auto xx_x_half = ctx->builder->CreateFMul(xx, x_half);
-    //    auto sub = ctx->builder->CreateFSub(three_halves_f32, xx_x_half);
-    //    v = ctx->builder->CreateFMul(x, sub);
-    //    return _create_stack_variable(v, "rsqrt.addr");
     auto s = _builtin_sqrt(t, x);
     auto one = _builtin_static_cast(
         t, Type::of<float>(),
@@ -2038,8 +2015,7 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
         auto col_name = fmt::format("mul.lhs.m{}.addr", i);
         auto col = ctx->builder->CreateStructGEP(matrix_type, p_lhs, i, luisa::string_view{col_name});
         auto v_name = fmt::format("mul.rhs.v{}", i);
-        auto dim = t_rhs->dimension() == 3u ? 4u : t_rhs->dimension();
-        ::llvm::SmallVector<int, 4u> masks(dim, static_cast<int>(i));
+        ::llvm::SmallVector<int, 4u> masks(t_rhs->dimension(), static_cast<int>(i));
         auto v = ctx->builder->CreateShuffleVector(rhs, masks, luisa::string_view{v_name});
         auto pv_name = fmt::format("mul.rhs.v{}.addr", i);
         m[i] = _builtin_mul(col_type, col, _create_stack_variable(v, luisa::string_view{pv_name}));

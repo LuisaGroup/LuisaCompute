@@ -55,15 +55,24 @@ namespace luisa::compute::llvm {
 }
 
 ::llvm::Value *LLVMCodegen::_literal(uint3 x) noexcept {
-    return _literal(make_uint4(x, 0u));
+    return ::llvm::ConstantVector::get({::llvm::ConstantInt::get(::llvm::Type::getInt32Ty(_context), x.x),
+                                        ::llvm::ConstantInt::get(::llvm::Type::getInt32Ty(_context), x.y),
+                                        ::llvm::ConstantInt::get(::llvm::Type::getInt32Ty(_context), x.z)});
 }
 
 ::llvm::Value *LLVMCodegen::_literal(bool3 x) noexcept {
-    return _literal(make_bool4(x, false));
+    return ::llvm::ConstantVector::get({::llvm::ConstantInt::get(::llvm::Type::getInt8Ty(_context),
+                                                                 static_cast<uint8_t>(x.x)),
+                                        ::llvm::ConstantInt::get(::llvm::Type::getInt8Ty(_context),
+                                                                 static_cast<uint8_t>(x.y)),
+                                        ::llvm::ConstantInt::get(::llvm::Type::getInt8Ty(_context),
+                                                                 static_cast<uint8_t>(x.z))});
 }
 
 ::llvm::Value *LLVMCodegen::_literal(float3 x) noexcept {
-    return _literal(make_float4(x, 0.0f));
+    return ::llvm::ConstantVector::get({::llvm::ConstantFP::get(::llvm::Type::getFloatTy(_context), x.x),
+                                        ::llvm::ConstantFP::get(::llvm::Type::getFloatTy(_context), x.y),
+                                        ::llvm::ConstantFP::get(::llvm::Type::getFloatTy(_context), x.z)});
 }
 
 ::llvm::Value *LLVMCodegen::_literal(int4 x) noexcept {

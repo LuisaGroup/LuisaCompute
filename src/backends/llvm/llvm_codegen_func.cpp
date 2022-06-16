@@ -114,9 +114,9 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     builder->SetInsertPoint(body_block);
     // block id
     auto block_id = static_cast<::llvm::Value *>(
-        ::llvm::UndefValue::get(::llvm::FixedVectorType::get(i32_type, 4u)));
+        ::llvm::UndefValue::get(::llvm::FixedVectorType::get(i32_type, 3u)));
     auto dispatch_size = static_cast<::llvm::Value *>(
-        ::llvm::UndefValue::get(::llvm::FixedVectorType::get(i32_type, 4u)));
+        ::llvm::UndefValue::get(::llvm::FixedVectorType::get(i32_type, 3u)));
     block_id = builder->CreateInsertElement(block_id, ir->getArg(4), static_cast<uint64_t>(0u));
     block_id = builder->CreateInsertElement(block_id, ir->getArg(5), static_cast<uint64_t>(1u));
     block_id = builder->CreateInsertElement(block_id, ir->getArg(6), static_cast<uint64_t>(2u));
