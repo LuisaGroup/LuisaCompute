@@ -51,9 +51,6 @@ private:
 public:
     Image() noexcept = default;
     using Resource::operator bool;
-
-    [[nodiscard]] auto native_handle() const noexcept { return device()->texture_native_handle(handle()); }
-
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }

@@ -76,7 +76,6 @@ public:
     Stream &operator<<(luisa::move_only_function<void()> &&f) noexcept;
     Delegate operator<<(Command *cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
-    [[nodiscard]] auto native_handle() const noexcept { return device()->stream_native_handle(handle()); }
     void synchronize() noexcept { _synchronize(); }
     Stream &operator<<(SwapChain::Present p) noexcept;
 
