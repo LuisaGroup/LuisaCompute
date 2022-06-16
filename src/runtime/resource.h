@@ -42,6 +42,7 @@ public:
     Resource &operator=(const Resource &) noexcept = delete;
     [[nodiscard]] auto device() const noexcept { return _device.get(); }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] void *native_handle() const noexcept;
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] explicit operator bool() const noexcept { return _device != nullptr; }
 };
