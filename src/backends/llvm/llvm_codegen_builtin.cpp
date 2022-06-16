@@ -815,8 +815,14 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_pow(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
-    // exp2(x * log2(y))
-    return _builtin_exp2(t, _builtin_mul(t, x, _builtin_log2(t, y)));
+    auto ir_type = _create_type(t);
+    auto b = _current_context()->builder.get();
+    auto m = b->CreateIntrinsic(
+        ::llvm::Intrinsic::pow, {ir_type},
+        {b->CreateLoad(ir_type, x, "pow.x"),
+         b->CreateLoad(ir_type, y, "pow.y")},
+        nullptr, "pow.ret");
+    return _create_stack_variable(m, "pow.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_copysign(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
@@ -2704,8 +2710,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample", _module);
     }
     auto ret_struct = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y}, "bindless.texture.sample.2d.ret.struct");
-    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
-                                  "bindless.texture.sample.2d.addr");
+    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct), "bindless.texture.sample.2d.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw) noexcept {
