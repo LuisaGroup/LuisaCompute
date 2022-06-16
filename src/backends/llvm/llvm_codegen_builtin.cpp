@@ -2235,9 +2235,11 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto r1 = ctx->builder->CreateExtractValue(ray, 1u, "trace_any.ray.r1");
     auto r2 = ctx->builder->CreateExtractValue(ray, 2u, "trace_any.ray.r2");
     auto r3 = ctx->builder->CreateExtractValue(ray, 3u, "trace_any.ray.r3");
-    auto hit = ctx->builder->CreateCall(
+    auto ret = ctx->builder->CreateCall(
         func->getFunctionType(), func, {accel, r0, r1, r2, r3},
-        "accel.trace.any.hit");
+        "accel.trace.any.ret");
+    auto hit = ctx->builder->CreateTrunc(ret, ctx->builder->getInt1Ty());
+    hit->setName("accel.trace.any.hit");
     return _create_stack_variable(hit, "accel.trace.any.hit.addr");
 }
 
