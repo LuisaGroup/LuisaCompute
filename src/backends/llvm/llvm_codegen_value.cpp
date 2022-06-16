@@ -348,10 +348,10 @@ luisa::string LLVMCodegen::_variable_name(Variable v) const noexcept {
         case Variable::Tag::TEXTURE: return luisa::format("v{}.texture", v.uid());
         case Variable::Tag::BINDLESS_ARRAY: return luisa::format("v{}.bindless", v.uid());
         case Variable::Tag::ACCEL: return luisa::format("v{}.accel", v.uid());
-        case Variable::Tag::THREAD_ID: return "tid";
-        case Variable::Tag::BLOCK_ID: return "bid";
-        case Variable::Tag::DISPATCH_ID: return "did";
-        case Variable::Tag::DISPATCH_SIZE: return "ls";
+        case Variable::Tag::THREAD_ID: return "thread.id";
+        case Variable::Tag::BLOCK_ID: return "block.id";
+        case Variable::Tag::DISPATCH_ID: return "dispatch.id";
+        case Variable::Tag::DISPATCH_SIZE: return "dispatch.size";
     }
     LUISA_ERROR_WITH_LOCATION("Invalid variable.");
 }
