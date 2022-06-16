@@ -240,6 +240,12 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_sin(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_cos(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_tan(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_sinh(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_cosh(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_tanh(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_asinh(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_acosh(const Type *t, ::llvm::Value *v) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_atanh(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_exp(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_exp2(const Type *t, ::llvm::Value *v) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_exp10(const Type *t, ::llvm::Value *v) noexcept;
