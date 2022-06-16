@@ -2,6 +2,8 @@
 // Created by Mike Smith on 2022/5/23.
 //
 
+#include <numeric>
+
 #include <dsl/sugar.h>
 #include <rtx/hit.h>
 #include <backends/llvm/llvm_codegen.h>
@@ -381,31 +383,31 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
             args[0]->type(), _create_expr(args[0]));
         case CallOp::ACOS: return _call_external_math_function(
             _module, builder, args[0]->type(), "acos", {_create_expr(args[0])});
-        case CallOp::ACOSH: return _call_external_math_function(
-            _module, builder, args[0]->type(), "acosh", {_create_expr(args[0])});
+        case CallOp::ACOSH: return _builtin_acosh(
+            args[0]->type(), _create_expr(args[0]));
         case CallOp::ASIN: return _call_external_math_function(
             _module, builder, args[0]->type(), "asin", {_create_expr(args[0])});
-        case CallOp::ASINH: return _call_external_math_function(
-            _module, builder, args[0]->type(), "asinh", {_create_expr(args[0])});
+        case CallOp::ASINH: return _builtin_asinh(
+            args[0]->type(), _create_expr(args[0]));
         case CallOp::ATAN: return _call_external_math_function(
             _module, builder, args[0]->type(), "atan", {_create_expr(args[0])});
         case CallOp::ATAN2: return _call_external_math_function(
             _module, builder, args[0]->type(), "atan2",
             {_create_expr(args[0]), _create_expr(args[1])});
-        case CallOp::ATANH: return _call_external_math_function(
-            _module, builder, args[0]->type(), "atanh", {_create_expr(args[0])});
+        case CallOp::ATANH: return _builtin_atanh(
+            args[0]->type(), _create_expr(args[0]));
         case CallOp::COS: return _builtin_cos(
             args[0]->type(), _create_expr(args[0]));
-        case CallOp::COSH: return _call_external_math_function(
-            _module, builder, args[0]->type(), "cosh", {_create_expr(args[0])});
+        case CallOp::COSH: return _builtin_cosh(
+            args[0]->type(), _create_expr(args[0]));
         case CallOp::SIN: return _builtin_sin(
             args[0]->type(), _create_expr(args[0]));
-        case CallOp::SINH: return _call_external_math_function(
-            _module, builder, args[0]->type(), "sinh", {_create_expr(args[0])});
-        case CallOp::TAN: return _call_external_math_function(
-            _module, builder, args[0]->type(), "tan", {_create_expr(args[0])});
-        case CallOp::TANH: return _call_external_math_function(
-            _module, builder, args[0]->type(), "tanh", {_create_expr(args[0])});
+        case CallOp::SINH: return _builtin_sinh(
+            args[0]->type(), _create_expr(args[0]));
+        case CallOp::TAN: return _builtin_tan(
+            args[0]->type(), _create_expr(args[0]));
+        case CallOp::TANH: return _builtin_tanh(
+            args[0]->type(), _create_expr(args[0]));
         case CallOp::EXP: return _builtin_exp(
             args[0]->type(), _create_expr(args[0]));
         case CallOp::EXP2: return _builtin_exp2(
@@ -832,14 +834,8 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_pow(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
-    auto ir_type = _create_type(t);
-    auto ctx = _current_context();
-    auto m = ctx->builder->CreateIntrinsic(
-        ::llvm::Intrinsic::pow, {ir_type},
-        {ctx->builder->CreateLoad(ir_type, x, "pow.x"),
-         ctx->builder->CreateLoad(ir_type, y, "pow.y")},
-        nullptr, "pow");
-    return _create_stack_variable(m, "pow.addr");
+    // exp2(x * log2(y))
+    return _builtin_exp2(t, _builtin_mul(t, x, _builtin_log2(t, y)));
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_copysign(const Type *t, ::llvm::Value *x, ::llvm::Value *y) noexcept {
@@ -890,7 +886,9 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_tan(const Type *t, ::llvm::Value *v) noexcept {
-    return _builtin_div(t, _builtin_sin(t, v), _builtin_cos(t, v));
+    auto one = _create_stack_variable(_literal(1.f), "tan.one");
+    if (t->is_vector()) { one = _builtin_static_cast(t, t->element(), one); }
+    return _builtin_mul(t, _builtin_sin(t, v), _builtin_div(t, one, _builtin_cos(t, v)));
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_sqrt(const Type *t, ::llvm::Value *x) noexcept {
@@ -2913,6 +2911,80 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto ret = b->CreateCall(func, {p_texture, sampler_and_w, uv, dudxy, dvdxy, dwdxy}, "bindless.texture.sample.3d.grad.ret.struct");
     auto p_ret = _create_stack_variable(ret, "bindless.texture.sample.3d.grad.ret.struct.addr");
     return b->CreateBitOrPointerCast(p_ret, _create_type(Type::of<float4>()), "bindless.texture.sample.3d.grad.ret.addr");
+}
+
+::llvm::Value *LLVMCodegen::_builtin_asinh(const Type *t, ::llvm::Value *v) noexcept {
+    // log(x + sqrt(x * x + 1.0))
+    auto one = _create_stack_variable(_literal(1.0f), "asinh.one");
+    if (t->is_vector()) { one = _builtin_static_cast(t, t->element(), one); }
+    return _builtin_log(t, _builtin_add(t, v, _builtin_sqrt(t, _builtin_add(t, _builtin_mul(t, v, v), one))));
+}
+
+::llvm::Value *LLVMCodegen::_builtin_acosh(const Type *t, ::llvm::Value *v) noexcept {
+    // log(x + sqrt(x * x - 1.0))
+    auto one = _create_stack_variable(_literal(1.0f), "cosh.one");
+    if (t->is_vector()) { one = _builtin_static_cast(t, t->element(), one); }
+    return _builtin_log(t, _builtin_add(t, v, _builtin_sqrt(t, _builtin_sub(t, _builtin_mul(t, v, v), one))));
+}
+
+::llvm::Value *LLVMCodegen::_builtin_atanh(const Type *t, ::llvm::Value *v) noexcept {
+    // 0.5 * log((1.0 + x) / (1.0 - x))
+    auto one = _create_stack_variable(_literal(1.0f), "tanh.one");
+    auto half = _create_stack_variable(_literal(0.5f), "tanh.half");
+    if (t->is_vector()) {
+        one = _builtin_static_cast(t, t->element(), one);
+        half = _builtin_static_cast(t, t->element(), half);
+    }
+    auto one_plus_x = _builtin_add(t, one, v);
+    auto one_minus_x = _builtin_sub(t, one, v);
+    auto one_plus_x_over_one_minus_x = _builtin_div(t, one_plus_x, one_minus_x);
+    auto log_of_one_plus_x_over_one_minus_x = _builtin_log(t, one_plus_x_over_one_minus_x);
+    return _builtin_mul(t, half, log_of_one_plus_x_over_one_minus_x);
+}
+
+::llvm::Value *LLVMCodegen::_builtin_cosh(const Type *t, ::llvm::Value *v) noexcept {
+    // y = exp(x)
+    // 0.5 * (y + 1 / y)
+    auto half = _create_stack_variable(_literal(0.5f), "cosh.half");
+    auto one = _create_stack_variable(_literal(1.0f), "cosh.one");
+    if (t->is_vector()) {
+        half = _builtin_static_cast(t, t->element(), half);
+        one = _builtin_static_cast(t, t->element(), one);
+    }
+    auto exp_x = _builtin_exp(t, v);
+    auto exp_minus_x = _builtin_div(t, one, exp_x);
+    auto exp_x_plus_exp_minus_x = _builtin_add(t, exp_x, exp_minus_x);
+    return _builtin_mul(t, half, exp_x_plus_exp_minus_x);
+}
+
+::llvm::Value *LLVMCodegen::_builtin_sinh(const Type *t, ::llvm::Value *v) noexcept {
+    // y = exp(x)
+    // 0.5 * (y – 1 / y)
+    auto half = _create_stack_variable(_literal(0.5f), "sinh.half");
+    auto one = _create_stack_variable(_literal(1.0f), "sinh.one");
+    if (t->is_vector()) {
+        half = _builtin_static_cast(t, t->element(), half);
+        one = _builtin_static_cast(t, t->element(), one);
+    }
+    auto exp_x = _builtin_exp(t, v);
+    auto exp_minus_x = _builtin_div(t, one, exp_x);
+    auto exp_x_minus_exp_minus_x = _builtin_sub(t, exp_x, exp_minus_x);
+    return _builtin_mul(t, half, exp_x_minus_exp_minus_x);
+}
+
+::llvm::Value *LLVMCodegen::_builtin_tanh(const Type *t, ::llvm::Value *v) noexcept {
+    // y = exp(2.0 * x)
+    // (y - 1.0) / (y + 1.0)
+    auto one = _create_stack_variable(_literal(1.0f), "tanh.one");
+    auto two = _create_stack_variable(_literal(2.0f), "tanh.two");
+    if (t->is_vector()) {
+        one = _builtin_static_cast(t, t->element(), one);
+        two = _builtin_static_cast(t, t->element(), two);
+    }
+    auto y = _builtin_exp(t, _builtin_mul(t, two, v));
+    auto y_minus_one = _builtin_sub(t, y, one);
+    auto y_plus_one = _builtin_add(t, y, one);
+    return _builtin_div(t, y_minus_one, y_plus_one);
 }
 
 }// namespace luisa::compute::llvm
