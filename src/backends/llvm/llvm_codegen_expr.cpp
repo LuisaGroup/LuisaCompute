@@ -232,7 +232,7 @@ namespace luisa::compute::llvm {
                     _create_type(self_type), self, "vector.member.load"),
                 {static_cast<int>(expr->swizzle_index(0u)),
                  static_cast<int>(expr->swizzle_index(1u)),
-                 static_cast<int>(expr->swizzle_index(2u)), 0},
+                 static_cast<int>(expr->swizzle_index(2u))},
                 "vector.swizzle"),
             "vector.swizzle.addr");
         case 4u: return _create_stack_variable(
