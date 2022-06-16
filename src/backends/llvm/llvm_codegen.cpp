@@ -18,8 +18,9 @@ std::unique_ptr<::llvm::Module> LLVMCodegen::emit(Function f) noexcept {
     for (auto &&func : _module->functions()) {
         for (auto &&bb : func) {
             for (auto &&inst : bb) {
-                inst.setFast(true);
+                inst.setFastMathFlags(::llvm::FastMathFlags::getFast());
                 inst.setIsExact(false);
+                inst.setHasAllowReciprocal(true);
             }
         }
     }
