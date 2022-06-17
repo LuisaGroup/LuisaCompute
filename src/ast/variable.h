@@ -6,18 +6,15 @@
 
 #include <ast/type.h>
 #include <ast/usage.h>
-#include <serialize/key_value_pair.h>
 
 namespace luisa::compute {
 
 namespace detail {
 class FunctionBuilder;
 }
-class AstSerializer;
 
 /// Variable class
 class Variable {
-    friend class AstSerializer;
 
 public:
     /// Variable tags
@@ -65,27 +62,6 @@ public:
         return hash64(u0 | (u1 << 32u), hash64(_type->hash(), hash64("__hash_variable"sv)));
     }
     [[nodiscard]] auto operator==(Variable rhs) const noexcept { return _uid == rhs._uid; }
-
-    template<typename S>
-    void save(S& s) {
-        luisa::string description(_type->description());
-        s.serialize(
-            MAKE_NAME_PAIR(_uid), 
-            MAKE_NAME_PAIR(_tag), 
-            KeyValuePair{"_type", description}
-        );
-    }
-
-    template<typename S>
-    void load(S& s) {
-        luisa::string description;
-        s.serialize(
-            MAKE_NAME_PAIR(_uid), 
-            MAKE_NAME_PAIR(_tag), 
-            KeyValuePair{"_type", description}
-        );
-        _type = Type::from(description);
-    }
 };
 
 }// namespace luisa::compute

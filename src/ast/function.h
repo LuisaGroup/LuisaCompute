@@ -8,7 +8,6 @@
 #include <ast/variable.h>
 #include <ast/op.h>
 #include <ast/constant_data.h>
-#include <serialize/key_value_pair.h>
 
 namespace luisa::compute {
 
@@ -16,7 +15,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class MetaStmt;
+class ScopeStmt;
 class Expression;
 
 /**
@@ -45,25 +44,6 @@ public:
             using namespace std::string_view_literals;
             return hash64(data.hash(), hash64(type->hash(), hash64("__hash_constant_binding")));
         }
-
-        template<typename S>
-        void save(S& s) {
-            luisa::string description(type->description());
-            s.serialize(
-                MAKE_NAME_PAIR(data),
-                KeyValuePair{"type", description}
-            );
-        }
-
-        template<typename S>
-        void load(S& s) {
-            luisa::string description;
-            s.serialize(
-                MAKE_NAME_PAIR(data),
-                KeyValuePair{"type", description}
-            );
-            type = Type::from(description);
-        }
     };
 
 private:
@@ -78,6 +58,10 @@ public:
     explicit Function(const detail::FunctionBuilder *builder) noexcept : _builder{builder} {}
     /// Return builtin variables
     [[nodiscard]] luisa::span<const Variable> builtin_variables() const noexcept;
+    /// Return local variables
+    [[nodiscard]] luisa::span<const Variable> local_variables() const noexcept;
+    /// Return shared variables
+    [[nodiscard]] luisa::span<const Variable> shared_variables() const noexcept;
     /// Return constants
     [[nodiscard]] luisa::span<const Constant> constants() const noexcept;
     /// Return arguments
@@ -95,7 +79,7 @@ public:
     /// Return variable usage of given uid
     [[nodiscard]] Usage variable_usage(uint32_t uid) const noexcept;
     /// Return pointer to body statement
-    [[nodiscard]] const MetaStmt *body() const noexcept;
+    [[nodiscard]] const ScopeStmt *body() const noexcept;
     /// Return hash
     [[nodiscard]] uint64_t hash() const noexcept;
     /// Return if is ray tracing function

@@ -48,7 +48,6 @@ private:
     void visit(const ForStmt *stmt) override;
     void visit(const ConstantExpr *expr) override;
     void visit(const CommentStmt *stmt) override;
-    void visit(const MetaStmt *stmt) override;
 
 private:
     void _emit_type_decl() noexcept;
@@ -59,7 +58,7 @@ private:
     void _emit_indent() noexcept;
     void _emit_statements(luisa::span<const Statement *const> stmts) noexcept;
     void _emit_constant(Function::Constant c) noexcept;
-    void _emit_variable_declarations(const MetaStmt *meta) noexcept;
+    void _emit_variable_declarations(Function f) noexcept;
 
 public:
     /**

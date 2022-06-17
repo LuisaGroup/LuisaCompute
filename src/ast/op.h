@@ -227,6 +227,7 @@ public:
     void mark(CallOp op) noexcept { _bits.set(to_underlying(op)); }
     /// Test given CallOp
     [[nodiscard]] auto test(CallOp op) const noexcept { return _bits.test(to_underlying(op)); }
+    void propagate(CallOpSet other) noexcept { _bits |= other._bits; }
     [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
     [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
 };

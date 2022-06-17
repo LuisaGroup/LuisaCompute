@@ -635,11 +635,9 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         if (any_arg) { _scratch.pop_back(); }
         _scratch << ") {";
     }
-    _indent = 1;
-    _emit_variable_declarations(f.body());
     _indent = 0;
-    _emit_scoped_variables(f.body()->scope());
-    _emit_statements(f.body()->scope()->statements());
+    _emit_scoped_variables(f.body());
+    _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
 
     // entry point
@@ -1085,33 +1083,6 @@ void ISPCCodegen::visit(const ForStmt *stmt) {
 
 void ISPCCodegen::visit(const CommentStmt *stmt) {
     _scratch << "/* " << stmt->comment() << " */";
-}
-
-void ISPCCodegen::visit(const MetaStmt *stmt) {
-    _scratch << "\n";
-    _emit_indent();
-    _scratch << "// meta region begin: " << stmt->info();
-    _emit_variable_declarations(stmt);
-    for (auto s : stmt->scope()->statements()) {
-        _scratch << "\n";
-        _emit_indent();
-        s->accept(*this);
-    }
-    _scratch << "\n";
-    _emit_indent();
-    _scratch << "// meta region end: " << stmt->info() << "\n";
-}
-
-void ISPCCodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
-    for (auto v : meta->variables()) {
-        if (v.tag() != Variable::Tag::LOCAL &&
-            _function.variable_usage(v.uid()) != Usage::NONE) {
-            _scratch << "\n";
-            _emit_indent();
-            _emit_variable_decl(v, false);
-            _scratch << ";";
-        }
-    }
 }
 
 void ISPCCodegen::_emit_scoped_variables(const ScopeStmt *scope) noexcept {

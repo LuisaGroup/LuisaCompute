@@ -29,7 +29,6 @@ public:
     void visit(const AssignStmt *stmt) override;
     void visit(const ForStmt *stmt) override;
     void visit(const CommentStmt *stmt) override;
-    void visit(const MetaStmt *stmt) override;
     void reset() noexcept { _continue_scopes.clear(); }
     void analyze(Function f) noexcept;
     [[nodiscard]] auto &continue_scopes() const noexcept { return _continue_scopes; }

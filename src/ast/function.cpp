@@ -24,7 +24,7 @@ Function::Tag Function::tag() const noexcept {
     return _builder->tag();
 }
 
-const MetaStmt *Function::body() const noexcept {
+const ScopeStmt *Function::body() const noexcept {
     return _builder->body();
 }
 
@@ -60,7 +60,12 @@ luisa::shared_ptr<const detail::FunctionBuilder> Function::shared_builder() cons
     return _builder->shared_from_this();
 }
 
-// TODO: track atomic float usage...
-bool Function::is_atomic_float_used() const noexcept { return true; }
+luisa::span<const Variable> Function::local_variables() const noexcept {
+    return _builder->local_variables();
+}
+
+luisa::span<const Variable> Function::shared_variables() const noexcept {
+    return _builder->shared_variables();
+}
 
 }// namespace luisa::compute

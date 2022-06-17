@@ -252,12 +252,6 @@ public:
         }
         return (*iter->second)(args...);
     }
-
-    template<typename S>
-    void serialize(S &s) {
-        auto builder = luisa::const_pointer_cast<detail::FunctionBuilder>(_builder);
-        s.serialize(MAKE_NAME_PAIR(builder));
-    }
 };
 
 #define LUISA_KERNEL_BASE(N)                                     \

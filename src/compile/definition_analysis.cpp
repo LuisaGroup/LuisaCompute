@@ -66,10 +66,6 @@ void DefinitionAnalysis::visit(const ForStmt *stmt) {
 
 void DefinitionAnalysis::visit(const CommentStmt *stmt) {}
 
-void DefinitionAnalysis::visit(const MetaStmt *stmt) {
-    stmt->scope()->accept(*this);
-}
-
 void DefinitionAnalysis::analyze(Function f) noexcept {
     // initialize states
     for (auto a : f.arguments()) {

@@ -1,6 +1,5 @@
 set(LUISA_COMPUTE_COMPILE_SOURCES
         codegen.cpp codegen.h
-        cpp_codegen.cpp cpp_codegen.h
         definition_analysis.cpp definition_analysis.h
         continue_analysis.cpp continue_analysis.h)
 

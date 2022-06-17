@@ -54,10 +54,6 @@ void ContinueAnalysis::visit(const ForStmt *stmt) {
 
 void ContinueAnalysis::visit(const CommentStmt *stmt) {}
 
-void ContinueAnalysis::visit(const MetaStmt *stmt) {
-    stmt->scope()->accept(*this);
-}
-
 void ContinueAnalysis::analyze(Function f) noexcept {
     LUISA_ASSERT(_scope_stack.empty() && _continue_scopes.empty(), "Not clear.");
     f.body()->accept(*this);
