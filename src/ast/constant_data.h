@@ -14,8 +14,6 @@
 #include <core/basic_types.h>
 #include <core/concepts.h>
 
-#include <serialize/key_value_pair.h>
-
 namespace luisa::compute {
 
 namespace detail {
@@ -52,7 +50,6 @@ class AstSerializer;
 class LC_AST_API ConstantData {
 
 public:
-    friend class AstSerializer;
     using View = detail::constant_data_view_t<detail::to_span_t, basic_types, true>;
 
 protected:
@@ -73,18 +70,6 @@ public:
     [[nodiscard]] static ConstantData create(View data) noexcept;
     [[nodiscard]] auto hash() const noexcept { return _hash; }
     [[nodiscard]] auto view() const noexcept { return _view; }
-
-    template<typename S>
-    void save(S& s) {
-        s.serialize(MAKE_NAME_PAIR(_hash), MAKE_NAME_PAIR(_view));
-    }
-
-    template<typename S>
-    void load(S& s) {
-        detail::constant_data_view_t<detail::to_vector_t, basic_types, false> data;
-        s.serialize(MAKE_NAME_PAIR(_hash), KeyValuePair{"_view", data});
-        *this = luisa::visit([](auto &&v) noexcept { return create(v); }, data);
-    }
 };
 
 }// namespace luisa::compute

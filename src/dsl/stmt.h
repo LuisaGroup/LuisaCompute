@@ -84,34 +84,6 @@ public:
     }
 };
 
-/// Build meta statement
-class MetaStmtBuilder {
-
-private:
-    template<typename First, typename... S>
-    [[nodiscard]] static auto _join(First &&first, S &&...info) noexcept {
-        luisa::string s{"("};
-        s.append(std::string_view{std::forward<First>(first)});
-        (..., s.append(" ").append(std::string_view{std::forward<S>(info)}));
-        s.append(")");
-        return s;
-    }
-
-private:
-    MetaStmt *_meta{};
-
-public:
-    template<typename... S>
-    explicit MetaStmtBuilder(S &&...info) noexcept
-        : _meta{FunctionBuilder::current()->meta(
-              _join(std::forward<S>(info)...))} {}
-    template<typename Body>
-    void operator%(Body &&body) &&noexcept {
-        FunctionBuilder::current()->with(
-            _meta, std::forward<Body>(body));
-    }
-};
-
 /// Build case statement of switch
 class SwitchCaseStmtBuilder {
 
@@ -427,12 +399,6 @@ inline void match(std::initializer_list<T> tags, Tag &&tag, IndexedCase &&indexe
 template<typename S>
 inline void comment(S &&s) noexcept {
     detail::FunctionBuilder::current()->comment_(luisa::string{std::forward<S>(s)});
-}
-
-/// Add meta statement
-template<typename... S, typename Body>
-inline void meta(S &&...info, Body &&body) noexcept {
-    detail::MetaStmtBuilder{std::forward<S>(info)...} % body;
 }
 
 template<typename T>

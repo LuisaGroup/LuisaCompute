@@ -547,8 +547,8 @@ void MetalCodegen::_emit_function(Function f) noexcept {
         }
     }
     // emit body
-    _emit_declarations(f.body());
-    _emit_statements(f.body()->scope()->statements());
+    _emit_declarations(f);
+    _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
 }
 
@@ -787,34 +787,9 @@ void MetalCodegen::visit(const CommentStmt *stmt) {
     }
 }
 
-void MetalCodegen::visit(const MetaStmt *stmt) {
-    // TODO: evaluate info
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Generating code for meta statement body: {}.",
-        stmt->info());
-    _scratch << "\n";
-    _emit_indent();
-    _scratch << "// meta region begin: " << stmt->info();
-    for (auto s : stmt->scope()->statements()) {
-        _scratch << "\n";
-        _emit_indent();
-        s->accept(*this);
-    }
-    _scratch << "\n";
-    _emit_indent();
-    _scratch << "// meta region end: " << stmt->info() << "\n";
-}
-
-void MetalCodegen::_emit_declarations(const MetaStmt *meta) noexcept {
-    for (auto v : meta->variables()) {
-        _scratch << "\n  ";
-        if (v.tag() == Variable::Tag::SHARED) {
-            if (_function.tag() != Function::Tag::KERNEL) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Non-kernel functions are not allowed to have shared variables.");
-            }
-            _scratch << "threadgroup ";
-        }
+void MetalCodegen::_emit_declarations(Function f) noexcept {
+    for (auto v : f.shared_variables()) {
+        _scratch << "\n  threadgroup ";
         _emit_type_name(v.type());
         _scratch << " ";
         _emit_variable_name(v);
@@ -823,8 +798,15 @@ void MetalCodegen::_emit_declarations(const MetaStmt *meta) noexcept {
         }
         _scratch << ";";
     }
-    for (auto child : meta->children()) {
-        _emit_declarations(child);
+    for (auto v : f.local_variables()) {
+        _scratch << "\n  ";
+        _emit_type_name(v.type());
+        _scratch << " ";
+        _emit_variable_name(v);
+        if (v.tag() == Variable::Tag::LOCAL) {
+            _scratch << "{}";
+        }
+        _scratch << ";";
     }
 }
 

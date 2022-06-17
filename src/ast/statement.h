@@ -36,8 +36,7 @@ public:
         SWITCH_DEFAULT,
         ASSIGN,
         FOR,
-        COMMENT,
-        META
+        COMMENT
     };
 
     /// good
@@ -58,7 +57,6 @@ public:
     virtual void accept(StmtVisitor &) const = 0;
     virtual ~Statement() noexcept = default;
     [[nodiscard]] uint64_t hash() const noexcept;
-    [[nodiscard]] luisa::unique_ptr<Statement> create(Tag tag) noexcept;
 };
 
 struct BreakStmt;
@@ -76,7 +74,6 @@ class SwitchDefaultStmt;
 class AssignStmt;
 class ForStmt;
 class CommentStmt;
-class MetaStmt;
 
 struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -92,7 +89,6 @@ struct StmtVisitor {
     virtual void visit(const AssignStmt *) = 0;
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
-    virtual void visit(const MetaStmt *) = 0;
 };
 
 #define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \
@@ -428,42 +424,6 @@ public:
         : Statement{Tag::COMMENT},
           _comment{std::move(comment)} {}
     [[nodiscard]] auto comment() const noexcept { return std::string_view{_comment}; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
-};
-
-/// Meta statement
-class MetaStmt : public Statement {
-    friend class AstSerializer;
-
-private:
-    luisa::string _info;
-    ScopeStmt _scope;
-    vector<const MetaStmt *> _children;
-    vector<Variable> _variables;
-
-private:
-    uint64_t _compute_hash() const noexcept override {
-        auto hash = hash64(_info, _scope.hash());
-        for (auto &&v : _variables) { hash = hash64(v.hash(), hash); }
-        return hash;
-    }
-
-public:
-    /**
-     * @brief Construct a new MetaStmt object
-     * 
-     * @param info information
-     */
-    explicit MetaStmt(luisa::string info) noexcept
-        : Statement{Tag::META},
-          _info{std::move(info)} {}
-    [[nodiscard]] auto info() const noexcept { return std::string_view{_info}; }
-    [[nodiscard]] auto scope() noexcept { return &_scope; }
-    [[nodiscard]] auto scope() const noexcept { return &_scope; }
-    [[nodiscard]] auto add(const MetaStmt *child) noexcept { _children.emplace_back(child); }
-    [[nodiscard]] auto add(Variable v) noexcept { _variables.emplace_back(v); }
-    [[nodiscard]] auto children() const noexcept { return luisa::span{_children}; }
-    [[nodiscard]] auto variables() const noexcept { return luisa::span{_variables}; }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 

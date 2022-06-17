@@ -206,20 +206,6 @@ void LLVMCodegen::visit(const ForStmt *stmt) {
 
 void LLVMCodegen::visit(const CommentStmt *stmt) { /* do nothing */ }
 
-void LLVMCodegen::visit(const MetaStmt *stmt) {
-    auto ctx = _current_context();
-    for (auto v : stmt->variables()) {
-        if (v.tag() == Variable::Tag::LOCAL) {
-            auto p = _create_alloca(_create_type(v.type()), _variable_name(v));
-            ctx->variables.emplace(v.uid(), p);
-            ctx->builder->CreateMemSet(
-                p, ctx->builder->getInt8(0),
-                v.type()->size(), ::llvm::Align{16});
-        }
-    }
-    stmt->scope()->accept(*this);
-}
-
 void LLVMCodegen::_create_assignment(const Type *dst_type, const Type *src_type, ::llvm::Value *p_dst, ::llvm::Value *p_src) noexcept {
     auto p_rhs = _builtin_static_cast(dst_type, src_type, p_src);
     auto builder = _current_context()->builder.get();

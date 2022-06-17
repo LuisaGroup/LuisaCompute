@@ -10,7 +10,6 @@
 #include <core/clock.h>
 #include <runtime/device.h>
 #include <ast/interface.h>
-#include <compile/cpp_codegen.h>
 #include <dsl/syntax.h>
 
 using namespace luisa;
@@ -107,14 +106,11 @@ int main(int argc, char *argv[]) {
 
             auto kernel = device.compile(kernel_def);
             auto command = kernel(float_buffer, 12u).dispatch(1024u);
-            auto function = static_cast<ShaderDispatchCommand *>(command)->kernel();
 
             clock.tic();
-            Codegen::Scratch scratch;
-            CppCodegen codegen{scratch};
-            codegen.emit(function);
+            auto shader = device.compile<1>(kernel_def);
             auto t2 = clock.toc();
-            LUISA_INFO("Thread: {}, AST: {:.3f} ms, Codegen: {:.3f} ms",
+            LUISA_INFO("Thread: {}, AST: {:.3f} ms, Codegen & Compile: {:.3f} ms",
                        worker, t1, t2);
         });
     }

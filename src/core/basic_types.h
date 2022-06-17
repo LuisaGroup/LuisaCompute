@@ -5,7 +5,6 @@
 #pragma once
 
 #include <core/basic_traits.h>
-#include <serialize/key_value_pair.h>
 
 namespace luisa {
 
@@ -136,14 +135,6 @@ struct Matrix<2> {
 
     [[nodiscard]] constexpr float2 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float2 &operator[](size_t i) const noexcept { return cols[i]; }
-
-    template<typename S>
-    void serialize(S& s){
-        s.serialize(
-            MAKE_NAME_PAIR(cols[0]),
-            MAKE_NAME_PAIR(cols[1])
-        );
-    }
 };
 
 /// 3x3 matrix
@@ -160,15 +151,6 @@ struct Matrix<3> {
 
     [[nodiscard]] constexpr float3 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float3 &operator[](size_t i) const noexcept { return cols[i]; }
-
-    template<typename S>
-    void serialize(S& s){
-        s.serialize(
-            MAKE_NAME_PAIR(cols[0]),
-            MAKE_NAME_PAIR(cols[1]),
-            MAKE_NAME_PAIR(cols[2])
-        );
-    }
 };
 
 /// 4x4 matrix
@@ -188,16 +170,6 @@ struct Matrix<4> {
 
     [[nodiscard]] constexpr float4 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float4 &operator[](size_t i) const noexcept { return cols[i]; }
-
-    template<typename S>
-    void serialize(S& s){
-        s.serialize(
-            MAKE_NAME_PAIR(cols[0]),
-            MAKE_NAME_PAIR(cols[1]),
-            MAKE_NAME_PAIR(cols[2]),
-            MAKE_NAME_PAIR(cols[3])
-        );
-    }
 };
 
 using float2x2 = Matrix<2>;

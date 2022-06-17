@@ -17,14 +17,9 @@
 #include <ast/constant_data.h>
 #include <ast/type_registry.h>
 
-#include <serialize/key_value_pair.h>
-
 namespace luisa::compute {
-
 class Statement;
 class Expression;
-class FuncSerializer;
-
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
@@ -35,7 +30,6 @@ namespace luisa::compute::detail {
  * Build kernel or callable function
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
-    friend class luisa::compute::FuncSerializer;
 
 private:
     /**
@@ -53,23 +47,6 @@ private:
         explicit ScopeGuard(FunctionBuilder *builder, ScopeStmt *scope) noexcept
             : _builder{builder}, _scope{scope} { _builder->push_scope(_scope); }
         ~ScopeGuard() noexcept { _builder->pop_scope(_scope); }
-    };
-
-    /**
-     * @brief Meta guard.
-     * 
-     * Push meta on build, pop meta on destroy.
-     */
-    class MetaGuard {
-
-    private:
-        FunctionBuilder *_builder;
-        MetaStmt *_meta;
-
-    public:
-        explicit MetaGuard(FunctionBuilder *builder, MetaStmt *meta) noexcept
-            : _builder{builder}, _meta{meta} { _builder->push_meta(_meta); }
-        ~MetaGuard() noexcept { _builder->pop_meta(_meta); }
     };
 
 public:
@@ -92,10 +69,6 @@ public:
             using namespace std::string_view_literals;
             return hash64(offset_bytes, hash64(handle, hash64("__hash_buffer_binding")));
         }
-        template<typename S>
-        void serialize(S& s) noexcept{
-            s.serialize(MAKE_NAME_PAIR(handle), MAKE_NAME_PAIR(offset_bytes));
-        }
     };
 
     /**
@@ -113,10 +86,6 @@ public:
             using namespace std::string_view_literals;
             return hash64(level, hash64(handle, hash64("__hash_texture_binding")));
         }
-        template<typename S>
-        void serialize(S& s) noexcept{
-            s.serialize(MAKE_NAME_PAIR(handle), MAKE_NAME_PAIR(level));
-        }
     };
 
     /**
@@ -132,10 +101,6 @@ public:
         [[nodiscard]] auto hash() const noexcept {
             using namespace std::string_view_literals;
             return hash64(handle, hash64("__hash_bindless_array_binding"));
-        }
-        template<typename S>
-        void serialize(S& s) noexcept{
-            s.serialize(MAKE_NAME_PAIR(handle));
         }
     };
 
@@ -153,10 +118,6 @@ public:
             using namespace std::string_view_literals;
             return hash64(handle, hash64("__hash_accel_binding"));
         }
-        template<typename S>
-        void serialize(S& s) noexcept{
-            s.serialize(MAKE_NAME_PAIR(handle));
-        }
     };
 
     using Binding = luisa::variant<
@@ -167,25 +128,24 @@ public:
         AccelBinding>;
 
 private:
-    MetaStmt _body;
+    ScopeStmt _body;
     luisa::optional<const Type *> _return_type;
     luisa::vector<luisa::unique_ptr<Expression>> _all_expressions;
     luisa::vector<luisa::unique_ptr<Statement>> _all_statements;
-    luisa::vector<MetaStmt *> _meta_stack;
     luisa::vector<ScopeStmt *> _scope_stack;
     luisa::vector<Variable> _builtin_variables;
     luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
     luisa::vector<Binding> _argument_bindings;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
+    luisa::vector<Variable> _local_variables;
+    luisa::vector<Variable> _shared_variables;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;//
     CallOpSet _used_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
-    bool _using_shared_storage{false};
-    bool _raytracing{false};
 
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
@@ -229,8 +189,7 @@ private:
         push(f.get());
         try {
             f->with(&f->_body, std::forward<Def>(def));
-        }
-        catch (...) {
+        } catch (...) {
             pop(f.get());
             throw;
         }
@@ -263,6 +222,10 @@ public:
     // interfaces for class Function
     /// Return a span of builtin variables.
     [[nodiscard]] auto builtin_variables() const noexcept { return luisa::span{_builtin_variables}; }
+    /// Return a span of local variables.
+    [[nodiscard]] auto local_variables() const noexcept { return luisa::span{_local_variables}; }
+    /// Return a span of shared variables.
+    [[nodiscard]] auto shared_variables() const noexcept { return luisa::span{_shared_variables}; }
     /// Return a span of constants.
     [[nodiscard]] auto constants() const noexcept { return luisa::span{_captured_constants}; }
     /// Return a span of arguments.
@@ -288,7 +251,7 @@ public:
     /// Return hash.
     [[nodiscard]] auto hash() const noexcept { return _hash; }
     /// Return if is raytracing.
-    [[nodiscard]] auto raytracing() const noexcept { return _raytracing; }
+    [[nodiscard]] bool raytracing() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition
@@ -404,8 +367,6 @@ public:
     [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
     /// Add for statement
     [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
-    /// Add meta statement
-    [[nodiscard]] MetaStmt *meta(luisa::string info) noexcept;
 
     /// Run body function in given scope s
     template<typename Body>
@@ -426,22 +387,10 @@ public:
             std::forward<Args>(args)...);
     }
 
-    /// Run body function in given meta m
-    template<typename Body>
-    decltype(auto) with(MetaStmt *m, Body &&body) {
-        MetaGuard guard{this, m};
-        return body();
-    }
-
     /// Push a function builder in stack
     static void push(FunctionBuilder *) noexcept;
     /// Pop a function builder in stack
     static void pop(FunctionBuilder *) noexcept;
-
-    /// Push a meta statement and push its scope
-    void push_meta(MetaStmt *meta) noexcept;
-    /// Pop a meta statement and pop its scope
-    void pop_meta(const MetaStmt *meta) noexcept;
 
     /// Push a scope
     void push_scope(ScopeStmt *) noexcept;
@@ -449,22 +398,6 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
-
-    template<typename S>
-    void serialize(S& s){
-        s.serialize(
-            MAKE_NAME_PAIR(_builtin_variables),
-            MAKE_NAME_PAIR(_captured_constants),
-            MAKE_NAME_PAIR(_arguments),
-            MAKE_NAME_PAIR(_argument_bindings),
-            MAKE_NAME_PAIR(_variable_usages),
-            MAKE_NAME_PAIR(_hash),
-            MAKE_NAME_PAIR(_block_size),
-            MAKE_NAME_PAIR(_tag),
-            MAKE_NAME_PAIR(_using_shared_storage),
-            MAKE_NAME_PAIR(_raytracing)
-        );
-    }
 
     /// Return a Function object constructed from this
     [[nodiscard]] auto function() const noexcept { return Function{this}; }

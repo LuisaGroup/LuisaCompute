@@ -323,6 +323,13 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_callable_context(F
 
 void LLVMCodegen::_emit_function() noexcept {
     auto ctx = _current_context();
+    for (auto v : ctx->function.local_variables()) {
+        auto p = _create_alloca(_create_type(v.type()), _variable_name(v));
+        ctx->variables.emplace(v.uid(), p);
+        ctx->builder->CreateMemSet(
+            p, ctx->builder->getInt8(0),
+            v.type()->size(), ::llvm::Align{16});
+    }
     ctx->function.body()->accept(*this);
 }
 

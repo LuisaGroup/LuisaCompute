@@ -11,7 +11,6 @@
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <ast/interface.h>
-#include <compile/cpp_codegen.h>
 #include <dsl/syntax.h>
 #include <rtx/ray.h>
 
@@ -155,16 +154,7 @@ int main(int argc, char *argv[]) {
     auto kernel = device.compile(kernel_def);
     auto command = kernel(float_buffer, 12u).dispatch(1024u);
     auto launch_command = static_cast<ShaderDispatchCommand *>(command);
-    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
-//    command->recycle();
-//    launch_command->recycle();
-
-    //    clock.tic();
-    //    Codegen::Scratch scratch;
-    //    CppCodegen codegen{scratch};
-    //    codegen.emit(launch_command->kernel());
-    //    auto t2 = clock.toc();
-    //
-    //    std::cout << scratch.view() << std::endl;
-    //    LUISA_INFO("AST: {} ms, Codegen: {} ms", t1, t2);
+    LUISA_INFO("Command: kernel = {}, args = {}",
+               hash_to_string(launch_command->kernel().hash()),
+               launch_command->argument_count());
 }

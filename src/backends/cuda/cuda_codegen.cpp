@@ -556,9 +556,9 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         }
     }
     _indent = 1;
-    _emit_variable_declarations(f.body());
+    _emit_variable_declarations(f);
     _indent = 0;
-    _emit_statements(f.body()->scope()->statements());
+    _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
 }
 
@@ -750,23 +750,16 @@ void CUDACodegen::visit(const CommentStmt *stmt) {
     _scratch << "/* " << stmt->comment() << " */";
 }
 
-void CUDACodegen::visit(const MetaStmt *stmt) {
-    _scratch << "\n";
-    _emit_indent();
-    _scratch << "// meta region begin: " << stmt->info();
-    _emit_variable_declarations(stmt);
-    for (auto s : stmt->scope()->statements()) {
-        _scratch << "\n";
-        _emit_indent();
-        s->accept(*this);
+void CUDACodegen::_emit_variable_declarations(Function f) noexcept {
+    for (auto v : f.shared_variables()) {
+        if (_function.variable_usage(v.uid()) != Usage::NONE) {
+            _scratch << "\n";
+            _emit_indent();
+            _emit_variable_decl(v, false);
+            _scratch << "{};";
+        }
     }
-    _scratch << "\n";
-    _emit_indent();
-    _scratch << "// meta region end: " << stmt->info() << "\n";
-}
-
-void CUDACodegen::_emit_variable_declarations(const MetaStmt *meta) noexcept {
-    for (auto v : meta->variables()) {
+    for (auto v : f.local_variables()) {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();

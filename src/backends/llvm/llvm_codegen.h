@@ -325,7 +325,6 @@ public:
     void visit(const AssignStmt *stmt) override;
     void visit(const ForStmt *stmt) override;
     void visit(const CommentStmt *stmt) override;
-    void visit(const MetaStmt *stmt) override;
     [[nodiscard]] std::unique_ptr<::llvm::Module> emit(Function f) noexcept;
 };
 
