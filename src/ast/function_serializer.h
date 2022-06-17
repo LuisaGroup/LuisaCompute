@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <nlohmann/json_fwd.hpp>
+
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
@@ -11,33 +13,50 @@
 
 namespace luisa::compute {
 
-class FunctionSerializer : public ExprVisitor, public StmtVisitor {
+namespace detail {
+class FunctionBuilder;
+}
+
+class FunctionSerializer {
 
 private:
+    mutable ::nlohmann::json *_constants{};
+    mutable ::nlohmann::json *_functions{};
+
+private:
+    [[nodiscard]] nlohmann::json dump(const UnaryExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const BinaryExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const MemberExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const AccessExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const LiteralExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const RefExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const ConstantExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const CallExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const CastExpr *expr) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const BreakStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const ContinueStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const ReturnStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const ScopeStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const IfStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const LoopStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const ExprStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const SwitchStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const SwitchCaseStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const SwitchDefaultStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const AssignStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const ForStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump(const CommentStmt *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump_stmt(const Statement *stmt) const noexcept;
+    [[nodiscard]] nlohmann::json dump_expr(const Expression *expr) const noexcept;
+    void dump(const ConstantData &c) const noexcept;
+    void dump(Function f) const noexcept;
 
 public:
-    void visit(const UnaryExpr *expr) override;
-    void visit(const BinaryExpr *expr) override;
-    void visit(const MemberExpr *expr) override;
-    void visit(const AccessExpr *expr) override;
-    void visit(const LiteralExpr *expr) override;
-    void visit(const RefExpr *expr) override;
-    void visit(const ConstantExpr *expr) override;
-    void visit(const CallExpr *expr) override;
-    void visit(const CastExpr *expr) override;
-    void visit(const BreakStmt *stmt) override;
-    void visit(const ContinueStmt *stmt) override;
-    void visit(const ReturnStmt *stmt) override;
-    void visit(const ScopeStmt *stmt) override;
-    void visit(const IfStmt *stmt) override;
-    void visit(const LoopStmt *stmt) override;
-    void visit(const ExprStmt *stmt) override;
-    void visit(const SwitchStmt *stmt) override;
-    void visit(const SwitchCaseStmt *stmt) override;
-    void visit(const SwitchDefaultStmt *stmt) override;
-    void visit(const AssignStmt *stmt) override;
-    void visit(const ForStmt *stmt) override;
-    void visit(const CommentStmt *stmt) override;
+    FunctionSerializer() noexcept;
+    ~FunctionSerializer() noexcept;
+    [[nodiscard]] nlohmann::json serialize(Function function) const noexcept;
+    [[nodiscard]] nlohmann::json serialize(const luisa::shared_ptr<const detail::FunctionBuilder> &function) const noexcept;
+    [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> deserialize(const nlohmann::json &json) const noexcept;
 };
 
 }// namespace luisa::compute

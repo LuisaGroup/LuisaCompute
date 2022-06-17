@@ -253,8 +253,6 @@ struct TypeVisitor {
     virtual void visit(const Type *) noexcept = 0;
 };
 
-class AstSerializer;
-
 /// Type class
 class LC_AST_API Type {
 
@@ -308,6 +306,7 @@ public:
     [[nodiscard]] static size_t count() noexcept;
     /// Traverse TypeVisitor
     static void traverse(TypeVisitor &visitor) noexcept;
+    static void traverse(const luisa::function<void(const Type *)> &visitor) noexcept;
 
     /// Compare by hash
     [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }

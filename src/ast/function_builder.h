@@ -20,6 +20,7 @@
 namespace luisa::compute {
 class Statement;
 class Expression;
+class FunctionSerializer;
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
@@ -127,6 +128,8 @@ public:
         BindlessArrayBinding,
         AccelBinding>;
 
+    friend FunctionSerializer;
+
 private:
     ScopeStmt _body;
     luisa::optional<const Type *> _return_type;
@@ -141,7 +144,7 @@ private:
     luisa::vector<Variable> _local_variables;
     luisa::vector<Variable> _shared_variables;
     luisa::vector<Usage> _variable_usages;
-    luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;//
+    luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
     CallOpSet _used_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
