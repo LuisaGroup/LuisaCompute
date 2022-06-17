@@ -171,8 +171,8 @@ private:
     luisa::optional<const Type *> _return_type;
     luisa::vector<luisa::unique_ptr<Expression>> _all_expressions;
     luisa::vector<luisa::unique_ptr<Statement>> _all_statements;
-    luisa::vector<MetaStmt *> _meta_stack;//
-    luisa::vector<ScopeStmt *> _scope_stack;//
+    luisa::vector<MetaStmt *> _meta_stack;
+    luisa::vector<ScopeStmt *> _scope_stack;
     luisa::vector<Variable> _builtin_variables;
     luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
