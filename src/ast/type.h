@@ -259,8 +259,7 @@ class AstSerializer;
 class LC_AST_API Type {
 
 public:
-    friend class AstSerializer;
-    friend class detail::TypeRegistry;
+        friend class detail::TypeRegistry;
 
     /// Type tags
     enum struct Tag : uint32_t {

@@ -1,6 +1,7 @@
 set(LUISA_COMPUTE_AST_SOURCES
         function.h function.cpp
         function_builder.cpp function_builder.h
+        function_serializer.cpp function_serializer.h
         expression.cpp expression.h
         variable.h
         statement.cpp statement.h

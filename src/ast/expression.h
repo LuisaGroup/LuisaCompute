@@ -23,7 +23,7 @@
 namespace luisa::compute {
 
 struct ExprVisitor;
-class AstSerializer;
+
 namespace detail {
 class FunctionBuilder;
 }
@@ -33,7 +33,6 @@ class FunctionBuilder;
  * 
  */
 class LC_AST_API Expression : public concepts::Noncopyable {
-    friend class AstSerializer;
 
 public:
     /// Expression type
@@ -75,11 +74,6 @@ public:
     virtual void accept(ExprVisitor &) const = 0;
     void mark(Usage usage) const noexcept;
     [[nodiscard]] uint64_t hash() const noexcept;
-
-    /// Allow serializetion
-    using is_polymorphically_serialized = void;
-    using polymorphic_tag_type = Tag;
-    static luisa::unique_ptr<Expression> create(Tag tag) noexcept;
 };
 
 class UnaryExpr;
@@ -109,7 +103,6 @@ struct ExprVisitor {
 
 /// Unary expression
 class UnaryExpr final : public Expression {
-    friend class AstSerializer;
 
 private:
     const Expression *_operand;
@@ -140,7 +133,6 @@ public:
 
 /// Binary expression
 class BinaryExpr final : public Expression {
-    friend class AstSerializer;
 
 private:
     const Expression *_lhs;
@@ -178,7 +170,6 @@ public:
 
 /// Access expression
 class AccessExpr final : public Expression {
-    friend class AstSerializer;
 
 private:
     const Expression *_range;
@@ -211,7 +202,6 @@ public:
 
 /// Member expression
 class MemberExpr final : public Expression {
-    friend class AstSerializer;
 
 public:
     static constexpr auto swizzle_mask = 0xff00000000ull;
@@ -305,7 +295,6 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 
 /// TODO
 class LiteralExpr final : public Expression {
-    friend class AstSerializer;
 
 public:
     using Value = detail::make_literal_value_t<basic_types>;
@@ -334,7 +323,6 @@ public:
 
 /// Reference expression
 class RefExpr final : public Expression {
-    friend class AstSerializer;
 
 private:
     Variable _variable;
@@ -359,7 +347,6 @@ public:
 
 /// Constant expression
 class ConstantExpr final : public Expression {
-    friend class AstSerializer;
 
 private:
     ConstantData _data;
@@ -385,7 +372,6 @@ public:
 
 /// Call expression
 class CallExpr final : public Expression {
-    friend class AstSerializer;
 
 public:
     using ArgumentList = luisa::vector<const Expression *>;
@@ -444,7 +430,6 @@ enum struct CastOp {
 
 /// Cast expression
 class CastExpr final : public Expression {
-    friend class AstSerializer;
 
 private:
     const Expression *_source;

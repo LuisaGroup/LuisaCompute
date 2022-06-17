@@ -447,12 +447,29 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
             custom.hash());
     }
     auto expr = _create_expression<CallExpr>(type, custom, std::move(call_args));
-    _used_builtin_callables.propagate(f->_used_builtin_callables);
     if (auto iter = std::find_if(
             _used_custom_callables.cbegin(), _used_custom_callables.cend(),
-            [c = custom.builder()](auto &&p) noexcept { return c == p.get(); });
+            [&](auto &&p) noexcept { return f->hash() == p->hash(); });
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom.shared_builder());
+        // propagate used builtin/custom callables and constants
+        _used_builtin_callables.propagate(f->_used_builtin_callables);
+        for (auto c : f->_captured_constants) {
+            if (auto it = std::find_if(
+                    _captured_constants.begin(), _captured_constants.end(),
+                    [&](auto &&cc) { return c.hash() == cc.hash(); });
+                it == _captured_constants.end()) {
+                _captured_constants.push_back(c);
+            }
+        }
+        for (auto &&c : f->_used_custom_callables) {
+            if (auto it = std::find_if(
+                    _used_custom_callables.begin(), _used_custom_callables.end(),
+                    [&](auto &&f) { return f->hash() == c->hash(); });
+                it == _used_custom_callables.end()) {
+                _used_custom_callables.push_back(c);
+            }
+        }
     }
     return expr;
 }
