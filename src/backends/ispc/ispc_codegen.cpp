@@ -587,8 +587,6 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
     for (auto &&callable : f.custom_callables()) {
         _emit_function(callable->function());
     }
-
-    _continue_analysis.analyze(f);
     _definition_analysis.analyze(f);
 
     _function = f;
@@ -710,7 +708,6 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << "  }\n"
                  << "}";
     }
-    _continue_analysis.reset();
     _definition_analysis.reset();
     _defined_variables.clear();
 }
