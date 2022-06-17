@@ -4,6 +4,7 @@
 
 #include <charconv>
 #include <bit>
+#include <utility>
 
 #include <core/logging.h>
 #include <ast/type.h>
@@ -26,5 +27,21 @@ const Type *Type::find(uint64_t hash) noexcept { return detail::TypeRegistry::in
 const Type *Type::at(uint32_t uid) noexcept { return detail::TypeRegistry::instance().type_at(uid); }
 size_t Type::count() noexcept { return detail::TypeRegistry::instance().type_count(); }
 void Type::traverse(TypeVisitor &visitor) noexcept { detail::TypeRegistry::instance().traverse(visitor); }
+
+class TypeVisitorAdapter final : public TypeVisitor {
+
+private:
+    luisa::function<void(const Type *)> _visitor;
+
+public:
+    explicit TypeVisitorAdapter(luisa::function<void(const Type *)> visitor) noexcept
+        : _visitor(std::move(visitor)) {}
+    void visit(const Type *type) noexcept override { _visitor(type); }
+};
+
+void Type::traverse(const function<void(const Type *)> &visitor) noexcept {
+    TypeVisitorAdapter adapter{visitor};
+    traverse(adapter);
+}
 
 }// namespace luisa::compute

@@ -249,6 +249,7 @@ public:
 
     [[nodiscard]] auto is_swizzle() const noexcept { return (_member & swizzle_mask) != 0u; }
     [[nodiscard]] auto self() const noexcept { return _self; }
+    [[nodiscard]] auto code() const noexcept { return _member; }
 
     [[nodiscard]] auto member_index() const noexcept {
         if (is_swizzle()) {

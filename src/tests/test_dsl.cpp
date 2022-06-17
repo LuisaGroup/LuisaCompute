@@ -6,13 +6,14 @@
 #include <chrono>
 #include <numeric>
 
+#include <nlohmann/json.hpp>
+
 #include <core/clock.h>
 #include <core/dynamic_module.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <ast/interface.h>
 #include <dsl/syntax.h>
-#include <rtx/ray.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -157,4 +158,9 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Command: kernel = {}, args = {}",
                hash_to_string(launch_command->kernel().hash()),
                launch_command->argument_count());
+
+
+    FunctionSerializer serializer;
+    auto json = serializer.serialize(kernel_def.function());
+    LUISA_INFO("Serialized: {}", json.dump(2));
 }
