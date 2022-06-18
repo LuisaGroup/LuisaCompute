@@ -160,17 +160,17 @@ int main(int argc, char *argv[]) {
 
     clock.tic();
     FunctionSerializer serializer;
-    auto json = serializer.to_json(kernel_def.function());
+    auto j = serializer.to_json(kernel_def.function());
     LUISA_INFO("Serialize: {} ms", clock.toc());
     clock.tic();
-    auto s = json.dump(2);
+    auto s = j.dump(2);
     LUISA_INFO("Dump: {} ms", clock.toc());
     {
-        std::ofstream dump{"kernel.json"};
-        dump << s;
+        std::ofstream dump{"kernel.bin", std::ios::binary};
+        json::to_msgpack(j, dump);
     }
     clock.tic();
-    auto deserialized = serializer.from_json(json);
+    auto deserialized = serializer.from_json(j);
     LUISA_INFO("Deserialize (before = {:016x}, after = {:016x}): {} ms",
                kernel_def.function()->hash(), deserialized->hash(), clock.toc());
 }
