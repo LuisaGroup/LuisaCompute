@@ -15,7 +15,7 @@
 	url = https://github.com/nothings/stb.git
 [submodule "src/ext/json"]
 	path = src/ext/json
-	url = https://github.com/nlohmann/json.git
+	url = https://github.com/Mike-Leo-Smith/json.git
 [submodule "src/ext/glfw"]
 	path = src/ext/glfw
 	url = https://github.com/glfw/glfw.git

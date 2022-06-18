@@ -20,7 +20,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         first_fit.cpp first_fit.h
         observer.cpp observer.h
         thread_pool.cpp thread_pool.h
-        thread_safety.h)
+        thread_safety.h
+        json_fwd.h json.h)
 
 find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
