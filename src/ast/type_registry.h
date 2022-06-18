@@ -244,6 +244,7 @@ struct TypeDesc<std::tuple<T...>> {
 
 template<typename T>
 const Type *Type::of() noexcept {
+    if constexpr (std::is_same_v<T, void>) { return nullptr; }
     static thread_local auto info = Type::from(
         detail::TypeDesc<std::remove_cvref_t<T>>::description());
     return info;

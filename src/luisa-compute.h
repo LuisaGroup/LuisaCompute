@@ -15,6 +15,8 @@
 #include <core/first_fit.h>
 #include <core/hash.h>
 #include <core/intrin.h>
+#include <core/json.h>
+#include <core/json_fwd.h>
 #include <core/logging.h>
 #include <core/lru_cache.h>
 #include <core/macro.h>
@@ -31,6 +33,7 @@
 #include <ast/expression.h>
 #include <ast/function.h>
 #include <ast/function_builder.h>
+#include <ast/function_serializer.h>
 #include <ast/interface.h>
 #include <ast/op.h>
 #include <ast/statement.h>

@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     auto float_buffer = device.create_buffer<float>(1024u);
 
     Callable c1 = [&](UInt a) noexcept {
-        return buffer.read(a);// captures buffer
+        return buffer.read(a + thread_x());// captures buffer
     };
 
     Callable c2 = [&](UInt b) noexcept {
@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
 
     // binding to template lambdas
     Callable<int(int, int)> add = [&]<typename T>(Var<T> a, Var<T> b) noexcept {
-        return a + b;
+        return cast<int>(c1(cast<uint>(a + b)).x);
     };
 
     Clock clock;
@@ -160,11 +160,17 @@ int main(int argc, char *argv[]) {
 
     clock.tic();
     FunctionSerializer serializer;
-    auto json = serializer.serialize(kernel_def.function());
+    auto json = serializer.to_json(kernel_def.function());
     LUISA_INFO("Serialize: {} ms", clock.toc());
     clock.tic();
     auto s = json.dump(2);
     LUISA_INFO("Dump: {} ms", clock.toc());
-    std::ofstream dump{"kernel.json"};
-    dump << s;
+    {
+        std::ofstream dump{"kernel.json"};
+        dump << s;
+    }
+    clock.tic();
+    auto deserialized = serializer.from_json(json);
+    LUISA_INFO("Deserialize (before = {:016x}, after = {:016x}): {} ms",
+               kernel_def.function()->hash(), deserialized->hash(), clock.toc());
 }

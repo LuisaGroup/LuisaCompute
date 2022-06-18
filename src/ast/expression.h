@@ -204,17 +204,18 @@ public:
 class MemberExpr final : public Expression {
 
 public:
-    static constexpr auto swizzle_mask = 0xff00000000ull;
-    static constexpr auto swizzle_shift = 32u;
+    static constexpr auto swizzle_mask = 0xff000000u;
+    static constexpr auto swizzle_shift = 24u;
 
 private:
     const Expression *_self;
-    uint64_t _member;
+    uint32_t _swizzle_size;
+    uint32_t _swizzle_code;
 
 protected:
     void _mark(Usage usage) const noexcept override { _self->mark(usage); }
     uint64_t _compute_hash() const noexcept override {
-        return hash64(_member, _self->hash());
+        return hash64(make_uint2(_swizzle_size, _swizzle_code), _self->hash());
     }
 
 public:
@@ -225,8 +226,9 @@ public:
      * @param self where to get member
      * @param member_index index of member
      */
-    MemberExpr(const Type *type, const Expression *self, size_t member_index) noexcept
-        : Expression{Tag::MEMBER, type}, _self{self}, _member{member_index} {}
+    MemberExpr(const Type *type, const Expression *self, uint member_index) noexcept
+        : Expression{Tag::MEMBER, type}, _self{self},
+          _swizzle_size{0u}, _swizzle_code{member_index} {}
 
     /**
      * @brief Construct a new Member Expr object accessing by swizzling
@@ -244,34 +246,40 @@ public:
      * @param swizzle_size swizzle size
      * @param swizzle_code swizzle code
      */
-    MemberExpr(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept
-        : Expression{Tag::MEMBER, type}, _self{self}, _member{(static_cast<uint64_t>(swizzle_size) << swizzle_shift) | swizzle_code} {}
-
-    [[nodiscard]] auto is_swizzle() const noexcept { return (_member & swizzle_mask) != 0u; }
-    [[nodiscard]] auto self() const noexcept { return _self; }
-    [[nodiscard]] auto code() const noexcept { return _member; }
-
-    [[nodiscard]] auto member_index() const noexcept {
-        if (is_swizzle()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid member index in swizzled MemberExpr.");
-        }
-        return static_cast<size_t>(_member);
+    MemberExpr(const Type *type, const Expression *self, uint swizzle_size, uint swizzle_code) noexcept
+        : Expression{Tag::MEMBER, type}, _self{self},
+          _swizzle_size{swizzle_size}, _swizzle_code{swizzle_code} {
+        LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
+                     "Swizzle size must be in [1, 4]");
     }
+
+    [[nodiscard]] auto self() const noexcept { return _self; }
 
     [[nodiscard]] auto swizzle_size() const noexcept {
-        auto s = (_member & swizzle_mask) >> swizzle_shift;
-        if (s == 0u || s > 4u) { LUISA_ERROR_WITH_LOCATION("Invalid swizzle size {}.", s); }
-        return static_cast<size_t>(s);
+        LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
+                     "Invalid swizzle size {}.", _swizzle_size);
+        return _swizzle_size;
     }
 
-    [[nodiscard]] auto swizzle_index(size_t index) const noexcept {
+    [[nodiscard]] auto is_swizzle() const noexcept { return _swizzle_size != 0u; }
+
+    [[nodiscard]] auto swizzle_code() const noexcept {
+        LUISA_ASSERT(is_swizzle(), "MemberExpr is not swizzled.");
+        return _swizzle_code;
+    }
+
+    [[nodiscard]] auto swizzle_index(uint index) const noexcept {
         if (auto s = swizzle_size(); index >= s) {
             LUISA_ERROR_WITH_LOCATION(
                 "Invalid swizzle index {} (count = {}).",
                 index, s);
         }
-        return static_cast<size_t>((_member >> (index * 4u)) & 0x0fu);
+        return (_swizzle_code >> (index * 4u)) & 0x0fu;
+    }
+
+    [[nodiscard]] auto member_index() const noexcept {
+        LUISA_ASSERT(!is_swizzle(), "MemberExpr is not a member");
+        return _swizzle_code;
     }
 
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()

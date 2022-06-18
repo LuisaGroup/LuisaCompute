@@ -21,7 +21,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         observer.cpp observer.h
         thread_pool.cpp thread_pool.h
         thread_safety.h
-        json_fwd.h json.h)
+        json_fwd.h json.h
+        binary_buffer.h)
 
 find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
