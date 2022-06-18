@@ -6,8 +6,7 @@
 #include <chrono>
 #include <numeric>
 
-#include <nlohmann/json.hpp>
-
+#include <core/json.h>
 #include <core/clock.h>
 #include <core/dynamic_module.h>
 #include <runtime/device.h>
@@ -159,8 +158,13 @@ int main(int argc, char *argv[]) {
                hash_to_string(launch_command->kernel().hash()),
                launch_command->argument_count());
 
-
+    clock.tic();
     FunctionSerializer serializer;
     auto json = serializer.serialize(kernel_def.function());
-    LUISA_INFO("Serialized: {}", json.dump(2));
+    LUISA_INFO("Serialize: {} ms", clock.toc());
+    clock.tic();
+    auto s = json.dump(2);
+    LUISA_INFO("Dump: {} ms", clock.toc());
+    std::ofstream dump{"kernel.json"};
+    dump << s;
 }

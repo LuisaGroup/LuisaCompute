@@ -64,12 +64,20 @@ template<typename T = std::byte>
 struct allocator {
     using value_type = T;
     constexpr allocator() noexcept = default;
+    explicit constexpr allocator(const char *) noexcept {}
     template<typename U>
     constexpr allocator(allocator<U>) noexcept {}
     [[nodiscard]] auto allocate(std::size_t n) const noexcept {
         return static_cast<T *>(detail::allocator_allocate(sizeof(T) * n, alignof(T)));
     }
+    [[nodiscard]] auto allocate(std::size_t n, size_t alignment, size_t) const noexcept {
+        assert(alignment >= alignof(T));
+        return static_cast<T *>(detail::allocator_allocate(sizeof(T) * n, alignment));
+    }
     void deallocate(T *p, size_t) const noexcept {
+        detail::allocator_deallocate(p, alignof(T));
+    }
+    void deallocate(void *p, size_t) const noexcept {
         detail::allocator_deallocate(p, alignof(T));
     }
     template<typename R>
@@ -77,6 +85,7 @@ struct allocator {
         return std::is_same_v<T, R>;
     }
 };
+
 template<typename T>
 [[nodiscard]] inline auto allocate(size_t n = 1u) noexcept {
     return allocator<T>{}.allocate(n);
@@ -110,24 +119,50 @@ using eastl::function;
 using eastl::make_shared;
 using eastl::make_unique;
 using eastl::reinterpret_pointer_cast;
-using eastl::shared_array;
 using eastl::shared_ptr;
+using eastl::span;
 using eastl::static_pointer_cast;
 using eastl::unique_ptr;
 using eastl::weak_ptr;
 
-using eastl::span;
-using eastl::vector;
+template<typename T, typename Alloc = allocator<T>>
+using shared_array = eastl::shared_array<T, Alloc>;
 
-using eastl::deque;
-using eastl::list;
+template<typename T, typename Alloc = allocator<T>>
+using vector = eastl::vector<T, Alloc>;
+
+template<typename T, typename Alloc = allocator<T>>
+using deque = eastl::deque<T, Alloc>;
+
+template<typename T, typename Container = luisa::deque<T>>
+using queue = eastl::queue<T, Container>;
+
+template<typename T, typename Alloc = allocator<T>>
+using slist = eastl::slist<T, Alloc>;
+
+template<typename T, typename Alloc = allocator<T>>
+using list = eastl::list<T, Alloc>;
+
+using eastl::bitvector;
+using eastl::fixed_hash_map;
+using eastl::fixed_hash_multimap;
+using eastl::fixed_map;
+using eastl::fixed_multimap;
+using eastl::fixed_multiset;
+using eastl::fixed_set;
+
+using eastl::lru_cache;
+
+using eastl::vector_map;
+using eastl::vector_multimap;
+using eastl::vector_multiset;
+using eastl::vector_set;
+
 using eastl::make_optional;
 using eastl::monostate;
 using eastl::move_only_function;
 using eastl::nullopt;
 using eastl::optional;
-using eastl::queue;
-using eastl::slist;
 using eastl::variant;
 using eastl::variant_alternative_t;
 using eastl::variant_size_v;
@@ -189,21 +224,6 @@ using eastl::get;
 using eastl::get_if;
 using eastl::holds_alternative;
 using eastl::visit;
-
-using eastl::fixed_hash_map;
-using eastl::fixed_hash_multimap;
-using eastl::fixed_map;
-using eastl::fixed_multimap;
-using eastl::fixed_multiset;
-using eastl::fixed_set;
-
-using eastl::bitvector;
-using eastl::lru_cache;
-
-using eastl::vector_map;
-using eastl::vector_multimap;
-using eastl::vector_multiset;
-using eastl::vector_set;
 
 struct default_sentinel_t {};
 inline constexpr default_sentinel_t default_sentinel{};

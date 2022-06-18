@@ -6,7 +6,6 @@
 #include <core/platform.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
-#include <nlohmann/json.hpp>
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>
