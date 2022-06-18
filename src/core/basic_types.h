@@ -43,7 +43,7 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
     template<typename S>
-    void serialize(S& s) { s.serialize(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y)); }
+    void serialize(S& s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y)); }
 #include <core/swizzle_2.inl.h>
 };
 
@@ -54,7 +54,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
     template<typename S>
-    void serialize(S& s) { s.serialize(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z)); }
+    void serialize(S& s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z)); }
 #include <core/swizzle_3.inl.h>
 };
 
@@ -65,7 +65,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
     template<typename S>
-    void serialize(S& s) { s.serialize(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z), MAKE_NAME_PAIR(w)); }
+    void serialize(S& s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z), MAKE_NAME_PAIR(w)); }
 #include <core/swizzle_4.inl.h>
 };
 

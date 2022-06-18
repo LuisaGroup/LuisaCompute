@@ -110,7 +110,7 @@ LoopStmt *FunctionBuilder::loop_() noexcept {
 }
 
 void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
-    _create_and_append_statement<ExprStmt>(expr);
+    if (expr != nullptr) { _create_and_append_statement<ExprStmt>(expr); }
 }
 
 SwitchStmt *FunctionBuilder::switch_(const Expression *expr) noexcept {
@@ -326,11 +326,11 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, std::in
 }
 
 void FunctionBuilder::call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept {
-    _void_expr(call(nullptr, call_op, args));
+    static_cast<void>(call(nullptr, call_op, args));
 }
 
 void FunctionBuilder::call(Function custom, std::initializer_list<const Expression *> args) noexcept {
-    _void_expr(call(nullptr, custom, args));
+    static_cast<void>(call(nullptr, custom, args));
 }
 
 void FunctionBuilder::_compute_hash() noexcept {
@@ -403,8 +403,13 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
             "be called with enum CallOp.");
     }
     _used_builtin_callables.mark(call_op);
-    return _create_expression<CallExpr>(
+    auto expr = _create_expression<CallExpr>(
         type, call_op, CallExpr::ArgumentList{args.begin(), args.end()});
+    if (type == nullptr) {
+        _void_expr(expr);
+        return nullptr;
+    }
+    return expr;
 }
 
 // call custom functions
@@ -443,7 +448,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     }
     if (in_iter != args.end()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
-            "Invalid call arguments for custom callable #{}.",
+            "Invalid call arguments for custom callable #{:016x}.",
             custom.hash());
     }
     auto expr = _create_expression<CallExpr>(type, custom, std::move(call_args));
@@ -470,6 +475,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
                 _used_custom_callables.push_back(c);
             }
         }
+    }
+    if (type == nullptr) {
+        _void_expr(expr);
+        return nullptr;
     }
     return expr;
 }

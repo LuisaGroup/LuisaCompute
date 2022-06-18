@@ -250,6 +250,7 @@ TypeRegistry &TypeRegistry::instance() noexcept {
 }
 
 const Type *TypeRegistry::type_from(luisa::string_view desc) noexcept {
+    if (desc == "void") { return nullptr; }
     return _decode(desc);
 }
 
