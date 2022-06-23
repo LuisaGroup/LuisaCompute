@@ -34,6 +34,8 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept
     options.NoInfsFPMath = true;
     options.NoNaNsFPMath = true;
     options.NoTrappingFPMath = true;
+    options.NoSignedZerosFPMath = true;
+    options.ApproxFuncFPMath = true;
     options.EnableIPRA = true;
     options.StackSymbolOrdering = true;
     auto mcpu = ::llvm::sys::getHostCPUName();
