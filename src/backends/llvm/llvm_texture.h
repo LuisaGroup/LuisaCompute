@@ -17,8 +17,8 @@ namespace luisa::compute::llvm {
 
 namespace detail {
 
-[[nodiscard]] uint float_to_half(float f) noexcept;
-[[nodiscard]] float half_to_float(uint h) noexcept;
+[[nodiscard]] float16_t float_to_half(float f) noexcept;
+[[nodiscard]] float half_to_float(float16_t h) noexcept;
 
 template<typename T>
 [[nodiscard]] inline float scalar_to_float(T x) noexcept {
@@ -28,7 +28,7 @@ template<typename T>
         return x / 255.f;
     } else if constexpr (std::is_same_v<T, uint16_t>) {
         return x / 65535.f;
-    } else if constexpr (std::is_same_v<T, int16_t>) {
+    } else if constexpr (std::is_same_v<T, float16_t>) {
         return half_to_float(x);
     } else {
         return 0.f;
@@ -43,7 +43,7 @@ template<typename T>
         return static_cast<T>(std::clamp(std::round(x * 255.f), 0.f, 255.f));
     } else if constexpr (std::is_same_v<T, uint16_t>) {
         return static_cast<T>(std::clamp(std::round(x * 65535.f), 0.f, 65535.f));
-    } else if constexpr (std::is_same_v<T, int16_t>) {
+    } else if constexpr (std::is_same_v<T, float16_t>) {
         return static_cast<T>(float_to_half(x));
     } else {
         return static_cast<T>(0);
@@ -174,9 +174,9 @@ template<typename T>
         case PixelStorage::INT1: return detail::read_pixel<T, uint32_t, 1u>(p);
         case PixelStorage::INT2: return detail::read_pixel<T, uint32_t, 2u>(p);
         case PixelStorage::INT4: return detail::read_pixel<T, uint32_t, 4u>(p);
-        case PixelStorage::HALF1: return detail::read_pixel<T, int16_t, 1u>(p);
-        case PixelStorage::HALF2: return detail::read_pixel<T, int16_t, 2u>(p);
-        case PixelStorage::HALF4: return detail::read_pixel<T, int16_t, 4u>(p);
+        case PixelStorage::HALF1: return detail::read_pixel<T, float16_t, 1u>(p);
+        case PixelStorage::HALF2: return detail::read_pixel<T, float16_t, 2u>(p);
+        case PixelStorage::HALF4: return detail::read_pixel<T, float16_t, 4u>(p);
         case PixelStorage::FLOAT1: return detail::read_pixel<T, float, 1u>(p);
         case PixelStorage::FLOAT2: return detail::read_pixel<T, float, 2u>(p);
         case PixelStorage::FLOAT4: return detail::read_pixel<T, float, 4u>(p);
@@ -197,9 +197,9 @@ inline void write_pixel(PixelStorage storage, std::byte *p, Vector<T, 4u> v) noe
         case PixelStorage::INT1: detail::write_pixel<T, uint32_t, 1u>(p, v); break;
         case PixelStorage::INT2: detail::write_pixel<T, uint32_t, 2u>(p, v); break;
         case PixelStorage::INT4: detail::write_pixel<T, uint32_t, 4u>(p, v); break;
-        case PixelStorage::HALF1: detail::write_pixel<T, int16_t, 1u>(p, v); break;
-        case PixelStorage::HALF2: detail::write_pixel<T, int16_t, 2u>(p, v); break;
-        case PixelStorage::HALF4: detail::write_pixel<T, int16_t, 4u>(p, v); break;
+        case PixelStorage::HALF1: detail::write_pixel<T, float16_t, 1u>(p, v); break;
+        case PixelStorage::HALF2: detail::write_pixel<T, float16_t, 2u>(p, v); break;
+        case PixelStorage::HALF4: detail::write_pixel<T, float16_t, 4u>(p, v); break;
         case PixelStorage::FLOAT1: detail::write_pixel<T, float, 1u>(p, v); break;
         case PixelStorage::FLOAT2: detail::write_pixel<T, float, 2u>(p, v); break;
         case PixelStorage::FLOAT4: detail::write_pixel<T, float, 4u>(p, v); break;
@@ -328,26 +328,26 @@ public:
 
 static_assert(sizeof(LLVMTextureView) == 16u);
 
-[[nodiscard]] detail::ulong2 texture_read_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
-[[nodiscard]] detail::ulong2 texture_read_3d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
-[[nodiscard]] detail::ulong2 texture_read_2d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
-[[nodiscard]] detail::ulong2 texture_read_3d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
-[[nodiscard]] detail::ulong2 texture_read_2d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
-[[nodiscard]] detail::ulong2 texture_read_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1) noexcept;
-void texture_write_2d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
-void texture_write_3d_int(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
-void texture_write_2d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
-void texture_write_3d_uint(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
-void texture_write_2d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
-void texture_write_3d_float(uint64_t t0, uint64_t t1, uint64_t c0, uint64_t c1, uint64_t v0, uint64_t v1) noexcept;
+[[nodiscard]] float32x4_t texture_read_2d_int(int64_t t0, int64_t t1, int64_t c0, int64_t c1) noexcept;
+[[nodiscard]] float32x4_t texture_read_3d_int(int64_t t0, int64_t t1, int64_t c0, int64_t c1) noexcept;
+[[nodiscard]] float32x4_t texture_read_2d_uint(int64_t t0, int64_t t1, int64_t c0, int64_t c1) noexcept;
+[[nodiscard]] float32x4_t texture_read_3d_uint(int64_t t0, int64_t t1, int64_t c0, int64_t c1) noexcept;
+[[nodiscard]] float32x4_t texture_read_2d_float(int64_t t0, int64_t t1, int64_t c0, int64_t c1) noexcept;
+[[nodiscard]] float32x4_t texture_read_3d_float(int64_t t0, int64_t t1, int64_t c0, int64_t c1) noexcept;
+void texture_write_2d_int(int64_t t0, int64_t t1, int64_t c0, int64_t c1, int64_t v0, int64_t v1) noexcept;
+void texture_write_3d_int(int64_t t0, int64_t t1, int64_t c0, int64_t c1, int64_t v0, int64_t v1) noexcept;
+void texture_write_2d_uint(int64_t t0, int64_t t1, int64_t c0, int64_t c1, int64_t v0, int64_t v1) noexcept;
+void texture_write_3d_uint(int64_t t0, int64_t t1, int64_t c0, int64_t c1, int64_t v0, int64_t v1) noexcept;
+void texture_write_2d_float(int64_t t0, int64_t t1, int64_t c0, int64_t c1, int64_t v0, int64_t v1) noexcept;
+void texture_write_3d_float(int64_t t0, int64_t t1, int64_t c0, int64_t c1, int64_t v0, int64_t v1) noexcept;
 
-[[nodiscard]] detail::ulong2 bindless_texture_2d_read(const LLVMTexture *tex, uint level, uint x, uint y) noexcept;
-[[nodiscard]] detail::ulong2 bindless_texture_3d_read(const LLVMTexture *tex, uint level, uint x, uint y, uint z) noexcept;
-[[nodiscard]] detail::ulong2 bindless_texture_2d_sample(const LLVMTexture *tex, uint sampler, float u, float v) noexcept;
-[[nodiscard]] detail::ulong2 bindless_texture_3d_sample(const LLVMTexture *tex, uint sampler, float u, float v, float w) noexcept;
-[[nodiscard]] detail::ulong2 bindless_texture_2d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float lod) noexcept;
-[[nodiscard]] detail::ulong2 bindless_texture_3d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float w, float lod) noexcept;
-[[nodiscard]] detail::ulong2 bindless_texture_2d_sample_grad(const LLVMTexture *tex, uint sampler, float u, float v, uint64_t dpdx, uint64_t dpdy) noexcept;
-[[nodiscard]] detail::ulong2 bindless_texture_3d_sample_grad(const LLVMTexture *tex, uint64_t sampler_w, uint64_t uv, uint64_t dudxy, uint64_t dvdxy, uint64_t dwdxy) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_2d_read(const LLVMTexture *tex, uint level, uint x, uint y) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_3d_read(const LLVMTexture *tex, uint level, uint x, uint y, uint z) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_2d_sample(const LLVMTexture *tex, uint sampler, float u, float v) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_3d_sample(const LLVMTexture *tex, uint sampler, float u, float v, float w) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_2d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float lod) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_3d_sample_level(const LLVMTexture *tex, uint sampler, float u, float v, float w, float lod) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_2d_sample_grad(const LLVMTexture *tex, uint sampler, float u, float v, int64_t dpdx, int64_t dpdy) noexcept;
+[[nodiscard]] float32x4_t bindless_texture_3d_sample_grad(const LLVMTexture *tex, int64_t sampler_w, int64_t uv, int64_t dudxy, int64_t dvdxy, int64_t dwdxy) noexcept;
 
 }// namespace luisa::compute::llvm

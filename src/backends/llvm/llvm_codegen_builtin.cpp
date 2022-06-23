@@ -2078,26 +2078,11 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
     _create_assignment(t_value, t_value, ptr, p_value);
 }
 
-[[nodiscard]] inline ::llvm::Value *decode_i64v2(::llvm::IRBuilder<> *b, ::llvm::Type *t, ::llvm::Value *value) noexcept {
-    auto xy = b->CreateExtractValue(value, 0, "decode.xy");
-    auto zw = b->CreateExtractValue(value, 1, "decode.zw");
-    auto x = b->CreateTrunc(xy, b->getInt32Ty(), "decode.x");
-    auto y = b->CreateTrunc(b->CreateLShr(xy, 32u), b->getInt32Ty(), "decode.y");
-    auto z = b->CreateTrunc(zw, b->getInt32Ty(), "decode.z");
-    auto w = b->CreateTrunc(b->CreateLShr(zw, 32u), b->getInt32Ty(), "decode.w");
-    auto v = ::llvm::UndefValue::get(::llvm::FixedVectorType::get(b->getInt32Ty(), 4u));
-    auto v_x = b->CreateInsertElement(v, x, static_cast<uint64_t>(0u), "decode.v.x");
-    auto v_xy = b->CreateInsertElement(v_x, y, static_cast<uint64_t>(1u), "decode.v.xy");
-    auto v_xyz = b->CreateInsertElement(v_xy, z, static_cast<uint64_t>(2u), "decode.v.xyz");
-    auto v_xyzw = b->CreateInsertElement(v_xyz, w, static_cast<uint64_t>(3u), "decode.v.xyzw");
-    return b->CreateBitCast(v_xyzw, t, "decode.v");
-}
-
 ::llvm::Value *LLVMCodegen::_builtin_texture_read(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord) noexcept {
     LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
                  "Invalid type '{}' for texture-read.",
                  t->description());
-    // { i64, i64 } texture.read.Nd.type(i64 t0, i64 t1, i64 c0, i64 c2)
+    // <4 x float> texture.read.Nd.type(i64 t0, i64 t1, i64 c0, i64 c2)
     auto b = _current_context()->builder.get();
     auto coord = b->CreateLoad(
         p_coord->getType()->getPointerElementType(),
@@ -2107,11 +2092,11 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
     auto func_name = luisa::format("texture.read.{}d.{}", dim, t->element()->description());
     auto func = _module->getFunction(::llvm::StringRef{func_name.data(), func_name.size()});
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
-    auto i64v2_type = ::llvm::StructType::get(i64_type, i64_type);
+    auto f32v4_type = ::llvm::FixedVectorType::get(b->getFloatTy(), 4u);
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                i64v2_type,
+                f32v4_type,
                 {i64_type, i64_type, i64_type, i64_type},
                 false),
             ::llvm::Function::ExternalLinkage,
@@ -2134,14 +2119,16 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
         b->CreateShuffleVector(
             coord, shuffle, "texture.read.coord.vector"),
         "texture.read.coord.vector.addr");
+    auto i64v2_type = ::llvm::FixedVectorType::get(i64_type, 2u);
     p_coord = b->CreateBitOrPointerCast(
         coord_vector, i64v2_type->getPointerTo(0),
         "texture.read.coord.ulong2.addr");
     coord = b->CreateLoad(i64v2_type, p_coord, "texture.read.coord.ulong2");
-    auto c0 = b->CreateExtractValue(coord, 0u, "texture.read.coord.c0");
-    auto c1 = b->CreateExtractValue(coord, 1u, "texture.read.coord.c1");
-    auto ret_struct = b->CreateCall(func, {t0, t1, c0, c1}, "texture.read.ret.struct");
-    return _create_stack_variable(decode_i64v2(b, _create_type(t), ret_struct), "texture.read.addr");
+    auto c0 = b->CreateExtractElement(coord, static_cast<uint64_t>(0u), "texture.read.coord.c0");
+    auto c1 = b->CreateExtractElement(coord, static_cast<uint64_t>(1u), "texture.read.coord.c1");
+    auto ret = static_cast<::llvm::Value *>(b->CreateCall(func, {t0, t1, c0, c1}, "texture.read.ret"));
+    if (t->element()->tag() != Type::Tag::FLOAT) { ret = b->CreateBitCast(ret, _create_type(t), "texture.read.ret.cast"); }
+    return _create_stack_variable(ret, "texture.read.addr");
 }
 
 void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept {
@@ -2179,7 +2166,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto t1 = b->CreateExtractValue(texture, 1u, "texture.write.texture.t1");
     std::array<int, 4> shuffle{0, 1, 0, 0};
     if (dim == 3u) { shuffle[2] = 2; }
-    auto i64v2_type = ::llvm::StructType::get(i64_type, i64_type);
+    auto i64v2_type = ::llvm::FixedVectorType::get(i64_type, 2u);
     auto coord_vector = _create_stack_variable(
         b->CreateShuffleVector(
             coord, shuffle, "texture.write.coord.vector"),
@@ -2188,27 +2175,27 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         coord_vector, i64v2_type->getPointerTo(0),
         "texture.write.coord.ulong2.addr");
     coord = b->CreateLoad(i64v2_type, p_coord, "texture.write.coord.ulong2");
-    auto c0 = b->CreateExtractValue(coord, 0u, "texture.write.coord.c0");
-    auto c1 = b->CreateExtractValue(coord, 1u, "texture.write.coord.c1");
+    auto c0 = b->CreateExtractElement(coord, static_cast<uint64_t>(0u), "texture.write.coord.c0");
+    auto c1 = b->CreateExtractElement(coord, static_cast<uint64_t>(1u), "texture.write.coord.c1");
     p_value = b->CreateBitOrPointerCast(
         p_value, i64v2_type->getPointerTo(0), "texture.write.value.ulong2.addr");
     auto value = b->CreateLoad(i64v2_type, p_value, "texture.write.value.ulong");
-    auto v0 = b->CreateExtractValue(value, 0u, "texture.write.value.v0");
-    auto v1 = b->CreateExtractValue(value, 1u, "texture.write.value.v1");
+    auto v0 = b->CreateExtractElement(value, static_cast<uint64_t>(0u), "texture.write.value.v0");
+    auto v1 = b->CreateExtractElement(value, static_cast<uint64_t>(1u), "texture.write.value.v1");
     b->CreateCall(func->getFunctionType(), func, {t0, t1, c0, c1, v0, v1});
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_trace_closest(::llvm::Value *accel, ::llvm::Value *p_ray) noexcept {
-    // { i64, i64 } trace_closest(i64 accel, i64 r0, i64 r1, i64 r2, i64 r3)
+    // <4 x float> trace_closest(i64 accel, i64 r0, i64 r1, i64 r2, i64 r3)
     auto b = _current_context()->builder.get();
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto func_name = "accel.trace.closest";
     auto func = _module->getFunction(func_name);
-    accel = b->CreateExtractValue(accel, 0u, "trace_closest.accel.handle");
+    accel = b->CreateExtractValue(accel, 0u, "trace.closest.accel.handle");
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                ::llvm::StructType::get(i64_type, i64_type),
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {accel->getType(), i64_type, i64_type, i64_type, i64_type},
                 false),
             ::llvm::Function::ExternalLinkage, func_name, _module);
@@ -2221,28 +2208,20 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
     }
-    auto ray_struct_type = ::llvm::StructType::get(
-        i64_type, i64_type, i64_type, i64_type);
-    p_ray = b->CreateBitOrPointerCast(
-        p_ray, ray_struct_type->getPointerTo(0),
-        "trace_closest.ray.struct.addr");
-    auto ray = b->CreateLoad(ray_struct_type, p_ray, "trace_closest.ray.struct");
-    auto r0 = b->CreateExtractValue(ray, 0u, "trace_closest.ray.r0");
-    auto r1 = b->CreateExtractValue(ray, 1u, "trace_closest.ray.r1");
-    auto r2 = b->CreateExtractValue(ray, 2u, "trace_closest.ray.r2");
-    auto r3 = b->CreateExtractValue(ray, 3u, "trace_closest.ray.r3");
+    auto ray_struct_type = ::llvm::FixedVectorType::get(i64_type, 4u);
+    p_ray = b->CreateBitOrPointerCast(p_ray, ray_struct_type->getPointerTo(0),
+                                      "trace.closest.ray.struct.addr");
+    auto ray = b->CreateLoad(ray_struct_type, p_ray, "trace.closest.ray.struct");
+    auto r0 = b->CreateExtractElement(ray, static_cast<uint64_t>(0u), "trace.closest.ray.r0");
+    auto r1 = b->CreateExtractElement(ray, static_cast<uint64_t>(1u), "trace.closest.ray.r1");
+    auto r2 = b->CreateExtractElement(ray, static_cast<uint64_t>(2u), "trace.closest.ray.r2");
+    auto r3 = b->CreateExtractElement(ray, static_cast<uint64_t>(3u), "trace.closest.ray.r3");
     auto ret = b->CreateCall(
         func->getFunctionType(), func, {accel, r0, r1, r2, r3},
         "accel.trace.closest.struct");
-    auto inst_and_prim = b->CreateExtractValue(ret, 0u, "trace_closest.hit.a");
-    auto inst = b->CreateTrunc(inst_and_prim, b->getInt32Ty(), "trace_closest.hit.inst");
-    auto prim = b->CreateTrunc(b->CreateLShr(inst_and_prim, 32u), b->getInt32Ty(), "trace_closest.hit.prim");
-    auto bary_x_and_y = b->CreateExtractValue(ret, 1u, "trace_closest.hit.b");
-    auto bary_x = b->CreateTrunc(bary_x_and_y, b->getInt32Ty(), "trace_closest.hit.bary.x");
-    auto bary_y = b->CreateTrunc(b->CreateLShr(bary_x_and_y, 32u), b->getInt32Ty(), "trace_closest.hit.bary.y");
-    auto bary = static_cast<::llvm::Value *>(::llvm::UndefValue::get(_create_type(Type::of<float2>())));
-    bary = b->CreateInsertElement(bary, b->CreateBitCast(bary_x, b->getFloatTy()), _literal(0u));
-    bary = b->CreateInsertElement(bary, b->CreateBitCast(bary_y, b->getFloatTy()), _literal(1u), "trace_closest.hit.bary");
+    auto inst = b->CreateBitCast(b->CreateExtractElement(ret, static_cast<uint64_t>(0u)), b->getInt32Ty(), "trace.closest.hit.inst");
+    auto prim = b->CreateBitCast(b->CreateExtractElement(ret, static_cast<uint64_t>(1u)), b->getInt32Ty(), "trace.closest.hit.prim");
+    auto bary = b->CreateShuffleVector(ret, {2, 3}, "trace.closest.hit.bary");
     auto hit = static_cast<::llvm::Value *>(::llvm::UndefValue::get(_create_type(Type::of<Hit>())));
     hit = b->CreateInsertValue(hit, inst, 0u);
     hit = b->CreateInsertValue(hit, prim, 1u);
@@ -2273,16 +2252,15 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
     }
-    auto ray_struct_type = ::llvm::StructType::get(
-        i64_type, i64_type, i64_type, i64_type);
+    auto ray_struct_type = ::llvm::FixedVectorType::get(i64_type, 4u);
     p_ray = b->CreateBitOrPointerCast(
         p_ray, ray_struct_type->getPointerTo(0),
         "trace_any.ray.struct.addr");
     auto ray = b->CreateLoad(ray_struct_type, p_ray, "trace_any.ray.struct");
-    auto r0 = b->CreateExtractValue(ray, 0u, "trace_any.ray.r0");
-    auto r1 = b->CreateExtractValue(ray, 1u, "trace_any.ray.r1");
-    auto r2 = b->CreateExtractValue(ray, 2u, "trace_any.ray.r2");
-    auto r3 = b->CreateExtractValue(ray, 3u, "trace_any.ray.r3");
+    auto r0 = b->CreateExtractElement(ray, static_cast<uint64_t>(0u), "trace_any.ray.r0");
+    auto r1 = b->CreateExtractElement(ray, static_cast<uint64_t>(1u), "trace_any.ray.r1");
+    auto r2 = b->CreateExtractElement(ray, static_cast<uint64_t>(2u), "trace_any.ray.r2");
+    auto r3 = b->CreateExtractElement(ray, static_cast<uint64_t>(3u), "trace_any.ray.r3");
     auto ret = b->CreateCall(
         func->getFunctionType(), func, {accel, r0, r1, r2, r3},
         "accel.trace.any.ret");
@@ -2677,13 +2655,11 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty()),
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.read", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, level, coord_x, coord_y}, "bindless.texture.read.2d.ret.struct");
-    auto ret = b->CreateBitCast(b->CreateBitCast(ret_struct, b->getInt128Ty()),
-                                _create_type(Type::of<float4>()), "bindless.texture.read.2d.ret");
+    auto ret = b->CreateCall(func, {p_texture, level, coord_x, coord_y}, "bindless.texture.read.2d.ret");
     return _create_stack_variable(ret, "bindless.texture.read.2d.addr");
 }
 
@@ -2702,13 +2678,11 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty()),
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty(), b->getInt32Ty()}, false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.read", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, level, coord_x, coord_y, coord_z}, "bindless.texture.read.3d.ret.struct");
-    auto ret = b->CreateBitCast(b->CreateBitCast(ret_struct, b->getInt128Ty()),
-                                _create_type(Type::of<float4>()), "bindless.texture.read.3d.ret");
+    auto ret = b->CreateCall(func, {p_texture, level, coord_x, coord_y, coord_z}, "bindless.texture.read.3d.ret");
     return _create_stack_variable(ret, "bindless.texture.read.3d.addr");
 }
 
@@ -2723,18 +2697,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto uv_x = b->CreateExtractElement(uv, _literal(0u), "bindless.texture.sample.2d.uv.x");
     auto uv_y = b->CreateExtractElement(uv, _literal(1u), "bindless.texture.sample.2d.uv.y");
     auto func = _module->getFunction("bindless.texture.2d.sample");
-    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                i64v2_type,
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
                  b->getFloatTy(), b->getFloatTy()},
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y}, "bindless.texture.sample.2d.ret.struct");
-    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct), "bindless.texture.sample.2d.addr");
+    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y}, "bindless.texture.sample.2d.ret");
+    return _create_stack_variable(ret, "bindless.texture.sample.2d.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw) noexcept {
@@ -2749,19 +2722,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto uvw_y = b->CreateExtractElement(uvw, _literal(1u), "bindless.texture.sample.3d.uvw.y");
     auto uvw_z = b->CreateExtractElement(uvw, _literal(2u), "bindless.texture.sample.3d.uvw.z");
     auto func = _module->getFunction("bindless.texture.3d.sample");
-    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                i64v2_type,
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
                  b->getFloatTy(), b->getFloatTy(), b->getFloatTy()},
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z}, "bindless.texture.sample.3d.ret.struct");
-    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
-                                  "bindless.texture.sample.3d.addr");
+    auto ret = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z}, "bindless.texture.sample.3d.ret");
+    return _create_stack_variable(ret, "bindless.texture.sample.3d.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d_level(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_lod) noexcept {
@@ -2776,19 +2747,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto uv_y = b->CreateExtractElement(uv, _literal(1u), "bindless.texture.sample.2d.level.uv.y");
     auto lod = b->CreateLoad(b->getFloatTy(), p_lod, "bindless.texture.sample.2d.level.lod");
     auto func = _module->getFunction("bindless.texture.2d.sample.level");
-    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                i64v2_type,
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
                  b->getFloatTy(), b->getFloatTy(), b->getFloatTy()},
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.level", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, lod}, "bindless.texture.sample.2d.level.ret.struct");
-    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
-                                  "bindless.texture.sample.2d.level.addr");
+    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, lod}, "bindless.texture.sample.2d.level.ret");
+    return _create_stack_variable(ret, "bindless.texture.sample.2d.level.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d_level(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_lod) noexcept {
@@ -2804,19 +2773,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto uvw_z = b->CreateExtractElement(uvw, _literal(2u), "bindless.texture.sample.3d.level.uvw.z");
     auto lod = b->CreateLoad(b->getFloatTy(), p_lod, "bindless.texture.sample.3d.level.lod");
     auto func = _module->getFunction("bindless.texture.3d.sample.level");
-    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                i64v2_type,
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
                  b->getFloatTy(), b->getFloatTy(), b->getFloatTy(), b->getFloatTy()},
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample.level", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z, lod}, "bindless.texture.sample.3d.level.ret.struct");
-    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
-                                  "bindless.texture.sample.3d.level.addr");
+    auto ret = b->CreateCall(func, {p_texture, sampler, uvw_x, uvw_y, uvw_z, lod}, "bindless.texture.sample.3d.level.ret");
+    return _create_stack_variable(ret, "bindless.texture.sample.3d.level.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample2d_grad(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept {
@@ -2834,19 +2801,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto dpdx = b->CreateLoad(b->getInt64Ty(), p_dpdx, "bindless.texture.sample.2d.grad.dpdx");
     auto dpdy = b->CreateLoad(b->getInt64Ty(), p_dpdy, "bindless.texture.sample.2d.grad.dpdy");
     auto func = _module->getFunction("bindless.texture.2d.sample.grad");
-    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                i64v2_type,
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt32Ty(),
                  b->getFloatTy(), b->getFloatTy(), b->getInt64Ty(), b->getInt64Ty()},
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.2d.sample.grad", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, dpdx, dpdy}, "bindless.texture.sample.2d.grad.ret.struct");
-    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
-                                  "bindless.texture.sample.2d.grad.addr");
+    auto ret = b->CreateCall(func, {p_texture, sampler, uv_x, uv_y, dpdx, dpdy}, "bindless.texture.sample.2d.grad.ret");
+    return _create_stack_variable(ret, "bindless.texture.sample.2d.grad.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_bindless_texture_sample3d_grad(::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept {
@@ -2881,21 +2846,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto dvdxy = b->CreateLoad(b->getInt64Ty(), p_dvdxy, "bindless.texture.sample.3d.grad.dvdxy");
     auto dwdxy = b->CreateLoad(b->getInt64Ty(), p_dwdxy, "bindless.texture.sample.3d.grad.dwdxy");
     auto func = _module->getFunction("bindless.texture.sample.3d.grad");
-    auto i64v2_type = ::llvm::StructType::get(b->getInt64Ty(), b->getInt64Ty());
     if (func == nullptr) {
         func = ::llvm::Function::Create(
             ::llvm::FunctionType::get(
-                i64v2_type,
+                ::llvm::FixedVectorType::get(b->getFloatTy(), 4u),
                 {_bindless_texture_type()->getPointerTo(), b->getInt64Ty(),
                  b->getFloatTy(), b->getFloatTy(), b->getInt64Ty(), b->getInt64Ty()},
                 false),
             ::llvm::Function::ExternalLinkage, "bindless.texture.3d.sample.grad", _module);
     }
-    auto ret_struct = b->CreateCall(func, {p_texture, sampler_and_w, uv, dudxy, dvdxy, dwdxy}, "bindless.texture.sample.3d.grad.ret.struct");
-    auto ret = b->CreateBitCast(b->CreateBitCast(ret_struct, b->getInt128Ty()),
-                                _create_type(Type::of<float4>()), "bindless.texture.sample.3d.grad.ret");
-    return _create_stack_variable(decode_i64v2(b, _create_type(Type::of<float4>()), ret_struct),
-                                  "bindless.texture.sample.3d.grad.addr");
+    auto ret = b->CreateCall(func, {p_texture, sampler_and_w, uv, dudxy, dvdxy, dwdxy}, "bindless.texture.sample.3d.grad.ret");
+    return _create_stack_variable(ret, "bindless.texture.sample.3d.grad.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_asinh(const Type *t, ::llvm::Value *v) noexcept {
