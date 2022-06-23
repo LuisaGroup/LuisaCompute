@@ -225,14 +225,14 @@ namespace luisa::compute::llvm {
 [[nodiscard]] ::llvm::Function *_declare_external_math_function(
     ::llvm::Module *module, luisa::string_view name, size_t n_args) noexcept {
     auto func_name = luisa::format("{}f", name);
-    auto f = module->getFunction(luisa::string_view{func_name});
+    auto f = module->getFunction(::llvm::StringRef{func_name.data(), func_name.size()});
     auto ir_type = ::llvm::Type::getFloatTy(module->getContext());
     if (f == nullptr) {
         ::llvm::SmallVector<::llvm::Type *, 2u> arg_types(n_args, ir_type);
         f = ::llvm::Function::Create(
             ::llvm::FunctionType::get(ir_type, arg_types, false),
             ::llvm::Function::ExternalLinkage,
-            luisa::string_view{func_name},
+            ::llvm::StringRef{func_name.data(), func_name.size()},
             module);
         f->setNoSync();
         f->setWillReturn();
@@ -253,9 +253,10 @@ namespace luisa::compute::llvm {
     auto f = _declare_external_math_function(module, name, p_args.size());
     ::llvm::SmallVector<::llvm::Value *, 2u> args;
     for (auto i = 0u; i < p_args.size(); i++) {
+        auto value_name = luisa::format("{}.arg{}", name, i);
         args.emplace_back(builder->CreateLoad(
             p_args[i]->getType()->getPointerElementType(), p_args[i],
-            luisa::string_view{luisa::format("{}.arg{}", name, i)}));
+            ::llvm::StringRef{value_name.data(), value_name.size()}));
     }
     // TODO: vectorize...
     if (t->is_vector()) {
@@ -279,9 +280,12 @@ namespace luisa::compute::llvm {
         return p_vec;
     }
     // scalar
-    auto y = builder->CreateCall(f, args, luisa::string_view{luisa::format("{}.call", name)});
-    auto py = builder->CreateAlloca(p_args.front()->getType()->getPointerElementType(),
-                                    nullptr, luisa::string_view{luisa::format("{}.addr", name)});
+    auto y_name = luisa::format("{}.call", name);
+    auto y = builder->CreateCall(f, args, ::llvm::StringRef{y_name.data(), y_name.size()});
+    auto py_name = luisa::format("{}.call.addr", name);
+    auto py = builder->CreateAlloca(
+        p_args.front()->getType()->getPointerElementType(),
+        nullptr, ::llvm::StringRef{py_name.data(), py_name.size()});
     py->setAlignment(::llvm::Align{16});
     builder->CreateStore(y, py);
     return py;
@@ -1729,7 +1733,9 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
         std::array<::llvm::Value *, 4u> m{};
         for (auto i = 0u; i < t->dimension(); ++i) {
             auto name = fmt::format("unary.minus.m{}.addr", i);
-            m[i] = b->CreateStructGEP(ir_type, p, i, luisa::string_view{name});
+            m[i] = b->CreateStructGEP(
+                ir_type, p, i,
+                ::llvm::StringRef{name.data(), name.size()});
         }
         if (t->dimension() == 2u) {
             return _make_float2x2(
@@ -1806,7 +1812,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("add.lhs.m{}.addr", i);
         auto col = b->CreateStructGEP(
-            lhs_type, p_lhs, i, luisa::string_view{name});
+            lhs_type, p_lhs, i,
+            ::llvm::StringRef{name.data(), name.size()});
         m[i] = _builtin_add(col_type, col, rhs);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -1834,9 +1841,11 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
         auto lhs_name = fmt::format("add.lhs.m{}.addr", i);
         auto rhs_name = fmt::format("add.rhs.m{}.addr", i);
         auto lhs = b->CreateStructGEP(
-            matrix_type, p_lhs, i, luisa::string_view{lhs_name});
+            matrix_type, p_lhs, i,
+            ::llvm::StringRef{lhs_name.data(), lhs_name.size()});
         auto rhs = b->CreateStructGEP(
-            matrix_type, p_rhs, i, luisa::string_view{rhs_name});
+            matrix_type, p_rhs, i,
+            ::llvm::StringRef{rhs_name.data(), rhs_name.size()});
         m[i] = _builtin_add(col_type, lhs, rhs);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -1859,7 +1868,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("sub.lhs.m{}.addr", i);
         auto col = b->CreateStructGEP(
-            lhs_type, p_lhs, i, luisa::string_view{name});
+            lhs_type, p_lhs, i,
+            ::llvm::StringRef{name.data(), name.size()});
         m[i] = _builtin_sub(col_type, col, rhs);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -1882,7 +1892,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("add.rhs.m{}.addr", i);
         auto rhs_col = b->CreateStructGEP(
-            matrix_type, p_rhs, i, luisa::string_view{name});
+            matrix_type, p_rhs, i,
+            ::llvm::StringRef{name.data(), name.size()});
         m[i] = _builtin_sub(col_type, lhs, rhs_col);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -1906,9 +1917,11 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
         auto lhs_name = fmt::format("sub.lhs.m{}.addr", i);
         auto rhs_name = fmt::format("sub.rhs.m{}.addr", i);
         auto lhs = b->CreateStructGEP(
-            matrix_type, p_lhs, i, luisa::string_view{lhs_name});
+            matrix_type, p_lhs, i,
+            ::llvm::StringRef{lhs_name.data(), lhs_name.size()});
         auto rhs = b->CreateStructGEP(
-            matrix_type, p_rhs, i, luisa::string_view{rhs_name});
+            matrix_type, p_rhs, i,
+            ::llvm::StringRef{rhs_name.data(), rhs_name.size()});
         m[i] = _builtin_sub(col_type, lhs, rhs);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -1931,7 +1944,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("mul.lhs.m{}.addr", i);
         auto col = b->CreateStructGEP(
-            lhs_type, p_lhs, i, luisa::string_view{name});
+            lhs_type, p_lhs, i,
+            ::llvm::StringRef{name.data(), name.size()});
         m[i] = _builtin_mul(col_type, col, rhs);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -1958,7 +1972,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto rhs_name = fmt::format("mul.rhs.m{}.addr", i);
         auto rhs_col = b->CreateStructGEP(
-            matrix_type, p_rhs, i, luisa::string_view{rhs_name});
+            matrix_type, p_rhs, i,
+            ::llvm::StringRef{rhs_name.data(), rhs_name.size()});
         m[i] = _builtin_mul_matrix_vector(t_lhs, col_type, p_lhs, rhs_col);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -1981,10 +1996,12 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     auto rhs = b->CreateLoad(_create_type(t_rhs), p_rhs, "mul.rhs");
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto col_name = fmt::format("mul.lhs.m{}.addr", i);
-        auto col = b->CreateStructGEP(matrix_type, p_lhs, i, luisa::string_view{col_name});
+        auto col = b->CreateStructGEP(
+            matrix_type, p_lhs, i,
+            ::llvm::StringRef{col_name.data(), col_name.size()});
         auto v_name = fmt::format("mul.rhs.v{}", i);
         ::llvm::SmallVector<int, 4u> masks(t_rhs->dimension(), static_cast<int>(i));
-        auto v = b->CreateShuffleVector(rhs, masks, luisa::string_view{v_name});
+        auto v = b->CreateShuffleVector(rhs, masks, ::llvm::StringRef{v_name.data(), v_name.size()});
         auto pv_name = fmt::format("mul.rhs.v{}.addr", i);
         m[i] = _builtin_mul(col_type, col, _create_stack_variable(v, luisa::string_view{pv_name}));
     }
@@ -2008,7 +2025,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("div.lhs.m{}.addr", i);
         auto col = b->CreateStructGEP(
-            lhs_type, p_lhs, i, luisa::string_view{name});
+            lhs_type, p_lhs, i,
+            ::llvm::StringRef{name.data(), name.size()});
         m[i] = _builtin_div(col_type, col, rhs);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -2031,7 +2049,8 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     for (auto i = 0u; i < t_lhs->dimension(); ++i) {
         auto name = fmt::format("add.rhs.m{}.addr", i);
         auto rhs_col = b->CreateStructGEP(
-            matrix_type, p_rhs, i, luisa::string_view{name});
+            matrix_type, p_rhs, i,
+            ::llvm::StringRef{name.data(), name.size()});
         m[i] = _builtin_div(col_type, lhs, rhs_col);
     }
     if (t_lhs->dimension() == 2u) { return _make_float2x2(m[0], m[1]); }
@@ -2086,7 +2105,7 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
     auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
     auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
     auto func_name = luisa::format("texture.read.{}d.{}", dim, t->element()->description());
-    auto func = _module->getFunction(luisa::string_view{func_name});
+    auto func = _module->getFunction(::llvm::StringRef{func_name.data(), func_name.size()});
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
     auto i64v2_type = ::llvm::StructType::get(i64_type, i64_type);
     if (func == nullptr) {
@@ -2095,7 +2114,9 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
                 i64v2_type,
                 {i64_type, i64_type, i64_type, i64_type},
                 false),
-            ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
+            ::llvm::Function::ExternalLinkage,
+            ::llvm::StringRef{func_name.data(), func_name.size()},
+            _module);
         func->setNoSync();
         func->setWillReturn();
         func->setDoesNotThrow();
@@ -2134,7 +2155,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
     auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
     auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
     auto func_name = luisa::format("texture.write.{}d.{}", dim, t->element()->description());
-    auto func = _module->getFunction(luisa::string_view{func_name});
+    auto func = _module->getFunction(::llvm::StringRef{func_name.data(), func_name.size()});
     auto i64_type = ::llvm::Type::getInt64Ty(_context);
     if (func == nullptr) {
         func = ::llvm::Function::Create(
@@ -2142,14 +2163,17 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 ::llvm::Type::getVoidTy(_context),
                 {i64_type, i64_type, i64_type, i64_type, i64_type, i64_type},
                 false),
-            ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
+            ::llvm::Function::ExternalLinkage,
+            ::llvm::StringRef{func_name.data(), func_name.size()},
+            _module);
         func->setNoSync();
         func->setWillReturn();
         func->setDoesNotThrow();
         func->setMustProgress();
         func->setDoesNotRecurse();
-        func->setDoesNotReadMemory();
+        func->setOnlyWritesMemory();
         func->setDoesNotFreeMemory();
+        func->setOnlyAccessesInaccessibleMemory();
     }
     auto t0 = b->CreateExtractValue(texture, 0u, "texture.write.texture.t0");
     auto t1 = b->CreateExtractValue(texture, 1u, "texture.write.texture.t1");
@@ -2187,7 +2211,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 ::llvm::StructType::get(i64_type, i64_type),
                 {accel->getType(), i64_type, i64_type, i64_type, i64_type},
                 false),
-            ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
+            ::llvm::Function::ExternalLinkage, func_name, _module);
         func->setNoSync();
         func->setWillReturn();
         func->setDoesNotThrow();
@@ -2239,7 +2263,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
                 ::llvm::Type::getInt8Ty(_context),
                 {accel->getType(), i64_type, i64_type, i64_type, i64_type},
                 false),
-            ::llvm::Function::ExternalLinkage, luisa::string_view{func_name}, _module);
+            ::llvm::Function::ExternalLinkage, func_name, _module);
         func->setNoSync();
         func->setWillReturn();
         func->setDoesNotThrow();

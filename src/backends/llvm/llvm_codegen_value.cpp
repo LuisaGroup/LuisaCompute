@@ -130,7 +130,7 @@ namespace luisa::compute::llvm {
 
 ::llvm::Value *LLVMCodegen::_create_alloca(::llvm::Type *t, luisa::string_view name) noexcept {
     auto ctx = _current_context();
-    auto p = ctx->builder->CreateAlloca(t, nullptr, name);
+    auto p = ctx->builder->CreateAlloca(t, nullptr, ::llvm::StringRef{name.data(), name.size()});
     p->setAlignment(::llvm::Align{16u});
     return p;
 }
@@ -171,13 +171,13 @@ namespace luisa::compute::llvm {
         },
         c.view());
     auto name = luisa::format("constant_{:016x}", key);
-    _module->getOrInsertGlobal(luisa::string_view{name}, value->getType());
-    auto global = _module->getNamedGlobal(luisa::string_view{name});
+    _module->getOrInsertGlobal(::llvm::StringRef{name.data(), name.size()}, value->getType());
+    auto global = _module->getNamedGlobal(::llvm::StringRef{name.data(), name.size()});
     global->setConstant(true);
     global->setLinkage(::llvm::GlobalValue::InternalLinkage);
     global->setInitializer(value);
     global->setUnnamedAddr(::llvm::GlobalValue::UnnamedAddr::Global);
-    return _constants.emplace(key, global).first->second;
+    return _constants.emplace(key, static_cast<::llvm::Value *>(global)).first->second;
 }
 
 ::llvm::Value *LLVMCodegen::_make_int2(::llvm::Value *px, ::llvm::Value *py) noexcept {
