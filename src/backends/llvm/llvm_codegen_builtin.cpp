@@ -2171,7 +2171,6 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setDoesNotThrow();
         func->setMustProgress();
         func->setDoesNotRecurse();
-        func->setOnlyWritesMemory();
         func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemory();
     }
@@ -2217,8 +2216,8 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setDoesNotThrow();
         func->setMustProgress();
         func->setSpeculatable();
-        func->setDoesNotFreeMemory();
         func->setOnlyReadsMemory();
+        func->setDoesNotFreeMemory();
         func->setOnlyAccessesInaccessibleMemOrArgMem();
     }
     auto ray_struct_type = ::llvm::StructType::get(
