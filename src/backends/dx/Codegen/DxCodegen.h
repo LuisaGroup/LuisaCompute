@@ -91,7 +91,7 @@ public:
     void visit(const SwitchDefaultStmt *) override;
     void visit(const AssignStmt *) override;
     void visit(const ForStmt *) override;
-    void visit(const MetaStmt *stmt) override;
+    void visit(const Function &f);
     void visit(const CommentStmt *) override;
     StringStateVisitor(
         Function f,

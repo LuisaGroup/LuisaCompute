@@ -318,14 +318,15 @@ void StringStateVisitor::visit(const ForStmt *state) {
     str << ")";
     state->body()->accept(*this);
 }
+
 StringStateVisitor::StringStateVisitor(
     Function f,
     vstd::string &str)
-    : str(str), f(f) {
-}
-void StringStateVisitor::visit(const MetaStmt *stmt) {
+    : str(str), f(f) {}
+
+void StringStateVisitor::visit(const Function &f) {
     auto func = [&]<bool collectShared>() {
-        for (auto &&v : stmt->variables()) {
+        auto process_variable = [&](auto v) noexcept {
             if (v.tag() == Variable::Tag::LOCAL && v.type()->is_structure()) {
                 vstd::string typeName;
                 CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
@@ -343,15 +344,17 @@ void StringStateVisitor::visit(const MetaStmt *stmt) {
                     sharedVariables->emplace(v);
                 }
             }
-        }
+        };
+        for (auto v : f.local_variables()) { process_variable(v); }
+        for (auto v : f.shared_variables()) { process_variable(v); }
     };
     if (sharedVariables) {
         func.operator()<true>();
     } else {
         func.operator()<false>();
     }
-
-    stmt->scope()->accept(*this);
+    f.body()->accept(*this);
 }
+
 StringStateVisitor::~StringStateVisitor() = default;
 }// namespace toolhub::directx
