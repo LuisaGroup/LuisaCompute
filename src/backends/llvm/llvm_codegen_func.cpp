@@ -59,7 +59,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     };
     auto [arg_struct_type, arg_struct_indices] = create_argument_struct();
     auto arg_struct_name = luisa::format("arg.buffer.struct.{:016x}", f.hash());
-    arg_struct_type->setName(luisa::string_view{arg_struct_name});
+    arg_struct_type->setName(::llvm::StringRef{arg_struct_name.data(), arg_struct_name.size()});
     auto arg_buffer_type = ::llvm::PointerType::get(arg_struct_type, 0);
     ::llvm::SmallVector<::llvm::Type *, 7u> arg_types;
     arg_types.emplace_back(arg_buffer_type);
@@ -80,7 +80,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     auto main_name = luisa::format("kernel.{:016x}.main", f.hash());
     auto ir = ::llvm::Function::Create(
         function_type, ::llvm::Function::ExternalLinkage,
-        luisa::string_view{main_name}, _module);
+        ::llvm::StringRef{main_name.data(), main_name.size()}, _module);
     auto builder = luisa::make_unique<::llvm::IRBuilder<>>(_context);
     auto body_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
     builder->SetInsertPoint(body_block);
@@ -94,10 +94,13 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
             case Variable::Tag::BINDLESS_ARRAY:
             case Variable::Tag::ACCEL: {
                 auto arg_name = _variable_name(arg);
-                auto pr = builder->CreateStructGEP(arg_struct_type, ir->getArg(0u), arg_struct_indices[arg_id],
-                                                   luisa::string_view{luisa::format("{}.addr", arg_name)});
-                auto r = builder->CreateAlignedLoad(_create_type(arg.type()), pr, ::llvm::Align{16ull},
-                                                    luisa::string_view{arg_name});
+                auto addr_name = luisa::format("{}.addr", arg_name);
+                auto pr = builder->CreateStructGEP(
+                    arg_struct_type, ir->getArg(0u), arg_struct_indices[arg_id],
+                    ::llvm::StringRef{addr_name.data(), addr_name.size()});
+                auto r = builder->CreateAlignedLoad(
+                    _create_type(arg.type()), pr, ::llvm::Align{16ull},
+                    ::llvm::StringRef{arg_name.data(), arg_name.size()});
                 arguments.emplace_back(r);
                 break;
             }
@@ -200,7 +203,9 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
     builder->SetInsertPoint(body_block);
     luisa::unordered_map<uint, ::llvm::Value *> variables;
     auto make_alloca = [&](::llvm::Value *x, luisa::string_view name = "") noexcept {
-        auto p = builder->CreateAlloca(x->getType(), nullptr, name);
+        auto p = builder->CreateAlloca(
+            x->getType(), nullptr,
+            ::llvm::StringRef{name.data(), name.size()});
         p->setAlignment(::llvm::Align{16});
         builder->CreateStore(x, p);
         return p;
@@ -210,7 +215,6 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
         auto arg_name = _variable_name(lc_arg);
         auto arg = static_cast<::llvm::Value *>(ir->getArg(i));
         if (lc_arg.tag() == Variable::Tag::LOCAL) { arg = make_alloca(arg); }
-        arg->setName(luisa::string_view{_variable_name(lc_arg)});
         arg->setName(::llvm::StringRef{arg_name.data(), arg_name.size()});
         variables.emplace(lc_arg.uid(), arg);
     }

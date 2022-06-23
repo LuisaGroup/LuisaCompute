@@ -117,6 +117,9 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     _engine->InstallLazyFunctionCreator([](auto &&name) noexcept -> void * {
         using namespace std::string_view_literals;
         static const luisa::unordered_map<luisa::string_view, void *> symbols{
+            {"sinf"sv, reinterpret_cast<void *>(&::sinf)},
+            {"cosf"sv, reinterpret_cast<void *>(&::cosf)},
+            {"powf"sv, reinterpret_cast<void *>(&::powf)},
             {"texture.read.2d.int"sv, reinterpret_cast<void *>(&texture_read_2d_int)},
             {"texture.read.3d.int"sv, reinterpret_cast<void *>(&texture_read_3d_int)},
             {"texture.read.2d.uint"sv, reinterpret_cast<void *>(&texture_read_2d_uint)},
