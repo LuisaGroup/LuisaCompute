@@ -84,7 +84,7 @@ void LLVMTextureView::copy_from(LLVMTextureView dst) const noexcept {
 namespace detail {
 
 [[nodiscard]] inline auto decode_texture_view(int64_t t0, int64_t t1) noexcept {
-    return luisa::bit_cast<LLVMTextureView>(int64x2_t{t0, t1});
+    return luisa::bit_cast<LLVMTextureView>(std::array{t0, t1});
 }
 
 // from tinyexr: https://github.com/syoyo/tinyexr/blob/master/tinyexr.h
