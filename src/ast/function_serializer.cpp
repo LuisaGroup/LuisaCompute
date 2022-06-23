@@ -395,7 +395,7 @@ void FunctionSerializer::to_binary(BinaryBuffer &buffer, const shared_ptr<const 
 }
 
 luisa::shared_ptr<const detail::FunctionBuilder> FunctionSerializer::from_binary(BinaryBufferReader reader) const noexcept {
-    // TODO
+    return nullptr;
 }
 
 const UnaryExpr *FunctionSerializer::parse_unary_expr(const json &j) const noexcept {

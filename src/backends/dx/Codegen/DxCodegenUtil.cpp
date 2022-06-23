@@ -194,7 +194,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
                 if (ele->is_vector() && ele->dimension() == 3) {
                     typeName << "float4"sv;
                 } else {
-                    if (opt->kernel.is_atomic_float_used() && ele->tag() == Type::Tag::FLOAT) {
+                    if (ele->tag() == Type::Tag::FLOAT) {
                         typeName << "int";
                     } else {
                         GetTypeName(*ele, typeName, usage);
@@ -699,7 +699,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             }
         } break;
         case CallOp::BUFFER_READ: {
-            if (opt->kernel.is_atomic_float_used() && expr->type()->tag() == Type::Tag::FLOAT) {
+            if (expr->type()->tag() == Type::Tag::FLOAT) {
                 str << "bfread_float"sv;
             } else {
                 str << "bfread"sv;
@@ -714,7 +714,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::BUFFER_WRITE: {
             str << "bfwrite"sv;
             auto elem = args[0]->type()->element();
-            if (opt->kernel.is_atomic_float_used() && elem->tag() == Type::Tag::FLOAT) {
+            if (elem->tag() == Type::Tag::FLOAT) {
                 str << "_float"sv;
             } else if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
@@ -729,7 +729,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "TraceAny"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
-            if (opt->kernel.is_atomic_float_used() && expr->type()->tag() == Type::Tag::FLOAT) {
+            if (expr->type()->tag() == Type::Tag::FLOAT) {
                 str << "READ_BUFFER_FLOAT"sv;
             } else {
                 str << "READ_BUFFER"sv;
@@ -1022,7 +1022,7 @@ if(any(dspId >= a.dsp_c)) return;
     StringStateVisitor vis(func, result);
     vis.sharedVariables = &opt->sharedVariable;
     // vis.variableSet = &opt->allVariables;
-    func.body()->accept(vis);
+    vis.visit(func);
     result << "}\n"sv;
 }
 void CodegenUtility::GenerateCBuffer(
