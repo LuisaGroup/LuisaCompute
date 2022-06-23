@@ -2124,6 +2124,7 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
         func->setDoesNotRecurse();
         func->setOnlyReadsMemory();
         func->setDoesNotFreeMemory();
+        func->setOnlyAccessesInaccessibleMemOrArgMem();
     }
     auto t0 = b->CreateExtractValue(texture, 0u, "texture.read.texture.t0");
     auto t1 = b->CreateExtractValue(texture, 1u, "texture.read.texture.t1");
@@ -2172,7 +2173,7 @@ void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, 
         func->setMustProgress();
         func->setDoesNotRecurse();
         func->setDoesNotFreeMemory();
-        func->setOnlyAccessesInaccessibleMemory();
+        func->setOnlyAccessesInaccessibleMemOrArgMem();
     }
     auto t0 = b->CreateExtractValue(texture, 0u, "texture.write.texture.t0");
     auto t1 = b->CreateExtractValue(texture, 1u, "texture.write.texture.t1");
