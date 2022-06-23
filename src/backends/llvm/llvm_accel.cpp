@@ -125,17 +125,17 @@ bool LLVMAccel::trace_any(Ray ray) const noexcept {
 
 namespace detail {
 
-[[nodiscard]] inline auto decode_ray(uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept {
-    return luisa::bit_cast<Ray>(ulong4{r0, r1, r2, r3});
+[[nodiscard]] inline auto decode_ray(int64_t r0, int64_t r1, int64_t r2, int64_t r3) noexcept {
+    return luisa::bit_cast<Ray>(std::array{r0, r1, r2, r3});
 }
 
 }
 
-detail::ulong2 accel_trace_closest(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept {
-    return luisa::bit_cast<detail::ulong2>(accel->trace_closest(detail::decode_ray(r0, r1, r2, r3)));
+float32x4_t accel_trace_closest(const LLVMAccel *accel, int64_t r0, int64_t r1, int64_t r2, int64_t r3) noexcept {
+    return luisa::bit_cast<float32x4_t>(accel->trace_closest(detail::decode_ray(r0, r1, r2, r3)));
 }
 
-bool accel_trace_any(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept {
+bool accel_trace_any(const LLVMAccel *accel, int64_t r0, int64_t r1, int64_t r2, int64_t r3) noexcept {
     return accel->trace_any(detail::decode_ray(r0, r1, r2, r3));
 }
 

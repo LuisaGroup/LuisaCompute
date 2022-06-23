@@ -51,8 +51,8 @@ public:
     [[nodiscard]] auto handle() const noexcept { return Handle{this, _instances.data()}; }
 };
 
-[[nodiscard]] detail::ulong2 accel_trace_closest(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept;
-[[nodiscard]] bool accel_trace_any(const LLVMAccel *accel, uint64_t r0, uint64_t r1, uint64_t r2, uint64_t r3) noexcept;
+[[nodiscard]] float32x4_t accel_trace_closest(const LLVMAccel *accel, int64_t r0, int64_t r1, int64_t r2, int64_t r3) noexcept;
+[[nodiscard]] bool accel_trace_any(const LLVMAccel *accel, int64_t r0, int64_t r1, int64_t r2, int64_t r3) noexcept;
 
 struct alignas(16) LLVMAccelInstance {
     float affine[12];
