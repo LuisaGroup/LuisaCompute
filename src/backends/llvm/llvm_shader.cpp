@@ -86,21 +86,21 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     LUISA_INFO("Optimize: {} ms.", clk.toc());
 
     // dump optimized ir for debugging
-    {
-        auto file_path = device->context().cache_directory() /
-                         luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
-        auto file_path_string = file_path.string();
-        ::llvm::raw_fd_ostream file_opt{file_path_string, ec};
-        if (ec) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Failed to create file '{}': {}.",
-                file_path_string, ec.message());
-        } else {
-            LUISA_INFO("Saving optimized LLVM kernel to '{}'.",
-                       file_path_string);
-            module->print(file_opt, nullptr);
-        }
-    }
+    //    {
+    //        auto file_path = device->context().cache_directory() /
+    //                         luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
+    //        auto file_path_string = file_path.string();
+    //        ::llvm::raw_fd_ostream file_opt{file_path_string, ec};
+    //        if (ec) {
+    //            LUISA_ERROR_WITH_LOCATION(
+    //                "Failed to create file '{}': {}.",
+    //                file_path_string, ec.message());
+    //        } else {
+    //            LUISA_INFO("Saving optimized LLVM kernel to '{}'.",
+    //                       file_path_string);
+    //            module->print(file_opt, nullptr);
+    //        }
+    //    }
 
     // compile to machine code
     clk.tic();
