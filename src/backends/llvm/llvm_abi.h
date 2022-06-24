@@ -4,17 +4,8 @@
 
 #pragma once
 
+#include <core/intrin.h>
 #include <core/stl.h>
-
-#if defined(__x86_64__) || defined(_M_X64)
-#include <immintrin.h>
-using float16_t = int16_t;
-using float32x4_t = __m128;
-#elif defined(__aarch64__)
-#include <arm_neon.h>
-#else
-#error Unsupported platform for the LLVM backend to correctly detect the ABI
-#endif
 
 namespace luisa::compute::llvm::detail {
 

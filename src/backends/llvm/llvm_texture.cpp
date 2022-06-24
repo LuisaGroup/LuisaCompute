@@ -10,11 +10,10 @@ namespace luisa::compute::llvm {
 namespace detail {
 template<size_t stride>
 struct alignas(stride) Pixel : std::array<std::byte, stride> {};
-}
+}// namespace detail
 
 void LLVMTextureView::copy_from(const void *data) const noexcept {
     auto LC_TEXTURE_COPY = [data, this]<uint dim, uint stride>() mutable noexcept {
-        Clock clock;
         auto p = static_cast<const detail::Pixel<stride> *>(data);
         for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
             for (auto y = 0u; y < _height; y++) {
@@ -32,7 +31,6 @@ void LLVMTextureView::copy_from(const void *data) const noexcept {
                 }
             }
         }
-        LUISA_INFO("Texture::copy_from: {} ms.", clock.toc());
     };
     if (_dimension == 2u) {
         switch (_pixel_stride_shift) {
@@ -57,7 +55,6 @@ void LLVMTextureView::copy_from(const void *data) const noexcept {
 
 void LLVMTextureView::copy_to(void *data) const noexcept {
     auto LC_TEXTURE_COPY = [data, this]<uint dim, uint stride>() mutable noexcept {
-        Clock clock;
         auto p = static_cast<detail::Pixel<stride> *>(data);
         for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
             for (auto y = 0u; y < _height; y++) {
@@ -75,7 +72,6 @@ void LLVMTextureView::copy_to(void *data) const noexcept {
                 }
             }
         }
-        LUISA_INFO("Texture::copy_to {} ms.", clock.toc());
     };
     if (_dimension == 2u) {
         switch (_pixel_stride_shift) {
@@ -111,15 +107,19 @@ namespace detail {
 
 // from tinyexr: https://github.com/syoyo/tinyexr/blob/master/tinyexr.h
 float16_t float_to_half(float f) noexcept {
-#if defined(__aarch64__)
+#if defined(LUISA_ARCH_ARM64)
     return static_cast<float16_t>(f);
+#elif defined(LUISA_ARCH_X86_64)
+    auto ss = _mm_set_ss(f);
+    auto ph = _mm_cvtps_ph(ss, 0);
+    return static_cast<float16_t>(_mm_cvtsi128_si32(ph));
 #else
     auto bits = luisa::bit_cast<uint>(f);
     auto fp32_sign = bits >> 31u;
     auto fp32_exponent = (bits >> 23u) & 0xffu;
     auto fp32_mantissa = bits & ((1u << 23u) - 1u);
     auto make_fp16 = [](uint sign, uint exponent, uint mantissa) noexcept {
-        return (sign << 15u) | (exponent << 10u) | mantissa;
+        return static_cast<float16_t>((sign << 15u) | (exponent << 10u) | mantissa);
     };
     // Signed zero/denormal (which will underflow)
     if (fp32_exponent == 0u) { return make_fp16(fp32_sign, 0u, 0u); }
@@ -145,13 +145,17 @@ float16_t float_to_half(float f) noexcept {
     }
     auto fp16 = make_fp16(fp32_sign, newexp, fp32_mantissa >> 13u);
     if (fp32_mantissa & 0x1000u) { fp16++; }// Check for rounding
-    return static_cast<float16_t>(fp16);
+    return fp16;
 #endif
 }
 
 float half_to_float(float16_t half) noexcept {
-#if defined(__aarch64__)
+#if defined(LUISA_ARCH_ARM64)
     return static_cast<float>(half);
+#elif defined(LUISA_ARCH_X86_64)
+    auto si = _mm_cvtsi32_si128(half);
+    auto ps = _mm_cvtph_ps(si);
+    return _mm_cvtss_f32(ps);
 #else
     static_assert(std::endian::native == std::endian::little,
                   "Only little endian is supported");

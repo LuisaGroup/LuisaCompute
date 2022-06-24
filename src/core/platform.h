@@ -28,7 +28,6 @@
 #endif
 
 #if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
-
 #define LUISA_PLATFORM_WINDOWS
 #elif defined(__unix__) || defined(__unix) || defined(__APPLE__)
 #define LUISA_PLATFORM_UNIX
@@ -47,6 +46,7 @@
 #include <string_view>
 #include <filesystem>
 
+#include <core/intrin.h>
 #include <core/stl.h>
 
 namespace luisa {
