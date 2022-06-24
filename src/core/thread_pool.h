@@ -66,7 +66,7 @@ public:
             std::allocator_arg, luisa::allocator{});
         auto future = promise->get_future().share();
         _task_count.fetch_add(1u);
-        _dispatch([=, this]() mutable noexcept {
+        _dispatch([promise = std::move(promise), future = std::move(future), f = std::move(f), this]() mutable noexcept {
             if constexpr (std::same_as<R, void>) {
                 f();
                 promise->set_value();
