@@ -21,10 +21,12 @@ void LLVMTextureView::copy_from(const void *data) const noexcept {
                 for (auto x = 0u; x < _width; x++) {
                     auto pp = p + ((z * _height + y) * _width + x);
                     if constexpr (dim == 2) {
-                        auto pixel = reinterpret_cast<detail::Pixel<stride> *>(_pixel2d(make_uint2(x, y)));
+                        auto pixel = reinterpret_cast<detail::Pixel<stride> *>(
+                            _pixel2d(make_uint2(x, y)));
                         *pixel = *pp;
                     } else {
-                        auto pixel = reinterpret_cast<detail::Pixel<stride> *>(_pixel3d(make_uint3(x, y, z)));
+                        auto pixel = reinterpret_cast<detail::Pixel<stride> *>(
+                            _pixel3d(make_uint3(x, y, z)));
                         *pixel = *pp;
                     }
                 }
@@ -62,10 +64,12 @@ void LLVMTextureView::copy_to(void *data) const noexcept {
                 for (auto x = 0u; x < _width; x++) {
                     auto pp = p + ((z * _height + y) * _width + x);
                     if constexpr (dim == 2) {
-                        auto pixel = reinterpret_cast<const detail::Pixel<stride> *>(_pixel2d(make_uint2(x, y)));
+                        auto pixel = reinterpret_cast<const detail::Pixel<stride> *>(
+                            _pixel2d(make_uint2(x, y)));
                         *pp = *pixel;
                     } else {
-                        auto pixel = reinterpret_cast<const detail::Pixel<stride> *>(_pixel3d(make_uint3(x, y, z)));
+                        auto pixel = reinterpret_cast<const detail::Pixel<stride> *>(
+                            _pixel3d(make_uint3(x, y, z)));
                         *pp = *pixel;
                     }
                 }
