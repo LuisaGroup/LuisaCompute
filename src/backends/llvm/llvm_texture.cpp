@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2022/6/8.
 //
 
+#include <core/clock.h>
 #include <backends/llvm/llvm_texture.h>
 
 namespace luisa::compute::llvm {
@@ -13,6 +14,7 @@ struct alignas(stride) Pixel : std::array<std::byte, stride> {};
 
 void LLVMTextureView::copy_from(const void *data) const noexcept {
     auto LC_TEXTURE_COPY = [data, this]<uint dim, uint stride>() mutable noexcept {
+        Clock clock;
         auto p = static_cast<const detail::Pixel<stride> *>(data);
         for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
             for (auto y = 0u; y < _height; y++) {
@@ -28,6 +30,7 @@ void LLVMTextureView::copy_from(const void *data) const noexcept {
                 }
             }
         }
+        LUISA_INFO("Texture::copy_from: {} ms.", clock.toc());
     };
     if (_dimension == 2u) {
         switch (_pixel_stride_shift) {
@@ -52,6 +55,7 @@ void LLVMTextureView::copy_from(const void *data) const noexcept {
 
 void LLVMTextureView::copy_to(void *data) const noexcept {
     auto LC_TEXTURE_COPY = [data, this]<uint dim, uint stride>() mutable noexcept {
+        Clock clock;
         auto p = static_cast<detail::Pixel<stride> *>(data);
         for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
             for (auto y = 0u; y < _height; y++) {
@@ -67,6 +71,7 @@ void LLVMTextureView::copy_to(void *data) const noexcept {
                 }
             }
         }
+        LUISA_INFO("Texture::copy_to {} ms.", clock.toc());
     };
     if (_dimension == 2u) {
         switch (_pixel_stride_shift) {
