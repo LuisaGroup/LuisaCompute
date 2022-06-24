@@ -305,7 +305,7 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto resolution = make_uint2(1024u);
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    auto framebuffer = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
