@@ -265,7 +265,7 @@ public:
 
 private:
     [[nodiscard]] inline std::byte *_pixel2d(uint2 xy) const noexcept {
-        auto block = (xy + block_size - 1u) / block_size;
+        auto block = xy / block_size;
         auto pixel = xy % block_size;
         auto grid_width = (_width + block_size - 1u) / block_size;
         auto block_index = grid_width * block.y + block.x;
@@ -274,7 +274,7 @@ private:
         return _data + (static_cast<size_t>(pixel_index) << _pixel_stride_shift);
     }
     [[nodiscard]] inline std::byte *_pixel3d(uint3 xyz) const noexcept {
-        auto block = (xyz + block_size - 1u) / block_size;
+        auto block = xyz / block_size;
         auto pixel = xyz % block_size;
         auto grid_width = (_width + block_size - 1u) / block_size;
         auto grid_height = (_height + block_size - 1u) / block_size;
