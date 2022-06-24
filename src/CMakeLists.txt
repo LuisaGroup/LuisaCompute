@@ -1,5 +1,3 @@
-option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
-
 if (WIN32)
     add_compile_definitions(
             NOMINMAX=1
@@ -18,7 +16,9 @@ option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" OFF)
 option(LUISA_COMPUTE_ENABLE_LLVM "Enable Vulkan backend" ON)
+
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
+option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
 
 add_subdirectory(ext)
 
