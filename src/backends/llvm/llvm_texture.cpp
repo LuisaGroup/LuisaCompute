@@ -7,18 +7,18 @@
 namespace luisa::compute::llvm {
 
 void LLVMTextureView::copy_from(const void *data) const noexcept {
-    auto LC_TEXTURE_COPY = [p = static_cast<const std::byte *>(data), this]<uint dim>(uint stride) mutable noexcept {
+    auto LC_TEXTURE_COPY = [p = static_cast<const std::byte *>(data), this]<uint dim>(uint stride) noexcept {
         for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
             for (auto y = 0u; y < _height; y++) {
                 for (auto x = 0u; x < _width; x++) {
+                    auto pp = p + static_cast<size_t>((z * _height + y) * _width + x) * stride;
                     if constexpr (dim == 2) {
                         auto pixel = _pixel2d(make_uint2(x, y));
-                        std::memcpy(pixel, p, stride);
+                        std::memcpy(pixel, pp, stride);
                     } else {
                         auto pixel = _pixel3d(make_uint3(x, y, z));
-                        std::memcpy(pixel, p, stride);
+                        std::memcpy(pixel, pp, stride);
                     }
-                    p += stride;
                 }
             }
         }
@@ -36,12 +36,13 @@ void LLVMTextureView::copy_to(void *data) const noexcept {
             for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
                 for (auto y = 0u; y < _height; y++) {
                     for (auto x = 0u; x < _width; x++) {
+                        auto pp = p + static_cast<size_t>((z * _height + y) * _width + x) * stride;
                         if constexpr (dim == 2) {
                             auto pixel = _pixel2d(make_uint2(x, y));
-                            std::memcpy(p, pixel, stride);
+                            std::memcpy(pp, pixel, stride);
                         } else {
                             auto pixel = _pixel3d(make_uint3(x, y, z));
-                            std::memcpy(p, pixel, stride);
+                            std::memcpy(pp, pixel, stride);
                         }
                         p += stride;
                     }
