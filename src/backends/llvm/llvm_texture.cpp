@@ -44,7 +44,6 @@ void LLVMTextureView::copy_to(void *data) const noexcept {
                             auto pixel = _pixel3d(make_uint3(x, y, z));
                             std::memcpy(pp, pixel, stride);
                         }
-                        p += stride;
                     }
                 }
             }
