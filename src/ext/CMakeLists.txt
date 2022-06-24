@@ -78,9 +78,12 @@ endif ()
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext PUBLIC EASTL)
 
+
+if (LUISA_COMPUTE_ENABLE_PYTHON)
+    add_subdirectory(pybind11)
+endif ()
+
 if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
-    #    find_package(embree 3 QUIET)
-    #    if (NOT embree_FOUND)
     set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
     set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
     set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
@@ -102,7 +105,6 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
     set(EMBREE_MAX_ISA "NONE" CACHE STRING "" FORCE)
     set(CMAKE_CXX_STANDARD 11)
     add_subdirectory(embree)
-    #    endif ()
     target_link_libraries(luisa-compute-ext PUBLIC embree)
     add_custom_command(TARGET luisa-compute-ext-copy
             DEPENDS "$<TARGET_FILE:embree>"
@@ -112,10 +114,6 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
             DEPENDS "$<TARGET_LINKER_FILE:embree>"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
-endif ()
-
-if (LUISA_COMPUTE_ENABLE_PYTHON)
-    add_subdirectory(pybind11)
 endif ()
 
 if (WIN32 AND NOT MINGW AND NOT MSYS)

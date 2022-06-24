@@ -296,7 +296,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand)
 };
 
-class LC_RUNTIME_API ShaderDispatchCommand final : public Command {
+class ShaderDispatchCommand final : public Command {
 
 public:
     struct alignas(8) Argument {
