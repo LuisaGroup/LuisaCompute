@@ -6,7 +6,6 @@ SET(LUISA_PYTHON_SOURCES
         export_vector4.cpp
         export_matrix.cpp)
 pybind11_add_module(lcapi ${LUISA_PYTHON_SOURCES})
-set_target_properties(lcapi PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(lcapi PRIVATE -Wa,-mbig-obj)
 endif ()
