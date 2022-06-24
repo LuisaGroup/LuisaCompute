@@ -221,9 +221,9 @@ private:
     std::byte *_data{nullptr};           // 8B
     std::array<uint16_t, 3u> _size{};    // 14B
     PixelStorage _storage : 16u;         // 16B
-    uint _pixel_stride_shift : 8u;      // 18B
-    uint _mip_levels : 8u;              // 19B
-    uint _dimension : 8u;               // 20B
+    uint _pixel_stride_shift : 8u;       // 18B
+    uint _mip_levels : 8u;               // 19B
+    uint _dimension : 8u;                // 20B
     std::array<uint, 15u> _mip_offsets{};// 80B
 
 public:
@@ -252,11 +252,11 @@ public:
 class alignas(16u) LLVMTextureView {
 
 private:
-    std::byte *_data;             // 8B
-    uint _width : 16u;            // 10B
-    uint _height : 16u;           // 12B
-    uint _depth : 16u;            // 14B
-    PixelStorage _storage : 8u;   // 15B
+    std::byte *_data;          // 8B
+    uint _width : 16u;         // 10B
+    uint _height : 16u;        // 12B
+    uint _depth : 16u;         // 14B
+    PixelStorage _storage : 8u;// 15B
     uint _dimension : 4u;
     uint _pixel_stride_shift : 4u;// 16B
 
@@ -271,7 +271,7 @@ private:
         auto block_index = grid_width * block.y + block.x;
         auto pixel_index = block_index * block_size * block_size +
                            pixel.y * block_size + pixel.x;
-        return _data + (pixel_index << _pixel_stride_shift);
+        return _data + (static_cast<size_t>(pixel_index) << _pixel_stride_shift);
     }
     [[nodiscard]] inline std::byte *_pixel3d(uint3 xyz) const noexcept {
         auto block = (xyz + block_size - 1u) / block_size;
@@ -281,7 +281,7 @@ private:
         auto block_index = grid_width * grid_height * block.z + grid_width * block.y + block.x;
         auto pixel_index = block_index * block_size * block_size * block_size +
                            (pixel.z * block_size + pixel.y) * block_size + pixel.x;
-        return _data + (pixel_index << _pixel_stride_shift);
+        return _data + (static_cast<size_t>(pixel_index) << _pixel_stride_shift);
     }
     [[nodiscard]] inline auto _out_of_bounds(uint2 xy) const noexcept {
         return !(xy[0] < _width & xy[1] < _height);
