@@ -6,53 +6,86 @@
 
 namespace luisa::compute::llvm {
 
+namespace detail {
+template<size_t stride>
+struct alignas(stride) Pixel : std::array<std::byte, stride> {};
+}
+
 void LLVMTextureView::copy_from(const void *data) const noexcept {
-    auto LC_TEXTURE_COPY = [p = static_cast<const std::byte *>(data), this]<uint dim>(uint stride) noexcept {
+    auto LC_TEXTURE_COPY = [data, this]<uint dim, uint stride>() mutable noexcept {
+        auto p = static_cast<const detail::Pixel<stride> *>(data);
         for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
             for (auto y = 0u; y < _height; y++) {
                 for (auto x = 0u; x < _width; x++) {
-                    auto pp = p + static_cast<size_t>((z * _height + y) * _width + x) * stride;
+                    auto pp = p + ((z * _height + y) * _width + x);
                     if constexpr (dim == 2) {
-                        auto pixel = _pixel2d(make_uint2(x, y));
-                        std::memcpy(pixel, pp, stride);
+                        auto pixel = reinterpret_cast<detail::Pixel<stride> *>(_pixel2d(make_uint2(x, y)));
+                        *pixel = *pp;
                     } else {
-                        auto pixel = _pixel3d(make_uint3(x, y, z));
-                        std::memcpy(pixel, pp, stride);
+                        auto pixel = reinterpret_cast<detail::Pixel<stride> *>(_pixel3d(make_uint3(x, y, z)));
+                        *pixel = *pp;
                     }
                 }
             }
         }
     };
-    constexpr std::array shift_to_stride{1u, 2u, 4u, 8u, 16u};
     if (_dimension == 2u) {
-        LC_TEXTURE_COPY.operator()<2>(shift_to_stride[_pixel_stride_shift]);
+        switch (_pixel_stride_shift) {
+            case 0u: LC_TEXTURE_COPY.operator()<2u, 1u>(); break;
+            case 1u: LC_TEXTURE_COPY.operator()<2u, 2u>(); break;
+            case 2u: LC_TEXTURE_COPY.operator()<2u, 4u>(); break;
+            case 3u: LC_TEXTURE_COPY.operator()<2u, 8u>(); break;
+            case 4u: LC_TEXTURE_COPY.operator()<2u, 16u>(); break;
+            default: break;
+        }
     } else {
-        LC_TEXTURE_COPY.operator()<3>(shift_to_stride[_pixel_stride_shift]);
+        switch (_pixel_stride_shift) {
+            case 0u: LC_TEXTURE_COPY.operator()<3u, 1u>(); break;
+            case 1u: LC_TEXTURE_COPY.operator()<3u, 2u>(); break;
+            case 2u: LC_TEXTURE_COPY.operator()<3u, 4u>(); break;
+            case 3u: LC_TEXTURE_COPY.operator()<3u, 8u>(); break;
+            case 4u: LC_TEXTURE_COPY.operator()<3u, 16u>(); break;
+            default: break;
+        }
     }
 }
 
 void LLVMTextureView::copy_to(void *data) const noexcept {
-    auto LC_TEXTURE_COPY = [p = static_cast<std::byte *>(data), this]<uint dim>(uint stride) mutable noexcept {
-            for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
-                for (auto y = 0u; y < _height; y++) {
-                    for (auto x = 0u; x < _width; x++) {
-                        auto pp = p + static_cast<size_t>((z * _height + y) * _width + x) * stride;
-                        if constexpr (dim == 2) {
-                            auto pixel = _pixel2d(make_uint2(x, y));
-                            std::memcpy(pp, pixel, stride);
-                        } else {
-                            auto pixel = _pixel3d(make_uint3(x, y, z));
-                            std::memcpy(pp, pixel, stride);
-                        }
+    auto LC_TEXTURE_COPY = [data, this]<uint dim, uint stride>() mutable noexcept {
+        auto p = static_cast<detail::Pixel<stride> *>(data);
+        for (auto z = 0u; z < (dim == 2u ? 1u : _depth); z++) {
+            for (auto y = 0u; y < _height; y++) {
+                for (auto x = 0u; x < _width; x++) {
+                    auto pp = p + ((z * _height + y) * _width + x);
+                    if constexpr (dim == 2) {
+                        auto pixel = reinterpret_cast<const detail::Pixel<stride> *>(_pixel2d(make_uint2(x, y)));
+                        *pp = *pixel;
+                    } else {
+                        auto pixel = reinterpret_cast<const detail::Pixel<stride> *>(_pixel3d(make_uint3(x, y, z)));
+                        *pp = *pixel;
                     }
                 }
             }
-        };
-    constexpr std::array shift_to_stride{1u, 2u, 4u, 8u, 16u};
+        }
+    };
     if (_dimension == 2u) {
-        LC_TEXTURE_COPY.operator()<2>(shift_to_stride[_pixel_stride_shift]);
+        switch (_pixel_stride_shift) {
+            case 0u: LC_TEXTURE_COPY.operator()<2u, 1u>(); break;
+            case 1u: LC_TEXTURE_COPY.operator()<2u, 2u>(); break;
+            case 2u: LC_TEXTURE_COPY.operator()<2u, 4u>(); break;
+            case 3u: LC_TEXTURE_COPY.operator()<2u, 8u>(); break;
+            case 4u: LC_TEXTURE_COPY.operator()<2u, 16u>(); break;
+            default: break;
+        }
     } else {
-        LC_TEXTURE_COPY.operator()<3>(shift_to_stride[_pixel_stride_shift]);
+        switch (_pixel_stride_shift) {
+            case 0u: LC_TEXTURE_COPY.operator()<3u, 1u>(); break;
+            case 1u: LC_TEXTURE_COPY.operator()<3u, 2u>(); break;
+            case 2u: LC_TEXTURE_COPY.operator()<3u, 4u>(); break;
+            case 3u: LC_TEXTURE_COPY.operator()<3u, 8u>(); break;
+            case 4u: LC_TEXTURE_COPY.operator()<3u, 16u>(); break;
+            default: break;
+        }
     }
 }
 
