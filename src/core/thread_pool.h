@@ -66,12 +66,12 @@ public:
             std::allocator_arg, luisa::allocator{});
         auto future = promise->get_future().share();
         _task_count.fetch_add(1u);
-        _dispatch([func = std::move(f), promise = std::move(promise), future, this]() mutable noexcept {
+        _dispatch([=, this]() mutable noexcept {
             if constexpr (std::same_as<R, void>) {
-                func();
+                f();
                 promise->set_value();
             } else {
-                promise->set_value(func());
+                promise->set_value(f());
             }
             _task_count.fetch_sub(1u);
         });
