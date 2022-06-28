@@ -145,7 +145,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         add_subdirectory(shaderc)
         set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
         set_target_properties(glslc PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on Windows
-        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan)
+        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan SPIRV)
         if (BUILD_SHARED_LIBS)
             target_link_libraries(luisa-compute-ext PUBLIC shaderc_shared)
         else ()
