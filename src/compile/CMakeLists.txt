@@ -1,6 +1,7 @@
 set(LUISA_COMPUTE_COMPILE_SOURCES
         codegen.cpp codegen.h
-        definition_analysis.cpp definition_analysis.h)
+        definition_analysis.cpp definition_analysis.h
+        spirv_translator.cpp spirv_translator.h)
 
 add_library(luisa-compute-compile SHARED ${LUISA_COMPUTE_COMPILE_SOURCES})
 target_link_libraries(luisa-compute-compile PUBLIC luisa-compute-ast)
