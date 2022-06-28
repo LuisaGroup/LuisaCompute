@@ -45,7 +45,7 @@ High-performance cross-platform computing framework for computer graphics and mo
 | CUDA           | ✅                                                            | ✅                                                            |
 | DirectX        | ✅ (simulated `atomic<float>` support)                        | ✅                                                            |
 | Metal          | ✅ (simulated `atomic<float>` support)                        | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
-| Vulkan         | ⌛ (will translate to SPIR-V)                                 | ⚠️ (needs testing)                                            |
+| Vulkan         | 🚧 (will translate to SPIR-V)                                 | ⚠️ (needs testing)                                            |
 | ISPC           | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support) | ✅                                                            |
 | LLVM           | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, will bring support for shared memory and `synchronize_block` together) | ✅                                                            |
 | Remote         | ⏩ (forwarded to underlying backends)                         | 🚧 (depends on serialization and networking)                  |
