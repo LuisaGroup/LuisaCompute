@@ -82,7 +82,6 @@ int main() {
     optimizer.RegisterPass(spvtools::CreateStripNonSemanticInfoPass());
     optimizer.RegisterLegalizationPasses();
     optimizer.RegisterPerformancePasses();
-
     std::vector<uint32_t> optimized_binary;
     spvtools::OptimizerOptions options;
     options.set_run_validator(false);
