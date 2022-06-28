@@ -1,8 +1,6 @@
 # LuisaCompute
 
-[![build](https://github.com/Mike-Leo-Smith/LuisaCompute/actions/workflows/ci.yml/badge.svg)](https://github.com/Mike-Leo-Smith/LuisaCompute/actions/workflows/ci.yml)
-
-High-performance cross-platform computing framework for computer graphics and more.
+High-performance cross-platform computing framework for graphics and beyond.
 
 ## Roadmap
 
@@ -40,21 +38,25 @@ High-performance cross-platform computing framework for computer graphics and mo
 
 ### Backends
 
-| Implementation | Codegen Status                                               | Runtime Status                                               |
-| -------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| CUDA           | ✅                                                            | ✅                                                            |
-| DirectX        | ✅ (simulated `atomic<float>` support)                        | ✅                                                            |
-| Metal          | ✅ (simulated `atomic<float>` support)                        | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
-| Vulkan         | 🚧 (will translate to SPIR-V)                                 | ⚠️ (needs testing)                                            |
-| ISPC           | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support) | ✅                                                            |
-| LLVM           | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, will bring support for shared memory and `synchronize_block` together) | ✅                                                            |
-| Remote         | ⏩ (forwarded to underlying backends)                         | 🚧 (depends on serialization and networking)                  |
+| Implementation         | Codegen Status                                               | Runtime Status                                               |
+| ---------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| CUDA                   | ✅                                                            | ✅                                                            |
+| DirectX                | ✅ (simulated `atomic<float>` support)                        | ✅                                                            |
+| Metal                  | ✅ (simulated `atomic<float>` support)                        | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
+| Vulkan                 | 🚧 (will translate to SPIR-V)                                 | ⚠️ (needs testing)                                            |
+| ISPC<br />[Deprecated] | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support) | ✅                                                            |
+| LLVM                   | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, with support for simulated shared memory and `synchronize_block`) | ✅                                                            |
+| Remote                 | ⏩ (forwarded to underlying backends)                         | 🚧 (depends on serialization and networking)                  |
 
 ### Libraries/Applications
 
-- 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git) (support for volumetric rendering, out-of-core tracing
-  and shading, advanced sampling algorithms, custom shading language, Blender/C4D exporters, etc.)
-- 🚧 [LuisaShaderToy](https://github.com/Mike-Leo-Smith/LuisaShaderToy.git) (custom shading language support planned)
-- ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing
-  operators, etc.)
+- 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git) (support for volumetric rendering, out-of-core tracing and shading, advanced sampling algorithms, custom shading language, Blender/C4D exporters, etc.)
+- 🚧 [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git) (custom shading language support planned)
+- ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing, etc.)
+
+### Documentation/Tutorials
+
+- 🚧 Documentation
+- ⌛ Ray tracing in one weekend with LuisaCompute (after paper acceptation)
+- ⌛ Shader toy playground (depends on LuisaShaderToy...)
 

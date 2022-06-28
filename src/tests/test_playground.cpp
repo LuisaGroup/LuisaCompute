@@ -2,110 +2,94 @@
 // Created by Mike Smith on 2021/4/6.
 //
 
-#include <stb/stb_image_write.h>
+#include <array>
 
-#include <runtime/context.h>
-#include <runtime/device.h>
-#include <runtime/stream.h>
-#include <dsl/syntax.h>
-#include <dsl/sugar.h>
-#include <dsl/printer.h>
+#include <spirv-tools/optimizer.hpp>
+#include <spirv-tools/libspirv.hpp>
+#include <SPIRV/GLSL.std.450.h>
+#include <SPIRV/SpvBuilder.h>
 
-using namespace luisa;
-using namespace luisa::compute;
+#include <core/clock.h>
 
-struct M {
-    float4x4 m;
-};
+int main() {
 
-LUISA_STRUCT(M, m){};
+    spv::SpvBuildLogger logger;
+    spv::Builder builder{spv::Spv_1_5, 0u, &logger};
+    builder.addCapability(spv::CapabilityShader);
+    auto ext = builder.import("GLSL.std.450");
+    builder.setSource(spv::SourceLanguageGLSL, 450);
+    auto f = builder.makeEntryPoint("main");
+    auto entry = builder.addEntryPoint(spv::ExecutionModelGLCompute, f, "main");
+    builder.addExecutionMode(f, spv::ExecutionModeLocalSize, 8, 8, 1);
 
-template<typename T, typename = void>
-struct test : std::false_type {};
+    auto arg_type = builder.makeStructType({builder.makeIntType(32)}, "Argument");
+    builder.addMemberName(arg_type, 0, "a");
+    builder.addDecoration(arg_type, spv::DecorationBlock);
+    builder.addMemberDecoration(arg_type, 0, spv::DecorationOffset, 0);
+    auto pa = builder.createVariable(spv::NoPrecision, spv::StorageClassStorageBuffer, arg_type, "pa");
+    builder.addDecoration(pa, spv::DecorationBinding, 0);
+    builder.addDecoration(pa, spv::DecorationDescriptorSet, 0);
+    entry->addIdOperand(pa);
 
-template<typename T>
-struct test<T, std::void_t<decltype(T::inputLayouts)>> : std::true_type {};
+    auto gid = builder.createVariable(spv::NoPrecision, spv::StorageClassInput,
+                                      builder.makeVectorType(builder.makeUintType(32), 3),
+                                      "GlobalInvocationId");
+    builder.addDecoration(gid, spv::DecorationBuiltIn, spv::BuiltInGlobalInvocationId);
 
-struct WithLayouts {
-    inline static int inputLayouts;
-};
-struct WithoutLayouts {};
+    builder.setAccessChainLValue(pa);
+    builder.accessChainPush(builder.makeIntConstant(0), {}, 4u);
+    auto a = builder.accessChainLoad(spv::NoPrecision, {}, {}, builder.makeIntType(32));
+    builder.clearAccessChain();
+    auto fa = builder.createUnaryOp(spv::OpConvertSToF, builder.makeFloatType(32), a);
+    auto mat2_type = builder.makeMatrixType(builder.makeFloatType(32), 2, 2);
+    auto m = builder.createMatrixConstructor(spv::NoPrecision, {fa}, mat2_type);
+    builder.createOp(spv::OpExtInst, mat2_type, {spv::IdImmediate{true, ext}, spv::IdImmediate{false, GLSLstd450MatrixInverse}, spv::IdImmediate{true, m}});
+    builder.leaveFunction();
+    builder.postProcess();
 
-static_assert(test<WithLayouts>::value);
-static_assert(!test<WithoutLayouts>::value);
+    std::vector<uint32_t> binary;
+    builder.dump(binary);
 
-void nothing() noexcept {}
-
-void do_something(luisa::move_only_function<void()> &&f) noexcept {}
-
-struct Evaluation {};
-
-class Surface {
-public:
-    virtual ~Surface() noexcept = default;
-    [[nodiscard]] virtual Evaluation eval(Float3 wo, Float3 wi) const noexcept = 0;
-};
-
-class Lambertian : public Surface {
-    [[nodiscard]] Evaluation eval(Float3 wo, Float3 wi) const noexcept override { return {}; }
-};
-
-class Microfacet : public Surface {
-    [[nodiscard]] Evaluation eval(Float3 wo, Float3 wi) const noexcept override { return {}; }
-};
-
-int main(int argc, char *argv[]) {
-
-    Polymorphic<Surface> surfaces;
-    auto tag1 = surfaces.create<Lambertian>();
-    auto tag2 = surfaces.create<Microfacet>();
-    // ...
-
-    // in kernel
-    Kernel1D test_dispatch = [&surfaces] {
-        UInt tag;
-        Float3 wo, wi;
-        Evaluation eval;
-        surfaces.dispatch(tag, [&](auto surface) noexcept {
-            eval = surface->eval(wo, wi);
-        });
+    auto spv_logger = [](spv_message_level_t level, const char *source,
+                     spv_position_t position, const char *message) noexcept {
+        std::array levels{"FATAL", "INTERNAL_ERROR", "ERROR", "WARNING", "INFO", "DEBUG"};
+        std::cerr << "[" << levels[level] << "] " << message << " [" << source << ":"
+                  << position.line << ":" << position.column << ":" << position.index << "]"
+                  << std::endl;
     };
 
-    log_level_verbose();
+    spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_3};
+    tools.SetMessageConsumer(spv_logger);
+    tools.Validate(binary);
 
-    Context context{argv[0]};
-    if(argc <= 1){
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
-        exit(1);
-    }
-    auto device = context.create_device(argv[1]);
-    auto m4 = make_float4x4(
-        1.f, 2.f, 3.f, 4.f,
-        5.f, 6.f, 7.f, 8.f,
-        9.f, 10.f, 11.f, 12.f,
-        13.f, 14.f, 15.f, 16.f);
-    auto buffer = device.create_buffer<float4x4>(1u);
-    auto stream = device.create_stream();
-    auto scalar_buffer = device.create_buffer<float>(16u);
-
-    Kernel1D test_kernel = [&](Float4x4 m) {
-        set_block_size(1u, 1u, 1u);
-        auto m2 = buffer.read(0u);
-        for (auto i = 0u; i < 4u; i++) {
-            for (auto j = 0u; j < 4u; j++) {
-                scalar_buffer.write(i * 4u + j, m[i][j]);
-            }
+    auto dump = [&tools](auto &&binary) {
+        std::string disassembly;
+        if (tools.Disassemble(binary, &disassembly,
+                              SPV_BINARY_TO_TEXT_OPTION_COLOR |
+                                  SPV_BINARY_TO_TEXT_OPTION_INDENT |
+                                  SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES |
+                                  SPV_BINARY_TO_TEXT_OPTION_COMMENT)) {
+            std::cout << disassembly << std::endl;
         }
     };
-    auto test = device.compile(test_kernel);
 
-    // dispatch
-    std::array<float, 16u> download{};
-    stream << buffer.copy_from(&m4)
-           << test(m4).dispatch(1u)
-           << scalar_buffer.copy_to(download.data())
-           << synchronize();
-    std::cout << "buffer:";
-    for (auto i : std::span{download}.subspan(0u, 16u)) { std::cout << " " << i; }
-    std::cout << std::endl;
+    std::cout << "Before optimization:" << std::endl;
+    dump(binary);
+
+    spvtools::Optimizer optimizer{SPV_ENV_VULKAN_1_3};
+    optimizer.SetMessageConsumer(spv_logger);
+    optimizer.RegisterPass(spvtools::CreateStripDebugInfoPass());
+    optimizer.RegisterPass(spvtools::CreateStripNonSemanticInfoPass());
+    optimizer.RegisterLegalizationPasses();
+    optimizer.RegisterPerformancePasses();
+
+    std::vector<uint32_t> optimized_binary;
+    spvtools::OptimizerOptions options;
+    options.set_run_validator(false);
+    options.set_preserve_bindings(true);
+    luisa::Clock clock;
+    optimizer.Run(binary.data(), binary.size(), &optimized_binary, options);
+
+    std::cout << "After optimization (" << clock.toc() << " ms):" << std::endl;
+    dump(optimized_binary);
 }
