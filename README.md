@@ -12,41 +12,42 @@ High-performance cross-platform computing framework for graphics and beyond.
 
 ### Frontends/DSLs
 
-| Implementation                 | Status                                    |
-| ------------------------------ | ----------------------------------------- |
-| C++                            | ✅                                         |
+| Implementation                 | Status                                     |
+|--------------------------------|--------------------------------------------|
+| C++                            | ✅                                          |
 | Python                         | ⚠️ (no support for polymorphic constructs) |
-| Custom Script/Shading Language | ⌛                                         |
+| Custom Script/Shading Language | ⌛                                          |
 
 ### AST/IR
 
-| Module   | Status                                                       |
-| -------- | ------------------------------------------------------------ |
-| AST      | ✅                                                            |
+| Module   | Status                                                            |
+|----------|-------------------------------------------------------------------|
+| AST      | ✅                                                                 |
 | IR       | 🚧 (inter-convertibility with the AST; maybe optimization passes) |
-| AutoDiff | ⌛ (reverse mode; transformation passes on the IR)            |
+| AutoDiff | ⌛ (reverse mode; transformation passes on the IR)                 |
 
 ### Runtime
 
-| Module             | Status                                                       |
-| ------------------ | ------------------------------------------------------------ |
-| Device Interface   | 🚧 (re-designing bindless resource APIs; support for device-specific extensions) |
-| Command            | 🚧 (re-designing bindless resource commands; serialization)   |
-| Command Scheduling | ✅                                                            |
+| Module             | Status                                                                                    |
+|--------------------|-------------------------------------------------------------------------------------------|
+| Device Interface   | 🚧 (re-designing bindless resource APIs; support for device-specific extensions)          |
+| Command            | 🚧 (re-designing bindless resource commands; serialization)                               |
+| Command Scheduling | ✅                                                                                         |
 | Interoperability   | 🚧 (complete support for `native_handle` in progress; registration of external resources) |
-| GUI Support        | 🚧 (re-designing swap-chain APIs)                             |
+| GUI Support        | 🚧 (re-designing swap-chain APIs)                                                         |
+| AOT Support        | ⌛ (PSO caching and thin runtime)                                                          |
 
 ### Backends
 
-| Implementation         | Codegen Status                                               | Runtime Status                                               |
-| ---------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| CUDA                   | ✅                                                            | ✅                                                            |
-| DirectX                | ✅ (simulated `atomic<float>` support)                        | ✅                                                            |
-| Metal                  | ✅ (simulated `atomic<float>` support)                        | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
-| Vulkan                 | 🚧 (will translate to SPIR-V)                                 | ⚠️ (needs testing)                                            |
-| ISPC<br />[Deprecated] | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support) | ✅                                                            |
-| LLVM                   | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, with support for simulated shared memory and `synchronize_block`) | ✅                                                            |
-| Remote                 | ⏩ (forwarded to underlying backends)                         | 🚧 (depends on serialization and networking)                  |
+| Implementation         | Codegen Status                                                                                                                                                                                     | Runtime Status                                                    |
+|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| CUDA                   | ✅                                                                                                                                                                                                  | ✅                                                                 |
+| DirectX                | ✅ (simulated `atomic<float>` support)                                                                                                                                                              | ✅                                                                 |
+| Metal                  | ✅ (simulated `atomic<float>` support)                                                                                                                                                              | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
+| Vulkan                 | 🚧 (will translate to SPIR-V)                                                                                                                                                                      | ⚠️ (needs testing)                                                |
+| ISPC<br />[Deprecated] | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support)                                                                                     | ✅                                                                 |
+| LLVM                   | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, with support for simulated shared memory and `synchronize_block`) | ✅                                                                 |
+| Remote                 | ⏩ (forwarded to underlying backends)                                                                                                                                                               | 🚧 (depends on serialization and networking)                      |
 
 ### Libraries/Applications
 
