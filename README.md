@@ -2,6 +2,14 @@
 
 High-performance cross-platform computing framework for graphics and beyond.
 
+## Building and Running
+
+See [BUILD.md](BUILD.md).
+
+## Python Frontend
+
+See [README_Python.md](README_Python.md).
+
 ## Roadmap
 
 - ✅ Done and fully functional
@@ -51,9 +59,11 @@ High-performance cross-platform computing framework for graphics and beyond.
 
 ### Libraries/Applications
 
-- 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git) (support for volumetric rendering, out-of-core tracing and shading, advanced sampling algorithms, custom shading language, Blender/C4D exporters, etc.)
+- 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git) (support for volumetric rendering, out-of-core tracing
+  and shading, advanced sampling algorithms, custom shading language, Blender/C4D exporters, etc.)
 - 🚧 [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git) (custom shading language support planned)
-- ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing, etc.)
+- ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing,
+  etc.)
 
 ### Documentation/Tutorials
 
