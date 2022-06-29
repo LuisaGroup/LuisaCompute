@@ -28,14 +28,14 @@ High-performance cross-platform computing framework for graphics and beyond.
 
 ### Runtime
 
-| Module             | Status                                                                                    |
-|--------------------|-------------------------------------------------------------------------------------------|
-| Device Interface   | 🚧 (re-designing bindless resource APIs; support for device-specific extensions)          |
-| Command            | 🚧 (re-designing bindless resource commands; serialization)                               |
-| Command Scheduling | ✅                                                                                         |
-| Interoperability   | 🚧 (complete support for `native_handle` in progress; registration of external resources) |
-| GUI Support        | 🚧 (re-designing swap-chain APIs)                                                         |
-| AOT Support        | ⌛ (PSO caching and thin runtime)                                                          |
+| Module             | Status                                                                                                              |
+|--------------------|---------------------------------------------------------------------------------------------------------------------|
+| Device Interface   | 🚧 (re-designing bindless resource APIs; support for device property query; support for device-specific extensions) |
+| Command            | 🚧 (re-designing bindless resource commands; serialization)                                                         |
+| Command Scheduling | ✅                                                                                                                   |
+| Interoperability   | 🚧 (complete support for `native_handle` in progress; registration of external resources)                           |
+| GUI Support        | 🚧 (re-designing swap-chain APIs)                                                                                   |
+| AOT Support        | ⌛ (PSO caching and thin runtime)                                                                                    |
 
 ### Backends
 
