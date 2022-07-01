@@ -4,11 +4,11 @@ High-performance cross-platform computing framework for graphics and beyond.
 
 ## Building and Running
 
-See [BUILD.md](BUILD.md).
+See [BUILD](BUILD.md).
 
 ## Python Frontend
 
-See [README_Python.md](README_Python.md).
+See [README-Python](README_Python.md).
 
 ## Roadmap
 
@@ -24,6 +24,7 @@ See [README_Python.md](README_Python.md).
 |--------------------------------|--------------------------------------------|
 | C++                            | ✅                                          |
 | Python                         | ⚠️ (no support for polymorphic constructs) |
+| C API                          | ⌛ (for easy bindings in other languages)   |
 | Custom Script/Shading Language | ⌛                                          |
 
 ### AST/IR
@@ -68,6 +69,6 @@ See [README_Python.md](README_Python.md).
 ### Documentation/Tutorials
 
 - 🚧 Documentation
-- ⌛ Ray tracing in one weekend with LuisaCompute (after paper acceptation)
+- ⌛ Ray tracing in one weekend with LuisaCompute (after paper acceptance)
 - ⌛ Shader toy playground (depends on LuisaShaderToy...)
 
