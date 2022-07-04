@@ -126,7 +126,7 @@ LUISA_MAKE_VECTOR_BINARY_FUNC(fmod)
 
 [[nodiscard]] inline auto isnan(float x) noexcept {
     auto u = 0u;
-    std::memcpy(&u, &x, sizeof(float));
+    ::memcpy(&u, &x, sizeof(float));
     return (u & 0x7f800000u) == 0x7f800000u && (u & 0x007fffffu) != 0u;
 }
 [[nodiscard]] inline auto isnan(float2 v) noexcept { return make_bool2(isnan(v.x), isnan(v.y)); }
@@ -135,7 +135,7 @@ LUISA_MAKE_VECTOR_BINARY_FUNC(fmod)
 
 [[nodiscard]] inline auto isinf(float x) noexcept {
     auto u = 0u;
-    std::memcpy(&u, &x, sizeof(float));
+    ::memcpy(&u, &x, sizeof(float));
     return (u & 0x7f800000u) == 0x7f800000u && (u & 0x007fffffu) == 0u;
 }
 [[nodiscard]] inline auto isinf(float2 v) noexcept { return make_bool2(isinf(v.x), isinf(v.y)); }
