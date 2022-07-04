@@ -78,7 +78,6 @@ endif ()
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext PUBLIC EASTL)
 
-
 if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(pybind11)
 endif ()

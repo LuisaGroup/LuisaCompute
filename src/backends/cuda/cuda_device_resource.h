@@ -643,38 +643,58 @@ template<typename T>
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
     auto t = array.tex2d_slots[index];
-    auto v = tex2D<float4>(t, p.x, p.y);
-    return lc_make_float4(v.x, v.y, v.z, v.w);
+    auto v = lc_make_float4();
+    asm("tex.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "f"(p.x), "f"(p.y));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d(LCBindlessArray array, lc_uint index, lc_float3 p) noexcept {
     auto t = array.tex3d_slots[index];
-    auto v = tex3D<float4>(t, p.x, p.y, p.z);
-    return lc_make_float4(v.x, v.y, v.z, v.w);
+    auto v = lc_make_float4();
+    asm("tex.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "f"(p.x), "f"(p.y), "f"(p.z), "f"(0.f));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_level(LCBindlessArray array, lc_uint index, lc_float2 p, float level) noexcept {
     auto t = array.tex2d_slots[index];
-    auto v = tex2DLod<float4>(t, p.x, p.y, level);
-    return lc_make_float4(v.x, v.y, v.z, v.w);
+    auto v = lc_make_float4();
+    asm("tex.level.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], %7;"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "f"(p.x), "f"(p.y), "f"(level));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_level(LCBindlessArray array, lc_uint index, lc_float3 p, float level) noexcept {
     auto t = array.tex3d_slots[index];
-    auto v = tex3DLod<float4>(t, p.x, p.y, p.z, level);
-    return lc_make_float4(v.x, v.y, v.z, v.w);
+    auto v = lc_make_float4();
+    asm("tex.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], %9;"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "f"(p.x), "f"(p.y), "f"(p.z), "f"(0.f), "f"(level));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_grad(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy) noexcept {
     auto t = array.tex2d_slots[index];
-    auto v = tex2DGrad<float4>(t, p.x, p.y, make_float2(dx.x, dx.y), make_float2(dy.x, dy.y));
-    return lc_make_float4(v.x, v.y, v.z, v.w);
+    auto v = lc_make_float4();
+    asm("tex.grad.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], {%7, %8}, {%9, %10};"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "f"(p.x), "f"(p.y), "f"(dx.x), "f"(dx.y), "f"(dy.x), "f"(dy.y));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_grad(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy) noexcept {
     auto t = array.tex3d_slots[index];
-    auto v = tex3DGrad<float4>(t, p.x, p.y, p.z, make_float4(dx.x, dx.y, dx.z, 1.0f), make_float4(dy.x, dy.y, dy.z, 1.0f));
-    return lc_make_float4(v.x, v.y, v.z, v.w);
+    auto v = lc_make_float4();
+    asm("tex.grad.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], {%9, %10, %11, %12}, {%13, %14, %15, 16};"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "f"(p.x), "f"(p.y), "f"(p.z), "f"(0.f),
+          "f"(dx.x), "f"(dx.y), "f"(dx.z), "f"(0.f),
+          "f"(dy.x), "f"(dy.y), "f"(dy.z), "f"(0.f));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size2d(LCBindlessArray array, lc_uint index) noexcept {
@@ -698,27 +718,39 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read2d(LCBindlessArray array, lc_uint index, lc_uint2 p) noexcept {
-    auto s = lc_bindless_texture_size2d(array, index);
-    auto pp = (lc_make_float2(p) + lc_make_float2(0.5f)) / lc_make_float2(s);
-    return lc_bindless_texture_sample2d(array, index, pp);
+    auto t = array.tex2d_slots[index];
+    auto v = lc_make_float4();
+    asm("tex.2d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "r"(p.x), "r"(p.y));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read3d(LCBindlessArray array, lc_uint index, lc_uint3 p) noexcept {
-    auto s = lc_bindless_texture_size3d(array, index);
-    auto pp = (lc_make_float3(p) + lc_make_float3(0.5f)) / lc_make_float3(s);
-    return lc_bindless_texture_sample3d(array, index, pp);
+    auto t = array.tex3d_slots[index];
+    auto v = lc_make_float4();
+    asm("tex.3d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "r"(p.x), "r"(p.y), "r"(p.z), "r"(0u));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read2d_level(LCBindlessArray array, lc_uint index, lc_uint2 p, lc_uint level) noexcept {
-    auto s = lc_bindless_texture_size2d_level(array, index, level);
-    auto pp = (lc_make_float2(p) + lc_make_float2(0.5f)) / lc_make_float2(s);
-    return lc_bindless_texture_sample2d_level(array, index, pp, static_cast<float>(level));
+    auto t = array.tex2d_slots[index];
+    auto v = lc_make_float4();
+    asm("tex.level.2d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6}], %7;"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "r"(p.x), "r"(p.y), "r"(level));
+    return v;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read3d_level(LCBindlessArray array, lc_uint index, lc_uint3 p, lc_uint level) noexcept {
-    auto s = lc_bindless_texture_size3d_level(array, index, level);
-    auto pp = (lc_make_float3(p) + lc_make_float3(0.5f)) / lc_make_float3(s);
-    return lc_bindless_texture_sample3d_level(array, index, pp, static_cast<float>(level));
+    auto t = array.tex3d_slots[index];
+    auto v = lc_make_float4();
+    asm("tex.level.3d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], %9;"
+        : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
+        : "l"(t), "r"(p.x), "r"(p.y), "r"(p.z), "r"(0u), "r"(level));
+    return v;
 }
 
 struct alignas(16) LCRay {
