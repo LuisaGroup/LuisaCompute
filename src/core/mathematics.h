@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstring>
 #include <algorithm>
 
 #include <core/basic_types.h>
