@@ -26,7 +26,7 @@
 #define __optix_optix_function_table_h__
 
 /// The OptiX ABI version.
-#define OPTIX_ABI_VERSION 55
+#define OPTIX_ABI_VERSION 47
 
 #ifndef OPTIX_DEFINE_ABI_VERSION_ONLY
 
@@ -114,20 +114,6 @@ typedef struct OptixFunctionTable
                                                size_t*                            logStringSize,
                                                OptixModule*                       module );
 
-    /// See ::optixModuleCreateFromPTXWithTasks().
-    OptixResult ( *optixModuleCreateFromPTXWithTasks )( OptixDeviceContext                 context,
-                                                        const OptixModuleCompileOptions*   moduleCompileOptions,
-                                                        const OptixPipelineCompileOptions* pipelineCompileOptions,
-                                                        const char*                        PTX,
-                                                        size_t                             PTXsize,
-                                                        char*                              logString,
-                                                        size_t*                            logStringSize,
-                                                        OptixModule*                       module,
-                                                        OptixTask*                         firstTask );
-
-    /// See ::optixModuleGetCompilationState().
-    OptixResult ( *optixModuleGetCompilationState )( OptixModule module, OptixModuleCompileState* state );
-
     /// See ::optixModuleDestroy().
     OptixResult ( *optixModuleDestroy )( OptixModule module );
 
@@ -138,15 +124,6 @@ typedef struct OptixFunctionTable
                                              const OptixBuiltinISOptions*       builtinISOptions,
                                              OptixModule*                       builtinModule);
 
-    //@ }
-    /// \name Tasks
-    //@ {
-
-    /// See ::optixTaskExecute().
-    OptixResult ( *optixTaskExecute )( OptixTask     task,
-                                       OptixTask*    additionalTasks,
-                                       unsigned int  maxNumAdditionalTasks,
-                                       unsigned int* numAdditionalTasksCreated );
     //@ }
     /// \name Program groups
     //@ {
@@ -248,9 +225,6 @@ typedef struct OptixFunctionTable
                                                              CUdeviceptr             pointer,
                                                              OptixTraversableType    traversableType,
                                                              OptixTraversableHandle* traversableHandle );
-
-    void ( *reserved1 )( void );
-    void ( *reserved2 )( void );
 
     //@ }
     /// \name Launch

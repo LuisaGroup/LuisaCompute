@@ -336,64 +336,6 @@ OptixResult optixModuleCreateFromPTX( OptixDeviceContext                 context
                                       size_t*                            logStringSize,
                                       OptixModule*                       module );
 
-/// This function is designed to do just enough work to create the OptixTask return
-/// parameter and is expected to be fast enough run without needing parallel execution. A
-/// single thread could generate all the OptixTask objects for further processing in a
-/// work pool.
-///
-/// Options are similar to #optixModuleCreateFromPTX(), aside from the return parameter,
-/// firstTask.
-///
-/// The memory used to hold the PTX should be live until all tasks are finished.
-///
-/// It is illegal to call #optixModuleDestroy() if any OptixTask objects are currently
-/// being executed. In that case OPTIX_ERROR_ILLEGAL_DURING_TASK_EXECUTE will be returned.
-///
-/// If an invocation of optixTaskExecute fails, the OptixModule will be marked as
-/// OPTIX_MODULE_COMPILE_STATE_IMPENDING_FAILURE if there are outstanding tasks or
-/// OPTIX_MODULE_COMPILE_STATE_FAILURE if there are no outstanding tasks. Subsequent calls
-/// to #optixTaskExecute() may execute additional work to collect compilation errors
-/// generated from the input. Currently executing tasks will not necessarily be terminated
-/// immediately but at the next opportunity.
-
-/// Logging will continue to be directed to the logger installed with the
-/// OptixDeviceContext. If logString is provided to #optixModuleCreateFromPTXWithTasks(),
-/// it will contain all the compiler feedback from all executed tasks. The lifetime of the
-/// memory pointed to by logString should extend from calling
-/// #optixModuleCreateFromPTXWithTasks() to when the compilation state is either
-/// OPTIX_MODULE_COMPILE_STATE_FAILURE or OPTIX_MODULE_COMPILE_STATE_COMPLETED. OptiX will
-/// not write to the logString outside of execution of
-/// #optixModuleCreateFromPTXWithTasks() or #optixTaskExecute(). If the compilation state
-/// is OPTIX_MODULE_COMPILE_STATE_IMPENDING_FAILURE and no further execution of
-/// #optixTaskExecute() is performed the logString may be reclaimed by the application
-/// before calling #optixModuleDestroy(). The contents of logString will contain output
-/// from currently completed tasks.
-
-/// All OptixTask objects associated with a given OptixModule will be cleaned up when
-/// #optixModuleDestroy() is called regardless of whether the compilation was successful
-/// or not. If the compilation state is OPTIX_MODULE_COMPILE_STATE_IMPENDIND_FAILURE, any
-/// unstarted OptixTask objects do not need to be executed though there is no harm doing
-/// so.
-///
-/// \see #optixModuleCreateFromPTX
-OptixResult optixModuleCreateFromPTXWithTasks( OptixDeviceContext                 context,
-                                               const OptixModuleCompileOptions*   moduleCompileOptions,
-                                               const OptixPipelineCompileOptions* pipelineCompileOptions,
-                                               const char*                        PTX,
-                                               size_t                             PTXsize,
-                                               char*                              logString,
-                                               size_t*                            logStringSize,
-                                               OptixModule*                       module,
-                                               OptixTask*                         firstTask );
-
-/// When creating a module with tasks, the current state of the module can be queried
-/// using this function.
-///
-/// Thread safety: Safe to call from any thread until optixModuleDestroy is called.
-///
-/// \see #optixModuleCreateFromPTXWithTasks
-OptixResult optixModuleGetCompilationState( OptixModule module, OptixModuleCompileState* state );
-
 /// Call for OptixModule objects created with optixModuleCreateFromPTX and optixModuleDeserialize.
 ///
 /// Modules must not be destroyed while they are still used by any program group.
@@ -409,30 +351,6 @@ OptixResult optixBuiltinISModuleGet( OptixDeviceContext                 context,
                                      const OptixPipelineCompileOptions* pipelineCompileOptions,
                                      const OptixBuiltinISOptions*       builtinISOptions,
                                      OptixModule*                       builtinModule );
-
-//@}
-/// \defgroup optix_host_api_tasks Tasks
-/// \ingroup optix_host_api
-//@{
-
-/// Each OptixTask should be executed with #optixTaskExecute(). If additional parallel
-/// work is found, new OptixTask objects will be returned in additionalTasks along with
-/// the number of additional tasks in numAdditionalTasksCreated. The parameter
-/// additionalTasks should point to a user allocated array of minimum size
-/// maxNumAdditionalTasks. OptiX can generate upto maxNumAdditionalTasks additional tasks.
-///
-/// Each task can be executed in parallel and in any order.
-///
-/// Thread safety: Safe to call from any thread until #optixModuleDestroy() is called for
-/// any associated task.
-///
-/// \see #optixModuleCreateFromPTXWithTasks
-///
-/// \param[in] task the OptixTask to execute
-/// \param[in] additionalTasks pointer to array of OptixTask objects to be filled in
-/// \param[in] maxNumAdditionalTasks maximum number of additional OptixTask objects
-/// \param[out] numAdditionalTasksCreated number of OptixTask objects created by OptiX and written into #additionalTasks
-OptixResult optixTaskExecute( OptixTask task, OptixTask* additionalTasks, unsigned int maxNumAdditionalTasks, unsigned int* numAdditionalTasksCreated );
 
 //@}
 /// \defgroup optix_host_api_program_groups Program groups
@@ -530,8 +448,8 @@ OptixResult optixSbtRecordPackHeader( OptixProgramGroup programGroup, void* sbtR
 /// \ingroup optix_host_api
 //@{
 
-/// \param[in] context
-/// \param[in] accelOptions   options for the accel build
+/// \param[in] context        device context of the pipeline
+/// \param[in] accelOptions   accel options
 /// \param[in] buildInputs    an array of OptixBuildInput objects
 /// \param[in] numBuildInputs number of elements in buildInputs (must be at least 1)
 /// \param[out] bufferSizes   fills in buffer sizes
@@ -673,10 +591,6 @@ OptixResult optixConvertPointerToTraversableHandle( OptixDeviceContext      onDe
                                                     OptixTraversableType    traversableType,
                                                     OptixTraversableHandle* traversableHandle );
 
-
-
-
-
 //@}
 /// \defgroup optix_host_api_denoiser Denoiser
 /// \ingroup optix_host_api
@@ -783,8 +697,7 @@ OptixResult optixDenoiserSetup( OptixDenoiser denoiser,
 /// 'guideLayer' must not be null. If a guide image in 'OptixDenoiserOptions' is not enabled, the
 /// corresponding image in 'OptixDenoiserGuideLayer' is ignored.
 ///
-/// If OPTIX_DENOISER_MODEL_KIND_TEMPORAL or OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV  is selected, a 2d flow
-/// image must be given in 'OptixDenoiserGuideLayer'.
+/// If OPTIX_DENOISER_MODEL_KIND_TEMPORAL is selected, a 2d flow image must be given in 'OptixDenoiserGuideLayer'.
 /// It describes for each pixel the flow from the previous to the current frame (a 2d vector in pixel space).
 /// The denoised beauty/AOV of the previous frame must be given in 'previousOutput'.
 /// If this image is not available in the first frame of a sequence, the noisy beauty/AOV from the first frame
@@ -803,13 +716,7 @@ OptixResult optixDenoiserSetup( OptixDenoiser denoiser,
 /// the pixel formats must be identical for input and output when the blend mode is selected (see
 /// #OptixDenoiserParams).
 ///
-/// If OPTIX_DENOISER_MODEL_KIND_TEMPORAL or OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV  is selected, the denoised
-/// image from the previous frame must be given in 'previousOutput' in the layer. 'previousOutput' and
-/// 'output' may refer to the same buffer, i.e. 'previousOutput' is first read by this function and later
-/// overwritten with the denoised result. 'output' can be passed as 'previousOutput' to the next frame.
-/// In other model kinds (not temporal) 'previousOutput' is ignored.
-///
-/// If OPTIX_DENOISER_MODEL_KIND_TEMPORAL or OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV  is selected, the
+/// If OPTIX_DENOISER_MODEL_KIND_TEMPORAL is selected, the
 /// normal vector guide image must be given as 3d vectors in camera space. In the other models only
 /// the x and y channels are used and other channels are ignored.
 ///
@@ -823,6 +730,7 @@ OptixResult optixDenoiserSetup( OptixDenoiser denoiser,
 /// \param[in] numLayers
 /// \param[in] inputOffsetX
 /// \param[in] inputOffsetY
+/// \param[in] outputLayer
 /// \param[in] scratch
 /// \param[in] scratchSizeInBytes
 OptixResult optixDenoiserInvoke( OptixDenoiser                   denoiser,
