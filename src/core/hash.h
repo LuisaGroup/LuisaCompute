@@ -47,7 +47,7 @@ namespace detail {
         case 3: h ^= uint64_t(key[2]) << 16u; [[fallthrough]];
         case 2: h ^= uint64_t(key[1]) << 8u; [[fallthrough]];
         case 1: h = (h ^ uint64_t(key[0])) * m;
-    };
+    }
     h ^= h >> r;
     h *= m;
     h ^= h >> r;

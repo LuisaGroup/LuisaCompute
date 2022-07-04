@@ -1,8 +1,14 @@
 # LuisaCompute
 
-[![build](https://github.com/Mike-Leo-Smith/LuisaCompute/actions/workflows/ci.yml/badge.svg)](https://github.com/Mike-Leo-Smith/LuisaCompute/actions/workflows/ci.yml)
+High-performance cross-platform computing framework for graphics and beyond.
 
-High-performance cross-platform computing framework for computer graphics and more.
+## Building and Running
+
+See [BUILD](BUILD.md).
+
+## Python Frontend
+
+See [README-Python](README_Python.md).
 
 ## Roadmap
 
@@ -14,47 +20,55 @@ High-performance cross-platform computing framework for computer graphics and mo
 
 ### Frontends/DSLs
 
-| Implementation                 | Status                                    |
-| ------------------------------ | ----------------------------------------- |
-| C++                            | ✅                                         |
+| Implementation                 | Status                                     |
+|--------------------------------|--------------------------------------------|
+| C++                            | ✅                                          |
 | Python                         | ⚠️ (no support for polymorphic constructs) |
-| Custom Script/Shading Language | ⌛                                         |
+| C API                          | ⌛ (for easy bindings in other languages)   |
+| Custom Script/Shading Language | ⌛                                          |
 
 ### AST/IR
 
-| Module   | Status                                                       |
-| -------- | ------------------------------------------------------------ |
-| AST      | ✅                                                            |
+| Module   | Status                                                            |
+|----------|-------------------------------------------------------------------|
+| AST      | ✅                                                                 |
 | IR       | 🚧 (inter-convertibility with the AST; maybe optimization passes) |
-| AutoDiff | ⌛ (reverse mode; transformation passes on the IR)            |
+| AutoDiff | ⌛ (reverse mode; transformation passes on the IR)                 |
 
 ### Runtime
 
-| Module             | Status                                                       |
-| ------------------ | ------------------------------------------------------------ |
-| Device Interface   | 🚧 (re-designing bindless resource APIs; support for device-specific extensions) |
-| Command            | 🚧 (re-designing bindless resource commands; serialization)   |
-| Command Scheduling | ✅                                                            |
-| Interoperability   | 🚧 (complete support for `native_handle` in progress; registration of external resources) |
-| GUI Support        | 🚧 (re-designing swap-chain APIs)                             |
+| Module             | Status                                                                                                              |
+|--------------------|---------------------------------------------------------------------------------------------------------------------|
+| Device Interface   | 🚧 (re-designing bindless resource APIs; support for device property query; support for device-specific extensions) |
+| Command            | 🚧 (re-designing bindless resource commands; serialization)                                                         |
+| Command Scheduling | ✅                                                                                                                   |
+| Interoperability   | 🚧 (complete support for `native_handle` in progress; registration of external resources)                           |
+| GUI Support        | 🚧 (re-designing swap-chain APIs)                                                                                   |
+| AOT Support        | ⌛ (PSO caching and thin runtime)                                                                                    |
 
 ### Backends
 
-| Implementation | Codegen Status                                               | Runtime Status                                               |
-| -------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| CUDA           | ✅                                                            | ✅                                                            |
-| DirectX        | ✅ (simulated `atomic<float>` support)                        | ✅                                                            |
-| Metal          | ✅ (simulated `atomic<float>` support)                        | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
-| Vulkan         | ⌛ (will translate to SPIR-V)                                 | ⚠️ (needs testing)                                            |
-| ISPC           | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support) | ✅                                                            |
-| LLVM           | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, will bring support for shared memory and `synchronize_block` together) | ✅                                                            |
-| Remote         | ⏩ (forwarded to underlying backends)                         | 🚧 (depends on serialization and networking)                  |
+| Implementation         | Codegen Status                                                                                                                                                                                     | Runtime Status                                                    |
+|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| CUDA                   | ✅                                                                                                                                                                                                  | ✅                                                                 |
+| DirectX                | ✅ (simulated `atomic<float>` support)                                                                                                                                                              | ✅                                                                 |
+| Metal                  | ✅ (simulated `atomic<float>` support)                                                                                                                                                              | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
+| Vulkan                 | 🚧 (will translate to SPIR-V)                                                                                                                                                                      | ⚠️ (needs testing)                                                |
+| ISPC<br />[Deprecated] | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support)                                                                                     | ✅                                                                 |
+| LLVM                   | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, with support for simulated shared memory and `synchronize_block`) | ✅                                                                 |
+| Remote                 | ⏩ (forwarded to underlying backends)                                                                                                                                                               | 🚧 (depends on serialization and networking)                      |
 
 ### Libraries/Applications
 
 - 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git) (support for volumetric rendering, out-of-core tracing
   and shading, advanced sampling algorithms, custom shading language, Blender/C4D exporters, etc.)
-- 🚧 [LuisaShaderToy](https://github.com/Mike-Leo-Smith/LuisaShaderToy.git) (custom shading language support planned)
-- ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing
-  operators, etc.)
+- 🚧 [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git) (custom shading language support planned)
+- ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing,
+  etc.)
+
+### Documentation/Tutorials
+
+- 🚧 Documentation
+- ⌛ Ray tracing in one weekend with LuisaCompute (after paper acceptance)
+- ⌛ Shader toy playground (depends on LuisaShaderToy...)
 

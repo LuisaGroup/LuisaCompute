@@ -3,7 +3,6 @@
 //
 
 #include <EASTL/allocator.h>
-#include <core/platform.h>
 #include <core/stl.h>
 
 namespace luisa::detail {
@@ -17,9 +16,7 @@ void allocator_deallocate(void *p, size_t) noexcept {
 }
 
 void *allocator_reallocate(void *p, size_t size, size_t alignment) noexcept {
-    auto &&allocator = eastl::GetDefaultAllocator();
-    allocator->deallocate(p, 0u);
-    return allocator->allocate(size, alignment, 0u);
+    return eastl::GetDefaultAllocator()->reallocate(p, size);
 }
 
 }// namespace luisa::detail
