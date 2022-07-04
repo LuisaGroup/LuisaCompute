@@ -68,9 +68,6 @@ typedef struct OptixPipeline_t* OptixPipeline;
 /// Opaque type representing a denoiser instance
 typedef struct OptixDenoiser_t* OptixDenoiser;
 
-/// Opaque type representing a work task
-typedef struct OptixTask_t* OptixTask;
-
 /// Traversable handle
 typedef unsigned long long OptixTraversableHandle;
 
@@ -101,12 +98,8 @@ typedef unsigned int OptixVisibilityMask;
 /// Maximum number of registers allowed. Defaults to no explicit limit.
 #define OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT 0
 
-/// Maximum number of payload types allowed.
-#define OPTIX_COMPILE_DEFAULT_MAX_PAYLOAD_TYPE_COUNT 8
-
 /// Maximum number of payload values allowed.
-#define OPTIX_COMPILE_DEFAULT_MAX_PAYLOAD_VALUE_COUNT 32
-
+#define OPTIX_COMPILE_DEFAULT_MAX_PAYLOAD_VALUE_COUNT 8
 
 
 /// Result codes returned from API functions
@@ -145,9 +138,6 @@ typedef enum OptixResult
     OPTIX_ERROR_DENOISER_MODEL_NOT_SET          = 7300,
     OPTIX_ERROR_DENOISER_NOT_INITIALIZED        = 7301,
     OPTIX_ERROR_ACCEL_NOT_COMPATIBLE            = 7400,
-    OPTIX_ERROR_PAYLOAD_TYPE_MISMATCH           = 7500,
-    OPTIX_ERROR_PAYLOAD_TYPE_RESOLUTION_FAILED  = 7501,
-    OPTIX_ERROR_PAYLOAD_TYPE_ID_INVALID         = 7502,
     OPTIX_ERROR_NOT_SUPPORTED                   = 7800,
     OPTIX_ERROR_UNSUPPORTED_ABI_VERSION         = 7801,
     OPTIX_ERROR_FUNCTION_TABLE_SIZE_MISMATCH    = 7802,
@@ -254,7 +244,7 @@ typedef struct OptixDeviceContextOptions
 } OptixDeviceContextOptions;
 
 /// Flags used by #OptixBuildInputTriangleArray::flags
-/// and #OptixBuildInput::flag
+/// and #OptixBuildInputCurveArray::flag
 /// and #OptixBuildInputCustomPrimitiveArray::flags
 typedef enum OptixGeometryFlags
 {
@@ -268,8 +258,7 @@ typedef enum OptixGeometryFlags
     /// If set, an intersection with the primitive will trigger one and only one
     /// invocation of the anyhit program.  Otherwise, the anyhit program may be invoked
     /// more than once.
-    OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL = 1u << 1,
-
+    OPTIX_GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL = 1u << 1
 } OptixGeometryFlags;
 
 /// Legacy type: A subset of the hit kinds for built-in primitive intersections.
@@ -314,7 +303,6 @@ typedef enum OptixTransformFormat
     OPTIX_TRANSFORM_FORMAT_NONE           = 0,       ///< no transform, default for zero initialization
     OPTIX_TRANSFORM_FORMAT_MATRIX_FLOAT12 = 0x21E1,  ///< 3x4 row major affine matrix
 } OptixTransformFormat;
-
 
 /// Triangle inputs
 ///
@@ -386,8 +374,6 @@ typedef struct OptixBuildInputTriangleArray
 
     /// \see #OptixTransformFormat
     OptixTransformFormat transformFormat;
-
-
 } OptixBuildInputTriangleArray;
 
 /// Builtin primitive types
@@ -402,8 +388,6 @@ typedef enum OptixPrimitiveType
     OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE           = 0x2502,
     /// Piecewise linear curve with circular cross-section.
     OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR                  = 0x2503,
-    /// CatmullRom curve with circular cross-section.
-    OPTIX_PRIMITIVE_TYPE_ROUND_CATMULLROM              = 0x2504,
     /// Triangle.
     OPTIX_PRIMITIVE_TYPE_TRIANGLE                      = 0x2531,
 } OptixPrimitiveType;
@@ -421,21 +405,9 @@ typedef enum OptixPrimitiveTypeFlags
     OPTIX_PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BSPLINE     = 1 << 2,
     /// Piecewise linear curve with circular cross-section.
     OPTIX_PRIMITIVE_TYPE_FLAGS_ROUND_LINEAR            = 1 << 3,
-    /// CatmullRom curve with circular cross-section.
-    OPTIX_PRIMITIVE_TYPE_FLAGS_ROUND_CATMULLROM        = 1 << 4,
     /// Triangle.
     OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE                = 1 << 31,
 } OptixPrimitiveTypeFlags;
-
-/// Curve end cap types, for non-linear curves
-///
-typedef enum OptixCurveEndcapFlags
-{
-    /// Default end caps. Round end caps for linear, no end caps for quadratic/cubic.
-    OPTIX_CURVE_ENDCAP_DEFAULT                        = 0,
-    /// Flat end caps at both ends of quadratic/cubic curve segments. Not valid for linear.
-    OPTIX_CURVE_ENDCAP_ON                             = 1 << 0,
-} OptixCurveEndcapFlags;
 
 /// Curve inputs
 ///
@@ -502,9 +474,6 @@ typedef struct OptixBuildInputCurveArray
     /// Primitive index bias, applied in optixGetPrimitiveIndex().
     /// Sum of primitiveIndexOffset and number of primitives must not overflow 32bits.
     unsigned int primitiveIndexOffset;
-
-    /// End cap flags, see OptixCurveEndcapFlags
-    unsigned int endcapFlags;
 } OptixBuildInputCurveArray;
 
 /// AABB inputs
@@ -659,8 +628,8 @@ typedef enum OptixInstanceFlags
     /// This flag is mutually exclusive with OPTIX_INSTANCE_FLAG_DISABLE_ANYHIT.
     OPTIX_INSTANCE_FLAG_ENFORCE_ANYHIT = 1u << 3,
 
-
-
+    /// Disable the instance transformation
+    OPTIX_INSTANCE_FLAG_DISABLE_TRANSFORM = 1u << 6,
 } OptixInstanceFlags;
 
 /// Instances
@@ -691,7 +660,6 @@ typedef struct OptixInstance
 
     /// round up to 80-byte, to ensure 16-byte alignment
     unsigned int pad[2];
-
 } OptixInstance;
 
 /// Builder Options
@@ -717,17 +685,12 @@ typedef enum OptixBuildFlags
     ///     optixGetLinearCurveVertexData
     ///     optixGetQuadraticBSplineVertexData
     ///     optixGetCubicBSplineVertexData
-    ///     optixGetCatmullRomVertexData
     OPTIX_BUILD_FLAG_ALLOW_RANDOM_VERTEX_ACCESS = 1u << 4,
 
     /// Allow random access to instances
     /// See optixGetInstanceTraversableFromIAS
     OPTIX_BUILD_FLAG_ALLOW_RANDOM_INSTANCE_ACCESS = 1u << 5,
-
 } OptixBuildFlags;
-
-
-
 
 /// Enum to specify the acceleration build operation.
 ///
@@ -1063,8 +1026,6 @@ typedef enum OptixDenoiserModelKind
     /// Use the built-in model appropriate for high dynamic range input, temporally stable
     OPTIX_DENOISER_MODEL_KIND_TEMPORAL = 0x2325,
 
-    /// Use the built-in model appropriate for high dynamic range input and support for AOVs, temporally stable
-    OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV = 0x2326,
 } OptixDenoiserModelKind;
 
 /// Options used by the denoiser
@@ -1116,10 +1077,7 @@ typedef struct OptixDenoiserLayer
 /// \see #optixDenoiserComputeAverageColor()
 typedef struct OptixDenoiserParams
 {
-    /// alpha denoise mode:
-    /// 0 Copy alpha (if present) from input layer, no denoising.
-    /// 1 Denoise alpha separately. In AOV model kinds, treat alpha like an AOV.
-    /// 2 In AOV model kinds, full denoise pass with alpha (slower than mode 1).
+    /// if set to nonzero value, denoise alpha channel (if present) in first inputLayer image
     unsigned int denoiseAlpha;
 
     /// average log intensity of input image (default null pointer). points to a single float.
@@ -1203,8 +1161,7 @@ typedef enum OptixRayFlags
     /// setting instance flag OPTIX_INSTANCE_FLAG_ENFORCE_ANYHIT).
     /// This flag is mutually exclusive with OPTIX_RAY_FLAG_CULL_DISABLED_ANYHIT,
     /// OPTIX_RAY_FLAG_ENFORCE_ANYHIT, OPTIX_RAY_FLAG_DISABLE_ANYHIT.
-    OPTIX_RAY_FLAG_CULL_ENFORCED_ANYHIT = 1u << 7,
-
+    OPTIX_RAY_FLAG_CULL_ENFORCED_ANYHIT = 1u << 7
 } OptixRayFlags;
 
 /// Transform
@@ -1263,39 +1220,16 @@ typedef enum OptixCompileOptimizationLevel
 /// \see #OptixModuleCompileOptions::debugLevel
 typedef enum OptixCompileDebugLevel
 {
-    /// Default currently is minimal
+    /// Default currently is to add line info
     OPTIX_COMPILE_DEBUG_LEVEL_DEFAULT  = 0,
     /// No debug information
     OPTIX_COMPILE_DEBUG_LEVEL_NONE     = 0x2350,
-    /// Generate information that does not impact performance.
-    /// Note this replaces OPTIX_COMPILE_DEBUG_LEVEL_LINEINFO.
-    OPTIX_COMPILE_DEBUG_LEVEL_MINIMAL  = 0x2351,
-    /// Generate some debug information with slight performance cost
-    OPTIX_COMPILE_DEBUG_LEVEL_MODERATE = 0x2353,
-    /// Generate full debug information
+    /// Generate lineinfo only
+    OPTIX_COMPILE_DEBUG_LEVEL_LINEINFO = 0x2351,
+    /// Generate dwarf debug information.
     OPTIX_COMPILE_DEBUG_LEVEL_FULL     = 0x2352,
 } OptixCompileDebugLevel;
 
-/// Module compilation state.
-///
-/// \see #optixModuleGetCompilationState(), #optixModuleCreateFromPTXWithTasks()
-typedef enum OptixModuleCompileState
-{
-    /// No OptixTask objects have started
-    OPTIX_MODULE_COMPILE_STATE_NOT_STARTED       = 0x2360,
-
-    /// Started, but not all OptixTask objects have completed. No detected failures.
-    OPTIX_MODULE_COMPILE_STATE_STARTED           = 0x2361,
-
-    /// Not all OptixTask objects have completed, but at least one has failed.
-    OPTIX_MODULE_COMPILE_STATE_IMPENDING_FAILURE = 0x2362,
-
-    /// All OptixTask objects have completed, and at least one has failed
-    OPTIX_MODULE_COMPILE_STATE_FAILED            = 0x2363,
-
-    /// All OptixTask objects have completed. The OptixModule is ready to be used.
-    OPTIX_MODULE_COMPILE_STATE_COMPLETED         = 0x2364,
-} OptixModuleCompileState;
 
 
 
@@ -1339,69 +1273,6 @@ typedef struct OptixModuleCompileBoundValueEntry {
                             // OptiX will report the annotation as "No annotation"
 } OptixModuleCompileBoundValueEntry;
 
-/// Payload type identifiers.
-typedef enum OptixPayloadTypeID {
-    OPTIX_PAYLOAD_TYPE_DEFAULT = 0,
-    OPTIX_PAYLOAD_TYPE_ID_0 = (1 << 0u),
-    OPTIX_PAYLOAD_TYPE_ID_1 = (1 << 1u),
-    OPTIX_PAYLOAD_TYPE_ID_2 = (1 << 2u),
-    OPTIX_PAYLOAD_TYPE_ID_3 = (1 << 3u),
-    OPTIX_PAYLOAD_TYPE_ID_4 = (1 << 4u),
-    OPTIX_PAYLOAD_TYPE_ID_5 = (1 << 5u),
-    OPTIX_PAYLOAD_TYPE_ID_6 = (1 << 6u),
-    OPTIX_PAYLOAD_TYPE_ID_7 = (1 << 7u)
-} OptixPayloadTypeID;
-
-/// Semantic flags for a single payload word.
-///
-/// Used to specify the semantics of a payload word per shader type.
-/// "read":  Shader of this type may read the payload word.
-/// "write": Shader of this type may write the payload word.
-///
-/// "trace_caller_write": Shaders may consume the value of the payload word passed to optixTrace by the caller.
-/// "trace_caller_read": The caller to optixTrace may read the payload word after the call to optixTrace.
-///
-/// Semantics can be bitwise combined.
-/// Combining "read" and "write" is equivalent to specifying "read_write".
-/// A payload needs to be writable by the caller or at least one shader type.
-/// A payload needs to be readable by the caller or at least one shader type after a being writable.
-typedef enum OptixPayloadSemantics
-{
-    OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_NONE       = 0,
-    OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ       = 1u << 0,
-    OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE      = 2u << 0,
-    OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE = 3u << 0,
-
-    OPTIX_PAYLOAD_SEMANTICS_CH_NONE                 = 0,
-    OPTIX_PAYLOAD_SEMANTICS_CH_READ                 = 1u << 2,
-    OPTIX_PAYLOAD_SEMANTICS_CH_WRITE                = 2u << 2,
-    OPTIX_PAYLOAD_SEMANTICS_CH_READ_WRITE           = 3u << 2,
-
-    OPTIX_PAYLOAD_SEMANTICS_MS_NONE                 = 0,
-    OPTIX_PAYLOAD_SEMANTICS_MS_READ                 = 1u << 4,
-    OPTIX_PAYLOAD_SEMANTICS_MS_WRITE                = 2u << 4,
-    OPTIX_PAYLOAD_SEMANTICS_MS_READ_WRITE           = 3u << 4,
-
-    OPTIX_PAYLOAD_SEMANTICS_AH_NONE                 = 0,
-    OPTIX_PAYLOAD_SEMANTICS_AH_READ                 = 1u << 6,
-    OPTIX_PAYLOAD_SEMANTICS_AH_WRITE                = 2u << 6,
-    OPTIX_PAYLOAD_SEMANTICS_AH_READ_WRITE           = 3u << 6,
-
-    OPTIX_PAYLOAD_SEMANTICS_IS_NONE                 = 0,
-    OPTIX_PAYLOAD_SEMANTICS_IS_READ                 = 1u << 8,
-    OPTIX_PAYLOAD_SEMANTICS_IS_WRITE                = 2u << 8,
-    OPTIX_PAYLOAD_SEMANTICS_IS_READ_WRITE           = 3u << 8,
-} OptixPayloadSemantics;
-
-/// Specifies a single payload type
-typedef struct OptixPayloadType
-{
-    /// The number of 32b words the payload of this type holds
-    unsigned int numPayloadValues;
-
-    /// Points to host array of payload word semantics, size must match numPayloadValues
-    const unsigned int *payloadSemantics;
-} OptixPayloadType;
 
 /// Compilation options for module
 ///
@@ -1424,14 +1295,8 @@ typedef struct OptixModuleCompileOptions
     /// set to 0 if unused
     unsigned int numBoundValues;
 
-    /// The number of different payload types available for compilation.
-    /// Must be zero if OptixPipelineCompileOptions::numPayloadValues is not zero.
-    unsigned int numPayloadTypes;
-
-    /// Points to host array of payload type definitions, size must match numPayloadTypes
-    OptixPayloadType *payloadTypes;
-
 } OptixModuleCompileOptions;
+
 
 /// Distinguishes different kinds of program groups.
 typedef enum OptixProgramGroupKind
@@ -1545,19 +1410,8 @@ typedef struct OptixProgramGroupDesc
 /// \see #optixProgramGroupCreate()
 typedef struct OptixProgramGroupOptions
 {
-    /// Specifies the payload type of this program group.
-    /// All programs in the group must support the payload type
-    /// (Program support for a type is specified by calling
-    /// \see #optixSetPayloadTypes or otherwise all types specified in
-    /// \see #OptixModuleCompileOptions are supported).
-    /// If a program is not available for the requested payload type,
-    /// optixProgramGroupCreate returns OPTIX_ERROR_PAYLOAD_TYPE_MISMATCH.
-    /// If the payloadType is left zero, a unique type is deduced.
-    /// The payload type can be uniquely deduced if there is exactly one payload type
-    /// for which all programs in the group are available.
-    /// If the payload type could not be deduced uniquely
-    /// optixProgramGroupCreate returns OPTIX_ERROR_PAYLOAD_TYPE_RESOLUTION_FAILED.
-    OptixPayloadType* payloadType;
+    /// reserved value for future use. must be 0.
+    int reserved;
 } OptixProgramGroupOptions;
 
 /// The following values are used to indicate which exception was thrown.
@@ -1659,8 +1513,6 @@ typedef enum OptixExceptionCodes
     /// Tried to access data on an AS without random data access support (See OptixBuildFlags).
     OPTIX_EXCEPTION_CODE_UNSUPPORTED_DATA_ACCESS = -32,
 
-    /// The program payload type doesn't match the trace payload type.
-    OPTIX_EXCEPTION_CODE_PAYLOAD_TYPE_MISMATCH = -33,
 } OptixExceptionCodes;
 
 /// Exception flags.
@@ -1699,7 +1551,6 @@ typedef struct OptixPipelineCompileOptions
     unsigned int traversableGraphFlags;
 
     /// How much storage, in 32b words, to make available for the payload, [0..32]
-    /// Must be zero if numPayloadTypes is not zero.
     int numPayloadValues;
 
     /// How much storage, in 32b words, to make available for the attributes. The
@@ -1718,6 +1569,10 @@ typedef struct OptixPipelineCompileOptions
     /// Setting to zero corresponds to enabling OPTIX_PRIMITIVE_TYPE_FLAGS_CUSTOM and OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE.
     unsigned int usesPrimitiveTypeFlags;
 
+    // Reserved for future use.These values must be set to zero.
+    unsigned int reserved;
+    size_t reserved2;
+
 } OptixPipelineCompileOptions;
 
 /// Link options for a pipeline
@@ -1731,7 +1586,6 @@ typedef struct OptixPipelineLinkOptions
 
     /// Generate debug information.
     OptixCompileDebugLevel debugLevel;
-
 } OptixPipelineLinkOptions;
 
 /// Describes the shader binding table (SBT)
@@ -1821,10 +1675,6 @@ typedef struct OptixBuiltinISOptions
     OptixPrimitiveType        builtinISModuleType;
     /// Boolean value indicating whether vertex motion blur is used (but not motion transform blur).
     int                       usesMotionBlur;
-    /// Build flags, see OptixBuildFlags.
-    unsigned int              buildFlags;
-    /// End cap properties of curves, see OptixCurveEndcapFlags, 0 for non-curve types.
-    unsigned int              curveEndcapFlags;
 } OptixBuiltinISOptions;
 
 #if defined( __CUDACC__ )

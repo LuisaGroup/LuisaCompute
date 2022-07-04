@@ -271,10 +271,6 @@ namespace optix_impl {
         {
             printf("(%4i,%4i,%4i) error: unsupported random data access\n", index.x,index.y,index.z);
         }
-        else if( exceptionCode == OPTIX_EXCEPTION_CODE_PAYLOAD_TYPE_MISMATCH )
-        {
-            printf("(%4i,%4i,%4i) error: payload type mismatch between program and optixTrace call\n", index.x,index.y,index.z);
-        }
         else if( exceptionCode >= 0 )
         {
             dumpTlist = true;
