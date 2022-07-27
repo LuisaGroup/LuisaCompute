@@ -14,7 +14,11 @@ namespace luisa {
 class spin_mutex {
 
 private:
-    std::atomic_flag _flag{false};// ATOMIC_FLAG_INIT not needed as per C++20
+#if __cplusplus < 202002L
+    std::atomic_flag _flag = ATOMIC_FLAG_INIT;
+#else
+    std::atomic_flag _flag;// ATOMIC_FLAG_INIT is not needed as per C++20
+#endif
 
 public:
     spin_mutex() noexcept = default;
