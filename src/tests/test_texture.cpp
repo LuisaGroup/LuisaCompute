@@ -22,7 +22,7 @@ enum TestType {
 int test_texture_upload_download(Device& device, int width, int height, int lod, TestType test_type)
 {
     LUISA_INFO("===================================================");
-    LUISA_INFO("test_texture_upload_download {}x{}, lod={}, test={}", width, height, lod, test_type);
+    LUISA_INFO("test_texture_upload_download {}x{}, lod={}, test={}", width, height, lod, luisa::to_underlying(test_type));
     auto image0 = device.create_image<float>(PixelStorage::FLOAT4, width, height, lod);
     auto image1 = device.create_image<float>(PixelStorage::FLOAT4, width, height, lod);
     int total_size = 0;
@@ -96,7 +96,7 @@ int test_texture_upload_download(Device& device, int width, int height, int lod,
 int test_texture_crop(Device& device, int width, int height, int lod, TestType test_type)
 {
     LUISA_INFO("===================================================");
-    LUISA_INFO("test_texture_crop {}x{}, lod={}, test={}", width, height, lod, test_type);
+    LUISA_INFO("test_texture_crop {}x{}, lod={}, test={}", width, height, lod, luisa::to_underlying(test_type));
     uint2 ro0[100],ro1[100],rs[100]; // region parameters (texture crop)
     for (int i=0; i<lod; ++i) {
         uint w = max(1, width>>i);
