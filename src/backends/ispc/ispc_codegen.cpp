@@ -10,6 +10,8 @@
 #include <ast/function_builder.h>
 #include <backends/ispc/ispc_codegen.h>
 
+#define LC_ISPC_ENABLE_VARIABLE_DEFINITION_OPTIMIZATION
+
 namespace luisa::compute::ispc {
 
 void ISPCCodegen::visit(const UnaryExpr *expr) {
@@ -512,7 +514,9 @@ void ISPCCodegen::visit(const ReturnStmt *stmt) {
 
 void ISPCCodegen::visit(const ScopeStmt *stmt) {
     _scratch << "{";
+#ifdef LC_ISPC_ENABLE_VARIABLE_DEFINITION_OPTIMIZATION
     _emit_scoped_variables(stmt);
+#endif
     _emit_statements(stmt->statements());
     //    _scratch << luisa::format(
     //        "CONT_{}:;\n",
@@ -634,7 +638,15 @@ void ISPCCodegen::_emit_function(Function f) noexcept {
         _scratch << ") {";
     }
     _indent = 0;
+#ifdef LC_ISPC_ENABLE_VARIABLE_DEFINITION_OPTIMIZATION
     _emit_scoped_variables(f.body());
+#else
+    for (auto v : f.local_variables()) {
+        _scratch << "\n  ";
+        _emit_variable_decl(v, false);
+        _scratch << ";";
+    }
+#endif
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
 
