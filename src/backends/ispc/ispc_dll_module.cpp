@@ -17,6 +17,7 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     auto &&support_dir = ctx.runtime_directory();
     auto link_exe = support_dir / "link.exe";
     auto crt_path = support_dir / "msvcrt.lib";
+    auto vcrt_path = support_dir / "vcruntime.lib";
     auto embree_path = support_dir / "embree3.lib";
     auto dll_path = obj_path;
     auto lib_path = obj_path;
@@ -26,8 +27,8 @@ luisa::shared_ptr<ISPCModule> ISPCDLLModule::load(
     exp_path.replace_extension("exp");
 
     auto command = luisa::format(
-        R"({} /DLL /NOLOGO /OUT:"{}" /DYNAMICBASE "{}" "{}" /DEBUG:NONE /NOENTRY /EXPORT:kernel_main /NODEFAULTLIB "{}")",
-        link_exe.string(), dll_path.string(), crt_path.string(), embree_path.string(), obj_path.string());
+        R"({} /DLL /NOLOGO /OUT:"{}" /DYNAMICBASE "{}" "{}" "{}" /DEBUG:NONE /NOENTRY /EXPORT:kernel_main /NODEFAULTLIB "{}")",
+        link_exe.string(), dll_path.string(), crt_path.string(), vcrt_path.string(), embree_path.string(), obj_path.string());
     LUISA_INFO("Generating DLL for ISPC kernel: {}", command);
     if (auto exit_code = system(command.c_str()); exit_code != 0) {
         LUISA_ERROR_WITH_LOCATION(
