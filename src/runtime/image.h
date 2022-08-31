@@ -79,9 +79,13 @@ public:
     }
 
     template<typename U>
-    [[nodiscard]] auto copy_to(U &&dst) const noexcept { return this->view().copy_to(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_to(U &&dst) const noexcept {
+        return this->view(0).copy_to(std::forward<U>(dst));
+    }
     template<typename U>
-    [[nodiscard]] auto copy_from(U &&dst) const noexcept { return this->view().copy_from(std::forward<U>(dst)); }
+    [[nodiscard]] auto copy_from(U &&dst) const noexcept {
+        return this->view(0).copy_from(std::forward<U>(dst));
+    }
 };
 
 template<typename T>
