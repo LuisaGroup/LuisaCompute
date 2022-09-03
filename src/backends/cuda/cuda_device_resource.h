@@ -25,6 +25,14 @@
 //     }
 // }
 
+#if LC_NVRTC_VERSION < 110300
+inline void __builtin_unreachable() noexcept { asm("trap;"); }
+#endif
+
+#if LC_NVRTC_VERSION < 110200
+inline void __builtin_assume(bool) noexcept {}
+#endif
+
 #define lc_buffer_read(buffer, index) (buffer[index])
 #define lc_buffer_write(buffer, index, value) static_cast<void>((buffer)[index] = (value))
 
@@ -836,14 +844,40 @@ inline float atomicMax_float(float *a, float v) noexcept {
     return __int_as_float(atomicMax(reinterpret_cast<int *>(a), __float_as_int(v)));
 }
 
-#if LC_RAYTRACING_KERNEL
+#if LC_OPTIX_VERSION != 0
 
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
+#if LC_OPTIX_VERSION < 70300
+    if constexpr (i == 0u) {
+        asm volatile("call _optix_set_payload_0, (%0);"
+                     :
+                     : "r"(x)
+                     :);
+    } else if constexpr (i == 1u) {
+        asm volatile("call _optix_set_payload_1, (%0);"
+                     :
+                     : "r"(x)
+                     :);
+    } else if constexpr (i == 2u) {
+        asm volatile("call _optix_set_payload_2, (%0);"
+                     :
+                     : "r"(x)
+                     :);
+    } else if constexpr (i == 3u) {
+        asm volatile("call _optix_set_payload_3, (%0);"
+                     :
+                     : "r"(x)
+                     :);
+    } else {
+        __builtin_unreachable();
+    }
+#else
     asm volatile("call _optix_set_payload, (%0, %1);"
                  :
                  : "r"(i), "r"(x)
                  :);
+#endif
 }
 
 [[nodiscard]] inline auto lc_get_primitive_index() noexcept {
@@ -896,6 +930,31 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto dz = ray.m2[2];
     auto t_min = ray.m1;
     auto t_max = ray.m3;
+#if LC_OPTIX_VERSION < 70300
+    if constexpr (reg_count == 1u) {
+        asm volatile(
+            "call (%0), _optix_trace_1, "
+            "(%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16);"
+            : "=r"(r0)
+            : "l"(handle.handle), "f"(ox), "f"(oy), "f"(oz),
+              "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
+              "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
+              "r"(0u)
+            : );
+    } else if constexpr (reg == 4u) {
+        asm volatile(
+            "call (%0, %1, %2, %3), _optix_trace_4, "
+            "(%4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22);"
+            : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3)
+            : "l"(handle.handle), "f"(ox), "f"(oy), "f"(oz),
+              "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
+              "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
+              "r"(0u), "r"(0u), "r"(0u), "r"(0u)
+            : );
+    } else {
+        __builtin_unreachable();
+    }
+#else
     [[maybe_unused]] unsigned int
         p4,
         p5, p6, p7, p8, p9, p10, p11, p12, p13,
@@ -920,6 +979,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
           "r"(p25), "r"(p26), "r"(p27), "r"(p28), "r"(p29), "r"(p30), "r"(p31)
         :);
+#endif
 }
 
 [[nodiscard]] inline auto lc_trace_closest(LCAccel accel, LCRay ray) noexcept {

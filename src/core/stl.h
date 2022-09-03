@@ -37,6 +37,7 @@
 #include <EASTL/vector_multimap.h>
 #include <EASTL/vector_multiset.h>
 #include <EASTL/bonus/lru_cache.h>
+#include <EASTL/bonus/ring_buffer.h>
 
 #include <absl/container/flat_hash_map.h>
 #include <absl/container/flat_hash_set.h>
@@ -138,10 +139,7 @@ template<typename T, typename Container = luisa::deque<T>>
 using queue = eastl::queue<T, Container>;
 
 template<typename T, typename Alloc = allocator<T>>
-using slist = eastl::slist<T, Alloc>;
-
-template<typename T, typename Alloc = allocator<T>>
-using list = eastl::list<T, Alloc>;
+using forward_list = eastl::slist<T, Alloc>;
 
 using eastl::bitvector;
 using eastl::fixed_hash_map;
@@ -150,6 +148,7 @@ using eastl::fixed_map;
 using eastl::fixed_multimap;
 using eastl::fixed_multiset;
 using eastl::fixed_set;
+using eastl::ring_buffer;
 
 using eastl::lru_cache;
 
