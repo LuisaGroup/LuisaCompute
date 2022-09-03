@@ -4,6 +4,7 @@
 
 #include <fstream>
 
+#include <optix.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_codegen.h>
 #include <backends/cuda/cuda_compiler.h>
@@ -17,20 +18,20 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
 
     auto hash = hash64(sm, function.hash());
     if (auto ptx = _cache->fetch(hash)) { return *ptx; }
+    static const auto library_hash = hash64(
+        cuda_device_math_source,
+        hash64(cuda_device_resource_source));
 
     auto ver_major = 0;
     auto ver_minor = 0;
     LUISA_CHECK_NVRTC(nvrtcVersion(&ver_major, &ver_minor));
-    static const auto library_hash = hash64(
-        cuda_device_math_source,
-        hash64(cuda_device_resource_source,
-               ver_major * 1000 + ver_minor * 10));
-
+    auto nvrtc_option = luisa::format("-DLC_NVRTC_VERSION={}", ver_major * 10000 + ver_minor * 100);
     auto sm_option = fmt::format("-arch=compute_{}", sm);
-    auto rt_option = fmt::format("-DLC_RAYTRACING_KERNEL={}", function.raytracing());
+    auto rt_option = fmt::format("-DLC_OPTIX_VERSION={}", function.raytracing() ? OPTIX_VERSION : 0);
     std::array options{
         sm_option.c_str(),
         rt_option.c_str(),
+        nvrtc_option.c_str(),
         "--std=c++17",
         "--use_fast_math",
         "-default-device",

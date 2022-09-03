@@ -844,7 +844,7 @@ inline float atomicMax_float(float *a, float v) noexcept {
     return __int_as_float(atomicMax(reinterpret_cast<int *>(a), __float_as_int(v)));
 }
 
-#if LC_RAYTRACING_KERNEL
+#if LC_OPTIX_VERSION != 0
 
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
