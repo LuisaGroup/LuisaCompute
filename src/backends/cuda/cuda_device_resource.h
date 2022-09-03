@@ -936,17 +936,17 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
             "call (%0), _optix_trace_1, "
             "(%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16);"
             : "=r"(r0)
-            : "l"(handle.handle), "f"(ox), "f"(oy), "f"(oz),
+            : "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz),
               "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
               "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
               "r"(0u)
             : );
-    } else if constexpr (reg == 4u) {
+    } else if constexpr (reg_count == 4u) {
         asm volatile(
             "call (%0, %1, %2, %3), _optix_trace_4, "
             "(%4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22);"
             : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3)
-            : "l"(handle.handle), "f"(ox), "f"(oy), "f"(oz),
+            : "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz),
               "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
               "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
               "r"(0u), "r"(0u), "r"(0u), "r"(0u)
