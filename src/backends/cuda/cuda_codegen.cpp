@@ -708,7 +708,7 @@ void CUDACodegen::_emit_constant(Function::Constant c) noexcept {
                   _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }
     _generated_constants.emplace_back(c.data.hash());
 
-    _scratch << "__constant__ constexpr ";
+    _scratch << "__constant__ lc_constant ";
     _emit_type_name(c.type);
     _scratch << " c" << hash_to_string(c.data.hash()) << "{";
     auto count = c.type->dimension();
