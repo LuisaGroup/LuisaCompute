@@ -85,6 +85,18 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
             return Expr<M>{detail::FunctionBuilder::current()->member(                        \
                 Type::of<M>(), this->expression(), i)};                                       \
         };                                                                                    \
+        template<typename M>                                                                  \
+        [[nodiscard]] auto get(uint member_index) const noexcept {                            \
+            LUISA_ASSERT(*Type::of<S>()->members()[member_index] ==                           \
+                             *Type::of<M>(),                                                  \
+                         "Mismatched member type '{}' vs '{}' "                               \
+                         "at index {} for struct '{}'.",                                      \
+                         Type::of<M>()->description(),                                        \
+                         Type::of<S>()->members()[member_index]->description(),               \
+                         member_index, Type::of<S>()->description());                         \
+            return Expr<M>{detail::FunctionBuilder::current()->member(                        \
+                Type::of<M>(), this->expression(), member_index)};                            \
+        };                                                                                    \
     };                                                                                        \
     namespace detail {                                                                        \
     template<>                                                                                \
@@ -120,6 +132,18 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
             return Ref<M>{detail::FunctionBuilder::current()->member(                         \
                 Type::of<M>(), this->expression(), i)};                                       \
         };                                                                                    \
+        template<typename M>                                                                  \
+        [[nodiscard]] auto get(uint member_index) const noexcept {                            \
+            LUISA_ASSERT(*Type::of<S>()->members()[member_index] ==                           \
+                             *Type::of<M>(),                                                  \
+                         "Mismatched member type '{}' vs '{}' "                               \
+                         "at index {} for struct '{}'.",                                      \
+                         Type::of<M>()->description(),                                        \
+                         Type::of<S>()->members()[member_index]->description(),               \
+                         member_index, Type::of<S>()->description());                         \
+            return Ref<M>{detail::FunctionBuilder::current()->member(                         \
+                Type::of<M>(), this->expression(), member_index)};                            \
+        }                                                                                     \
         [[nodiscard]] auto operator->() noexcept {                                            \
             return reinterpret_cast<luisa_compute_extension<S> *>(this);                      \
         }                                                                                     \
