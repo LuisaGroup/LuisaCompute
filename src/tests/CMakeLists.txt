@@ -52,6 +52,9 @@ target_link_libraries(test_command_reorder PRIVATE luisa::compute)
 add_executable(test_command_schedule test_command_schedule.cpp)
 target_link_libraries(test_command_schedule PRIVATE luisa::compute)
 
+add_executable(test_photon_mapping test_photon_mapping.cpp)
+target_link_libraries(test_photon_mapping PRIVATE luisa::compute)
+
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_executable(test_shader_toy test_shader_toy.cpp)
     target_link_libraries(test_shader_toy PRIVATE luisa::compute)
