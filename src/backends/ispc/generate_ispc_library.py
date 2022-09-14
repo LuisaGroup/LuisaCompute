@@ -1775,35 +1775,35 @@ LUISA_INLINE void lc_unreachable() { assert(false); }
 #define buffer_write(buf, i, value) ((void)(buffer_access(buf, i) = (value)))
 
 // matrix access for r-values
-float2 matrix_access_rvalue_2(float2x2 m, uint i) { return m.cols[i]; }
-float2 matrix_access_rvalue_2(uniform float2x2 m, uint i) { return m.cols[i]; }
-float2 matrix_access_rvalue_2(float2x2 m, uniform uint i) { return m.cols[i]; }
-uniform float2 matrix_access_rvalue_2(uniform float2x2 m, uniform uint i) { return m.cols[i]; }
-float3 matrix_access_rvalue_3(float3x3 m, uint i) { return m.cols[i]; }
-float3 matrix_access_rvalue_3(uniform float3x3 m, uint i) { return m.cols[i]; }
-float3 matrix_access_rvalue_3(float3x3 m, uniform uint i) { return m.cols[i]; }
-uniform float3 matrix_access_rvalue_3(uniform float3x3 m, uniform uint i) { return m.cols[i]; }
-float4 matrix_access_rvalue_4(float4x4 m, uint i) { return m.cols[i]; }
-float4 matrix_access_rvalue_4(uniform float4x4 m, uint i) { return m.cols[i]; }
-float4 matrix_access_rvalue_4(float4x4 m, uniform uint i) { return m.cols[i]; }
-uniform float4 matrix_access_rvalue_4(uniform float4x4 m, uniform uint i) { return m.cols[i]; }''', file=file)
+static inline float2 matrix_access_rvalue_2(float2x2 m, uint i) { return m.cols[i]; }
+static inline float2 matrix_access_rvalue_2(uniform float2x2 m, uint i) { return m.cols[i]; }
+static inline float2 matrix_access_rvalue_2(float2x2 m, uniform uint i) { return m.cols[i]; }
+static inline uniform float2 matrix_access_rvalue_2(uniform float2x2 m, uniform uint i) { return m.cols[i]; }
+static inline float3 matrix_access_rvalue_3(float3x3 m, uint i) { return m.cols[i]; }
+static inline float3 matrix_access_rvalue_3(uniform float3x3 m, uint i) { return m.cols[i]; }
+static inline float3 matrix_access_rvalue_3(float3x3 m, uniform uint i) { return m.cols[i]; }
+static inline uniform float3 matrix_access_rvalue_3(uniform float3x3 m, uniform uint i) { return m.cols[i]; }
+static inline float4 matrix_access_rvalue_4(float4x4 m, uint i) { return m.cols[i]; }
+static inline float4 matrix_access_rvalue_4(uniform float4x4 m, uint i) { return m.cols[i]; }
+static inline float4 matrix_access_rvalue_4(float4x4 m, uniform uint i) { return m.cols[i]; }
+static inline uniform float4 matrix_access_rvalue_4(uniform float4x4 m, uniform uint i) { return m.cols[i]; }''', file=file)
 
         for t in ["int", "uint", "char", "float"]:
             for i in range(2, 5):
                 print(f'''
-{t} vector_access_rvalue_{t}{i}({t}{i} v, uint i) {{ return v.v[i]; }}
-{t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uint i) {{ return v.v[i]; }}
-{t} vector_access_rvalue_{t}{i}({t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}
-uniform {t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}''', file=file)
+static inline {t} vector_access_rvalue_{t}{i}({t}{i} v, uint i) {{ return v.v[i]; }}
+static inline {t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uint i) {{ return v.v[i]; }}
+static inline {t} vector_access_rvalue_{t}{i}({t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}
+static inline uniform {t} vector_access_rvalue_{t}{i}(uniform {t}{i} v, uniform uint i) {{ lc_assume(i < {i}); return v.v[i]; }}''', file=file)
         print(f'''
 // atomic operations for floats
-inline float atomic_swap_global_float(float *varying v, float x) {{
+static inline float atomic_swap_global_float(float *varying v, float x) {{
     return atomic_swap_global(v, x);
 }}
-inline float atomic_compare_exchange_global_float(float *varying v, float cmp, float x) {{
+static inline float atomic_compare_exchange_global_float(float *varying v, float cmp, float x) {{
     return atomic_compare_exchange_global(v, cmp, x);
 }}
-inline float atomic_add_global_float(float *varying v, float x) {{
+static inline float atomic_add_global_float(float *varying v, float x) {{
     float old = 0.f;
     for (;;) {{
         old = *v;

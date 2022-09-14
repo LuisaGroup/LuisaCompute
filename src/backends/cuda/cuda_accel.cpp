@@ -25,7 +25,6 @@ CUDAAccel::~CUDAAccel() noexcept {
     switch (hint) {
         case AccelUsageHint::FAST_TRACE:
             build_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION |
-                                       OPTIX_BUILD_FLAG_ALLOW_UPDATE |
                                        OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
             break;
         case AccelUsageHint::FAST_UPDATE:
@@ -33,8 +32,7 @@ CUDAAccel::~CUDAAccel() noexcept {
                                        OPTIX_BUILD_FLAG_ALLOW_UPDATE;
             break;
         case AccelUsageHint::FAST_BUILD:
-            build_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE |
-                                       OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
+            build_options.buildFlags = OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
             break;
     }
     return build_options;
@@ -90,6 +88,7 @@ void CUDAAccel::build(CUDADevice *device, CUDAStream *stream, const AccelBuildCo
     }
     // find out whether we really need to build (or rebuild) the BVH
     auto requires_build = command->request() == AccelBuildRequest::FORCE_BUILD ||
+                          _build_hint != AccelUsageHint::FAST_UPDATE ||
                           _handle == 0u || _mesh_handles.size() != instance_count;
     _mesh_handles.resize(instance_count);
     for (auto i = 0u; i < instance_count; i++) {
