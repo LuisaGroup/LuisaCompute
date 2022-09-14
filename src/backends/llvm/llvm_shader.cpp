@@ -35,72 +35,80 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     // codegen
     std::error_code ec;
     _context = luisa::make_unique<::llvm::LLVMContext>();
+
+    auto file_path = device->context().cache_directory() /
+                     luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
+    ::llvm::SMDiagnostic diagnostic;
+    auto module = ::llvm::parseIRFile(file_path.string(), diagnostic, *_context);
     Clock clk;
-    LLVMCodegen codegen{*_context};
-    auto module = codegen.emit(func);
-    LUISA_INFO("Codegen: {} ms.", clk.toc());
-    //    {
-    //        auto file_path = device->context().cache_directory() /
-    //                         luisa::format("kernel.{:016x}.llvm.ll", func.hash());
-    //        auto file_path_string = file_path.string();
-    //        ::llvm::raw_fd_ostream file{file_path_string, ec};
-    //        if (ec) {
-    //            LUISA_WARNING_WITH_LOCATION(
-    //                "Failed to create file '{}': {}.",
-    //                file_path_string, ec.message());
-    //        } else {
-    //            LUISA_INFO("Saving LLVM kernel to '{}'.",
-    //                       file_path_string);
-    //            module->print(file, nullptr);
-    //        }
-    //    }
-    if (::llvm::verifyModule(*module, &::llvm::errs())) {
-        LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
-    }
-
-    // optimize
-    ::llvm::PassManagerBuilder pass_manager_builder;
-    pass_manager_builder.OptLevel = ::llvm::CodeGenOpt::Aggressive;
-    pass_manager_builder.Inliner = ::llvm::createFunctionInliningPass(
-        pass_manager_builder.OptLevel, 0, false);
-    pass_manager_builder.LoopsInterleaved = true;
-    pass_manager_builder.LoopVectorize = true;
-    pass_manager_builder.SLPVectorize = true;
-    pass_manager_builder.MergeFunctions = true;
-    pass_manager_builder.PerformThinLTO = true;
-    pass_manager_builder.NewGVN = true;
     auto machine = device->target_machine();
-    machine->adjustPassManager(pass_manager_builder);
-    module->setDataLayout(machine->createDataLayout());
-    module->setTargetTriple(machine->getTargetTriple().str());
-    ::llvm::legacy::PassManager module_pass_manager;
-    module_pass_manager.add(
-        ::llvm::createTargetTransformInfoWrapperPass(
-            machine->getTargetIRAnalysis()));
-    pass_manager_builder.populateModulePassManager(module_pass_manager);
-    clk.tic();
-    module_pass_manager.run(*module);
-    if (::llvm::verifyModule(*module, &::llvm::errs())) {
-        LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
-    }
-    LUISA_INFO("Optimize: {} ms.", clk.toc());
+    if (module == nullptr) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to load LLVM IR from cache: {}.",
+            diagnostic.getMessage().str());
+        LLVMCodegen codegen{*_context};
+        module = codegen.emit(func);
+        LUISA_INFO("Codegen: {} ms.", clk.toc());
+        //    {
+        //        auto file_path = device->context().cache_directory() /
+        //                         luisa::format("kernel.{:016x}.llvm.ll", func.hash());
+        //        auto file_path_string = file_path.string();
+        //        ::llvm::raw_fd_ostream file{file_path_string, ec};
+        //        if (ec) {
+        //            LUISA_WARNING_WITH_LOCATION(
+        //                "Failed to create file '{}': {}.",
+        //                file_path_string, ec.message());
+        //        } else {
+        //            LUISA_INFO("Saving LLVM kernel to '{}'.",
+        //                       file_path_string);
+        //            module->print(file, nullptr);
+        //        }
+        //    }
+        if (::llvm::verifyModule(*module, &::llvm::errs())) {
+            LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
+        }
 
-    // dump optimized ir for debugging
-    //    {
-    //        auto file_path = device->context().cache_directory() /
-    //                         luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
-    //        auto file_path_string = file_path.string();
-    //        ::llvm::raw_fd_ostream file_opt{file_path_string, ec};
-    //        if (ec) {
-    //            LUISA_ERROR_WITH_LOCATION(
-    //                "Failed to create file '{}': {}.",
-    //                file_path_string, ec.message());
-    //        } else {
-    //            LUISA_INFO("Saving optimized LLVM kernel to '{}'.",
-    //                       file_path_string);
-    //            module->print(file_opt, nullptr);
-    //        }
-    //    }
+        // optimize
+        ::llvm::PassManagerBuilder pass_manager_builder;
+        pass_manager_builder.OptLevel = ::llvm::CodeGenOpt::Aggressive;
+        pass_manager_builder.Inliner = ::llvm::createFunctionInliningPass(
+            pass_manager_builder.OptLevel, 0, false);
+        pass_manager_builder.LoopsInterleaved = true;
+        pass_manager_builder.LoopVectorize = true;
+        pass_manager_builder.SLPVectorize = true;
+        pass_manager_builder.MergeFunctions = true;
+        pass_manager_builder.PerformThinLTO = true;
+        pass_manager_builder.NewGVN = true;
+        machine->adjustPassManager(pass_manager_builder);
+        module->setDataLayout(machine->createDataLayout());
+        module->setTargetTriple(machine->getTargetTriple().str());
+        ::llvm::legacy::PassManager module_pass_manager;
+        module_pass_manager.add(
+            ::llvm::createTargetTransformInfoWrapperPass(
+                machine->getTargetIRAnalysis()));
+        pass_manager_builder.populateModulePassManager(module_pass_manager);
+        clk.tic();
+        module_pass_manager.run(*module);
+        if (::llvm::verifyModule(*module, &::llvm::errs())) {
+            LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
+        }
+        LUISA_INFO("Optimize: {} ms.", clk.toc());
+
+        // dump optimized ir for debugging
+        {
+            auto file_path_string = file_path.string();
+            ::llvm::raw_fd_ostream file_opt{file_path_string, ec};
+            if (ec) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Failed to create file '{}': {}.",
+                    file_path_string, ec.message());
+            } else {
+                LUISA_INFO("Saving optimized LLVM kernel to '{}'.",
+                           file_path_string);
+                module->print(file_opt, nullptr);
+            }
+        }
+    }
 
     // compile to machine code
     clk.tic();
