@@ -62,6 +62,7 @@ ISPCShader::ISPCShader(const Context &ctx, Function func, uint64_t lib_hash) noe
 #if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
             "--cpu=apple-a14",
             "--arch=aarch64",
+            "--target=neon-i32x8",
 #else
             "--cpu=core-avx2",
             "--arch=x86-64",
