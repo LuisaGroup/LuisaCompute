@@ -49,8 +49,7 @@ inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
                                        OPTIX_BUILD_FLAG_ALLOW_UPDATE;
             break;
         case AccelUsageHint::FAST_BUILD:
-            build_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_UPDATE |
-                                       OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
+            build_options.buildFlags = OPTIX_BUILD_FLAG_PREFER_FAST_BUILD;
             break;
     }
     return build_options;
@@ -59,7 +58,7 @@ inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
 void CUDAMesh::build(CUDADevice *device, CUDAStream *stream, const MeshBuildCommand *command) noexcept {
 
     auto build_input = _make_build_input();
-    if (_handle != 0u && _build_hint != AccelUsageHint::FAST_TRACE &&
+    if (_handle != 0u && _build_hint == AccelUsageHint::FAST_UPDATE &&
         command->request() == AccelBuildRequest::PREFER_UPDATE) {
         auto build_options = cuda_mesh_build_options(
             _build_hint, OPTIX_BUILD_OPERATION_UPDATE);
