@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import ast
 from .array import ArrayType
 from .struct import StructType
+from .builtin_type_check import binary_type_infer
 
 
 def wrap_with_tmp_var(node):
@@ -23,13 +24,13 @@ def upper_scalar_dtype(dtype0, dtype1):
     elif int in [dtype0, dtype1]:
         return int
     else:
-        return int  # TODO: 怎么表示一个 uint？
+        return uint
 
 
 def deduce_broadcast(dtype0, dtype1):
-    if dtype0 in [float, int, int, bool]:  # TODO: 在 dtype 里添加 uint 的表示
+    if dtype0 in [float, int, uint, bool]:
         return dtype1  # Broadcast
-    elif dtype1 in [float, int, int, bool]:
+    elif dtype1 in [float, int, uint, bool]:
         return dtype0  # Broadcast
     else:
         return dtype1  # same size || Matrix * Vector -> Vector
@@ -39,15 +40,18 @@ def to_bool(dtype):
     assert dtype in scalar_dtypes or dtype in vector_dtypes
     return vector(bool, length_of(dtype))
 
+
 def to_float(dtype):
     if dtype in matrix_dtypes:
         return dtype
     assert dtype in scalar_dtypes or dtype in vector_dtypes
     return vector(float, length_of(dtype))
 
+
 def to_int(dtype):
     assert dtype in scalar_dtypes or dtype in vector_dtypes
     return vector(int, length_of(dtype))
+
 
 def to_uint(dtype):
     assert dtype in scalar_dtypes or dtype in vector_dtypes
@@ -91,6 +95,7 @@ def builtin_bin_op(op, lhs, rhs):
     }.get(op)
     if lc_op is None:
         raise TypeError(f'Unsupported binary operation: {op}')
+    return_dtype = binary_type_infer(lhs.dtype, rhs.dtype, op)
     # power operation: a**b
     if op is ast.Pow:
         if type(rhs).__name__ == "Constant":
@@ -104,66 +109,7 @@ def builtin_bin_op(op, lhs, rhs):
                     return builtin_bin_op(ast.Mult, builtin_bin_op(ast.Mult, lhs, lhs),
                                           builtin_bin_op(ast.Mult, lhs, lhs))
         return builtin_func("pow", lhs, rhs)
-    dtype0, dtype1 = lhs.dtype, rhs.dtype
-    length0, length1 = length_of(dtype0), length_of(dtype1)
-    lhs_expr, rhs_expr = lhs.expr, rhs.expr
-    if op != ast.Mult:
-        assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)), \
-            f'Binary operation between ({dtype0} and {dtype1}) is not supported'
-    else:
-        assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)) or \
-               (dtype0 == float2x2 and dtype1 == float2) or \
-               (dtype0 == float3x3 and dtype1 == float3) or \
-               (dtype0 == float4x4 and dtype1 == float4), \
-            f'Binary operation between ({dtype0} and {dtype1}) is not supported'
-    scalar_operation = length0 == length1 == 1
-    dtype = None
-
-    if op in (ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift):
-        inner_type_0 = element_of(lhs.dtype)
-        assert inner_type_0 in [int, uint], \
-            f'operator `{op}` only supports `int` and `uint` types.'
-        if scalar_operation:
-            inner_type_1 = element_of(rhs.dtype)
-            assert inner_type_1 in [int, uint], \
-                f'operator `{op}` only supports `int` and `uint` types.'
-            dtype = upper_scalar_dtype(dtype0, dtype1)
-        else:
-            assert element_of(rhs.dtype) == inner_type_0, \
-                'operation between vectors of different types not supported.'
-            dtype = deduce_broadcast(dtype0, dtype1)
-        # and / or: bool allowed
-    elif op in (ast.And, ast.Or):
-        assert element_of(lhs.dtype) == element_of(rhs.dtype) == bool, f'operator `{op}` only supports `bool` type.'
-        dtype = deduce_broadcast(dtype0, dtype1)
-        # add / sub / div: int, uint and float allowed
-        # relational: int, uint and float allowed
-    elif op in (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
-        inner_type_0 = element_of(lhs.dtype)
-        assert inner_type_0 in [int, float, uint], \
-            f'operator `{op}` only supports `int`, `uint` and `float` types.'
-        if scalar_operation:
-            # allow implicit type conversion
-            # so check rhs's type, ensure it also satisfies the constraints.
-            inner_type_1 = element_of(rhs.dtype)
-            assert inner_type_1 in [int, float, uint], \
-                f'operator `{op}` only supports `int`, `uint` and `float` types.'
-            dtype = upper_scalar_dtype(dtype0, dtype1)
-        else:
-            # forbid implicit type conversion
-            # so check rhs's type, ensure it is the same with lhs
-            assert element_of(rhs.dtype) == inner_type_0, \
-                'operation between vectors of different types not supported.'
-            dtype = deduce_broadcast(dtype0, dtype1)
-        if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
-            dtype = to_bool(dtype)
-        elif op is ast.Div:
-            dtype = to_float(dtype)
-            _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), lhs)
-            _, rhs_expr = builtin_type_cast(to_float(rhs.dtype), rhs)
-    return dtype, lcapi.builder().binary(to_lctype(dtype), lc_op, lhs_expr, rhs_expr)
+    return return_dtype, lcapi.builder().binary(to_lctype(return_dtype), lc_op, lhs.expr, rhs.expr)
 
 
 builtin_func_names = {
@@ -190,7 +136,6 @@ builtin_func_names = {
     'print',
     'len'
 }
-
 
 
 # each argument can be a dtype or list/tuple of dtype
