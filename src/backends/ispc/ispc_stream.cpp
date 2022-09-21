@@ -25,7 +25,7 @@ void check_texture_boundary(ISPCTexture *tex, uint level, uint3 size) {
         LUISA_ERROR_WITH_LOCATION("check texture boundary: out of bound");
     if (size.z > max(tex->size[2] >> level, 1u))
         LUISA_ERROR_WITH_LOCATION("check texture boundary: out of bound");
-};
+}
 
 void ISPCStream::dispatch(const CommandList &cmd_list) noexcept {
     for (auto cmd : cmd_list) {
