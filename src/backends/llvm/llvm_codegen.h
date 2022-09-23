@@ -229,8 +229,10 @@ private:
     void _builtin_buffer_write(const Type *t_value, ::llvm::Value *buffer, ::llvm::Value *p_index, ::llvm::Value *p_value) noexcept;
     void _builtin_assume(::llvm::Value *p) noexcept;
     void _builtin_unreachable() noexcept;
-    [[nodiscard]] ::llvm::Value *_builtin_texture_read(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord) noexcept;
-    void _builtin_texture_write(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_texture_read(const Type *t, ::llvm::Value *texture,
+                                                       const Type *t_coord, ::llvm::Value *p_coord) noexcept;
+    void _builtin_texture_write(const Type *t, ::llvm::Value *texture, const Type *t_coord,
+                                ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_sqrt(const Type *t, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_rsqrt(const Type *t, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_dot(const Type *t, ::llvm::Value *a, ::llvm::Value *b) noexcept;

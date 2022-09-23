@@ -37,7 +37,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET 12)
 set(BUILD_SHARED_LIBS ON)
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
-    CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+        CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     # enable AVX2 for embree on x64
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /arch:AVX2")
@@ -66,6 +66,10 @@ if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
             message(STATUS "Could not find sccache")
         endif ()
     endif ()
+endif ()
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-deprecated-builtins)
 endif ()
 
 option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})

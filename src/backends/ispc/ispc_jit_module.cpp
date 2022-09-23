@@ -99,11 +99,6 @@ luisa::shared_ptr<ISPCModule> ISPCJITModule::load(
     pass_manager_builder.LoopVectorize = true;
     pass_manager_builder.SLPVectorize = true;
     pass_manager_builder.MergeFunctions = true;
-    pass_manager_builder.EnablePGOCSInstrGen = false;
-    pass_manager_builder.EnablePGOCSInstrUse = false;
-    pass_manager_builder.EnablePGOInstrGen = false;
-    pass_manager_builder.CallGraphProfile = false;
-    pass_manager_builder.PerformThinLTO = true;
     machine->adjustPassManager(pass_manager_builder);
     module->setDataLayout(machine->createDataLayout());
 
