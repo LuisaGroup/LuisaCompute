@@ -37,7 +37,8 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     _context = luisa::make_unique<::llvm::LLVMContext>();
 
     auto file_path = device->context().cache_directory() /
-                     luisa::format("kernel.{:016x}.llvm.opt.ll", func.hash());
+                     luisa::format("kernel.{:016x}.llvm.opt.ll",
+                                   hash64(LLVM_VERSION_STRING, func.hash()));
     ::llvm::SMDiagnostic diagnostic;
     auto module = ::llvm::parseIRFile(file_path.string(), diagnostic, *_context);
     Clock clk;
@@ -77,7 +78,6 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         pass_manager_builder.LoopVectorize = true;
         pass_manager_builder.SLPVectorize = true;
         pass_manager_builder.MergeFunctions = true;
-        pass_manager_builder.PerformThinLTO = true;
         pass_manager_builder.NewGVN = true;
         machine->adjustPassManager(pass_manager_builder);
         module->setDataLayout(machine->createDataLayout());
