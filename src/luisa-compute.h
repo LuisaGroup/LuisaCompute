@@ -85,6 +85,3 @@
 #include <rtx/hit.h>
 #include <rtx/mesh.h>
 #include <rtx/ray.h>
-
-#include <gui/framerate.h>
-#include <gui/window.h>
