@@ -57,7 +57,7 @@ if (ISPC_FOUND)
     if (LLVM_FOUND) # link with llvm for jit
         message(STATUS "Use LLVM JIT for ISPC kernels")
         llvm_map_components_to_libnames(
-                LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)
+                LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis coroutines)
         target_sources(luisa-compute-backend-ispc PRIVATE ispc_jit_module.cpp ispc_jit_module.h)
         message(STATUS "LLVM: ${LLVM_INCLUDE_DIRS}")
         target_include_directories(luisa-compute-backend-ispc PRIVATE ${LLVM_INCLUDE_DIRS})

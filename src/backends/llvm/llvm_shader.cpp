@@ -2,10 +2,14 @@
 // Created by Mike Smith on 2022/2/11.
 //
 
-#include <cmath>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/Transforms/Coroutines/CoroEarly.h>
+#include <llvm/Transforms/Coroutines/CoroSplit.h>
+#include <llvm/Transforms/Coroutines/CoroElide.h>
+#include <llvm/Transforms/Coroutines/CoroCleanup.h>
 #include <core/mathematics.h>
 #include <backends/llvm/llvm_shader.h>
 #include <backends/llvm/llvm_device.h>
@@ -53,8 +57,8 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     _context = luisa::make_unique<::llvm::LLVMContext>();
 
     auto file_path = device->context().cache_directory() /
-                     luisa::format("kernel.{:016x}.llvm.opt.ll",
-                                   hash64(LLVM_VERSION_STRING LC_LLVM_CODEGEN_MAGIC, func.hash()));
+                     luisa::format("kernel.llvm.{:016x}.opt.{:016x}.ll",
+                                   func.hash(), hash64(LLVM_VERSION_STRING LC_LLVM_CODEGEN_MAGIC));
     ::llvm::SMDiagnostic diagnostic;
     auto module = ::llvm::parseIRFile(file_path.string(), diagnostic, *_context);
     Clock clk;
@@ -66,24 +70,24 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         LLVMCodegen codegen{*_context};
         module = codegen.emit(func);
         LUISA_INFO("Codegen: {} ms.", clk.toc());
-        {
-            auto file_path = device->context().cache_directory() /
-                             luisa::format("kernel.{:016x}.llvm.ll", func.hash());
-            auto file_path_string = file_path.string();
-            ::llvm::raw_fd_ostream file{file_path_string, ec};
+        if (::llvm::verifyModule(*module, &::llvm::errs())) {
+            auto error_file_path = device->context().cache_directory() /
+                                   luisa::format("kernel.llvm.{:016x}.ll", func.hash());
+            auto error_file_path_string = file_path.string();
+            ::llvm::raw_fd_ostream file{error_file_path_string, ec};
             if (ec) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Failed to create file '{}': {}.",
-                    file_path_string, ec.message());
+                    error_file_path_string, ec.message());
             } else {
                 LUISA_INFO("Saving LLVM kernel to '{}'.",
-                           file_path_string);
+                           error_file_path_string);
                 module->print(file, nullptr);
             }
-        }
-        if (::llvm::verifyModule(*module, &::llvm::errs())) {
             LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
         }
+        module->setDataLayout(machine->createDataLayout());
+        module->setTargetTriple(machine->getTargetTriple().str());
 
         // optimize with the new pass manager
         ::llvm::LoopAnalysisManager LAM;
@@ -102,11 +106,14 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         PB.registerFunctionAnalyses(FAM);
         PB.registerLoopAnalyses(LAM);
         PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+        FAM.registerPass([&] { return PB.buildDefaultAAPipeline(); });
         machine->registerPassBuilderCallbacks(PB);
-        ::llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
-        module->setDataLayout(machine->createDataLayout());
-        module->setTargetTriple(machine->getTargetTriple().str());
         clk.tic();
+        auto MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
+        MPM.addPass(::llvm::CoroEarlyPass{});
+        MPM.addPass(::llvm::createModuleToPostOrderCGSCCPassAdaptor(::llvm::CoroSplitPass{true}));
+        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroElidePass{}));
+        MPM.addPass(::llvm::CoroCleanupPass{});
         MPM.run(*module, MAM);
 
         // optimize with the legacy pass manager
