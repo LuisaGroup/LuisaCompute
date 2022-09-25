@@ -55,12 +55,17 @@ private:
         luisa::vector<::llvm::BasicBlock *> break_targets;
         luisa::vector<::llvm::BasicBlock *> continue_targets;
         luisa::vector<::llvm::SwitchInst *> switch_stack;
+        ::llvm::BasicBlock *coro_cleanup;
+        ::llvm::BasicBlock *coro_suspend;
         FunctionContext(Function f, ::llvm::Function *ir, ::llvm::Value *ret,
                         ::llvm::BasicBlock *exit_block,
                         luisa::unique_ptr<::llvm::IRBuilder<>> builder,
-                        luisa::unordered_map<uint, ::llvm::Value *> variables) noexcept
+                        luisa::unordered_map<uint, ::llvm::Value *> variables,
+                        ::llvm::BasicBlock *coro_cleanup = nullptr,
+                        ::llvm::BasicBlock *coro_suspend = nullptr) noexcept
             : function{f}, ir{ir}, ret{ret}, exit_block{exit_block},
-              builder{std::move(builder)}, variables{std::move(variables)} {}
+              builder{std::move(builder)}, variables{std::move(variables)},
+              coro_cleanup{coro_cleanup}, coro_suspend{coro_suspend} {}
     };
 
 private:
