@@ -83,8 +83,8 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
         function_type, ::llvm::Function::ExternalLinkage,
         ::llvm::StringRef{main_name.data(), main_name.size()}, _module);
     auto builder = luisa::make_unique<::llvm::IRBuilder<>>(_context);
-    auto body_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
-    builder->SetInsertPoint(body_block);
+    auto entry_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
+    builder->SetInsertPoint(entry_block);
     luisa::vector<::llvm::Value *> arguments;
     for (auto arg_id = 0u; arg_id < f.arguments().size(); arg_id++) {
         auto &arg = f.arguments()[arg_id];
@@ -115,7 +115,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     // create work function...
     auto ctx = _create_kernel_program(f);
     // create simple schedule...
-    builder->SetInsertPoint(body_block);
+    builder->SetInsertPoint(entry_block);
     // block id
     auto block_id = static_cast<::llvm::Value *>(
         ::llvm::UndefValue::get(::llvm::FixedVectorType::get(i32_type, 3u)));
@@ -131,9 +131,35 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
         block_id = builder->CreateInsertElement(block_id, block_id_i, i);
         dispatch_size = builder->CreateInsertElement(dispatch_size, dispatch_size_i, i);
     }
+
+    auto i1_type = ::llvm::Type::getInt1Ty(_context);
+    auto i8_type = ::llvm::Type::getInt8Ty(_context);
+    auto ptr_type = ::llvm::PointerType::get(i8_type, 0);
+    auto needs_coro = f.builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK);
+    auto thread_count = f.block_size().x * f.block_size().y * f.block_size().z;
+    ::llvm::AllocaInst *p_coro_states = nullptr;
+    ::llvm::AllocaInst *p_coro_all_done = nullptr;
+    ::llvm::BasicBlock *coro_loop = nullptr;
+    if (needs_coro) {
+        p_coro_states = builder->CreateAlloca(
+            ptr_type, ::llvm::ConstantInt::get(i32_type, thread_count));
+        p_coro_states->setName("coro.states");
+        p_coro_states->setAlignment(::llvm::Align{16u});
+        builder->CreateMemSet(
+            p_coro_states, ::llvm::ConstantPointerNull::get(ptr_type),
+            thread_count, ::llvm::Align{16u});
+        p_coro_all_done = builder->CreateAlloca(
+            i1_type, ::llvm::ConstantInt::get(i32_type, 1u), "coro.all.done.addr");
+        p_coro_all_done->setName("coro.done");
+        coro_loop = ::llvm::BasicBlock::Create(_context, "coro.loop", ir);
+        coro_loop->moveAfter(entry_block);
+        builder->CreateBr(coro_loop);
+        builder->SetInsertPoint(coro_loop);
+        builder->CreateStore(::llvm::ConstantInt::get(i1_type, true), p_coro_all_done);
+    }
+
     // loop
     auto p_index = builder->CreateAlloca(::llvm::Type::getInt32Ty(_context), nullptr, "loop.index.addr");
-    p_index->setAlignment(::llvm::Align{16});
     builder->CreateStore(builder->getInt32(0u), p_index);
     auto loop_block = ::llvm::BasicBlock::Create(_context, "loop.head", ir, exit_block);
     builder->CreateBr(loop_block);
@@ -152,23 +178,70 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     auto call_block = ::llvm::BasicBlock::Create(_context, "loop.kernel", ir, exit_block);
     auto loop_update_block = ::llvm::BasicBlock::Create(_context, "loop.update", ir, exit_block);
     builder->CreateCondBr(valid_thread, call_block, loop_update_block);
+    // call or resume
     builder->SetInsertPoint(call_block);
-    auto call_args = arguments;
-    call_args.emplace_back(thread_id);
-    call_args.emplace_back(block_id);
-    call_args.emplace_back(dispatch_id);
-    call_args.emplace_back(dispatch_size);
-    call_args.emplace_back(ir->getArg(1u));// shared memory
-    builder->CreateCall(ctx->ir->getFunctionType(), ctx->ir,
-                        ::llvm::ArrayRef<::llvm::Value *>{call_args.data(), call_args.size()});
+    if (needs_coro) {
+        auto p_coro_state = builder->CreateInBoundsGEP(ptr_type, p_coro_states, index, "coro.state.addr");
+        auto coro_state = builder->CreateLoad(ptr_type, p_coro_state, "coro.state");
+        auto coro_state_is_null = builder->CreateIsNull(coro_state, "coro.state.is.null");
+        auto call_kernel = ::llvm::BasicBlock::Create(_context, "loop.kernel.call", ir);
+        auto resume_kernel = ::llvm::BasicBlock::Create(_context, "loop.kernel.resume", ir);
+        call_kernel->moveAfter(call_block);
+        resume_kernel->moveAfter(call_block);
+        builder->CreateCondBr(coro_state_is_null, call_kernel, resume_kernel);
+        // call
+        builder->SetInsertPoint(call_kernel);
+        auto call_args = arguments;
+        call_args.emplace_back(thread_id);
+        call_args.emplace_back(block_id);
+        call_args.emplace_back(dispatch_id);
+        call_args.emplace_back(dispatch_size);
+        call_args.emplace_back(ir->getArg(1u));// shared memory
+        auto coro_handle = builder->CreateCall(
+            ctx->ir->getFunctionType(), ctx->ir,
+            ::llvm::ArrayRef<::llvm::Value *>{call_args.data(), call_args.size()});
+        builder->CreateStore(coro_handle, p_coro_state);
+        builder->CreateStore(::llvm::ConstantInt::get(i1_type, false), p_coro_all_done);
+        // resume or done
+        builder->SetInsertPoint(resume_kernel);
+        builder->CreateIntrinsic(::llvm::Intrinsic::coro_resume, {}, {coro_handle});
+        auto coro_done = builder->CreateIntrinsic(::llvm::Intrinsic::coro_done, {}, {coro_handle});
+        auto coro_all_done = builder->CreateLoad(i1_type, p_coro_all_done, "coro.all.done");
+        auto coro_all_done_and = builder->CreateAnd(coro_all_done, coro_done, "coro.all.done.and");
+        builder->CreateStore(coro_all_done_and, p_coro_all_done);
+        auto coro_done_block = ::llvm::BasicBlock::Create(_context, "loop.kernel.done", ir);
+        coro_done_block->moveAfter(resume_kernel);
+        builder->CreateCondBr(coro_done, coro_done_block, loop_update_block);
+        builder->SetInsertPoint(coro_done_block);
+        builder->CreateIntrinsic(::llvm::Intrinsic::coro_destroy, {}, {coro_handle});
+        builder->CreateBr(loop_update_block);
+    } else {
+        auto call_args = arguments;
+        call_args.emplace_back(thread_id);
+        call_args.emplace_back(block_id);
+        call_args.emplace_back(dispatch_id);
+        call_args.emplace_back(dispatch_size);
+        call_args.emplace_back(ir->getArg(1u));// shared memory
+        builder->CreateCall(
+            ctx->ir->getFunctionType(), ctx->ir,
+            ::llvm::ArrayRef<::llvm::Value *>{call_args.data(), call_args.size()});
+        builder->CreateBr(loop_update_block);
+    }
     // update
-    builder->CreateBr(loop_update_block);
     builder->SetInsertPoint(loop_update_block);
     auto next_index = builder->CreateAdd(index, builder->getInt32(1u), "loop.index.next");
     builder->CreateStore(next_index, p_index);
-    auto thread_count = f.block_size().x * f.block_size().y * f.block_size().z;
     auto should_continue = builder->CreateICmpULT(next_index, builder->getInt32(thread_count));
-    builder->CreateCondBr(should_continue, loop_block, exit_block);
+    if (needs_coro) {
+        auto loop_out = ::llvm::BasicBlock::Create(_context, "loop.out", ir);
+        loop_out->moveAfter(loop_update_block);
+        builder->CreateCondBr(should_continue, loop_block, loop_out);
+        builder->SetInsertPoint(loop_out);
+        auto coro_all_done = builder->CreateLoad(i1_type, p_coro_all_done, "coro.all.done");
+        builder->CreateCondBr(coro_all_done, exit_block, coro_loop);
+    } else {
+        builder->CreateCondBr(should_continue, loop_block, exit_block);
+    }
     return ctx;
 }
 
@@ -247,7 +320,8 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
         // last suspend
         auto coro_state = builder->CreateIntrinsic(
             ::llvm::Intrinsic::coro_suspend, {},
-            {::llvm::ConstantTokenNone::get(_context), ::llvm::ConstantInt::get(i1_type, true)});
+            {::llvm::ConstantTokenNone::get(_context),
+             ::llvm::ConstantInt::get(i1_type, true)});
         coro_state->setName("coro.state");
         coro_cleanup = ::llvm::BasicBlock::Create(_context, "coro.cleanup", ir);
         coro_suspend = ::llvm::BasicBlock::Create(_context, "coro.suspend", ir);
