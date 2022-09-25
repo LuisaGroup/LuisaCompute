@@ -250,12 +250,12 @@ int main(int argc, char* argv[]){
         auto state2 = dispatch_x();
 
         // sample light
-        auto ux_light = lcg(state);
+        auto ux_light = lcg(state2);
         auto uy_light = lcg(state2);
         auto light_p = light_position + ux_light * light_u + uy_light * light_v;
 
         auto light_pp = offset_ray_origin(light_p, light_normal);
-        auto ux_light_dir = lcg(state2);
+        auto ux_light_dir = lcg(state);
         auto uy_light_dir = lcg(state);
         auto light_onb = make_onb(light_normal);
         auto light_dir = light_onb->to_world(cosine_sample_hemisphere(make_float2(ux_light_dir, uy_light_dir)));
@@ -263,13 +263,15 @@ int main(int argc, char* argv[]){
         auto light_cos = dot(light_dir, light_normal);
         auto light_pdf_pos = 1.0f / light_area;
         auto light_pdf_dir = light_cos * inv_pi;
-        auto power = def(light_emission * light_cos / light_pdf_pos / light_pdf_dir);
+        // auto power = def(light_emission * light_cos / light_pdf_pos / light_pdf_dir) =>
+        auto power = def(light_emission / (light_pdf_pos * inv_pi));
 
         $for(depth, max_depth) {
             // trace
             auto hit = accel.trace_closest(light_ray);
             $if(hit->miss()) { $break; };
             // $if(hit.inst == 0 & hit.prim == 0) { $break; };
+            // TODO
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 $break;
             };
@@ -291,15 +293,10 @@ int main(int argc, char* argv[]){
             auto grid_index_m = grid_index.x * grid_size.y * grid_size.z + grid_index.y * grid_size.z + grid_index.z;
             auto link_head = grid_head_buffer.atomic(grid_index_m).exchange(index);
 
-            // $if(grid_index.x == 1 & grid_index.y == 0 & grid_index.z == 131) {
-            //     printer.info_with_location("{} {} {}", p.x, p.y, p.z);
-            // };
-
             Var<Photon> photon{p, power, -light_ray->direction(), link_head};
             photon_buffer.write(index, photon);
 
             // sample BxDF
-            // TODO: check medium
             auto onb = make_onb(n);
             auto ux = lcg(state);
             auto uy = lcg(state);
@@ -308,13 +305,10 @@ int main(int argc, char* argv[]){
             auto pdf_dir = cos_dir * inv_pi;
             auto pp = offset_ray_origin(p, n);
             light_ray = make_ray(pp, new_dir);
-            power *= material.albedo * inv_pi * cos_wi / pdf_dir;
+            // power *= material.albedo * inv_pi * cos_dir / pdf_dir =>
+            power *= material.albedo;
 
-            // $if(dot(power, power) > 1000) {
-            //     printer.info_with_location("depth {} power {} {} {} coef {}", depth, power.x, power.y, power.z, cos_wi / pdf_dir);
-            // };
-
-             // rr
+            // rr
             auto rr_prob = 0.9f;
             auto rr_check = lcg(state);
             $if(rr_check >= rr_prob){ $break; };
@@ -358,10 +352,6 @@ int main(int argc, char* argv[]){
                         auto dis = distance(Float3{photon.position}, p);
                         $if(dis < r) {
                             radiance += material.albedo * inv_pi * Float3{photon.power};
-                            // auto power = Float3{photon.power};
-                            // $if(dot(power, power) > 1000) {
-                            //     printer.info_with_location("power {} {} {}", power.x, power.y, power.z);
-                            // };
                         };
                         photon_index = photon.nxt;
                     };
@@ -427,7 +417,8 @@ int main(int argc, char* argv[]){
         auto radius = def(photon_radius);
 
         auto hit = accel.trace_closest(ray);
-        $if(!hit->miss() & (hit.inst != 0 | hit.prim != 0)) {
+        // $if(!hit->miss() & (hit.inst != 0 | hit.prim != 0)) {
+        $if(!hit->miss()) {
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 // radiance = light_emission / light_area;
             }
@@ -445,14 +436,14 @@ int main(int argc, char* argv[]){
                     radiance = density_estimation_radius(coord, p, -ray->direction(), radius, material);
                     radiance *= inv_pi / (radius * radius * photon_number);
 
-                    $if(dot(radiance, radiance) > 10000) {
-                        printer.info_with_location("p : ({}, {}, {}) o ({}, {}, {}) dir ({}, {}, {}) inst {} prim {}", 
-                        p.x, p.y, p.z, 
-                        ray->origin().x, ray->origin().y, ray->origin().z, 
-                        ray->direction().x, ray->direction().y, ray->direction().z,
-                        hit.inst, hit.prim
-                        );
-                    }; 
+                    // $if(dot(radiance, radiance) > 10000) {
+                    //     printer.info_with_location("p : ({}, {}, {}) o ({}, {}, {}) dir ({}, {}, {}) inst {} prim {}", 
+                    //     p.x, p.y, p.z, 
+                    //     ray->origin().x, ray->origin().y, ray->origin().z, 
+                    //     ray->direction().x, ray->direction().y, ray->direction().z,
+                    //     hit.inst, hit.prim
+                    //     );
+                    // }; 
                 };
             };
         };
@@ -519,10 +510,8 @@ int main(int argc, char* argv[]){
                     auto pdf_dir = inv_pi * new_cos;
 
                     auto indirect = indirect_illumination(coord, ray, accel);
-                    // $if(dot(indirect, indirect) > 10000) {
-                    //     printer.info_with_location("indirect {} {} {}", indirect.x, indirect.y, indirect.z);
-                    // };
-                    radiance += material.albedo * inv_pi * cos_wi * indirect / pdf_dir;
+                    // radiance += material.albedo * inv_pi * new_cos * indirect / pdf_dir =>
+                    radiance += material.albedo * indirect;
                 };
             };
         };

@@ -248,14 +248,14 @@ namespace luisa::compute::llvm {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "cppcoreguidelines-pro-type-static-cast-downcast"
 [[nodiscard]] ::llvm::Value *_call_external_math_function(
-    ::llvm::Module *module, ::llvm::IRBuilder<> *builder, const Type *t,
-    luisa::string_view name, ::llvm::SmallVector<::llvm::Value *, 2u> p_args) noexcept {
+    ::llvm::Module *module, ::llvm::IRBuilder<> *builder, const Type *t, luisa::string_view name,
+    ::llvm::SmallVector<::llvm::Type *, 2u> t_args, ::llvm::SmallVector<::llvm::Value *, 2u> p_args) noexcept {
     auto f = _declare_external_math_function(module, name, p_args.size());
     ::llvm::SmallVector<::llvm::Value *, 2u> args;
     for (auto i = 0u; i < p_args.size(); i++) {
         auto value_name = luisa::format("{}.arg{}", name, i);
         args.emplace_back(builder->CreateLoad(
-            p_args[i]->getType()->getPointerElementType(), p_args[i],
+            t_args[i], p_args[i],
             ::llvm::StringRef{value_name.data(), value_name.size()}));
     }
     // TODO: vectorize...
@@ -284,8 +284,7 @@ namespace luisa::compute::llvm {
     auto y = builder->CreateCall(f, args, ::llvm::StringRef{y_name.data(), y_name.size()});
     auto py_name = luisa::format("{}.call.addr", name);
     auto py = builder->CreateAlloca(
-        p_args.front()->getType()->getPointerElementType(),
-        nullptr, ::llvm::StringRef{py_name.data(), py_name.size()});
+        t_args.front(), nullptr, ::llvm::StringRef{py_name.data(), py_name.size()});
     py->setAlignment(::llvm::Align{16});
     builder->CreateStore(y, py);
     return py;
@@ -339,10 +338,9 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
     auto b = _current_context()->builder.get();
     auto ptr = b->CreateExtractValue(accel, 1, "accel.instance.visibility.instances");
     auto index = b->CreateLoad(b->getInt32Ty(), p_index, "accel.instance.visibility.index");
-    auto ptr_vis = b->CreateInBoundsGEP(ptr->getType()->getPointerElementType(), ptr,
-                                        {index, _literal(1)}, "accel.instance.visibility.vis.ptr");
-    auto ptr_dirty = b->CreateInBoundsGEP(ptr->getType()->getPointerElementType(), ptr,
-                                          {index, _literal(2)}, "accel.instance.visibility.dirty.ptr");
+    auto t_instance = _create_type(Type::of<LLVMAccelInstance>());
+    auto ptr_vis = b->CreateInBoundsGEP(t_instance, ptr, {index, _literal(1)}, "accel.instance.visibility.vis.ptr");
+    auto ptr_dirty = b->CreateInBoundsGEP(t_instance, ptr, {index, _literal(2)}, "accel.instance.visibility.dirty.ptr");
     auto vis = b->CreateLoad(b->getInt32Ty(), p_vis, "accel.instance.visibility.vis");
     b->CreateStore(vis, ptr_vis);
     b->CreateStore(_literal(true), ptr_dirty);
@@ -385,17 +383,21 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
         case CallOp::ISNAN: return _builtin_isnan(
             args[0]->type(), _create_expr(args[0]));
         case CallOp::ACOS: return _call_external_math_function(
-            _module, builder, args[0]->type(), "acos", {_create_expr(args[0])});
+            _module, builder, args[0]->type(), "acos",
+            {_create_type(args[0]->type())}, {_create_expr(args[0])});
         case CallOp::ACOSH: return _builtin_acosh(
             args[0]->type(), _create_expr(args[0]));
         case CallOp::ASIN: return _call_external_math_function(
-            _module, builder, args[0]->type(), "asin", {_create_expr(args[0])});
+            _module, builder, args[0]->type(), "asin",
+            {_create_type(args[0]->type())}, {_create_expr(args[0])});
         case CallOp::ASINH: return _builtin_asinh(
             args[0]->type(), _create_expr(args[0]));
         case CallOp::ATAN: return _call_external_math_function(
-            _module, builder, args[0]->type(), "atan", {_create_expr(args[0])});
+            _module, builder, args[0]->type(), "atan",
+            {_create_type(args[0]->type())}, {_create_expr(args[0])});
         case CallOp::ATAN2: return _call_external_math_function(
             _module, builder, args[0]->type(), "atan2",
+            {_create_type(args[0]->type()), _create_type(args[1]->type())},
             {_create_expr(args[0]), _create_expr(args[1])});
         case CallOp::ATANH: return _builtin_atanh(
             args[0]->type(), _create_expr(args[0]));
@@ -494,10 +496,10 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
                 _builtin_static_cast(args[0]->type()->element(), args[2]->type(), _create_expr(args[2])));
             return nullptr;
         case CallOp::TEXTURE_READ: return _builtin_texture_read(
-            ret_type, _create_expr(args[0]), _create_expr(args[1]));
+            ret_type, _create_expr(args[0]), args[1]->type(), _create_expr(args[1]));
         case CallOp::TEXTURE_WRITE:
             _builtin_texture_write(
-                args[2]->type(), _create_expr(args[0]),
+                args[2]->type(), _create_expr(args[0]), args[1]->type(),
                 _create_expr(args[1]), _create_expr(args[2]));
             return nullptr;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE: return _builtin_bindless_texture_sample2d(
@@ -1783,7 +1785,7 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
     p = t->is_scalar() ? _scalar_to_bool(t, p) : _vector_to_bool_vector(t, p);
     auto type = static_cast<::llvm::Type *>(b->getInt1Ty());
     if (t->is_vector()) { type = ::llvm::FixedVectorType::get(type, t->dimension()); }
-    auto v = b->CreateLoad(p->getType()->getPointerElementType(), p);
+    auto v = b->CreateLoad(type, p);
     auto nv = b->CreateNot(b->CreateTrunc(v, type), "unary.not");
     return _create_stack_variable(nv, "unary.not.addr");
 }
@@ -2078,15 +2080,14 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
     _create_assignment(t_value, t_value, ptr, p_value);
 }
 
-::llvm::Value *LLVMCodegen::_builtin_texture_read(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord) noexcept {
+::llvm::Value *LLVMCodegen::_builtin_texture_read(const Type *t, ::llvm::Value *texture,
+                                                  const Type *t_coord, ::llvm::Value *p_coord) noexcept {
     LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
                  "Invalid type '{}' for texture-read.",
                  t->description());
     // <4 x float> texture.read.Nd.type(i64 t0, i64 t1, i64 c0, i64 c2)
     auto b = _current_context()->builder.get();
-    auto coord = b->CreateLoad(
-        p_coord->getType()->getPointerElementType(),
-        p_coord, "texture.read.coord");
+    auto coord = b->CreateLoad(_create_type(t_coord), p_coord, "texture.read.coord");
     auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
     auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
     auto func_name = luisa::format("texture.read.{}d.{}", dim, t->element()->description());
@@ -2131,15 +2132,14 @@ void LLVMCodegen::_builtin_buffer_write(const Type *t_value, ::llvm::Value *buff
     return _create_stack_variable(ret, "texture.read.addr");
 }
 
-void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept {
+void LLVMCodegen::_builtin_texture_write(const Type *t, ::llvm::Value *texture, const Type *t_coord,
+                                         ::llvm::Value *p_coord, ::llvm::Value *p_value) noexcept {
     LUISA_ASSERT(t->is_vector() && t->dimension() == 4u,
                  "Invalid type '{}' for texture-write.",
                  t->description());
     // texture.write.Nd.type(i64 t0, i64 t1, i64 c0, i64 c1, i64 v0, i64 v1)
     auto b = _current_context()->builder.get();
-    auto coord = b->CreateLoad(
-        p_coord->getType()->getPointerElementType(),
-        p_coord, "texture.write.coord");
+    auto coord = b->CreateLoad(_create_type(t_coord), p_coord, "texture.write.coord");
     auto coord_type = static_cast<::llvm::FixedVectorType *>(coord->getType());
     auto dim = coord_type->getNumElements() == 2u ? 2u : 3u;
     auto func_name = luisa::format("texture.write.{}d.{}", dim, t->element()->description());
