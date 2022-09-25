@@ -72,7 +72,8 @@ void LLVMStream::visit(const BufferToTextureCopyCommand *command) noexcept {
 
 void LLVMStream::visit(const ShaderDispatchCommand *command) noexcept {
     auto shader = reinterpret_cast<const LLVMShader *>(command->handle());
-    luisa::vector<std::byte> argument_buffer(shader->argument_buffer_size());
+    luisa::vector<std::byte> argument_buffer(shader->argument_buffer_size() +
+                                             shader->shared_memory_size());
     command->decode([&](auto argument) noexcept {
         auto ptr = argument_buffer.data() + shader->argument_offset(argument.variable_uid);
         using T = decltype(argument);
@@ -95,14 +96,16 @@ void LLVMStream::visit(const ShaderDispatchCommand *command) noexcept {
             std::memcpy(ptr, argument.data, argument.size);
         }
     });
-    auto shared_buffer = luisa::make_shared<luisa::vector<std::byte>>(std::move(argument_buffer));
+    auto arg_buffer = luisa::make_shared<luisa::vector<std::byte>>(std::move(argument_buffer));
     auto dispatch_size = command->dispatch_size();
     auto block_size = command->kernel().block_size();
     auto grid_size = (dispatch_size + block_size - 1u) / block_size;
     _pool.parallel(
         grid_size.x, grid_size.y, grid_size.z,
-        [shared_buffer, shader, dispatch_size](auto bx, auto by, auto bz) noexcept {
-            shader->invoke(shared_buffer->data(), dispatch_size, make_uint3(bx, by, bz));
+        [arg_buffer, shader, dispatch_size](auto bx, auto by, auto bz) noexcept {
+            shader->invoke(arg_buffer->data(),
+                           arg_buffer->data() + shader->argument_buffer_size(),
+                           dispatch_size, make_uint3(bx, by, bz));
         });
 }
 

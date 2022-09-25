@@ -3,11 +3,16 @@
 //
 
 #include <cmath>
+#include <llvm/Analysis/CGSCCPassManager.h>
+#include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <core/mathematics.h>
 #include <backends/llvm/llvm_shader.h>
 #include <backends/llvm/llvm_device.h>
 #include <backends/llvm/llvm_codegen.h>
 #include <backends/llvm/llvm_accel.h>
+
+#define LC_LLVM_CODEGEN_MAGIC ".codegen.0003"
 
 namespace luisa::compute::llvm {
 
@@ -32,13 +37,24 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     }
     _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
 
+    for (auto s : func.shared_variables()) {
+        _shared_memory_size = luisa::align(_shared_memory_size, s.type()->alignment());
+        _shared_memory_size += s.type()->size();
+    }
+    _shared_memory_size = luisa::align(_shared_memory_size, 16u);
+
+    LUISA_VERBOSE_WITH_LOCATION(
+        "Generating kernel '{}' with {} bytes of "
+        "argument buffer and {} bytes of shared memory.",
+        _name, _argument_buffer_size, _shared_memory_size);
+
     // codegen
     std::error_code ec;
     _context = luisa::make_unique<::llvm::LLVMContext>();
 
     auto file_path = device->context().cache_directory() /
                      luisa::format("kernel.{:016x}.llvm.opt.ll",
-                                   hash64(LLVM_VERSION_STRING, func.hash()));
+                                   hash64(LLVM_VERSION_STRING LC_LLVM_CODEGEN_MAGIC, func.hash()));
     ::llvm::SMDiagnostic diagnostic;
     auto module = ::llvm::parseIRFile(file_path.string(), diagnostic, *_context);
     Clock clk;
@@ -69,30 +85,53 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
             LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
         }
 
-        // optimize
-        ::llvm::PassManagerBuilder pass_manager_builder;
-        pass_manager_builder.OptLevel = ::llvm::CodeGenOpt::Aggressive;
-        pass_manager_builder.Inliner = ::llvm::createFunctionInliningPass(
-            pass_manager_builder.OptLevel, 0, false);
-        pass_manager_builder.LoopsInterleaved = true;
-        pass_manager_builder.LoopVectorize = true;
-        pass_manager_builder.SLPVectorize = true;
-        pass_manager_builder.MergeFunctions = true;
-        pass_manager_builder.NewGVN = true;
-        machine->adjustPassManager(pass_manager_builder);
+        // optimize with the new pass manager
+        ::llvm::LoopAnalysisManager LAM;
+        ::llvm::FunctionAnalysisManager FAM;
+        ::llvm::CGSCCAnalysisManager CGAM;
+        ::llvm::ModuleAnalysisManager MAM;
+        ::llvm::PipelineTuningOptions PTO;
+        PTO.LoopInterleaving = true;
+        PTO.LoopVectorization = true;
+        PTO.SLPVectorization = true;
+        PTO.LoopUnrolling = true;
+        PTO.MergeFunctions = true;
+        ::llvm::PassBuilder PB{machine, PTO};
+        PB.registerModuleAnalyses(MAM);
+        PB.registerCGSCCAnalyses(CGAM);
+        PB.registerFunctionAnalyses(FAM);
+        PB.registerLoopAnalyses(LAM);
+        PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+        machine->registerPassBuilderCallbacks(PB);
+        ::llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
         module->setDataLayout(machine->createDataLayout());
         module->setTargetTriple(machine->getTargetTriple().str());
-        ::llvm::legacy::PassManager module_pass_manager;
-        module_pass_manager.add(
-            ::llvm::createTargetTransformInfoWrapperPass(
-                machine->getTargetIRAnalysis()));
-        pass_manager_builder.populateModulePassManager(module_pass_manager);
         clk.tic();
-        module_pass_manager.run(*module);
+        MPM.run(*module, MAM);
+
+        // optimize with the legacy pass manager
+        //        ::llvm::PassManagerBuilder pass_manager_builder;
+        //        pass_manager_builder.OptLevel = ::llvm::CodeGenOpt::Aggressive;
+        //        pass_manager_builder.Inliner = ::llvm::createFunctionInliningPass(
+        //            pass_manager_builder.OptLevel, 0, false);
+        //        pass_manager_builder.LoopsInterleaved = true;
+        //        pass_manager_builder.LoopVectorize = true;
+        //        pass_manager_builder.SLPVectorize = true;
+        //        pass_manager_builder.MergeFunctions = true;
+        //        pass_manager_builder.NewGVN = true;
+        //        machine->adjustPassManager(pass_manager_builder);
+        //        module->setDataLayout(machine->createDataLayout());
+        //        module->setTargetTriple(machine->getTargetTriple().str());
+        //        ::llvm::legacy::PassManager module_pass_manager;
+        //        module_pass_manager.add(
+        //            ::llvm::createTargetTransformInfoWrapperPass(
+        //                machine->getTargetIRAnalysis()));
+        //        pass_manager_builder.populateModulePassManager(module_pass_manager);
+        //        module_pass_manager.run(*module);
+        LUISA_INFO("Optimize: {} ms.", clk.toc());
         if (::llvm::verifyModule(*module, &::llvm::errs())) {
             LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
         }
-        LUISA_INFO("Optimize: {} ms.", clk.toc());
 
         // dump optimized ir for debugging
         {
@@ -174,8 +213,9 @@ size_t LLVMShader::argument_offset(uint uid) const noexcept {
     LUISA_ERROR_WITH_LOCATION("Invalid argument uid {}.", uid);
 }
 
-void LLVMShader::invoke(const std::byte *args, uint3 dispatch_size, uint3 block_id) const noexcept {
-    _kernel_entry(args,
+void LLVMShader::invoke(const std::byte *args, std::byte *shared_mem,
+                        uint3 dispatch_size, uint3 block_id) const noexcept {
+    _kernel_entry(args, shared_mem,
                   dispatch_size.x, dispatch_size.y, dispatch_size.z,
                   block_id.x, block_id.y, block_id.z);
 }
