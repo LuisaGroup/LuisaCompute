@@ -201,56 +201,52 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
         function_type, ::llvm::Function::InternalLinkage,
         ::llvm::StringRef{name.data(), name.size()}, _module);
     auto builder = luisa::make_unique<::llvm::IRBuilder<>>(_context);
-    auto body_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
+    auto entry_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
     auto exit_block = ::llvm::BasicBlock::Create(_context, "exit", ir);
     ::llvm::BasicBlock *coro_cleanup = nullptr;
     ::llvm::BasicBlock *coro_suspend = nullptr;
     if (needs_coroutine) {
         // coro begin
-        builder->SetInsertPoint(body_block);
+        builder->SetInsertPoint(entry_block);
         auto i32_type = ::llvm::Type::getInt32Ty(_context);
         auto i8_type = ::llvm::Type::getInt8Ty(_context);
         auto i1_type = ::llvm::Type::getInt1Ty(_context);
         auto ptr_type = ::llvm::Type::getInt8PtrTy(_context);
         auto coro_id = builder->CreateIntrinsic(
-            ::llvm::Intrinsic::coro_id,
-            {i32_type, ptr_type, ptr_type, ptr_type},
+            ::llvm::Intrinsic::coro_id, {},
             {::llvm::ConstantInt::get(i32_type, 0u),
              ::llvm::ConstantPointerNull::get(ptr_type),
              ::llvm::ConstantPointerNull::get(ptr_type),
              ::llvm::ConstantPointerNull::get(ptr_type)});
         coro_id->setName("coro.id");
         auto coro_needs_alloc = builder->CreateIntrinsic(
-            ::llvm::Intrinsic::coro_alloc,
-            {::llvm::Type::getTokenTy(_context)}, {coro_id});
+            ::llvm::Intrinsic::coro_alloc, {}, {coro_id});
         coro_needs_alloc->setName("coro.needs.alloc");
         auto coro_dyn_alloc = ::llvm::BasicBlock::Create(_context, "coro.dyn.alloc", ir);
         auto coro_begin = ::llvm::BasicBlock::Create(_context, "coro.begin", ir);
-        coro_dyn_alloc->moveAfter(body_block);
+        coro_dyn_alloc->moveAfter(entry_block);
         coro_begin->moveAfter(coro_dyn_alloc);
         builder->CreateCondBr(coro_needs_alloc, coro_dyn_alloc, coro_begin);
         builder->SetInsertPoint(coro_dyn_alloc);
         auto coro_size = builder->CreateIntrinsic(
-            ::llvm::Intrinsic::coro_size, {}, {});
+            ::llvm::Intrinsic::coro_size, {i32_type}, {});
         coro_size->setName("coro.size");
         auto coro_mem = ::llvm::CallInst::CreateMalloc(
-            coro_dyn_alloc, ptr_type, i8_type, coro_size,
-            nullptr, nullptr, "coro.malloc");
+            coro_dyn_alloc, coro_size->getType(), i8_type,
+            coro_size, nullptr, nullptr, "coro.malloc");
+        builder->Insert(coro_mem);
         builder->CreateBr(coro_begin);
         builder->SetInsertPoint(coro_begin);
         auto phi = builder->CreatePHI(ptr_type, 2u, "coro.mem");
-        phi->addIncoming(::llvm::ConstantPointerNull::get(ptr_type), coro_begin);
+        phi->addIncoming(::llvm::ConstantPointerNull::get(ptr_type), entry_block);
         phi->addIncoming(coro_mem, coro_dyn_alloc);
         auto coro_handle = builder->CreateIntrinsic(
-            ::llvm::Intrinsic::coro_begin,
-            {::llvm::Type::getTokenTy(_context), ptr_type},
-            {coro_id, phi});
+            ::llvm::Intrinsic::coro_begin, {}, {coro_id, phi});
         // coro end
         builder->SetInsertPoint(exit_block);
         // last suspend
         auto coro_state = builder->CreateIntrinsic(
-            ::llvm::Intrinsic::coro_suspend,
-            {::llvm::Type::getTokenTy(_context), i1_type},
+            ::llvm::Intrinsic::coro_suspend, {},
             {::llvm::ConstantTokenNone::get(_context), ::llvm::ConstantInt::get(i1_type, true)});
         coro_state->setName("coro.state");
         coro_cleanup = ::llvm::BasicBlock::Create(_context, "coro.cleanup", ir);
@@ -260,14 +256,12 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
         coro_suspend->moveAfter(coro_cleanup);
         coro_trap->moveAfter(coro_suspend);
         auto coro_switch = builder->CreateSwitch(coro_state, coro_suspend, 2u);
-        coro_switch->addCase(::llvm::ConstantInt::get(i32_type, 0), coro_trap);
-        coro_switch->addCase(::llvm::ConstantInt::get(i32_type, 1), coro_cleanup);
+        coro_switch->addCase(::llvm::ConstantInt::get(i8_type, 0), coro_trap);
+        coro_switch->addCase(::llvm::ConstantInt::get(i8_type, 1), coro_cleanup);
         // coro cleanup
         builder->SetInsertPoint(coro_cleanup);
         auto mem = builder->CreateIntrinsic(
-            ::llvm::Intrinsic::coro_free,
-            {::llvm::Type::getTokenTy(_context), ptr_type},
-            {coro_id, coro_handle});
+            ::llvm::Intrinsic::coro_free, {}, {coro_id, coro_handle});
         mem->setName("coro.free.mem");
         auto coro_needs_free = builder->CreateICmpNE(
             mem, ::llvm::ConstantPointerNull::get(ptr_type), "coro.needs.free");
@@ -275,13 +269,13 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
         coro_dyn_free->moveAfter(coro_cleanup);
         builder->CreateCondBr(coro_needs_free, coro_dyn_free, coro_suspend);
         builder->SetInsertPoint(coro_dyn_free);
-        ::llvm::CallInst::CreateFree(mem, coro_dyn_free);
+        auto coro_free = ::llvm::CallInst::CreateFree(mem, coro_dyn_free);
+        builder->Insert(coro_free);
         builder->CreateBr(coro_suspend);
         // coro suspend
         builder->SetInsertPoint(coro_suspend);
         builder->CreateIntrinsic(
-            ::llvm::Intrinsic::coro_end,
-            {ptr_type, i1_type},
+            ::llvm::Intrinsic::coro_end, {},
             {coro_handle, ::llvm::ConstantInt::get(i1_type, false)});
         builder->CreateRet(coro_handle);
         // coro trap
@@ -293,7 +287,7 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
     } else {
         builder->SetInsertPoint(exit_block);
         builder->CreateRetVoid();
-        builder->SetInsertPoint(body_block);
+        builder->SetInsertPoint(entry_block);
     }
     luisa::unordered_map<uint, ::llvm::Value *> variables;
     auto make_alloca = [&](::llvm::Value *x, luisa::string_view name = "") noexcept {
