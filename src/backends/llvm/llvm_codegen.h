@@ -320,6 +320,7 @@ private:
         ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uv, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_bindless_texture_sample3d_grad(
         ::llvm::Value *p_items, ::llvm::Value *p_index, ::llvm::Value *p_uvw, ::llvm::Value *p_dpdx, ::llvm::Value *p_dpdy) noexcept;
+    void _builtin_synchronize_block() noexcept;
 
 public:
     explicit LLVMCodegen(::llvm::LLVMContext &ctx) noexcept;
