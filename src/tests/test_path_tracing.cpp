@@ -287,14 +287,14 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
-        Shared<float> s1{13u};
-        Shared<float> s2{1024u};
-        s2[thread_x()] = 1.f;
-        sync_block();
         image.write(dispatch_id().xy(), make_float4(0.0f));
     };
 
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
+        Shared<float> s1{13u};
+        Shared<float> s2{1024u};
+        s2[thread_x()] = 1.f;
+        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
         auto ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);

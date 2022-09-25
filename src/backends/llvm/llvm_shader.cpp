@@ -110,10 +110,18 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         machine->registerPassBuilderCallbacks(PB);
         clk.tic();
         auto MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
-        MPM.addPass(::llvm::CoroEarlyPass{});
-        MPM.addPass(::llvm::createModuleToPostOrderCGSCCPassAdaptor(::llvm::CoroSplitPass{true}));
-        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroElidePass{}));
-        MPM.addPass(::llvm::CoroCleanupPass{});
+        //#if LLVM_VERSION_MAJOR >= 15
+        //        MPM.addPass(::llvm::CoroEarlyPass{});
+        //#else
+        //        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroEarlyPass{}));
+        //#endif
+        //        MPM.addPass(::llvm::createModuleToPostOrderCGSCCPassAdaptor(::llvm::CoroSplitPass{true}));
+        //        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroElidePass{}));
+        //#if LLVM_VERSION_MAJOR >= 15
+        //        MPM.addPass(::llvm::CoroCleanupPass{});
+        //#else
+        //        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroCleanupPass{}));
+        //#endif
         MPM.run(*module, MAM);
 
         // optimize with the legacy pass manager
