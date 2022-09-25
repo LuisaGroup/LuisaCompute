@@ -61,8 +61,9 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     auto arg_struct_name = luisa::format("arg.buffer.struct.{:016x}", f.hash());
     arg_struct_type->setName(::llvm::StringRef{arg_struct_name.data(), arg_struct_name.size()});
     auto arg_buffer_type = ::llvm::PointerType::get(arg_struct_type, 0);
-    ::llvm::SmallVector<::llvm::Type *, 7u> arg_types;
+    ::llvm::SmallVector<::llvm::Type *, 8u> arg_types;
     arg_types.emplace_back(arg_buffer_type);
+    arg_types.emplace_back(::llvm::PointerType::get(::llvm::Type::getInt8Ty(_context), 0));
     auto i32_type = ::llvm::Type::getInt32Ty(_context);
     // dispatch size
     arg_types.emplace_back(i32_type);
@@ -123,8 +124,8 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     for (auto i = 0u; i < 3u; i++) {
         using namespace std::string_literals;
         std::array elements{"x", "y", "z"};
-        auto block_id_i = ir->getArg(i + 4u);
-        auto dispatch_size_i = ir->getArg(i + 1u);
+        auto block_id_i = ir->getArg(i + 5u);
+        auto dispatch_size_i = ir->getArg(i + 2u);
         block_id_i->setName("block.id."s.append(elements[i]));
         dispatch_size_i->setName("dispatch.size."s.append(elements[i]));
         block_id = builder->CreateInsertElement(block_id, block_id_i, i);
@@ -157,6 +158,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     call_args.emplace_back(block_id);
     call_args.emplace_back(dispatch_id);
     call_args.emplace_back(dispatch_size);
+    call_args.emplace_back(ir->getArg(1u));// shared memory
     builder->CreateCall(ctx->ir->getFunctionType(), ctx->ir,
                         ::llvm::ArrayRef<::llvm::Value *>{call_args.data(), call_args.size()});
     // update
@@ -188,7 +190,10 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
     for (auto i = 0u; i < 4u; i++) {
         arg_types.emplace_back(_create_type(Type::of<uint3>()));
     }
-    auto return_type = _create_type(f.return_type());
+    // shared memory
+    arg_types.emplace_back(::llvm::PointerType::get(::llvm::Type::getInt8Ty(_context), 0u));
+    auto needs_coroutine = f.builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK);
+    auto return_type = needs_coroutine ? ::llvm::Type::getVoidTy(_context) : ::llvm::Type::getInt8PtrTy(_context);
     ::llvm::ArrayRef<::llvm::Type *> arg_types_ref{arg_types.data(), arg_types.size()};
     auto function_type = ::llvm::FunctionType::get(return_type, arg_types_ref, false);
     auto name = _function_name(f);
@@ -199,7 +204,13 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
     auto body_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
     auto exit_block = ::llvm::BasicBlock::Create(_context, "exit", ir);
     builder->SetInsertPoint(exit_block);
-    builder->CreateRetVoid();
+    if (needs_coroutine) {
+        builder->CreateRetVoid();
+    } else {
+        auto shared_memory = ir->getArg(5u);
+        builder->CreateRet(::llvm::ConstantPointerNull::get(
+            ::llvm::Type::getInt8PtrTy(_context)));
+    }
     builder->SetInsertPoint(body_block);
     luisa::unordered_map<uint, ::llvm::Value *> variables;
     auto make_alloca = [&](::llvm::Value *x, luisa::string_view name = "") noexcept {
@@ -235,6 +246,18 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
                 break;
             default: LUISA_ERROR_WITH_LOCATION("Invalid kernel argument type.");
         }
+    }
+    // shared memory
+    auto smem = ir->getArg(builtin_offset + 4);
+    auto smem_offset = 0u;
+    for (auto s : f.shared_variables()) {
+        auto alignment = s.type()->alignment();
+        smem_offset = (smem_offset + alignment - 1u) / alignment * alignment;
+        auto p = builder->CreateConstGEP1_32(
+            ::llvm::Type::getInt8Ty(_context), smem, smem_offset);
+        auto ptr = builder->CreatePointerCast(p, _create_type(s.type())->getPointerTo());
+        variables.emplace(s.uid(), ptr);
+        smem_offset += s.type()->size();
     }
     return luisa::make_unique<FunctionContext>(
         f, ir, nullptr, exit_block, std::move(builder), std::move(variables));
