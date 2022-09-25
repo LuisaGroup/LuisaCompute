@@ -146,11 +146,10 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
         p_coro_states->setName("coro.states");
         p_coro_states->setAlignment(::llvm::Align{16u});
         builder->CreateMemSet(
-            p_coro_states, ::llvm::ConstantPointerNull::get(ptr_type),
-            thread_count, ::llvm::Align{16u});
+            p_coro_states, builder->getInt8(0u),
+            thread_count * sizeof(void *), ::llvm::Align{16u});
         p_coro_all_done = builder->CreateAlloca(
             i1_type, ::llvm::ConstantInt::get(i32_type, 1u), "coro.all.done.addr");
-        p_coro_all_done->setName("coro.done");
         coro_loop = ::llvm::BasicBlock::Create(_context, "coro.loop", ir);
         coro_loop->moveAfter(entry_block);
         builder->CreateBr(coro_loop);
@@ -202,10 +201,11 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
             ::llvm::ArrayRef<::llvm::Value *>{call_args.data(), call_args.size()});
         builder->CreateStore(coro_handle, p_coro_state);
         builder->CreateStore(::llvm::ConstantInt::get(i1_type, false), p_coro_all_done);
+        builder->CreateBr(loop_update_block);
         // resume or done
         builder->SetInsertPoint(resume_kernel);
-        builder->CreateIntrinsic(::llvm::Intrinsic::coro_resume, {}, {coro_handle});
-        auto coro_done = builder->CreateIntrinsic(::llvm::Intrinsic::coro_done, {}, {coro_handle});
+        builder->CreateIntrinsic(::llvm::Intrinsic::coro_resume, {}, {coro_state});
+        auto coro_done = builder->CreateIntrinsic(::llvm::Intrinsic::coro_done, {}, {coro_state});
         auto coro_all_done = builder->CreateLoad(i1_type, p_coro_all_done, "coro.all.done");
         auto coro_all_done_and = builder->CreateAnd(coro_all_done, coro_done, "coro.all.done.and");
         builder->CreateStore(coro_all_done_and, p_coro_all_done);
@@ -213,7 +213,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
         coro_done_block->moveAfter(resume_kernel);
         builder->CreateCondBr(coro_done, coro_done_block, loop_update_block);
         builder->SetInsertPoint(coro_done_block);
-        builder->CreateIntrinsic(::llvm::Intrinsic::coro_destroy, {}, {coro_handle});
+        builder->CreateIntrinsic(::llvm::Intrinsic::coro_destroy, {}, {coro_state});
         builder->CreateBr(loop_update_block);
     } else {
         auto call_args = arguments;
