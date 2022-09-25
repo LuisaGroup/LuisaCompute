@@ -273,6 +273,7 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
     auto ir = ::llvm::Function::Create(
         function_type, ::llvm::Function::InternalLinkage,
         ::llvm::StringRef{name.data(), name.size()}, _module);
+    ir->addFnAttr("coroutine.presplit", "0");// LLVM require the frontend to add the function attribute
     auto builder = luisa::make_unique<::llvm::IRBuilder<>>(_context);
     auto entry_block = ::llvm::BasicBlock::Create(_context, "entry", ir);
     auto exit_block = ::llvm::BasicBlock::Create(_context, "exit", ir);

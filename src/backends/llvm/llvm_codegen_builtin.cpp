@@ -1803,9 +1803,11 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
 ::llvm::Value *LLVMCodegen::_builtin_unary_not(const Type *t, ::llvm::Value *p) noexcept {
     auto b = _current_context()->builder.get();
     p = t->is_scalar() ? _scalar_to_bool(t, p) : _vector_to_bool_vector(t, p);
+    auto i8_type = static_cast<::llvm::Type *>(::llvm::Type::getInt8Ty(_context));
+    auto i8_vec_type = t->is_scalar() ? i8_type : ::llvm::FixedVectorType::get(i8_type, t->dimension());
+    auto v = b->CreateLoad(i8_vec_type, p);
     auto type = static_cast<::llvm::Type *>(b->getInt1Ty());
     if (t->is_vector()) { type = ::llvm::FixedVectorType::get(type, t->dimension()); }
-    auto v = b->CreateLoad(type, p);
     auto nv = b->CreateNot(b->CreateTrunc(v, type), "unary.not");
     return _create_stack_variable(nv, "unary.not.addr");
 }
