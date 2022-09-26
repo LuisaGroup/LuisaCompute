@@ -291,10 +291,10 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
-        Shared<float> s1{13u};
-        Shared<float> s2{1024u};
-        s2[thread_x()] = 1.f;
-        sync_block();
+//        Shared<float> s1{13u};
+//        Shared<float> s2{1024u};
+//        s2[thread_x()] = 1.f;
+//        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
         auto ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
@@ -302,6 +302,9 @@ int main(int argc, char *argv[]) {
     };
 
     auto clear_shader = device.compile(clear_kernel);
+    for (auto i = 0u; i < 10u; i++) {
+        device.compile_async(clear_kernel);
+    }
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
     auto raytracing_shader = device.compile(raytracing_kernel);
