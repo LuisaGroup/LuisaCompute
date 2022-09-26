@@ -1,5 +1,5 @@
 if (LUISA_COMPUTE_ENABLE_LLVM)
-    find_package(LLVM)
+    find_package(LLVM CONFIG)
 endif ()
 
 if (LLVM_FOUND) # link with llvm for jit
