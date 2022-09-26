@@ -5,6 +5,7 @@
 #pragma once
 
 #include <ast/function.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
 
 namespace llvm {
 class LLVMContext;
@@ -23,8 +24,7 @@ public:
 
 private:
     luisa::string _name;
-    luisa::unique_ptr<::llvm::LLVMContext> _context;
-    ::llvm::ExecutionEngine *_engine{nullptr};
+    std::unique_ptr<::llvm::orc::LLJIT> _jit;
     luisa::unordered_map<uint, size_t> _argument_offsets;
     kernel_entry_t *_kernel_entry{nullptr};
     size_t _argument_buffer_size{};

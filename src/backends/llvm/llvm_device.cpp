@@ -21,7 +21,6 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept
     std::call_once(flag, [] {
         ::llvm::InitializeNativeTarget();
         ::llvm::InitializeNativeTargetAsmPrinter();
-        LLVMLinkInMCJIT();
     });
     std::string err;
     auto target_triple = ::llvm::sys::getProcessTriple();
