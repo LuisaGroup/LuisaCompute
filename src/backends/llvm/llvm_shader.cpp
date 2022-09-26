@@ -6,17 +6,22 @@
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Passes/PassBuilder.h>
+#include <llvm/IR/DiagnosticPrinter.h>
+#if LLVM_VERSION_MAJOR >= 15
 #include <llvm/Transforms/Coroutines/CoroEarly.h>
 #include <llvm/Transforms/Coroutines/CoroSplit.h>
 #include <llvm/Transforms/Coroutines/CoroElide.h>
 #include <llvm/Transforms/Coroutines/CoroCleanup.h>
+#include <llvm/Transforms/Coroutines/CoroConditionalWrapper.h>
+#endif
+#include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <core/mathematics.h>
 #include <backends/llvm/llvm_shader.h>
 #include <backends/llvm/llvm_device.h>
 #include <backends/llvm/llvm_codegen.h>
 #include <backends/llvm/llvm_accel.h>
 
-#define LC_LLVM_CODEGEN_MAGIC ".codegen.0003"
+#define LC_LLVM_CODEGEN_MAGIC ".codegen.0004"
 
 namespace luisa::compute::llvm {
 
@@ -55,7 +60,14 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     // codegen
     std::error_code ec;
     _context = luisa::make_unique<::llvm::LLVMContext>();
-
+    _context->setDiagnosticHandlerCallBack([](const ::llvm::DiagnosticInfo &info, void *) noexcept {
+        if (auto severity = info.getSeverity();
+            severity == ::llvm::DS_Error || severity == ::llvm::DS_Warning) {
+            ::llvm::DiagnosticPrinterRawOStream printer{::llvm::errs()};
+            info.print(printer);
+            printer << '\n';
+        }
+    });
     auto file_path = device->context().cache_directory() /
                      luisa::format("kernel.llvm.{:016x}.opt.{:016x}.ll",
                                    func.hash(), hash64(LLVM_VERSION_STRING LC_LLVM_CODEGEN_MAGIC));
@@ -101,27 +113,28 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         PTO.LoopUnrolling = true;
         PTO.MergeFunctions = true;
         ::llvm::PassBuilder PB{machine, PTO};
+        FAM.registerPass([&] { return PB.buildDefaultAAPipeline(); });
         PB.registerModuleAnalyses(MAM);
         PB.registerCGSCCAnalyses(CGAM);
         PB.registerFunctionAnalyses(FAM);
         PB.registerLoopAnalyses(LAM);
         PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
-        FAM.registerPass([&] { return PB.buildDefaultAAPipeline(); });
         machine->registerPassBuilderCallbacks(PB);
         clk.tic();
         auto MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
-        //#if LLVM_VERSION_MAJOR >= 15
-        //        MPM.addPass(::llvm::CoroEarlyPass{});
-        //#else
-        //        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroEarlyPass{}));
-        //#endif
-        //        MPM.addPass(::llvm::createModuleToPostOrderCGSCCPassAdaptor(::llvm::CoroSplitPass{true}));
-        //        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroElidePass{}));
-        //#if LLVM_VERSION_MAJOR >= 15
-        //        MPM.addPass(::llvm::CoroCleanupPass{});
-        //#else
-        //        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(::llvm::CoroCleanupPass{}));
-        //#endif
+#if LLVM_VERSION_MAJOR >= 15 // Why not taking effect?
+        ::llvm::ModulePassManager CoroPM;
+        CoroPM.addPass(::llvm::CoroEarlyPass{});
+        ::llvm::CGSCCPassManager CGPM;
+        ::llvm::FunctionPassManager FPM;
+        CGPM.addPass(::llvm::CoroSplitPass{true});
+        FPM.addPass(::llvm::CoroElidePass{});
+        CoroPM.addPass(::llvm::createModuleToPostOrderCGSCCPassAdaptor(std::move(CGPM)));
+        CoroPM.addPass(::llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+        CoroPM.addPass(::llvm::CoroCleanupPass{});
+        CoroPM.addPass(::llvm::GlobalDCEPass{});
+        MPM.addPass(::llvm::CoroConditionalWrapper{std::move(CoroPM)});
+#endif
         MPM.run(*module, MAM);
 
         // optimize with the legacy pass manager
