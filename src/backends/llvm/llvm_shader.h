@@ -24,7 +24,6 @@ public:
 
 private:
     luisa::string _name;
-    std::unique_ptr<::llvm::orc::LLJIT> _jit;
     luisa::unordered_map<uint, size_t> _argument_offsets;
     kernel_entry_t *_kernel_entry{nullptr};
     size_t _argument_buffer_size{};

@@ -9,14 +9,7 @@
 #include <llvm/IR/DiagnosticPrinter.h>
 #include <llvm/ExecutionEngine/Orc/Core.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
-#if LLVM_VERSION_MAJOR >= 15
-#include <llvm/Transforms/Coroutines/CoroEarly.h>
-#include <llvm/Transforms/Coroutines/CoroSplit.h>
-#include <llvm/Transforms/Coroutines/CoroElide.h>
-#include <llvm/Transforms/Coroutines/CoroCleanup.h>
-#include <llvm/Transforms/Coroutines/CoroConditionalWrapper.h>
-#endif
-#include <llvm/Transforms/IPO/GlobalDCE.h>
+
 #include <core/mathematics.h>
 #include <backends/llvm/llvm_shader.h>
 #include <backends/llvm/llvm_device.h>
@@ -58,6 +51,27 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         "Generating kernel '{}' with {} bytes of "
         "argument buffer and {} bytes of shared memory.",
         _name, _argument_buffer_size, _shared_memory_size);
+
+    auto jit = device->jit();
+    auto main_name = luisa::format("kernel.{:016x}.main", func.hash());
+    auto lookup_kernel_entry = [name = luisa::string_view{main_name}, jit]() noexcept -> ::llvm::Expected<kernel_entry_t *> {
+        auto addr = jit->lookup(::llvm::StringRef{name.data(), name.size()});
+        if (addr) {
+#if LLVM_VERSION_MAJOR >= 15
+            return addr->toPtr<kernel_entry_t>();
+#else
+            return reinterpret_cast<kernel_entry_t *>(addr->getAddress());
+#endif
+        }
+        return addr.takeError();
+    };
+
+    // try to find the kernel entry in the JIT
+    if (auto entry = lookup_kernel_entry()) {
+        LUISA_INFO("Found kernel '{}' in JIT.", _name);
+        _kernel_entry = *entry;
+        return;
+    }
 
     // codegen
     std::error_code ec;
@@ -124,40 +138,7 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         machine->registerPassBuilderCallbacks(PB);
         clk.tic();
         auto MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
-#if LLVM_VERSION_MAJOR >= 15// Why not taking effect?
-        ::llvm::ModulePassManager CoroPM;
-        CoroPM.addPass(::llvm::CoroEarlyPass{});
-        ::llvm::CGSCCPassManager CGPM;
-        ::llvm::FunctionPassManager FPM;
-        CGPM.addPass(::llvm::CoroSplitPass{true});
-        FPM.addPass(::llvm::CoroElidePass{});
-        CoroPM.addPass(::llvm::createModuleToPostOrderCGSCCPassAdaptor(std::move(CGPM)));
-        CoroPM.addPass(::llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
-        CoroPM.addPass(::llvm::CoroCleanupPass{});
-        CoroPM.addPass(::llvm::GlobalDCEPass{});
-        MPM.addPass(::llvm::CoroConditionalWrapper{std::move(CoroPM)});
-#endif
         MPM.run(*module, MAM);
-
-        // optimize with the legacy pass manager
-        //        ::llvm::PassManagerBuilder pass_manager_builder;
-        //        pass_manager_builder.OptLevel = ::llvm::CodeGenOpt::Aggressive;
-        //        pass_manager_builder.Inliner = ::llvm::createFunctionInliningPass(
-        //            pass_manager_builder.OptLevel, 0, false);
-        //        pass_manager_builder.LoopsInterleaved = true;
-        //        pass_manager_builder.LoopVectorize = true;
-        //        pass_manager_builder.SLPVectorize = true;
-        //        pass_manager_builder.MergeFunctions = true;
-        //        pass_manager_builder.NewGVN = true;
-        //        machine->adjustPassManager(pass_manager_builder);
-        //        module->setDataLayout(machine->createDataLayout());
-        //        module->setTargetTriple(machine->getTargetTriple().str());
-        //        ::llvm::legacy::PassManager module_pass_manager;
-        //        module_pass_manager.add(
-        //            ::llvm::createTargetTransformInfoWrapperPass(
-        //                machine->getTargetIRAnalysis()));
-        //        pass_manager_builder.populateModulePassManager(module_pass_manager);
-        //        module_pass_manager.run(*module);
         LUISA_INFO("Optimize: {} ms.", clk.toc());
         if (::llvm::verifyModule(*module, &::llvm::errs())) {
             LUISA_ERROR_WITH_LOCATION("Failed to verify module.");
@@ -181,71 +162,19 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
 
     // compile to machine code
     clk.tic();
-    if (auto expected_jit = ::llvm::orc::LLJITBuilder{}.create()) {
-        _jit = std::move(expected_jit.get());
-        ::llvm::orc::ThreadSafeModule m{std::move(module), std::move(context)};
-        if (auto error = _jit->addIRModule(std::move(m))) {
-            ::llvm::handleAllErrors(std::move(error), [](std::unique_ptr<::llvm::ErrorInfoBase> err) {
-                LUISA_WARNING_WITH_LOCATION("LLJIT::addIRModule(): {}", err->message());
-            });
-            LUISA_ERROR_WITH_LOCATION("Failed to add IR module.");
-        }
-    } else {
-        ::llvm::handleAllErrors(expected_jit.takeError(), [](std::unique_ptr<::llvm::ErrorInfoBase> err) {
-            LUISA_WARNING_WITH_LOCATION("LLJITBuilder::create(): {}", err->message());
+    ::llvm::orc::ThreadSafeModule m{std::move(module), std::move(context)};
+    if (auto error = jit->addIRModule(std::move(m))) {
+        ::llvm::handleAllErrors(std::move(error), [](const ::llvm::ErrorInfoBase &err) {
+            LUISA_WARNING_WITH_LOCATION("LLJIT::addIRModule(): {}", err.message());
         });
-        LUISA_ERROR_WITH_LOCATION("Failed to create LLJIT.");
     }
-
-    // map symbols
-    if (auto generator = ::llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
-            _jit->getDataLayout().getGlobalPrefix())) {
-        _jit->getMainJITDylib().addGenerator(std::move(generator.get()));
+    if (auto entry = lookup_kernel_entry()) {
+        _kernel_entry = *entry;
     } else {
-        ::llvm::handleAllErrors(generator.takeError(), [](std::unique_ptr<::llvm::ErrorInfoBase> err) {
-            LUISA_WARNING_WITH_LOCATION("DynamicLibrarySearchGenerator::GetForCurrentProcess(): {}", err->message());
+        ::llvm::handleAllErrors(entry.takeError(), [](const ::llvm::ErrorInfoBase &err) {
+            LUISA_WARNING_WITH_LOCATION("LLJIT::lookup(): {}", err.message());
         });
-        LUISA_ERROR_WITH_LOCATION("Failed to add generator.");
-    }
-    ::llvm::orc::SymbolMap symbol_map{
-        {_jit->mangleAndIntern("texture.read.2d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_2d_int)},
-        {_jit->mangleAndIntern("texture.read.3d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_3d_int)},
-        {_jit->mangleAndIntern("texture.read.2d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_2d_uint)},
-        {_jit->mangleAndIntern("texture.read.3d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_3d_uint)},
-        {_jit->mangleAndIntern("texture.read.2d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_2d_float)},
-        {_jit->mangleAndIntern("texture.read.3d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_3d_float)},
-        {_jit->mangleAndIntern("texture.write.2d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_2d_int)},
-        {_jit->mangleAndIntern("texture.write.3d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_3d_int)},
-        {_jit->mangleAndIntern("texture.write.2d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_2d_uint)},
-        {_jit->mangleAndIntern("texture.write.3d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_3d_uint)},
-        {_jit->mangleAndIntern("texture.write.2d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_2d_float)},
-        {_jit->mangleAndIntern("texture.write.3d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_3d_float)},
-        {_jit->mangleAndIntern("accel.trace.closest"), ::llvm::JITEvaluatedSymbol::fromPointer(&accel_trace_closest)},
-        {_jit->mangleAndIntern("accel.trace.any"), ::llvm::JITEvaluatedSymbol::fromPointer(&accel_trace_any)},
-        {_jit->mangleAndIntern("bindless.texture.2d.read"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_read)},
-        {_jit->mangleAndIntern("bindless.texture.3d.read"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_read)},
-        {_jit->mangleAndIntern("bindless.texture.2d.sample"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_sample)},
-        {_jit->mangleAndIntern("bindless.texture.3d.sample"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_sample)},
-        {_jit->mangleAndIntern("bindless.texture.2d.sample.level"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_sample_level)},
-        {_jit->mangleAndIntern("bindless.texture.3d.sample.level"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_sample_level)},
-        {_jit->mangleAndIntern("bindless.texture.2d.sample.grad"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_sample_grad)},
-        {_jit->mangleAndIntern("bindless.texture.3d.sample.grad"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_sample_grad)}};
-    if (auto error = _jit->getMainJITDylib().define(
-            ::llvm::orc::absoluteSymbols(std::move(symbol_map)))) {
-        ::llvm::handleAllErrors(std::move(error), [](std::unique_ptr<::llvm::ErrorInfoBase> err) {
-            LUISA_WARNING_WITH_LOCATION("LLJIT::define(): {}", err->message());
-        });
-        LUISA_ERROR_WITH_LOCATION("Failed to define symbols.");
-    }
-    auto main_name = luisa::format("kernel.{:016x}.main", func.hash());
-    if (auto addr = _jit->lookup(::llvm::StringRef{main_name.data(), main_name.size()})) {
-#if LLVM_VERSION_MAJOR >= 15
-        _kernel_entry = addr->toPtr<kernel_entry_t>();
-#else
-        _kernel_entry = reinterpret_cast<kernel_entry_t *>(addr->getAddress());
-#endif
-    } else {
-        LUISA_ERROR_WITH_LOCATION("Failed to lookup symbol '{}'.", main_name);
+        LUISA_ERROR_WITH_LOCATION("Failed to find kernel entry.");
     }
     LUISA_INFO("Compile: {} ms.", clk.toc());
 }
