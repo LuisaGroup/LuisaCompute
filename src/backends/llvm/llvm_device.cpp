@@ -41,6 +41,15 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept
         options.EnableMachineOutliner = true;
         options.NoTrapAfterNoreturn = true;
         host->setOptions(options);
+        host->setCodeGenOptLevel(::llvm::CodeGenOpt::Aggressive);
+#ifdef __aarch64__
+        host->addFeatures({"+neon"});
+#else
+        host->addFeatures({"+avx2"});
+#endif
+        LUISA_INFO("LLVM JIT target: triplet = {}, features = {}.",
+                   host->getTargetTriple().str(),
+                   host->getFeatures().getString());
         if (auto machine = host->createTargetMachine()) {
             _target_machine = std::move(machine.get());
         } else {
@@ -56,7 +65,7 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept
         });
         LUISA_ERROR_WITH_LOCATION("Failed to detect host.");
     }
-    
+
     if (auto expected_jit = jit_builder.create()) {
         _jit = std::move(expected_jit.get());
     } else {
@@ -65,7 +74,7 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept
         });
         LUISA_ERROR_WITH_LOCATION("Failed to create LLJIT.");
     }
-    
+
     // map symbols
     if (auto generator = ::llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
             _jit->getDataLayout().getGlobalPrefix())) {
