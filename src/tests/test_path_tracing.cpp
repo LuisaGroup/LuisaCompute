@@ -302,9 +302,6 @@ int main(int argc, char *argv[]) {
     };
 
     auto clear_shader = device.compile(clear_kernel);
-    for (auto i = 0u; i < 10u; i++) {
-        device.compile_async(clear_kernel);
-    }
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
     auto raytracing_shader = device.compile(raytracing_kernel);
@@ -332,7 +329,7 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 16u;
+        static constexpr auto spp_per_dispatch = 64u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution)
                                   .dispatch(resolution)
