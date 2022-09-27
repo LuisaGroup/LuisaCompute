@@ -31,6 +31,8 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         }
     }
     _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
+    _argument_buffer_size += 16u; // (trampoline, callbacks)
+    _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
 
     // codegen
     std::error_code ec;

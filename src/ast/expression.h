@@ -45,7 +45,9 @@ public:
         REF,
         CONSTANT,
         CALL,
-        CAST
+        CAST,
+        CPUCUSTOM,
+        GPUCUSTOM,
     };
 
 private:
@@ -85,6 +87,8 @@ class RefExpr;
 class ConstantExpr;
 class CallExpr;
 class CastExpr;
+class CpuCustomOpExpr;
+class GpuCustomOpExpr;
 
 struct ExprVisitor {
     virtual void visit(const UnaryExpr *) = 0;
@@ -96,6 +100,8 @@ struct ExprVisitor {
     virtual void visit(const ConstantExpr *) = 0;
     virtual void visit(const CallExpr *) = 0;
     virtual void visit(const CastExpr *) = 0;
+    virtual void visit(const CpuCustomOpExpr *) { LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend."); };
+    virtual void visit(const GpuCustomOpExpr *) { LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend."); };
 };
 
 #define LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR() \
@@ -465,6 +471,32 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+class CpuCustomOpExpr final : public Expression {
+   
+public:
+    using Callback = void(*)(void* arg, void * user_data);
+    CpuCustomOpExpr(const Type *type, Callback callback, void * user_data, const Expression * arg) noexcept
+        : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _user_data{user_data},_arg(arg) {}
+    [[nodiscard]] auto callback() const noexcept { return _callback; }
+    [[nodiscard]] auto user_data() const noexcept { return _user_data; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+private:
+    Callback _callback;
+    const Expression * _arg;
+    void * _user_data;
+};
+
+class GpuCustomOpExpr final : public Expression {
+   
+public:
+    GpuCustomOpExpr(const Type *type, std::string source, const Expression * arg) noexcept 
+        : Expression{Tag::GPUCUSTOM, type}, _source{std::move(source)}, _arg(arg) {}
+    [[nodiscard]] auto source() const noexcept { return _source; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+private:
+    std::string _source;
+    const Expression * _arg;
+};
 #undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
 
 }// namespace luisa::compute
