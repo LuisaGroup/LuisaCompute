@@ -78,6 +78,13 @@ struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 class LC_RUNTIME_API Device {
 
 public:
+    class Extension {
+
+    };
+    class CpuExtension : public Extension {
+    public:
+        
+    };
     class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
@@ -155,8 +162,9 @@ public:
         // query
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
         [[nodiscard]] virtual bool requires_command_reordering() const noexcept { return true; }
+        [[nodiscard]] virtual Extension * extension() noexcept { return nullptr; }
     };
-
+    
     using Deleter = void(Interface *);
     using Creator = Interface *(const Context & /* context */, std::string_view /* properties */);
     using Handle = luisa::shared_ptr<Interface>;

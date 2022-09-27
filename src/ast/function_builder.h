@@ -121,6 +121,11 @@ public:
         }
     };
 
+    struct CpuCallback {
+        CpuCustomOpExpr::Callback callback;
+        void * user_data;
+    };
+
     using Binding = luisa::variant<
         luisa::monostate,// not bound
         BufferBinding,
@@ -145,6 +150,7 @@ private:
     luisa::vector<Variable> _shared_variables;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
+    luisa::vector<CpuCallback> _cpu_callbacks;
     CallOpSet _used_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
@@ -235,6 +241,8 @@ public:
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     /// Return a span of argument bindings.
     [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings}; }
+    /// Return a span of cpu callbacks
+    [[nodiscard]] auto cpu_callbacks() const noexcept { return luisa::span{_cpu_callbacks}; }
     /// Return a span of custom callables.
     [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables}; }
     /// Return a CallOpSet of builtin callables.

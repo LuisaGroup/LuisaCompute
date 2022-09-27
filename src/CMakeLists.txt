@@ -48,6 +48,7 @@ add_subdirectory(dsl)
 add_subdirectory(rtx)
 add_subdirectory(gui)
 add_subdirectory(backends)
+add_subdirectory(api)
 
 add_library(luisa-compute INTERFACE luisa-compute.h)
 target_link_libraries(luisa-compute INTERFACE

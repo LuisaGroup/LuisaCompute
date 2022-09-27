@@ -28,12 +28,14 @@ private:
     luisa::unordered_map<uint, size_t> _argument_offsets;
     kernel_entry_t *_kernel_entry{nullptr};
     size_t _argument_buffer_size{};
+    luisa::vector<FunctionBuilder::CpuCallback> _callbacks;
 
 public:
     LLVMShader(LLVMDevice *device, Function func) noexcept;
     ~LLVMShader() noexcept;
     [[nodiscard]] auto argument_buffer_size() const noexcept { return _argument_buffer_size; }
     [[nodiscard]] size_t argument_offset(uint uid) const noexcept;
+    [[nodiscard]] CpuCallback* callbacks() const noexcept { return _callbacks.data(); }
     void invoke(const std::byte *args, uint3 dispatch_size, uint3 block_id) const noexcept;
 };
 

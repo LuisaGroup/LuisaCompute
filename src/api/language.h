@@ -43,7 +43,7 @@ LUISA_EXPORT_API LCExpression luisa_compute_ast_shared_variable(LCType t) LUISA_
 LUISA_EXPORT_API LCExpression luisa_compute_ast_constant_variable(LCType t, const void *data) LUISA_NOEXCEPT;
 
 
-LUISA_EXPORT_API LCExpression luisa_compute_ast_buffer_binding(LCType elem_t, uint64_t buffer, size_t offset_bytes) LUISA_NOEXCEPT;
+LUISA_EXPORT_API LCExpression luisa_compute_ast_buffer_binding(LCType elem_t, uint64_t buffer, size_t offset_bytes, size_t size_bytes) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCExpression luisa_compute_ast_texture_binding(LCType t, uint64_t texture, uint32_t level) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCExpression luisa_compute_ast_bindless_array_binding(uint64_t array) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCExpression luisa_compute_ast_accel_binding(uint64_t accel) LUISA_NOEXCEPT;
@@ -56,8 +56,8 @@ LUISA_EXPORT_API LCExpression luisa_compute_ast_bindless_array_argument() LUISA_
 LUISA_EXPORT_API LCExpression luisa_compute_ast_accel_argument() LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCExpression luisa_compute_ast_literal_expr(LCType t, const void *value, const char *meta_value) LUISA_NOEXCEPT;
-LUISA_EXPORT_API LCExpression luisa_compute_ast_unary_expr(LCType t, uint32_t op, const void *expr) LUISA_NOEXCEPT;
-LUISA_EXPORT_API LCExpression luisa_compute_ast_binary_expr(LCType t, uint32_t op, const void *lhs, const void *rhs) LUISA_NOEXCEPT;
+LUISA_EXPORT_API LCExpression luisa_compute_ast_unary_expr(LCType t, uint32_t op, LCExpression expr) LUISA_NOEXCEPT;
+LUISA_EXPORT_API LCExpression luisa_compute_ast_binary_expr(LCType t, uint32_t op, LCExpression lhs, LCExpression rhs) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCExpression luisa_compute_ast_member_expr(LCType t, LCExpression self, size_t member_id) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCExpression luisa_compute_ast_swizzle_expr(LCType t, LCExpression self, size_t swizzle_size, uint64_t swizzle_code) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCExpression luisa_compute_ast_access_expr(LCType t, LCExpression range, LCExpression index) LUISA_NOEXCEPT;
