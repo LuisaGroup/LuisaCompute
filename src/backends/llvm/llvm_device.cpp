@@ -21,36 +21,100 @@ LLVMDevice::LLVMDevice(const Context &ctx) noexcept
     std::call_once(flag, [] {
         ::llvm::InitializeNativeTarget();
         ::llvm::InitializeNativeTargetAsmPrinter();
-        LLVMLinkInMCJIT();
     });
-    std::string err;
-    auto target_triple = ::llvm::sys::getProcessTriple();
-    LUISA_INFO("Target: {}.", target_triple);
-    auto target = ::llvm::TargetRegistry::lookupTarget(target_triple, err);
-    LUISA_ASSERT(target != nullptr, "Failed to get target machine: {}.", err);
-    ::llvm::TargetOptions options;
-    options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
-    options.UnsafeFPMath = true;
-    options.NoInfsFPMath = true;
-    options.NoNaNsFPMath = true;
-    options.NoTrappingFPMath = true;
-    options.NoSignedZerosFPMath = true;
+    // build JIT engine
+    ::llvm::orc::LLJITBuilder jit_builder;
+    if (auto host = ::llvm::orc::JITTargetMachineBuilder::detectHost()) {
+        ::llvm::TargetOptions options;
+        options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
+        options.UnsafeFPMath = true;
+        options.NoInfsFPMath = true;
+        options.NoNaNsFPMath = true;
+        options.NoTrappingFPMath = true;
+        options.NoSignedZerosFPMath = true;
 #if LLVM_VERSION_MAJOR >= 14
-    options.ApproxFuncFPMath = true;
+        options.ApproxFuncFPMath = true;
 #endif
-    options.EnableIPRA = true;
-    options.StackSymbolOrdering = true;
-    auto mcpu = ::llvm::sys::getHostCPUName();
-    _machine = target->createTargetMachine(
-        target_triple, mcpu,
-#if defined(LUISA_PLATFORM_APPLE) && defined(__aarch64__)
-        "+neon",
+        options.EnableIPRA = true;
+        options.StackSymbolOrdering = true;
+        options.EnableMachineFunctionSplitter = true;
+        options.EnableMachineOutliner = true;
+        options.NoTrapAfterNoreturn = true;
+        host->setOptions(options);
+        host->setCodeGenOptLevel(::llvm::CodeGenOpt::Aggressive);
+#ifdef __aarch64__
+        host->addFeatures({"+neon"});
 #else
-        "+avx2",
+        host->addFeatures({"+avx2"});
 #endif
-        options, {}, {},
-        ::llvm::CodeGenOpt::Aggressive, true);
-    LUISA_ASSERT(_machine != nullptr, "Failed to create target machine.");
+        LUISA_INFO("LLVM JIT target: triplet = {}, features = {}.",
+                   host->getTargetTriple().str(),
+                   host->getFeatures().getString());
+        if (auto machine = host->createTargetMachine()) {
+            _target_machine = std::move(machine.get());
+        } else {
+            ::llvm::handleAllErrors(machine.takeError(), [&](const ::llvm::ErrorInfoBase &e) {
+                LUISA_WARNING_WITH_LOCATION("JITTargetMachineBuilder::createTargetMachine(): {}.", e.message());
+            });
+            LUISA_ERROR_WITH_LOCATION("Failed to create target machine.");
+        }
+        jit_builder.setJITTargetMachineBuilder(std::move(*host));
+    } else {
+        ::llvm::handleAllErrors(host.takeError(), [&](const ::llvm::ErrorInfoBase &e) {
+            LUISA_WARNING_WITH_LOCATION("JITTargetMachineBuilder::detectHost(): {}.", e.message());
+        });
+        LUISA_ERROR_WITH_LOCATION("Failed to detect host.");
+    }
+
+    if (auto expected_jit = jit_builder.create()) {
+        _jit = std::move(expected_jit.get());
+    } else {
+        ::llvm::handleAllErrors(expected_jit.takeError(), [](const ::llvm::ErrorInfoBase &err) {
+            LUISA_WARNING_WITH_LOCATION("LLJITBuilder::create(): {}", err.message());
+        });
+        LUISA_ERROR_WITH_LOCATION("Failed to create LLJIT.");
+    }
+
+    // map symbols
+    if (auto generator = ::llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
+            _jit->getDataLayout().getGlobalPrefix())) {
+        _jit->getMainJITDylib().addGenerator(std::move(generator.get()));
+    } else {
+        ::llvm::handleAllErrors(generator.takeError(), [](const ::llvm::ErrorInfoBase &err) {
+            LUISA_WARNING_WITH_LOCATION("DynamicLibrarySearchGenerator::GetForCurrentProcess(): {}", err.message());
+        });
+        LUISA_ERROR_WITH_LOCATION("Failed to add generator.");
+    }
+    ::llvm::orc::SymbolMap symbol_map{
+        {_jit->mangleAndIntern("texture.read.2d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_2d_int)},
+        {_jit->mangleAndIntern("texture.read.3d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_3d_int)},
+        {_jit->mangleAndIntern("texture.read.2d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_2d_uint)},
+        {_jit->mangleAndIntern("texture.read.3d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_3d_uint)},
+        {_jit->mangleAndIntern("texture.read.2d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_2d_float)},
+        {_jit->mangleAndIntern("texture.read.3d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_read_3d_float)},
+        {_jit->mangleAndIntern("texture.write.2d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_2d_int)},
+        {_jit->mangleAndIntern("texture.write.3d.int"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_3d_int)},
+        {_jit->mangleAndIntern("texture.write.2d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_2d_uint)},
+        {_jit->mangleAndIntern("texture.write.3d.uint"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_3d_uint)},
+        {_jit->mangleAndIntern("texture.write.2d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_2d_float)},
+        {_jit->mangleAndIntern("texture.write.3d.float"), ::llvm::JITEvaluatedSymbol::fromPointer(&texture_write_3d_float)},
+        {_jit->mangleAndIntern("accel.trace.closest"), ::llvm::JITEvaluatedSymbol::fromPointer(&accel_trace_closest)},
+        {_jit->mangleAndIntern("accel.trace.any"), ::llvm::JITEvaluatedSymbol::fromPointer(&accel_trace_any)},
+        {_jit->mangleAndIntern("bindless.texture.2d.read"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_read)},
+        {_jit->mangleAndIntern("bindless.texture.3d.read"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_read)},
+        {_jit->mangleAndIntern("bindless.texture.2d.sample"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_sample)},
+        {_jit->mangleAndIntern("bindless.texture.3d.sample"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_sample)},
+        {_jit->mangleAndIntern("bindless.texture.2d.sample.level"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_sample_level)},
+        {_jit->mangleAndIntern("bindless.texture.3d.sample.level"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_sample_level)},
+        {_jit->mangleAndIntern("bindless.texture.2d.sample.grad"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_2d_sample_grad)},
+        {_jit->mangleAndIntern("bindless.texture.3d.sample.grad"), ::llvm::JITEvaluatedSymbol::fromPointer(&bindless_texture_3d_sample_grad)}};
+    if (auto error = _jit->getMainJITDylib().define(
+            ::llvm::orc::absoluteSymbols(std::move(symbol_map)))) {
+        ::llvm::handleAllErrors(std::move(error), [](const ::llvm::ErrorInfoBase &err) {
+            LUISA_WARNING_WITH_LOCATION("LLJIT::define(): {}", err.message());
+        });
+        LUISA_ERROR_WITH_LOCATION("Failed to define symbols.");
+    }
 }
 
 void *LLVMDevice::native_handle() const noexcept {
