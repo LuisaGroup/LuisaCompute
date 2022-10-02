@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <core/platform.h>
 #include <api/common.h>
 #include <api/language.h>
 _LUISA_API_DECL_TYPE(LCContext);
@@ -21,76 +20,80 @@ _LUISA_API_DECL_TYPE(LCMesh);
 _LUISA_API_DECL_TYPE(LCAccel);
 
 typedef enum LCAccelUsageHint {
-    FAST_TRACE, // build with best quality
-    FAST_UPDATE,// optimize for frequent update, usually with compaction
-    FAST_BUILD  // optimize for frequent rebuild, maybe without compaction
+    LC_FAST_TRACE, // build with best quality
+    LC_FAST_UPDATE,// optimize for frequent update, usually with compaction
+    LC_FAST_BUILD  // optimize for frequent rebuild, maybe without compaction
 } LCAccelUsageHint;
+typedef enum LCAccelBuildRequest {
+    LC_PREFER_UPDATE,
+    LC_FORCE_BUILD,
+} LCAccelBuildRequest;
 
 typedef enum LCPixelStorage {
 
-    BYTE1,
-    BYTE2,
-    BYTE4,
+    LC_BYTE1,
+    LC_BYTE2,
+    LC_BYTE4,
 
-    SHORT1,
-    SHORT2,
-    SHORT4,
+    LC_SHORT1,
+    LC_SHORT2,
+    LC_SHORT4,
 
-    INT1,
-    INT2,
-    INT4,
+    LC_INT1,
+    LC_INT2,
+    LC_INT4,
 
-    HALF1,
-    HALF2,
-    HALF4,
+    LC_HALF1,
+    LC_HALF2,
+    LC_HALF4,
 
-    FLOAT1,
-    FLOAT2,
-    FLOAT4
+    LC_FLOAT1,
+    LC_FLOAT2,
+    LC_FLOAT4
 } LCPixelStorage;
 
 typedef enum LCPixelFormat {
 
-    R8SInt,
-    R8UInt,
-    R8UNorm,
+    LC_R8SInt,
+    LC_R8UInt,
+    LC_R8UNorm,
 
-    RG8SInt,
-    RG8UInt,
-    RG8UNorm,
+    LC_RG8SInt,
+    LC_RG8UInt,
+    LC_RG8UNorm,
 
-    RGBA8SInt,
-    RGBA8UInt,
-    RGBA8UNorm,
+    LC_RGBA8SInt,
+    LC_RGBA8UInt,
+    LC_RGBA8UNorm,
 
-    R16SInt,
-    R16UInt,
-    R16UNorm,
+    LC_R16SInt,
+    LC_R16UInt,
+    LC_R16UNorm,
 
-    RG16SInt,
-    RG16UInt,
-    RG16UNorm,
+    LC_RG16SInt,
+    LC_RG16UInt,
+    LC_RG16UNorm,
 
-    RGBA16SInt,
-    RGBA16UInt,
-    RGBA16UNorm,
+    LC_RGBA16SInt,
+    LC_RGBA16UInt,
+    LC_RGBA16UNorm,
 
-    R32SInt,
-    R32UInt,
+    LC_R32SInt,
+    LC_R32UInt,
 
-    RG32SInt,
-    RG32UInt,
+    LC_RG32SInt,
+    LC_RG32UInt,
 
-    RGBA32SInt,
-    RGBA32UInt,
+    LC_RGBA32SInt,
+    LC_RGBA32UInt,
 
-    R16F,
-    RG16F,
-    RGBA16F,
+    LC_R16F,
+    LC_RG16F,
+    LC_RGBA16F,
 
-    R32F,
-    RG32F,
-    RGBA32F
+    LC_R32F,
+    LC_RG32F,
+    LC_RGBA32F
 } LCPixelFormat;
 
 typedef struct lc_uint3 {
@@ -98,6 +101,22 @@ typedef struct lc_uint3 {
     uint32_t y;
     uint32_t z;
 } lc_uint3;
+
+typedef enum LCAccelBuildModficationFlags {
+    LC_ACCEL_MESH = 1u << 0u,
+    LC_ACCEL_TRANSFORM = 1u << 1u,
+    LC_ACCEL_VISIBILITY_ON = 1u << 2u,
+    LC_ACCEL_VISIBILITY_OFF = 1u << 3u,
+    LC_ACCEL_VISIBILITY = LC_ACCEL_VISIBILITY_ON | LC_ACCEL_VISIBILITY_OFF
+} LCAccelBuildModficationFlags;
+
+typedef struct alignas(16) LCAccelBuildModification {
+    uint32_t index;
+    LCAccelBuildModficationFlags flags;
+    uint64_t mesh;
+    float affine[12];
+} LCAccelBuildModification;
+
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCContext luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT;
@@ -178,8 +197,8 @@ LUISA_EXPORT_API LCCommand luisa_compute_command_upload_texture(
     LCTexture handle, LCPixelStorage storage, uint32_t level,
     lc_uint3 size, const void *data) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCCommand luisa_compute_command_download_texture(
-   LCTexture handle, LCPixelStorage storage, uint32_t level,
-    lc_uint3 size,  void *data) LUISA_NOEXCEPT;
+    LCTexture handle, LCPixelStorage storage, uint32_t level,
+    lc_uint3 size, void *data) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCommand luisa_compute_command_dispatch_shader(LCShader handle, LCKernel kernel) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_set_size(LCCommand cmd, uint32_t sx, uint32_t sy, uint32_t sz) LUISA_NOEXCEPT;
