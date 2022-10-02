@@ -101,6 +101,12 @@ LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx, const char 
 LUISA_EXPORT_API void luisa_compute_device_destroy(LCDevice device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device)->release();
 }
+LUISA_EXPORT_API void luisa_compute_device_retain(LCDevice device) LUISA_NOEXCEPT {
+    reinterpret_cast<RC<Device> *>(device)->retain();
+}
+LUISA_EXPORT_API void luisa_compute_device_release(LCDevice device) LUISA_NOEXCEPT {
+    reinterpret_cast<RC<Device> *>(device)->release();
+}
 
 LUISA_EXPORT_API LCBuffer luisa_compute_buffer_create(LCDevice device, size_t size) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device);
