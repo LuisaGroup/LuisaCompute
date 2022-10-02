@@ -65,6 +65,7 @@ See [README-Python](README_Python.md).
 - 🚧 [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git) (custom shading language support planned)
 - ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing,
   etc.)
+- 🚧 [Rust binding for LuisaCompute](https://github.com/LuisaGroup/luisa-compute-rs.git) with complete API and DSL. 
 
 ### Documentation/Tutorials
 
