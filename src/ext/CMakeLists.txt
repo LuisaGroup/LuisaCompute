@@ -83,37 +83,64 @@ if (LUISA_COMPUTE_ENABLE_PYTHON)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
-    set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
-    set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
-    set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
-    set(EMBREE_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
-    set(EMBREE_RAY_MASK OFF CACHE BOOL "" FORCE)
-    set(EMBREE_BACKFACE_CULLING OFF CACHE BOOL "" FORCE)
-    set(EMBREE_FILTER_FUNCTION OFF CACHE BOOL "" FORCE)
-    set(EMBREE_IGNORE_INVALID_RAYS ON CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_QUAD OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_CURVE OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_SUBDIVISION OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_USER OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_GRID OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_POINT OFF CACHE BOOL "" FORCE)
-    set(EMBREE_COMPACT_POLYS ON CACHE BOOL "" FORCE)
-    set(EMBREE_ISPC_SUPPORT OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_SSE42 OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_AVX OFF CACHE BOOL "" FORCE)
-    set(EMBREE_MAX_ISA "NONE" CACHE STRING "" FORCE)
-    set(CMAKE_CXX_STANDARD 11)
-    add_subdirectory(embree)
-    target_link_libraries(luisa-compute-ext PUBLIC embree)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/embree)
+    if(WIN32)
+        file(DOWNLOAD https://github.com/embree/embree/releases/download/v3.13.5/embree-3.13.5.x64.vc14.windows.zip embree.zip)
+        
+    else()
+        file(DOWNLOAD https://github.com/embree/embree/releases/download/v3.13.5/embree-3.13.5.x86_64.linux.tar.gz embree.tar.gz)
+    endif()
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/embree/include/rtcore_config.h
+        COMMAND tar "xzf"  embree.zip "-C" "embree" "--strip-components=1"
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR} ## note, this line must not be modified
+    )
+    # set(embree_DIR ${CMAKE_BINARY_DIR}/embree/lib/cmake/embree-3.13.5)
+    # find_package(embree CONFIG REQUIRED)
+    add_library(embree INTERFACE)
+    target_link_libraries(embree INTERFACE ${CMAKE_BINARY_DIR}/embree/lib/embree3)
+    target_link_libraries(embree INTERFACE ${CMAKE_BINARY_DIR}/embree/lib/tbb)
+    target_include_directories(embree INTERFACE ${CMAKE_BINARY_DIR}/embree/include)
+    # set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
+    # set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_RAY_MASK OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_BACKFACE_CULLING OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_FILTER_FUNCTION OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_IGNORE_INVALID_RAYS ON CACHE BOOL "" FORCE)
+    # set(EMBREE_GEOMETRY_QUAD OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_GEOMETRY_CURVE OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_GEOMETRY_SUBDIVISION OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_GEOMETRY_USER OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_GEOMETRY_GRID OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_GEOMETRY_POINT OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_COMPACT_POLYS ON CACHE BOOL "" FORCE)
+    # set(EMBREE_ISPC_SUPPORT OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_ISA_SSE42 OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_ISA_AVX OFF CACHE BOOL "" FORCE)
+    # set(EMBREE_MAX_ISA "NONE" CACHE STRING "" FORCE)
+    # set(CMAKE_CXX_STANDARD 11)
+    # add_subdirectory(embree)
+    # target_link_libraries(luisa-compute-ext PUBLIC embree)
+    if(WIN32)
+        file(GLOB EMBREE_FILES  ${CMAKE_BINARY_DIR}/embree/bin/*.dll)
+    else()
+        file(GLOB EMBREE_FILES  ${CMAKE_BINARY_DIR}/embree/bin/*.so)
+    endif()
     add_custom_command(TARGET luisa-compute-ext-copy
-            DEPENDS "$<TARGET_FILE:embree>"
+            DEPENDS ${EMBREE_FILES}
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
-    add_custom_command(TARGET luisa-compute-ext-copy
-            DEPENDS "$<TARGET_LINKER_FILE:embree>"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+            ${EMBREE_FILES} "$<TARGET_FILE_DIR:luisa-compute-ext>")
+    # add_custom_command(TARGET luisa-compute-ext-copy
+    #         DEPENDS "$<TARGET_FILE:embree>"
+    #         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    #         "$<TARGET_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+    # add_custom_command(TARGET luisa-compute-ext-copy
+    #         DEPENDS "$<TARGET_LINKER_FILE:embree>"
+    #         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    #         "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
 endif ()
 
 if (WIN32 AND NOT MINGW AND NOT MSYS)
