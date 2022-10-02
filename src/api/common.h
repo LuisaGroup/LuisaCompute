@@ -115,7 +115,7 @@ typedef enum LCAccelBuildModficationFlags {
     LC_ACCEL_VISIBILITY = LC_ACCEL_VISIBILITY_ON | LC_ACCEL_VISIBILITY_OFF
 } LCAccelBuildModficationFlags;
 
-typedef struct alignas(16) LCAccelBuildModification {
+typedef struct LCAccelBuildModification {
     uint32_t index;
     LCAccelBuildModficationFlags flags;
     uint64_t mesh;
