@@ -1,5 +1,5 @@
 if (LUISA_COMPUTE_ENABLE_LLVM)
-    find_package(LLVM)
+    find_package(LLVM CONFIG)
 endif ()
 
 if (LLVM_FOUND) # link with llvm for jit
@@ -22,7 +22,7 @@ if (LLVM_FOUND) # link with llvm for jit
             llvm_bindless_array.cpp llvm_bindless_array.h)
     luisa_compute_add_backend(llvm SOURCES ${LC_BACKEND_LLVM_SRC})
     message(STATUS "Build with LLVM backend")
-    llvm_map_components_to_libnames(LLVM_LIBS core executionengine support mcjit nativecodegen irreader passes analysis)
+    llvm_map_components_to_libnames(LLVM_LIBS core executionengine support orcjit nativecodegen irreader passes analysis coroutines)
     target_include_directories(luisa-compute-backend-llvm PRIVATE ${LLVM_INCLUDE_DIRS})
     target_link_libraries(luisa-compute-backend-llvm PRIVATE ${LLVM_LIBS})
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")

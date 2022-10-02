@@ -466,9 +466,7 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
         case CallOp::INVERSE: return _builtin_inverse(
             args[0]->type(), _create_expr(args[0]));
         case CallOp::SYNCHRONIZE_BLOCK:
-            LUISA_WARNING_WITH_LOCATION(
-                "Block synchronization is not "
-                "supported on LLVM backend.");
+            _builtin_synchronize_block();
             return nullptr;
         case CallOp::ATOMIC_EXCHANGE: return _builtin_atomic_exchange(
             args[0]->type(), _create_expr(args[0]), _create_expr(args[1]));
@@ -572,6 +570,28 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Invalid built-in call.");
+}
+
+void LLVMCodegen::_builtin_synchronize_block() noexcept {
+    auto ctx = _current_context();
+    auto b = ctx->builder.get();
+    auto i8_type = ::llvm::Type::getInt8Ty(_context);
+    auto i1_type = ::llvm::Type::getInt1Ty(_context);
+    auto coro_state = b->CreateIntrinsic(
+        ::llvm::Intrinsic::coro_suspend, {},
+        {::llvm::ConstantTokenNone::get(_context),
+         ::llvm::ConstantInt::get(i1_type, false)},
+        nullptr, "synchronize.block.state");
+    auto resume = ::llvm::BasicBlock::Create(
+        _context, "synchronize.block.resume", ctx->ir);
+    resume->moveAfter(b->GetInsertBlock());
+    auto coro_switch = b->CreateSwitch(
+        coro_state, ctx->coro_suspend, 2u);
+    coro_switch->addCase(
+        ::llvm::ConstantInt::get(i8_type, 0), resume);
+    coro_switch->addCase(
+        ::llvm::ConstantInt::get(i8_type, 1), ctx->coro_cleanup);
+    b->SetInsertPoint(resume);
 }
 
 [[nodiscard]] inline auto is_scalar_or_vector(const Type *t, Type::Tag tag) noexcept {
@@ -1783,9 +1803,11 @@ void LLVMCodegen::_builtin_unreachable() noexcept {
 ::llvm::Value *LLVMCodegen::_builtin_unary_not(const Type *t, ::llvm::Value *p) noexcept {
     auto b = _current_context()->builder.get();
     p = t->is_scalar() ? _scalar_to_bool(t, p) : _vector_to_bool_vector(t, p);
+    auto i8_type = static_cast<::llvm::Type *>(::llvm::Type::getInt8Ty(_context));
+    auto i8_vec_type = t->is_scalar() ? i8_type : ::llvm::FixedVectorType::get(i8_type, t->dimension());
+    auto v = b->CreateLoad(i8_vec_type, p);
     auto type = static_cast<::llvm::Type *>(b->getInt1Ty());
     if (t->is_vector()) { type = ::llvm::FixedVectorType::get(type, t->dimension()); }
-    auto v = b->CreateLoad(type, p);
     auto nv = b->CreateNot(b->CreateTrunc(v, type), "unary.not");
     return _create_stack_variable(nv, "unary.not.addr");
 }
