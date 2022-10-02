@@ -1,7 +1,7 @@
 #pragma once
 #include <core/platform.h>
 #include <stdint.h>
-#define _LUISA_API_DECL_TYPE(TypeName) typedef struct _##TypeName{}_##TypeName; typedef _##TypeName * TypeName
+#define _LUISA_API_DECL_TYPE(TypeName) typedef struct _##TypeName{uint64_t __dummy;}_##TypeName; typedef _##TypeName * TypeName
 
 _LUISA_API_DECL_TYPE(LCKernel);
 _LUISA_API_DECL_TYPE(LCFunction);
