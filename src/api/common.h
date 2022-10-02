@@ -1,0 +1,1 @@
+#define _LUISA_API_DECL_TYPE(TypeName) typedef struct _##TypeName{}_##TypeName; typedef _##TypeName * TypeName
