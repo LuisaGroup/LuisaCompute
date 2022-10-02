@@ -93,8 +93,7 @@ LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUIS
 }
 
 LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
-    auto device = reinterpret_cast<Context *>(ctx)->create_device(
-        name, nlohmann::json::parse(properties));
+    auto device = reinterpret_cast<Context *>(ctx)->create_device(name, properties);
     return (LCDevice)new_with_allocator<RC<Device>>(
         device, [](Device *d) { delete_with_allocator(d); });
 }
