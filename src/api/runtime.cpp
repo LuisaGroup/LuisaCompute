@@ -114,7 +114,7 @@ LUISA_EXPORT_API LCBuffer luisa_compute_buffer_create(LCDevice device, size_t si
     return reinterpret_cast<LCBuffer>(handle);
 }
 
-void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buffer) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buffer) LUISA_NOEXCEPT {
     auto handle = reinterpret_cast<uint64_t>(buffer);
     auto d = reinterpret_cast<RC<Device> *>(device);
     d->object()->impl()->destroy_buffer(handle);
