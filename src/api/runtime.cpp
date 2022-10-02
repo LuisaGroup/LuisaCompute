@@ -16,17 +16,17 @@ struct RC {
         tombstone = 0;
     }
     ~RC() { _deleter(&_object); }
-    void check() {
+    void check() const {
         if (tombstone == TOMBSTONE) {
             LUISA_ERROR_WITH_LOCATION("Object has been destroyed");
         }
     }
-    RC *retain() const {
+    RC *retain() {
         check();
         _ref_count.fetch_add(1, std::memory_order_acquire);
         return this;
     }
-    void release() const {
+    void release() {
         check();
         if (_ref_count.fetch_sub(1, std::memory_order_release) == 1) {
             std::atomic_thread_fence(std::memory_order_acquire);
@@ -289,7 +289,7 @@ LCCommand luisa_compute_command_copy_texture_to_texture(
 
 LCCommand luisa_compute_command_upload_texture(
     LCTexture handle, LCPixelStorage storage, uint32_t level,
-    lc_uint3 size,  const void *data) LUISA_NOEXCEPT {
+    lc_uint3 size, const void *data) LUISA_NOEXCEPT {
     auto texture_handle = reinterpret_cast<uint64_t>(handle);
     return reinterpret_cast<LCCommand>(TextureUploadCommand::create(
         texture_handle, static_cast<PixelStorage>(storage), level,
@@ -297,8 +297,8 @@ LCCommand luisa_compute_command_upload_texture(
 }
 
 LCCommand luisa_compute_command_download_texture(
-   LCTexture handle, LCPixelStorage storage, uint32_t level,
-    lc_uint3 size,  void *data) LUISA_NOEXCEPT {
+    LCTexture handle, LCPixelStorage storage, uint32_t level,
+    lc_uint3 size, void *data) LUISA_NOEXCEPT {
     auto texture_handle = reinterpret_cast<uint64_t>(handle);
     return reinterpret_cast<LCCommand>(TextureDownloadCommand::create(
         texture_handle, static_cast<PixelStorage>(storage), level,
@@ -315,54 +315,77 @@ void luisa_compute_command_dispatch_shader_set_size(LCCommand cmd, uint32_t sx, 
     reinterpret_cast<ShaderDispatchCommand *>(cmd)->set_dispatch_size(make_uint3(sx, sy, sz));
 }
 
-void luisa_compute_command_dispatch_shader_encode_buffer(LCCommand cmd, uint32_t vid, uint64_t buffer, size_t offset, uint32_t usage) LUISA_NOEXCEPT {
-    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_buffer(vid, buffer, offset, static_cast<Usage>(usage));
+void luisa_compute_command_dispatch_shader_encode_buffer(LCCommand cmd, LCBuffer buffer, size_t offset, size_t size) LUISA_NOEXCEPT {
+    auto handle = reinterpret_cast<uint64_t>(buffer);
+    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_buffer(handle, offset, size);
 }
 
-void luisa_compute_command_dispatch_shader_encode_texture(LCCommand cmd, uint32_t vid, uint64_t tex, uint32_t level, uint32_t usage) LUISA_NOEXCEPT {
-    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_texture(vid, tex, level, static_cast<Usage>(usage));
+void luisa_compute_command_dispatch_shader_encode_texture(LCCommand cmd, LCTexture texture, uint32_t level) LUISA_NOEXCEPT {
+    auto handle = reinterpret_cast<uint64_t>(texture);
+    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_texture(handle, level);
 }
 
-void luisa_compute_command_dispatch_shader_encode_uniform(LCCommand cmd, uint32_t vid, const void *data, size_t size, size_t alignment) LUISA_NOEXCEPT {
-    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_uniform(vid, data, size, alignment);
+void luisa_compute_command_dispatch_shader_encode_uniform(LCCommand cmd, const void *data, size_t size) LUISA_NOEXCEPT {
+    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_uniform(data, size);
 }
 
-void luisa_compute_command_dispatch_shader_encode_heap(LCCommand cmd, uint32_t vid, uint64_t heap) LUISA_NOEXCEPT {
-    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_bindless_array(vid, heap);
+void luisa_compute_command_dispatch_shader_encode_bindless_array(LCCommand cmd, LCBindlessArray array) LUISA_NOEXCEPT {
+    auto handle = reinterpret_cast<uint64_t>(array);
+    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_bindless_array(handle);
 }
 
-void luisa_compute_command_dispatch_shader_encode_accel(LCCommand cmd, uint32_t vid, uint64_t accel) LUISA_NOEXCEPT {
-    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_accel(vid, accel);
+void luisa_compute_command_dispatch_shader_encode_accel(LCCommand cmd, LCAccel accel) LUISA_NOEXCEPT {
+    auto handle = reinterpret_cast<uint64_t>(accel);
+    reinterpret_cast<ShaderDispatchCommand *>(cmd)->encode_accel(handle);
 }
 
-LCCommand luisa_compute_command_build_mesh(uint64_t handle) LUISA_NOEXCEPT {
-    return (LCCommand)MeshBuildCommand::create(handle);
+LCCommand luisa_compute_command_build_mesh(LCMesh mesh, LCAccelBuildRequest request,
+                                           uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size,
+                                           uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size) LUISA_NOEXCEPT {
+    auto mesh_handle = reinterpret_cast<uint64_t>(mesh);
+    return reinterpret_cast<LCCommand>(MeshBuildCommand::create(mesh_handle, static_cast<AccelBuildRequest>(request),
+                                               vertex_buffer, vertex_buffer_offset, vertex_buffer_size,
+                                               triangle_buffer, triangle_buffer_offset, triangle_buffer_size));
 }
 
-LCCommand luisa_compute_command_update_mesh(uint64_t handle) LUISA_NOEXCEPT {
-    return (LCCommand)MeshUpdateCommand::create(handle);
+// LCCommand luisa_compute_command_update_mesh(uint64_t handle) LUISA_NOEXCEPT {
+//     return (LCCommand)MeshUpdateCommand::create(handle);
+// }
+
+LCCommand luisa_compute_command_build_accel(LCAccel accel, uint32_t instance_count,
+                                            LCAccelBuildRequest request, const LCAccelBuildModification *modifications, size_t n_modifications) LUISA_NOEXCEPT {
+    using Modification = AccelBuildCommand::Modification;
+    luisa::vector<Modification> modifications_v;
+    for(size_t i = 0; i < n_modifications; i++) {
+        Modification m;
+        m.index = modifications[i].index;
+        m.flags = modifications[i].flags;
+        m.mesh = static_cast<uint>(modifications[i].mesh);
+        std::memcpy(m.affine, modifications[i].affine, sizeof(float) * 12);
+        modifications_v.emplace_back(m);
+    }
+    return reinterpret_cast<LCCommand>(AccelBuildCommand::create(reinterpret_cast<uint64_t>(accel), 
+            instance_count, 
+            static_cast<AccelBuildRequest>(request), modifications_v));
 }
 
-LCCommand luisa_compute_command_build_accel(uint64_t handle) LUISA_NOEXCEPT {
-    return (LCCommand)AccelBuildCommand::create(handle);
+// LCCommand luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
+//     return (LCCommand)AccelUpdateCommand::create(handle);
+// }
+
+LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format) LUISA_NOEXCEPT {
+    return static_cast<LCPixelStorage>(
+        to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format))));
 }
 
-LCCommand luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
-    return (LCCommand)AccelUpdateCommand::create(handle);
+LCBindlessArray luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT {
+    auto d = reinterpret_cast<RC<Device> *>(device);
+    auto bindless_array = luisa::new_with_allocator<BindlessArray>(d->retain()->object()->create_bindless_array(n));
+    return reinterpret_cast<LCBindlessArray>(bindless_array);
 }
 
-uint32_t luisa_compute_pixel_format_to_storage(uint32_t format) LUISA_NOEXCEPT {
-    return to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format)));
-}
-
-uint64_t luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT {
-    auto d = static_cast<RC<Device> *>(device);
-    auto bindless_array = luisa::new_with_allocator<BindlessArray>(d->retain()->create_bindless_array(n));
-    return reinterpret_cast<uint64_t>(bindless_array);
-}
-
-void luisa_compute_bindless_array_destroy(LCDevice device, uint64_t handle) LUISA_NOEXCEPT {
-    auto bindless_array = reinterpret_cast<BindlessArray *>(handle);
+void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT {
+    auto bindless_array = reinterpret_cast<BindlessArray *>(array);
     luisa::delete_with_allocator(bindless_array);
-    static_cast<RC<Device> *>(device)->release();
+    reinterpret_cast<RC<Device> *>(device)->release();
 }

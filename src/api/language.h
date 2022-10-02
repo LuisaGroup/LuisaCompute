@@ -1,6 +1,6 @@
 #pragma once
 
-#include <core/platform.h>
+
 #include <api/common.h>
 
 _LUISA_API_DECL_TYPE(LCKernel);
@@ -18,10 +18,10 @@ _LUISA_API_DECL_TYPE(LCStmt);
  * Note: We deliberately support *NO* pre and postfix inc/dec operators to avoid possible abuse
  */
 typedef enum LCUnaryOp  {
-    PLUS,
-    MINUS,  // +x, -x
-    NOT,    // !x
-    BIT_NOT,// ~x
+    LC_OP_PLUS,
+    LC_OP_MINUS,  // +x, -x
+    LC_OP_NOT,    // !x
+    LC_OP_BIT_NOT,// ~x
 }LCUnaryOp;
 
 /**
@@ -31,26 +31,26 @@ typedef enum LCUnaryOp  {
 typedef enum LCBinaryOp {
 
     // arithmetic
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    MOD,
-    BIT_AND,
-    BIT_OR,
-    BIT_XOR,
-    SHL,
-    SHR,
-    AND,
-    OR,
+    LC_OP_ADD,
+    LC_OP_SUB,
+    LC_OP_MUL,
+    LC_OP_DIV,
+    LC_OP_MOD,
+    LC_OP_BIT_AND,
+    LC_OP_BIT_OR,
+    LC_OP_BIT_XOR,
+    LC_OP_SHL,
+    LC_OP_SHR,
+    LC_OP_AND,
+    LC_OP_OR,
 
     // relational
-    LESS,
-    GREATER,
-    LESS_EQUAL,
-    GREATER_EQUAL,
-    EQUAL,
-    NOT_EQUAL
+    LC_OP_LESS,
+    LC_OP_GREATER,
+    LC_OP_LESS_EQUAL,
+    LC_OP_GREATER_EQUAL,
+    LC_OP_EQUAL,
+    LC_OP_NOT_EQUAL
 }LCBinaryOp;
 
 /**
@@ -59,139 +59,139 @@ typedef enum LCBinaryOp {
  */
 typedef enum LCCallOp {
 
-    CUSTOM,
+    LC_OP_CUSTOM,
 
-    ALL,
-    ANY,
+    LC_OP_ALL,
+    LC_ANY,
 
-    SELECT,
-    CLAMP,
-    LERP,
-    STEP,
+    LC_OP_SELECT,
+    LC_OP_CLAMP,
+    LC_OP_LERP,
+    LC_OP_STEP,
 
-    ABS,
-    MIN,
-    MAX,
+    LC_OP_ABS,
+    LC_OP_MIN,
+    LC_OP_MAX,
 
-    CLZ,
-    CTZ,
-    POPCOUNT,
-    REVERSE,
+    LC_OP_CLZ,
+    LC_OP_CTZ,
+    LC_OP_POPCOUNT,
+    LC_OP_REVERSE,
 
-    ISINF,
-    ISNAN,
+    LC_OP_ISINF,
+    LC_OP_ISNAN,
 
-    ACOS,
-    ACOSH,
-    ASIN,
-    ASINH,
-    ATAN,
-    ATAN2,
-    ATANH,
+    LC_OP_ACOS,
+    LC_OP_ACOSH,
+    LC_OP_ASIN,
+    LC_OP_ASINH,
+    LC_OP_ATAN,
+    LC_OP_ATAN2,
+    LC_OP_ATANH,
 
-    COS,
-    COSH,
-    SIN,
-    SINH,
-    TAN,
-    TANH,
+    LC_OP_COS,
+    LC_OP_COSH,
+    LC_OP_SIN,
+    LC_OP_SINH,
+    LC_OP_TAN,
+    LC_OP_TANH,
 
-    EXP,
-    EXP2,
-    EXP10,
-    LOG,
-    LOG2,
-    LOG10,
-    POW,
+    LC_OP_EXP,
+    LC_OP_EXP2,
+    LC_OP_EXP10,
+    LC_OP_LOG,
+    LC_OP_LOG2,
+    LC_OP_LOG10,
+    LC_OP_POW,
 
-    SQRT,
-    RSQRT,
+    LC_OP_SQRT,
+    LC_OP_RSQRT,
 
-    CEIL,
-    FLOOR,
-    FRACT,
-    TRUNC,
-    ROUND,
+    LC_OP_CEIL,
+    LC_OP_FLOOR,
+    LC_OP_FRACT,
+    LC_OP_TRUNC,
+    LC_OP_ROUND,
 
-    FMA,
-    COPYSIGN,
+    LC_OP_FMA,
+    LC_OP_COPYSIGN,
 
-    CROSS,
-    DOT,
-    LENGTH,
-    LENGTH_SQUARED,
-    NORMALIZE,
-    FACEFORWARD,
+    LC_OP_CROSS,
+    LC_OP_DOT,
+    LC_OP_LENGTH,
+    LC_OP_LENGTH_SQUARED,
+    LC_OP_NORMALIZE,
+    LC_OP_FACEFORWARD,
 
-    DETERMINANT,
-    TRANSPOSE,
-    INVERSE,
+    LC_OP_DETERMINANT,
+    LC_OP_TRANSPOSE,
+    LC_OP_INVERSE,
 
-    SYNCHRONIZE_BLOCK,
+    LC_OP_SYNCHRONIZE_BLOCK,
 
-    ATOMIC_EXCHANGE,        /// [(atomic_ref, desired) -> old]: stores desired, returns old.
-    ATOMIC_COMPARE_EXCHANGE,/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
-    ATOMIC_FETCH_ADD,       /// [(atomic_ref, val) -> old]: stores (old + val), returns old.
-    ATOMIC_FETCH_SUB,       /// [(atomic_ref, val) -> old]: stores (old - val), returns old.
-    ATOMIC_FETCH_AND,       /// [(atomic_ref, val) -> old]: stores (old & val), returns old.
-    ATOMIC_FETCH_OR,        /// [(atomic_ref, val) -> old]: stores (old | val), returns old.
-    ATOMIC_FETCH_XOR,       /// [(atomic_ref, val) -> old]: stores (old ^ val), returns old.
-    ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
-    ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
+    LC_OP_ATOMIC_EXCHANGE,        /// [(atomic_ref, desired) -> old]: stores desired, returns old.
+    LC_OP_ATOMIC_COMPARE_EXCHANGE,/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
+    LC_OP_ATOMIC_FETCH_ADD,       /// [(atomic_ref, val) -> old]: stores (old + val), returns old.
+    LC_OP_ATOMIC_FETCH_SUB,       /// [(atomic_ref, val) -> old]: stores (old - val), returns old.
+    LC_OP_ATOMIC_FETCH_AND,       /// [(atomic_ref, val) -> old]: stores (old & val), returns old.
+    LC_OP_ATOMIC_FETCH_OR,        /// [(atomic_ref, val) -> old]: stores (old | val), returns old.
+    LC_OP_ATOMIC_FETCH_XOR,       /// [(atomic_ref, val) -> old]: stores (old ^ val), returns old.
+    LC_OP_ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
+    LC_OP_ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
-    BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-    TEXTURE_READ, /// [(texture, coord) -> value]
-    TEXTURE_WRITE,/// [(texture, coord, value) -> void]
+    LC_OP_BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
+    LC_OP_BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+    LC_OP_TEXTURE_READ, /// [(texture, coord) -> value]
+    LC_OP_TEXTURE_WRITE,/// [(texture, coord, value) -> void]
 
-    BINDLESS_TEXTURE2D_SAMPLE,      //(bindless_array, index: uint, uv: float2): float4
-    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float2, level: float): float4
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
-    BINDLESS_TEXTURE3D_SAMPLE,      //(bindless_array, index: uint, uv: float3): float4
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float3, level: float): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
-    BINDLESS_TEXTURE2D_READ,        //(bindless_array, index: uint, coord: uint2): float4
-    BINDLESS_TEXTURE3D_READ,        //(bindless_array, index: uint, coord: uint3): float4
-    BINDLESS_TEXTURE2D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint2, level: uint): float4
-    BINDLESS_TEXTURE3D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint3, level: uint): float4
-    BINDLESS_TEXTURE2D_SIZE,        //(bindless_array, index: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE,        //(bindless_array, index: uint): uint3
-    BINDLESS_TEXTURE2D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint3
+    LC_OP_BINDLESS_TEXTURE2D_SAMPLE,      //(bindless_array, index: uint, uv: float2): float4
+    LC_OP_BINDLESS_TEXTURE2D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float2, level: float): float4
+    LC_OP_BINDLESS_TEXTURE2D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+    LC_OP_BINDLESS_TEXTURE3D_SAMPLE,      //(bindless_array, index: uint, uv: float3): float4
+    LC_OP_BINDLESS_TEXTURE3D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float3, level: float): float4
+    LC_OP_BINDLESS_TEXTURE3D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+    LC_OP_BINDLESS_TEXTURE2D_READ,        //(bindless_array, index: uint, coord: uint2): float4
+    LC_OP_BINDLESS_TEXTURE3D_READ,        //(bindless_array, index: uint, coord: uint3): float4
+    LC_OP_BINDLESS_TEXTURE2D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint2, level: uint): float4
+    LC_OP_BINDLESS_TEXTURE3D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint3, level: uint): float4
+    LC_OP_BINDLESS_TEXTURE2D_SIZE,        //(bindless_array, index: uint): uint2
+    LC_OP_BINDLESS_TEXTURE3D_SIZE,        //(bindless_array, index: uint): uint3
+    LC_OP_BINDLESS_TEXTURE2D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint2
+    LC_OP_BINDLESS_TEXTURE3D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,//(bindless_array, index: uint): expr->type()
+    LC_OP_BINDLESS_BUFFER_READ,//(bindless_array, index: uint): expr->type()
 
-    MAKE_BOOL2,
-    MAKE_BOOL3,
-    MAKE_BOOL4,
-    MAKE_INT2,
-    MAKE_INT3,
-    MAKE_INT4,
-    MAKE_UINT2,
-    MAKE_UINT3,
-    MAKE_UINT4,
-    MAKE_FLOAT2,
-    MAKE_FLOAT3,
-    MAKE_FLOAT4,
+    LC_OP_MAKE_BOOL2,
+    LC_OP_MAKE_BOOL3,
+    LC_OP_MAKE_BOOL4,
+    LC_OP_MAKE_INT2,
+    LC_OP_MAKE_INT3,
+    LC_OP_MAKE_INT4,
+    LC_OP_MAKE_UINT2,
+    LC_OP_MAKE_UINT3,
+    LC_OP_MAKE_UINT4,
+    LC_OP_MAKE_FLOAT2,
+    LC_OP_MAKE_FLOAT3,
+    LC_OP_MAKE_FLOAT4,
 
-    MAKE_FLOAT2X2,
-    MAKE_FLOAT3X3,
-    MAKE_FLOAT4X4,
+    LC_OP_MAKE_FLOAT2X2,
+    LC_OP_MAKE_FLOAT3X3,
+    LC_OP_MAKE_FLOAT4X4,
 
     // optimization hints
-    ASSUME,
-    UNREACHABLE,
+    LC_OP_ASSUME,
+    LC_OP_UNREACHABLE,
 
-    INSTANCE_TO_WORLD_MATRIX,
-    SET_INSTANCE_TRANSFORM,
-    SET_INSTANCE_VISIBILITY,
-    TRACE_CLOSEST,
-    TRACE_ANY
+    LC_OP_INSTANCE_TO_WORLD_MATRIX,
+    LC_OP_SET_INSTANCE_TRANSFORM,
+    LC_OP_SET_INSTANCE_VISIBILITY,
+    LC_OP_TRACE_CLOSEST,
+    LC_OP_TRACE_ANY
 }LCCallOp;
 
 typedef enum LCCastOp {
-    STATIC,
-    BITWISE
+    LC_OP_STATIC,
+    LC_OP_BITWISE
 }LCCastOp;
 
 LUISA_EXPORT_API LCKernel luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT;
