@@ -1,6 +1,9 @@
 add_executable(test_type test_type.cpp)
 target_link_libraries(test_type PRIVATE luisa::compute)
 
+add_executable(test_c_api test_c_api.c)
+target_link_libraries(test_c_api PRIVATE luisa::compute)
+
 add_executable(test_ast test_ast.cpp)
 target_link_libraries(test_ast PRIVATE luisa::compute)
 
