@@ -64,6 +64,8 @@ LUISA_EXPORT_API void luisa_compute_accel_pop_back(LCAccel accel) LUISA_NOEXCEPT
 LUISA_EXPORT_API LCCommandList luisa_compute_command_list_create() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_command_list_append(LCCommandList list, LCCommand command) LUISA_NOEXCEPT;
 LUISA_EXPORT_API int luisa_compute_command_list_empty(LCCommandList list) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_command_list_clear(LCCommandList list) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_command_list_destroy(LCCommandList list) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCommand luisa_compute_command_upload_buffer(
     LCBuffer buffer, size_t offset, size_t size, const void *data) LUISA_NOEXCEPT;
