@@ -497,6 +497,7 @@ private:
     std::string _source;
     const Expression * _arg;
 };
+
 #undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
 
 }// namespace luisa::compute

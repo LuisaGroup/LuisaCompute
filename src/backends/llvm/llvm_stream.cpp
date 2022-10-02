@@ -70,8 +70,8 @@ void LLVMStream::visit(const BufferToTextureCopyCommand *command) noexcept {
     });
 }
 
-extern "C" static void llvm_callback_dispatch(CpuCallbacks* callbacks, void * arg, void * user_data, uint32_t callback_id) noexcept; {
-    callbacks[callback_id](arg, user_data);
+extern "C" void llvm_callback_dispatch(const CpuCallback *callbacks, void *arg, void *user_data, uint32_t callback_id) noexcept {
+    callbacks[callback_id].callback(arg, user_data);
 }
 
 void LLVMStream::visit(const ShaderDispatchCommand *command) noexcept {
@@ -103,8 +103,9 @@ void LLVMStream::visit(const ShaderDispatchCommand *command) noexcept {
     // Append callback dispatcher to the end of argument buffer
     {
         auto ptr = argument_buffer.data() + argument_buffer.size() - 16u;
-        std::memcpy(ptr, llvm_callback_dispatch, 8);
-        std::memcpy(ptr + 8, &shader->callbacks(), 8);
+        std::memcpy(ptr, reinterpret_cast<const void *>(&llvm_callback_dispatch), 8);
+        auto callbacks = shader->callbacks();
+        std::memcpy(ptr + 8, &callbacks, 8);
     }
     auto arg_buffer = luisa::make_shared<luisa::vector<std::byte>>(std::move(argument_buffer));
     auto dispatch_size = command->dispatch_size();
