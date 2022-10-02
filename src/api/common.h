@@ -1,28 +1,33 @@
 #pragma once
 #include <core/platform.h>
 #include <stdint.h>
-#define _LUISA_API_DECL_TYPE(TypeName) typedef struct _##TypeName{uint64_t __dummy;}_##TypeName; typedef _##TypeName * TypeName
+#include <stddef.h>
 
-_LUISA_API_DECL_TYPE(LCKernel);
-_LUISA_API_DECL_TYPE(LCFunction);
-_LUISA_API_DECL_TYPE(LCCallable);
-_LUISA_API_DECL_TYPE(LCType);
-_LUISA_API_DECL_TYPE(LCExpression);
-_LUISA_API_DECL_TYPE(LCConstantData);
-_LUISA_API_DECL_TYPE(LCStmt);
+// Uppercase names prefixed with underscores are reserved for the standard library.
+#define LUISA_API_DECL_TYPE(TypeName) typedef struct TypeName##_st{uint64_t __dummy;}TypeName##_st; typedef TypeName##_st * TypeName
 
-_LUISA_API_DECL_TYPE(LCContext);
-_LUISA_API_DECL_TYPE(LCDevice);
-_LUISA_API_DECL_TYPE(LCShader);
-_LUISA_API_DECL_TYPE(LCBuffer);
-_LUISA_API_DECL_TYPE(LCTexture);
-_LUISA_API_DECL_TYPE(LCStream);
-_LUISA_API_DECL_TYPE(LCEvent);
-_LUISA_API_DECL_TYPE(LCCommandList);
-_LUISA_API_DECL_TYPE(LCCommand);
-_LUISA_API_DECL_TYPE(LCBindlessArray);
-_LUISA_API_DECL_TYPE(LCMesh);
-_LUISA_API_DECL_TYPE(LCAccel);
+LUISA_API_DECL_TYPE(LCKernel);
+LUISA_API_DECL_TYPE(LCFunction);
+LUISA_API_DECL_TYPE(LCCallable);
+LUISA_API_DECL_TYPE(LCType);
+LUISA_API_DECL_TYPE(LCExpression);
+LUISA_API_DECL_TYPE(LCConstantData);
+LUISA_API_DECL_TYPE(LCStmt);
+
+LUISA_API_DECL_TYPE(LCContext);
+LUISA_API_DECL_TYPE(LCDevice);
+LUISA_API_DECL_TYPE(LCShader);
+LUISA_API_DECL_TYPE(LCBuffer);
+LUISA_API_DECL_TYPE(LCTexture);
+LUISA_API_DECL_TYPE(LCStream);
+LUISA_API_DECL_TYPE(LCEvent);
+LUISA_API_DECL_TYPE(LCCommandList);
+LUISA_API_DECL_TYPE(LCCommand);
+LUISA_API_DECL_TYPE(LCBindlessArray);
+LUISA_API_DECL_TYPE(LCMesh);
+LUISA_API_DECL_TYPE(LCAccel);
+
+#undef LUISA_API_DECL_TYPE
 
 typedef enum LCAccelUsageHint {
     LC_FAST_TRACE, // build with best quality

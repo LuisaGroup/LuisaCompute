@@ -484,6 +484,11 @@ private:
     Callback _callback;
     const Expression * _arg;
     void * _user_data;
+
+protected:
+    // TODO
+    void _mark(Usage usage) const noexcept override {}
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
 };
 
 class GpuCustomOpExpr final : public Expression {
@@ -496,6 +501,11 @@ public:
 private:
     std::string _source;
     const Expression * _arg;
+
+protected:
+    // TODO
+    void _mark(Usage usage) const noexcept override {}
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
 };
 
 #undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR

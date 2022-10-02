@@ -8,11 +8,6 @@
 #ifdef __cplusplus
 #define LUISA_EXTERN_C extern "C"
 #define LUISA_NOEXCEPT noexcept
-#else
-#define LUISA_EXTERN_C
-#define LUISA_NOEXCEPT
-#endif
-
 #ifdef _MSC_VER
 #define LUISA_FORCE_INLINE inline
 #define LUISA_NEVER_INLINE __declspec(noinline)
@@ -25,6 +20,23 @@
 #define LUISA_DLL
 #define LUISA_EXPORT_API LUISA_EXTERN_C [[gnu::visibility("default")]]
 #define LUISA_IMPORT_API LUISA_EXTERN_C
+#endif
+#else
+#define LUISA_EXTERN_C
+#define LUISA_NOEXCEPT
+#ifdef _MSC_VER
+#define LUISA_FORCE_INLINE inline
+#define LUISA_NEVER_INLINE __declspec(noinline)
+#define LUISA_DLL
+#define LUISA_EXPORT_API LUISA_EXTERN_C __declspec(dllexport)
+#define LUISA_IMPORT_API LUISA_EXTERN_C __declspec(dllimport)
+#else
+#define LUISA_FORCE_INLINE __attribute__((always_inline)) inline
+#define LUISA_NEVER_INLINE __attribute__((noinline))
+#define LUISA_DLL
+#define LUISA_EXPORT_API LUISA_EXTERN_C __attribute__((visibility("default")))
+#define LUISA_IMPORT_API LUISA_EXTERN_C
+#endif
 #endif
 
 #if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
