@@ -6,7 +6,7 @@ using namespace luisa::compute;
 
 using luisa::compute::detail::FunctionBuilder;
 
-LCKernel luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCKernel luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
     auto shared_f = luisa::make_shared<FunctionBuilder>(Function::Tag::KERNEL);
     auto f = shared_f.get();
     FunctionBuilder::push(f);
@@ -21,7 +21,7 @@ LCKernel luisa_compute_ast_begin_kernel() LUISA_NOEXCEPT {
     return (LCKernel)new_with_allocator<luisa::shared_ptr<FunctionBuilder>>(std::move(shared_f));
 }
 
-void luisa_compute_ast_end_kernel(LCKernel kernel) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_end_kernel(LCKernel kernel) LUISA_NOEXCEPT {
     auto pf = reinterpret_cast<luisa::shared_ptr<FunctionBuilder> *>(kernel);
     auto f = pf->get();
     f->pop_scope(nullptr);
@@ -30,11 +30,11 @@ void luisa_compute_ast_end_kernel(LCKernel kernel) LUISA_NOEXCEPT {
     FunctionBuilder::pop(f);
 }
 
-void luisa_compute_ast_destroy_function(LCFunction function) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_destroy_function(LCFunction function) LUISA_NOEXCEPT {
     delete_with_allocator(reinterpret_cast<luisa::shared_ptr<FunctionBuilder> *>(function));
 }
 
-LCCallable luisa_compute_ast_begin_callable() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCCallable luisa_compute_ast_begin_callable() LUISA_NOEXCEPT {
     auto shared_f = luisa::make_shared<FunctionBuilder>(Function::Tag::CALLABLE);
     auto f = shared_f.get();
     FunctionBuilder::push(f);
@@ -42,7 +42,7 @@ LCCallable luisa_compute_ast_begin_callable() LUISA_NOEXCEPT {
     return (LCCallable)new_with_allocator<luisa::shared_ptr<FunctionBuilder>>(std::move(shared_f));
 }
 
-void luisa_compute_ast_end_callable(LCCallable callable) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_end_callable(LCCallable callable) LUISA_NOEXCEPT {
     auto pf = reinterpret_cast<luisa::shared_ptr<FunctionBuilder> *>(callable);
     auto f = pf->get();
     f->pop_scope(f->body());
@@ -111,95 +111,95 @@ LUISA_EXPORT_API void luisa_compute_ast_set_block_size(uint32_t sx, uint32_t sy,
     f->set_block_size(make_uint3(sx, sy, sz));
 }
 
-LCExpression luisa_compute_ast_thread_id() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_thread_id() LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->thread_id();
 }
 
-LCExpression luisa_compute_ast_block_id() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_block_id() LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->block_id();
 }
 
-LCExpression luisa_compute_ast_dispatch_id() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_dispatch_id() LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->dispatch_id();
 }
 
-LCExpression luisa_compute_ast_dispatch_size() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_dispatch_size() LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->dispatch_size();
 }
 
 
 
-LCExpression luisa_compute_ast_local_variable(LCType *t) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_local_variable(LCType t) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->local(reinterpret_cast<const Type *>(t));
 }
 
-LCExpression luisa_compute_ast_shared_variable(LCType t) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_shared_variable(LCType t) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->shared(reinterpret_cast<const Type *>(t));
 }
 
-LCExpression luisa_compute_ast_constant_variable(LCType t, const void *data) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_constant_variable(LCType t, const void *data) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->constant(reinterpret_cast<const Type *>(t), *reinterpret_cast<const ConstantData *>(data));
 }
 
 
-LCExpression luisa_compute_ast_buffer_binding(const void *elem_t, uint64_t buffer, size_t offset_bytes,size_t size_bytes) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_buffer_binding(LCType elem_t, LCBuffer buffer, size_t offset_bytes,size_t size_bytes) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
-    return (LCExpression)f->buffer_binding(reinterpret_cast<const Type *>(elem_t), buffer, offset_bytes, size_bytes);
+    return (LCExpression)f->buffer_binding(reinterpret_cast<const Type *>(elem_t), reinterpret_cast<uint64_t>(buffer), offset_bytes, size_bytes);
 }
 
-LCExpression luisa_compute_ast_texture_binding(LCType t, uint64_t texture, uint32_t level) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_texture_binding(LCType t, LCTexture texture, uint32_t level) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
-    return (LCExpression)f->texture_binding(reinterpret_cast<const Type *>(t), texture, level);
+    return (LCExpression)f->texture_binding(reinterpret_cast<const Type *>(t), reinterpret_cast<uint64_t>(texture), level);
 }
 
-LCExpression luisa_compute_ast_bindless_array_binding(uint64_t array) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_bindless_array_binding(LCBindlessArray array) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
-    return (LCExpression)f->bindless_array_binding(array);
+    return (LCExpression)f->bindless_array_binding(reinterpret_cast<uint64_t>(array));
 }
 
-LCExpression luisa_compute_ast_accel_binding(uint64_t accel) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_accel_binding(LCAccel accel) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
-    return (LCExpression)f->accel_binding(accel);
+    return (LCExpression)f->accel_binding(reinterpret_cast<uint64_t>(accel));
 }
 
-LCExpression luisa_compute_ast_value_argument(LCType t) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_value_argument(LCType t) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->argument(reinterpret_cast<const Type *>(t));
 }
 
-LCExpression luisa_compute_ast_reference_argument(LCType t) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_reference_argument(LCType t) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->reference(reinterpret_cast<const Type *>(t));
 }
 
-LCExpression luisa_compute_ast_buffer_argument(LCType t) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_buffer_argument(LCType t) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->buffer(reinterpret_cast<const Type *>(t));
 }
 
-LCExpression luisa_compute_ast_texture_argument(LCType t) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_texture_argument(LCType t) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->texture(reinterpret_cast<const Type *>(t));
 }
 
-LCExpression luisa_compute_ast_bindless_array_argument() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_bindless_array_argument() LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->bindless_array();
 }
 
-LCExpression luisa_compute_ast_accel_argument() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_accel_argument() LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->accel();
 }
 
-LCExpression luisa_compute_ast_literal_expr(LCType t, const void *value, const char *meta_value) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_literal_expr(LCType t, const void *value, const char *meta_value) LUISA_NOEXCEPT {
     auto v = [type = reinterpret_cast<const Type *>(t), value, meta_value]() noexcept -> LiteralExpr::Value {
         switch (type->tag()) {
             case Type::Tag::BOOL:
@@ -254,7 +254,7 @@ LCExpression luisa_compute_ast_literal_expr(LCType t, const void *value, const c
     return (LCExpression)f->literal(reinterpret_cast<const Type *>(t), v);
 }
 
-LCExpression luisa_compute_ast_unary_expr(LCType t, LCUnaryOp op, const LCExpression expr) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_unary_expr(LCType t, LCUnaryOp op, LCExpression expr) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->unary(
         reinterpret_cast<const Type *>(t),
@@ -262,7 +262,7 @@ LCExpression luisa_compute_ast_unary_expr(LCType t, LCUnaryOp op, const LCExpres
         reinterpret_cast<const Expression *>(expr));
 }
 
-LCExpression luisa_compute_ast_binary_expr(LCType t, LCBinaryOp op, const void *lhs, const void *rhs) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_binary_expr(LCType t, LCBinaryOp op, LCExpression lhs,LCExpression rhs) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->binary(
         reinterpret_cast<const Type *>(t),
@@ -271,7 +271,7 @@ LCExpression luisa_compute_ast_binary_expr(LCType t, LCBinaryOp op, const void *
         reinterpret_cast<const Expression *>(rhs));
 }
 
-LCExpression luisa_compute_ast_member_expr(LCType t, LCExpression self, size_t member_id) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_member_expr(LCType t, LCExpression self, size_t member_id) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->member(
         reinterpret_cast<const Type *>(t),
@@ -279,7 +279,7 @@ LCExpression luisa_compute_ast_member_expr(LCType t, LCExpression self, size_t m
         member_id);
 }
 
-LCExpression luisa_compute_ast_swizzle_expr(LCType t, LCExpression self, size_t swizzle_size, uint64_t swizzle_code) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_swizzle_expr(LCType t, LCExpression self, size_t swizzle_size, uint64_t swizzle_code) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->swizzle(
         reinterpret_cast<const Type *>(t),
@@ -287,7 +287,7 @@ LCExpression luisa_compute_ast_swizzle_expr(LCType t, LCExpression self, size_t 
         swizzle_size, swizzle_code);
 }
 
-LCExpression luisa_compute_ast_access_expr(LCType t, const void *range, const void *index) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_access_expr(LCType t, LCExpression range, LCExpression index) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->access(
         reinterpret_cast<const Type *>(t),
@@ -295,7 +295,7 @@ LCExpression luisa_compute_ast_access_expr(LCType t, const void *range, const vo
         reinterpret_cast<const Expression *>(index));
 }
 
-LCExpression luisa_compute_ast_cast_expr(LCType t, LCCastOp op, const LCExpression expr) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_cast_expr(LCType t, LCCastOp op, LCExpression expr) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     return (LCExpression)f->cast(
         reinterpret_cast<const Type *>(t),
@@ -303,7 +303,7 @@ LCExpression luisa_compute_ast_cast_expr(LCType t, LCCastOp op, const LCExpressi
         reinterpret_cast<const Expression *>(expr));
 }
 
-LCExpression luisa_compute_ast_call_expr(LCType t, LCCallOp call_op, const void *custom_callable, const void *args, size_t arg_count) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCExpression luisa_compute_ast_call_expr(LCType t, LCCallOp call_op, LCCallable custom_callable, LCExpression * args, size_t arg_count) LUISA_NOEXCEPT {
     auto f = FunctionBuilder::current();
     auto ret = reinterpret_cast<const Type *>(t);
     auto op = static_cast<CallOp>(call_op);
@@ -322,96 +322,96 @@ LCExpression luisa_compute_ast_call_expr(LCType t, LCCallOp call_op, const void 
 }
 
 
-void luisa_compute_ast_break_stmt() LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_break_stmt() LUISA_NOEXCEPT {
     FunctionBuilder::current()->break_();
 }
 
-void luisa_compute_ast_continue_stmt() LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_continue_stmt() LUISA_NOEXCEPT {
     FunctionBuilder::current()->continue_();
 }
 
-void luisa_compute_ast_return_stmt(const LCExpression expr) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_return_stmt(LCExpression expr) LUISA_NOEXCEPT {
     FunctionBuilder::current()->return_(reinterpret_cast<const Expression *>(expr));
 }
 
-LCStmt luisa_compute_ast_if_stmt(const LCExpression cond) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCStmt luisa_compute_ast_if_stmt(LCExpression cond) LUISA_NOEXCEPT {
     return (LCStmt)FunctionBuilder::current()->if_(reinterpret_cast<const Expression *>(cond));
 }
 
-LCStmt luisa_compute_ast_loop_stmt() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCStmt luisa_compute_ast_loop_stmt() LUISA_NOEXCEPT {
     return (LCStmt)FunctionBuilder::current()->loop_();
 }
 
-LCStmt luisa_compute_ast_switch_stmt(const LCExpression expr) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCStmt luisa_compute_ast_switch_stmt(LCExpression expr) LUISA_NOEXCEPT {
     return (LCStmt)FunctionBuilder::current()->switch_(reinterpret_cast<const Expression *>(expr));
 }
 
-LCStmt luisa_compute_ast_case_stmt(const LCExpression expr) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCStmt luisa_compute_ast_case_stmt(LCExpression expr) LUISA_NOEXCEPT {
     return (LCStmt)FunctionBuilder::current()->case_(reinterpret_cast<const Expression *>(expr));
 }
 
-LCStmt luisa_compute_ast_default_stmt() LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCStmt luisa_compute_ast_default_stmt() LUISA_NOEXCEPT {
     return (LCStmt)FunctionBuilder::current()->default_();
 }
 
-LCStmt luisa_compute_ast_for_stmt(const LCExpression var, const LCExpression cond, const LCExpression update) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCStmt luisa_compute_ast_for_stmt(LCExpression var, LCExpression cond, LCExpression update) LUISA_NOEXCEPT {
     return (LCStmt)FunctionBuilder::current()->for_(
         reinterpret_cast<const Expression *>(var),
         reinterpret_cast<const Expression *>(cond),
         reinterpret_cast<const Expression *>(update));
 }
 
-void luisa_compute_ast_assign_stmt(const LCExpression lhs, const LCExpression rhs) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_assign_stmt(LCExpression lhs, LCExpression rhs) LUISA_NOEXCEPT {
     FunctionBuilder::current()->assign(
         reinterpret_cast<const Expression *>(lhs),
         reinterpret_cast<const Expression *>(rhs));
 }
 
-void luisa_compute_ast_comment(const char *comment) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_ast_comment(const char *comment) LUISA_NOEXCEPT {
     FunctionBuilder::current()->comment_(comment);
 }
 
-void luisa_compute_ast_push_scope(void *scope) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->push_scope(static_cast<ScopeStmt *>(scope));
+LUISA_EXPORT_API void luisa_compute_ast_push_scope(LCStmt scope) LUISA_NOEXCEPT {
+    FunctionBuilder::current()->push_scope(reinterpret_cast<ScopeStmt *>(scope));
 }
 
-void luisa_compute_ast_pop_scope(void *scope) LUISA_NOEXCEPT {
-    FunctionBuilder::current()->pop_scope(static_cast<ScopeStmt *>(scope));
+LUISA_EXPORT_API void luisa_compute_ast_pop_scope(LCStmt scope) LUISA_NOEXCEPT {
+    FunctionBuilder::current()->pop_scope(reinterpret_cast<ScopeStmt *>(scope));
 }
 
 // void *luisa_compute_ast_meta_stmt(const char *meta_expr) LUISA_NOEXCEPT {
 //     return FunctionBuilder::current()->meta(meta_expr);
 // }
 
-LCStmt luisa_compute_ast_if_stmt_true_scope(void *stmt) LUISA_NOEXCEPT {
-    return (LCStmt)static_cast<IfStmt *>(stmt)->true_branch();
+LUISA_EXPORT_API LCStmt luisa_compute_ast_if_stmt_true_scope(LCStmt stmt) LUISA_NOEXCEPT {
+    return (LCStmt)reinterpret_cast<IfStmt *>(stmt)->true_branch();
 }
 
-LCStmt luisa_compute_ast_if_stmt_false_scope(void *stmt) LUISA_NOEXCEPT {
-    return (LCStmt)static_cast<IfStmt *>(stmt)->false_branch();
+LUISA_EXPORT_API LCStmt luisa_compute_ast_if_stmt_false_scope(LCStmt stmt) LUISA_NOEXCEPT {
+    return (LCStmt)reinterpret_cast<IfStmt *>(stmt)->false_branch();
 }
 
-LCStmt luisa_compute_ast_loop_stmt_scope(void *stmt) LUISA_NOEXCEPT {
-    return (LCStmt)static_cast<LoopStmt *>(stmt)->body();
+LUISA_EXPORT_API LCStmt luisa_compute_ast_loop_stmt_scope(LCStmt stmt) LUISA_NOEXCEPT {
+    return (LCStmt)reinterpret_cast<LoopStmt *>(stmt)->body();
 }
 
-LCStmt luisa_compute_ast_switch_stmt_scope(void *stmt) LUISA_NOEXCEPT {
-    return (LCStmt)static_cast<SwitchStmt *>(stmt)->body();
+LUISA_EXPORT_API LCStmt luisa_compute_ast_switch_stmt_scope(LCStmt stmt) LUISA_NOEXCEPT {
+    return (LCStmt)reinterpret_cast<SwitchStmt *>(stmt)->body();
 }
 
-LCStmt luisa_compute_ast_switch_case_stmt_scope(void *stmt) LUISA_NOEXCEPT {
-    return (LCStmt)static_cast<SwitchCaseStmt *>(stmt)->body();
+LUISA_EXPORT_API LCStmt luisa_compute_ast_switch_case_stmt_scope(LCStmt stmt) LUISA_NOEXCEPT {
+    return (LCStmt)reinterpret_cast<SwitchCaseStmt *>(stmt)->body();
 }
 
-LCStmt luisa_compute_ast_switch_default_stmt_scope(void *stmt) LUISA_NOEXCEPT {
-    return (LCStmt)static_cast<SwitchDefaultStmt *>(stmt)->body();
+LUISA_EXPORT_API LCStmt luisa_compute_ast_switch_default_stmt_scope(LCStmt stmt) LUISA_NOEXCEPT {
+    return (LCStmt)reinterpret_cast<SwitchDefaultStmt *>(stmt)->body();
 }
 
-LCStmt luisa_compute_ast_for_stmt_scope(void *stmt) LUISA_NOEXCEPT {
-    return (LCStmt)static_cast<ForStmt *>(stmt)->body();
+LUISA_EXPORT_API LCStmt luisa_compute_ast_for_stmt_scope(LCStmt stmt) LUISA_NOEXCEPT {
+    return (LCStmt)reinterpret_cast<ForStmt *>(stmt)->body();
 }
 
-// void *luisa_compute_ast_meta_stmt_scope(void *stmt) LUISA_NOEXCEPT {
+// void *luisa_compute_ast_meta_stmt_scope(LCStmt stmt) LUISA_NOEXCEPT {
 //     return static_cast<MetaStmt *>(stmt)->scope();
 // }
 
