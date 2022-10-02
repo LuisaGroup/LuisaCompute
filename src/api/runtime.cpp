@@ -236,18 +236,6 @@ LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel
     d->release();
 }
 
-LUISA_EXPORT_API LCCommandList luisa_compute_command_list_create() LUISA_NOEXCEPT {
-    return (LCCommandList)new_with_allocator<CommandList>();
-}
-
-LUISA_EXPORT_API void luisa_compute_command_list_append(LCCommandList list, LCCommand command) LUISA_NOEXCEPT {
-    reinterpret_cast<CommandList *>(list)->append(reinterpret_cast<Command *>(command));
-}
-
-LUISA_EXPORT_API int luisa_compute_command_list_empty(LCCommandList list) LUISA_NOEXCEPT {
-    return reinterpret_cast<CommandList *>(list)->empty();
-}
-
 LUISA_EXPORT_API LCCommand luisa_compute_command_upload_buffer(LCBuffer buffer, size_t offset, size_t size, const void *data) LUISA_NOEXCEPT {
     auto handle = reinterpret_cast<uint64_t>(buffer);
     return (LCCommand)BufferUploadCommand::create(handle, offset, size, data);
@@ -401,4 +389,20 @@ LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBi
     auto bindless_array = reinterpret_cast<BindlessArray *>(array);
     luisa::delete_with_allocator(bindless_array);
     reinterpret_cast<RC<Device> *>(device)->release();
+}
+
+LUISA_EXPORT_API LCCommandList luisa_compute_command_list_create() LUISA_NOEXCEPT {
+    return reinterpret_cast<LCCommandList>(luisa::new_with_allocator<CommandList>());
+}
+LUISA_EXPORT_API void luisa_compute_command_list_append(LCCommandList list, LCCommand command) LUISA_NOEXCEPT {
+    reinterpret_cast<CommandList *>(list)->append(reinterpret_cast<Command *>(command));
+}
+LUISA_EXPORT_API int luisa_compute_command_list_empty(LCCommandList list) LUISA_NOEXCEPT {
+    return reinterpret_cast<CommandList *>(list)->empty();
+}
+LUISA_EXPORT_API void luisa_compute_command_list_clear(LCCommandList list) LUISA_NOEXCEPT {
+    reinterpret_cast<CommandList *>(list)->clear();
+}
+LUISA_EXPORT_API void luisa_compute_command_list_destroy(LCCommandList list) LUISA_NOEXCEPT {
+    luisa::delete_with_allocator(reinterpret_cast<CommandList *>(list));
 }
