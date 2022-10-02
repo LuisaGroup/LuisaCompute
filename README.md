@@ -24,7 +24,7 @@ See [README-Python](README_Python.md).
 |--------------------------------|--------------------------------------------|
 | C++                            | ✅                                          |
 | Python                         | ⚠️ (no support for polymorphic constructs) |
-| C API                          | ⌛ (for easy bindings in other languages)   |
+| C API                          | 🚧 (for easy bindings in other languages)   |
 | Custom Script/Shading Language | ⌛                                          |
 
 ### AST/IR
