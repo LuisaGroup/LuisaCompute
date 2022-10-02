@@ -28,7 +28,7 @@ struct RC {
     }
     void release() {
         check();
-        if (_ref_count.fetch_sub(1, std::memory_order_release) == 1) {
+        if (_ref_count.fetch_sub(1, std::memory_order_release) == 0) {
             std::atomic_thread_fence(std::memory_order_acquire);
             tombstone = TOMBSTONE;
             delete this;

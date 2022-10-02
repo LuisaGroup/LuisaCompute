@@ -4,7 +4,7 @@ set(LUISA_COMPUTE_API_SOURCES
         # math.cpp math.h
         logging.cpp logging.h
         language.cpp language.h)
-add_library(luisa-compute-api MODULE ${LUISA_COMPUTE_API_SOURCES})
+add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})
 target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-ast
         luisa-compute-runtime

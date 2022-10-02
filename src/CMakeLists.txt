@@ -61,6 +61,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-dsl
         luisa-compute-rtx
         luisa-compute-gui
+        luisa-compute-api
         luisa-compute-backends)
 add_library(luisa::compute ALIAS luisa-compute)
 
