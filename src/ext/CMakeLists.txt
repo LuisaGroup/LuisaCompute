@@ -116,14 +116,6 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
             "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
 endif ()
 
-if (WIN32 AND NOT MINGW AND NOT MSYS)
-    set(BUILD_SHARED_LIBS OFF)
-endif ()
-
-set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
-add_subdirectory(abseil-cpp)
-target_link_libraries(luisa-compute-ext PUBLIC absl::base absl::flat_hash_map)
-
 if (LUISA_COMPUTE_ENABLE_VULKAN)
     find_package(Vulkan)
     if (NOT Vulkan_FOUND)
@@ -145,7 +137,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         add_subdirectory(shaderc)
         set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
         set_target_properties(glslc PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on Windows
-        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan SPIRV)
+        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan SPIRV SPIRV-Tools-shared)
         if (BUILD_SHARED_LIBS)
             target_link_libraries(luisa-compute-ext PUBLIC shaderc_shared)
         else ()
@@ -153,3 +145,11 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         endif ()
     endif ()
 endif ()
+
+if (WIN32 AND NOT MINGW AND NOT MSYS)
+    set(BUILD_SHARED_LIBS OFF)
+endif ()
+
+set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+add_subdirectory(abseil-cpp)
+target_link_libraries(luisa-compute-ext PUBLIC absl::base absl::flat_hash_map)
