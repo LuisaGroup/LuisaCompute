@@ -54,7 +54,8 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
 
     auto jit = device->jit();
     auto main_name = luisa::format("kernel.{:016x}.main", func.hash());
-    auto lookup_kernel_entry = [name = luisa::string_view{main_name}, jit]() noexcept -> ::llvm::Expected<kernel_entry_t *> {
+    auto lookup_kernel_entry = [name = luisa::string_view{main_name}, jit, device]() noexcept -> ::llvm::Expected<kernel_entry_t *> {
+        std::scoped_lock lock{device->jit_mutex()};
         auto addr = jit->lookup(::llvm::StringRef{name.data(), name.size()});
         if (addr) {
 #if LLVM_VERSION_MAJOR >= 15
@@ -162,8 +163,10 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
 
     // compile to machine code
     clk.tic();
-    ::llvm::orc::ThreadSafeModule m{std::move(module), std::move(context)};
-    if (auto error = jit->addIRModule(std::move(m))) {
+    if (auto error = [jit, device, m = ::llvm::orc::ThreadSafeModule{std::move(module), std::move(context)}]() mutable noexcept {
+            std::scoped_lock lock{device->jit_mutex()};
+            return jit->addIRModule(std::move(m));
+        }()) {
         ::llvm::handleAllErrors(std::move(error), [](const ::llvm::ErrorInfoBase &err) {
             LUISA_WARNING_WITH_LOCATION("LLJIT::addIRModule(): {}", err.message());
         });
