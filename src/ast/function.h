@@ -48,6 +48,7 @@ public:
 
 private:
     const detail::FunctionBuilder *_builder{nullptr};
+    void *opaque_func = nullptr;// for external device impl
 
 private:
     friend class detail::FunctionBuilder;
@@ -92,6 +93,9 @@ public:
     [[nodiscard]] auto operator==(Function rhs) const noexcept { return _builder == rhs._builder; }
     /// Cast to bool, true if builder is not nullptr
     [[nodiscard]] explicit operator bool() const noexcept { return _builder != nullptr; }
+
+    [[nodiscard]] bool is_extern_function_impl() const noexcept { return opaque_func != nullptr; }
+    void *get_extern_function_impl() const noexcept { return opaque_func; }
 };
 
 }// namespace luisa::compute
