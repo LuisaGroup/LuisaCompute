@@ -1,4 +1,5 @@
 set(LUISA_COMPUTE_API_SOURCES
+        device.h
         runtime.cpp runtime.h
         type.cpp type.h
         # math.cpp math.h

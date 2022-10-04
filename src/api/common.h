@@ -4,7 +4,11 @@
 #include <stddef.h>
 
 // Uppercase names prefixed with underscores are reserved for the standard library.
-#define LUISA_API_DECL_TYPE(TypeName) typedef struct TypeName##_st{uint64_t __dummy;}TypeName##_st; typedef TypeName##_st * TypeName
+#define LUISA_API_DECL_TYPE(TypeName) \
+    typedef struct TypeName##_st {    \
+        uint64_t __dummy;             \
+    } TypeName##_st;                  \
+    typedef TypeName##_st *TypeName
 
 LUISA_API_DECL_TYPE(LCKernel);
 LUISA_API_DECL_TYPE(LCFunction);
@@ -127,19 +131,17 @@ typedef struct LCAccelBuildModification {
     float affine[12];
 } LCAccelBuildModification;
 
-
-
 /**
  * @brief Enum of unary operations.
  * 
  * Note: We deliberately support *NO* pre and postfix inc/dec operators to avoid possible abuse
  */
-typedef enum LCUnaryOp  {
+typedef enum LCUnaryOp {
     LC_OP_PLUS,
     LC_OP_MINUS,  // +x, -x
     LC_OP_NOT,    // !x
     LC_OP_BIT_NOT,// ~x
-}LCUnaryOp;
+} LCUnaryOp;
 
 /**
  * @brief Enum of binary operations
@@ -168,7 +170,7 @@ typedef enum LCBinaryOp {
     LC_OP_GREATER_EQUAL,
     LC_OP_EQUAL,
     LC_OP_NOT_EQUAL
-}LCBinaryOp;
+} LCBinaryOp;
 
 /**
  * @brief Enum of call operations.
@@ -304,9 +306,29 @@ typedef enum LCCallOp {
     LC_OP_SET_INSTANCE_VISIBILITY,
     LC_OP_TRACE_CLOSEST,
     LC_OP_TRACE_ANY
-}LCCallOp;
+} LCCallOp;
 
 typedef enum LCCastOp {
     LC_OP_STATIC,
     LC_OP_BITWISE
-}LCCastOp;
+} LCCastOp;
+
+typedef enum LCSamplerFilter {
+    LC_POINT,
+    LC_LINEAR_POINT,
+    LC_LINEAR_LINEAR,
+    LC_ANISOTROPIC
+} LCSamplerFilter;
+
+typedef enum LCSamplerAddress {
+    LC_EDGE,
+    LC_REPEAT,
+    LC_MIRROR,
+    LC_ZERO
+} LCSamplerAddress;
+
+typedef struct LCSampler {
+    LCSamplerFilter filter;
+    LCSamplerAddress address;
+} LCSampler;
+

@@ -8,14 +8,14 @@
 #define TOMBSTONE 0xdeadbeef
 template<class T>
 struct RC {
-    T _object;
+    T *_object;
     std::atomic_uint64_t _ref_count;
     std::function<void(T *)> _deleter;
     uint32_t tombstone;
-    RC(T object, std::function<void(T *)> deleter) : _object{object}, _deleter{deleter}, _ref_count(1) {
+    RC(T *object, std::function<void(T *)> deleter) : _object{object}, _deleter{deleter}, _ref_count(1) {
         tombstone = 0;
     }
-    ~RC() { _deleter(&_object); }
+    ~RC() { _deleter(_object); }
     void check() const {
         if (tombstone == TOMBSTONE) {
             LUISA_ERROR_WITH_LOCATION("Object has been destroyed");
@@ -36,7 +36,7 @@ struct RC {
     }
     T *object() {
         check();
-        return &_object;
+        return _object;
     }
 };
 namespace luisa::compute {
@@ -93,9 +93,9 @@ LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUIS
 }
 
 LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
-    auto device = reinterpret_cast<Context *>(ctx)->create_device(name, properties);
+    auto device = new Device(std::move(reinterpret_cast<Context *>(ctx)->create_device(name, properties)));
     return (LCDevice)new_with_allocator<RC<Device>>(
-        device, [](Device *d) { delete_with_allocator(d); });
+        device, [](Device *d) { delete d; });
 }
 
 LUISA_EXPORT_API void luisa_compute_device_destroy(LCDevice device) LUISA_NOEXCEPT {
@@ -374,7 +374,7 @@ LUISA_EXPORT_API LCCommand luisa_compute_command_build_accel(LCAccel accel, uint
 //     return (LCCommand)AccelUpdateCommand::create(handle);
 // }
 
-LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format)LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format) LUISA_NOEXCEPT {
     return static_cast<LCPixelStorage>(
         to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format))));
 }
@@ -405,4 +405,165 @@ LUISA_EXPORT_API void luisa_compute_command_list_clear(LCCommandList list) LUISA
 }
 LUISA_EXPORT_API void luisa_compute_command_list_destroy(LCCommandList list) LUISA_NOEXCEPT {
     luisa::delete_with_allocator(reinterpret_cast<CommandList *>(list));
+}
+
+class ExternDevice : public Device::Interface {
+    LCDeviceInterface *impl;
+
+public:
+    ExternDevice(LCContext ctx, LCDeviceInterface *impl) : Interface(Context(*(Context *)ctx)), impl{impl} {}
+    ~ExternDevice() override {
+        impl->dtor(impl);
+    }
+    // native handle
+    [[nodiscard]] void *native_handle() const noexcept override {
+        return impl;
+    }
+
+    // buffer
+    [[nodiscard]] uint64_t create_buffer(size_t size_bytes) noexcept override {
+        return impl->create_buffer(impl, size_bytes);
+    }
+    void destroy_buffer(uint64_t handle) noexcept override {
+        impl->destroy_buffer(impl, handle);
+    }
+    [[nodiscard]] void *buffer_native_handle(uint64_t handle) const noexcept override {
+        return impl->buffer_native_handle(impl, handle);
+    }
+
+    // texture
+    [[nodiscard]] uint64_t create_texture(
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels) noexcept override {
+        return impl->create_texture(impl, static_cast<LCPixelFormat>(format), dimension, width, height, depth, mipmap_levels);
+    }
+    void destroy_texture(uint64_t handle) noexcept override {
+        impl->destroy_texture(impl, handle);
+    }
+    [[nodiscard]] void *texture_native_handle(uint64_t handle) const noexcept override {
+        return impl->texture_native_handle(impl, handle);
+    }
+    // bindless array
+    [[nodiscard]] uint64_t create_bindless_array(size_t size) noexcept override {
+        return impl->create_bindless_array(impl, size);
+    }
+    void destroy_bindless_array(uint64_t handle) noexcept override {
+        impl->destroy_bindless_array(impl, handle);
+    }
+    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept override {
+        impl->emplace_buffer_in_bindless_array(impl, array, index, handle, offset_bytes);
+    }
+    void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override {
+        impl->emplace_tex2d_in_bindless_array(impl, array, index, handle, LCSampler{.filter = (LCSamplerFilter)sampler.filter(), .address = (LCSamplerAddress)sampler.address()});
+    }
+    void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override {
+        impl->emplace_tex3d_in_bindless_array(impl, array, index, handle, LCSampler{.filter = (LCSamplerFilter)sampler.filter(), .address = (LCSamplerAddress)sampler.address()});
+    }
+    bool is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override {
+        return impl->is_resource_in_bindless_array(impl, array, handle);
+    }
+    void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override {
+        impl->remove_buffer_in_bindless_array(impl, array, index);
+    }
+    void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override {
+        impl->remove_tex2d_in_bindless_array(impl, array, index);
+    }
+    void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override {
+        impl->remove_tex3d_in_bindless_array(impl, array, index);
+    }
+
+    // stream
+    [[nodiscard]] uint64_t create_stream(bool for_present) noexcept override {
+        return impl->create_stream(impl, for_present);
+    }
+    void destroy_stream(uint64_t handle) noexcept override {
+        impl->destroy_stream(impl, handle);
+    }
+    void synchronize_stream(uint64_t stream_handle) noexcept override {
+        impl->synchronize_stream(impl, stream_handle);
+    }
+    void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override {
+        auto cmd_list = luisa_compute_command_list_create();
+        for (auto &&cmd : list) {
+            luisa_compute_command_list_append(cmd_list, reinterpret_cast<LCCommand>(cmd));
+        }
+        impl->dispatch(impl, stream_handle, cmd_list);
+        luisa_compute_command_list_destroy(cmd_list);
+    }
+    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
+        for (auto &&list : lists) { dispatch(stream_handle, list); }
+    }
+    void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept override {
+        abort();
+    }
+    [[nodiscard]] void *stream_native_handle(uint64_t handle) const noexcept override {
+        return impl->stream_native_handle(impl, handle);
+    }
+    // swap chain
+    [[nodiscard]] uint64_t create_swap_chain(
+        uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
+        bool allow_hdr, uint back_buffer_size) noexcept override {
+        return impl->create_swap_chain(impl, window_handle, stream_handle, width, height, allow_hdr, back_buffer_size);
+    }
+    void destroy_swap_chain(uint64_t handle) noexcept override {
+        impl->destroy_swap_chain(impl, handle);
+    }
+    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override {
+        return static_cast<PixelStorage>(impl->swap_chain_pixel_storage(impl, handle));
+    }
+    void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override {
+        impl->present_display_in_stream(impl, stream_handle, swapchain_handle, image_handle);
+    }
+    // kernel
+    [[nodiscard]] uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override {
+        LUISA_ASSERT(kernel.is_extern_function_impl(), "Only extern function implementation can be passed to ExternDevice::create_shader");
+        return impl->create_shader(impl, kernel.get_extern_function_impl(), meta_options.data());
+    }
+    void destroy_shader(uint64_t handle) noexcept override {
+        impl->destroy_shader(impl, handle);
+    }
+
+    // event
+    [[nodiscard]] uint64_t create_event() noexcept override {
+        return impl->create_event(impl);
+    }
+    void destroy_event(uint64_t handle) noexcept override {
+        impl->destroy_event(impl, handle);
+    }
+    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {
+        impl->signal_event(impl, handle, stream_handle);
+    }
+    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {
+        impl->wait_event(impl, handle, stream_handle);
+    }
+    void synchronize_event(uint64_t handle) noexcept override {
+        impl->synchronize_event(impl, handle);
+    }
+
+    // accel
+    [[nodiscard]] uint64_t create_mesh(
+        uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
+        uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept override {
+        return impl->create_mesh(impl, v_buffer, v_offset, v_stride, v_count, t_buffer, t_offset, t_count, static_cast<LCAccelUsageHint>(hint));
+    }
+    void destroy_mesh(uint64_t handle) noexcept override {
+        impl->destroy_mesh(impl, handle);
+    }
+    [[nodiscard]] uint64_t create_accel(AccelUsageHint hint) noexcept override {
+        return impl->create_accel(impl, static_cast<LCAccelUsageHint>(hint));
+    }
+    void destroy_accel(uint64_t handle) noexcept override {
+        impl->destroy_accel(impl, handle);
+    }
+
+    // query
+    [[nodiscard]] luisa::string query(std::string_view meta_expr) noexcept { return {}; }
+    [[nodiscard]] bool requires_command_reordering() const noexcept { return impl->requires_command_reordering(impl); }
+};
+
+LUISA_EXPORT_API LCDevice luisa_compute_create_external_device(LCContext ctx, LCDeviceInterface *impl) {
+    auto ext_device = luisa::make_shared<ExternDevice>(ctx, impl);
+    auto device = new Device{Device::Handle{ext_device}};
+    return (LCDevice) new RC<Device>(device, [](Device *d) { delete d; });
 }

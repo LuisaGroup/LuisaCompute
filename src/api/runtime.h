@@ -6,6 +6,7 @@
 
 #include <api/common.h>
 #include <api/language.h>
+#include <api/device.h>
 
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT;
 
