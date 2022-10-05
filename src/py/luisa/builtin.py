@@ -1,6 +1,6 @@
 import lcapi
 from .mathtypes import *
-from .types import uint, to_lctype, from_lctype, dtype_of, BuiltinFuncBuilder, \
+from .types import uint, to_lctype, coerce_map, dtype_of, BuiltinFuncBuilder, \
     scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of, nameof
 import functools
 from . import globalvars
@@ -258,89 +258,254 @@ def set_block_size(x, y, z):
 @BuiltinFuncBuilder
 @dtype_checked()
 def synchronize_block():
-    return None, lcapi.builder.call(lcapi.CallOp.SYNCHRONIZE_BLOCK, [])
+    return None, lcapi.builder().call(lcapi.CallOp.SYNCHRONIZE_BLOCK, [])
 
-# return dtype, expr
+
+def with_signature(*signatures):
+    def wrapper(function_builder):
+        def coerce_to(src_dtype, tgt_dtype) -> bool:
+            try:
+                return src_dtype in coerce_map[tgt_dtype]
+            except KeyError:
+                return src_dtype == tgt_dtype
+
+        def match(func_name, signature, *args) -> (bool, str):
+            signature_printed = ', '.join([nameof(x) for x in signature])
+            if len(args) != len(signature):
+                return False, f"{nameof(func_name)} takes {len(signature)} arguments ({signature_printed}), {len(args)} given."
+            for arg, dtype in zip(args, signature):
+                if not coerce_to(arg.dtype, dtype):
+                    given = ', '.join([nameof(x.dtype) for x in args])
+                    return False, f"{nameof(func_name)} expects ({signature_printed}). Calling with ({given})"
+            return True, "Everything's alright."
+
+        @functools.wraps(function_builder)
+        def decorated(func_name, *args):
+            reason = "Everything's alright."
+            for signature in signatures:
+                matched, reason = match(func_name, signature, *args)
+                if matched:
+                    return function_builder(func_name, *args)
+            raise TypeError(reason)
+        return decorated
+    return wrapper
+
+
+def with_checker(checker_function):
+    def wrapper(function_builder):
+        @functools.wraps(function_builder)
+        def decorated():
+            pass
+        return decorated
+    return wrapper
+
+
+class BuiltinFunctionCall:
+    def __call__(self, name, *args, **kwargs):
+        math_functions = (
+            'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
+            'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
+            'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round'
+        )
+        try:
+            if name in math_functions:
+                return self._invoke_math(name, *args)
+            else:
+                return getattr(self, f"invoke_{name}")(name, *args, **kwargs)
+        except AttributeError:
+            print(f"Error calling function {name}.")
+
+    @staticmethod
+    def _invoke_dispatch_related(name, *args, **kwargs):
+        expr = getattr(lcapi.builder(), name)()
+        dtype = int3
+        expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
+        tmp = lcapi.builder().local(to_lctype(dtype))
+        lcapi.builder().assign(tmp, expr1)
+        return dtype, tmp
+
+    @staticmethod
+    def _invoke_make_vector_n(data_type, vector_length, *args, **kwargs):
+        op = getattr(lcapi.CallOp, f"make_{data_type.__name__}{vector_length}".upper())
+        dtype = getattr(lcapi, f'{data_type.__name__}{vector_length}')
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_signature((float,), (float2,), (float3,), (float4,))
+    def _invoke_math(name, *args):
+        op = getattr(lcapi.CallOp, name.upper())
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_signature((int, int, int),)
+    def invoke_set_block_size(_, *args, **kwargs):
+        return set_block_size.builder(*args, **kwargs)
+
+    @staticmethod
+    @with_signature((),)
+    def invoke_synchronize_block(_, *args, **kwargs):
+        return synchronize_block.builder(*args, **kwargs)
+
+    @staticmethod
+    @with_signature((),)
+    def invoke_thread_id(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_dispatch_related(name, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((),)
+    def invoke_block_id(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_dispatch_related(name, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((),)
+    def invoke_dispatch_id(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_dispatch_related(name, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((),)
+    def invoke_dispatch_size(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_dispatch_related(name, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((int,), (int2,), (int, int))
+    def invoke_make_int2(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(int, 2, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((int,), (int3,), (int2, int), (int, int2), (int, int, int))
+    def invoke_make_int3(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(int, 3, *args, **kwargs)
+
+    @staticmethod
+    @with_signature(
+        (int,), (int4,), (int, int3), (int2, int2), (int3, int), (int, int, int2),
+        (int, int2, int), (int2, int, int), (int, int, int, int)
+    )
+    def invoke_make_int4(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(int, 4, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((float,), (float2,), (float, float))
+    def invoke_make_float2(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(float, 2, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((float,), (float, float, float))
+    def invoke_make_float3(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(float, 3, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((float,), (float, float, float, float))
+    def invoke_make_float4(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(float, 4, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((uint,), (uint, uint))
+    def invoke_make_uint2(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(uint, 2, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((uint,), (uint, uint, uint))
+    def invoke_make_uint3(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(uint, 3, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((uint,), (uint, uint, uint, uint))
+    def invoke_make_uint4(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(uint, 4, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((bool,), (bool, bool))
+    def invoke_make_bool2(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(bool, 2, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((bool,), (bool, bool, bool))
+    def invoke_make_bool3(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(bool, 3, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((bool,), (bool, bool, bool, bool))
+    def invoke_make_bool4(name, *args, **kwargs):
+        return BuiltinFunctionCall._invoke_make_vector_n(bool, 4, *args, **kwargs)
+
+    @staticmethod
+    @with_signature((float,), (float2,), (float3,), (float4,))
+    def invoke_isinf(name, *args, **kwargs):
+        op = lcapi.CallOp.ISINF
+        dtype = binary_type_infer.with_type(args[0].dtype, bool),
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_signature((float,), (float2,), (float3,), (float4,))
+    def invoke_isnan(name, *args, **kwargs):
+        op = lcapi.CallOp.ISNAN
+        dtype = binary_type_infer.with_type(args[0].dtype, bool),
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_signature(
+        (int,), (int2,), (int3,), (int4,),
+        (uint,), (uint2,), (uint3,), (uint4,),
+        (float,), (float2,), (float3,), (float4,),
+    )
+    def invoke_abs(name, *args, **kwargs):
+        op = lcapi.CallOp.ABS
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_signature((float2,), (float3,), (float4,))
+    def invoke_length(name, *args, **kwargs):
+        op = lcapi.CallOp.LENGTH
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_signature((float2,), (float3,), (float4,))
+    def invoke_length_squared(name, *args, **kwargs):
+        op = lcapi.CallOp.LENGTH_SQUARED
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+
+bfc = BuiltinFunctionCall()
+
+
 def builtin_func(name, *args, **kwargs):
-
     for f in {set_block_size, synchronize_block}:
         if name == f.__name__:
-            return f.builder(*args, **kwargs)
+            return bfc(name, *args, **kwargs)
 
     # e.g. dispatch_id()
     for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
         if name == func:
-            assert len(args) == 0
-            # NOTE: cast to signed int by default
-            expr = getattr(lcapi.builder(), func)()
-            dtype = int3
-            expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
-            tmp = lcapi.builder().local(to_lctype(dtype))
-            lcapi.builder().assign(tmp, expr1)
-            return dtype, tmp
+            return bfc(name, *args, **kwargs)
 
     # e.g. make_float4(...)
     for T in 'uint', 'int', 'float', 'bool':
         for N in 2, 3, 4:
             if name == f'make_{T}{N}':
-                if sum([length_of(x.dtype) for x in args]) not in {1, N}:
-                    raise ValueError(f"Argument length incorrect, expected 1 or {N}, found {sum([length_of(x.dtype) for x in args])}")
-                # for x in args:
-                #     if element_of(x.dtype) != {'int':int, 'float':float, 'bool':bool, 'uint':uint}[T] and \
-                #         not (T == "float" and x.dtype == int):
-                #         raise TypeError(f"Can't make {T}{N} from {x.dtype} (must be of same element type)")
-                op = getattr(lcapi.CallOp, name.upper())
-                dtype = getattr(lcapi, f'{T}{N}')
-                return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+                return bfc(name, *args, **kwargs)
 
     # e.g. make_float2x2(...)
     for N in 2, 3, 4:
         if name == f'make_float{N}x{N}':
-            # for x in args:
-            #     if element_of(x.dtype) != float and x.dtype != int:
-            #         raise TypeError(f"Can't make {T}{N}x{N} from {x.dtype} (must be of same element type)")
-            try:
-                if len(args) == 1:
-                    assert args[0].dtype in {float, int, float2x2, float3x3, float4x4}
-                elif len(args) == N:
-                    for arg in args:
-                        assert arg.dtype == vector(float,N)
-                elif len(args) == N*N:
-                    for arg in args:
-                        assert arg.dtype in {float, int}
-            except AssertionError:
-                raise TypeError(f"Can't make {T}{N}x{N} from {[x.dtype for x in args]}")
-            op = getattr(lcapi.CallOp, name.upper())
-            dtype = getattr(lcapi, f'float{N}x{N}')
-            return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
+            return bfc(name, *args, **kwargs)
     # TODO: atan2
 
     # e.g. sin(x)
     if name in ('acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
                 'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
                 'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round'):
-        # type check: arg must be float / float vector
-        assert len(args) == 1
-        assert args[0].dtype in {float, float2, float3, float4}
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-        
+        return bfc(name, *args, **kwargs)
+
     if name in ('isinf','isnan'):
-        # type check: arg must be float / float vector
-        assert len(args) == 1
-        assert args[0].dtype in {float, float2, float3, float4}
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = to_bool(args[0].dtype)
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+        return bfc(name, *args, **kwargs)
 
     if name in ('abs',):
-        assert len(args) == 1
-        assert args[0].dtype in arithmetic_dtypes
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+        return bfc(name, *args, **kwargs)
 
     if name in ('copysign',):
         assert len(args) == 2
