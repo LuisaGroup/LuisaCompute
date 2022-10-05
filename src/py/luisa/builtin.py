@@ -109,7 +109,12 @@ def builtin_bin_op(op, lhs, rhs):
                     return builtin_bin_op(ast.Mult, builtin_bin_op(ast.Mult, lhs, lhs),
                                           builtin_bin_op(ast.Mult, lhs, lhs))
         return builtin_func("pow", lhs, rhs)
-    return return_dtype, lcapi.builder().binary(to_lctype(return_dtype), lc_op, lhs.expr, rhs.expr)
+    elif op is ast.Div:
+        _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), lhs)
+        _, rhs_expr = builtin_type_cast(to_float(rhs.dtype), rhs)
+        return return_dtype, lcapi.builder().binary(to_lctype(return_dtype), lc_op, lhs_expr, rhs_expr)
+    else:
+        return return_dtype, lcapi.builder().binary(to_lctype(return_dtype), lc_op, lhs.expr, rhs.expr)
 
 
 builtin_func_names = {
