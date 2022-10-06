@@ -291,11 +291,17 @@ def with_signature(*signatures):
     return wrapper
 
 
-def with_checker(checker_function):
+def with_checker(*checker_functions):
     def wrapper(function_builder):
         @functools.wraps(function_builder)
-        def decorated():
-            pass
+        def decorated(func_name, *args):
+            passed = functools.reduce(lambda x, y: x and y, map(lambda f: f(*args), checker_functions))
+            if passed:
+                return function_builder(func_name, *args)
+            else:
+                given = ', '.join([nameof(x.dtype) for x in args])
+                raise TypeError(f"type check failed, ({given}) is not a valid param set.")
+
         return decorated
     return wrapper
 
@@ -447,7 +453,7 @@ class BuiltinFunctionCall:
     @staticmethod
     @with_signature(
         (int,), (int2,), (int3,), (int4,),
-        (uint,), (uint2,), (uint3,), (uint4,),
+        # (uint,), (uint2,), (uint3,), (uint4,),
         (float,), (float2,), (float3,), (float4,),
     )
     def invoke_abs(name, *args, **kwargs):
@@ -468,6 +474,21 @@ class BuiltinFunctionCall:
         op = lcapi.CallOp.LENGTH_SQUARED
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    from .checkers import binary, all_arithmetic, broadcast_binary
+    @staticmethod
+    # @with_signature(
+    #     (float, float),
+    #     (float, float2), (float, float3), (float, float4),
+    #     (float2, float), (float3, float), (float4, float),
+    #     (float2, float2), (float3, float3), (float4, float4)
+    # )
+    @with_checker(binary, all_arithmetic, broadcast_binary)
+    def invoke_copysign(name, *args, **kwargs):
+        op = lcapi.CallOp.COPYSIGN
+        dtype = args[0].dtype
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
 
 
 bfc = BuiltinFunctionCall()
@@ -508,8 +529,7 @@ def builtin_func(name, *args, **kwargs):
         return bfc(name, *args, **kwargs)
 
     if name in ('copysign',):
-        assert len(args) == 2
-        return make_vector_call(float, lcapi.CallOp.COPYSIGN, args)
+        return bfc(name, *args, **kwargs)
 
     if name in ('min', 'max'):
         assert len(args) == 2
