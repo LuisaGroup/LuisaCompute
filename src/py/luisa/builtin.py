@@ -9,6 +9,7 @@ import ast
 from .array import ArrayType
 from .struct import StructType
 from .builtin_type_check import binary_type_infer
+from .checkers import binary, all_arithmetic, broadcast_binary, multi_param, length_eq, unary, all_float, all_integer
 
 
 def wrap_with_tmp_var(node):
@@ -384,10 +385,7 @@ class BuiltinFunctionCall:
         return BuiltinFunctionCall._invoke_make_vector_n(int, 3, *args, **kwargs)
 
     @staticmethod
-    @with_signature(
-        (int,), (int4,), (int, int3), (int2, int2), (int3, int), (int, int, int2),
-        (int, int2, int), (int2, int, int), (int, int, int, int)
-    )
+    @with_checker(multi_param, all_integer, length_eq([1, 4]))
     def invoke_make_int4(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(int, 4, *args, **kwargs)
 
@@ -397,7 +395,7 @@ class BuiltinFunctionCall:
         return BuiltinFunctionCall._invoke_make_vector_n(float, 2, *args, **kwargs)
 
     @staticmethod
-    @with_signature((float,), (float, float, float))
+    @with_checker(multi_param, all_float, length_eq([1, 3]))
     def invoke_make_float3(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(float, 3, *args, **kwargs)
 
@@ -451,11 +449,7 @@ class BuiltinFunctionCall:
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
-    @with_signature(
-        (int,), (int2,), (int3,), (int4,),
-        # (uint,), (uint2,), (uint3,), (uint4,),
-        (float,), (float2,), (float3,), (float4,),
-    )
+    @with_checker(unary, all_arithmetic)
     def invoke_abs(name, *args, **kwargs):
         op = lcapi.CallOp.ABS
         dtype = args[0].dtype
@@ -475,7 +469,7 @@ class BuiltinFunctionCall:
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
-    from .checkers import binary, all_arithmetic, broadcast_binary
+
     @staticmethod
     # @with_signature(
     #     (float, float),
