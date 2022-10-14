@@ -55,7 +55,7 @@ See [README-Python](README_Python.md).
 | Metal                  | ✅ (simulated `atomic<float>` support)                                                                                                                                                              | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
 | Vulkan                 | 🚧 (will translate to SPIR-V)                                                                                                                                                                      | ⚠️ (needs testing)                                                |
 | ISPC<br />[Deprecated] | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support)                                                                                     | ✅                                                                 |
-| LLVM                   | ⚠️ (scalar only; no support for shared memory or `synchronize_block`; simulated `atomic<float>` support)<br />🚧 (vectorization, with support for simulated shared memory and `synchronize_block`) | ✅                                                                 |
+| LLVM                   | ⚠️ (scalar only; simulated `atomic<float>` and `synchronize_block` support) | ✅                                                                 |
 | Remote                 | ⏩ (forwarded to underlying backends)                                                                                                                                                               | 🚧 (depends on serialization and networking)                      |
 
 ### Libraries/Applications
@@ -63,12 +63,11 @@ See [README-Python](README_Python.md).
 - 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git) (support for volumetric rendering, out-of-core tracing
   and shading, advanced sampling algorithms, custom shading language, Blender/C4D exporters, etc.)
 - 🚧 [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git) (custom shading language support planned)
-- ⌛ Luisa Performance Primitives (pre-tuned kernels for high-performance sorting, mapping, reduction, image processing,
-  etc.)
+
 
 ### Documentation/Tutorials
 
 - 🚧 Documentation
-- ⌛ Ray tracing in one weekend with LuisaCompute (after paper acceptance)
-- ⌛ Shader toy playground (depends on LuisaShaderToy...)
+- ⌛ Ray tracing in one weekend with LuisaCompute
+- Let me know if you have any fun idea!
 
