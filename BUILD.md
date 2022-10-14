@@ -56,11 +56,11 @@ of linking object files into shared libraries.
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
 
-> Note: if you would like to enable the CUDA backend, you need to specify the OptiX header location
-> by passing `-D OptiX_INCLUDE_DIR=<path-to-optix-include-dir>` to CMake while configuration; or manually copy the OptiX header
-> files to `src/backends/cuda/optix` *before* configuration, so that the folder *directly* contains `optix.h`. The default 
-> location of OptiX is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and
-> `/home/<user-name>/OptiX_.../include` on Linux.
+> Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree. 
+> Therefore, if you would like to enable the CUDA backend, you will need to manually copy the OptiX header
+> files to `src/backends/cuda/optix` *before* configuration and building, so that the folder *directly*
+> contains `optix.h`. The default location of OptiX is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include`
+>  on Windows, and `/home/<user-name>/OptiX_.../include` on Linux.
 
 ## Build Commands
 
