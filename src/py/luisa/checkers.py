@@ -39,22 +39,22 @@ def all_float(*args) -> bool:
     return reduce(lambda x, y: x and y, map(lambda x: TC.is_float(inner_type(x.dtype)), args))
 
 
-def with_inner_type(inner_types):
-    def check(*args) -> bool:
-        return reduce(lambda x, y: x and y, map(lambda x: x[0] == x[1], zip(*args, inner_types)))
-    return check
+def with_inner_type(*inner_types):
+    def with_inner_type(*args) -> bool:
+        return reduce(lambda x, y: x and y, map(lambda x: inner_type(x[0].dtype) in x[1], zip(args, inner_types)))
+    return with_inner_type
 
 
 def length_eq(total_lengths):
-    def check(*args) -> bool:
+    def length_eq(*args) -> bool:
         return sum(map(lambda x: length(x.dtype), args)) in total_lengths
-    return check
+    return length_eq
 
 
 def length_leq(total_length):
-    def check(*args) -> bool:
+    def length_leq(*args) -> bool:
         return sum(map(lambda x: length(x.dtype), args)) <= total_length
-    return check
+    return length_leq
 
 
 def broadcast(*args) -> bool:
@@ -63,7 +63,7 @@ def broadcast(*args) -> bool:
 
 def same_length(*args) -> bool:
     for i in range(len(args) - 1):
-        if length(args[0].dtype) == length(args[1].dtype):
+        if length(args[i].dtype) != length(args[i + 1].dtype):
             return False
     return True
 

@@ -10,7 +10,7 @@ from .array import ArrayType
 from .struct import StructType
 from .builtin_type_check import binary_type_infer
 from .checkers import binary, all_arithmetic, broadcast, multi_param, length_eq, unary, all_float, all_integer, \
-    all_bool, same_length, with_dim, ternary, with_inner_type, is_array
+    all_bool, same_length, with_dim, ternary, with_inner_type, is_array, inner_type
 
 
 def wrap_with_tmp_var(node):
@@ -297,13 +297,12 @@ def with_checker(*checker_functions):
     def wrapper(function_builder):
         @functools.wraps(function_builder)
         def decorated(func_name, *args):
-            passed = functools.reduce(lambda x, y: x and y, map(lambda f: f(*args), checker_functions))
-            if passed:
-                return function_builder(func_name, *args)
-            else:
-                given = ', '.join([nameof(x.dtype) for x in args])
-                raise TypeError(f"type check failed, ({given}) is not a valid param set.")
-
+            for checker_function in checker_functions:
+                if checker_function(*args) is False:
+                    given = ', '.join([nameof(x.dtype) for x in args])
+                    raise TypeError(f"type check failed for {func_name}, ({given}) is invalid because of "
+                                    f"{checker_function.__name__}.")
+            return function_builder(func_name, *args)
         return decorated
     return wrapper
 
@@ -376,47 +375,47 @@ class BuiltinFunctionCall:
         return BuiltinFunctionCall._invoke_dispatch_related(name, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_integer, length_eq([1, 2]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 2]))
     def invoke_make_int2(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(int, 2, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_integer, length_eq([1, 3]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 3]))
     def invoke_make_int3(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(int, 3, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_integer, length_eq([1, 4]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 4]))
     def invoke_make_int4(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(int, 4, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_float, length_eq([1, 2]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 2]))
     def invoke_make_float2(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(float, 2, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_float, length_eq([1, 3]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 3]))
     def invoke_make_float3(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(float, 3, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_float, length_eq([1, 4]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 4]))
     def invoke_make_float4(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(float, 4, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_integer, length_eq([1, 2]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 2]))
     def invoke_make_uint2(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(uint, 2, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_integer, length_eq([1, 3]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 3]))
     def invoke_make_uint3(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(uint, 3, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_integer, length_eq([1, 4]))
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 4]))
     def invoke_make_uint4(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(uint, 4, *args, **kwargs)
 
@@ -439,14 +438,14 @@ class BuiltinFunctionCall:
     @with_signature((float,), (float2,), (float3,), (float4,))
     def invoke_isinf(name, *args, **kwargs):
         op = lcapi.CallOp.ISINF
-        dtype = binary_type_infer.with_type(args[0].dtype, bool),
+        dtype = binary_type_infer.with_type(args[0].dtype, bool)
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
     @with_signature((float,), (float2,), (float3,), (float4,))
     def invoke_isnan(name, *args, **kwargs):
         op = lcapi.CallOp.ISNAN
-        dtype = binary_type_infer.with_type(args[0].dtype, bool),
+        dtype = binary_type_infer.with_type(args[0].dtype, bool)
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
@@ -460,14 +459,14 @@ class BuiltinFunctionCall:
     @with_signature((float2,), (float3,), (float4,))
     def invoke_length(name, *args, **kwargs):
         op = lcapi.CallOp.LENGTH
-        dtype = args[0].dtype
+        dtype = float
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
     @with_signature((float2,), (float3,), (float4,))
     def invoke_length_squared(name, *args, **kwargs):
         op = lcapi.CallOp.LENGTH_SQUARED
-        dtype = args[0].dtype
+        dtype = float
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
@@ -498,7 +497,7 @@ class BuiltinFunctionCall:
     @with_checker(binary, all_arithmetic, same_length)
     def invoke_dot(name, *args, **kwargs):
         op = lcapi.CallOp.DOT
-        dtype = args[0].dtype
+        dtype = inner_type(args[0].dtype)
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
@@ -509,12 +508,12 @@ class BuiltinFunctionCall:
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
-    @with_checker(ternary, same_length, all_float)
+    @with_checker(ternary, all_float)
     def invoke_lerp(name, *args, **kwargs):
-        make_vector_call(float, lcapi.CallOp.LERP, args)
+        return make_vector_call(float, lcapi.CallOp.LERP, args)
 
     @staticmethod
-    @with_checker(ternary, same_length, with_inner_type([float, float, bool]))
+    @with_checker(ternary, with_inner_type((float, int), (float, int), (bool,)))
     def invoke_select(name, *args, **kwargs):
         op = lcapi.CallOp.SELECT
         dtype = args[0].dtype
@@ -538,29 +537,29 @@ class BuiltinFunctionCall:
     @with_checker(unary, all_bool)
     def invoke_all(name, *args, **kwargs):
         op = lcapi.CallOp.ALL
-        dtype = args[0].dtype
+        dtype = bool
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
     @with_checker(unary, all_bool)
     def invoke_any(name, *args, **kwargs):
         op = lcapi.CallOp.ANY
-        dtype = args[0].dtype
+        dtype = bool
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
-    @with_checker(ternary, all_arithmetic, same_length)
+    @with_checker(ternary, all_arithmetic)
     def invoke_clamp(name, *args, **kwargs):
         op = lcapi.CallOp.CLAMP
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+        dtype = element_of(args[0].dtype)
+        return make_vector_call(dtype, op, args)
 
     @staticmethod
-    @with_checker(ternary, all_float(), same_length)
+    @with_checker(ternary, all_float)
     def invoke_fma(name, *args, **kwargs):
         op = lcapi.CallOp.FMA
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+        dtype = element_of(args[0].dtype)
+        return make_vector_call(dtype, op, args)
 
     @staticmethod
     @with_checker(binary, all_arithmetic, same_length)
