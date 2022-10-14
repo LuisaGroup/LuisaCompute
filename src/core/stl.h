@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <EASTL/bit.h>
 #include <EASTL/span.h>
