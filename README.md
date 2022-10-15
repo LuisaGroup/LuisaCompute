@@ -546,6 +546,8 @@ stream << buffer.copy_from(host_data) // a stream proxy is created on Stream::op
            .dispatch(width, height);  // the proxy object automatically submits the commands at the end of the statement
 ```
 
+> ⚠️ Since commands are asynchronously executed, users should pay attention to resource and host data lifetimes.
+
 The backends in LuisaCompute can automatically determine the dependencies between the commands in a command buffer, and re-schedule them into an optimized order to improve hardware ultilization. Therefore, larger command buffers might be preferred for better computation throughput.
 
 <img alt="command scheduling" src="https://user-images.githubusercontent.com/7614925/196001465-2dace78b-5e3b-4b4b-b2c3-f2cd61adc6ff.jpg" align="center" width="60%"/>
