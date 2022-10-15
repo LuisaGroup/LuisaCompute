@@ -28,7 +28,11 @@ LuisaCompute follows the standard CMake build process. Basically these steps:
 
 - Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+. Note that if you would like to enable the CUDA backend, [OptiX](https://developer.nvidia.com/designworks/optix/download) is required. For some tests like the toy path tracer, [OpenCV](opencv.org) is also required.
 
-- Clone the repo with the `--recursive` option, e.g., `git clone --recursive https://github.com/LuisaGroup/LuisaCompute.git`. We use Git submodules to manage most dependencies, so a `--recursive` clone is required. Also, as we are not allowed to provide the OptiX headers in tree, you have to copy them from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`. We applogize for this inconvenience.
+- Clone the repo with the `--recursive` option, e.g.,
+```bash
+git clone --recursive https://github.com/LuisaGroup/LuisaCompute.git
+```
+Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required. Also, as we are not allowed to provide the OptiX headers in tree, you have to copy them from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`. We applogize for this inconvenience.
 
 - Configure the project using CMake. E.g., for command line, `cd` into the project folder and type `cmake -S . -B <build-folder>`. You might also want to specify your favorite generators and build types using options like `-G Ninja` and `-D CMAKE_BUILD_TYPE=Release`. A typical, full command sequence for this would be like
 ```bash
@@ -44,6 +48,78 @@ See also [BUILD.md](BUILD.md) for details on platform requirements, configuratio
 
 ## Usage
 
+### A Minimal Example
+
+Using LuisaCompute to construct a graphics application basically involves the following steps:
+
+1. Create a `Context` and loading a `Device` plug-in;
+2. Create a `Stream` for command submission and other device resources (e.g., `Buffer<T>`s for linear storage, `Image<T>`s for 2D readable/writable textures, and `Mesh`es and `Accel`s for ray-scene intersection testing structures) via `Device`'s `create_*` interfaces;
+3. Author `Kernel`s to describe the on-device computation tasks, and compile them into `Shader`s via `Device`'s `compile` interface;
+4. Generate `Command`s via each resource's interface (e.g., `Buffer<T>::copy_to`), or `Shader`'s `operator()` and `dispatch`, and submit them to the stream;
+5. Wait for the results by inserting a `synchronize` phoney command to the `Stream`.
+
+Putting the above together, a miminal example program that write gradient color to an image would look like
+```cpp
+
+#include <luisa-compute.h>
+#include <dsl/sugar.h>
+
+using namespace luisa;
+using namespace luisa::compute;
+
+int main(int argc, char *argv[]) {
+
+    // Step 1.1: Create a context
+    Context context{argv[0]};
+    
+    // Step 1.2: Load the CUDA backend plug-in and create a device
+    auto device = context.create_device("cuda");
+    
+    // Step 2.1: Create a stream for command submission
+    auto stream = device.create_stream();
+    
+    // Step 2.2: Create an 1024x1024 image with 4-channel 8-bit storage for each pixel; the template 
+    //           argument `float` indicates that pixel values reading from or writing to the image
+    //           are converted from `byte4` to `float4` or `float4` to `byte4` automatically
+    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u, 0u);
+    
+    // Step 3.1: Define kernels to describe the device-side computation
+    // 
+    //           A `Callable` is a function *entity* (not directly inlined during 
+    //           the AST recording) that is invocable from kernels or other callables
+    Callable linear_to_srgb = [](Float4 /* alias for Var<float4> */ linear) noexcept {
+        // The DSL syntax is much like the original C++
+        auto x = linear.xyz();
+        return make_float4(
+            select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                   12.92f * x,
+                   x <= 0.00031308f),
+            linear.w);
+    };
+    //           A `Kernel` is an *entry* function to the device workload 
+    Kernel2D fill_image_kernel = [&linear_to_srgb](ImageFloat /* alias for Var<Image<float>> */ image) noexcept {
+        Var coord = dispatch_id().xy();
+        Var rg = make_float2(coord) / make_float2(dispatch_size().xy());
+        image.write(coord, linear_to_srgb(make_float4(rg, 1.0f, 1.0f)));
+    };
+    
+    // Step 3.2: Compile the kernel into a shader (i.e., a runnable object on the device)
+    auto fill_image = device.compile(fill_image_kernel);
+    
+    // Prepare the host memory for holding the image
+    std::vector<std::byte> download_image(1024u * 1024u * 4u);
+    
+    // Step 4: Generate commands from resources and shaders, and
+    //         submit them to the stream to execute on the device
+    stream << fill_image(device_image.view(0)).dispatch(1024u, 1024u)
+           << change_color(device_image.view(0)).dispatch(512u, 512u)
+           << device_image.copy_to(download_image.data())
+           << synchronize();// Step 5: Synchronize the stream
+   
+   // Now, you have the device-computed pixels in the host memory!
+   your_image_save_function("color.png", downloaded_image, 1024u, 1024u, 4u);
+}
+```
 
 
 ## Applications
