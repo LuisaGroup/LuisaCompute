@@ -52,7 +52,7 @@ On the programming interfaces for users, we provide high-level resource wrappers
 
 ### Multiple Backends
 
-Thebackendsarethefinalrealizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
+The backends are the final realizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
 
 Currently, we have 5 backends, including 3 GPU backends based on CUDA, Metal, and DirectX, respectively, a scalar CPU backend on LLVM, and a vectorized CPU backend on ISPC.
 
