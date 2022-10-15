@@ -59,7 +59,7 @@ private:
     // parse from json
     [[nodiscard]] const UnaryExpr *parse_unary_expr(const json &j) const noexcept;
     [[nodiscard]] const BinaryExpr *parse_binary_expr(const json &j) const noexcept;
-    [[nodiscard]] const MemberExpr *parse_member_expr(const json &j) const noexcept;
+    [[nodiscard]] const Expression *parse_member_expr(const json &j) const noexcept;
     [[nodiscard]] const AccessExpr *parse_access_expr(const json &j) const noexcept;
     [[nodiscard]] const LiteralExpr *parse_literal_expr(const json &j) const noexcept;
     [[nodiscard]] const RefExpr *parse_ref_expr(const json &j) const noexcept;
