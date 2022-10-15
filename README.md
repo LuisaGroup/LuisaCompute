@@ -2,15 +2,16 @@
 
 High-performance cross-platform computing framework for graphics and beyond.
 
+LuisaCompute is also the *rendering framework* described in the SIGGRAPH Asia 2022 paper
+> ***LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures***.
+
+See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rendering application* as described in the paper; and please visit the [project page](https://luisa-render.com) for other information about the paper and the project.
+
 ## Building and Running
 
 See [BUILD](BUILD.md).
 
-## Python Frontend
-
-See [README-Python](README_Python.md).
-
-## Roadmap
+## Features
 
 - ✅ Done and fully functional
 - ⚠️ Done but with minor issues
@@ -53,16 +54,13 @@ See [README-Python](README_Python.md).
 | CUDA                   | ✅                                                                                                                                                                                                  | ✅                                                                 |
 | DirectX                | ✅ (simulated `atomic<float>` support)                                                                                                                                                              | ✅                                                                 |
 | Metal                  | ✅ (simulated `atomic<float>` support)                                                                                                                                                              | ⚠️ (acceleration structure compaction disabled due to Metal bugs) |
-| Vulkan                 | 🚧 (will translate to SPIR-V)                                                                                                                                                                      | ⚠️ (needs testing)                                                |
 | ISPC<br />[Deprecated] | ⚠️ (no support for shared memory or `synchonize_block`; compiles very slow; simulated `atomic<float>` support)                                                                                     | ✅                                                                 |
-| LLVM                   | ⚠️ (scalar only; simulated `atomic<float>` and `synchronize_block` support) | ✅                                                                 |
-| Remote                 | ⏩ (forwarded to underlying backends)                                                                                                                                                               | 🚧 (depends on serialization and networking)                      |
+| LLVM                   | ✅ (scalar mode; simulated `atomic<float>` and `synchronize_block` support) | ✅ |
 
 ### Libraries/Applications
 
-- 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git) (support for volumetric rendering, out-of-core tracing
-  and shading, advanced sampling algorithms, custom shading language, Blender/C4D exporters, etc.)
-- 🚧 [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git) (custom shading language support planned)
+- 🚧 [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git)
+- 🚧 [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git)
 
 
 ### Documentation/Tutorials
