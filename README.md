@@ -150,9 +150,9 @@ To make vectors/matrices, we provide `make_*` and read-only swizzle interfaces, 
 ```cpp
 auto a = make_float2();       // (0.f, 0.f)
 auto b = make_int3(1);        // (1,   1,   1)
-auto c = make_uint3(b);       // (1u,  1u,  1u):            converts from a same-dimentional but (possibly) differently typed vector
-auto d = make_float3(a, 1.f); // (0.f, 0.f, 1.f):           construct float3 from float2 and a float scalar
-auto e = d.zzxy();            // (1.f, 1.f, 0.f, 0.f):      swizzle
+auto c = make_uint3(b);       // (1u,  1u,  1u): converts from a same-dimentional but (possibly) differently typed vector
+auto d = make_float3(a, 1.f); // (0.f, 0.f, 1.f): construct float3 from float2 and a float scalar
+auto e = d.zzxy();            // (1.f, 1.f, 0.f, 0.f): swizzle
 auto m = make_float2x2(1.f);  // ((1.f, 0.f,), (0.f, 1.f)): diagonal matrix from a scalar
 ...
 ```
