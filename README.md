@@ -86,6 +86,10 @@ imwrite("mandelbrot.exr", image.numpy())
 
 > ⚠️ The Python frontend is mostly functional but still under active development, possibly with regressions and breaking changes from time to time.
 
+### C API and Frontends in Other Languages
+
+We are also making a C API for creating other language bindings and frontends (e.g., in Rust and C#).
+
 ## Building
 
 > Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is design to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try out a Monte Carlo renderer out of the box rather than building one from the scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
