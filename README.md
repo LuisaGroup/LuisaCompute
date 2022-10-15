@@ -508,16 +508,58 @@ public:
 };
 ```
 
-All resources, shaders, streams, and events are C++ objects with *move* contrutors/assignments and following the *RAII* idiom, i.e., automatically calls the `Device::destroy_*` interfaces when destructed.
+All resources, shaders, streams, and events are C++ objects with *move* contrutors/assignments and following the *RAII* idiom, i.e., automatically calling the `Device::destroy_*` interfaces when destructed.
 
 > ⚠️ Users may need to pay attention not to dangle a resource, e.g., accidentally releases it before the dependent commands finish.
 
 ### Command Submission and Synchronization
 
+LuisaCompute adopts the explicit command-based execution model. Conceptually, commands are description units of atomic computation tasks, such as transferring data between the device and host, or from one resource to another; building meshes and acceleration structures; populating or updating bindless arrays; and most importantly, launching shaders.
+
+Commands are organized into command buffers and then submitted to streams which are essentially queues forwarding commands to the backend devices in a logically first-in-first-out (FIFO) manner.
+
+The resource wrappers provide convenient methods for creating commands, e.g.,
+```cpp
+auto buffer_upload_command   = buffer.copy_from(host_data)
+auto accel_build_command     = accel.build();
+auto shader_dispatch_command = shader(args...).dispatch(n);
+```
+Command buffers are group commands that are submitted together:
+```cpp
+auto command_buffer = stream.command_buffer();
+command_buffer
+    << raytrace_shader(framebuffer, accel, resolution)
+        .dispatch(resolution)
+    << accumulate_shader(accum_image, framebuffer)
+        .dispatch(resolution)
+    << hdr2ldr_shader(accum_image, ldr_image)
+        .dispatch(resolution)
+    << ldr_image.copy_to(host_image.data())
+    << commit(); // the commands are submitted to the stream together on commit()
+```
+
+For convenience, a stream implicitly creates a proxy object, which submit commands in the internal command buffer at the end of statements:
+```cpp
+stream << buffer.copy_from(host_data) // a stream proxy is created on Stream::operator<<()
+       << accel.build()               // consecutive commands are stored in the implicit commad buffer in the proxy object
+       << raytracing(image, accel, i)
+           .dispatch(width, height);  // the proxy object automatically submits the commands at the end of the statement
+```
+
+The backends in LuisaCompute can automatically determine the dependencies between the commands in a command buffer, and re-schedule them into an optimized order to improve hardware ultilization. Therefore, larger command buffers might be preferred for better computation throughput.
+
 <img alt="command scheduling" src="https://user-images.githubusercontent.com/7614925/196001465-2dace78b-5e3b-4b4b-b2c3-f2cd61adc6ff.jpg" align="center" width="60%"/>
 
-
-TODO.
+Multiple streams run concurrently. Therefore, users may require synchronizations between them or with respect to the host via `Event`s, similar to condition variables that ensure ordering across threads:
+```cpp
+auto event = device.create_event();
+stream_a << command_a
+         << event.signal(); // signals an event
+stream_b << event.wait()    // waits until the event signals
+         << command_b;      // will be executed after the event signals
+         << event.signal(); // signals again
+event.synchronize();        // blocks until the event signals
+```
 
 ## Applications
 
