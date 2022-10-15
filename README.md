@@ -12,11 +12,79 @@ See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rende
 ## Overview
 
 LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***unification***, ***programmability***, and ***performance***. To achieve this goal, we design three major components:
-- A DSL embedded inside modern C++ for kernel programming exploiting JIT code generation and compilation;
-- A unified runtime for cross-platform resource management and command scheduling; and
+- A domain-specific language (DSL) embedded inside modern C++ for kernel programming exploiting JIT code generation and compilation;
+- A unified runtime with resource wrappers for cross-platform resource management and command scheduling; and
 - Multiple optimized backends, including CUDA, DirectX, Metal, LLVM, and ISPC.
 
 To demonstrate the practicality of the system, we build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is 5–11× faster than [PBRT-v4](https://github.com/mmp/pbrt-v4) and 4–16× faster than [Mitsuba 3](https://github.com/mitsuba-renderer/mitsuba3) on modern GPUs.
+
+### Embedded Domain-Specific Language
+
+The DSL in our system provides a unified approach to authoring kernels, i.e., programmable computation tasks on the device. Distinct from typical graphics APIs that use standalone shading languages for device code, our system unifies the authoring of both the host-side logic and device-side kernels into the same language, i.e., modern C++.
+
+The implementation purely relies on the C++ language itself, without any custom preprocessing pass or compiler extension. We exploit meta-programming techniques to simulate the syntax, and function/operator overloading to dynamically trace the user-defined kernels. ASTs are constructed during the tracing as an intermediate representation and later handed over to the backends for generating concrete, platform-dependent shader source code.
+
+Example program in the embedded DSL:
+```cpp
+Callable to_srgb = [](Float3 x) {
+    $if (x <= 0.00031308f) {
+        x = 12.92f * x;
+    } $else {
+        x = 1.055f * pow(x, 1.f / 2.4f) - .055f;
+    };
+    return x;
+};
+Kernel2D fill = [&](ImageFloat image) {
+    auto coord = dispatch_id().xy();
+    auto size = make_float2(dispatch_size().xy());
+    auto rg = make_float2(coord) / size;
+    // invoke the callable
+    auto srgb = to_srgb(make_float3(rg, 1.f));
+    image.write(coord, make_float4(srgb, 1.f));
+};
+```
+
+### Unified Runtime with Resource Wrappers
+
+Likewise the RHIs in game engines, we introduce an abstract runtime layer to re-unify the fragmented graphics APIs across platforms. It extracts the common concepts and constructs shared by the backend APIs and plays the bridging role between the high-level frontend interfaces and the low-level backend implementations.
+
+On the programming interfaces for users, we provide high-level resource wrappers to ease programming and eliminate boilerplate code. They are strongly and statically typed modern C++ objects, which not only simplify the generation of commands via convenient member methods but also support close interaction with the DSL. Moreover, with the resource usage information in kernels and commands, the runtime automatically probes the dependencies between commands and re-schedules them to improve hardware utilization.
+
+### Multiple Backends
+
+Thebackendsarethefinalrealizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
+
+Currently, we have 5 backends, including 3 GPU backends based on CUDA, Metal, and DirectX, respectively, a scalar CPU backend on LLVM, and a vectorized CPU backend on ISPC.
+
+### Python Frontend
+
+Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend. See [README_Python.md](README_Python.md) (in Chinese; we are translating it to English) for more information. Examples using the Python frontend can be found under `src/py`.
+
+Example program with the Python frontend:
+```python
+import luisa
+from luisa.mathtypes import *
+from cv2 import imwrite
+
+n = 2048
+luisa.init()
+image = luisa.Texture2D.zeros((2 * n, n), 4, float)
+
+@luisa.func # makes LuisaRender handle the function
+def draw(max_iter):
+    p = dispatch_id().xy
+    z, c = float2(0), 2 * p / n - float2(2, 1)
+    for itr in range(max_iter):
+        z = float2(z.x**2 - z.y**2, 2 * z.x * z.y) + c
+        if length(z) > 20:
+            break
+    image.write(p, float4(float3(1 - itr/max_iter), 1))
+
+draw(50, dispatch_size=(2*n, n)) # parallelize
+imwrite("mandelbrot.exr", image.numpy())
+```
+
+> ⚠️ The Python frontend is mostly functional but still under active development, possibly with regressions and breaking changes from time to time.
 
 ## Building
 
@@ -122,7 +190,7 @@ int main(int argc, char *argv[]) {
 
 ### Basic Types
 
-In addition to standard C++ scalar types (e.g., `int`, `uint` --- our alias for `uint32_t`, `float`, and `bool`), LuisaCompute provides vector/matrix types for 3D graphics, including the following types:
+In addition to standard C++ scalar types (e.g., `int`, `uint` --- alias of `uint32_t`, `float`, and `bool`), LuisaCompute provides vector/matrix types for 3D graphics, including the following types:
 ```cpp
 // boolean vectors
 using bool2 = Vector<bool, 2>;   // alignment: 2B
@@ -245,9 +313,205 @@ For the DSL, we provide a rich set of built-in functions, in the following categ
 - Variable construction and type conversion, e.g., the aforementioned `make_*`, `cast<T>` for static type casting, and `as<T>` for bitwise type casting; and
 - Optimization hints for backend compilers, which currently consist of `assume` and `unreachable`.
 
+The mathematical functions basically mirrors [GLSL](https://www.khronos.org/opengl/wiki/Core_Language_(GLSL)). We are working on the documentations that will provide more descriptions on them.
+
+### Control Flows
+
+The DSL in LuisaCompute supports device-side control flows. They are provided as special macros prefixed with `$`:
+```cpp
+$if (cond) { /*...*/ };
+$if (cond) { /*...*/ } $else { /*...*/ };
+$if (cond) { /*...*/ } $elif (cond2) { /*...*/ };
+$if (cond) { /*...*/ } $elif (cond2) { /*...*/ } $else { /*...*/ };
+
+$while (cond) { /*...*/ };
+$for (variable, n) { /*...*/ };
+$for (variable, begin, end) { /*...*/ };
+$for (variable, begin, end, step) { /*...*/ };
+$loop { /*...*/ }; // infinite loop, unless $break'ed
+
+$switch (variable) {
+    $case (value) { /*...*/ };
+    $default { /*...*/ };  // no $break needed, as we automatically add one
+};
+
+$break;
+$continue;
+```
+
+Note that users are still able to use the *native* C++ control flows, i.e., `if`, `while`, etc. *without* the `$` prefix. In that case the *native* control flows acts like a *meta-stage* to the DSL that directly controls the generation of the callables/kernels. This can be a powerful means to achieve *multi-stage programming* patterns. Such usages can be found throughout [LuisaRender](https://github.com/LuisaGroup/LuisaRender). We will cover such usage in the tutorials in the future.
+
+### Callable and Kernels 
+
+LuisaCompute supports two categories of device functions: `Kernel`s (`Kernel1D`, `Kernel2D`, or `Kernel3D`) and `Callable`s. Kernels are entries to the parallelized computation tasks on the device (equivelant to CUDA's `__global__` functions). Callables are function objects invocable from kernels or other callables (i.e., like CUDA's `__device__` functions). Both kinds are template classes that are constructible from C++ functions or function objects including lambda expressions:
+
+```cpp
+// Define a callable from a lambda expression
+Callable add_one = [](Float x) { return x + 1.f; };
+
+// A callable may invoke another callable
+Callable add_two = [&add_one](Float x) {
+    add_one(add_one(x));
+};
+
+// A callable may use captured device resources or resources in the argument list
+auto buffer = device.create_buffer<float>(...);
+Callable copy = [&buffer](BufferFloat buffer2, UInt index) {
+    auto x = buffer.read(index); // use captured resource
+    buffer2.write(index, x);     // use declared resource in the argument list
+};
+
+// Define a 1D kernel from a lambda expression
+Kernel1D add_one_and_some = [&buffer, &add_one](Float some, BufferFloat out) {
+    auto index = dispatch_id().x;    // query thread index in the whole grid with built-in dispatch_id()
+    auto x = buffer.read(index);     // use resource through capturing
+    auto result = add_one(x) + some; // invoke a callable
+    out.write(index, result);        // use resource in the argument list
+};
+```
+
+> ⚠️ Note that parameters of the definition functions for callables and kernels must be `Var<T>` or `Var<T> &` (or their aliases).
+
+Kernels can be compiled into shaders by the device, in a blocking or asynchronous fashion:
+```cpp
+auto some_shader    = device.compile(some_kernel);          // blocking
+auto another_shader = device.compile_async(another_kernel); // asynchronous, returns std::shared_future<Shader>
+```
+
+Most backends supports caching the compiled shaders to accelerate future compilations of the same shader. The cache files are at `<build-folder>/bin/.cache`.
+
+### Backends, Context, Devices, and Resources
+
+LuisaCompute currently supports 5 backends:
+- CUDA
+- DirectX
+- Metal
+- ISPC
+- LLVM
+
+More backends might be added in the future. A device backend is implemented as a plug-in, all of which follow the `luisa-compute-backend-<name>` naming convention and are placed under `<build-folder>/bin`.
+
+The `Context` object is responsible for loading and managing these plug-ins and create/destroy devices. Users have to pass the executable path (typically, `argv[0]`) or the runtime directory to a context's constructor (so that it's able to locate the plug-ins), and pass the backend name to create the corresponding device object.
+```cpp
+int main(int argc, char *argv[]) {
+    Context context{argv[0]};
+    auto device = context.create_device("cuda");
+    /* ... */
+}
+```
+
+> ⚠️ Creating multiple devices inside the same application is allowed. However, the resources are not shared across devices. Doing so would lead to undefined behaviors.
+
+
+The device object provides methods for backend-specific operations, typicall, creating resources. LuisaCompute supports the following rousource types:
+
+- `Buffer<T>`s, which are linear memory ranges on the device for structured data storage;
+- `Image<T>`s and `Volume<T>`s, which are 2D/3D textures of scalars or vectors readable and writable from the shader, possibly with hardware-accelerated caching and format conversion;
+- `BindlessArray`s, which provide slots for references to buffers and textures (`Image`s or `Volume`s bound with texture samplers, read-only in the shader), helpful for reducing the overhead and bypassing the limitations of binding shader parameters;
+- `Mesh`es and `Accel`s (short for acceleration structures) for high-performance ray intersection tests, with hardware acceleration if available (e.g., on graphics cards that feature RT-Cores);
+
+Devices are also responsible for
+- Creating `Stream`s and `Event`s (the former are for command submission and the latter are for host-stream and stream-stream synchronization); and 
+- Compiling kernels into shaders, as introduced before.
+
+Synopsis of the public interfaces in `class Device`:
+```cpp
+class Device {
+/* ... */
+public:
+    [[nodiscard]] Stream create_stream(bool for_present = false) noexcept;// see definition in runtime/stream.cpp
+    [[nodiscard]] Event create_event() noexcept;                          // see definition in runtime/event.cpp
+
+    [[nodiscard]] SwapChain create_swapchain(
+        uint64_t window_handle, const Stream &stream, uint2 resolution,
+        bool allow_hdr = true, uint back_buffer_count = 1) noexcept;
+
+    template<typename VBuffer, typename TBuffer>
+    [[nodiscard]] Mesh create_mesh(
+        VBuffer &&vertices, TBuffer &&triangles,
+        AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
+                                                                                                // see definition in rtx/mesh.h
+    [[nodiscard]] Accel create_accel(AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
+    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
+
+    template<typename T>
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
+        return _create<Image<T>>(pixel, make_uint2(width, height), mip_levels);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u) noexcept {
+        return _create<Image<T>>(pixel, size, mip_levels);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
+        return _create<Volume<T>>(pixel, make_uint3(width, height, depth), mip_levels);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u) noexcept {
+        return _create<Volume<T>>(pixel, size, mip_levels);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto create_buffer(size_t size) noexcept {
+        return _create<Buffer<T>>(size);
+    }
+
+    template<size_t N, typename... Args>
+    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
+        return _create<Shader<N, Args...>>(kernel.function(), meta_options);
+    }
+
+    template<size_t N, typename... Args>
+    [[nodiscard]] auto compile_async(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
+        return ThreadPool::global().async([this, f = kernel.function(), opt = luisa::string{meta_options}] {
+            return _create<Shader<N, Args...>>(f, opt);
+        });
+    }
+
+    // clang-format off
+    template<size_t N, typename Func>
+        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
+    [[nodiscard]] auto compile(Func &&f, std::string_view meta_options = {}) noexcept {
+        if constexpr (N == 1u) {
+            return compile(Kernel1D{std::forward<Func>(f)});
+        } else if constexpr (N == 2u) {
+            return compile(Kernel2D{std::forward<Func>(f)});
+        } else if constexpr (N == 3u) {
+            return compile(Kernel3D{std::forward<Func>(f)});
+        } else {
+            static_assert(always_false_v<Func>, "Invalid kernel dimension.");
+        }
+    }
+    template<size_t N, typename Func>
+        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
+    [[nodiscard]] auto compile_async(Func &&f, std::string_view meta_options = {}) noexcept {
+        if constexpr (N == 1u) {
+            return compile_async(Kernel1D{std::forward<Func>(f)});
+        } else if constexpr (N == 2u) {
+            return compile_async(Kernel2D{std::forward<Func>(f)});
+        } else if constexpr (N == 3u) {
+            return compile_async(Kernel3D{std::forward<Func>(f)});
+        } else {
+            static_assert(always_false_v<Func>, "Invalid kernel dimension.");
+        }
+    }
+};
+```
+
+All resources, shaders, streams, and events are C++ objects with *move* contrutors/assignments and following the *RAII* idiom, i.e., automatically calls the `Device::destroy_*` interfaces when destructed.
+
+> ⚠️ Users may need to pay attention not to dangle a resource, e.g., accidentally releases it before the dependent commands finish.
+
+### Command Submission and Synchronization
+
+TODO.
+
 ## Applications
 
-We implement several proof-of-concept examples in tree under `src/examples`. Besides, you may also found the following applications interesting:
+We implement several proof-of-concept examples in tree under `src/tests` (sorry for the misleading naming; they are also test programs we used during the development). Besides, you may also found the following applications interesting:
 
 - [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git), a high-performance cross-platform Monte Carlo renderer.
 - [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git), a collection of amazing shaders ported from [Shadertoy](https://www.shadertoy.com).
