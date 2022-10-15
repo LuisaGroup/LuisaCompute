@@ -414,6 +414,9 @@ The device object provides methods for backend-specific operations, typicall, cr
 - `BindlessArray`s, which provide slots for references to buffers and textures (`Image`s or `Volume`s bound with texture samplers, read-only in the shader), helpful for reducing the overhead and bypassing the limitations of binding shader parameters;
 - `Mesh`es and `Accel`s (short for acceleration structures) for high-performance ray intersection tests, with hardware acceleration if available (e.g., on graphics cards that feature RT-Cores);
 
+<img alt="hardware_resources" src="https://user-images.githubusercontent.com/7614925/196001295-a5407f09-77a0-461a-ab23-ab768ddc08e9.jpg" align="center" width="65%"/>
+
+
 Devices are also responsible for
 - Creating `Stream`s and `Event`s (the former are for command submission and the latter are for host-stream and stream-stream synchronization); and 
 - Compiling kernels into shaders, as introduced before.
@@ -510,6 +513,9 @@ All resources, shaders, streams, and events are C++ objects with *move* contruto
 > ⚠️ Users may need to pay attention not to dangle a resource, e.g., accidentally releases it before the dependent commands finish.
 
 ### Command Submission and Synchronization
+
+<img alt="command scheduling" src="https://user-images.githubusercontent.com/7614925/196001465-2dace78b-5e3b-4b4b-b2c3-f2cd61adc6ff.jpg" align="center" width="60%"/>
+
 
 TODO.
 
