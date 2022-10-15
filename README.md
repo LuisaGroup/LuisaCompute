@@ -28,25 +28,6 @@ See [BUILD](BUILD.md).
 | C API                          | ⌛ (for easy bindings in other languages)   |
 | Custom Script/Shading Language | ⌛                                          |
 
-### AST/IR
-
-| Module   | Status                                                            |
-|----------|-------------------------------------------------------------------|
-| AST      | ✅                                                                 |
-| IR       | 🚧 (inter-convertibility with the AST; maybe optimization passes) |
-| AutoDiff | ⌛ (reverse mode; transformation passes on the IR)                 |
-
-### Runtime
-
-| Module             | Status                                                                                                              |
-|--------------------|---------------------------------------------------------------------------------------------------------------------|
-| Device Interface   | 🚧 (re-designing bindless resource APIs; support for device property query; support for device-specific extensions) |
-| Command            | 🚧 (re-designing bindless resource commands; serialization)                                                         |
-| Command Scheduling | ✅                                                                                                                   |
-| Interoperability   | 🚧 (complete support for `native_handle` in progress; registration of external resources)                           |
-| GUI Support        | 🚧 (re-designing swap-chain APIs)                                                                                   |
-| AOT Support        | ⌛ (PSO caching and thin runtime)                                                                                    |
-
 ### Backends
 
 | Implementation         | Codegen Status                                                                                                                                                                                     | Runtime Status                                                    |
