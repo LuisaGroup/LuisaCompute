@@ -572,7 +572,7 @@ We implement several proof-of-concept examples in tree under `src/tests` (sorry 
 
 ## Documentation/Tutorials
 
-Sorry that we are still working on them. Currently, we would recommand reading the original [paper](https://luisa-render.com) and learning through the examples.
+Sorry that we are still working on them. Currently, we would recommand reading the original [paper](https://luisa-render.com) and learning through the examples and applications.
 
 If you have any problem or suggestion, please just feel free to open an [issue](https://github.com/LuisaGroup/LuisaCompute/issues) or start a [discussion](https://github.com/LuisaGroup/LuisaCompute/discussions). We are very happy to hear from you!
 
