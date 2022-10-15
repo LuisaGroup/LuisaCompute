@@ -234,7 +234,7 @@ LUISA_STRUCT(foo::S, a, b) {
 };
 ```
 
-> ⚠️ The `LUISA_STRUCT` may only be used in the global namespace. The C++ structure to be exported may only contain scalar, vector, matrix, array, and other already exported structure types.
+> ⚠️ The `LUISA_STRUCT` may only be used in the global namespace. The C++ structure to be exported may only contain scalar, vector, matrix, array, and other already exported structure types. The alignment of the *whole* structure specified with `alignas` will be reflected but must be under 16B; member alignments specified with `alignas` are not supported.
 
 ### Built-in Functions
 
