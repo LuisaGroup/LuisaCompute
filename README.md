@@ -216,7 +216,7 @@ using float3x3 = Matrix<3>;      // column-major, alignment: 16B
 using float4x4 = Matrix<4>;      // column-major, alignment: 16B
 ```
 
-> ⚠️ Please pay attention to the alignment of 3D vectors and matrices --- they are aligned like 4D ones rather than packed. Also, we do not provide 64-bit integer or floating pointer vector/matrix types, as they are less useful and typically unsupported on GPUs.
+> ⚠️ Please pay attention to the alignment of 3D vectors and matrices --- they are aligned like 4D ones rather than packed. Also, we do not provide 64-bit integer or floating-point vector/matrix types, as they are less useful and typically unsupported on GPUs.
 
 To make vectors/matrices, we provide `make_*` and read-only swizzle interfaces, e.g.,
 ```cpp
