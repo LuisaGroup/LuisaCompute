@@ -395,7 +395,7 @@ LuisaCompute currently supports 5 backends:
 - ISPC
 - LLVM
 
-More backends might be added in the future. A device backend is implemented as a plug-in, all of which follow the `luisa-compute-backend-<name>` naming convention and are placed under `<build-folder>/bin`.
+More backends might be added in the future. A device backend is implemented as a plug-in, which follows the `luisa-compute-backend-<name>` naming convention and is placed under `<build-folder>/bin`.
 
 The `Context` object is responsible for loading and managing these plug-ins and create/destroy devices. Users have to pass the executable path (typically, `argv[0]`) or the runtime directory to a context's constructor (so that it's able to locate the plug-ins), and pass the backend name to create the corresponding device object.
 ```cpp
