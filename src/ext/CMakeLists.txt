@@ -6,6 +6,7 @@ add_custom_target(luisa-compute-ext-copy ALL
         COMMENT "Copy necessary files for third-party libraries")
 add_dependencies(luisa-compute-ext-copy luisa-compute-ext)
 
+
 set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
 set(SPDLOG_NO_EXCEPTIONS ON CACHE BOOL "" FORCE)
@@ -20,6 +21,7 @@ target_compile_definitions(spdlog_header_only INTERFACE
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
 target_link_libraries(luisa-compute-ext PUBLIC spdlog::spdlog_header_only)
+
 
 add_library(xxhash INTERFACE)
 target_include_directories(xxhash INTERFACE xxHash)
@@ -77,28 +79,36 @@ if (LUISA_COMPUTE_ENABLE_PYTHON)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
-    set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
-    set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
-    set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
-    set(EMBREE_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
-    set(EMBREE_RAY_MASK OFF CACHE BOOL "" FORCE)
-    set(EMBREE_BACKFACE_CULLING OFF CACHE BOOL "" FORCE)
-    set(EMBREE_FILTER_FUNCTION OFF CACHE BOOL "" FORCE)
-    set(EMBREE_IGNORE_INVALID_RAYS ON CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_QUAD OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_CURVE OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_SUBDIVISION OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_USER OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_GRID OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_POINT OFF CACHE BOOL "" FORCE)
-    set(EMBREE_COMPACT_POLYS ON CACHE BOOL "" FORCE)
-    set(EMBREE_ISPC_SUPPORT OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_SSE42 OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_AVX OFF CACHE BOOL "" FORCE)
-    set(EMBREE_MAX_ISA "NONE" CACHE STRING "" FORCE)
-    set(CMAKE_CXX_STANDARD 11)
-    add_subdirectory(embree)
+    set(EMBREE_TASKING_SYSTEM "INTERNAL" CACHE STRING "" FORCE)
+    find_package(embree 3 CONFIG QUIET)
+    if (embree_FOUND)
+        message(STATUS "Found embree: ${embree_VERSION}")
+    else ()
+        set(LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION "3.13.5")
+        file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/embree)
+        message(STATUS "Downloading embree ${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}...")
+        include(FetchContent)
+        if (WIN32)
+            FetchContent_Declare(embree_binary
+                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x64.vc14.windows.zip")
+        elseif (APPLE)
+            FetchContent_Declare(embree_binary
+                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x86_64.macosx.zip")
+        else ()# Linux
+            FetchContent_Declare(embree_binary
+                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
+        endif ()
+        FetchContent_MakeAvailable(embree_binary)
+        FetchContent_GetProperties(embree_binary)
+        # patch embree
+        message(STATUS "Patching embree-config.cmake...")
+        file(READ "${embree_binary_SOURCE_DIR}/lib/cmake/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-config.cmake" EMBREE_CONFIG)
+        string(REPLACE "FIND_PACKAGE(TBB REQUIRED \${EMBREE_TBB_COMPONENT})" "" EMBREE_CONFIG "${EMBREE_CONFIG}")
+        file(WRITE "${embree_binary_SOURCE_DIR}/lib/cmake/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-config.cmake" "${EMBREE_CONFIG}")
+        message(STATUS "Downloaded embree: ${embree_binary_SOURCE_DIR}")
+        set(embree_ROOT ${embree_binary_SOURCE_DIR})
+        find_package(embree 3 CONFIG REQUIRED)
+    endif ()
     target_link_libraries(luisa-compute-ext PUBLIC embree)
     add_custom_command(TARGET luisa-compute-ext-copy
             DEPENDS "$<TARGET_FILE:embree>"

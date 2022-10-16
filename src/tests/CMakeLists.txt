@@ -52,27 +52,42 @@ target_link_libraries(test_command_reorder PRIVATE luisa::compute)
 add_executable(test_command_schedule test_command_schedule.cpp)
 target_link_libraries(test_command_schedule PRIVATE luisa::compute)
 
-add_executable(test_photon_mapping test_photon_mapping.cpp)
-target_link_libraries(test_photon_mapping PRIVATE luisa::compute)
-
 if (LUISA_COMPUTE_ENABLE_GUI)
+
+    add_executable(test_photon_mapping test_photon_mapping.cpp)
+    target_link_libraries(test_photon_mapping PRIVATE luisa::compute)
+
     add_executable(test_shader_toy test_shader_toy.cpp)
     target_link_libraries(test_shader_toy PRIVATE luisa::compute)
+
     add_executable(test_path_tracing test_path_tracing.cpp)
     target_link_libraries(test_path_tracing PRIVATE luisa::compute)
+
     add_executable(test_path_tracing_buffer test_path_tracing_buffer.cpp)
     target_link_libraries(test_path_tracing_buffer PRIVATE luisa::compute)
+
     add_executable(test_normal_encoding test_normal_encoding.cpp)
     target_link_libraries(test_normal_encoding PRIVATE luisa::compute)
+
     add_executable(test_mpm88 test_mpm88.cpp)
     target_link_libraries(test_mpm88 PRIVATE luisa::compute)
+
     add_executable(test_mpm3d test_mpm3d.cpp)
     target_link_libraries(test_mpm3d PRIVATE luisa::compute)
+
+    add_executable(test_radiative_bp test_radiative_bp.cpp)
+    target_link_libraries(test_radiative_bp PRIVATE luisa::compute)
+
+    add_executable(test_image_byte4 test_image_byte4.cpp)
+    target_link_libraries(test_image_byte4 PRIVATE luisa::compute)
+
     if (APPLE)
         add_executable(test_shader_toy_present test_shader_toy_present.cpp)
         target_link_libraries(test_shader_toy_present PRIVATE luisa::compute)
+
         add_executable(test_shader_visuals_present test_shader_visuals_present.cpp)
         target_link_libraries(test_shader_visuals_present PRIVATE luisa::compute)
+
         add_executable(test_path_tracing_present test_path_tracing_present.cpp)
         target_link_libraries(test_path_tracing_present PRIVATE luisa::compute)
     endif ()
@@ -91,14 +106,3 @@ if (OpenCV_FOUND)
     add_executable(test_sdf_renderer_multidev test_sdf_renderer_multidev.cpp)
     target_link_libraries(test_sdf_renderer_multidev PRIVATE luisa::compute ${OpenCV_LIBS})
 endif ()
-
-if (LUISA_COMPUTE_ENABLE_VULKAN)
-    add_executable(test_playground test_playground.cpp)
-    target_link_libraries(test_playground PRIVATE luisa::compute)
-endif ()
-
-add_executable(test_radiative_bp test_radiative_bp.cpp)
-target_link_libraries(test_radiative_bp PRIVATE luisa::compute)
-
-add_executable(test_image_byte4 test_image_byte4.cpp)
-target_link_libraries(test_image_byte4 PRIVATE luisa::compute)
