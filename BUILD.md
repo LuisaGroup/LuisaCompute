@@ -33,7 +33,7 @@
 - LLVM
     - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
     - LLVM 13+ with the corresponding targets and features enabled
-      - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_DIR=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
+      - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_ROOT=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
 
 ### Python
 
