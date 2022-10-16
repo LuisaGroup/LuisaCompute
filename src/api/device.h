@@ -87,6 +87,8 @@ typedef struct LCDeviceInterface {
     uint64_t (*create_shader)(struct LCDeviceInterface *self, void * kernel, const char *meta_options);
     void (*destroy_shader)(struct LCDeviceInterface *self, uint64_t handle);
 
+    uint64_t (*create_shader_ex)(struct LCDeviceInterface *self, void * kernel);
+    void (*dispatch_shader_ex)(struct LCDeviceInterface *self, uint64_t shader_handle, void *args);
     // event
     // [[nodiscard]] virtual uint64_t create_event() noexcept = 0;
     // virtual void destroy_event(uint64_t handle) noexcept = 0;

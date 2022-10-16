@@ -154,7 +154,10 @@ public:
         virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
         // For debugging IR only
-        [[nodiscard]] virtual uint64_t create_shader2(Function kernel, std::string_view meta_options) noexcept  {
+        [[nodiscard]] virtual uint64_t create_shader_ex(void* kernel) noexcept  {
+            LUISA_ERROR_WITH_LOCATION("Should not be called.");
+        }
+        [[nodiscard]] virtual void dispatch_shader_ex(uint64_t handle, void * args) noexcept {
             LUISA_ERROR_WITH_LOCATION("Should not be called.");
         }
 
