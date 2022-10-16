@@ -33,7 +33,7 @@
 - LLVM
     - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
     - LLVM 13+ with the corresponding targets and features enabled
-      - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; use CMake flags like `-D LLVM_DIR=/usr/lib/llvm-14` to specify the LLVM installation directory if you have LLVM 15 installed
+      - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_ROOT=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
 
 ### Python
 
@@ -64,11 +64,12 @@ of linking object files into shared libraries.
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
 
-> Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree. 
-> Therefore, if you would like to enable the CUDA backend, you will need to manually copy the OptiX header
-> files to `src/backends/cuda/optix` *before* configuration and building, so that the folder *directly*
-> contains `optix.h`. The default location of OptiX is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include`
->  on Windows, and `/home/<user-name>/OptiX_.../include` on Linux.
+Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree. 
+Therefore, if you would like to enable the CUDA backend, you will need to either
+- Manually copy the OptiX header files under `<optix-installation>/include` to `src/backends/cuda/optix` (so that the folder *directly* contains `optix.h`); or
+- Specify the OptiX installation directory with `-D OptiX_DIR=<optix-installation>`
+
+*before* configuration and building. The default location of the OptiX installation is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and `/home/NVIDIA-OptiX-SDK-7.x.0-linux64-x86_64/include` on Linux.
 
 ## Build Commands
 

@@ -125,16 +125,16 @@ LuisaCompute follows the standard CMake build process. Basically these steps:
 - Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+. Note that if you would like to enable the CUDA backend, [OptiX](https://developer.nvidia.com/designworks/optix/download) is required. For some tests like the toy path tracer, [OpenCV](opencv.org) is also required.
 
 - Clone the repo with the `--recursive` option:
-```bash
-git clone --recursive https://github.com/LuisaGroup/LuisaCompute.git
-```
-Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required. Also, as we are not allowed to provide the OptiX headers in tree, you have to copy them from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`. We apologize for this inconvenience.
+    ```bash
+    git clone --recursive https://github.com/LuisaGroup/LuisaCompute.git
+    ```
+    Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required. Also, as we are not allowed to provide the OptiX headers in tree, so you have to either specify `-D OptiX_DIR=<optix-installation>` during CMake configuration or manually copy the headers from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`.
 
 - Configure the project using CMake. E.g., for command line, `cd` into the project folder and type `cmake -S . -B <build-folder>`. You might also want to specify your favorite generators and build types using options like `-G Ninja` and `-D CMAKE_BUILD_TYPE=Release`. A typical, full command sequence for this would be like
-```bash
-cd LuisaCompute
-cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
-```
+    ```bash
+    cd LuisaCompute
+    cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
+    ```
 
 - If the configuration succeeds, you are now able to build the project. Type `cmake --build <build-folder>` in the command line, or push the build button if you generated, e.g., a VS project. (And in case the configuration step unluckily failed :-(, please file an [issue](https://github.com/LuisaGroup/LuisaCompute/issues)). 
 
@@ -463,7 +463,7 @@ public:
     [[nodiscard]] Mesh create_mesh(
         VBuffer &&vertices, TBuffer &&triangles,
         AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
-                                                                                                // see definition in rtx/mesh.h
+        
     [[nodiscard]] Accel create_accel(AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
 
