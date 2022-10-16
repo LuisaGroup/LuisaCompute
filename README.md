@@ -112,7 +112,7 @@ imwrite("mandelbrot.exr", image.numpy())
 
 ### C API and Frontends in Other Languages
 
-We are also making a C API for creating other language bindings and frontends (e.g., in Rust and C#).
+We are also making a C API for creating other language bindings and frontends (e.g., in [Rust](https://github.com/LuisaGroup/luisa-compute-rs) and C#).
 
 ## Building
 
