@@ -93,10 +93,10 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
                     URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x64.vc14.windows.zip")
         elseif (APPLE)
             FetchContent_Declare(embree_binary
-                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
-        else ()
-            FetchContent_Declare(embree_binary
                     URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x86_64.macosx.zip")
+        else ()# Linux
+            FetchContent_Declare(embree_binary
+                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
         endif ()
         FetchContent_MakeAvailable(embree_binary)
         FetchContent_GetProperties(embree_binary)
