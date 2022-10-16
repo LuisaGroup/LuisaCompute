@@ -92,7 +92,7 @@ We are also making a C API for creating other language bindings and frontends (e
 
 ## Building
 
-> Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is design to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try out a Monte Carlo renderer out of the box rather than building one from the scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
+> Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is designed to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try out a Monte Carlo renderer out of the box rather than building one from the scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
 
 LuisaCompute follows the standard CMake build process. Basically these steps:
 
