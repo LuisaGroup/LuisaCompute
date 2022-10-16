@@ -342,3 +342,6 @@ doxygen_output
 *.ll
 *.bc
 *.S
+
+
+src/ir/luisa-compute-ir/target/**

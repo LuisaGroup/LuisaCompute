@@ -15,6 +15,9 @@
   - libxi-dev
 - On macOS with M1, you need to install `embree` since a pre-built binary is not provided by the official embree repo. We recommend using [Homebrew](https://brew.sh/) to install it. You can install it by running `brew install embree`.
 
+### Rust (IR module / Rust frontend)
+- Rust 1.56+ (latest stable version is recommended)
+
 ### Backends
 
 - CUDA
