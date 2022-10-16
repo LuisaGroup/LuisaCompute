@@ -43,7 +43,7 @@ jobs:
       - name: "Configure and Build"
         run: |
           export PATH=$PATH:/usr/local/opt/llvm/bin
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D LUISA_COMPUTE_ENABLE_METAL=OFF -D CMAKE_C_COMPILER=clang-14 -D CMAKE_CXX_COMPILER=clang++-14
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D LUISA_COMPUTE_ENABLE_METAL=OFF -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++
           cmake --build build
 
   build-windows:

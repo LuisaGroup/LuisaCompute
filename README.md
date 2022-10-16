@@ -463,7 +463,7 @@ public:
     [[nodiscard]] Mesh create_mesh(
         VBuffer &&vertices, TBuffer &&triangles,
         AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
-                                                                                                // see definition in rtx/mesh.h
+        
     [[nodiscard]] Accel create_accel(AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
 
