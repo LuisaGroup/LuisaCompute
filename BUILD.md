@@ -32,7 +32,8 @@
     - Apple M1 chips are recommended (older GPUs are probably supported but not tested)
 - LLVM
     - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
-    - LLVM 12+ with the corresponding targets and features enabled
+    - LLVM 13+ with the corresponding targets and features enabled
+      - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; use CMake flags like `-D LLVM_DIR=/usr/lib/llvm-14` to specify the LLVM installation directory if you have LLVM 15 installed
 
 ### Python
 
