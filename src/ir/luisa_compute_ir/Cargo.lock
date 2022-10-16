@@ -167,7 +167,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "luisa-compute-ir"
+name = "luisa_compute_ir"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
