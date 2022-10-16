@@ -9,6 +9,30 @@ LuisaCompute is also the *rendering framework* described in the **SIGGRAPH Asia 
 
 See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rendering application* as described in the paper; and please visit the [project page](https://luisa-render.com) for other information about the paper and the project.
 
+## Table of Contents
+
+* [Overview](#overview)
+  + [Embedded Domain-Specific Language](#embedded-domain-specific-language)
+  + [Unified Runtime with Resource Wrappers](#unified-runtime-with-resource-wrappers)
+  + [Multiple Backends](#multiple-backends)
+  + [Python Frontend](#python-frontend)
+  + [C API and Frontends in Other Languages](#c-api-and-frontends-in-other-languages)
+* [Building](#building)
+* [Usage](#usage)
+  + [A Minimal Example](#a-minimal-example)
+  + [Basic Types](#basic-types)
+  + [Structures](#structures)
+  + [Built-in Functions](#built-in-functions)
+  + [Control Flows](#control-flows)
+  + [Callable and Kernels](#callable-and-kernels)
+  + [Backends, Context, Devices, and Resources](#devices-and-resources)
+  + [Command Submission and Synchronization](#command-submission-and-synchronization)
+* [Applications](#applications)
+* [Documentation and Tutorials](#documentation-and-tutorials)
+* [Roadmap](#roadmap)
+* [Citation](#citation)
+
+
 ## Overview
 
 LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***unification***, ***programmability***, and ***performance***. To achieve this goal, we design three major components:
@@ -386,7 +410,7 @@ auto another_shader = device.compile_async(another_kernel); // asynchronous, ret
 
 Most backends supports caching the compiled shaders to accelerate future compilations of the same shader. The cache files are at `<build-folder>/bin/.cache`.
 
-### Backends, Context, Devices, and Resources
+### Backends, Context, Devices and Resources<a name="devices-and-resources"/>
 
 LuisaCompute currently supports 5 backends:
 - CUDA
@@ -572,7 +596,7 @@ We implement several proof-of-concept examples in tree under `src/tests` (sorry 
 - [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git), a high-performance cross-platform Monte Carlo renderer.
 - [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git), a collection of amazing shaders ported from [Shadertoy](https://www.shadertoy.com).
 
-## Documentation/Tutorials
+## Documentation and Tutorials
 
 Sorry that we are still working on them. Currently, we would recommand reading the original [paper](https://luisa-render.com) and learning through the examples and applications.
 
