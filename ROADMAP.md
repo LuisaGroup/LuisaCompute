@@ -15,7 +15,7 @@ We list some of the (possible) future work here. If you have any ideas and sugge
 |--------------------------------|---------------------------------------------|
 | C++                            | ✅                                          |
 | Python                         | ⚠️ (no support for polymorphic constructs)  |
-| Rust                           | 🚧 (powerful constructs using proc-macro)   |
+| [Rust](https://github.com/LuisaGroup/luisa-compute-rs)  | 🚧 (powerful constructs using proc-macro)   |
 | C API                          | 🚧 (for easy bindings in other languages)   |
 | Custom Script/Shading Language | ⌛                                          |
 
