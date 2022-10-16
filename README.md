@@ -289,6 +289,8 @@ auto b_device = def(b_host);    // device DSL variable Float2(1.f, 1.f)
 /* ... */
 ```
 
+### Structures
+
 To export a C++ data struct to the DSL, we provide a helper macro `LUISA_STRUCT`, which (semi-)automatically reflects the member layouts of the input structure:
 ```cpp
 // A C++ data structure
