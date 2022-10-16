@@ -277,7 +277,7 @@ auto eq = v2 == v2; // Bool2(true, true)
 /* ... */
 ```
 
-> ⚠️ The only exception is that we disable `operator&&` and `operator||` in the DSL. This is because the DSL does not support the *short-circuit* semantics. We disable them to avoid ambiguity. Please use `operator&` and `operator|` instead, which have the consistent non-short-circuit semantics on both host and device side.
+> ⚠️ The only exception is that we disable `operator&&` and `operator||` in the DSL. This is because the DSL does not support the *short-circuit* semantics. We disable them to avoid ambiguity. Please use `operator&` and `operator|` instead, which have the consistent non-short-circuit semantics on both the host and device sides.
 
 Besides the `Var<T>` template, there's also an `Expr<T>`, which is to `Var<T>` what `const T &` is to `T` on the host side. In other words, `Expr<T>` stands for a const DSL variable reference, which does not create variables copies when passed around. However, note that the parameters of `Callable`/`Kernel` definition functions may only be `Var<T>`. This restriction might be removed in the future.
 
