@@ -32,6 +32,12 @@
 #define LC_DSL_API __declspec(dllimport)
 #endif
 
+#ifdef LC_IR_EXPORT_DLL
+#define LC_IR_API __declspec(dllexport)
+#else
+#define LC_IR_API __declspec(dllimport)
+#endif
+
 #ifdef LC_RTX_EXPORT_DLL
 #define LC_RTX_API __declspec(dllexport)
 #else
