@@ -337,8 +337,8 @@ $for (variable, begin, end, step) { /*...*/ };
 $loop { /*...*/ }; // infinite loop, unless $break'ed
 
 $switch (variable) {
-    $case (value) { /*...*/ };
-    $default { /*...*/ };  // no $break needed, as we automatically add one
+    $case (value) { /*...*/ }; // no $break needed inside, as we automatically add one
+    $default { /*...*/ };      // no $break needed inside, as we automatically add one
 };
 
 $break;
@@ -406,7 +406,7 @@ int main(int argc, char *argv[]) {
 }
 ```
 
-> ⚠️ Creating multiple devices inside the same application is allowed. However, the resources are not shared across devices. Doing so would lead to undefined behaviors.
+> ⚠️ Creating multiple devices inside the same application is allowed. However, the resources are not shared across devices. Visiting one device's resources from another device's commands/shaders would lead to undefined behaviors.
 
 
 The device object provides methods for backend-specific operations, typicall, creating resources. LuisaCompute supports the following rousource types:
