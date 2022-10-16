@@ -44,3 +44,6 @@
 [submodule "src/ext/shaderc"]
 	path = src/ext/shaderc
 	url = https://github.com/google/shaderc.git
+[submodule "src/ext/corrosion"]
+	path = src/ext/corrosion
+	url = git@github.com:corrosion-rs/corrosion.git

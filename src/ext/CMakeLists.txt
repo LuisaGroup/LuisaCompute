@@ -162,3 +162,5 @@ endif ()
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 add_subdirectory(abseil-cpp)
 target_link_libraries(luisa-compute-ext PUBLIC absl::base absl::flat_hash_map)
+
+add_subdirectory(corrosion)
