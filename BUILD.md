@@ -7,6 +7,13 @@
 - CMake 3.20+
 - C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
     - MSVC and Clang (with GNU-style command-line options) are recommended and tested on Windows
+- On Linux, `uuid-dev` is required to build the core libraries and the following libraries are required for the GUI module
+  - libopencv-dev
+  - libglfw3-dev
+  - libxinerama-dev
+  - libxcursor-dev
+  - libxi-dev
+- On macOS with M1, you need to install `embree` since a pre-built binary is not provided by the official embree repo. We recommend using [Homebrew](https://brew.sh/) to install it. You can install it by running `brew install embree`.
 
 ### Backends
 
