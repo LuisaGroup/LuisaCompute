@@ -5,6 +5,7 @@
 #include <ast/variable.h>
 #include <core/logging.h>
 #include <ast/expression.h>
+#include <ast/statement.h>
 #include <ast/function_builder.h>
 
 namespace luisa::compute {
@@ -69,5 +70,12 @@ uint64_t Expression::hash() const noexcept {
     }
     return _hash;
 }
-
+uint64_t PhiExpr::_compute_hash() const noexcept {
+    auto h = hash64(_incoming.size());
+    for (auto &&[expr, stmt] : _incoming) {
+        h = hash64(expr->hash(), h);
+        h = hash64(stmt->hash(), h);
+    }
+    return h;
+}
 }// namespace luisa::compute

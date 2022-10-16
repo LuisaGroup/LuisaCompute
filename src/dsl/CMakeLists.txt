@@ -1,4 +1,6 @@
 set(LUISA_COMPUTE_DSL_SOURCES
+        autodiff.h
+        autodiff.cpp
         var.h
         expr.cpp expr.h
         expr_traits.h

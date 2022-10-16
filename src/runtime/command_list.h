@@ -32,7 +32,7 @@ public:
     [[nodiscard]] auto end() const noexcept { return _commands.end(); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }
     [[nodiscard]] auto size() const noexcept { return _commands.size(); }
-
+    [[nodiscard]] auto as_ptr() const noexcept {return _commands.data();}
     // for debug
     [[nodiscard]] nlohmann::json dump_json() const noexcept;
 };

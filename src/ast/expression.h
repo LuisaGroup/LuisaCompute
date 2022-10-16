@@ -21,7 +21,7 @@
 #include <ast/constant_data.h>
 
 namespace luisa::compute {
-
+class Statement;
 struct ExprVisitor;
 
 namespace detail {
@@ -45,7 +45,11 @@ public:
         REF,
         CONSTANT,
         CALL,
-        CAST
+        CAST,
+        CPUCUSTOM,
+        GPUCUSTOM,
+        PHI,
+        REPLACE_MEMBER,
     };
 
 private:
@@ -85,6 +89,12 @@ class RefExpr;
 class ConstantExpr;
 class CallExpr;
 class CastExpr;
+class CpuCustomOpExpr;
+class GpuCustomOpExpr;
+
+// For SSA construction
+class PhiExpr;
+class ReplaceMemberExpr;
 
 struct ExprVisitor {
     virtual void visit(const UnaryExpr *) = 0;
@@ -96,6 +106,9 @@ struct ExprVisitor {
     virtual void visit(const ConstantExpr *) = 0;
     virtual void visit(const CallExpr *) = 0;
     virtual void visit(const CastExpr *) = 0;
+    virtual void visit(const CpuCustomOpExpr *) { LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend."); };
+    virtual void visit(const GpuCustomOpExpr *) { LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend."); };
+    virtual void visit(const PhiExpr *) { LUISA_ERROR_WITH_LOCATION("PhiExpr is not expected to be passed to codegen"); };
 };
 
 #define LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR() \
@@ -285,6 +298,99 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+/// ReplaceMemberExpr expression
+/*
+This creates a new exression with the same aggrgate type as the original expression
+but with a single member replaced.
+*/
+class ReplaceMemberExpr final : public Expression {
+
+public:
+    static constexpr auto swizzle_mask = 0xff000000u;
+    static constexpr auto swizzle_shift = 24u;
+
+private:
+    const Expression *_self;
+    const Expression *_value;
+    uint32_t _swizzle_size;
+    uint32_t _swizzle_code;
+
+protected:
+    void _mark(Usage usage) const noexcept override { _self->mark(usage); }
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(make_uint2(_swizzle_size, _swizzle_code), _self->hash());
+    }
+
+public:
+    /**
+     * @brief Construct a new MemberExpr object accessing by index
+     * 
+     * @param type type
+     * @param self where to get member
+     * @param member_index index of member
+     */
+    ReplaceMemberExpr(const Type *type, const Expression *self, uint member_index, const Expression *value) noexcept
+        : Expression{Tag::REPLACE_MEMBER, type}, _self{self}, _value{value},
+          _swizzle_size{0u}, _swizzle_code{member_index} {}
+
+    /**
+     * @brief Construct a new Member Expr object accessing by swizzling
+     * 
+     * Swizzle size must be in [1, 4]. Swizzle code represents orders and indexes to fetch.
+     * 
+     * For example, consider a float4 object whose members named x, y, z and w, its member indexes are 0, 1, 2 and 3.
+     * 
+     * If you need to get float4.xyzw(which returns a float4 (x, y, z, w)), the swizzle code is coded as 0x3210u and swizzle size is 4.
+     * 
+     * Another example is float4.yyw(which returns a float3 (y, y, w)), thw swizzle code is codes as 0x0311u and swizzle size is 3.
+     * 
+     * @param type type
+     * @param self where to get member
+     * @param swizzle_size swizzle size
+     * @param swizzle_code swizzle code
+     */
+    ReplaceMemberExpr(const Type *type, const Expression *self, uint swizzle_size, uint swizzle_code, const Expression *value) noexcept
+        : Expression{Tag::REPLACE_MEMBER, type}, _self{self}, _value{value},
+          _swizzle_size{swizzle_size}, _swizzle_code{swizzle_code} {
+        LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
+                     "Swizzle size must be in [1, 4]");
+    }
+
+    [[nodiscard]] auto self() const noexcept { return _self; }
+
+    [[nodiscard]] auto swizzle_size() const noexcept {
+        LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
+                     "Invalid swizzle size {}.", _swizzle_size);
+        return _swizzle_size;
+    }
+
+    [[nodiscard]] auto is_swizzle() const noexcept { return _swizzle_size != 0u; }
+
+    [[nodiscard]] auto swizzle_code() const noexcept {
+        LUISA_ASSERT(is_swizzle(), "MemberExpr is not swizzled.");
+        return _swizzle_code;
+    }
+
+    [[nodiscard]] auto swizzle_index(uint index) const noexcept {
+        if (auto s = swizzle_size(); index >= s) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid swizzle index {} (count = {}).",
+                index, s);
+        }
+        return (_swizzle_code >> (index * 4u)) & 0x0fu;
+    }
+
+    [[nodiscard]] auto member_index() const noexcept {
+        LUISA_ASSERT(!is_swizzle(), "MemberExpr is not a member");
+        return _swizzle_code;
+    }
+    [[nodiscard]] auto value() const noexcept {
+        return _value;
+    }
+    void accept(ExprVisitor &) const noexcept override {
+        LUISA_ERROR_WITH_LOCATION("don't call accept on this");
+    }
+};
 namespace detail {
 
 template<typename T>
@@ -395,6 +501,7 @@ protected:
     void _mark() const noexcept;
     uint64_t _compute_hash() const noexcept override {
         auto hash = hash64(_op);
+        hash = hash64(_arguments.size(), hash);
         for (auto &&a : _arguments) { hash = hash64(a->hash(), hash); }
         if (_op == CallOp::CUSTOM) { hash = hash64(_custom.hash(), hash); }
         return hash;
@@ -465,6 +572,61 @@ public:
     LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
+class CpuCustomOpExpr final : public Expression {
+
+public:
+    using Callback = void (*)(void *arg, void *user_data);
+    CpuCustomOpExpr(const Type *type, Callback callback, void *user_data, const Expression *arg) noexcept
+        : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _user_data{user_data}, _arg(arg) {}
+    [[nodiscard]] auto callback() const noexcept { return _callback; }
+    [[nodiscard]] auto user_data() const noexcept { return _user_data; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+private:
+    Callback _callback;
+    const Expression *_arg;
+    void *_user_data;
+
+protected:
+    // TODO
+    void _mark(Usage usage) const noexcept override {}
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
+};
+
+class GpuCustomOpExpr final : public Expression {
+
+public:
+    GpuCustomOpExpr(const Type *type, std::string source, const Expression *arg) noexcept
+        : Expression{Tag::GPUCUSTOM, type}, _source{std::move(source)}, _arg(arg) {}
+    [[nodiscard]] auto source() const noexcept { return _source; }
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+private:
+    std::string _source;
+    const Expression *_arg;
+
+protected:
+    // TODO
+    void _mark(Usage usage) const noexcept override {}
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
+};
+class PhiExpr final : public Expression {
+    luisa::vector<std::pair<const Expression *, Statement *>> _incoming;
+    PhiExpr(const Type *type, luisa::vector<std::pair<const Expression *, Statement *>> incoming) : Expression{Tag::PHI, type}, _incoming(std::move(incoming)) {}
+
+public:
+    PhiExpr create(luisa::vector<std::pair<const Expression *, Statement *>> incoming) {
+        auto type = incoming[0].first->type();
+        for (auto &&[expr, stmt] : incoming) {
+            if (expr->type() != type) { LUISA_ERROR_WITH_LOCATION("PhiExpr: incoming expressions must have the same type"); }
+        }
+        return PhiExpr(type, std::move(incoming));
+    }
+    [[nodiscard]] auto incoming() const noexcept { return luisa::span{_incoming}; }
+
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+protected:
+    void _mark(Usage) const noexcept override {}
+    uint64_t _compute_hash() const noexcept override;
+};
 #undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
 
 }// namespace luisa::compute
