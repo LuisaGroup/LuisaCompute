@@ -17,7 +17,7 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install cmake
-          sudo apt-get -y install gcc-11 g++-11 build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev llvm-dev
+          sudo apt-get -y install gcc-11 g++-11 build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev llvm-14-dev
       #          sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
       #      - name: "Setup CUDA"
       #        uses: Jimver/cuda-toolkit@v0.2.4
