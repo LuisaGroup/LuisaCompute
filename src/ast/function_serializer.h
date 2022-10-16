@@ -39,6 +39,7 @@ private:
     [[nodiscard]] json dump(const ConstantExpr *expr) const noexcept;
     [[nodiscard]] json dump(const CallExpr *expr) const noexcept;
     [[nodiscard]] json dump(const CastExpr *expr) const noexcept;
+    [[nodiscard]] json dump(const PhiExpr *expr) const noexcept;
     [[nodiscard]] json dump(const BreakStmt *stmt) const noexcept;
     [[nodiscard]] json dump(const ContinueStmt *stmt) const noexcept;
     [[nodiscard]] json dump(const ReturnStmt *stmt) const noexcept;

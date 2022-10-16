@@ -68,6 +68,7 @@ class SwitchDefaultStmt;
 class AssignStmt;
 class ForStmt;
 class CommentStmt;
+class LetStmt;
 
 struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -148,6 +149,7 @@ private:
 private:
     uint64_t _compute_hash() const noexcept override {
         auto h = Hash64::default_seed;
+        h = hash64(_statements.size(), h);
         for (auto &&s : _statements) { h = hash64(s->hash(), h); }
         return h;
     }
@@ -156,6 +158,11 @@ public:
     ScopeStmt() noexcept : Statement{Tag::SCOPE} {}
     [[nodiscard]] auto statements() const noexcept { return luisa::span{_statements}; }
     void append(const Statement *stmt) noexcept { _statements.emplace_back(stmt); }
+    const Statement * _pop() noexcept {
+        auto stmt = _statements.back();
+        _statements.pop_back();
+        return stmt;
+    }
     LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
 };
 

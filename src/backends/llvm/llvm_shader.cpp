@@ -40,6 +40,8 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
         }
     }
     _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
+    _argument_buffer_size += 16u; // (trampoline, callbacks)
+    _argument_buffer_size = luisa::align(_argument_buffer_size, 16u);
 
     for (auto s : func.shared_variables()) {
         _shared_memory_size = luisa::align(_shared_memory_size, s.type()->alignment());

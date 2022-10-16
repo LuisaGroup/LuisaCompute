@@ -1,0 +1,24 @@
+[package]
+edition = "2021"
+name = "luisa-compute-ir"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bumpalo = "3.11.0"
+lazy_static = "1.4.0"
+parking_lot = "0.12.1"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+
+[build-dependencies]
+cbindgen = "0.24.3"
+
+[lib]
+name = "luisa_compute_ir"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name="experiment"
+path="src/bin/experiment.rs"

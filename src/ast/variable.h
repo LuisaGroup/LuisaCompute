@@ -11,6 +11,7 @@ namespace luisa::compute {
 
 namespace detail {
 class FunctionBuilder;
+class SSABuilder;
 }
 
 /// Variable class
@@ -47,6 +48,7 @@ private:
 
 private:
     friend class detail::FunctionBuilder;
+    friend class detail::SSABuilder;
     constexpr Variable(const Type *type, Tag tag, uint32_t uid) noexcept
         : _type{type}, _uid{uid}, _tag{tag} {}
 
