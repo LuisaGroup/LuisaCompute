@@ -161,10 +161,11 @@ LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream st
 }
 
 LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, LCFunction function, const char *options) LUISA_NOEXCEPT {
-    auto d = reinterpret_cast<RC<Device> *>(device);
-    return (LCShader)d->retain()->object()->impl()->create_shader(
-        luisa::compute::Function{reinterpret_cast<luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> *>(function)->get()},
-        std::string_view{options});
+    // auto d = reinterpret_cast<RC<Device> *>(device);
+    // return (LCShader)d->retain()->object()->impl()->create_shader(
+    //     luisa::compute::Function{reinterpret_cast<luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> *>(function)->get()},
+    //     std::string_view{options});
+    return nullptr;
 }
 
 LUISA_EXPORT_API void luisa_compute_shader_destroy(LCDevice device, LCShader shader) LUISA_NOEXCEPT {
@@ -304,10 +305,11 @@ LUISA_EXPORT_API LCCommand luisa_compute_command_download_texture(
         make_uint3(size.x, size.y, size.z), data));
 }
 
-LUISA_EXPORT_API LCCommand luisa_compute_command_dispatch_shader(LCShader shader, LCKernel kernel) LUISA_NOEXCEPT {
-    auto handle = reinterpret_cast<uint64_t>(shader);
-    return reinterpret_cast<LCCommand>(
-        ShaderDispatchCommand::create(handle, Function{reinterpret_cast<luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> *>(kernel)->get()}));
+LUISA_EXPORT_API LCCommand luisa_compute_command_dispatch_shader(LCShader shader) LUISA_NOEXCEPT {
+    // auto handle = reinterpret_cast<uint64_t>(shader);
+    // return reinterpret_cast<LCCommand>(
+    //     ShaderDispatchCommand::create(handle, Function{reinterpret_cast<luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> *>(kernel)->get()}));
+    return nullptr;
 }
 
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_set_size(LCCommand cmd, uint32_t sx, uint32_t sy, uint32_t sz) LUISA_NOEXCEPT {
@@ -520,6 +522,13 @@ public:
         LUISA_ASSERT(kernel.is_extern_function_impl(), "Only extern function implementation can be passed to ExternDevice::create_shader");
         return impl->create_shader(impl, kernel.get_extern_function_impl(), meta_options.data());
     }
+    [[nodiscard]] virtual uint64_t create_shader_ex(void* kernel) noexcept  {
+        return impl->create_shader_ex(impl, kernel);
+    }
+    [[nodiscard]] virtual void dispatch_shader_ex(uint64_t handle, void * args) noexcept {
+        return impl->dispatch_shader_ex(impl, handle, args);
+    }
+
     void destroy_shader(uint64_t handle) noexcept override {
         impl->destroy_shader(impl, handle);
     }

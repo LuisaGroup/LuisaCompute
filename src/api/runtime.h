@@ -6,14 +6,15 @@
 
 #include <api/common.h>
 #include <api/device.h>
-#include <ir/ir.h>
+
+
 
 typedef enum LCArgumentTag {
-    BUFFER,
-    TEXTURE,
-    UNIFORM,
-    ACCEL,
-    BINDLESS_ARRAY,
+    LC_BUFFER,
+    LC_TEXTURE,
+    LC_UNIFORM,
+    LC_ACCEL,
+    LC_BINDLESS_ARRAY,
 } LCArgumentTag;
 
 typedef struct LCBufferArgument {
@@ -48,13 +49,13 @@ typedef struct LCArgument {
     };
 } LCArgument;
 
-typedef struct LCKernel {
-    LCModule m;
+typedef struct LCFunction {
+    LCIRModule m;
     const LCArgument *captured;
     size_t captured_count;
     const LCNodeRef *args;
     size_t arg_count;
-} LCKernel;
+} LCFunction;
 
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT;
 
@@ -79,7 +80,7 @@ LUISA_EXPORT_API void luisa_compute_stream_destroy(LCDevice device, LCStream str
 LUISA_EXPORT_API void luisa_compute_stream_synchronize(LCDevice device, LCStream stream) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list) LUISA_NOEXCEPT;
 
-LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, LCKernel kernel, const char *options) LUISA_NOEXCEPT;
+LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, LCFunction func, const char *options) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_shader_destroy(LCDevice device, LCShader shader) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCEvent luisa_compute_event_create(LCDevice device) LUISA_NOEXCEPT;
@@ -142,7 +143,7 @@ LUISA_EXPORT_API LCCommand luisa_compute_command_download_texture(
     LCTexture handle, LCPixelStorage storage, uint32_t level,
     lc_uint3 size, void *data) LUISA_NOEXCEPT;
 
-LUISA_EXPORT_API LCCommand luisa_compute_command_dispatch_shader(LCShader handle, LCKernel kernel) LUISA_NOEXCEPT;
+LUISA_EXPORT_API LCCommand luisa_compute_command_dispatch_shader(LCShader shader) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_set_size(LCCommand cmd, uint32_t sx, uint32_t sy, uint32_t sz) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_encode_buffer(LCCommand cmd, LCBuffer buffer, size_t offset, size_t size) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_command_dispatch_shader_encode_texture(LCCommand cmd, LCTexture texture, uint32_t level) LUISA_NOEXCEPT;
