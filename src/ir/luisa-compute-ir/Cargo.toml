@@ -18,7 +18,3 @@ cbindgen = "0.24.3"
 [lib]
 name = "luisa_compute_ir"
 crate-type = ["staticlib", "rlib"]
-
-[[bin]]
-name="experiment"
-path="src/bin/experiment.rs"
