@@ -578,6 +578,11 @@ Sorry that we are still working on them. Currently, we would recommand reading t
 
 If you have any problem or suggestion, please just feel free to open an [issue](https://github.com/LuisaGroup/LuisaCompute/issues) or start a [discussion](https://github.com/LuisaGroup/LuisaCompute/discussions). We are very happy to hear from you!
 
+## Roadmap
+
+See [ROADMAP](ROADMAP.md).
+
+
 ## Citation
 
 ```bibtex
