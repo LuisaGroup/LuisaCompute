@@ -6,26 +6,22 @@ add_custom_target(luisa-compute-ext-copy ALL
         COMMENT "Copy necessary files for third-party libraries")
 add_dependencies(luisa-compute-ext-copy luisa-compute-ext)
 
-set(FMT_OS OFF CACHE BOOL "" FORCE)
-add_subdirectory(fmt)
-target_compile_definitions(fmt-header-only INTERFACE
+
+set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
+set(SPDLOG_NO_EXCEPTIONS ON CACHE BOOL "" FORCE)
+set(SPDLOG_NO_THREAD_ID ON CACHE BOOL "" FORCE)
+set(SPDLOG_FMT_EXTERNAL OFF CACHE BOOL "" FORCE)
+set(SPDLOG_FMT_EXTERNAL_HO OFF CACHE BOOL "" FORCE)
+set(SPDLOG_DISABLE_DEFAULT_LOGGER ON CACHE BOOL "" FORCE)
+add_subdirectory(spdlog)
+target_compile_definitions(spdlog_header_only INTERFACE
         FMT_CONSTEVAL=constexpr
         FMT_EXCEPTIONS=0
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
-target_link_libraries(luisa-compute-ext PUBLIC fmt::fmt-header-only)
+target_link_libraries(luisa-compute-ext PUBLIC spdlog::spdlog_header_only)
 
-set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
-set(SPDLOG_NO_EXCEPTIONS OFF CACHE BOOL "" FORCE)
-set(SPDLOG_NO_THREAD_ID ON CACHE BOOL "" FORCE)
-set(SPDLOG_FMT_EXTERNAL_HO ON CACHE BOOL "" FORCE)
-set(SPDLOG_DISABLE_DEFAULT_LOGGER ON CACHE BOOL "" FORCE)
-add_subdirectory(spdlog)
-set_target_properties(spdlog PROPERTIES
-        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
-target_link_libraries(spdlog PUBLIC fmt::fmt-header-only)
-target_link_libraries(luisa-compute-ext PUBLIC spdlog)
 
 add_library(xxhash INTERFACE)
 target_include_directories(xxhash INTERFACE xxHash)
@@ -153,7 +149,6 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         endif ()
     endif ()
 endif ()
-add_subdirectory(corrosion)
 
 if (WIN32 AND NOT MINGW AND NOT MSYS)
     set(BUILD_SHARED_LIBS OFF)
