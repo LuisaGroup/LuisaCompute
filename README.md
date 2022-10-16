@@ -131,10 +131,10 @@ LuisaCompute follows the standard CMake build process. Basically these steps:
     Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required. Also, as we are not allowed to provide the OptiX headers in tree, so you have to either specify `-D OptiX_DIR=<optix-installation>` during CMake configuration or manually copy the headers from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`.
 
 - Configure the project using CMake. E.g., for command line, `cd` into the project folder and type `cmake -S . -B <build-folder>`. You might also want to specify your favorite generators and build types using options like `-G Ninja` and `-D CMAKE_BUILD_TYPE=Release`. A typical, full command sequence for this would be like
-```bash
-cd LuisaCompute
-cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
-```
+    ```bash
+    cd LuisaCompute
+    cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
+    ```
 
 - If the configuration succeeds, you are now able to build the project. Type `cmake --build <build-folder>` in the command line, or push the build button if you generated, e.g., a VS project. (And in case the configuration step unluckily failed :-(, please file an [issue](https://github.com/LuisaGroup/LuisaCompute/issues)). 
 
