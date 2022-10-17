@@ -20,6 +20,11 @@ target_compile_definitions(spdlog_header_only INTERFACE
         FMT_EXCEPTIONS=0
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
+target_compile_definitions(spdlog PUBLIC
+        FMT_CONSTEVAL=constexpr
+        FMT_EXCEPTIONS=0
+        FMT_HEADER_ONLY=1
+        FMT_USE_NOEXCEPT=1)
 target_link_libraries(luisa-compute-ext PUBLIC spdlog::spdlog_header_only)
 
 
