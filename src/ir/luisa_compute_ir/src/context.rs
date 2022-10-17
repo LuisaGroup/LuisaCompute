@@ -96,6 +96,11 @@ pub fn alloc_deferred_drop<T: 'static>(value: T) -> &'static mut T {
 }
 
 #[no_mangle]
+pub extern "C" fn luisa_compute_ir_register_type(type_: &Type) -> *const Type {
+    register_type(type_.clone())
+}
+
+#[no_mangle]
 pub extern "C" fn luisa_compute_ir_add_symbol(id: u64, m: Module) {
     with_context(|context| context.add_symbol(id, m));
 }
