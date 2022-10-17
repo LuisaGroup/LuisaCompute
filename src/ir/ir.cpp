@@ -66,43 +66,43 @@ struct Converter {
             }
             case Instruction::Tag::Call: {
                 auto call = inst->call;
-                auto func = call._0;
+                auto func = call._0.tag;
                 auto &args_v = call._1;
                 auto args = args_v.ptr;
-                if (func == Func::Gradient) {
+                if (func == Func::Tag::Gradient) {
                     return nullptr;
                 }
-                if (func == Func::RequiresGradient) {
+                if (func == Func::Tag::RequiresGradient) {
                     return nullptr;
                 }
-                if (func == Func::GradientMarker) {
+                if (func == Func::Tag::GradientMarker) {
                     auto v = convert(args[0]);
                     auto grad = convert(args[1]);
                 }
                 auto v = ([&] {switch (func) {
-                    case Func::Add:
+                    case Func::Tag::Add:
                         return builder->binary(ty, BinaryOp::ADD, convert(args[0]), convert(args[1]));
-                    case Func::Sub:
+                    case Func::Tag::Sub:
                         return builder->binary(ty, BinaryOp::SUB, convert(args[0]), convert(args[1]));
-                    case Func::Mul:
+                    case Func::Tag::Mul:
                         return builder->binary(ty, BinaryOp::MUL, convert(args[0]), convert(args[1]));
-                    case Func::Div:
+                    case Func::Tag::Div:
                         return builder->binary(ty, BinaryOp::DIV, convert(args[0]), convert(args[1]));
-                    case Func::Rem:
+                    case Func::Tag::Rem:
                         // TODO: this is actually different
                         return builder->binary(ty, BinaryOp::MOD, convert(args[0]), convert(args[1]));
-                    case Func::BitAnd:
+                    case Func::Tag::BitAnd:
                         return builder->binary(ty, BinaryOp::BIT_AND, convert(args[0]), convert(args[1]));
-                    case Func::BitOr:
+                    case Func::Tag::BitOr:
                         return builder->binary(ty, BinaryOp::BIT_OR, convert(args[0]), convert(args[1]));
-                    case Func::BitXor:
+                    case Func::Tag::BitXor:
                         return builder->binary(ty, BinaryOp::BIT_XOR, convert(args[0]), convert(args[1]));
-                    case Func::Shl:
+                    case Func::Tag::Shl:
                         return builder->binary(ty, BinaryOp::SHL, convert(args[0]), convert(args[1]));
-                    case Func::Shr:
+                    case Func::Tag::Shr:
                         return builder->binary(ty, BinaryOp::SHR, convert(args[0]), convert(args[1]));
-                    case Func::RotLeft:
-                    case Func::RotRight:
+                    case Func::Tag::RotLeft:
+                    case Func::Tag::RotRight:
                         LUISA_ERROR_WITH_LOCATION("Ask the author to implement this.");
                         break;
                         // return builder->binary(ty, BinaryOp::ROT_LEFT, convert(args[0]), convert(args[1]));
@@ -154,13 +154,13 @@ struct ToIR {
             ir::Func func;
             switch (op) {
                 case BinaryOp::ADD:
-                    func = ir::Func::Add;
+                    func.tag = ir::Func::Tag::Add;
                     break;
                 case BinaryOp::SUB:
-                    func = ir::Func::Sub;
+                    func.tag = ir::Func::Tag::Sub;
                     break;
                 case BinaryOp::MUL:
-                    func = ir::Func::Mul;
+                    func.tag = ir::Func::Tag::Mul;
                     break;
                 default:
                     abort();
@@ -171,11 +171,11 @@ struct ToIR {
             ir::Func func;
             switch (op) {
                 case UnaryOp::MINUS:
-                    func = ir::Func::Neg;
+                    func.tag = ir::Func::Tag::Neg;
                     break;
                 case UnaryOp::NOT:
                 case UnaryOp::BIT_NOT:
-                    func = ir::Func::BitNot;
+                    func.tag = ir::Func::Tag::BitNot;
                     break;
                 case UnaryOp::PLUS:
                     return build_expr(unary->operand(), builder);
