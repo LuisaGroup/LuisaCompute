@@ -12,21 +12,21 @@ See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rende
 ## Table of Contents
 
 * [Overview](#overview)
-  + [Embedded Domain-Specific Language](#embedded-domain-specific-language)
-  + [Unified Runtime with Resource Wrappers](#unified-runtime-with-resource-wrappers)
-  + [Multiple Backends](#multiple-backends)
-  + [Python Frontend](#python-frontend)
-  + [C API and Frontends in Other Languages](#c-api-and-frontends-in-other-languages)
+    + [Embedded Domain-Specific Language](#embedded-domain-specific-language)
+    + [Unified Runtime with Resource Wrappers](#unified-runtime-with-resource-wrappers)
+    + [Multiple Backends](#multiple-backends)
+    + [Python Frontend](#python-frontend)
+    + [C API and Frontends in Other Languages](#c-api-and-frontends-in-other-languages)
 * [Building](#building)
 * [Usage](#usage)
-  + [A Minimal Example](#a-minimal-example)
-  + [Basic Types](#basic-types)
-  + [Structures](#structures)
-  + [Built-in Functions](#built-in-functions)
-  + [Control Flows](#control-flows)
-  + [Callable and Kernels](#callable-and-kernels)
-  + [Backends, Context, Devices, and Resources](#devices-and-resources)
-  + [Command Submission and Synchronization](#command-submission-and-synchronization)
+    + [A Minimal Example](#a-minimal-example)
+    + [Basic Types](#basic-types)
+    + [Structures](#structures)
+    + [Built-in Functions](#built-in-functions)
+    + [Control Flows](#control-flows)
+    + [Callable and Kernels](#callable-and-kernels)
+    + [Backends, Context, Devices, and Resources](#devices-and-resources)
+    + [Command Submission and Synchronization](#command-submission-and-synchronization)
 * [Applications](#applications)
 * [Documentation and Tutorials](#documentation-and-tutorials)
 * [Roadmap](#roadmap)
@@ -128,7 +128,8 @@ LuisaCompute follows the standard CMake build process. Basically these steps:
     ```bash
     git clone --recursive https://github.com/LuisaGroup/LuisaCompute.git
     ```
-    Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required. Also, as we are not allowed to provide the OptiX headers in tree, so you have to either specify `-D OptiX_DIR=<optix-installation>` during CMake configuration or manually copy the headers from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`.
+  Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required.
+  > ⚠️ Note: as we are not allowed to provide the OptiX headers in tree, you have to either specify `-D OptiX_DIR=<optix-installation>` during CMake configuration or manually copy the headers from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`. On Windows, please remember to replace the backslashes `\\` in the path with `/` when passing arguments to CMake.
 
 - Configure the project using CMake. E.g., for command line, `cd` into the project folder and type `cmake -S . -B <build-folder>`. You might also want to specify your favorite generators and build types using options like `-G Ninja` and `-D CMAKE_BUILD_TYPE=Release`. A typical, full command sequence for this would be like
     ```bash
@@ -136,9 +137,9 @@ LuisaCompute follows the standard CMake build process. Basically these steps:
     cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
     ```
 
-- If the configuration succeeds, you are now able to build the project. Type `cmake --build <build-folder>` in the command line, or push the build button if you generated, e.g., a VS project. (And in case the configuration step unluckily failed :-(, please file an [issue](https://github.com/LuisaGroup/LuisaCompute/issues)). 
+- If the configuration succeeds, you are now able to build the project. Type `cmake --build <build-folder>` in the command line, or push the build button if you generated, e.g., a VS project. (And in case the configuration step unluckily failed :-(, please file an [issue](https://github.com/LuisaGroup/LuisaCompute/issues)).
 
-- After building, you will find the binaries under `<build-folder>/bin`. You can now play around with them, for example type `<build-folder>/bin/test_texture_io cuda` to generate a gradient color texture with the CUDA backend. 
+- After building, you will find the binaries under `<build-folder>/bin`. You can now play around with them, for example type `<build-folder>/bin/test_texture_io cuda` to generate a gradient color texture with the CUDA backend.
 
 See also [BUILD.md](BUILD.md) for details on platform requirements, configuration options, and other precautions.
 
@@ -371,7 +372,7 @@ $continue;
 
 Note that users are still able to use the *native* C++ control flows, i.e., `if`, `while`, etc. *without* the `$` prefix. In that case the *native* control flows acts like a *meta-stage* to the DSL that directly controls the generation of the callables/kernels. This can be a powerful means to achieve *multi-stage programming* patterns. Such usages can be found throughout [LuisaRender](https://github.com/LuisaGroup/LuisaRender). We will cover such usage in the tutorials in the future.
 
-### Callable and Kernels 
+### Callable and Kernels
 
 LuisaCompute supports two categories of device functions: `Kernel`s (`Kernel1D`, `Kernel2D`, or `Kernel3D`) and `Callable`s. Kernels are entries to the parallelized computation tasks on the device (equivelant to CUDA's `__global__` functions). Callables are function objects invocable from kernels or other callables (i.e., like CUDA's `__device__` functions). Both kinds are template classes that are constructible from C++ functions or function objects including lambda expressions:
 
@@ -444,7 +445,7 @@ The device object provides methods for backend-specific operations, typicall, cr
 
 
 Devices are also responsible for
-- Creating `Stream`s and `Event`s (the former are for command submission and the latter are for host-stream and stream-stream synchronization); and 
+- Creating `Stream`s and `Event`s (the former are for command submission and the latter are for host-stream and stream-stream synchronization); and
 - Compiling kernels into shaders, as introduced before.
 
 Synopsis of the public interfaces in `class Device`:
