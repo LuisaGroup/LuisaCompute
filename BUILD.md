@@ -51,6 +51,8 @@ The ISPC backend is disabled by default. Other backends will automatically be en
 APIs/frameworks are detected. You can override the default settings by specifying CMake flags manually, in
 form of `-D FLAG=value` behind the first cmake command.
 
+Note: On Windows, please remember to replace the backslashes `\\` in the paths with `/` when passing arguments to CMake.
+
 In case you need to run the ISPC backend, download the [ISPC compiler executable](https://ispc.github.io/downloads.html)
 of your platform and copy the executable (e.g., `ispc` or `ispc.exe`) to `src/backends/ispc/ispc_support/` before
 compiling. On Windows, if you wish to use the system compiler instead of LLVM-JIT with the ISPC backend, you have to
@@ -72,7 +74,7 @@ Therefore, if you would like to enable the CUDA backend, you will need to either
 - Manually copy the OptiX header files under `<optix-installation>/include` to `src/backends/cuda/optix` (so that the folder *directly* contains `optix.h`); or
 - Specify the OptiX installation directory with `-D OptiX_DIR=<optix-installation>`
 
-*before* configuration and building. The default location of the OptiX installation is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and `/home/NVIDIA-OptiX-SDK-7.x.0-linux64-x86_64/include` on Linux.
+*before* configuration and building. The default location of the OptiX installation is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and `/home/<user>/NVIDIA-OptiX-SDK-7.x.0-linux64-x86_64/include` on Linux.
 
 ## Build Commands
 
