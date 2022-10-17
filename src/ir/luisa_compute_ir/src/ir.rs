@@ -398,6 +398,13 @@ impl Debug for CpuCustomOp {
             .finish()
     }
 }
+
+#[repr(C)]
+#[derive(Clone, Debug, Serialize)]
+pub struct SwitchCase {
+    pub value: NodeRef,
+    pub block: &'static BasicBlock,
+}
 #[repr(C)]
 #[derive(Clone, Debug, Serialize)]
 
@@ -445,7 +452,7 @@ pub enum Instruction {
     Switch {
         value: NodeRef,
         default: &'static BasicBlock,
-        cases: CBoxedSlice<(NodeRef, &'static BasicBlock)>,
+        cases: CBoxedSlice<SwitchCase>,
     },
 }
 
@@ -668,10 +675,8 @@ impl ModuleCloner {
             Instruction::Loop { body, cond } => todo!(),
             Instruction::Break => builder.break_(),
             Instruction::Continue => builder.continue_(),
-            Instruction::If {
-               ..,
-            } => todo!(),
-            Instruction::Switch {.. }=> todo!(),
+            Instruction::If { .. } => todo!(),
+            Instruction::Switch { .. } => todo!(),
         };
         self.node_map.insert(node, new_node);
         new_node
