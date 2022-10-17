@@ -11,7 +11,7 @@ use crate::{
     context,
     ir::{
         BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef, StructType,
-        Type, VectorElementType, VectorType, VOID_TYPE,
+        Type, VectorElementType, VectorType, VOID_TYPE, ArrayType,
     },
     CSlice, TypeOf,
 };
@@ -92,6 +92,13 @@ fn _grad_type_of(type_: &'static Type) -> Option<&'static Type> {
                 fields: CSlice::from(fields),
                 alignment,
                 size,
+            }))
+        }
+        Type::Array(a) => {
+            let element = grad_type_of(a.element)?;
+            Some(Type::Array(ArrayType{
+                element,
+                length: a.length,
             }))
         }
     };
@@ -181,9 +188,6 @@ impl<'a> StoreIntermediate<'a> {
                     }
                 }
             }
-            crate::ir::Instruction::CpuCustomOp(_, _) => {
-                panic!("cpu custom op not supported yet");
-            }
             crate::ir::Instruction::Phi(_) => todo!(),
             crate::ir::Instruction::Loop { body, cond: _ } => {
                 self.visit_block(body);
@@ -263,7 +267,6 @@ impl Backward {
                     _ => todo!(),
                 }
             }
-            crate::ir::Instruction::CpuCustomOp(_, _) => todo!(),
             crate::ir::Instruction::Phi(_) => todo!(),
             crate::ir::Instruction::Loop { .. } => todo!(),
             crate::ir::Instruction::Break => todo!(),
