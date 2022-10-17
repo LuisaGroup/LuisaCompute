@@ -157,7 +157,7 @@ public:
         [[nodiscard]] virtual uint64_t create_shader_ex(void* kernel) noexcept  {
             LUISA_ERROR_WITH_LOCATION("Should not be called.");
         }
-        [[nodiscard]] virtual void dispatch_shader_ex(uint64_t handle, void * args) noexcept {
+        virtual void dispatch_shader_ex(uint64_t handle, void * args) noexcept {
             LUISA_ERROR_WITH_LOCATION("Should not be called.");
         }
 

@@ -44,6 +44,12 @@
 #define LC_RTX_API __declspec(dllimport)
 #endif
 
+#ifdef LC_IR_EXPORT_DLL
+#define LC_IR_API __declspec(dllexport)
+#else
+#define LC_IR_API __declspec(dllimport)
+#endif
+
 #else
 #define LC_VSTL_API
 #define LC_AST_API
@@ -51,4 +57,5 @@
 #define LC_CORE_API
 #define LC_DSL_API
 #define LC_RTX_API
+#define LC_IR_API
 #endif
