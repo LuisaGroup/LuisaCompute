@@ -97,6 +97,17 @@ pub struct CRcSharedBlock<T> {
 pub struct CRc<T> {
     inner: *mut CRcSharedBlock<T>,
 }
+impl<T> PartialEq for CRc<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+impl <T> Hash for CRc<T>{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+    }
+}
+impl<T> Eq for CRc<T> {}
 extern "C" fn default_destructor<T>(ptr: *mut T) {
     unsafe {
         std::mem::drop(Box::from_raw(ptr));

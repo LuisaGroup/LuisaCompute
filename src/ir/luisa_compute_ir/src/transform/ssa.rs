@@ -81,12 +81,7 @@ impl ToSSA {
                     .iter()
                     .map(|a| promote(*a, &record.stored))
                     .collect::<Vec<_>>();
-                let v = builder.call(*func, &promoted_args, type_);
-                record.stored.insert(node, v);
-                return v;
-            }
-            Instruction::CpuCustomOp(_, _) => {
-                let v = builder.clone_node(node);
+                let v = builder.call(func.clone(), &promoted_args, type_);
                 record.stored.insert(node, v);
                 return v;
             }

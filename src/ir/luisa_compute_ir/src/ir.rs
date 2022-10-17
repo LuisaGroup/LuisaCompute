@@ -51,12 +51,19 @@ pub struct StructType {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
+pub struct ArrayType {
+    pub element: &'static Type,
+    pub length: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[repr(C)]
 pub enum Type {
     Void,
     Primitive(Primitive),
     Vector(VectorType),
     Matrix(MatrixType),
     Struct(StructType),
+    Array(ArrayType),
 }
 impl VectorElementType {
     pub fn size(&self) -> usize {
@@ -98,6 +105,7 @@ impl Type {
             Type::Struct(t) => t.size,
             Type::Vector(t) => t.size(),
             Type::Matrix(t) => t.size(),
+            Type::Array(t) => t.element.size() * t.length,
         }
     }
     pub fn alignment(&self) -> usize {
@@ -108,6 +116,7 @@ impl Type {
             Type::Struct(t) => t.alignment,
             Type::Vector(t) => t.element.size(), // TODO
             Type::Matrix(t) => t.element.size(),
+            Type::Array(t) => t.element.alignment(),
         }
     }
 }
@@ -131,7 +140,7 @@ impl Node {
         }
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Serialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize)]
 #[repr(C)]
 pub enum Func {
     ZeroInitializer,
@@ -325,6 +334,10 @@ pub enum Func {
     Matrix2, // scalar x 4 -> matrix
     Matrix3, // scalar x 9 -> matrix
     Matrix4, // scalar x 16 -> matrix
+
+    Callable(u64),
+    CpuCustomOp(CRc<CpuCustomOp>)
+
 }
 #[derive(Clone, Debug, Serialize)]
 #[repr(C)]
@@ -428,7 +441,7 @@ pub enum Instruction {
     },
 
     Call(Func, CBoxedSlice<NodeRef>),
-    CpuCustomOp(CRc<CpuCustomOp>, NodeRef),
+    // CpuCustomOp(CRc<CpuCustomOp>, NodeRef),
     Phi(CBoxedSlice<PhiIncoming>),
     /* represent a loop if the form of
     loop {
@@ -670,7 +683,6 @@ impl ModuleCloner {
             Instruction::Const(_) => todo!(),
             Instruction::Update { var, value } => todo!(),
             Instruction::Call(_, _) => todo!(),
-            Instruction::CpuCustomOp(_, _) => node,
             Instruction::Phi(_) => todo!(),
             Instruction::Loop { body, cond } => todo!(),
             Instruction::Break => builder.break_(),
