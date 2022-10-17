@@ -199,6 +199,7 @@ impl<'a> StoreIntermediate<'a> {
                 self.visit_block(true_branch);
                 self.visit_block(false_branch);
             }
+            crate::ir::Instruction::Switch { .. } => todo!(),
         }
     }
 }
@@ -272,6 +273,7 @@ impl Backward {
                 true_branch,
                 false_branch,
             } => todo!(),
+            crate::ir::Instruction::Switch { .. }=>todo!()
         }
     }
     fn backward_block(
