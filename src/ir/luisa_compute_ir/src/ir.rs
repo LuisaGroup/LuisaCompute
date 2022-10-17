@@ -442,11 +442,11 @@ pub enum Instruction {
         true_branch: &'static BasicBlock,
         false_branch: &'static BasicBlock,
     },
-    // Switch {
-    //     value: NodeRef,
-    //     default: &'static BasicBlock,
-    //     cases: CBoxedSlice<(NodeRef, &'static BasicBlock)>,
-    // },
+    Switch {
+        value: NodeRef,
+        default: &'static BasicBlock,
+        cases: CBoxedSlice<(NodeRef, &'static BasicBlock)>,
+    },
 }
 
 // pub fn new_user_node<T: UserNodeData>(data: T) -> NodeRef {
@@ -669,10 +669,9 @@ impl ModuleCloner {
             Instruction::Break => builder.break_(),
             Instruction::Continue => builder.continue_(),
             Instruction::If {
-                cond,
-                true_branch,
-                false_branch,
+               ..,
             } => todo!(),
+            Instruction::Switch {.. }=> todo!(),
         };
         self.node_map.insert(node, new_node);
         new_node

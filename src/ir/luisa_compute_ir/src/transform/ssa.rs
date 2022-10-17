@@ -144,6 +144,7 @@ impl ToSSA {
                 }
                 builder.if_(cond, true_branch, false_branch)
             }
+            Instruction::Switch { .. } => todo!(),
             Instruction::Loop { body, cond } => {
                 let mut body_record = SSABlockRecord::from_parent(record);
                 let body = self.promote_bb(*body, IrBuilder::new(), &mut body_record);
