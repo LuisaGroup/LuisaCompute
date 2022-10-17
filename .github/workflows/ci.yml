@@ -21,6 +21,7 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 14
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       #      - name: "Setup CUDA"
       #        uses: Jimver/cuda-toolkit@v0.2.4
       #        with:
@@ -40,6 +41,7 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install cmake ninja opencv llvm sccache glfw
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Configure and Build"
         run: |
           export PATH=$PATH:/usr/local/opt/llvm/bin

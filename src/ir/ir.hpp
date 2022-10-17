@@ -1,7 +1,10 @@
 #pragma once
 
 #include <bindings.hpp>
+
+#include <core/dll_export.h>
 #include <ast/function_builder.h>
+
 namespace luisa::compute {
 LC_IR_API void convert_to_ast(const ir::Module *module, detail::FunctionBuilder *builder) noexcept;
 LC_IR_API ir::Module convert_to_ir(const ScopeStmt *stmt) noexcept;
