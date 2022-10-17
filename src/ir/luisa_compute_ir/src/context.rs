@@ -102,5 +102,5 @@ pub extern "C" fn luisa_compute_ir_add_symbol(id: u64, m: Module) {
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_get_symbol(id: u64) -> *const Module {
-    with_context(|context| context.get_symbol(id).unwrap() as *const Module)
+    with_context(|context| context.get_symbol(id).map(|m| m as *const Module).unwrap_or(std::ptr::null()))
 }
