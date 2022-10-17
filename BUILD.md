@@ -8,11 +8,11 @@
 - C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
     - MSVC and Clang (with GNU-style command-line options) are recommended and tested on Windows
 - On Linux, `uuid-dev` is required to build the core libraries and the following libraries are required for the GUI module:
-  - libopencv-dev
-  - libglfw3-dev
-  - libxinerama-dev
-  - libxcursor-dev
-  - libxi-dev
+    - libopencv-dev
+    - libglfw3-dev
+    - libxinerama-dev
+    - libxcursor-dev
+    - libxi-dev
 - On macOS with M1, you need to install `embree` since a pre-built binary is not provided by the official embree repo. We recommend using [Homebrew](https://brew.sh/) to install it. You can install it by running `brew install embree`.
 
 ### Rust (IR module / Rust frontend)
@@ -36,7 +36,7 @@
 - LLVM
     - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
     - LLVM 13+ with the corresponding targets and features enabled
-      - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_ROOT=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
+        - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_ROOT=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
 
 ### Python
 
@@ -69,7 +69,7 @@ of linking object files into shared libraries.
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
 
-Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree. 
+Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree.
 Therefore, if you would like to enable the CUDA backend, you will need to either
 - Manually copy the OptiX header files under `<optix-installation>/include` to `src/backends/cuda/optix` (so that the folder *directly* contains `optix.h`); or
 - Specify the OptiX installation directory with `-D OptiX_DIR=<optix-installation>`
