@@ -7,31 +7,6 @@
 
 namespace luisa::compute {
 
-namespace ir {
-
-struct Binding {
-    enum struct Tag {
-        Buffer,
-        Texture2D,
-        Texture3D,
-        BindlessArray,
-        Accel
-    };
-
-    Tag tag;
-};
-
-struct Kernel {
-
-};
-
-struct Callable {
-    Module module;
-    luisa::vector<NodeRef> arguments;
-};
-
-}
-
 LC_IR_API void convert_to_ast(const ir::Module *module, detail::FunctionBuilder *builder) noexcept;
 LC_IR_API ir::Module convert_to_ir(const ScopeStmt *stmt) noexcept;
 inline ir::NodeRef build_call(ir::IrBuilder *builder, ir::Func func, luisa::vector<ir::NodeRef> args, const ir::Type *ret_type) noexcept {

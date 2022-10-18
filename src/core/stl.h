@@ -224,6 +224,15 @@ using eastl::get_if;
 using eastl::holds_alternative;
 using eastl::visit;
 
+// overloaded pattern
+template<typename... Ts>
+struct overloaded : Ts... {
+    using Ts::operator()...;
+};
+// deduction guide (not needed as of C++20, but provided here for compatibility)
+template<typename... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
 struct default_sentinel_t {};
 inline constexpr default_sentinel_t default_sentinel{};
 
