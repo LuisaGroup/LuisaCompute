@@ -154,9 +154,10 @@ impl<'a> StoreIntermediate<'a> {
         let grad_type = grad_type_of(type_);
         match instruction {
             crate::ir::Instruction::Buffer => {}
-            crate::ir::Instruction::Bindless(_) => {}
+            crate::ir::Instruction::Bindless => {}
             crate::ir::Instruction::Texture2D => {}
             crate::ir::Instruction::Texture3D => {}
+            crate::ir::Instruction::Accel => {}
             crate::ir::Instruction::Shared => {}
             crate::ir::Instruction::Local { .. } => {}
             crate::ir::Instruction::UserData(_) => {}
@@ -205,6 +206,7 @@ impl<'a> StoreIntermediate<'a> {
                 self.visit_block(false_branch);
             }
             crate::ir::Instruction::Switch { .. } => todo!(),
+            crate::ir::Instruction::Comment { .. } => {}
         }
     }
 }
@@ -232,9 +234,10 @@ impl Backward {
         let grad_type = grad_type.unwrap();
         match instruction {
             crate::ir::Instruction::Buffer => {}
-            crate::ir::Instruction::Bindless(_) => {}
+            crate::ir::Instruction::Bindless => {}
             crate::ir::Instruction::Texture2D => {}
             crate::ir::Instruction::Texture3D => {}
+            crate::ir::Instruction::Accel => {}
             crate::ir::Instruction::Shared => {}
             crate::ir::Instruction::Local { .. } => {}
             crate::ir::Instruction::UserData(_) => {}
@@ -278,7 +281,8 @@ impl Backward {
                 true_branch,
                 false_branch,
             } => todo!(),
-            crate::ir::Instruction::Switch { .. }=>todo!()
+            crate::ir::Instruction::Switch { .. }=> todo!(),
+            crate::ir::Instruction::Comment { .. } => {}
         }
     }
     fn backward_block(

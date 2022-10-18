@@ -56,9 +56,10 @@ impl ToSSA {
         let type_ = node.get().type_;
         match instruction {
             Instruction::Buffer => return node,
-            Instruction::Bindless(_) => return node,
+            Instruction::Bindless => return node,
             Instruction::Texture2D => return node,
             Instruction::Texture3D => return node,
+            Instruction::Accel => return node,
             Instruction::Shared => return node,
             Instruction::Local { init } => {
                 let var = builder.local(*init);
@@ -146,7 +147,8 @@ impl ToSSA {
                 let body = self.promote_bb(*body, IrBuilder::new(), &mut body_record);
                 let cond = self.promote(*cond, builder, record);
                 builder.loop_(body, cond)
-            }
+            },
+            Instruction::Comment(_) => return node
         }
     }
     fn promote_bb(

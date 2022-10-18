@@ -161,6 +161,11 @@ pub enum Func {
     Unreachable,
     Assert,
 
+    ThreadId,
+    BlockId,
+    DispatchId,
+    DispatchSize,
+
     RequiresGradient,
     Gradient,
     GradientMarker, // marks a (node, gradient) tuple
@@ -453,9 +458,10 @@ pub struct SwitchCase {
 #[derive(Clone, Debug, Serialize)]
 pub enum Instruction {
     Buffer,
-    Bindless(CSlice<'static, NodeRef>),
+    Bindless,
     Texture2D,
     Texture3D,
+    Accel,
     Shared,
     Local {
         init: NodeRef,
@@ -499,6 +505,7 @@ pub enum Instruction {
         default: &'static BasicBlock,
         cases: CBoxedSlice<SwitchCase>,
     },
+    Comment(CBoxedSlice<u8>),
 }
 
 // pub fn new_user_node<T: UserNodeData>(data: T) -> NodeRef {
@@ -704,49 +711,57 @@ pub struct CallableModule {
 // buffer binding
 #[repr(C)]
 #[derive(Debug, Serialize)]
-pub struct BufferCapture {
+pub struct BufferBinding {
     pub handle: u64,
     pub offset: u64,
-    pub size: usize
+    pub size: usize,
 }
 
 // texture binding
 #[repr(C)]
 #[derive(Debug, Serialize)]
-pub struct TextureCapture {
+pub struct TextureBinding {
     pub handle: u64,
-    pub level: u32
+    pub level: u32,
 }
 
 // bindless array binding
 #[repr(C)]
 #[derive(Debug, Serialize)]
-pub struct BindlessArrayCapture {
-    pub handle: u64
+pub struct BindlessArrayBinding {
+    pub handle: u64,
 }
 
 // accel binding
 #[repr(C)]
 #[derive(Debug, Serialize)]
-pub struct AccelCapture {
-    pub handle: u64
+pub struct AccelBinding {
+    pub handle: u64,
+}
+
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub enum Binding {
+    Buffer(BufferBinding),
+    Texture(TextureBinding),
+    BindlessArray(BindlessArrayBinding),
+    Accel(AccelBinding),
 }
 
 #[derive(Debug, Serialize)]
 #[repr(C)]
-pub enum Capture {
-    Buffer(BufferCapture),
-    Texture(TextureCapture),
-    BindlessArray(BindlessArrayCapture),
-    Accel(AccelCapture),
+pub struct Capture {
+    pub node: NodeRef,
+    pub binding: Binding,
 }
 
 #[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct KernelModule {
     pub module: Module,
+    pub captures: CBoxedSlice<Capture>,
     pub args: CBoxedSlice<NodeRef>,
-    pub captures: CBoxedSlice<Capture>
+    pub shared: CBoxedSlice<NodeRef>,
 }
 
 impl Module {
@@ -774,9 +789,10 @@ impl ModuleCloner {
         }
         let new_node = match node.get().instruction {
             Instruction::Buffer => node,
-            Instruction::Bindless(_) => node,
+            Instruction::Bindless => node,
             Instruction::Texture2D => node,
             Instruction::Texture3D => node,
+            Instruction::Accel => node,
             Instruction::Shared => node,
             Instruction::Local { .. } => todo!(),
             Instruction::UserData(_) => node,
@@ -790,6 +806,7 @@ impl ModuleCloner {
             Instruction::Continue => builder.continue_(),
             Instruction::If { .. } => todo!(),
             Instruction::Switch { .. } => todo!(),
+            Instruction::Comment(_) => builder.clone_node(node)
         };
         self.node_map.insert(node, new_node);
         new_node
@@ -975,6 +992,11 @@ pub extern "C" fn luisa_compute_ir_new_node(node: Node) -> NodeRef {
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_node_get(node_ref: NodeRef) -> *const Node {
     node_ref.get()
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_append_node(builder: &mut IrBuilder, node_ref: NodeRef) {
+    builder.append(node_ref)
 }
 
 #[no_mangle]
