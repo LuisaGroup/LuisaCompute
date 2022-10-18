@@ -61,6 +61,7 @@ impl ToSSA {
             Instruction::Texture3D => return node,
             Instruction::Accel => return node,
             Instruction::Shared => return node,
+            Instruction::Uniform => return node,
             Instruction::Local { init } => {
                 let var = builder.local(*init);
                 record.defined.insert(node);
