@@ -40,20 +40,20 @@ private:
     [[nodiscard]] ir::NodeRef _convert(const GpuCustomOpExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const ReplaceMemberExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert_expr(const Expression *expr) noexcept;
-    void _convert(const BreakStmt *stmt) noexcept;
-    void _convert(const ContinueStmt *stmt) noexcept;
-    void _convert(const ReturnStmt *stmt) noexcept;
-    void _convert(const ScopeStmt *stmt) noexcept;
-    void _convert(const IfStmt *stmt) noexcept;
-    void _convert(const LoopStmt *stmt) noexcept;
-    void _convert(const ExprStmt *stmt) noexcept;
-    void _convert(const SwitchStmt *stmt) noexcept;
-    void _convert(const SwitchCaseStmt *stmt) noexcept;
-    void _convert(const SwitchDefaultStmt *stmt) noexcept;
-    void _convert(const AssignStmt *stmt) noexcept;
-    void _convert(const ForStmt *stmt) noexcept;
-    void _convert(const CommentStmt *stmt) noexcept;
-    void _convert_stmt(const Statement *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const BreakStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const ContinueStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const ReturnStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const ScopeStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const IfStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const LoopStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const ExprStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const SwitchStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const SwitchCaseStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const SwitchDefaultStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const AssignStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const ForStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert(const CommentStmt *stmt) noexcept;
+    [[nodiscard]] ir::NodeRef _convert_stmt(const Statement *stmt) noexcept;
 
 public:
     AST2IR() noexcept = default;
