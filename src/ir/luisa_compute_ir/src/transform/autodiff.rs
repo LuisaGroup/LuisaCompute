@@ -155,7 +155,8 @@ impl<'a> StoreIntermediate<'a> {
         match instruction {
             crate::ir::Instruction::Buffer => {}
             crate::ir::Instruction::Bindless(_) => {}
-            crate::ir::Instruction::Texture => {}
+            crate::ir::Instruction::Texture2D => {}
+            crate::ir::Instruction::Texture3D => {}
             crate::ir::Instruction::Shared => {}
             crate::ir::Instruction::Local { .. } => {}
             crate::ir::Instruction::UserData(_) => {}
@@ -232,7 +233,8 @@ impl Backward {
         match instruction {
             crate::ir::Instruction::Buffer => {}
             crate::ir::Instruction::Bindless(_) => {}
-            crate::ir::Instruction::Texture => {}
+            crate::ir::Instruction::Texture2D => {}
+            crate::ir::Instruction::Texture3D => {}
             crate::ir::Instruction::Shared => {}
             crate::ir::Instruction::Local { .. } => {}
             crate::ir::Instruction::UserData(_) => {}

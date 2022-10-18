@@ -57,7 +57,8 @@ impl ToSSA {
         match instruction {
             Instruction::Buffer => return node,
             Instruction::Bindless(_) => return node,
-            Instruction::Texture => return node,
+            Instruction::Texture2D => return node,
+            Instruction::Texture3D => return node,
             Instruction::Shared => return node,
             Instruction::Local { init } => {
                 let var = builder.local(*init);

@@ -35,12 +35,14 @@ pub struct VectorType {
     pub element: VectorElementType,
     pub length: u32,
 }
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct MatrixType {
     pub element: VectorElementType,
     pub dimension: u32,
 }
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct StructType {
@@ -49,12 +51,14 @@ pub struct StructType {
     pub size: usize,
     // pub id: u64,
 }
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct ArrayType {
     pub element: &'static Type,
     pub length: usize,
 }
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub enum Type {
@@ -65,6 +69,7 @@ pub enum Type {
     Struct(StructType),
     Array(ArrayType),
 }
+
 impl VectorElementType {
     pub fn size(&self) -> usize {
         match self {
@@ -73,6 +78,7 @@ impl VectorElementType {
         }
     }
 }
+
 impl Primitive {
     pub fn size(&self) -> usize {
         match self {
@@ -86,16 +92,19 @@ impl Primitive {
         }
     }
 }
+
 impl VectorType {
     pub fn size(&self) -> usize {
         self.element.size() * self.length as usize
     }
 }
+
 impl MatrixType {
     pub fn size(&self) -> usize {
         self.element.size() * self.dimension as usize * self.dimension as usize
     }
 }
+
 impl Type {
     pub fn size(&self) -> usize {
         match self {
@@ -120,6 +129,7 @@ impl Type {
         }
     }
 }
+
 #[derive(Clone, Debug, Copy, Serialize)]
 #[repr(C)]
 pub struct Node {
@@ -130,6 +140,7 @@ pub struct Node {
 }
 
 pub const INVALID_REF: NodeRef = NodeRef(usize::MAX);
+
 impl Node {
     pub fn new(instruction: &'static Instruction, type_: &'static Type) -> Node {
         Node {
@@ -140,6 +151,7 @@ impl Node {
         }
     }
 }
+
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize)]
 #[repr(C)]
 pub enum Func {
@@ -259,86 +271,100 @@ pub enum Func {
 
     SynchronizeBlock,
 
+    /// (atomic_ref, desired) -> old: stores desired, returns old.
     AtomicExchange,
-    /// [(atomic_ref, desired) -> old]: stores desired, returns old.
+    /// (atomic_ref, expected, desired) -> old: stores (old == expected ? desired : old), returns old.
     AtomicCompareExchange,
-    /// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
+    /// (atomic_ref, val) -> old: stores (old + val), returns old.
     AtomicFetchAdd,
-    /// [(atomic_ref, val) -> old]: stores (old + val), returns old.
+    /// (atomic_ref, val) -> old: stores (old - val), returns old.
     AtomicFetchSub,
-    /// [(atomic_ref, val) -> old]: stores (old - val), returns old.
+    /// (atomic_ref, val) -> old: stores (old & val), returns old.
     AtomicFetchAnd,
-    /// [(atomic_ref, val) -> old]: stores (old & val), returns old.
+    /// (atomic_ref, val) -> old: stores (old | val), returns old.
     AtomicFetchOr,
-    /// [(atomic_ref, val) -> old]: stores (old | val), returns old.
+    /// (atomic_ref, val) -> old: stores (old ^ val), returns old.
     AtomicFetchXor,
-    /// [(atomic_ref, val) -> old]: stores (old ^ val), returns old.
+    /// (atomic_ref, val) -> old: stores min(old, val), returns old.
     AtomicFetchMin,
-    /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
+    /// (atomic_ref, val) -> old: stores max(old, val), returns old.
     AtomicFetchMax,
-    /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
     // memory access
+    /// (buffer, index) -> value: reads the index-th element in bu
     BufferRead,
-    /// [(buffer, index) -> value]: reads the index-th element in bu
+    /// (buffer, index, value) -> void: writes value into the inde
     BufferWrite,
-    /// [(buffer, index, value) -> void]: writes value into the inde
+    /// (buffer, index) -> uint: returns buffer size in *elements*
+    BufferSize,
+    /// (texture, coord) -> value
     TextureRead,
-    /// [(texture, coord) -> value]
+    /// (texture, coord, value) -> void
     TextureWrite,
-    /// [(texture, coord, value) -> void]
-    // bindless texture
+    ///(bindless_array, index: uint, uv: float2) -> float4
     BindlessTexture2dSample,
-    ///(bindless_array, index: uint, uv: float2): float4
+    ///(bindless_array, index: uint, uv: float2, level: float) -> float4
     BindlessTexture2dSampleLevel,
-    ///(bindless_array, index: uint, uv: float2, level: float): float
+    ///(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2) -> float4
     BindlessTexture2dSampleGrad,
-    ///(bindless_array, index: uint, uv: float2, ddx: float2, ddy: fl
+    ///(bindless_array, index: uint, uv: float3) -> float4
     BindlessTexture3dSample,
-    ///(bindless_array, index: uint, uv: float3): float4
+    ///(bindless_array, index: uint, uv: float3, level: float) -> float
     BindlessTexture3dSampleLevel,
-    ///(bindless_array, index: uint, uv: float3, level: float): float
+    ///(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3) -> float4
     BindlessTexture3dSampleGrad,
-    ///(bindless_array, index: uint, uv: float3, ddx: float3, ddy: fl
+    ///(bindless_array, index: uint, coord: uint2) -> float4
     BindlessTexture2dRead,
-    ///(bindless_array, index: uint, coord: uint2): float4
+    ///(bindless_array, index: uint, coord: uint3) -> float4
     BindlessTexture3dRead,
-    ///(bindless_array, index: uint, coord: uint3): float4
+    ///(bindless_array, index: uint, coord: uint2, level: uint) -> float4
     BindlessTexture2dReadLevel,
-    ///(bindless_array, index: uint, coord: uint2, level: uint): floa
+    ///(bindless_array, index: uint, coord: uint3, level: uint) -> float4
     BindlessTexture3dReadLevel,
-    ///(bindless_array, index: uint, coord: uint3, level: uint): floa
+    ///(bindless_array, index: uint) -> uint2
     BindlessTexture2dSize,
-    ///(bindless_array, index: uint): uint2
+    ///(bindless_array, index: uint) -> uint3
     BindlessTexture3dSize,
-    ///(bindless_array, index: uint): uint3
+    ///(bindless_array, index: uint, level: uint) -> uint2
     BindlessTexture2dSizeLevel,
-    ///(bindless_array, index: uint, level: uint): uint2
+    ///(bindless_array, index: uint, level: uint) -> uint3
     BindlessTexture3dSizeLevel,
-    ///(bindless_array, index: uint, level: uint): uint3
+    /// (bindless_array, index: uint, element: uint) -> T
     BindlessBufferRead,
+    /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
+    BindlessBufferSize,
 
-    Vec,  // scalar -> vector, the resulting type is stored in node
-    Vec2, // (scalar, scalar) -> vector
-    Vec3, // (scalar, scalar, scalar) -> vector
+    Vec,
+    // scalar -> vector, the resulting type is stored in node
+    Vec2,
+    // (scalar, scalar) -> vector
+    Vec3,
+    // (scalar, scalar, scalar) -> vector
     Vec4, // (scalar, scalar, scalar, scalar) -> vector
 
-    Permute,        // (vector, indices,...) -> vector
-    ExtractElement, // (vector, index) -> scalar
-    InsertElement,  // (vector, scalar, index) -> vector
+    Permute,
+    // (vector, indices,...) -> vector
+    ExtractElement,
+    // (vector, index) -> scalar
+    InsertElement, // (vector, scalar, index) -> vector
 
-    ExtractValue,  //(struct, index) -> value
-    InsertValue,   //(struct, value, index) -> struct
+    ExtractValue,
+    //(struct, index) -> value
+    InsertValue,
+    //(struct, value, index) -> struct
     GetElementPtr, //(struct, index) -> value; the value can be passed to an Update instruction
 
-    Matrix,  // scalar -> matrix, the resulting type is stored in node
-    Matrix2, // scalar x 4 -> matrix
-    Matrix3, // scalar x 9 -> matrix
+    Matrix,
+    // scalar -> matrix, the resulting type is stored in node
+    Matrix2,
+    // scalar x 4 -> matrix
+    Matrix3,
+    // scalar x 9 -> matrix
     Matrix4, // scalar x 16 -> matrix
 
     Callable(u64),
-    CpuCustomOp(CRc<CpuCustomOp>)
-
+    CpuCustomOp(CRc<CpuCustomOp>),
 }
+
 #[derive(Clone, Debug, Serialize)]
 #[repr(C)]
 pub enum Const {
@@ -352,6 +378,7 @@ pub enum Const {
     Float64(f64),
     Generic(CBoxedSlice<u8>, &'static Type),
 }
+
 impl Const {
     pub fn get_i32(&self) -> i32 {
         match self {
@@ -373,6 +400,7 @@ impl Const {
         }
     }
 }
+
 /// cbindgen:derive-eq
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, PartialOrd, Ord)]
 #[repr(C)]
@@ -397,6 +425,7 @@ pub struct CpuCustomOp {
     pub func: extern "C" fn(*mut u8, *const u8, *mut u8, u32),
     pub destructor: extern "C" fn(*mut u8),
 }
+
 impl Serialize for CpuCustomOp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("CpuCustomOp", 1)?;
@@ -404,6 +433,7 @@ impl Serialize for CpuCustomOp {
         state.end()
     }
 }
+
 impl Debug for CpuCustomOp {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         f.debug_struct("CpuCustomOp")
@@ -418,13 +448,14 @@ pub struct SwitchCase {
     pub value: NodeRef,
     pub block: &'static BasicBlock,
 }
+
 #[repr(C)]
 #[derive(Clone, Debug, Serialize)]
-
 pub enum Instruction {
     Buffer,
     Bindless(CSlice<'static, NodeRef>),
-    Texture,
+    Texture2D,
+    Texture3D,
     Shared,
     Local {
         init: NodeRef,
@@ -477,27 +508,33 @@ pub enum Instruction {
 //     ))
 // }
 const INVALID_INST: Instruction = Instruction::Invalid;
+
 pub(crate) fn with_node_pool<T>(f: impl FnOnce(&mut [*mut Node]) -> T) -> T {
     with_context(|ctx| f(&mut ctx.nodes))
 }
+
 pub(crate) fn new_node(node: Node) -> NodeRef {
     with_context(|ctx| ctx.alloc_node(node))
 }
+
 pub trait UserNodeData: Any + Debug {
     fn equal(&self, other: &dyn UserNodeData) -> bool;
     fn as_any(&self) -> &dyn Any;
 }
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct BasicBlock {
     pub(crate) first: NodeRef,
     pub(crate) last: NodeRef,
 }
+
 #[derive(Serialize)]
 struct NodeRefAndNode {
     id: NodeRef,
     data: &'static Node,
 }
+
 impl Serialize for BasicBlock {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("BasicBlock", 1)?;
@@ -513,6 +550,7 @@ impl Serialize for BasicBlock {
         state.end()
     }
 }
+
 impl BasicBlock {
     pub(crate) fn nodes(&self) -> Vec<NodeRef> {
         let mut vec = Vec::new();
@@ -571,6 +609,7 @@ impl BasicBlock {
         len
     }
 }
+
 pub static VOID_TYPE: Type = Type::Void;
 
 impl NodeRef {
@@ -645,12 +684,22 @@ pub enum ModuleKind {
     Function,
     Kernel,
 }
+
 #[repr(C)]
 #[derive(Debug, Serialize)]
 pub struct Module {
     pub kind: ModuleKind,
     pub entry: &'static BasicBlock,
 }
+
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct CallableModule {
+    pub module: Module,
+    pub args: CBoxedSlice<NodeRef>,
+    pub ret: NodeRef,
+}
+
 impl Module {
     pub fn from_fragment(entry: &'static BasicBlock) -> Self {
         Self {
@@ -659,9 +708,11 @@ impl Module {
         }
     }
 }
+
 struct ModuleCloner {
     node_map: HashMap<NodeRef, NodeRef>,
 }
+
 impl ModuleCloner {
     fn new() -> Self {
         Self {
@@ -675,7 +726,8 @@ impl ModuleCloner {
         let new_node = match node.get().instruction {
             Instruction::Buffer => node,
             Instruction::Bindless(_) => node,
-            Instruction::Texture => node,
+            Instruction::Texture2D => node,
+            Instruction::Texture3D => node,
             Instruction::Shared => node,
             Instruction::Local { .. } => todo!(),
             Instruction::UserData(_) => node,
@@ -712,6 +764,7 @@ impl ModuleCloner {
         }
     }
 }
+
 impl Clone for Module {
     fn clone(&self) -> Self {
         Self {
@@ -720,11 +773,13 @@ impl Clone for Module {
         }
     }
 }
+
 #[repr(C)]
 pub struct IrBuilder {
     bb: &'static mut BasicBlock,
     insert_point: NodeRef,
 }
+
 impl IrBuilder {
     pub fn new() -> Self {
         let bb = context::alloc_deferred_drop(BasicBlock::new());
@@ -862,14 +917,17 @@ impl IrBuilder {
         self.bb
     }
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_node(node: Node) -> NodeRef {
     new_node(node)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_node_get(node_ref: NodeRef) -> *const Node {
     node_ref.get()
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_call(
     builder: &mut IrBuilder,
@@ -880,10 +938,12 @@ pub extern "C" fn luisa_compute_ir_build_call(
     let args = args.as_ref();
     builder.call(func, args, ret_type)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_const(builder: &mut IrBuilder, const_: Const) -> NodeRef {
     builder.const_(const_)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_update(
     builder: &mut IrBuilder,
@@ -892,10 +952,12 @@ pub extern "C" fn luisa_compute_ir_build_update(
 ) {
     builder.update(var, value)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_local(builder: &mut IrBuilder, init: NodeRef) -> NodeRef {
     builder.local(init)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder: &mut IrBuilder,
@@ -908,6 +970,7 @@ pub extern "C" fn luisa_compute_ir_build_local_zero_init(
 pub extern "C" fn luisa_compute_ir_new_builder() -> IrBuilder {
     IrBuilder::new()
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> &'static BasicBlock {
     builder.finish()
@@ -921,6 +984,7 @@ pub mod debug {
     pub fn dump_ir(module: &Module) -> serde_json::Value {
         serde_json::to_value(&module).unwrap()
     }
+
     #[no_mangle]
     pub extern "C" fn luisa_compute_ir_dump(module: &Module) -> CBoxedSlice<u8> {
         let json = dump_ir(module);
