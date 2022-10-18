@@ -700,6 +700,54 @@ pub struct CallableModule {
     pub ret: NodeRef,
 }
 
+// buffer binding
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct BufferCapture {
+    pub handle: u64,
+    pub offset: u64,
+    pub size: usize
+}
+
+// texture binding
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct TextureCapture {
+    pub handle: u64,
+    pub level: u32
+}
+
+// bindless array binding
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct BindlessArrayCapture {
+    pub handle: u64
+}
+
+// accel binding
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct AccelCapture {
+    pub handle: u64
+}
+
+#[derive(Debug, Serialize)]
+#[repr(C)]
+pub enum Capture {
+    Buffer(BufferCapture),
+    Texture(TextureCapture),
+    BindlessArray(BindlessArrayCapture),
+    Accel(AccelCapture),
+}
+
+#[repr(C)]
+#[derive(Debug, Serialize)]
+pub struct KernelModule {
+    pub module: Module,
+    pub args: CBoxedSlice<NodeRef>,
+    pub captures: CBoxedSlice<Capture>
+}
+
 impl Module {
     pub fn from_fragment(entry: &'static BasicBlock) -> Self {
         Self {
