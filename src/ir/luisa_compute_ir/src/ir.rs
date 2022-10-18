@@ -463,6 +463,7 @@ pub enum Instruction {
     Texture3D,
     Accel,
     Shared,
+    Uniform,
     Local {
         init: NodeRef,
     },
@@ -793,6 +794,7 @@ impl ModuleCloner {
             Instruction::Texture3D => node,
             Instruction::Accel => node,
             Instruction::Shared => node,
+            Instruction::Uniform => node,
             Instruction::Local { .. } => todo!(),
             Instruction::UserData(_) => node,
             Instruction::Invalid => node,

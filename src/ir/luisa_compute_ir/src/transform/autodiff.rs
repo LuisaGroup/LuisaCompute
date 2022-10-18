@@ -159,6 +159,7 @@ impl<'a> StoreIntermediate<'a> {
             crate::ir::Instruction::Texture3D => {}
             crate::ir::Instruction::Accel => {}
             crate::ir::Instruction::Shared => {}
+            crate::ir::Instruction::Uniform => {}
             crate::ir::Instruction::Local { .. } => {}
             crate::ir::Instruction::UserData(_) => {}
             crate::ir::Instruction::Invalid => {}
@@ -239,6 +240,7 @@ impl Backward {
             crate::ir::Instruction::Texture3D => {}
             crate::ir::Instruction::Accel => {}
             crate::ir::Instruction::Shared => {}
+            crate::ir::Instruction::Uniform => {}
             crate::ir::Instruction::Local { .. } => {}
             crate::ir::Instruction::UserData(_) => {}
             crate::ir::Instruction::Invalid => {}

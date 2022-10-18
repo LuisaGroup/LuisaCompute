@@ -443,18 +443,12 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
                     {.type_ = _convert_type(nullptr),
                      .instruction = &instr});
             }
-            default: {// TODO: argument initialization?
-                auto type = _convert_type(v.type());
-                auto invalid = ir::Instruction{
-                    .tag = ir::Instruction::Tag::Invalid};
-                auto invalid_node = ir::luisa_compute_ir_new_node(
-                    {.type_ = type, .instruction = &invalid});
-                ir::luisa_compute_ir_append_node(b, invalid_node);
+            default: {
                 auto instr = ir::Instruction{
-                    .tag = ir::Instruction::Tag::Local,
-                    .local = {invalid_node}};
+                    .tag = ir::Instruction::Tag::Uniform};
                 return ir::luisa_compute_ir_new_node(
-                    {.type_ = type, .instruction = &instr});
+                    {.type_ = _convert_type(v.type()),
+                     .instruction = &instr});
             }
         }
         LUISA_ERROR_WITH_LOCATION("Invalid variable tag.");
