@@ -57,7 +57,7 @@ private:
 
 public:
     AST2IR() noexcept = default;
-    [[nodiscard]] ir::Module convert(Function function) noexcept;
+    [[nodiscard]] ir::KernelModule convert(Function function) noexcept;
 };
 
 }// namespace luisa::compute

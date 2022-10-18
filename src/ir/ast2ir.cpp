@@ -6,7 +6,7 @@
 
 namespace luisa::compute {
 
-ir::Module AST2IR::convert(Function function) noexcept {
+ir::KernelModule AST2IR::convert(Function function) noexcept {
     // TODO
 }
 
