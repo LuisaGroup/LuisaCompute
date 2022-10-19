@@ -451,6 +451,7 @@ pub enum Instruction {
         }
     }
     */
+    Return(NodeRef),
     Loop {
         body: &'static BasicBlock,
         cond: NodeRef,
