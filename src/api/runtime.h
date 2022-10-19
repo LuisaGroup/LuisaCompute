@@ -27,16 +27,20 @@ typedef struct LCTextureArgument {
     LCTexture texture;
     uint32_t level;
 } LCTextureArgument;
+
 typedef struct LCUniformArgument {
     const uint8_t *data;
     size_t size;
 } LCUniformArgument;
+
 typedef struct LCBindlessArrayArgument {
     LCBindlessArray array;
 } LCBindlessArrayArgument;
+
 typedef struct LCAccelArgument {
     LCAccel accel;
 } LCAccelArgument;
+
 typedef struct LCArgument {
     LCArgumentTag tag;
     LCNodeRef node;

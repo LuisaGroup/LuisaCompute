@@ -5,20 +5,21 @@ use std::{
 
 use bumpalo::Bump;
 
-use crate::ir::{Module, Node, NodeRef, Type};
+use crate::ir::{CallableModule, Node, NodeRef, Type};
 
 pub struct Context {
     arena: Bump,
     destructors: Vec<Box<dyn FnOnce()>>,
     pub(crate) nodes: Vec<*mut Node>,
     pub(crate) types: HashSet<Box<Type>>,
-    pub(crate) symbols: HashMap<u64, Module>,
+    pub(crate) symbols: HashMap<u64, CallableModule>,
 }
+
 impl Context {
-    pub fn add_symbol(&mut self, id: u64, symbol: Module) {
+    pub fn add_symbol(&mut self, id: u64, symbol: CallableModule) {
         self.symbols.insert(id, symbol);
     }
-    pub fn get_symbol(&self, id: u64) -> Option<&Module> {
+    pub fn get_symbol(&self, id: u64) -> Option<&CallableModule> {
         self.symbols.get(&id)
     }
     pub fn register_type(&mut self, type_: Type) -> &'static Type {
@@ -52,6 +53,7 @@ impl Context {
         NodeRef(id)
     }
 }
+
 impl Drop for Context {
     fn drop(&mut self) {
         for destructor in self.destructors.drain(..).rev() {
@@ -79,6 +81,7 @@ pub fn with_context<T>(f: impl FnOnce(&mut Context) -> T) -> T {
         f(context.as_mut().unwrap())
     })
 }
+
 pub unsafe fn reset_context() {
     CONTEXT.with(|context| {
         *context.borrow_mut() = None;
@@ -88,9 +91,11 @@ pub unsafe fn reset_context() {
 pub fn register_type(type_: Type) -> &'static Type {
     with_context(|context| context.register_type(type_))
 }
+
 pub fn alloc<T: Copy + 'static>(value: T) -> &'static mut T {
     with_context(|context| context.alloc(value))
 }
+
 pub fn alloc_deferred_drop<T: 'static>(value: T) -> &'static mut T {
     with_context(|context| context.alloc_deferred_drop(value))
 }
@@ -101,11 +106,11 @@ pub extern "C" fn luisa_compute_ir_register_type(type_: &Type) -> *const Type {
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_add_symbol(id: u64, m: Module) {
+pub extern "C" fn luisa_compute_ir_add_symbol(id: u64, m: CallableModule) {
     with_context(|context| context.add_symbol(id, m));
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_get_symbol(id: u64) -> *const Module {
-    with_context(|context| context.get_symbol(id).map(|m| m as *const Module).unwrap_or(std::ptr::null()))
+pub extern "C" fn luisa_compute_ir_get_symbol(id: u64) -> *const CallableModule {
+    with_context(|context| context.get_symbol(id).map(|m| m as *const CallableModule).unwrap_or(std::ptr::null()))
 }
