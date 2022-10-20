@@ -269,7 +269,7 @@ int main(int argc, char *argv[]) {
             beta *= 1.0f / q;
         };
         seed_image.write(coord, make_uint4(state));
-        $if(any(isnan(radiance))) { radiance = make_float3(); };
+        $if(any(dsl::isnan(radiance))) { radiance = make_float3(); };
         auto old = image.read(dispatch_id().xy()).xyz();
         auto accum = lerp(old, radiance * 3.f, 1.f / (1.f + frame_index));
         image.write(dispatch_id().xy(), make_float4(accum, 1.f));

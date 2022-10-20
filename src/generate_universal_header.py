@@ -12,7 +12,11 @@ if __name__ == "__main__":
 
 #pragma once""", file=file)
         for m in modules:
+            if m == "gui":
+                print(f"\n#ifdef LUISA_GUI_ENABLED", file=file, end="")
             headers = [h for h in listdir(f"{base}/{m}") if h.endswith(".h") and "impl" not in h and ".inl" not in h]
             print(file=file)
             for h in sorted(headers):
                 print(f"#include <{m}/{h}>", file=file)
+            if m == "gui":
+                print(f"#endif", file=file)

@@ -224,11 +224,45 @@ const MemberExpr *FunctionBuilder::member(const Type *type, const Expression *se
     return _create_expression<MemberExpr>(type, self, member_index);
 }
 
-const MemberExpr *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
+const Expression *FunctionBuilder::swizzle(const Type *type, const Expression *self, size_t swizzle_size, uint64_t swizzle_code) noexcept {
+    // special handling for literal swizzles
     if (self->tag() == Expression::Tag::LITERAL) {
-        auto v = local(self->type());
-        assign(v, self);
-        self = v;
+        auto element = luisa::visit(
+            [&](auto &&v) noexcept -> const Expression * {
+                using TVec = std::decay_t<decltype(v)>;
+                if constexpr (is_vector_v<TVec>) {
+                    using TElem = vector_element_t<TVec>;
+                    if (swizzle_size == 1u) {
+                        auto i = swizzle_code & 0b11u;
+                        return literal(Type::of<TElem>(), v[i]);
+                    } else if (swizzle_size == 2u) {
+                        auto i = (swizzle_code >> 0u) & 0b11u;
+                        auto j = (swizzle_code >> 4u) & 0b11u;
+                        return literal(Type::of<TVec>(),
+                                       Vector<TElem, 2u>{v[i], v[j]});
+                    } else if (swizzle_size == 3u) {
+                        auto i = (swizzle_code >> 0u) & 0b11u;
+                        auto j = (swizzle_code >> 4u) & 0b11u;
+                        auto k = (swizzle_code >> 8u) & 0b11u;
+                        return literal(Type::of<TVec>(),
+                                       Vector<TElem, 3u>{v[i], v[j], v[k]});
+                    } else if (swizzle_size == 4u) {
+                        auto i = (swizzle_code >> 0u) & 0b11u;
+                        auto j = (swizzle_code >> 4u) & 0b11u;
+                        auto k = (swizzle_code >> 8u) & 0b11u;
+                        auto l = (swizzle_code >> 12u) & 0b11u;
+                        return literal(Type::of<TVec>(),
+                                       Vector<TElem, 4u>{v[i], v[j], v[k], v[l]});
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION("Invalid swizzle size.");
+                    }
+                } else {
+                    LUISA_ERROR_WITH_LOCATION("Swizzle must be a vector but got '{}'.",
+                                              self->type()->description());
+                }
+            },
+            static_cast<const LiteralExpr *>(self)->value());
+        return element;
     }
     return _create_expression<MemberExpr>(type, self, swizzle_size, swizzle_code);
 }

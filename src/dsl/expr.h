@@ -300,7 +300,7 @@ public:
     explicit Expr(const RefExpr *expr) noexcept
         : _expression{expr} {}
     /// Construct from BufferView. Will call buffer_binding() to bind buffer
-    explicit Expr(BufferView<T> buffer) noexcept
+    Expr(BufferView<T> buffer) noexcept
         : _expression{detail::FunctionBuilder::current()->buffer_binding(
               Type::of<Buffer<T>>(), buffer.handle(),
               buffer.offset_bytes(), buffer.size_bytes())} {}
@@ -491,7 +491,7 @@ public:
     /// Construct from RefExpr
     explicit Expr(const RefExpr *expr) noexcept : _expression{expr} {}
     /// Construct from ImageView. Will create texture binding.
-    explicit Expr(ImageView<T> image) noexcept
+    Expr(ImageView<T> image) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
               Type::of<Image<T>>(), image.handle(), image.level())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
@@ -529,7 +529,7 @@ public:
     /// Construct from RefExpr
     explicit Expr(const RefExpr *expr, const Expression *offset) noexcept : _expression{expr} {}
     /// Construct from VolumeView. Will create texture binding.
-    explicit Expr(VolumeView<T> volume) noexcept
+    Expr(VolumeView<T> volume) noexcept
         : _expression{detail::FunctionBuilder::current()->texture_binding(
               Type::of<Volume<T>>(), volume.handle(), volume.level())} {}
 
@@ -679,7 +679,7 @@ public:
         : _expression{expr} {}
 
     /// Construct from BindlessArray. Will create bindless array binding
-    explicit Expr(const BindlessArray &array) noexcept
+    Expr(const BindlessArray &array) noexcept
         : _expression{detail::FunctionBuilder::current()->bindless_array_binding(array.handle())} {}
     [[nodiscard]] auto expression() const noexcept { return _expression; }
 

@@ -6,26 +6,27 @@ add_custom_target(luisa-compute-ext-copy ALL
         COMMENT "Copy necessary files for third-party libraries")
 add_dependencies(luisa-compute-ext-copy luisa-compute-ext)
 
-set(FMT_OS OFF CACHE BOOL "" FORCE)
-add_subdirectory(fmt)
-target_compile_definitions(fmt-header-only INTERFACE
+
+set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
+set(SPDLOG_NO_EXCEPTIONS ON CACHE BOOL "" FORCE)
+set(SPDLOG_NO_THREAD_ID ON CACHE BOOL "" FORCE)
+set(SPDLOG_FMT_EXTERNAL OFF CACHE BOOL "" FORCE)
+set(SPDLOG_FMT_EXTERNAL_HO OFF CACHE BOOL "" FORCE)
+set(SPDLOG_DISABLE_DEFAULT_LOGGER ON CACHE BOOL "" FORCE)
+add_subdirectory(spdlog)
+target_compile_definitions(spdlog_header_only INTERFACE
         FMT_CONSTEVAL=constexpr
         FMT_EXCEPTIONS=0
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
-target_link_libraries(luisa-compute-ext PUBLIC fmt::fmt-header-only)
+target_compile_definitions(spdlog PUBLIC
+        FMT_CONSTEVAL=constexpr
+        FMT_EXCEPTIONS=0
+        FMT_HEADER_ONLY=1
+        FMT_USE_NOEXCEPT=1)
+target_link_libraries(luisa-compute-ext PUBLIC spdlog::spdlog_header_only)
 
-set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
-set(SPDLOG_NO_EXCEPTIONS OFF CACHE BOOL "" FORCE)
-set(SPDLOG_NO_THREAD_ID ON CACHE BOOL "" FORCE)
-set(SPDLOG_FMT_EXTERNAL_HO ON CACHE BOOL "" FORCE)
-set(SPDLOG_DISABLE_DEFAULT_LOGGER ON CACHE BOOL "" FORCE)
-add_subdirectory(spdlog)
-set_target_properties(spdlog PROPERTIES
-        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
-target_link_libraries(spdlog PUBLIC fmt::fmt-header-only)
-target_link_libraries(luisa-compute-ext PUBLIC spdlog)
 
 add_library(xxhash INTERFACE)
 target_include_directories(xxhash INTERFACE xxHash)
@@ -83,28 +84,36 @@ if (LUISA_COMPUTE_ENABLE_PYTHON)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
-    set(EMBREE_TUTORIALS OFF CACHE BOOL "" FORCE)
-    set(EMBREE_TASKING_SYSTEM INTERNAL CACHE STRING "" FORCE)
-    set(EMBREE_STAT_COUNTERS OFF CACHE BOOL "" FORCE)
-    set(EMBREE_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
-    set(EMBREE_RAY_MASK OFF CACHE BOOL "" FORCE)
-    set(EMBREE_BACKFACE_CULLING OFF CACHE BOOL "" FORCE)
-    set(EMBREE_FILTER_FUNCTION OFF CACHE BOOL "" FORCE)
-    set(EMBREE_IGNORE_INVALID_RAYS ON CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_QUAD OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_CURVE OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_SUBDIVISION OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_USER OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_GRID OFF CACHE BOOL "" FORCE)
-    set(EMBREE_GEOMETRY_POINT OFF CACHE BOOL "" FORCE)
-    set(EMBREE_COMPACT_POLYS ON CACHE BOOL "" FORCE)
-    set(EMBREE_ISPC_SUPPORT OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_SSE2 OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_SSE42 OFF CACHE BOOL "" FORCE)
-    set(EMBREE_ISA_AVX OFF CACHE BOOL "" FORCE)
-    set(EMBREE_MAX_ISA "NONE" CACHE STRING "" FORCE)
-    set(CMAKE_CXX_STANDARD 11)
-    add_subdirectory(embree)
+    set(EMBREE_TASKING_SYSTEM "INTERNAL" CACHE STRING "" FORCE)
+    find_package(embree 3 CONFIG QUIET)
+    if (embree_FOUND)
+        message(STATUS "Found embree: ${embree_VERSION}")
+    else ()
+        set(LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION "3.13.5")
+        file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/embree)
+        message(STATUS "Downloading embree ${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}...")
+        include(FetchContent)
+        if (WIN32)
+            FetchContent_Declare(embree_binary
+                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x64.vc14.windows.zip")
+        elseif (APPLE)
+            FetchContent_Declare(embree_binary
+                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x86_64.macosx.zip")
+        else ()# Linux
+            FetchContent_Declare(embree_binary
+                    URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
+        endif ()
+        FetchContent_MakeAvailable(embree_binary)
+        FetchContent_GetProperties(embree_binary)
+        # patch embree
+        message(STATUS "Patching embree-config.cmake...")
+        file(READ "${embree_binary_SOURCE_DIR}/lib/cmake/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-config.cmake" EMBREE_CONFIG)
+        string(REPLACE "FIND_PACKAGE(TBB REQUIRED \${EMBREE_TBB_COMPONENT})" "" EMBREE_CONFIG "${EMBREE_CONFIG}")
+        file(WRITE "${embree_binary_SOURCE_DIR}/lib/cmake/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-config.cmake" "${EMBREE_CONFIG}")
+        message(STATUS "Downloaded embree: ${embree_binary_SOURCE_DIR}")
+        set(embree_ROOT ${embree_binary_SOURCE_DIR})
+        find_package(embree 3 CONFIG REQUIRED)
+    endif ()
     target_link_libraries(luisa-compute-ext PUBLIC embree)
     add_custom_command(TARGET luisa-compute-ext-copy
             DEPENDS "$<TARGET_FILE:embree>"
@@ -116,14 +125,6 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
             "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
 endif ()
 
-if (WIN32 AND NOT MINGW AND NOT MSYS)
-    set(BUILD_SHARED_LIBS OFF)
-endif ()
-
-set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
-add_subdirectory(abseil-cpp)
-target_link_libraries(luisa-compute-ext PUBLIC absl::base absl::flat_hash_map)
-
 if (LUISA_COMPUTE_ENABLE_VULKAN)
     find_package(Vulkan)
     if (NOT Vulkan_FOUND)
@@ -134,6 +135,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
         set(SPIRV_HEADERS_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
         set(SPIRV_HEADERS_SKIP_INSTALL ON CACHE BOOL "" FORCE)
+        set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
         add_subdirectory(SPIRV-Headers)
         add_subdirectory(SPIRV-Tools)
         add_subdirectory(glslang)
@@ -144,7 +146,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         add_subdirectory(shaderc)
         set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
         set_target_properties(glslc PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on Windows
-        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan SPIRV)
+        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan SPIRV SPIRV-Tools-shared)
         if (BUILD_SHARED_LIBS)
             target_link_libraries(luisa-compute-ext PUBLIC shaderc_shared)
         else ()
@@ -152,3 +154,11 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         endif ()
     endif ()
 endif ()
+
+if (WIN32 AND NOT MINGW AND NOT MSYS)
+    set(BUILD_SHARED_LIBS OFF)
+endif ()
+
+set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+add_subdirectory(abseil-cpp)
+target_link_libraries(luisa-compute-ext PUBLIC absl::base absl::flat_hash_map)

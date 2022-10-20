@@ -228,98 +228,158 @@ template<typename T>
     lc_vec4_t<T> result{0, 0, 0, 0};
     switch (surf.storage) {
         case LCPixelStorage::BYTE1: {
-            auto v = surf2Dread<char>(surf.handle, p.x * sizeof(char), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, char>(v);
+            int x;
+            asm("suld.b.2d.b8.zero %0, [%1, {%2, %3}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(char)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, char>(x);
             break;
         }
         case LCPixelStorage::BYTE2: {
-            auto v = surf2Dread<char2>(surf.handle, p.x * sizeof(char2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, char>(v.x);
-            result.y = lc_texel_read_convert<T, char>(v.y);
+            int x, y;
+            asm("suld.b.2d.v2.b8.zero {%0, %1}, [%2, {%3, %4}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(char2)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, char>(x);
+            result.y = lc_texel_read_convert<T, char>(y);
             break;
         }
         case LCPixelStorage::BYTE4: {
-            auto v = surf2Dread<char4>(surf.handle, p.x * sizeof(char4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, char>(v.x);
-            result.y = lc_texel_read_convert<T, char>(v.y);
-            result.z = lc_texel_read_convert<T, char>(v.z);
-            result.w = lc_texel_read_convert<T, char>(v.w);
+            int x, y, z, w;
+            asm("suld.b.2d.v4.b8.zero {%0, %1, %2, %3}, [%4, {%5, %6}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(char4)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, char>(x);
+            result.y = lc_texel_read_convert<T, char>(y);
+            result.z = lc_texel_read_convert<T, char>(z);
+            result.w = lc_texel_read_convert<T, char>(w);
             break;
         }
         case LCPixelStorage::SHORT1: {
-            auto v = surf2Dread<short>(surf.handle, p.x * sizeof(short), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, short>(v);
+            int x;
+            asm("suld.b.2d.b16.zero %0, [%1, {%2, %3}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, short>(x);
             break;
         }
         case LCPixelStorage::SHORT2: {
-            auto v = surf2Dread<short2>(surf.handle, p.x * sizeof(short2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, short>(v.x);
-            result.y = lc_texel_read_convert<T, short>(v.y);
+            int x, y;
+            asm("suld.b.2d.v2.b16.zero {%0, %1}, [%2, {%3, %4}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short2)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, short>(x);
+            result.y = lc_texel_read_convert<T, short>(y);
             break;
         }
         case LCPixelStorage::SHORT4: {
-            auto v = surf2Dread<short4>(surf.handle, p.x * sizeof(short4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, short>(v.x);
-            result.y = lc_texel_read_convert<T, short>(v.y);
-            result.z = lc_texel_read_convert<T, short>(v.z);
-            result.w = lc_texel_read_convert<T, short>(v.w);
+            int x, y, z, w;
+            asm("suld.b.2d.v4.b16.zero {%0, %1, %2, %3}, [%4, {%5, %6}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short4)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, short>(x);
+            result.y = lc_texel_read_convert<T, short>(y);
+            result.z = lc_texel_read_convert<T, short>(z);
+            result.w = lc_texel_read_convert<T, short>(w);
             break;
         }
         case LCPixelStorage::INT1: {
-            auto v = surf2Dread<int>(surf.handle, p.x * sizeof(int), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, int>(v);
+            int x;
+            asm("suld.b.2d.b32.zero %0, [%1, {%2, %3}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(int)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, int>(x);
             break;
         }
         case LCPixelStorage::INT2: {
-            auto v = surf2Dread<int2>(surf.handle, p.x * sizeof(int2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, int>(v.x);
-            result.y = lc_texel_read_convert<T, int>(v.y);
+            int x, y;
+            asm("suld.b.2d.v2.b32.zero {%0, %1}, [%2, {%3, %4}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(int2)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, int>(x);
+            result.y = lc_texel_read_convert<T, int>(y);
             break;
         }
         case LCPixelStorage::INT4: {
-            auto v = surf2Dread<int4>(surf.handle, p.x * sizeof(int4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, int>(v.x);
-            result.y = lc_texel_read_convert<T, int>(v.y);
-            result.z = lc_texel_read_convert<T, int>(v.z);
-            result.w = lc_texel_read_convert<T, int>(v.w);
+            int x, y, z, w;
+            asm("suld.b.2d.v4.b32.zero {%0, %1, %2, %3}, [%4, {%5, %6}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(int4)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, int>(x);
+            result.y = lc_texel_read_convert<T, int>(y);
+            result.z = lc_texel_read_convert<T, int>(z);
+            result.w = lc_texel_read_convert<T, int>(w);
             break;
         }
         case LCPixelStorage::HALF1: {
-            auto v = surf2Dread<unsigned short>(surf.handle, p.x * sizeof(unsigned short), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, unsigned short>(v);
+            int x;
+            asm("suld.b.2d.b16.zero %0, [%1, {%2, %3}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, unsigned short>(x);
             break;
         }
         case LCPixelStorage::HALF2: {
-            auto v = surf2Dread<ushort2>(surf.handle, p.x * sizeof(ushort2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
-            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
+            int x, y;
+            asm("suld.b.2d.v2.b16.zero {%0, %1}, [%2, {%3, %4}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short2)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, unsigned short>(x);
+            result.y = lc_texel_read_convert<T, unsigned short>(y);
             break;
         }
         case LCPixelStorage::HALF4: {
-            auto v = surf2Dread<ushort4>(surf.handle, p.x * sizeof(ushort4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
-            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
-            result.z = lc_texel_read_convert<T, unsigned short>(v.z);
-            result.w = lc_texel_read_convert<T, unsigned short>(v.w);
+            int x, y, z, w;
+            asm("suld.b.2d.v4.b16.zero {%0, %1, %2, %3}, [%4, {%5, %6}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short4)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, unsigned short>(x);
+            result.y = lc_texel_read_convert<T, unsigned short>(y);
+            result.z = lc_texel_read_convert<T, unsigned short>(z);
+            result.w = lc_texel_read_convert<T, unsigned short>(w);
             break;
         }
         case LCPixelStorage::FLOAT1: {
-            auto v = surf2Dread<float>(surf.handle, p.x * sizeof(float), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, float>(v);
+            float x;
+            asm("suld.b.2d.b32.zero %0, [%1, {%2, %3}];"
+                : "=f"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(float)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, float>(x);
             break;
         }
         case LCPixelStorage::FLOAT2: {
-            auto v = surf2Dread<float2>(surf.handle, p.x * sizeof(float2), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, float>(v.x);
-            result.y = lc_texel_read_convert<T, float>(v.y);
+            float x, y;
+            asm("suld.b.2d.v2.b32.zero {%0, %1}, [%2, {%3, %4}];"
+                : "=f"(x), "=f"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(float2)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, float>(x);
+            result.y = lc_texel_read_convert<T, float>(y);
             break;
         }
         case LCPixelStorage::FLOAT4: {
-            auto v = surf2Dread<float4>(surf.handle, p.x * sizeof(float4), p.y, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, float>(v.x);
-            result.y = lc_texel_read_convert<T, float>(v.y);
-            result.z = lc_texel_read_convert<T, float>(v.z);
-            result.w = lc_texel_read_convert<T, float>(v.w);
+            float x, y, z, w;
+            asm("suld.b.2d.v4.b32.zero {%0, %1, %2, %3}, [%4, {%5, %6}];"
+                : "=f"(x), "=f"(y), "=f"(z), "=f"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(float4)), "r"(p.y)
+                : "memory");
+            result.x = lc_texel_read_convert<T, float>(x);
+            result.y = lc_texel_read_convert<T, float>(y);
+            result.z = lc_texel_read_convert<T, float>(z);
+            result.w = lc_texel_read_convert<T, float>(w);
             break;
         }
         default: __builtin_unreachable();
@@ -331,52 +391,76 @@ template<typename T, typename V>
 __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noexcept {
     switch (surf.storage) {
         case LCPixelStorage::BYTE1: {
-            char v = lc_texel_write_convert<char>(value.x);
-            surf2Dwrite(v, surf.handle, p.x * sizeof(char), p.y, cudaBoundaryModeZero);
+            int v = lc_texel_write_convert<char>(value.x);
+            asm volatile("sust.b.2d.b8.zero [%0, {%1, %2}], %3;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(char))), "r"(p.y), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::BYTE2: {
-            char vx = lc_texel_write_convert<char>(value.x);
-            char vy = lc_texel_write_convert<char>(value.y);
-            surf2Dwrite(make_char2(vx, vy), surf.handle, p.x * sizeof(char2), p.y, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<char>(value.x);
+            int vy = lc_texel_write_convert<char>(value.y);
+            asm volatile("sust.b.2d.v2.b8.zero [%0, {%1, %2}], {%3, %4};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(char2))), "r"(p.y), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::BYTE4: {
-            char vx = lc_texel_write_convert<char>(value.x);
-            char vy = lc_texel_write_convert<char>(value.y);
-            char vz = lc_texel_write_convert<char>(value.z);
-            char vw = lc_texel_write_convert<char>(value.w);
-            surf2Dwrite(make_char4(vx, vy, vz, vw), surf.handle, p.x * sizeof(char4), p.y, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<char>(value.x);
+            int vy = lc_texel_write_convert<char>(value.y);
+            int vz = lc_texel_write_convert<char>(value.z);
+            int vw = lc_texel_write_convert<char>(value.w);
+            asm volatile("sust.b.2d.v4.b8.zero [%0, {%1, %2}], {%3, %4, %5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(char4))), "r"(p.y), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::SHORT1: {
-            short v = lc_texel_write_convert<short>(value.x);
-            surf2Dwrite(v, surf.handle, p.x * sizeof(short), p.y, cudaBoundaryModeZero);
+            int v = lc_texel_write_convert<short>(value.x);
+            asm volatile("sust.b.2d.b16.zero [%0, {%1, %2}], %3;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short))), "r"(p.y), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::SHORT2: {
-            short vx = lc_texel_write_convert<short>(value.x);
-            short vy = lc_texel_write_convert<short>(value.y);
-            surf2Dwrite(make_short2(vx, vy), surf.handle, p.x * sizeof(short2), p.y, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<short>(value.x);
+            int vy = lc_texel_write_convert<short>(value.y);
+            asm volatile("sust.b.2d.v2.b16.zero [%0, {%1, %2}], {%3, %4};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short2))), "r"(p.y), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::SHORT4: {
-            short vx = lc_texel_write_convert<short>(value.x);
-            short vy = lc_texel_write_convert<short>(value.y);
-            short vz = lc_texel_write_convert<short>(value.z);
-            short vw = lc_texel_write_convert<short>(value.w);
-            surf2Dwrite(make_short4(vx, vy, vz, vw), surf.handle, p.x * sizeof(short4), p.y, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<short>(value.x);
+            int vy = lc_texel_write_convert<short>(value.y);
+            int vz = lc_texel_write_convert<short>(value.z);
+            int vw = lc_texel_write_convert<short>(value.w);
+            asm volatile("sust.b.2d.v4.b16.zero [%0, {%1, %2}], {%3, %4, %5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short4))), "r"(p.y), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::INT1: {
             int v = lc_texel_write_convert<int>(value.x);
-            surf2Dwrite(v, surf.handle, p.x * sizeof(int), p.y, cudaBoundaryModeZero);
+            asm volatile("sust.b.2d.b32.zero [%0, {%1, %2}], %3;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(int))), "r"(p.y), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::INT2: {
             int vx = lc_texel_write_convert<int>(value.x);
             int vy = lc_texel_write_convert<int>(value.y);
-            surf2Dwrite(make_int2(vx, vy), surf.handle, p.x * sizeof(int2), p.y, cudaBoundaryModeZero);
+            asm volatile("sust.b.2d.v2.b32.zero [%0, {%1, %2}], {%3, %4};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(int2))), "r"(p.y), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::INT4: {
@@ -384,37 +468,55 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             int vy = lc_texel_write_convert<int>(value.y);
             int vz = lc_texel_write_convert<int>(value.z);
             int vw = lc_texel_write_convert<int>(value.w);
-            surf2Dwrite(make_int4(vx, vy, vz, vw), surf.handle, p.x * sizeof(int4), p.y, cudaBoundaryModeZero);
+            asm volatile("sust.b.2d.v4.b32.zero [%0, {%1, %2}], {%3, %4, %5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(int4))), "r"(p.y), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::HALF1: {
-            unsigned short v = lc_texel_write_convert<unsigned short>(value.x);
-            surf2Dwrite(v, surf.handle, p.x * sizeof(unsigned short), p.y, cudaBoundaryModeZero);
+            int v = lc_texel_write_convert<unsigned short>(value.x);
+            asm volatile("sust.b.2d.b16.zero [%0, {%1, %2}], %3;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short))), "r"(p.y), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::HALF2: {
-            unsigned short vx = lc_texel_write_convert<unsigned short>(value.x);
-            unsigned short vy = lc_texel_write_convert<unsigned short>(value.y);
-            surf2Dwrite(make_ushort2(vx, vy), surf.handle, p.x * sizeof(ushort2), p.y, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<unsigned short>(value.x);
+            int vy = lc_texel_write_convert<unsigned short>(value.y);
+            asm volatile("sust.b.2d.v2.b16.zero [%0, {%1, %2}], {%3, %4};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short2))), "r"(p.y), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::HALF4: {
-            unsigned short vx = lc_texel_write_convert<unsigned short>(value.x);
-            unsigned short vy = lc_texel_write_convert<unsigned short>(value.y);
-            unsigned short vz = lc_texel_write_convert<unsigned short>(value.z);
-            unsigned short vw = lc_texel_write_convert<unsigned short>(value.w);
-            surf2Dwrite(make_ushort4(vx, vy, vz, vw), surf.handle, p.x * sizeof(ushort4), p.y, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<unsigned short>(value.x);
+            int vy = lc_texel_write_convert<unsigned short>(value.y);
+            int vz = lc_texel_write_convert<unsigned short>(value.z);
+            int vw = lc_texel_write_convert<unsigned short>(value.w);
+            asm volatile("sust.b.2d.v4.b16.zero [%0, {%1, %2}], {%3, %4, %5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short4))), "r"(p.y), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::FLOAT1: {
             float v = lc_texel_write_convert<float>(value.x);
-            surf2Dwrite(v, surf.handle, p.x * sizeof(float), p.y, cudaBoundaryModeZero);
+            asm volatile("sust.b.2d.b32.zero [%0, {%1, %2}], %3;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(float))), "r"(p.y), "f"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::FLOAT2: {
             float vx = lc_texel_write_convert<float>(value.x);
             float vy = lc_texel_write_convert<float>(value.y);
-            surf2Dwrite(make_float2(vx, vy), surf.handle, p.x * sizeof(float2), p.y, cudaBoundaryModeZero);
+            asm volatile("sust.b.2d.v2.b32.zero [%0, {%1, %2}], {%3, %4};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(float2))), "r"(p.y), "f"(vx), "f"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::FLOAT4: {
@@ -422,7 +524,10 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             float vy = lc_texel_write_convert<float>(value.y);
             float vz = lc_texel_write_convert<float>(value.z);
             float vw = lc_texel_write_convert<float>(value.w);
-            surf2Dwrite(make_float4(vx, vy, vz, vw), surf.handle, p.x * sizeof(float4), p.y, cudaBoundaryModeZero);
+            asm volatile("sust.b.2d.v4.b32.zero [%0, {%1, %2}], {%3, %4, %5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(float4))), "r"(p.y), "f"(vx), "f"(vy), "f"(vz), "f"(vw)
+                         : "memory");
             break;
         }
         default: __builtin_unreachable();
@@ -434,98 +539,158 @@ template<typename T>
     lc_vec4_t<T> result{0, 0, 0, 0};
     switch (surf.storage) {
         case LCPixelStorage::BYTE1: {
-            auto v = surf3Dread<char>(surf.handle, p.x * sizeof(char), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, char>(v);
+            int x;
+            asm("suld.b.3d.b8.zero %0, [%1, {%2, %3, %4, %5}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(char)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, char>(x);
             break;
         }
         case LCPixelStorage::BYTE2: {
-            auto v = surf3Dread<char2>(surf.handle, p.x * sizeof(char2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert < T, char(v.x);
-            result.y = lc_texel_read_convert < T, char(v.y);
+            int x, y;
+            asm("suld.b.3d.v2.b8.zero {%0, %1}, [%2, {%3, %4, %5, %6}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(char2)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert < T, char(x);
+            result.y = lc_texel_read_convert < T, char(y);
             break;
         }
         case LCPixelStorage::BYTE4: {
-            auto v = surf3Dread<char4>(surf.handle, p.x * sizeof(char4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, char>(v.x);
-            result.y = lc_texel_read_convert<T, char>(v.y);
-            result.z = lc_texel_read_convert<T, char>(v.z);
-            result.w = lc_texel_read_convert<T, char>(v.w);
+            int x, y, z, w;
+            asm("suld.b.3d.v4.b8.zero {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(char4)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, char>(x);
+            result.y = lc_texel_read_convert<T, char>(y);
+            result.z = lc_texel_read_convert<T, char>(z);
+            result.w = lc_texel_read_convert<T, char>(w);
             break;
         }
         case LCPixelStorage::SHORT1: {
-            auto v = surf3Dread<short>(surf.handle, p.x * sizeof(short), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, short>(v);
+            int x;
+            asm("suld.b.3d.b16.zero %0, [%1, {%2, %3, %4, %5}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, short>(x);
             break;
         }
         case LCPixelStorage::SHORT2: {
-            auto v = surf3Dread<short2>(surf.handle, p.x * sizeof(short2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, short>(v.x);
-            result.y = lc_texel_read_convert<T, short>(v.y);
+            int x, y;
+            asm("suld.b.3d.v2.b16.zero {%0, %1}, [%2, {%3, %4, %5, %6}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short2)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, short>(x);
+            result.y = lc_texel_read_convert<T, short>(y);
             break;
         }
         case LCPixelStorage::SHORT4: {
-            auto v = surf3Dread<short4>(surf.handle, p.x * sizeof(short4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, short>(v.x);
-            result.y = lc_texel_read_convert<T, short>(v.y);
-            result.z = lc_texel_read_convert<T, short>(v.z);
-            result.w = lc_texel_read_convert<T, short>(v.w);
+            int x, y, z, w;
+            asm("suld.b.3d.v4.b16.zero {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short4)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, short>(x);
+            result.y = lc_texel_read_convert<T, short>(y);
+            result.z = lc_texel_read_convert<T, short>(z);
+            result.w = lc_texel_read_convert<T, short>(w);
             break;
         }
         case LCPixelStorage::INT1: {
-            auto v = surf3Dread<int>(surf.handle, p.x * sizeof(int), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, int>(v);
+            int x;
+            asm("suld.b.3d.b32.zero %0, [%1, {%2, %3, %4, %5}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(int)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, int>(x);
             break;
         }
         case LCPixelStorage::INT2: {
-            auto v = surf3Dread<int2>(surf.handle, p.x * sizeof(int2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, int>(v.x);
-            result.y = lc_texel_read_convert<T, int>(v.y);
+            int x, y;
+            asm("suld.b.3d.v2.b32.zero {%0, %1}, [%2, {%3, %4, %5, %6}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(int2)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, int>(x);
+            result.y = lc_texel_read_convert<T, int>(y);
             break;
         }
         case LCPixelStorage::INT4: {
-            auto v = surf3Dread<int4>(surf.handle, p.x * sizeof(int4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, int>(v.x);
-            result.y = lc_texel_read_convert<T, int>(v.y);
-            result.z = lc_texel_read_convert<T, int>(v.z);
-            result.w = lc_texel_read_convert<T, int>(v.w);
+            int x, y, z, w;
+            asm("suld.b.3d.v4.b32.zero {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(int4)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, int>(x);
+            result.y = lc_texel_read_convert<T, int>(y);
+            result.z = lc_texel_read_convert<T, int>(z);
+            result.w = lc_texel_read_convert<T, int>(w);
             break;
         }
         case LCPixelStorage::HALF1: {
-            auto v = surf3Dread<unsigned short>(surf.handle, p.x * sizeof(unsigned short), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, unsigned short>(v);
+            int x;
+            asm("suld.b.3d.b16.zero %0, [%1, {%2, %3, %4, %5}];"
+                : "=r"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, unsigned short>(x);
             break;
         }
         case LCPixelStorage::HALF2: {
-            auto v = surf3Dread<ushort2>(surf.handle, p.x * sizeof(ushort2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
-            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
+            int x, y;
+            asm("suld.b.3d.v2.b16.zero {%0, %1}, [%2, {%3, %4, %5, %6}];"
+                : "=r"(x), "=r"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short2)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, unsigned short>(x);
+            result.y = lc_texel_read_convert<T, unsigned short>(y);
             break;
         }
         case LCPixelStorage::HALF4: {
-            auto v = surf3Dread<ushort4>(surf.handle, p.x * sizeof(ushort4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, unsigned short>(v.x);
-            result.y = lc_texel_read_convert<T, unsigned short>(v.y);
-            result.z = lc_texel_read_convert<T, unsigned short>(v.z);
-            result.w = lc_texel_read_convert<T, unsigned short>(v.w);
+            int x, y, z, w;
+            asm("suld.b.3d.v4.b16.zero {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
+                : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(short4)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, unsigned short>(x);
+            result.y = lc_texel_read_convert<T, unsigned short>(y);
+            result.z = lc_texel_read_convert<T, unsigned short>(z);
+            result.w = lc_texel_read_convert<T, unsigned short>(w);
             break;
         }
         case LCPixelStorage::FLOAT1: {
-            auto v = surf3Dread<float>(surf.handle, p.x * sizeof(float), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, float>(v);
+            float x;
+            asm("suld.b.3d.b32.zero %0, [%1, {%2, %3, %4, %5}];"
+                : "=f"(x)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(float)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, float>(x);
             break;
         }
         case LCPixelStorage::FLOAT2: {
-            auto v = surf3Dread<float2>(surf.handle, p.x * sizeof(float2), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, float>(v.x);
-            result.y = lc_texel_read_convert<T, float>(v.y);
+            float x, y;
+            asm("suld.b.3d.v2.b32.zero {%0, %1}, [%2, {%3, %4, %5, %6}];"
+                : "=f"(x), "=f"(y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(float2)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, float>(x);
+            result.y = lc_texel_read_convert<T, float>(y);
             break;
         }
         case LCPixelStorage::FLOAT4: {
-            auto v = surf3Dread<float4>(surf.handle, p.x * sizeof(float4), p.y, p.z, cudaBoundaryModeZero);
-            result.x = lc_texel_read_convert<T, float>(v.x);
-            result.y = lc_texel_read_convert<T, float>(v.y);
-            result.z = lc_texel_read_convert<T, float>(v.z);
-            result.w = lc_texel_read_convert<T, float>(v.w);
+            float x, y, z, w;
+            asm("suld.b.3d.v4.b32.zero {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
+                : "=f"(x), "=f"(y), "=f"(z), "=f"(w)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(float4)), "r"(p.y), "r"(p.z), "r"(0)
+                : "memory");
+            result.x = lc_texel_read_convert<T, float>(x);
+            result.y = lc_texel_read_convert<T, float>(y);
+            result.z = lc_texel_read_convert<T, float>(z);
+            result.w = lc_texel_read_convert<T, float>(w);
             break;
         }
         default: __builtin_unreachable();
@@ -535,54 +700,79 @@ template<typename T>
 
 template<typename T, typename V>
 __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noexcept {
+
     switch (surf.storage) {
         case LCPixelStorage::BYTE1: {
-            char v = lc_texel_write_convert<char>(value.x);
-            surf3Dwrite(v, surf.handle, p.x * sizeof(char), p.y, p.z, cudaBoundaryModeZero);
+            int v = lc_texel_write_convert<char>(value.x);
+            asm volatile("sust.b.3d.b8.zero [%0, {%1, %2, %3, %4}], %5;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(char))), "r"(p.y), "r"(p.z), "r"(0), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::BYTE2: {
-            char vx = lc_texel_write_convert<char>(value.x);
-            char vy = lc_texel_write_convert<char>(value.y);
-            surf3Dwrite(make_char2(vx, vy), surf.handle, p.x * sizeof(char2), p.y, p.z, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<char>(value.x);
+            int vy = lc_texel_write_convert<char>(value.y);
+            asm volatile("sust.b.3d.v2.b8.zero [%0, {%1, %2, %3, %4}], {%5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(char2))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::BYTE4: {
-            char vx = lc_texel_write_convert<char>(value.x);
-            char vy = lc_texel_write_convert<char>(value.y);
-            char vz = lc_texel_write_convert<char>(value.z);
-            char vw = lc_texel_write_convert<char>(value.w);
-            surf3Dwrite(make_char4(vx, vy, vz, vw), surf.handle, p.x * sizeof(char4), p.y, p.z, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<char>(value.x);
+            int vy = lc_texel_write_convert<char>(value.y);
+            int vz = lc_texel_write_convert<char>(value.z);
+            int vw = lc_texel_write_convert<char>(value.w);
+            asm volatile("sust.b.3d.v4.b8.zero [%0, {%1, %2, %3, %4}], {%5, %6, %7, %8};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(char4))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::SHORT1: {
-            short v = lc_texel_write_convert<short>(value.x);
-            surf3Dwrite(v, surf.handle, p.x * sizeof(short), p.y, p.z, cudaBoundaryModeZero);
+            int v = lc_texel_write_convert<short>(value.x);
+            asm volatile("sust.b.3d.b16.zero [%0, {%1, %2, %3, %4}], %5;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short))), "r"(p.y), "r"(p.z), "r"(0), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::SHORT2: {
-            short vx = lc_texel_write_convert<short>(value.x);
-            short vy = lc_texel_write_convert<short>(value.y);
-            surf3Dwrite(make_short2(vx, vy), surf.handle, p.x * sizeof(short2), p.y, p.z, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<short>(value.x);
+            int vy = lc_texel_write_convert<short>(value.y);
+            asm volatile("sust.b.3d.v2.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short2))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::SHORT4: {
-            short vx = lc_texel_write_convert<short>(value.x);
-            short vy = lc_texel_write_convert<short>(value.y);
-            short vz = lc_texel_write_convert<short>(value.z);
-            short vw = lc_texel_write_convert<short>(value.w);
-            surf3Dwrite(make_short4(vx, vy, vz, vw), surf.handle, p.x * sizeof(short4), p.y, p.z, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<short>(value.x);
+            int vy = lc_texel_write_convert<short>(value.y);
+            int vz = lc_texel_write_convert<short>(value.z);
+            int vw = lc_texel_write_convert<short>(value.w);
+            asm volatile("sust.b.3d.v4.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6, %7, %8};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short4))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::INT1: {
             int v = lc_texel_write_convert<int>(value.x);
-            surf3Dwrite(v, surf.handle, p.x * sizeof(int), p.y, p.z, cudaBoundaryModeZero);
+            asm volatile("sust.b.3d.b32.zero [%0, {%1, %2, %3, %4}], %5;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(int))), "r"(p.y), "r"(p.z), "r"(0), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::INT2: {
             int vx = lc_texel_write_convert<int>(value.x);
             int vy = lc_texel_write_convert<int>(value.y);
-            surf3Dwrite(make_int2(vx, vy), surf.handle, p.x * sizeof(int2), p.y, p.z, cudaBoundaryModeZero);
+            asm volatile("sust.b.3d.v2.b32.zero [%0, {%1, %2, %3, %4}], {%5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(int2))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::INT4: {
@@ -590,37 +780,55 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             int vy = lc_texel_write_convert<int>(value.y);
             int vz = lc_texel_write_convert<int>(value.z);
             int vw = lc_texel_write_convert<int>(value.w);
-            surf3Dwrite(make_int4(vx, vy, vz, vw), surf.handle, p.x * sizeof(int4), p.y, p.z, cudaBoundaryModeZero);
+            asm volatile("sust.b.3d.v4.b32.zero [%0, {%1, %2, %3, %4}], {%5, %6, %7, %8};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(int4))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::HALF1: {
-            unsigned short v = lc_texel_write_convert<unsigned short>(value.x);
-            surf3Dwrite(v, surf.handle, p.x * sizeof(unsigned short), p.y, p.z, cudaBoundaryModeZero);
+            int v = lc_texel_write_convert<unsigned short>(value.x);
+            asm volatile("sust.b.3d.b16.zero [%0, {%1, %2, %3, %4}], %5;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short))), "r"(p.y), "r"(p.z), "r"(0), "r"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::HALF2: {
-            unsigned short vx = lc_texel_write_convert<unsigned short>(value.x);
-            unsigned short vy = lc_texel_write_convert<unsigned short>(value.y);
-            surf3Dwrite(make_ushort2(vx, vy), surf.handle, p.x * sizeof(ushort2), p.y, p.z, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<unsigned short>(value.x);
+            int vy = lc_texel_write_convert<unsigned short>(value.y);
+            asm volatile("sust.b.3d.v2.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short2))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::HALF4: {
-            unsigned short vx = lc_texel_write_convert<unsigned short>(value.x);
-            unsigned short vy = lc_texel_write_convert<unsigned short>(value.y);
-            unsigned short vz = lc_texel_write_convert<unsigned short>(value.z);
-            unsigned short vw = lc_texel_write_convert<unsigned short>(value.w);
-            surf3Dwrite(make_ushort4(vx, vy, vz, vw), surf.handle, p.x * sizeof(ushort4), p.y, p.z, cudaBoundaryModeZero);
+            int vx = lc_texel_write_convert<unsigned short>(value.x);
+            int vy = lc_texel_write_convert<unsigned short>(value.y);
+            int vz = lc_texel_write_convert<unsigned short>(value.z);
+            int vw = lc_texel_write_convert<unsigned short>(value.w);
+            asm volatile("sust.b.3d.v4.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6, %7, %8};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short4))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "memory");
             break;
         }
         case LCPixelStorage::FLOAT1: {
             float v = lc_texel_write_convert<float>(value.x);
-            surf3Dwrite(v, surf.handle, p.x * sizeof(float), p.y, p.z, cudaBoundaryModeZero);
+            asm volatile("sust.b.3d.b32.zero [%0, {%1, %2, %3, %4}], %5;"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(float))), "r"(p.y), "r"(p.z), "r"(0), "f"(v)
+                         : "memory");
             break;
         }
         case LCPixelStorage::FLOAT2: {
             float vx = lc_texel_write_convert<float>(value.x);
             float vy = lc_texel_write_convert<float>(value.y);
-            surf3Dwrite(make_float2(vx, vy), surf.handle, p.x * sizeof(float2), p.y, p.z, cudaBoundaryModeZero);
+            asm volatile("sust.b.3d.v2.b32.zero [%0, {%1, %2, %3, %4}], {%5, %6};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(float2))), "r"(p.y), "r"(p.z), "r"(0), "f"(vx), "f"(vy)
+                         : "memory");
             break;
         }
         case LCPixelStorage::FLOAT4: {
@@ -628,7 +836,10 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             float vy = lc_texel_write_convert<float>(value.y);
             float vz = lc_texel_write_convert<float>(value.z);
             float vw = lc_texel_write_convert<float>(value.w);
-            surf3Dwrite(make_float4(vx, vy, vz, vw), surf.handle, p.x * sizeof(float4), p.y, p.z, cudaBoundaryModeZero);
+            asm volatile("sust.b.3d.v4.b32.zero [%0, {%1, %2, %3, %4}], {%5, %6, %7, %8};"
+                         :
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(float4))), "r"(p.y), "r"(p.z), "r"(0), "f"(vx), "f"(vy), "f"(vz), "f"(vw)
+                         : "memory");
             break;
         }
         default: __builtin_unreachable();

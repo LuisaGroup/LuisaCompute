@@ -11,18 +11,26 @@ namespace llvm {
 class TargetMachine;
 }
 
+namespace llvm::orc {
+class LLJIT;
+}
+
 namespace luisa::compute::llvm {
 
 class LLVMDevice : public Device::Interface {
 
 private:
     RTCDevice _rtc_device;
-    ::llvm::TargetMachine *_machine{nullptr};
+    std::unique_ptr<::llvm::TargetMachine> _target_machine;
+    mutable std::unique_ptr<::llvm::orc::LLJIT> _jit;
+    mutable std::mutex _jit_mutex;
 
 public:
     explicit LLVMDevice(const Context &ctx) noexcept;
     ~LLVMDevice() noexcept override;
-    [[nodiscard]] ::llvm::TargetMachine *target_machine() const noexcept { return _machine; }
+    [[nodiscard]] ::llvm::TargetMachine *target_machine() const noexcept { return _target_machine.get(); }
+    [[nodiscard]] ::llvm::orc::LLJIT *jit() const noexcept { return _jit.get(); }
+    [[nodiscard]] auto &jit_mutex() const noexcept { return _jit_mutex; }
     void *native_handle() const noexcept override;
     uint64_t create_buffer(size_t size_bytes) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

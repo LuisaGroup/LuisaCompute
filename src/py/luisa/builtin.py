@@ -12,7 +12,6 @@ from .builtin_type_check import binary_type_infer
 from .checkers import binary, all_arithmetic, broadcast, multi_param, length_eq, unary, all_float, all_integer, \
     all_bool, same_length, with_dim, ternary, with_inner_type, is_array, inner_type
 
-
 def wrap_with_tmp_var(node):
     tmp = lcapi.builder().local(to_lctype(node.dtype))
     lcapi.builder().assign(tmp, node.expr)

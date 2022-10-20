@@ -266,7 +266,7 @@ int main(int argc, char *argv[]) {
             beta *= 1.0f / q;
         };
         seed_image.write(coord, make_uint4(state));
-        $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
+        $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
@@ -291,6 +291,10 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
+//        Shared<float> s1{13u};
+//        Shared<float> s2{1024u};
+//        s2[thread_x()] = 1.f;
+//        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
         auto ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
@@ -325,7 +329,7 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     window.run([&] {
         auto command_buffer = stream.command_buffer();
-        static constexpr auto spp_per_dispatch = 256u;
+        static constexpr auto spp_per_dispatch = 64u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution)
                                   .dispatch(resolution)

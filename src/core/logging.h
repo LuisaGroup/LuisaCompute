@@ -7,7 +7,6 @@
 #include <string_view>
 #include <iostream>
 
-#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <core/platform.h>
 #include <core/stl.h>

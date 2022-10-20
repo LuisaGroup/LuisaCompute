@@ -413,7 +413,7 @@ const BinaryExpr *FunctionSerializer::parse_binary_expr(const json &j) const noe
     return function_builder()->binary(type, op, lhs, rhs);
 }
 
-const MemberExpr *FunctionSerializer::parse_member_expr(const json &j) const noexcept {
+const Expression *FunctionSerializer::parse_member_expr(const json &j) const noexcept {
     auto type = Type::from(j.at("type").get<luisa::string>());
     auto self = parse_expr(j.at("self"));
     if (auto iter = j.find("index"); iter != j.end()) {

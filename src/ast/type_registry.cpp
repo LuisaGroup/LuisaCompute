@@ -250,6 +250,7 @@ TypeRegistry &TypeRegistry::instance() noexcept {
 }
 
 const Type *TypeRegistry::type_from(luisa::string_view desc) noexcept {
+    std::unique_lock lock{_mutex};
     if (desc == "void") { return nullptr; }
     return _decode(desc);
 }
@@ -275,7 +276,10 @@ size_t TypeRegistry::type_count() const noexcept {
 }
 
 void TypeRegistry::traverse(TypeVisitor &visitor) const noexcept {
-    for (auto &&t : _types) { visitor.visit(t.get()); }
+    std::unique_lock lock{_mutex};
+    for (auto &&t : _types) {
+        visitor.visit(t.get());
+    }
 }
 
 }// namespace luisa::compute::detail
