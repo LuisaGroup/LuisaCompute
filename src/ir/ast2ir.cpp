@@ -11,8 +11,14 @@ ir::Module AST2IR::_convert_body(Function function) noexcept {
     for (auto v : function.local_variables()) {
         static_cast<void>(_convert_local_variable(v));
     }
-    // TODO
-    return ir::Module();
+    // process body scope
+    static_cast<void>(_convert(function.body()));
+    // finalize
+    auto bb = ir::luisa_compute_ir_build_finish(*_current_builder());
+    return {.kind = function.tag() == Function::Tag::KERNEL ?
+                        ir::ModuleKind::Kernel :
+                        ir::ModuleKind::Function,
+            .entry = bb};
 }
 
 ir::KernelModule AST2IR::convert_kernel(Function function) noexcept {
@@ -80,7 +86,8 @@ ir::KernelModule AST2IR::convert_kernel(Function function) noexcept {
         for (auto i = 0u; i < function.shared_variables().size(); i++) {
             shared.ptr[i] = _convert_shared_variable(function.shared_variables()[i]);
         }
-        return ir::KernelModule{.module = _convert_body(function),
+        auto module = _convert_body(function);
+        return ir::KernelModule{.module = module,
                                 .captures = captures,
                                 .args = non_captures,
                                 .shared = shared};
@@ -226,7 +233,8 @@ const ir::Type *AST2IR::_convert_type(const Type *type) noexcept {
         case Type::Tag::TEXTURE:
         case Type::Tag::BINDLESS_ARRAY:
         case Type::Tag::ACCEL:
-            return nullptr;// resources do not need types in IR
+            LUISA_ERROR_WITH_LOCATION("AST2IR::_convert_type() should not "
+                                      "be called for resource arguments.");
     }
     LUISA_ERROR_WITH_LOCATION("Invalid type: {}.", type->description());
 }

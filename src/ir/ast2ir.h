@@ -42,8 +42,6 @@ private:
     luisa::unordered_map<uint64_t, ir::NodeRef> _constants;        // maps Constant::hash() to ir::NodeRef
     luisa::unordered_map<uint32_t, ir::NodeRef> _variables;        // maps Variable::uid to ir::NodeRef
     luisa::vector<ir::IrBuilder *> _builder_stack;
-    const Type *_ret_type{nullptr};
-    ir::NodeRef _ret{};
 
 private:
     template<typename T>
