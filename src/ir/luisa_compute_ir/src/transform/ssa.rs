@@ -99,6 +99,7 @@ impl ToSSA {
                 record.stored.insert(node, v);
                 return v;
             }
+            Instruction::Return(_) => todo!(),
             Instruction::If {
                 cond,
                 true_branch,

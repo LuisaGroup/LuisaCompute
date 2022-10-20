@@ -806,6 +806,7 @@ impl ModuleCloner {
             Instruction::Loop { body, cond } => todo!(),
             Instruction::Break => builder.break_(),
             Instruction::Continue => builder.continue_(),
+            Instruction::Return(_) => todo!(),
             Instruction::If { .. } => todo!(),
             Instruction::Switch { .. } => todo!(),
             Instruction::Comment(_) => builder.clone_node(node)
