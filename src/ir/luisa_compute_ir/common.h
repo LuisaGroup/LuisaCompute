@@ -46,6 +46,7 @@ inline Gc<T> make_gc(Args &&...args) {
         auto *object = (GcObject<T> *)data;
         delete object;
     };
+    luisa_compute_gc_append_object(&object->header);
     return Gc<T>{object};
 }
 
