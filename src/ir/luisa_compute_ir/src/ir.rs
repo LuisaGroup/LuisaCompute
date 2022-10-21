@@ -1,5 +1,5 @@
 use bumpalo::Bump;
-use gc::Trace;
+use gc::{GcHeader, Trace};
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
@@ -1193,6 +1193,34 @@ pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Gc<BasicB
     builder.finish()
 }
 
+#[no_mangle]
+pub extern "C" fn luisa_compute_gc_create_context() -> *mut gc::GcContext {
+    gc::create_context()
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_gc_init_context(ctx: *mut gc::GcContext) {
+    gc::set_context(ctx)
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_gc_context() -> *mut gc::GcContext {
+    gc::context()
+}
+#[no_mangle]
+pub unsafe extern "C" fn luisa_compute_gc_destroy_context() {
+    gc::destroy_context()
+}
+#[no_mangle]
+pub unsafe extern "C" fn luisa_compute_gc_collect() {
+    gc::collect()
+}
+#[no_mangle]
+pub unsafe extern "C" fn luisa_compute_gc_clear_marks() {
+    gc::clear_marks()
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_gc_append_object(object: *mut GcHeader) {
+    gc::gc_append_object(object)
+}
 pub mod debug {
     use std::ffi::CString;
 

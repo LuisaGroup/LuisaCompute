@@ -11,12 +11,51 @@ namespace luisa::compute::ir {
 struct VectorType;
 struct Type;
 
-template<class T>
-struct Gc{
-    const T ** ptr = nullptr;
-    const T * operator->() const { return *ptr; }
+using GcTraceFunc = void (*)(uint8_t *);
+using GcDeleteFunc = void (*)(uint8_t *);
+struct GcHeader {
+    uint8_t *data = nullptr;
+    GcHeader *next = nullptr;
+    GcTraceFunc trace = nullptr;
+    GcDeleteFunc del = nullptr;
+    bool mark = false;
 };
+template<class T>
+struct GcObject {
+    GcHeader header;
+    T data;
+};
+template<class T>
+class Gc {
+    GcObject<T> *object;
 
+public:
+    Gc() : object(nullptr) {}
+    T *operator->() const { return &object->data; }
+};
+template<class T, class... Args>
+inline Gc<T> make_gc(Args &&...args) {
+    auto *object = new GcObject<T>();
+    new (&object->data) T(std::forward<Args>(args)...);
+    object->header.data = (uint8_t *)&object->data;
+    object->header.trace = [](uint8_t *data) {
+        auto *object = (GcObject<T> *)data;
+        trace(object->data); // luisa fix this pls
+    };
+    object->header.del = [](uint8_t *data) {
+        auto *object = (GcObject<T> *)data;
+        delete object;
+    };
+    return Gc<T>{object};
+}
+
+class GcContext;
+template<class F>
+inline void mark_sweep(F &&f) {
+    luisa_compute_gc_clear_marks();
+    f();
+    luisa_compute_gc_collect();
+}
 }// namespace luisa::compute::ir
 
 #else
