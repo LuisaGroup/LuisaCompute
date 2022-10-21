@@ -1221,6 +1221,10 @@ pub unsafe extern "C" fn luisa_compute_gc_clear_marks() {
 pub extern "C" fn luisa_compute_gc_append_object(object: *mut GcHeader) {
     gc::gc_append_object(object)
 }
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_new_instruction(inst:Instruction)->Gc<Instruction>{
+    Gc::new(inst)
+}
 pub mod debug {
     use std::ffi::CString;
 
