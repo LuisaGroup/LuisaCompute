@@ -203,6 +203,7 @@ impl<'a> StoreIntermediate<'a> {
             }
             crate::ir::Instruction::Break => {}
             crate::ir::Instruction::Continue => {}
+            crate::ir::Instruction::Return(_) => todo!(),
             crate::ir::Instruction::If {
                 cond,
                 true_branch,
@@ -285,6 +286,7 @@ impl Backward {
             crate::ir::Instruction::Loop { .. } => todo!(),
             crate::ir::Instruction::Break => todo!(),
             crate::ir::Instruction::Continue => todo!(),
+            crate::ir::Instruction::Return(_) => todo!(),
             crate::ir::Instruction::If {
                 cond,
                 true_branch,
