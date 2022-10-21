@@ -7,7 +7,7 @@ struct Converter {
     detail::FunctionBuilder *builder;
     luisa::unordered_map<const ir::Type *, const Type *> type_map;
     luisa::unordered_map<ir::NodeRef, const Expression *, NodeRefHash> node_map;
-    // luisa::unordered_map<const 
+    // luisa::unordered_map<const
     const Type *convert(const ir::Type *ty) noexcept {
         if (auto it = type_map.find(ty); it != type_map.end()) {
             return it->second;
@@ -59,7 +59,7 @@ struct Converter {
     const Expression *_convert(const ir::NodeRef &node_ref) noexcept {
         auto node = ir::luisa_compute_ir_node_get(node_ref);
         auto inst = node->instruction;
-        auto ty = convert(node->type_);
+        auto ty = convert(node->type_.get());
         switch (inst->tag) {
             case Instruction::Tag::Local: {
                 return builder->local(ty);
@@ -123,13 +123,13 @@ void convert_to_ast(const ir::Module *module, detail::FunctionBuilder *builder) 
 struct ToIR {
     const ScopeStmt *stmt;
     luisa::unordered_map<const Expression *, ir::NodeRef> expr_map;
-    luisa::unordered_map<const Type *, ir::Type *> type_map;
+    luisa::unordered_map<const Type *, ir::Gc<ir::Type>> type_map;
     luisa::unordered_map<uint32_t, ir::NodeRef> var_map;
     ir::IrBuilder *var_def_builder = nullptr;
-    ir::Type *_build_type(const Type *ty) noexcept {
-        return nullptr;
+    ir::Gc<ir::Type> _build_type(const Type *ty) noexcept {
+        return {};
     }
-    ir::Type *build_type(const Type *ty) noexcept {
+    ir::Gc<ir::Type> build_type(const Type *ty) noexcept {
         auto it = type_map.find(ty);
         if (it != type_map.end()) {
             return it->second;
@@ -196,33 +196,33 @@ struct ToIR {
             auto value = literal->value();
             ir::NodeRef node;
             ir::Const cst;
-            luisa::visit([&](auto &&value) {
-                using T = std::decay_t<decltype(value)>;
-
-                if constexpr (std::is_same_v<T, float>) {
-                    cst.tag = ir::Const::Tag::Float32;
-                    cst.float32._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else if constexpr (std::is_same_v<T, int32_t>) {
-                    cst.tag = ir::Const::Tag::Int32;
-                    cst.int32._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else if constexpr (std::is_same_v<T, uint32_t>) {
-                    cst.tag = ir::Const::Tag::Uint32;
-                    cst.uint32._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else if constexpr (std::is_same_v<T, bool>) {
-                    cst.tag = ir::Const::Tag::Bool;
-                    cst.bool_._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else {
-                    LUISA_ERROR_WITH_LOCATION("unreachable");
-                }
-            },
-                         value);
+            luisa::visit(
+                [&](auto &&value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, float>) {
+                        cst.tag = ir::Const::Tag::Float32;
+                        cst.float32._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else if constexpr (std::is_same_v<T, int32_t>) {
+                        cst.tag = ir::Const::Tag::Int32;
+                        cst.int32._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else if constexpr (std::is_same_v<T, uint32_t>) {
+                        cst.tag = ir::Const::Tag::Uint32;
+                        cst.uint32._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else if constexpr (std::is_same_v<T, bool>) {
+                        cst.tag = ir::Const::Tag::Bool;
+                        cst.bool_._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION("unreachable");
+                    }
+                },
+                value);
         }
     }
-    const ir::BasicBlock *build_block(const ScopeStmt *stmt) {
+    ir::Gc<ir::BasicBlock> build_block(const ScopeStmt *stmt) {
         auto builder = ir::luisa_compute_ir_new_builder();
         for (auto s : stmt->statements()) {
             if (auto expr = dynamic_cast<const ExprStmt *>(s)) {
@@ -235,7 +235,7 @@ struct ToIR {
                 ir::luisa_compute_ir_build_update(&builder, lhs_node, rhs_node);
             }
         }
-        return ir::luisa_compute_ir_build_finish(std::move(builder));
+        return ir::luisa_compute_ir_build_finish(builder);
     }
 };
 LC_IR_API ir::Module convert_to_ir(const ScopeStmt *stmt) noexcept {

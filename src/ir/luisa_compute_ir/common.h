@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>// size_t
+#include <core/stl.h>
 
 const static inline size_t usize_MAX = (size_t)-1;
 
@@ -13,50 +14,64 @@ struct Type;
 
 using GcTraceFunc = void (*)(uint8_t *);
 using GcDeleteFunc = void (*)(uint8_t *);
+
 struct GcHeader {
-    uint8_t *data = nullptr;
-    GcHeader *next = nullptr;
-    GcTraceFunc trace = nullptr;
-    GcDeleteFunc del = nullptr;
-    bool mark = false;
+    uint8_t *data;
+    GcHeader *next;
+    GcTraceFunc trace;
+    GcDeleteFunc del;
+    bool mark;
 };
+
 template<class T>
 struct GcObject {
     GcHeader header;
     T data;
 };
+
 template<class T>
 class Gc {
     GcObject<T> *object;
 
 public:
-    Gc() : object(nullptr) {}
-    T *operator->() const { return &object->data; }
+    Gc() noexcept = default;
+    [[nodiscard]] auto get() noexcept { return &object->data; }
+    [[nodiscard]] auto get() const noexcept { return const_cast<const T *>(&object->data); }
+    [[nodiscard]] T *operator->() noexcept { return get(); }
+    [[nodiscard]] const T *operator->() const noexcept { return get(); }
 };
+
 template<class T, class... Args>
 inline Gc<T> make_gc(Args &&...args) {
-    auto *object = new GcObject<T>();
+    auto *object = new_with_allocator<GcObject<T>>();
     new (&object->data) T(std::forward<Args>(args)...);
     object->header.data = (uint8_t *)&object->data;
     object->header.trace = [](uint8_t *data) {
-        auto *object = (GcObject<T> *)data;
-        trace(object->data); // luisa fix this pls
+        auto object = reinterpret_cast<GcObject<T> *>(data);
+        trace(object->data);// luisa fix this pls
     };
     object->header.del = [](uint8_t *data) {
-        auto *object = (GcObject<T> *)data;
-        delete object;
+        auto object = reinterpret_cast<GcObject<T> *>(data);
+        delete_with_allocator(object);
     };
     luisa_compute_gc_append_object(&object->header);
     return Gc<T>{object};
 }
 
+extern "C" {
+void luisa_compute_gc_clear_marks();
+void luisa_compute_gc_collect();
+}
+
 class GcContext;
+
 template<class F>
 inline void mark_sweep(F &&f) {
     luisa_compute_gc_clear_marks();
     f();
     luisa_compute_gc_collect();
 }
+
 }// namespace luisa::compute::ir
 
 #else
