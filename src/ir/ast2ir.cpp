@@ -156,9 +156,9 @@ ir::IrBuilder *AST2IR::_current_builder() noexcept {
     return _builder_stack.back();
 }
 
-const ir::Type *AST2IR::_convert_type(const Type *type) noexcept {
+ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
     auto register_type = [](ir::Type t) noexcept {
-        return ir::luisa_compute_ir_register_type(&t);
+        return ir::luisa_compute_ir_register_type(t);
     };
     // special handling for void
     if (type == nullptr) { return register_type({.tag = ir::Type::Tag::Void}); }
@@ -216,7 +216,7 @@ const ir::Type *AST2IR::_convert_type(const Type *type) noexcept {
         case Type::Tag::STRUCTURE: {
             if (auto iter = _struct_types.find(type->hash());
                 iter != _struct_types.end()) { return iter->second; }
-            luisa::vector<const ir::Type *> members;
+            luisa::vector<ir::Gc<ir::Type>> members;
             members.reserve(type->members().size());
             for (auto member : type->members()) {
                 members.emplace_back(_convert_type(member));

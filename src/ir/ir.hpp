@@ -9,7 +9,7 @@ namespace luisa::compute {
 
 LC_IR_API void convert_to_ast(const ir::Module *module, detail::FunctionBuilder *builder) noexcept;
 LC_IR_API ir::Module convert_to_ir(const ScopeStmt *stmt) noexcept;
-inline ir::NodeRef build_call(ir::IrBuilder *builder, ir::Func func, luisa::vector<ir::NodeRef> args, const ir::Type *ret_type) noexcept {
+inline ir::NodeRef build_call(ir::IrBuilder *builder, ir::Func func, luisa::vector<ir::NodeRef> args, ir::Gc<ir::Type> ret_type) noexcept {
     return ir::luisa_compute_ir_build_call(builder, func, {args.data(), args.size()}, ret_type);
 }
 

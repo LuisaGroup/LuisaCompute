@@ -3,8 +3,7 @@ use std::{
     borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
-    hash::Hash,
-    os::windows::thread,
+    hash::Hash
 };
 
 use gc::Gc;
