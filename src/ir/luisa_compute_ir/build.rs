@@ -12,13 +12,13 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file("bindings.hpp");
-    cbindgen::Builder::new()
-        .with_config(Config::from_file("c.toml").unwrap())
-        .with_crate(&crate_dir)
-        .with_language(cbindgen::Language::C)
-        .with_item_prefix("LC")
-        .generate()
-        .expect("Unable to generate bindings")
-        .write_to_file("bindings.h");
+    // cbindgen::Builder::new()
+    //     .with_config(Config::from_file("c.toml").unwrap())
+    //     .with_crate(&crate_dir)
+    //     .with_language(cbindgen::Language::C)
+    //     .with_item_prefix("LC")
+    //     .generate()
+    //     .expect("Unable to generate bindings")
+    //     .write_to_file("bindings.h");
 
 }

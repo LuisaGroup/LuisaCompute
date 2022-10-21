@@ -4,6 +4,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Index;
 
+use gc::Trace;
 use serde::Serialize;
 
 #[derive(Clone, Copy)]
@@ -102,7 +103,7 @@ impl<T> PartialEq for CRc<T> {
         self.inner == other.inner
     }
 }
-impl <T> Hash for CRc<T>{
+impl<T> Hash for CRc<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.inner.hash(state);
     }
@@ -195,6 +196,33 @@ pub struct CBoxedSlice<T> {
     ptr: *mut T,
     len: usize,
     destructor: unsafe extern "C" fn(*mut T, usize),
+}
+impl<T: Clone> From<&[T]> for CBoxedSlice<T> {
+    fn from(slice: &[T]) -> Self {
+        let v = slice.to_vec();
+        Self::new(v)
+    }
+}
+impl<T: Eq> Eq for CBoxedSlice<T> {}
+impl<T: PartialEq> PartialEq for CBoxedSlice<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+impl<T: Hash> Hash for CBoxedSlice<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state);
+    }
+}
+impl<T: Trace> Trace for CBoxedSlice<T> {
+    fn trace(&self) {
+        self.as_ref().trace();
+    }
+}
+impl<'a, T: Trace> Trace for CSlice<'a, T> {
+    fn trace(&self) {
+        self.as_ref().trace();
+    }
 }
 impl<T: Serialize> Serialize for CBoxedSlice<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

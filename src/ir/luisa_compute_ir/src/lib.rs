@@ -4,44 +4,45 @@ pub use ffi::*;
 use std::{hash::Hash, collections::HashMap, rc::Rc};
 pub mod context;
 pub mod transform;
+pub use gc::Gc;
 use ir::{Primitive, Type};
 
 pub trait TypeOf {
-    fn type_() -> &'static Type;
+    fn type_() -> Gc<Type>;
 }
 
 impl TypeOf for bool {
-    fn type_() -> &'static Type {
+    fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Bool))
     }
 }
 impl TypeOf for u32 {
-    fn type_() -> &'static Type {
+    fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Uint32))
     }
 }
 impl TypeOf for i32 {
-    fn type_() -> &'static Type {
+    fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Int32))
     }
 }
 impl TypeOf for f32 {
-    fn type_() -> &'static Type {
+    fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Float32))
     }
 }
 impl TypeOf for f64 {
-    fn type_() -> &'static Type {
+    fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Float64))
     }
 }
 impl TypeOf for i64 {
-    fn type_() -> &'static Type {
+    fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Int64))
     }
 }
 impl TypeOf for u64 {
-    fn type_() -> &'static Type {
+    fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Uint64))
     }
 }

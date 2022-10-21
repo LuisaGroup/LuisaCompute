@@ -90,6 +90,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gc"
+version = "0.1.0"
+source = "git+https://github.com/shiinamiyuki/gc#e0285ada4021525ff048447820f5d5531348a611"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -172,6 +180,7 @@ version = "0.1.0"
 dependencies = [
  "bumpalo",
  "cbindgen",
+ "gc",
  "lazy_static",
  "parking_lot",
  "serde",
