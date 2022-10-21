@@ -407,10 +407,10 @@ ir::NodeRef AST2IR::_convert(const CommentStmt *stmt) noexcept {
     auto b = _current_builder();
     auto msg = _boxed_slice<uint8_t>(stmt->comment().size());
     std::memcpy(msg.ptr, stmt->comment().data(), stmt->comment().size());
-    auto instr = ir::Instruction{
-        .tag = ir::Instruction::Tag::Comment, .comment = {msg}};
+    auto instr = ir::luisa_compute_ir_new_instruction({
+        .tag = ir::Instruction::Tag::Comment, .comment = {msg}});
     auto node = ir::luisa_compute_ir_new_node(
-        {.type_ = _convert_type(nullptr), .instruction = &instr});
+        {.type_ = _convert_type(nullptr), .instruction = instr});
     ir::luisa_compute_ir_append_node(b, node);
     return node;
 }
@@ -422,41 +422,41 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
             case Variable::Tag::REFERENCE:
                 LUISA_ERROR_WITH_LOCATION("TODO");
             case Variable::Tag::BUFFER: {
-                auto instr = ir::Instruction{
-                    .tag = ir::Instruction::Tag::Buffer};
+                auto instr = ir::luisa_compute_ir_new_instruction({
+                    .tag = ir::Instruction::Tag::Buffer});
                 return ir::luisa_compute_ir_new_node(
                     {.type_ = _convert_type(v.type()->element()),
-                     .instruction = &instr});
+                     .instruction = instr});
             }
             case Variable::Tag::TEXTURE: {
-                auto instr = ir::Instruction{
+                auto instr = ir::luisa_compute_ir_new_instruction({
                     .tag = v.type()->dimension() == 2u ?
                                ir::Instruction::Tag::Texture2D :
-                               ir::Instruction::Tag::Texture3D};
+                               ir::Instruction::Tag::Texture3D});
                 return ir::luisa_compute_ir_new_node(
                     {.type_ = _convert_type(v.type()->element()),
-                     .instruction = &instr});
+                     .instruction = instr});
             }
             case Variable::Tag::BINDLESS_ARRAY: {
-                auto instr = ir::Instruction{
-                    .tag = ir::Instruction::Tag::Bindless};
+                auto instr = ir::luisa_compute_ir_new_instruction({
+                    .tag = ir::Instruction::Tag::Bindless});
                 return ir::luisa_compute_ir_new_node(
                     {.type_ = _convert_type(nullptr),
-                     .instruction = &instr});
+                     .instruction = instr});
             }
             case Variable::Tag::ACCEL: {
-                auto instr = ir::Instruction{
-                    .tag = ir::Instruction::Tag::Accel};
+                auto instr = ir::luisa_compute_ir_new_instruction({
+                    .tag = ir::Instruction::Tag::Accel});
                 return ir::luisa_compute_ir_new_node(
                     {.type_ = _convert_type(nullptr),
-                     .instruction = &instr});
+                     .instruction = instr});
             }
             default: {
-                auto instr = ir::Instruction{
-                    .tag = ir::Instruction::Tag::Uniform};
+                auto instr = ir::luisa_compute_ir_new_instruction({
+                    .tag = ir::Instruction::Tag::Uniform});
                 return ir::luisa_compute_ir_new_node(
                     {.type_ = _convert_type(v.type()),
-                     .instruction = &instr});
+                     .instruction = instr});
             }
         }
         LUISA_ERROR_WITH_LOCATION("Invalid variable tag.");
@@ -469,9 +469,10 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
 ir::NodeRef AST2IR::_convert_shared_variable(Variable v) noexcept {
     auto b = _current_builder();
     auto type = _convert_type(v.type());
-    auto instr = ir::Instruction{.tag = ir::Instruction::Tag::Shared};
+    auto instr = ir::luisa_compute_ir_new_instruction({
+        .tag = ir::Instruction::Tag::Shared});
     auto node = ir::luisa_compute_ir_new_node(
-        {.type_ = type, .instruction = &instr});
+        {.type_ = type, .instruction = instr});
     ir::luisa_compute_ir_append_node(b, node);
     _variables.emplace(v.uid(), node);
     return node;
