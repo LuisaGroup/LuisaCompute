@@ -1213,10 +1213,7 @@ pub unsafe extern "C" fn luisa_compute_gc_destroy_context() {
 pub unsafe extern "C" fn luisa_compute_gc_collect() {
     gc::collect()
 }
-#[no_mangle]
-pub unsafe extern "C" fn luisa_compute_gc_clear_marks() {
-    gc::clear_marks()
-}
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_gc_append_object(object: *mut GcHeader) {
     gc::gc_append_object(object)

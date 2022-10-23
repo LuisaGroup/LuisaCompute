@@ -92,8 +92,9 @@ dependencies = [
 [[package]]
 name = "gc"
 version = "0.1.0"
-source = "git+https://github.com/shiinamiyuki/gc#ca1095c24d9a535dcf27806ea3cc82c0e213eebd"
+source = "git+https://github.com/shiinamiyuki/gc#47e55d6c9258411fbdd81fd63b3f9030b3e4c345"
 dependencies = [
+ "parking_lot",
  "serde",
 ]
 

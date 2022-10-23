@@ -20,7 +20,8 @@ struct GcHeader {
     GcHeader *next;
     GcTraceFunc trace;
     GcDeleteFunc del;
-    bool mark;
+    bool mark = false;
+    bool root = false;
 };
 
 template<class T>
@@ -39,6 +40,12 @@ public:
     [[nodiscard]] auto get() const noexcept { return const_cast<const T *>(&object->data); }
     [[nodiscard]] T *operator->() noexcept { return get(); }
     [[nodiscard]] const T *operator->() const noexcept { return get(); }
+    void set_root(bool root) const noexcept {
+        object->header.root = root;
+    }
+    [[nodiscard]] bool is_root() const noexcept {
+        return object->header.root;
+    }
 };
 
 template<class T, class... Args>
@@ -59,17 +66,13 @@ inline Gc<T> make_gc(Args &&...args) {
 }
 
 extern "C" {
-void luisa_compute_gc_clear_marks();
 void luisa_compute_gc_collect();
 }
 
 class GcContext;
 
-template<class F>
-inline void mark_sweep(F &&f) {
-    luisa_compute_gc_clear_marks();
-    f();
-    luisa_compute_gc_collect();
+inline void collect() {
+    void luisa_compute_gc_collect();
 }
 
 }// namespace luisa::compute::ir
