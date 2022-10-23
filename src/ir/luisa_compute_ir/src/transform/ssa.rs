@@ -10,11 +10,13 @@ Remove all Instruction::Update nodes
 
 */
 pub struct ToSSA;
+
 struct SSABlockRecord {
     defined: NestedHashSet<NodeRef>,
     stored: NestedHashMap<NodeRef, NodeRef>,
     phis: BTreeSet<NodeRef>,
 }
+
 impl SSABlockRecord {
     fn from_parent(parent: &Self) -> Self {
         Self {
@@ -31,6 +33,7 @@ impl SSABlockRecord {
         }
     }
 }
+
 fn promote(v: NodeRef, stored: &NestedHashMap<NodeRef, NodeRef>) -> NodeRef {
     if let Some(r) = stored.get(&v) {
         *r
@@ -38,6 +41,7 @@ fn promote(v: NodeRef, stored: &NestedHashMap<NodeRef, NodeRef>) -> NodeRef {
         v
     }
 }
+
 impl ToSSA {
     pub fn new() -> Self {
         Self {}
@@ -99,7 +103,6 @@ impl ToSSA {
                 record.stored.insert(node, v);
                 return v;
             }
-            Instruction::Return(_) => todo!(),
             Instruction::If {
                 cond,
                 true_branch,
@@ -150,6 +153,7 @@ impl ToSSA {
                 let cond = self.promote(*cond, builder, record);
                 builder.loop_(body, cond)
             }
+            Instruction::GenericLoop { .. } => todo!(),
             Instruction::Comment(_) => return node,
             Instruction::Return(_) => {
                 panic!("call LowerControlFlow before ToSSA");
@@ -168,6 +172,7 @@ impl ToSSA {
         builder.finish()
     }
 }
+
 impl Transform for ToSSA {
     fn transform(&self, module: Module) -> Module {
         let new_bb = self.promote_bb(module.entry, IrBuilder::new(), &mut SSABlockRecord::new());

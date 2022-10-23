@@ -83,6 +83,7 @@ impl Trace for Type {
         }
     }
 }
+
 impl Trace for VectorElementType {
     fn trace(&self) {
         match self {
@@ -91,26 +92,31 @@ impl Trace for VectorElementType {
         }
     }
 }
+
 impl Trace for VectorType {
     fn trace(&self) {
         self.element.trace();
     }
 }
+
 impl Trace for MatrixType {
     fn trace(&self) {
         self.element.trace();
     }
 }
+
 impl Trace for StructType {
     fn trace(&self) {
         self.fields.trace();
     }
 }
+
 impl Trace for ArrayType {
     fn trace(&self) {
         self.element.trace();
     }
 }
+
 impl VectorElementType {
     pub fn size(&self) -> usize {
         match self {
@@ -182,6 +188,7 @@ pub struct Node {
     pub prev: NodeRef,
     pub instruction: Gc<Instruction>,
 }
+
 impl Trace for Node {
     fn trace(&self) {
         self.type_.trace();
@@ -190,6 +197,7 @@ impl Trace for Node {
         self.prev.trace();
     }
 }
+
 impl Trace for NodeRef {
     fn trace(&self) {
         unsafe {
@@ -198,6 +206,7 @@ impl Trace for NodeRef {
         }
     }
 }
+
 impl Trace for Instruction {
     fn trace(&self) {
         match self {
@@ -228,6 +237,7 @@ impl Trace for Instruction {
                 body.trace();
                 cond.trace();
             }
+            Instruction::GenericLoop { .. } => todo!(),
             Instruction::Break => {}
             Instruction::Continue => {}
             Instruction::If {
@@ -252,6 +262,7 @@ impl Trace for Instruction {
         }
     }
 }
+
 pub const INVALID_REF: NodeRef = NodeRef(0);
 
 impl Node {
@@ -451,25 +462,23 @@ pub enum Func {
     /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
     BindlessBufferSize,
 
-    Vec,
     // scalar -> vector, the resulting type is stored in node
-    Vec2,
+    Vec,
     // (scalar, scalar) -> vector
-    Vec3,
+    Vec2,
     // (scalar, scalar, scalar) -> vector
-    Vec4, // (scalar, scalar, scalar, scalar) -> vector
+    Vec3,
+    // (scalar, scalar, scalar, scalar) -> vector
+    Vec4,
 
-    Permute,
     // (vector, indices,...) -> vector
-    ExtractElement,
+    Permute,
     // (vector, index) -> scalar
-    InsertElement, // (vector, scalar, index) -> vector
-
-    ExtractValue,
-    //(struct, index) -> value
-    InsertValue,
-    //(struct, value, index) -> struct
-    GetElementPtr, //(struct, index) -> value; the value can be passed to an Update instruction
+    ExtractElement,
+    // (vector, scalar, index) -> vector
+    InsertElement,
+    //(struct, index) -> value; the value can be passed to an Update instruction
+    GetElementPtr,
 
     Matrix,
     // scalar -> matrix, the resulting type is stored in node
@@ -482,6 +491,7 @@ pub enum Func {
     Callable(u64),
     CpuCustomOp(CRc<CpuCustomOp>),
 }
+
 impl Trace for Func {
     fn trace(&self) {}
 }
@@ -499,6 +509,7 @@ pub enum Const {
     Float64(f64),
     Generic(CBoxedSlice<u8>, Gc<Type>),
 }
+
 impl Trace for Const {
     fn trace(&self) {
         match self {
@@ -546,6 +557,7 @@ pub struct PhiIncoming {
     pub value: NodeRef,
     pub block: Gc<BasicBlock>,
 }
+
 impl Trace for PhiIncoming {
     fn trace(&self) {
         self.block.trace();
@@ -584,12 +596,14 @@ pub struct SwitchCase {
     pub value: NodeRef,
     pub block: Gc<BasicBlock>,
 }
+
 impl Trace for SwitchCase {
     fn trace(&self) {
         self.value.trace();
         self.block.trace();
     }
 }
+
 #[repr(C)]
 #[derive(Clone, Debug, Serialize)]
 pub enum Instruction {
@@ -617,7 +631,7 @@ pub enum Instruction {
     Call(Func, CBoxedSlice<NodeRef>),
     // CpuCustomOp(CRc<CpuCustomOp>, NodeRef),
     Phi(CBoxedSlice<PhiIncoming>),
-    /* represent a loop if the form of
+    /* represent a loop in the form of
     loop {
         body();
         if (cond) {
@@ -629,6 +643,21 @@ pub enum Instruction {
     Loop {
         body: Gc<BasicBlock>,
         cond: NodeRef,
+    },
+    /* represent a loop in the form of
+    loop {
+        prepare;// typically the computation of the loop condition
+        if cond {
+            body;
+            update; // continue goes here
+        }
+    }
+    */
+    GenericLoop {
+        prepare: Gc<BasicBlock>,
+        cond: NodeRef,
+        body: Gc<BasicBlock>,
+        update: Gc<BasicBlock>,
     },
     Break,
     Continue,
@@ -669,6 +698,7 @@ pub struct BasicBlock {
     pub(crate) first: NodeRef,
     pub(crate) last: NodeRef,
 }
+
 impl Trace for BasicBlock {
     fn trace(&self) {
         let mut cur = self.first;
@@ -850,6 +880,7 @@ pub struct Module {
     pub kind: ModuleKind,
     pub entry: Gc<BasicBlock>,
 }
+
 impl Trace for Module {
     fn trace(&self) {
         self.entry.trace();
@@ -861,15 +892,15 @@ impl Trace for Module {
 pub struct CallableModule {
     pub module: Module,
     pub args: CBoxedSlice<NodeRef>,
-    pub ret: NodeRef,
 }
+
 impl Trace for CallableModule {
     fn trace(&self) {
         self.module.trace();
         self.args.trace();
-        self.ret.trace();
     }
 }
+
 // buffer binding
 #[repr(C)]
 #[derive(Debug, Serialize)]
@@ -965,13 +996,13 @@ impl ModuleCloner {
             Instruction::Call(_, _) => todo!(),
             Instruction::Phi(_) => todo!(),
             Instruction::Loop { body, cond } => todo!(),
+            Instruction::GenericLoop { .. } => todo!(),
             Instruction::Break => builder.break_(),
             Instruction::Continue => builder.continue_(),
             Instruction::Return(_) => todo!(),
             Instruction::If { .. } => todo!(),
             Instruction::Switch { .. } => todo!(),
             Instruction::Comment(_) => builder.clone_node(node),
-            Instruction::Return(_) => todo!(),
         };
         self.node_map.insert(node, new_node);
         new_node
@@ -1197,18 +1228,22 @@ pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Gc<BasicB
 pub extern "C" fn luisa_compute_gc_create_context() -> *mut gc::GcContext {
     gc::create_context()
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_gc_init_context(ctx: *mut gc::GcContext) {
     gc::set_context(ctx)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_gc_context() -> *mut gc::GcContext {
     gc::context()
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn luisa_compute_gc_destroy_context() {
     gc::destroy_context()
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn luisa_compute_gc_collect() {
     gc::collect()
@@ -1218,10 +1253,12 @@ pub unsafe extern "C" fn luisa_compute_gc_collect() {
 pub extern "C" fn luisa_compute_gc_append_object(object: *mut GcHeader) {
     gc::gc_append_object(object)
 }
+
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_instruction(inst:Instruction)->Gc<Instruction>{
+pub extern "C" fn luisa_compute_ir_new_instruction(inst: Instruction) -> Gc<Instruction> {
     Gc::new(inst)
 }
+
 pub mod debug {
     use std::ffi::CString;
 

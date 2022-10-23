@@ -29,13 +29,11 @@ public:
         return tag;
     }
 
-    // clang-format off
     template<typename Impl, typename... Args>
         requires std::derived_from<Impl, T>
     [[nodiscard]] auto create(Args &&...args) noexcept {
         return emplace(luisa::make_unique<Impl>(std::forward<Args>(args)...));
     }
-    // clang-format on
 
     template<typename Tag>
         requires is_integral_expr_v<Tag>
@@ -63,7 +61,8 @@ public:
         if (hi > _impl.size()) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Out-of-bound polymorphic tag range [{}, {}). "
-                "Registered tag count: {}.", lo, hi, _impl.size());
+                "Registered tag count: {}.",
+                lo, hi, _impl.size());
             hi = _impl.size();
         }
         if (hi == lo) [[unlikely]] {
@@ -93,7 +92,8 @@ public:
             } else {
                 LUISA_WARNING_WITH_LOCATION(
                     "Out-of-bound polymorphic tag {}. "
-                    "Registered tag count: {}.", t, _impl.size());
+                    "Registered tag count: {}.",
+                    t, _impl.size());
             }
         }
         std::sort(tags.begin(), tags.end());
