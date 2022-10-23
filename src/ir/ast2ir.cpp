@@ -330,7 +330,45 @@ ir::NodeRef AST2IR::_convert(const UnaryExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
-    return ir::NodeRef();
+    auto tag = [expr] {
+        switch (expr->op()) {
+            case BinaryOp::ADD: return ir::Func::Tag::Add;
+            case BinaryOp::SUB: return ir::Func::Tag::Sub;
+            case BinaryOp::MUL: return ir::Func::Tag::Mul;
+            case BinaryOp::DIV: return ir::Func::Tag::Div;
+            case BinaryOp::MOD: return ir::Func::Tag::Rem;
+            case BinaryOp::BIT_AND: return ir::Func::Tag::BitAnd;
+            case BinaryOp::BIT_OR: return ir::Func::Tag::BitOr;
+            case BinaryOp::BIT_XOR: return ir::Func::Tag::BitXor;
+            case BinaryOp::SHL: return ir::Func::Tag::Shl;
+            case BinaryOp::SHR: return ir::Func::Tag::Shr;
+            case BinaryOp::LESS: return ir::Func::Tag::Lt;
+            case BinaryOp::GREATER: return ir::Func::Tag::Gt;
+            case BinaryOp::LESS_EQUAL: return ir::Func::Tag::Le;
+            case BinaryOp::GREATER_EQUAL: return ir::Func::Tag::Ge;
+            case BinaryOp::EQUAL: return ir::Func::Tag::Eq;
+            case BinaryOp::NOT_EQUAL: return ir::Func::Tag::Ne;
+            case BinaryOp::AND: return ir::Func::Tag::BitAnd;
+            case BinaryOp::OR: return ir::Func::Tag::BitOr;
+        }
+        LUISA_ERROR_WITH_LOCATION(
+            "Unsupported binary operator: 0x{:02x}.",
+            luisa::to_underlying(expr->op()));
+    }();
+    auto lhs_type = expr->lhs()->type();
+    auto rhs_type = expr->rhs()->type();
+    auto lhs = _convert_expr(expr->lhs());
+    auto rhs = _convert_expr(expr->rhs());
+    if ((lhs_type->is_scalar() && rhs_type->is_scalar()) ||
+        (expr->type()->is_vector() && expr->type()->element()->tag() == Type::Tag::BOOL)) {
+        lhs = _cast(expr->type(), expr->lhs()->type(), lhs);
+        rhs = _cast(expr->type(), expr->rhs()->type(), rhs);
+    }
+    std::array args{lhs, rhs};
+    return ir::luisa_compute_ir_build_call(
+        _current_builder(), {.tag = tag},
+        {.ptr = args.data(), .len = args.size()},
+        _convert_type(expr->type()));
 }
 
 ir::NodeRef AST2IR::_convert(const MemberExpr *expr) noexcept {
@@ -380,6 +418,7 @@ ir::NodeRef AST2IR::_convert(const ConstantExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
+    // TODO
     return ir::NodeRef();
 }
 
@@ -394,11 +433,13 @@ ir::NodeRef AST2IR::_convert(const CastExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const CpuCustomOpExpr *expr) noexcept {
-    return ir::NodeRef();
+    // TODO
+    LUISA_ERROR_WITH_LOCATION("TODO: AST2IR::_convert(const CpuCustomOpExpr *expr)");
 }
 
 ir::NodeRef AST2IR::_convert(const GpuCustomOpExpr *expr) noexcept {
-    return ir::NodeRef();
+    // TODO
+    LUISA_ERROR_WITH_LOCATION("TODO: AST2IR::_convert(const GpuCustomOpExpr *expr)");
 }
 
 ir::NodeRef AST2IR::_convert(const BreakStmt *stmt) noexcept {
@@ -488,15 +529,67 @@ ir::NodeRef AST2IR::_convert(const ExprStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const SwitchStmt *stmt) noexcept {
-    return ir::NodeRef();
+    LUISA_ASSERT(stmt->expression()->type()->tag() == Type::Tag::INT ||
+                     stmt->expression()->type()->tag() == Type::Tag::UINT,
+                 "Only integer type is supported in switch statement.");
+    auto value = _convert_expr(stmt->expression());
+    ir::Instruction switch_instr{.tag = ir::Instruction::Tag::Switch,
+                                 .switch_ = {.value = value}};
+    luisa::vector<ir::SwitchCase> case_blocks;
+    luisa::optional<ir::Gc<ir::BasicBlock>> default_block;
+    case_blocks.reserve(stmt->body()->statements().size());
+    for (auto s : stmt->body()->statements()) {
+        LUISA_ASSERT(s->tag() == Statement::Tag::SWITCH_CASE ||
+                         s->tag() == Statement::Tag::SWITCH_DEFAULT,
+                     "Only case and default statements are "
+                     "allowed in switch body.");
+        if (s->tag() == Statement::Tag::SWITCH_CASE) {
+            auto case_stmt = static_cast<const SwitchCaseStmt *>(s);
+            LUISA_ASSERT(case_stmt->expression()->tag() == Expression::Tag::LITERAL,
+                         "Only literal expression is supported in case statement.");
+            auto case_tag = _cast(stmt->expression()->type(), case_stmt->expression()->type(),
+                                  _convert_expr(case_stmt->expression()));
+            auto case_block = _with_builder([this, case_stmt](auto b) noexcept {
+                static_cast<void>(_convert(case_stmt->body()));
+                return ir::luisa_compute_ir_build_finish(*b);
+            });
+            case_blocks.emplace_back(ir::SwitchCase{
+                .value = case_tag, .block = case_block});
+        } else {
+            LUISA_ASSERT(!default_block.has_value(),
+                         "Only one default statement is "
+                         "allowed in switch body.");
+            default_block.emplace(_with_builder([this, s](auto b) noexcept {
+                static_cast<void>(_convert(
+                    static_cast<const SwitchDefaultStmt *>(s)));
+                return ir::luisa_compute_ir_build_finish(*b);
+            }));
+        }
+    }
+    switch_instr.switch_.default_ = default_block.value_or(_with_builder([](auto b) noexcept {
+        return ir::luisa_compute_ir_build_finish(*b);
+    }));
+    switch_instr.switch_.cases = _boxed_slice<ir::SwitchCase>(case_blocks.size());
+    for (auto i = 0u; i < case_blocks.size(); i++) {
+        switch_instr.switch_.cases.ptr[i] = case_blocks[i];
+    }
+    auto instr = ir::luisa_compute_ir_new_instruction(switch_instr);
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = _convert_type(nullptr), .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const SwitchCaseStmt *stmt) noexcept {
-    return ir::NodeRef();
+    LUISA_ERROR_WITH_LOCATION(
+        "AST2IR::_convert(const SwitchCaseStmt *stmt) "
+        "should not be called.");
 }
 
 ir::NodeRef AST2IR::_convert(const SwitchDefaultStmt *stmt) noexcept {
-    return ir::NodeRef();
+    LUISA_ERROR_WITH_LOCATION(
+        "AST2IR::_convert(const SwitchDefaultStmt *stmt) "
+        "should not be called.");
 }
 
 ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
@@ -515,7 +608,48 @@ ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
 
 ir::NodeRef AST2IR::_convert(const ForStmt *stmt) noexcept {
     // for (; cond; var += update) { /* body */ }
-    return ir::NodeRef();
+    auto var = _convert_expr(stmt->variable());
+    auto [cond, prepare] = _with_builder([this, stmt](auto b) noexcept {
+        auto c = _cast(Type::of<bool>(), stmt->condition()->type(),
+                       _convert_expr(stmt->condition()));
+        auto p = ir::luisa_compute_ir_build_finish(*b);
+        return std::make_pair(c, p);
+    });
+    auto body = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->body()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto update = _with_builder([this, stmt, var](auto b) noexcept {
+        // step
+        auto step = _cast(stmt->variable()->type(), stmt->step()->type(),
+                          _convert_expr(stmt->step()));
+        // next = var + step
+        std::array args{var, step};
+        auto next = ir::luisa_compute_ir_build_call(
+            b, {.tag = ir::Func::Tag::Add},
+            {.ptr = args.data(), .len = args.size()},
+            _convert_type(stmt->variable()->type()));
+        // var = next
+        auto instr = ir::luisa_compute_ir_new_instruction(
+            {.tag = ir::Instruction::Tag::Update,
+             .update = {.var = var, .value = next}});
+        auto node = ir::luisa_compute_ir_new_node(
+            {.type_ = _convert_type(nullptr),// TODO: check if UpdateNode returns void
+             .instruction = instr});
+        ir::luisa_compute_ir_append_node(b, node);
+        // finish
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        {.tag = ir::Instruction::Tag::GenericLoop,
+         .generic_loop = {.prepare = prepare,
+                          .cond = cond,
+                          .body = body,
+                          .update = update}});
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = _convert_type(nullptr), .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const CommentStmt *stmt) noexcept {
