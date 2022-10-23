@@ -3,7 +3,7 @@ use std::{
     borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
-    hash::Hash
+    hash::Hash,
 };
 
 use gc::Gc;
@@ -45,6 +45,7 @@ fn grad_type_of_ve(t: &VectorElementType) -> Option<VectorElementType> {
         }
     }
 }
+
 fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
     GRAD_TYPES.with(|grad_types| {
         if let Some(t) = grad_types.borrow().get(&type_) {
@@ -55,6 +56,7 @@ fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
         t
     })
 }
+
 fn _grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
     let ty = match type_.as_ref() {
         Type::Void => None,
@@ -120,6 +122,7 @@ struct StoreIntermediate<'a> {
     module: &'a Module,
     builder: IrBuilder,
 }
+
 impl<'a> StoreIntermediate<'a> {
     fn new(module: &'a Module) -> Self {
         let mut builder = IrBuilder::new();
@@ -200,6 +203,7 @@ impl<'a> StoreIntermediate<'a> {
             crate::ir::Instruction::Loop { body, cond: _ } => {
                 self.visit_block(body);
             }
+            crate::ir::Instruction::GenericLoop { .. } => todo!(),
             crate::ir::Instruction::Break => {}
             crate::ir::Instruction::Continue => {}
             crate::ir::Instruction::Return(_) => todo!(),
@@ -214,15 +218,16 @@ impl<'a> StoreIntermediate<'a> {
             }
             crate::ir::Instruction::Switch { .. } => todo!(),
             crate::ir::Instruction::Comment { .. } => {}
-            crate::ir::Instruction::Return(_) => {}
         }
     }
 }
+
 struct Backward {
     grads: HashMap<NodeRef, NodeRef>,
     intermediate: HashMap<NodeRef, NodeRef>,
     final_grad: HashSet<NodeRef>,
 }
+
 impl Backward {
     fn grad(&mut self, node: NodeRef) -> Option<NodeRef> {
         self.grads.get(&node).copied()
@@ -283,9 +288,9 @@ impl Backward {
             }
             crate::ir::Instruction::Phi(_) => todo!(),
             crate::ir::Instruction::Loop { .. } => todo!(),
+            crate::ir::Instruction::GenericLoop { .. } => todo!(),
             crate::ir::Instruction::Break => todo!(),
             crate::ir::Instruction::Continue => todo!(),
-            crate::ir::Instruction::Return(_) => todo!(),
             crate::ir::Instruction::If {
                 cond,
                 true_branch,
@@ -309,7 +314,9 @@ impl Backward {
         builder.finish()
     }
 }
+
 pub struct Autodiff;
+
 impl Transform for Autodiff {
     fn transform(&self, module: crate::ir::Module) -> crate::ir::Module {
         assert!(

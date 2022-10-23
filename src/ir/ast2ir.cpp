@@ -7,15 +7,16 @@
 
 namespace luisa::compute {
 
-ir::Module AST2IR::_convert_body(Function function) noexcept {
-    for (auto v : function.local_variables()) {
+ir::Module AST2IR::_convert_body() noexcept {
+    for (auto v : _function.local_variables()) {
         static_cast<void>(_convert_local_variable(v));
     }
     // process body scope
-    static_cast<void>(_convert(function.body()));
+    static_cast<void>(_convert(_function.body()));
     // finalize
     auto bb = ir::luisa_compute_ir_build_finish(*_current_builder());
-    return {.kind = function.tag() == Function::Tag::KERNEL ?
+    bb.set_root(true);
+    return {.kind = _function.tag() == Function::Tag::KERNEL ?
                         ir::ModuleKind::Kernel :
                         ir::ModuleKind::Function,
             .entry = bb};
@@ -25,10 +26,12 @@ ir::KernelModule AST2IR::convert_kernel(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::KERNEL,
                  "Invalid function tag.");
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
-                     _variables.empty() && _builder_stack.empty(),
+                     _variables.empty() && _builder_stack.empty() &&
+                     !_function,
                  "Invalid state.");
-    return _with_builder([function, this](auto builder) noexcept {
-        auto bindings = function.builder()->argument_bindings();
+    _function = function;
+    return _with_builder([this](auto builder) noexcept {
+        auto bindings = _function.builder()->argument_bindings();
         auto capture_count = std::count_if(
             bindings.cbegin(), bindings.cend(), [](auto &&b) {
                 return luisa::holds_alternative<luisa::monostate>(b);
@@ -42,7 +45,7 @@ ir::KernelModule AST2IR::convert_kernel(Function function) noexcept {
         for (auto i = 0u; i < bindings.size(); i++) {
             using FB = detail::FunctionBuilder;
             auto binding = bindings[i];
-            auto node = _convert_argument(function.arguments()[i]);
+            auto node = _convert_argument(_function.arguments()[i]);
             luisa::visit(
                 luisa::overloaded{
                     [&](luisa::monostate) noexcept {
@@ -78,15 +81,15 @@ ir::KernelModule AST2IR::convert_kernel(Function function) noexcept {
                 binding);
         }
         // process built-in variables
-        for (auto v : function.builtin_variables()) {
+        for (auto v : _function.builtin_variables()) {
             static_cast<void>(_convert_builtin_variable(v));
         }
         // process shared memory
-        auto shared = _boxed_slice<ir::NodeRef>(function.shared_variables().size());
-        for (auto i = 0u; i < function.shared_variables().size(); i++) {
-            shared.ptr[i] = _convert_shared_variable(function.shared_variables()[i]);
+        auto shared = _boxed_slice<ir::NodeRef>(_function.shared_variables().size());
+        for (auto i = 0u; i < _function.shared_variables().size(); i++) {
+            shared.ptr[i] = _convert_shared_variable(_function.shared_variables()[i]);
         }
-        auto module = _convert_body(function);
+        auto module = _convert_body();
         return ir::KernelModule{.module = module,
                                 .captures = captures,
                                 .args = non_captures,
@@ -99,15 +102,16 @@ ir::CallableModule AST2IR::convert_callable(Function function) noexcept {
                  "Invalid function tag.");
     if (auto m = ir::luisa_compute_ir_get_symbol(function.hash())) { return *m; }
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
-                     _variables.empty() && _builder_stack.empty(),
+                     _variables.empty() && _builder_stack.empty() &&
+                     !_function,
                  "Invalid state.");
-    auto m = _with_builder([function, this](auto builder) noexcept {
-        auto arg_count = function.arguments().size();
+    auto m = _with_builder([this](auto builder) noexcept {
+        auto arg_count = _function.arguments().size();
         auto args = _boxed_slice<ir::NodeRef>(arg_count);
         for (auto i = 0u; i < arg_count; i++) {
-            args.ptr[i] = _convert_argument(function.arguments()[i]);
+            args.ptr[i] = _convert_argument(_function.arguments()[i]);
         }
-        return ir::CallableModule{.module = _convert_body(function), .args = args};
+        return ir::CallableModule{.module = _convert_body(), .args = args};
     });
     ir::luisa_compute_ir_add_symbol(function.hash(), m);
     return m;
@@ -126,8 +130,6 @@ ir::NodeRef AST2IR::_convert_expr(const Expression *expr) noexcept {
         case Expression::Tag::CAST: return _convert(static_cast<const CastExpr *>(expr));
         case Expression::Tag::CPUCUSTOM: return _convert(static_cast<const CpuCustomOpExpr *>(expr));
         case Expression::Tag::GPUCUSTOM: return _convert(static_cast<const GpuCustomOpExpr *>(expr));
-        case Expression::Tag::PHI: return _convert(static_cast<const PhiExpr *>(expr));
-        case Expression::Tag::REPLACE_MEMBER: return _convert(static_cast<const ReplaceMemberExpr *>(expr));
     }
     LUISA_ERROR_WITH_LOCATION("Invalid expression tag.");
 }
@@ -308,7 +310,23 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const UnaryExpr *expr) noexcept {
-    return ir::NodeRef();
+    auto x = _convert_expr(expr->operand());
+    if (expr->op() == UnaryOp::PLUS) { return x; }
+    auto tag = [expr] {
+        switch (expr->op()) {
+            case UnaryOp::MINUS: return ir::Func::Tag::Neg;
+            case UnaryOp::NOT: return ir::Func::Tag::Not;
+            case UnaryOp::BIT_NOT: return ir::Func::Tag::BitNot;
+            default: break;
+        }
+        LUISA_ERROR_WITH_LOCATION(
+            "Unsupported unary operator: 0x{:02x}.",
+            luisa::to_underlying(expr->op()));
+    }();
+    return ir::luisa_compute_ir_build_call(
+        _current_builder(), {.tag = tag},
+        {.ptr = &x, .len = 1u},
+        _convert_type(expr->type()));
 }
 
 ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
@@ -316,19 +334,49 @@ ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const MemberExpr *expr) noexcept {
-    return ir::NodeRef();
+    auto self = _convert_expr(expr->self());
+    auto b = _current_builder();
+    if (expr->is_swizzle() && expr->swizzle_size() > 1u) {
+        std::array<ir::NodeRef, 5u> args{self};
+        for (auto i = 0u; i < expr->swizzle_size(); i++) {
+            args[i + 1u] = _literal(Type::of<uint>(), expr->swizzle_index(i));
+        }
+        return ir::luisa_compute_ir_build_call(
+            b, {.tag = ir::Func::Tag::Permute},
+            {.ptr = args.data(), .len = expr->swizzle_size() + 1u},
+            _convert_type(expr->type()));
+    }
+    auto index = expr->is_swizzle() ?
+                     _literal(Type::of<uint>(), expr->swizzle_index(0u)) :
+                     _literal(Type::of<uint>(), expr->member_index());
+    std::array args{self, index};
+    return ir::luisa_compute_ir_build_call(
+        b, {.tag = ir::Func::Tag::GetElementPtr},
+        {.ptr = args.data(), .len = args.size()},
+        _convert_type(expr->type()));
 }
 
 ir::NodeRef AST2IR::_convert(const AccessExpr *expr) noexcept {
-    return ir::NodeRef();
+    auto self = _convert_expr(expr->range());
+    auto index = _convert_expr(expr->index());
+    auto b = _current_builder();
+    std::array args{self, index};
+    return ir::luisa_compute_ir_build_call(
+        b, {.tag = ir::Func::Tag::GetElementPtr},
+        {.ptr = args.data(), .len = args.size()},
+        _convert_type(expr->type()));
 }
 
 ir::NodeRef AST2IR::_convert(const RefExpr *expr) noexcept {
-    return ir::NodeRef();
+    auto iter = _variables.find(expr->variable().uid());
+    LUISA_ASSERT(iter != _variables.end(),
+                 "Variable #{} not found.",
+                 expr->variable().uid());
+    return iter->second;
 }
 
 ir::NodeRef AST2IR::_convert(const ConstantExpr *expr) noexcept {
-    return ir::NodeRef();
+    return _convert_constant(expr->data());
 }
 
 ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
@@ -336,11 +384,13 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const CastExpr *expr) noexcept {
-    return ir::NodeRef();
-}
-
-ir::NodeRef AST2IR::_convert(const PhiExpr *expr) noexcept {
-    return ir::NodeRef();
+    auto src = _convert_expr(expr->expression());
+    if (expr->op() == CastOp::STATIC) {
+        return _cast(expr->type(), expr->expression()->type(), src, true);
+    }
+    return ir::luisa_compute_ir_build_call(
+        _current_builder(), {.tag = ir::Func::Tag::Bitcast},
+        {.ptr = &src, .len = 1u}, _convert_type(expr->type()));
 }
 
 ir::NodeRef AST2IR::_convert(const CpuCustomOpExpr *expr) noexcept {
@@ -351,36 +401,90 @@ ir::NodeRef AST2IR::_convert(const GpuCustomOpExpr *expr) noexcept {
     return ir::NodeRef();
 }
 
-ir::NodeRef AST2IR::_convert(const ReplaceMemberExpr *expr) noexcept {
-    return ir::NodeRef();
-}
-
 ir::NodeRef AST2IR::_convert(const BreakStmt *stmt) noexcept {
-    return ir::NodeRef();
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        {.tag = ir::Instruction::Tag::Break});
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = _convert_type(nullptr), .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const ContinueStmt *stmt) noexcept {
-    return ir::NodeRef();
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        {.tag = ir::Instruction::Tag::Continue});
+    auto void_type = _convert_type(nullptr);
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = void_type, .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const ReturnStmt *stmt) noexcept {
-    return ir::NodeRef();
+    auto ret_type = _function.return_type();
+    auto ret = ret_type ?
+                   _cast(ret_type, stmt->expression()->type(),
+                         _convert_expr(stmt->expression())) :
+                   ir::INVALID_REF;
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        {.tag = ir::Instruction::Tag::Return, .return_ = {ret}});
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = _convert_type(ret_type), .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const ScopeStmt *stmt) noexcept {
-    return ir::NodeRef();
+    for (auto s : stmt->statements()) {
+        static_cast<void>(_convert_stmt(s));
+        if (auto tag = s->tag();
+            tag == Statement::Tag::RETURN ||
+            tag == Statement::Tag::CONTINUE ||
+            tag == Statement::Tag::BREAK) { break; }
+    }
+    return ir::INVALID_REF;
 }
 
 ir::NodeRef AST2IR::_convert(const IfStmt *stmt) noexcept {
-    return ir::NodeRef();
+    auto cond = _convert_expr(stmt->condition());
+    auto true_block = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->true_branch()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto false_block = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->false_branch()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        {.tag = ir::Instruction::Tag::If,
+         .if_ = {.cond = cond,
+                 .true_branch = true_block,
+                 .false_branch = false_block}});
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = _convert_type(nullptr),
+         .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const LoopStmt *stmt) noexcept {
-    return ir::NodeRef();
+    auto cond = _literal(Type::of<bool>(), true);
+    auto body = _with_builder([this, stmt](auto b) noexcept {
+        static_cast<void>(_convert(stmt->body()));
+        return ir::luisa_compute_ir_build_finish(*b);
+    });
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        {.tag = ir::Instruction::Tag::Loop,
+         .loop = {.body = body, .cond = cond}});
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = _convert_type(nullptr),
+         .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const ExprStmt *stmt) noexcept {
-    return ir::NodeRef();
+    return _convert_expr(stmt->expression());
 }
 
 ir::NodeRef AST2IR::_convert(const SwitchStmt *stmt) noexcept {
@@ -396,10 +500,21 @@ ir::NodeRef AST2IR::_convert(const SwitchDefaultStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
-    return ir::NodeRef();
+    auto lhs = _convert_expr(stmt->lhs());
+    auto rhs = _cast(stmt->lhs()->type(), stmt->rhs()->type(),
+                     _convert_expr(stmt->rhs()));
+    auto instr = ir::luisa_compute_ir_new_instruction(
+        {.tag = ir::Instruction::Tag::Update,
+         .update = {.var = lhs, .value = rhs}});
+    auto node = ir::luisa_compute_ir_new_node(
+        {.type_ = _convert_type(nullptr),// TODO: check if UpdateNode returns void
+         .instruction = instr});
+    ir::luisa_compute_ir_append_node(_current_builder(), node);
+    return node;
 }
 
 ir::NodeRef AST2IR::_convert(const ForStmt *stmt) noexcept {
+    // for (; cond; var += update) { /* body */ }
     return ir::NodeRef();
 }
 
@@ -508,6 +623,172 @@ ir::NodeRef AST2IR::_convert_builtin_variable(Variable v) noexcept {
         b, {.tag = func}, {}, type);
     _variables.emplace(v.uid(), node);
     return node;
+}
+
+ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRef node_src, bool diagonal_matrix) noexcept {
+    if (*type_dst == *type_src) { return node_src; }
+    // scalar to scalar
+    auto builder = _current_builder();
+    if (type_dst->is_scalar() && type_src->is_scalar()) {
+        return ir::luisa_compute_ir_build_call(
+            builder, {.tag = ir::Func::Tag::Cast},
+            {.ptr = &node_src, .len = 1u},
+            _convert_type(type_dst));
+    }
+    // vector to vector
+    if (type_dst->is_vector() && type_src->is_vector()) {
+        LUISA_ASSERT(type_dst->dimension() == type_src->dimension(),
+                     "Vector dimension mismatch: dst = {}, src = {}.",
+                     type_dst->dimension(), type_src->dimension());
+        return ir::luisa_compute_ir_build_call(
+            builder, {.tag = ir::Func::Tag::Cast},
+            {.ptr = &node_src, .len = 1u},
+            _convert_type(type_dst));
+    }
+    // scalar to vector
+    if (type_dst->is_vector() && type_src->is_scalar()) {
+        auto elem = _cast(type_dst->element(), type_src, node_src);
+        auto dim = type_dst->dimension();
+        if (dim == 2u) {
+            std::array args{elem, elem};
+            return ir::luisa_compute_ir_build_call(
+                builder, {.tag = ir::Func::Tag::Vec2},
+                {.ptr = args.data(), .len = args.size()},
+                _convert_type(type_dst));
+        }
+        if (dim == 3u) {
+            std::array args{elem, elem, elem};
+            return ir::luisa_compute_ir_build_call(
+                builder, {.tag = ir::Func::Tag::Vec3},
+                {.ptr = args.data(), .len = args.size()},
+                _convert_type(type_dst));
+        }
+        if (dim == 4u) {
+            std::array args{elem, elem, elem, elem};
+            return ir::luisa_compute_ir_build_call(
+                builder, {.tag = ir::Func::Tag::Vec4},
+                {.ptr = args.data(), .len = args.size()},
+                _convert_type(type_dst));
+        }
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid vector dimension: {}.", dim);
+    }
+    // scalar to matrix
+    if (type_dst->is_matrix() && type_src->is_scalar()) {
+        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT,
+                     "Only float matrices are supported.");
+        auto elem = _cast(Type::of<float>(), type_src, node_src);
+        auto dim = type_dst->dimension();
+        if (diagonal_matrix) {
+            auto zero = _literal(Type::of<float>(), 0.f);
+            if (dim == 2u) {
+                std::array args{elem, zero,
+                                zero, elem};
+                return ir::luisa_compute_ir_build_call(
+                    builder, {.tag = ir::Func::Tag::Matrix2},
+                    {.ptr = args.data(), .len = args.size()},
+                    _convert_type(type_dst));
+            }
+            if (dim == 3u) {
+                std::array args{elem, zero, zero,
+                                zero, elem, zero,
+                                zero, zero, elem};
+                return ir::luisa_compute_ir_build_call(
+                    builder, {.tag = ir::Func::Tag::Matrix3},
+                    {.ptr = args.data(), .len = args.size()},
+                    _convert_type(type_dst));
+            }
+            if (dim == 4u) {
+                std::array args{elem, zero, zero, zero,
+                                zero, elem, zero, zero,
+                                zero, zero, elem, zero,
+                                zero, zero, zero, elem};
+                return ir::luisa_compute_ir_build_call(
+                    builder, {.tag = ir::Func::Tag::Matrix4},
+                    {.ptr = args.data(), .len = args.size()},
+                    _convert_type(type_dst));
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid matrix dimension: {}.", dim);
+        }
+        // non-diagonal matrix
+        if (dim == 2u) {
+            std::array args{elem, elem,
+                            elem, elem};
+            return ir::luisa_compute_ir_build_call(
+                builder, {.tag = ir::Func::Tag::Matrix2},
+                {.ptr = args.data(), .len = args.size()},
+                _convert_type(type_dst));
+        }
+        if (dim == 3u) {
+            std::array args{elem, elem, elem,
+                            elem, elem, elem,
+                            elem, elem, elem};
+            return ir::luisa_compute_ir_build_call(
+                builder, {.tag = ir::Func::Tag::Matrix3},
+                {.ptr = args.data(), .len = args.size()},
+                _convert_type(type_dst));
+        }
+        if (dim == 4u) {
+            std::array args{elem, elem, elem, elem,
+                            elem, elem, elem, elem,
+                            elem, elem, elem, elem,
+                            elem, elem, elem, elem};
+            return ir::luisa_compute_ir_build_call(
+                builder, {.tag = ir::Func::Tag::Matrix4},
+                {.ptr = args.data(), .len = args.size()},
+                _convert_type(type_dst));
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Invalid type cast: {} -> {}.",
+        type_src->description(), type_dst->description());
+}
+
+ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcept {
+    return luisa::visit(
+        [&](auto x) noexcept {
+            using T = std::decay_t<decltype(x)>;
+            LUISA_ASSERT(*Type::of<T>() == *type,
+                         "Type mismatch: '{}' vs. '{}'.",
+                         Type::of<T>()->description(),
+                         type->description());
+            if constexpr (is_scalar_v<T>) {
+                auto c = [&]() noexcept -> ir::Const {
+                    if (x == static_cast<T>(0)) {
+                        ir::Const cc{.tag = ir::Const::Tag::Zero};
+                        cc.zero = {_convert_type(type)};
+                        return cc;
+                    }
+                    if constexpr (std::is_same_v<T, bool>) {
+                        return {.tag = ir::Const::Tag::Bool, .bool_ = {x}};
+                    } else if constexpr (std::is_same_v<T, float>) {
+                        return {.tag = ir::Const::Tag::Float32, .float32 = {x}};
+                    } else if constexpr (std::is_same_v<T, int>) {
+                        return {.tag = ir::Const::Tag::Int32, .int32 = {x}};
+                    } else if constexpr (std::is_same_v<T, uint>) {
+                        return {.tag = ir::Const::Tag::Uint32, .uint32 = {x}};
+                    } else {
+                        static_assert(always_false_v<T>, "Unsupported scalar type.");
+                    }
+                }();
+                auto b = _current_builder();
+                return ir::luisa_compute_ir_build_const(b, c);
+            } else {
+                auto salt = luisa::hash64("__ast2ir_literal");
+                auto hash = luisa::hash64(x, luisa::hash64(type->hash(), salt));
+                if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
+                auto slice = _boxed_slice<uint8_t>(sizeof(T));
+                std::memcpy(slice.ptr, &x, sizeof(T));
+                auto c = ir::Const{.tag = ir::Const::Tag::Generic};
+                c.generic = {slice, _convert_type(type)};
+                auto b = _current_builder();
+                auto node = ir::luisa_compute_ir_build_const(b, c);
+                _constants.emplace(hash, node);
+                return node;
+            }
+        },
+        value);
 }
 
 }// namespace luisa::compute

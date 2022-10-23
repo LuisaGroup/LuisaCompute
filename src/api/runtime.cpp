@@ -522,10 +522,10 @@ public:
         LUISA_ASSERT(kernel.is_extern_function_impl(), "Only extern function implementation can be passed to ExternDevice::create_shader");
         return impl->create_shader(impl, kernel.get_extern_function_impl(), meta_options.data());
     }
-    [[nodiscard]] virtual uint64_t create_shader_ex(void* kernel) noexcept  {
+    [[nodiscard]] virtual uint64_t create_shader_ex(void *kernel) noexcept override {
         return impl->create_shader_ex(impl, kernel);
     }
-    [[nodiscard]] virtual void dispatch_shader_ex(uint64_t handle, void * args) noexcept {
+    virtual void dispatch_shader_ex(uint64_t handle, void *args) noexcept override {
         return impl->dispatch_shader_ex(impl, handle, args);
     }
 
@@ -567,8 +567,8 @@ public:
     }
 
     // query
-    [[nodiscard]] luisa::string query(std::string_view meta_expr) noexcept { return {}; }
-    [[nodiscard]] bool requires_command_reordering() const noexcept { return impl->requires_command_reordering(impl); }
+    [[nodiscard]] luisa::string query(std::string_view meta_expr) noexcept override { return {}; }
+    [[nodiscard]] bool requires_command_reordering() const noexcept override { return impl->requires_command_reordering(impl); }
 };
 
 LUISA_EXPORT_API LCDevice luisa_compute_create_external_device(LCContext ctx, LCDeviceInterface *impl) {

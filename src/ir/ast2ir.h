@@ -42,6 +42,7 @@ private:
     luisa::unordered_map<uint64_t, ir::NodeRef> _constants;        // maps Constant::hash() to ir::NodeRef
     luisa::unordered_map<uint32_t, ir::NodeRef> _variables;        // maps Variable::uid to ir::NodeRef
     luisa::vector<ir::IrBuilder *> _builder_stack;
+    Function _function;
 
 private:
     template<typename T>
@@ -80,10 +81,8 @@ private:
     [[nodiscard]] ir::NodeRef _convert(const ConstantExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CallExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CastExpr *expr) noexcept;
-    [[nodiscard]] ir::NodeRef _convert(const PhiExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CpuCustomOpExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const GpuCustomOpExpr *expr) noexcept;
-    [[nodiscard]] ir::NodeRef _convert(const ReplaceMemberExpr *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert_expr(const Expression *expr) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const BreakStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const ContinueStmt *stmt) noexcept;
@@ -99,7 +98,12 @@ private:
     [[nodiscard]] ir::NodeRef _convert(const ForStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert(const CommentStmt *stmt) noexcept;
     [[nodiscard]] ir::NodeRef _convert_stmt(const Statement *stmt) noexcept;
-    [[nodiscard]] ir::Module _convert_body(Function function) noexcept;
+    [[nodiscard]] ir::Module _convert_body() noexcept;
+
+    // helper functions
+    [[nodiscard]] ir::NodeRef _cast(const Type *type_dst, const Type *type_src,
+                                    ir::NodeRef node_src, bool diagonal_matrix = false) noexcept;
+    [[nodiscard]] ir::NodeRef _literal(const Type *type, LiteralExpr::Value value) noexcept;
 
 public:
     [[nodiscard]] ir::KernelModule convert_kernel(Function function) noexcept;
