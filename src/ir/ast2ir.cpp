@@ -418,8 +418,231 @@ ir::NodeRef AST2IR::_convert(const ConstantExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
-    // TODO
-    return ir::NodeRef();
+    // custom callable
+    if (!expr->is_builtin()) {
+        AST2IR cvt;
+        auto callable = expr->custom();
+        static_cast<void>(cvt.convert_callable(callable));
+        luisa::vector<ir::NodeRef> args;
+        args.reserve(expr->arguments().size());
+        for (auto i = 0u; i < expr->arguments().size(); i++) {
+            auto t = callable.arguments()[i].type();
+            auto arg = expr->arguments()[i];
+            args.emplace_back(_cast(t, arg->type(), _convert_expr(arg)));
+        }
+        auto call = ir::luisa_compute_ir_build_call(
+            _current_builder(),
+            {.tag = ir::Func::Tag::Callable, .callable = {callable.hash()}},
+            {.ptr = args.data(), .len = args.size()},
+            _convert_type(callable.return_type()));
+        return _cast(expr->type(), callable.return_type(), call);
+    }
+    // built-in
+    auto tag = [expr] {
+        switch (expr->op()) {
+            case CallOp::ALL: return ir::Func::Tag::All;
+            case CallOp::ANY: return ir::Func::Tag::Any;
+            case CallOp::SELECT: return ir::Func::Tag::Select;
+            case CallOp::CLAMP: return ir::Func::Tag::Clamp;
+            case CallOp::LERP: return ir::Func::Tag::Lerp;
+            case CallOp::STEP: return ir::Func::Tag::Step;
+            case CallOp::ABS: return ir::Func::Tag::Abs;
+            case CallOp::MIN: return ir::Func::Tag::Min;
+            case CallOp::MAX: return ir::Func::Tag::Max;
+            case CallOp::CLZ: return ir::Func::Tag::Clz;
+            case CallOp::CTZ: return ir::Func::Tag::Ctz;
+            case CallOp::POPCOUNT: return ir::Func::Tag::PopCount;
+            case CallOp::REVERSE: return ir::Func::Tag::Reverse;
+            case CallOp::ISINF: return ir::Func::Tag::IsInf;
+            case CallOp::ISNAN: return ir::Func::Tag::IsNan;
+            case CallOp::ACOS: return ir::Func::Tag::Acos;
+            case CallOp::ACOSH: return ir::Func::Tag::Acosh;
+            case CallOp::ASIN: return ir::Func::Tag::Asin;
+            case CallOp::ASINH: return ir::Func::Tag::Asinh;
+            case CallOp::ATAN: return ir::Func::Tag::Atan;
+            case CallOp::ATAN2: return ir::Func::Tag::Atan2;
+            case CallOp::ATANH: return ir::Func::Tag::Atanh;
+            case CallOp::COS: return ir::Func::Tag::Cos;
+            case CallOp::COSH: return ir::Func::Tag::Cosh;
+            case CallOp::SIN: return ir::Func::Tag::Sin;
+            case CallOp::SINH: return ir::Func::Tag::Sinh;
+            case CallOp::TAN: return ir::Func::Tag::Tan;
+            case CallOp::TANH: return ir::Func::Tag::Tanh;
+            case CallOp::EXP: return ir::Func::Tag::Exp;
+            case CallOp::EXP2: return ir::Func::Tag::Exp2;
+            case CallOp::EXP10: return ir::Func::Tag::Exp10;
+            case CallOp::LOG: return ir::Func::Tag::Log;
+            case CallOp::LOG2: return ir::Func::Tag::Log2;
+            case CallOp::LOG10: return ir::Func::Tag::Log10;
+            case CallOp::POW: return ir::Func::Tag::Powf;
+            case CallOp::SQRT: return ir::Func::Tag::Sqrt;
+            case CallOp::RSQRT: return ir::Func::Tag::Rsqrt;
+            case CallOp::CEIL: return ir::Func::Tag::Ceil;
+            case CallOp::FLOOR: return ir::Func::Tag::Floor;
+            case CallOp::FRACT: return ir::Func::Tag::Fract;
+            case CallOp::TRUNC: return ir::Func::Tag::Trunc;
+            case CallOp::ROUND: return ir::Func::Tag::Round;
+            case CallOp::FMA: return ir::Func::Tag::Fma;
+            case CallOp::COPYSIGN: return ir::Func::Tag::Copysign;
+            case CallOp::CROSS: return ir::Func::Tag::Cross;
+            case CallOp::DOT: return ir::Func::Tag::Dot;
+            case CallOp::LENGTH: return ir::Func::Tag::Length;
+            case CallOp::LENGTH_SQUARED: return ir::Func::Tag::LengthSquared;
+            case CallOp::NORMALIZE: return ir::Func::Tag::Normalize;
+            case CallOp::FACEFORWARD: return ir::Func::Tag::Faceforward;
+            case CallOp::DETERMINANT: return ir::Func::Tag::Determinant;
+            case CallOp::TRANSPOSE: return ir::Func::Tag::Transpose;
+            case CallOp::INVERSE: return ir::Func::Tag::Inverse;
+            case CallOp::SYNCHRONIZE_BLOCK: return ir::Func::Tag::SynchronizeBlock;
+            case CallOp::ATOMIC_EXCHANGE: return ir::Func::Tag::AtomicExchange;
+            case CallOp::ATOMIC_COMPARE_EXCHANGE: return ir::Func::Tag::AtomicCompareExchange;
+            case CallOp::ATOMIC_FETCH_ADD: return ir::Func::Tag::AtomicFetchAdd;
+            case CallOp::ATOMIC_FETCH_SUB: return ir::Func::Tag::AtomicFetchSub;
+            case CallOp::ATOMIC_FETCH_AND: return ir::Func::Tag::AtomicFetchAnd;
+            case CallOp::ATOMIC_FETCH_OR: return ir::Func::Tag::AtomicFetchOr;
+            case CallOp::ATOMIC_FETCH_XOR: return ir::Func::Tag::AtomicFetchXor;
+            case CallOp::ATOMIC_FETCH_MIN: return ir::Func::Tag::AtomicFetchMin;
+            case CallOp::ATOMIC_FETCH_MAX: return ir::Func::Tag::AtomicFetchMax;
+            case CallOp::BUFFER_READ: return ir::Func::Tag::BufferRead;
+            case CallOp::BUFFER_WRITE: return ir::Func::Tag::BufferWrite;
+            case CallOp::TEXTURE_READ: return ir::Func::Tag::TextureRead;
+            case CallOp::TEXTURE_WRITE: return ir::Func::Tag::TextureWrite;
+            case CallOp::BINDLESS_TEXTURE2D_SAMPLE: return ir::Func::Tag::BindlessTexture2dSample;
+            case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: return ir::Func::Tag::BindlessTexture2dSampleLevel;
+            case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: return ir::Func::Tag::BindlessTexture2dSampleGrad;
+            case CallOp::BINDLESS_TEXTURE3D_SAMPLE: return ir::Func::Tag::BindlessTexture3dSample;
+            case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL: return ir::Func::Tag::BindlessTexture3dSampleLevel;
+            case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD: return ir::Func::Tag::BindlessTexture3dSampleGrad;
+            case CallOp::BINDLESS_TEXTURE2D_READ: return ir::Func::Tag::BindlessTexture2dRead;
+            case CallOp::BINDLESS_TEXTURE3D_READ: return ir::Func::Tag::BindlessTexture3dRead;
+            case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL: return ir::Func::Tag::BindlessTexture2dReadLevel;
+            case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL: return ir::Func::Tag::BindlessTexture3dReadLevel;
+            case CallOp::BINDLESS_TEXTURE2D_SIZE: return ir::Func::Tag::BindlessTexture2dSize;
+            case CallOp::BINDLESS_TEXTURE3D_SIZE: return ir::Func::Tag::BindlessTexture3dSize;
+            case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL: return ir::Func::Tag::BindlessTexture2dSizeLevel;
+            case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: return ir::Func::Tag::BindlessTexture3dSizeLevel;
+            case CallOp::BINDLESS_BUFFER_READ: return ir::Func::Tag::BindlessBufferRead;
+            case CallOp::MAKE_BOOL2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_BOOL3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_BOOL4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_INT2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_INT3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_INT4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_UINT2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_UINT3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_UINT4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_FLOAT2: return ir::Func::Tag::Vec2;
+            case CallOp::MAKE_FLOAT3: return ir::Func::Tag::Vec3;
+            case CallOp::MAKE_FLOAT4: return ir::Func::Tag::Vec4;
+            case CallOp::MAKE_FLOAT2X2: return ir::Func::Tag::Matrix2;
+            case CallOp::MAKE_FLOAT3X3: return ir::Func::Tag::Matrix3;
+            case CallOp::MAKE_FLOAT4X4: return ir::Func::Tag::Matrix4;
+            case CallOp::ASSUME: return ir::Func::Tag::Assume;
+            case CallOp::UNREACHABLE: return ir::Func::Tag::Unreachable;
+            case CallOp::INSTANCE_TO_WORLD_MATRIX: return ir::Func::Tag::InstanceToWorldMatrix;
+            case CallOp::SET_INSTANCE_TRANSFORM: return ir::Func::Tag::SetInstanceTransform;
+            case CallOp::SET_INSTANCE_VISIBILITY: return ir::Func::Tag::SetInstanceVisibility;
+            case CallOp::TRACE_CLOSEST: return ir::Func::Tag::TraceClosest;
+            case CallOp::TRACE_ANY: return ir::Func::Tag::TraceAny;
+            default: break;
+        }
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid CallOp: 0x{:02x}.",
+            luisa::to_underlying(expr->op()));
+    }();
+    luisa::vector<ir::NodeRef> args;
+    if (is_atomic_operation(expr->op())) {
+        args.reserve(expr->arguments().size() + 1u);
+        LUISA_ASSERT(expr->arguments().front()->tag() == Expression::Tag::ACCESS,
+                     "First argument of atomic operation must be an AccessExpr.");
+        auto access = static_cast<const AccessExpr *>(expr->arguments().front());
+        args.emplace_back(_convert_expr(access->range()));
+        args.emplace_back(_convert_expr(access->index()));
+        for (auto arg : luisa::span{expr->arguments()}.subspan(1u)) {
+            args.emplace_back(_convert_expr(arg));
+        }
+    } else if (is_vector_maker(expr->op())) {
+        // resolve overloaded vector maker
+        args.reserve(expr->type()->dimension());
+        auto a = expr->arguments();
+        if (a.size() == 1u) {
+            if (auto t = a.front()->type(); t->is_scalar()) {
+                // vector from a single scalar
+                auto elem = _convert_expr(a.front());
+                for (uint32_t i = 0u; i < expr->type()->dimension(); i++) {
+                    args.emplace_back(elem);
+                }
+            } else {
+                // vector from a vector
+                LUISA_ASSERT(t->is_vector() && t->dimension() >= expr->type()->dimension(),
+                             "Invalid {} vector maker from {}.",
+                             expr->type()->description(),
+                             a.front()->type()->description());
+                auto v = _convert_expr(a.front());
+                auto b = _current_builder();
+                for (auto i = 0u; i < expr->type()->dimension(); i++) {
+                    std::array extract_args{v, _literal(Type::of<uint>(), i)};
+                    auto elem = ir::luisa_compute_ir_build_call(
+                        b, {.tag = ir::Func::Tag::ExtractElement},
+                        {.ptr = extract_args.data(), .len = extract_args.size()},
+                        _convert_type(t->element()));
+                    args.emplace_back(_cast(expr->type()->element(), t->element(), elem));
+                }
+            }
+        } else {
+            // vector from multiple scalars or vectors
+            for (auto v : a) {
+                if (v->type()->is_scalar()) {
+                    args.emplace_back(_cast(expr->type()->element(), v->type(), _convert_expr(v)));
+                } else {
+                    auto vv = _convert_expr(v);
+                    auto b = _current_builder();
+                    for (auto i = 0u; i < v->type()->dimension(); i++) {
+                        std::array extract_args{vv, _literal(Type::of<uint>(), i)};
+                        auto elem = ir::luisa_compute_ir_build_call(
+                            b, {.tag = ir::Func::Tag::ExtractElement},
+                            {.ptr = extract_args.data(), .len = extract_args.size()},
+                            _convert_type(v->type()->element()));
+                        args.emplace_back(_cast(expr->type()->element(), v->type()->element(), elem));
+                    }
+                }
+            }
+            args.resize(expr->type()->dimension());
+        }
+    } else if (is_matrix_maker(expr->op())) {
+        LUISA_ASSERT(expr->arguments().size() == expr->type()->dimension(),
+                     "Invalid {} matrix maker from {} vector(s).",
+                     expr->type()->description(),
+                     expr->arguments().size());
+        args.reserve(expr->type()->dimension() * expr->type()->dimension());
+        for (auto v : expr->arguments()) {
+            LUISA_ASSERT(v->type()->is_vector() &&
+                             *v->type()->element() == *expr->type()->element() &&
+                             v->type()->dimension() == expr->type()->dimension(),
+                         "Invalid {} matrix maker from {}.",
+                         expr->type()->description(),
+                         v->type()->description());
+            auto vv = _convert_expr(v);
+            auto b = _current_builder();
+            for (auto i = 0u; i < v->type()->dimension(); i++) {
+                std::array extract_args{vv, _literal(Type::of<uint>(), i)};
+                auto elem = ir::luisa_compute_ir_build_call(
+                    b, {.tag = ir::Func::Tag::ExtractElement},
+                    {.ptr = extract_args.data(), .len = extract_args.size()},
+                    _convert_type(v->type()->element()));
+                args.emplace_back(elem);
+            }
+        }
+    } else {
+        args.reserve(expr->arguments().size());
+        for (auto arg : expr->arguments()) {
+            args.emplace_back(_convert_expr(arg));
+        }
+    }
+    return ir::luisa_compute_ir_build_call(
+        _current_builder(), {.tag = tag},
+        {.ptr = args.data(), .len = args.size()},
+        _convert_type(expr->type()));
 }
 
 ir::NodeRef AST2IR::_convert(const CastExpr *expr) noexcept {

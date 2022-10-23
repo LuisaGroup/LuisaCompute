@@ -389,7 +389,7 @@ pub enum Func {
     Cross,
     Dot,
     Length,
-    LenghtSquared,
+    LengthSquared,
     Normalize,
     Faceforward,
 
