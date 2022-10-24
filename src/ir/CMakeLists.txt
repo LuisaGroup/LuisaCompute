@@ -1,6 +1,6 @@
 corrosion_import_crate(MANIFEST_PATH luisa_compute_ir/Cargo.toml)
 
-add_library(luisa-compute-ir-api SHARED ir.h ir.hpp ir.cpp ast2ir.cpp ast2ir.h)
+add_library(luisa-compute-ir-api SHARED ir.hpp ir.cpp ast2ir.cpp ast2ir.h)
 target_link_libraries(luisa-compute-ir-api PUBLIC luisa_compute_ir luisa-compute-ast)
 target_include_directories(luisa-compute-ir-api PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(luisa-compute-ir-api PUBLIC luisa_compute_ir)
