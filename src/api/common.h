@@ -22,8 +22,6 @@ LUISA_API_DECL_TYPE(LCBuffer);
 LUISA_API_DECL_TYPE(LCTexture);
 LUISA_API_DECL_TYPE(LCStream);
 LUISA_API_DECL_TYPE(LCEvent);
-LUISA_API_DECL_TYPE(LCCommandList);
-LUISA_API_DECL_TYPE(LCCommand);
 LUISA_API_DECL_TYPE(LCBindlessArray);
 LUISA_API_DECL_TYPE(LCMesh);
 LUISA_API_DECL_TYPE(LCAccel);
@@ -149,3 +147,196 @@ typedef struct LCSampler {
     LCSamplerAddress address;
 } LCSampler;
 
+typedef enum LCArgumentTag {
+    LC_BUFFER,
+    LC_TEXTURE,
+    LC_UNIFORM,
+    LC_ACCEL,
+    LC_BINDLESS_ARRAY,
+} LCArgumentTag;
+
+typedef struct LCBufferArgument {
+    LCBuffer buffer;
+    size_t offset;
+    size_t size;
+} LCBufferArgument;
+
+typedef struct LCTextureArgument {
+    LCTexture texture;
+    uint32_t level;
+} LCTextureArgument;
+
+typedef struct LCUniformArgument {
+    const uint8_t *data;
+    size_t size;
+} LCUniformArgument;
+
+typedef struct LCBindlessArrayArgument {
+    LCBindlessArray array;
+} LCBindlessArrayArgument;
+
+typedef struct LCAccelArgument {
+    LCAccel accel;
+} LCAccelArgument;
+typedef struct LCArgument {
+    LCArgumentTag tag;
+    union {
+        LCBufferArgument buffer;
+        LCTextureArgument texture;
+        LCUniformArgument uniform;
+        LCAccelArgument accel;
+        LCBindlessArrayArgument bindless_array;
+    };
+} LCArgument;
+typedef struct LCCapture {
+    LCArgumentTag tag;
+    LCNodeRef node;
+    union {
+        LCBufferArgument buffer;
+        LCTextureArgument texture;
+        LCUniformArgument uniform;
+        LCAccelArgument accel;
+        LCBindlessArrayArgument bindless_array;
+    };
+} LCCapture;
+
+typedef struct LCKernelModule {
+    LCIRModule m;
+    const LCCapture *captured;
+    size_t captured_count;
+    const LCNodeRef *args;
+    size_t arg_count;
+    const LCNodeRef *shared;
+    size_t shared_count;
+} LCKernelModule;
+
+typedef struct LCCallableModule {
+    LCIRModule m;
+    const LCNodeRef *args;
+    size_t arg_count;
+} LCCallableModule;
+
+typedef struct LCBufferUploadCommand {
+    LCBuffer buffer;
+    size_t offset;
+    size_t size;
+    const void *data;
+} LCBufferUploadCommand;
+
+typedef struct LCBufferDownloadCommand {
+    LCBuffer buffer;
+    size_t offset;
+    size_t size;
+    void *data;
+} LCBufferDownloadCommand;
+typedef struct LCBufferCopyCommand {
+    LCBuffer src;
+    size_t src_offset;
+    LCBuffer dst;
+    size_t dst_offset;
+    size_t size;
+} LCBufferCopyCommand;
+typedef struct LCBufferToTextureCopyCommand {
+    LCBuffer src;
+    size_t src_offset;
+    LCTexture dst;
+    LCPixelStorage pixel_storage;
+    uint32_t texture_level;
+    uint32_t texture_size[3];
+} LCBufferToTextureCopyCommand;
+
+typedef struct LCTextureToBufferCopyCommand {
+    LCBuffer dst;
+    size_t dst_offset;
+    LCTexture src;
+    LCPixelStorage pixel_storage;
+    uint32_t texture_level;
+    uint32_t texture_size[3];
+} LCTextureToBufferCopyCommand;
+
+typedef struct LCTextureCopyCommand {
+    LCPixelStorage _storage;
+    LCTexture src;
+    LCTexture dst;
+    uint32_t size[3];
+    uint32_t src_level;
+    uint32_t dst_level;
+} LCTextureCopyCommand;
+
+typedef struct LCTextureUploadCommand {
+    LCTexture texture;
+    LCPixelStorage _storage;
+    uint32_t level;
+    uint32_t size[3];
+    const void *data;
+} LCTextureUploadCommand;
+
+typedef struct LCTextureDownloadCommand {
+    LCTexture texture;
+    LCPixelStorage _storage;
+    uint32_t level;
+    uint32_t size[3];
+    const void *data;
+} LCTextureDownloadCommand;
+
+typedef struct LCShaderDispatchCommand {
+    LCShader shader;
+    LCKernelModule m;
+    uint32_t dispatch_size[3];
+    LCArgument *args;
+    size_t arg_count;
+} LCShaderDispatchCommand;
+
+typedef struct LCMeshBuildCommand {
+    LCMesh mesh;
+    LCAccelBuildRequest request;
+    LCBuffer vertex_buffer;
+    size_t vertex_buffer_offset;
+    size_t vertex_buffer_size;
+    LCBuffer triangle_buffer;
+    size_t triangle_buffer_offset;
+    size_t triangle_buffer_size;
+} LCMeshBuildCommand;
+
+typedef struct LCAccelBuildCommand {
+    LCAccel accel;
+    uint32_t instance_count;
+    LCAccelBuildRequest request;
+    LCAccelBuildModification *modifications;
+    size_t modification_count;
+} LCAccelBuildCommand;
+
+typedef enum LCCommandTag {
+    LC_BUFFER_UPLOAD,
+    LC_BUFFER_DOWNLOAD,
+    LC_BUFFER_COPY,
+    LC_BUFFER_TO_TEXTURE_COPY,
+    LC_TEXTURE_TO_BUFFER_COPY,
+    LC_TEXTURE_COPY,
+    LC_TEXTURE_UPLOAD,
+    LC_TEXTURE_DOWNLOAD,
+    LC_SHADER_DISPATCH,
+    LC_MESH_BUILD,
+    LC_ACCEL_BUILD,
+} LCCommandTag;
+typedef struct LCCommand {
+    LCCommandTag tag;
+    union {
+        LCBufferUploadCommand buffer_upload;
+        LCBufferDownloadCommand buffer_download;
+        LCBufferCopyCommand buffer_copy;
+        LCBufferToTextureCopyCommand buffer_to_texture_copy;
+        LCTextureToBufferCopyCommand texture_to_buffer_copy;
+        LCTextureCopyCommand texture_copy;
+        LCTextureUploadCommand texture_upload;
+        LCTextureDownloadCommand texture_download;
+        LCShaderDispatchCommand shader_dispatch;
+        LCMeshBuildCommand mesh_build;
+        LCAccelBuildCommand accel_build;
+    };
+} LCCommand;
+
+typedef struct LCCommandList {
+    LCCommand *commands;
+    size_t command_count;
+} LCCommandList;
