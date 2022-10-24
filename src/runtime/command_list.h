@@ -8,14 +8,20 @@
 
 #include <core/stl.h>
 #include <runtime/command.h>
-
+#include <api/common.h>
 namespace luisa::compute {
-
+namespace detail {
+    class CommandListConverter;
+}
 class LC_RUNTIME_API CommandList : concepts::Noncopyable {
 
 private:
     luisa::vector<Command *> _commands;
 
+    // For backends that use C API only
+    // DO NOT USE THIS FIELD OTHERWISE
+    luisa::optional<LCCommandList> _c_list;
+    friend class detail::CommandListConverter;
 private:
     void _recycle() noexcept;
 
