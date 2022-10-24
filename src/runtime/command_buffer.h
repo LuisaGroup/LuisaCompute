@@ -32,7 +32,7 @@ private:
 public:
     ~CommandBuffer() noexcept;
     CommandBuffer &operator=(CommandBuffer &&) noexcept = delete;
-    CommandBuffer &operator<<(Command *cmd) &noexcept;
+    CommandBuffer &operator<<(luisa::unique_ptr<Command> cmd) &noexcept;
     CommandBuffer &operator<<(Event::Signal) &noexcept;
     CommandBuffer &operator<<(Event::Wait) &noexcept;
     CommandBuffer &operator<<(SwapChain::Present p) &noexcept;

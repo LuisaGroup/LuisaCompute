@@ -16,7 +16,7 @@ namespace luisa::compute::llvm {
 using std::max;
 
 void LLVMStream::dispatch(const CommandList &cmd_list) noexcept {
-    for (auto cmd : cmd_list) {
+    for (auto &&cmd : cmd_list) {
         for (;;) {
             auto n = _pool.task_count();
             if (n < _pool.size() * 4u) { break; }

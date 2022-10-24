@@ -6,7 +6,9 @@
 #include <ast/function_builder.h>
 #include <api/runtime.h>
 #include <ir/ir.hpp>
-#define TOMBSTONE 0xdeadbeef
+
+#define LC_RC_TOMBSTONE 0xdeadbeef
+
 template<class T>
 struct RC {
     T *_object;
@@ -18,7 +20,7 @@ struct RC {
     }
     ~RC() { _deleter(_object); }
     void check() const {
-        if (tombstone == TOMBSTONE) {
+        if (tombstone == LC_RC_TOMBSTONE) {
             LUISA_ERROR_WITH_LOCATION("Object has been destroyed");
         }
     }
@@ -31,7 +33,7 @@ struct RC {
         check();
         if (_ref_count.fetch_sub(1, std::memory_order_release) == 0) {
             std::atomic_thread_fence(std::memory_order_acquire);
-            tombstone = TOMBSTONE;
+            tombstone = LC_RC_TOMBSTONE;
             delete this;
         }
     }

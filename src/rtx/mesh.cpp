@@ -7,7 +7,7 @@
 
 namespace luisa::compute {
 
-Command *Mesh::build(Mesh::BuildRequest request) noexcept {
+luisa::unique_ptr<Command> Mesh::build(Mesh::BuildRequest request) noexcept {
     return MeshBuildCommand::create(
         handle(), request,
         _v_buffer, _v_buffer_offset, _v_buffer_size,

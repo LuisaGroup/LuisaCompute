@@ -42,11 +42,15 @@ using prototype_to_shader_invocation_t = typename prototype_to_shader_invocation
 class ShaderInvokeBase {
 
 private:
-    ShaderDispatchCommand *_command;
+    luisa::unique_ptr<Command> _command;
     Function _kernel;
     size_t _argument_index{0u};
 
 private:
+    [[nodiscard]] auto _shader_command() noexcept {
+        return static_cast<ShaderDispatchCommand *>(_command.get());
+    }
+    
 public:
     explicit ShaderInvokeBase(uint64_t handle, Function kernel) noexcept
         : _command{ShaderDispatchCommand::create(handle, kernel)},
@@ -58,19 +62,19 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(BufferView<T> buffer) noexcept {
-        _command->encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
+        _shader_command()->encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(ImageView<T> image) noexcept {
-        _command->encode_texture(image.handle(), image.level());
+        _shader_command()->encode_texture(image.handle(), image.level());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(VolumeView<T> volume) noexcept {
-        _command->encode_texture(volume.handle(), volume.level());
+        _shader_command()->encode_texture(volume.handle(), volume.level());
         return *this;
     }
 
@@ -91,7 +95,7 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {
-        _command->encode_uniform(&data, sizeof(T));
+        _shader_command()->encode_uniform(&data, sizeof(T));
         return *this;
     }
 
@@ -103,9 +107,9 @@ public:
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) &&noexcept {
-        _command->set_dispatch_size(dispatch_size);
-        ShaderDispatchCommand *command{nullptr};
-        std::swap(command, _command);
+        _shader_command()->set_dispatch_size(dispatch_size);
+        luisa::unique_ptr<Command> command;
+        command.swap(_command);
         return command;
     }
 };

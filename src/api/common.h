@@ -178,6 +178,7 @@ typedef struct LCBindlessArrayArgument {
 typedef struct LCAccelArgument {
     LCAccel accel;
 } LCAccelArgument;
+
 typedef struct LCArgument {
     LCArgumentTag tag;
     union {
@@ -188,6 +189,7 @@ typedef struct LCArgument {
         LCBindlessArrayArgument bindless_array;
     };
 } LCArgument;
+
 typedef struct LCCapture {
     LCArgumentTag tag;
     LCNodeRef node;
@@ -229,6 +231,7 @@ typedef struct LCBufferDownloadCommand {
     size_t size;
     void *data;
 } LCBufferDownloadCommand;
+
 typedef struct LCBufferCopyCommand {
     LCBuffer src;
     size_t src_offset;
@@ -236,6 +239,7 @@ typedef struct LCBufferCopyCommand {
     size_t dst_offset;
     size_t size;
 } LCBufferCopyCommand;
+
 typedef struct LCBufferToTextureCopyCommand {
     LCBuffer src;
     size_t src_offset;
@@ -319,6 +323,7 @@ typedef enum LCCommandTag {
     LC_MESH_BUILD,
     LC_ACCEL_BUILD,
 } LCCommandTag;
+
 typedef struct LCCommand {
     LCCommandTag tag;
     union {
@@ -340,7 +345,6 @@ typedef struct LCCommandList {
     LCCommand *commands;
     size_t command_count;
 } LCCommandList;
-
 
 typedef struct LCAppContext {
     void * gc_context;

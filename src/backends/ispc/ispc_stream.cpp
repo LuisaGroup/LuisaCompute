@@ -28,7 +28,7 @@ void check_texture_boundary(ISPCTexture *tex, uint level, uint3 size) {
 }
 
 void ISPCStream::dispatch(const CommandList &cmd_list) noexcept {
-    for (auto cmd : cmd_list) {
+    for (auto &&cmd : cmd_list) {
         for (;;) {
             auto n = _pool.task_count();
             if (n < _pool.size() * 4u) { break; }
@@ -224,8 +224,7 @@ void ISPCStream::visit(const TextureToBufferCopyCommand *command) noexcept {
 }
 
 void ISPCStream::visit(const AccelBuildCommand *command) noexcept {
-    reinterpret_cast<ISPCAccel *>(command->handle())->build(
-        _pool, command->instance_count(), command->modifications());
+    reinterpret_cast<ISPCAccel *>(command->handle())->build(_pool, command->instance_count(), command->modifications());
 }
 
 void ISPCStream::visit(const MeshBuildCommand *command) noexcept {

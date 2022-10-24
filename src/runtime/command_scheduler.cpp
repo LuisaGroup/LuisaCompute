@@ -1,599 +1,524 @@
-//
-// Created by Mike Smith on 2022/4/20.
-//
-
-#include "core/logging.h"
-#include <algorithm>
-#include <bitset>
+#include <runtime/command.h>
 #include <runtime/command_scheduler.h>
 
 namespace luisa::compute {
-
-CommandScheduler::CommandScheduler(const Device::Interface *device, size_t window_size) noexcept
-    : _device{device}, _window_size{window_size} {}
-
-void CommandScheduler::_schedule_step() noexcept {
-    CommandList list;
-    list.reserve(_free_nodes.size());
-    for (auto i : _free_nodes) {
-        list.append(_commands[i]);
-        _pending_nodes.erase(i);
-        for (auto j : _edges[i]) {
-            if (--_dependency_count[j] == 0u) {
-                _free_nodes_swap.emplace_back(j);
+template<typename Func>
+    requires(std::is_invocable_v<Func, CommandScheduler::ResourceView const &>)
+void IterateMap(Func &&func, CommandScheduler::RangeHandle &handle, CommandScheduler::Range const &range) {
+    for (auto &&r : handle.views) {
+        if (r.first.collide(range)) {
+            func(r.second);
+        }
+    }
+}
+bool CommandScheduler::Range::operator==(Range const &r) const {
+    return min == r.min && max == r.max;
+}
+bool CommandScheduler::Range::collide(Range const &r) const {
+    return min < r.max && r.min < max;
+}
+CommandScheduler::ResourceHandle *CommandScheduler::GetHandle(
+    uint64_t tarGetHandle,
+    ResourceType target_type) {
+    auto func = [&](auto &&map, auto &&pool) {
+        auto tryResult = map.try_emplace(tarGetHandle, nullptr);
+        auto &&value = tryResult.first->second;
+        if (tryResult.second) {
+            value = pool.create();
+            value->handle = tarGetHandle;
+            value->type = target_type;
+        }
+        return value;
+    };
+    switch (target_type) {
+        case ResourceType::Bindless:
+            return func(bindlessMap, bindlessHandlePool);
+        case ResourceType::Mesh:
+        case ResourceType::Accel:
+            return func(noRangeResMap, noRangePool);
+        default:
+            return func(resMap, rangePool);
+    }
+}
+size_t CommandScheduler::GetLastLayerWrite(RangeHandle *handle, Range range) {
+    size_t layer = 0;
+    IterateMap(
+        [&](auto &&handle) {
+            layer = std::max<int64_t>(layer, std::max<int64_t>(handle.readLayer + 1, handle.writeLayer + 1));
+        },
+        *handle,
+        range);
+    if (bindlessMaxLayer >= layer) {
+        for (auto &&i : bindlessMap) {
+            if (device->is_resource_in_bindless_array(i.first, handle->handle)) {
+                layer = std::max<int64_t>(layer, i.second->view.readLayer + 1);
             }
         }
     }
-    _command_lists.emplace_back(std::move(list));
-    _free_nodes.swap(_free_nodes_swap);
-    _free_nodes_swap.clear();
+    return layer;
 }
+size_t CommandScheduler::GetLastLayerWrite(NoRangeHandle *handle) {
+    size_t layer = std::max<int64_t>(handle->view.readLayer + 1, handle->view.writeLayer + 1);
 
-void CommandScheduler::add(Command *command) noexcept {
-    auto node = static_cast<uint>(_commands.size());
-    // determine dependencies...
-    _dependency_count.emplace_back(0u);
-    command->accept(*this);
-    // add the command
-    _commands.emplace_back(command);
-    _edges.emplace_back();
-    _pending_nodes.emplace(node);
-    if (_dependency_count[node] == 0u) {// free node
-        _free_nodes.emplace_back(node);
-    }
-    // perform a schedule step if exceeds the window size
-    if (_pending_nodes.size() >= _window_size) {
-        _schedule_step();
-    }
-}
-
-luisa::vector<CommandList> CommandScheduler::schedule() noexcept {
-    // schedule all pending nodes
-    while (!_pending_nodes.empty()) { _schedule_step(); }
-    auto total = 0u;
-    for (auto &list : _command_lists) { total += list.size(); }
-    LUISA_ASSERT(total == _commands.size(),
-                 "CommandGraph::schedule: command count "
-                 "mismatch (expected {}, got {}).",
-                 _commands.size(), total);
-    _commands.clear();
-    _edges.clear();
-    _dependency_count.clear();
-    _pending_nodes.clear();
-    _free_nodes.clear();
-    _free_nodes_swap.clear();
-    luisa::vector<CommandList> lists;
-    lists.swap(_command_lists);
-    return lists;
-}
-
-[[nodiscard]] auto buffers_overlap(uint64_t h1, size_t o1, size_t s1,
-                                   uint64_t h2, size_t o2, size_t s2) noexcept {
-    return h1 == h2 && (o1 < o2 + s2) && (o2 < o1 + s1);
-}
-
-[[nodiscard]] auto textures_overlap(uint64_t h1, uint l1, uint64_t h2, uint l2) noexcept {
-    return h1 == h2 && l1 == l2;
-}
-
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "cppcoreguidelines-pro-type-static-cast-downcast"
-
-bool CommandScheduler::_check_buffer_read(uint64_t handle, size_t offset, size_t size, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EBufferUploadCommand: {
-            auto other = static_cast<const BufferUploadCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->handle(), other->offset(), other->size());
-        }
-        case Command::Tag::EBufferCopyCommand: {
-            auto other = static_cast<const BufferCopyCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->dst_handle(), other->dst_offset(), other->size());
-        }
-        case Command::Tag::EShaderDispatchCommand: {
-            auto other = static_cast<const ShaderDispatchCommand *>(command);
-            auto overlap = false;
-            other->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
-                    if (auto usage = other->kernel().variable_usage(argument.variable_uid);
-                        (usage == Usage::WRITE || usage == Usage::READ_WRITE) &&
-                        buffers_overlap(handle, offset, size, argument.handle, argument.offset, argument.size)) {
-                        overlap = true;
-                        return;
-                    }
-                }
-            });
-            return overlap;
-        }
-        case Command::Tag::ETextureToBufferCopyCommand: {
-            auto other = static_cast<const TextureToBufferCopyCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->buffer(), other->buffer_offset(),
-                                   other->size().x * other->size().y * other->size().z *
-                                       pixel_storage_size(other->storage()));
-        }
-        default: break;// impossible to overlap...
-    }
-    return false;
-}
-
-bool CommandScheduler::_check_buffer_write(uint64_t handle, size_t offset, size_t size, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EBufferUploadCommand: {
-            auto other = static_cast<const BufferUploadCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->handle(), other->offset(), other->size());
-        }
-        case Command::Tag::EBufferDownloadCommand: {
-            auto other = static_cast<const BufferDownloadCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->handle(), other->offset(), other->size());
-        }
-        case Command::Tag::EBufferCopyCommand: {
-            auto other = static_cast<const BufferCopyCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->src_handle(), other->src_offset(), other->size()) ||
-                   buffers_overlap(handle, offset, size, other->dst_handle(), other->dst_offset(), other->size());
-        }
-        case Command::Tag::EBufferToTextureCopyCommand: {
-            auto other = static_cast<const BufferToTextureCopyCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->buffer(), other->buffer_offset(),
-                                   other->size().x * other->size().y * other->size().z *
-                                       pixel_storage_size(other->storage()));
-        }
-        case Command::Tag::EShaderDispatchCommand: {
-            auto overlap = false;
-            static_cast<const ShaderDispatchCommand *>(command)->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
-                    if (buffers_overlap(handle, offset, size, argument.handle, argument.offset, argument.size)) {
-                        overlap = true;
-                        return;// do not add the edge twice
-                    }
-                } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                    if (_device->is_resource_in_bindless_array(argument.handle, handle)) {
-                        overlap = true;
-                        return;
-                    }
-                }
-            });
-            return overlap;
-        }
-        case Command::Tag::ETextureToBufferCopyCommand: {
-            auto other = static_cast<const TextureToBufferCopyCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->buffer(), other->buffer_offset(),
-                                   other->size().x * other->size().y * other->size().z *
-                                       pixel_storage_size(other->storage()));
-        }
-        case Command::Tag::EMeshBuildCommand: {
-            auto other = static_cast<const MeshBuildCommand *>(command);
-            return buffers_overlap(handle, offset, size, other->vertex_buffer(),
-                                   other->vertex_buffer_offset(), other->vertex_buffer_size()) ||
-                   buffers_overlap(handle, offset, size, other->triangle_buffer(),
-                                   other->triangle_buffer_offset(), other->triangle_buffer_size());
-        }
-        default: break;// impossible to overlap...
-    }
-    return false;
-}
-
-bool CommandScheduler::_check_texture_read(uint64_t handle, uint level, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EBufferToTextureCopyCommand: {
-            auto other = static_cast<const BufferToTextureCopyCommand *>(command);
-            return textures_overlap(handle, level, other->texture(), other->level());
-        }
-        case Command::Tag::EShaderDispatchCommand: {
-            auto overlap = false;
-            auto other = static_cast<const ShaderDispatchCommand *>(command);
-            other->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-                    if (auto usage = other->kernel().variable_usage(argument.variable_uid);
-                        (usage == Usage::WRITE || usage == Usage::READ_WRITE) &&
-                        textures_overlap(handle, level, argument.handle, argument.level)) {
-                        overlap = true;
-                        return;// do not add the edge twice
-                    }
-                }
-            });
-            return overlap;
-        }
-        case Command::Tag::ETextureUploadCommand: {
-            auto other = static_cast<const TextureUploadCommand *>(command);
-            return textures_overlap(handle, level, other->handle(), other->level());
-        }
-        case Command::Tag::ETextureCopyCommand: {
-            auto other = static_cast<const TextureCopyCommand *>(command);
-            return textures_overlap(handle, level, other->dst_handle(), other->dst_level());
-        }
+    switch (handle->type) {
+        case ResourceType::Mesh: {
+            auto maxAccelLevel = std::max(maxAccelReadLevel, maxAccelWriteLevel);
+            layer = std::max<int64_t>(layer, maxAccelLevel + 1);
+        } break;
+        case ResourceType::Accel: {
+            auto maxAccelLevel = std::max(maxAccelReadLevel, maxAccelWriteLevel);
+            layer = std::max<int64_t>(layer, maxAccelLevel + 1);
+            layer = std::max<int64_t>(layer, maxMeshLevel + 1);
+        } break;
         default: break;
     }
-    return false;
+    return layer;
 }
-
-bool CommandScheduler::_check_texture_write(uint64_t handle, uint level, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EBufferToTextureCopyCommand: {
-            auto other = static_cast<const BufferToTextureCopyCommand *>(command);
-            return textures_overlap(handle, level, other->texture(), other->level());
-        }
-        case Command::Tag::EShaderDispatchCommand: {
-            auto overlap = false;
-            auto other = static_cast<const ShaderDispatchCommand *>(command);
-            other->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-                    if (textures_overlap(handle, level, argument.handle, argument.level)) {
-                        overlap = true;
-                        return;// do not add the edge twice
-                    }
-                } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                    if (_device->is_resource_in_bindless_array(argument.handle, handle)) {
-                        overlap = true;
-                        return;// do not add the edge twice
-                    }
-                }
-            });
-            return overlap;
-        }
-        case Command::Tag::ETextureUploadCommand: {
-            auto other = static_cast<const TextureUploadCommand *>(command);
-            return textures_overlap(handle, level, other->handle(), other->level());
-        }
-        case Command::Tag::ETextureDownloadCommand: {
-            auto other = static_cast<const TextureDownloadCommand *>(command);
-            return textures_overlap(handle, level, other->handle(), other->level());
-        }
-        case Command::Tag::ETextureCopyCommand: {
-            auto other = static_cast<const TextureCopyCommand *>(command);
-            return textures_overlap(handle, level, other->dst_handle(), other->dst_level());
-        }
-        case Command::Tag::ETextureToBufferCopyCommand: {
-            auto other = static_cast<const TextureToBufferCopyCommand *>(command);
-            return textures_overlap(handle, level, other->texture(), other->level());
-        }
-        default: break;
+size_t CommandScheduler::GetLastLayerWrite(BindlessHandle *handle) {
+    return std::max<int64_t>(handle->view.readLayer + 1, handle->view.writeLayer + 1);
+}
+size_t CommandScheduler::GetLastLayerRead(RangeHandle *handle, Range range) {
+    size_t layer = 0;
+    IterateMap(
+        [&](auto &&handle) {
+            layer = std::max<int64_t>(layer, handle.writeLayer + 1);
+        },
+        *handle,
+        range);
+    return layer;
+}
+size_t CommandScheduler::GetLastLayerRead(NoRangeHandle *handle) {
+    size_t layer = handle->view.writeLayer + 1;
+    if (handle->type == ResourceType::Accel) {
+        layer = std::max<int64_t>(layer, maxAccelWriteLevel + 1);
     }
-    return false;
+    return layer;
 }
-
-bool CommandScheduler::_check_mesh_write(uint64_t handle, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EAccelBuildCommand: return true;
-        case Command::Tag::EMeshBuildCommand:
-            return handle == static_cast<const MeshBuildCommand *>(command)->handle();
-        default: break;
+size_t CommandScheduler::GetLastLayerRead(BindlessHandle *handle) {
+    return handle->view.writeLayer + 1;
+}
+CommandScheduler::CommandScheduler(Device::Interface *device) noexcept
+    : device{device} {
+    resMap.reserve(256);
+    bindlessMap.reserve(256);
+}
+size_t CommandScheduler::SetRead(
+    ResourceHandle *srcHandle,
+    Range range) {
+    size_t layer = 0;
+    switch (srcHandle->type) {
+        case ResourceType::Mesh:
+        case ResourceType::Accel: {
+            auto handle = static_cast<NoRangeHandle *>(srcHandle);
+            layer = GetLastLayerRead(handle);
+            handle->view.readLayer = std::max<int64_t>(layer, handle->view.readLayer);
+        } break;
+        case ResourceType::Bindless: {
+            auto handle = static_cast<BindlessHandle *>(srcHandle);
+            layer = GetLastLayerRead(handle);
+            handle->view.readLayer = std::max<int64_t>(layer, handle->view.readLayer);
+        } break;
+        default: {
+            auto handle = static_cast<RangeHandle *>(srcHandle);
+            layer = GetLastLayerRead(handle, range);
+            auto ite = handle->views.try_emplace(range);
+            if (ite.second)
+                ite.first->second.readLayer = std::max<int64_t>(ite.first->second.readLayer, layer);
+            else
+                ite.first->second.readLayer = layer;
+        } break;
     }
-    return false;
+    return layer;
 }
 
-bool CommandScheduler::_check_accel_read(uint64_t handle, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EAccelBuildCommand:
-            return handle == static_cast<const AccelBuildCommand *>(command)->handle();
-        case Command::Tag::EShaderDispatchCommand: {
-            auto overlap = false;
-            auto other = static_cast<const ShaderDispatchCommand *>(command);
-            other->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-                    if (auto usage = other->kernel().variable_usage(argument.variable_uid);
-                        (usage == Usage::WRITE || usage == Usage::READ_WRITE) && handle == argument.handle) {
-                        overlap = true;
-                        return;// do not add the edge twice
-                    }
-                }
-            });
-            return overlap;
-        }
-        default: break;
-    }
-    return false;
+size_t CommandScheduler::SetRead(
+    uint64_t handle,
+    Range range,
+    ResourceType type) {
+    auto srcHandle = GetHandle(
+        handle,
+        type);
+    return SetRead(srcHandle, range);
 }
-
-bool CommandScheduler::_check_accel_write(uint64_t handle, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EAccelBuildCommand:
-            return handle == static_cast<const AccelBuildCommand *>(command)->handle();
-        case Command::Tag::EMeshBuildCommand: return true;
-        case Command::Tag::EShaderDispatchCommand: {
-            auto overlap = false;
-            static_cast<const ShaderDispatchCommand *>(command)->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-                    overlap = true;
-                    return;// do not add the edge twice
-                }
-            });
-            return overlap;
-        }
-        default: break;
-    }
-    return false;
-}
-
-bool CommandScheduler::_check_bindless_array_read(uint64_t handle, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EBufferUploadCommand:
-            return _device->is_resource_in_bindless_array(
-                handle, static_cast<const BufferUploadCommand *>(command)->handle());
-        case Command::Tag::EBufferCopyCommand:
-            return _device->is_resource_in_bindless_array(
-                handle, static_cast<const BufferCopyCommand *>(command)->dst_handle());
-        case Command::Tag::EBufferToTextureCopyCommand:
-            return _device->is_resource_in_bindless_array(
-                handle, static_cast<const BufferToTextureCopyCommand *>(command)->texture());
-        case Command::Tag::EShaderDispatchCommand: {
-            auto overlap = false;
-            auto other = static_cast<const ShaderDispatchCommand *>(command);
-            other->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
-                    if (auto usage = other->kernel().variable_usage(argument.variable_uid);
-                        (usage == Usage::WRITE || usage == Usage::READ_WRITE) &&
-                        _device->is_resource_in_bindless_array(handle, argument.handle)) {
-                        overlap = true;
-                        return;// do not add the edge twice
-                    }
-                } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-                    if (auto usage = other->kernel().variable_usage(argument.variable_uid);
-                        (usage == Usage::WRITE || usage == Usage::READ_WRITE) &&
-                        _device->is_resource_in_bindless_array(handle, argument.handle)) {
-                        overlap = true;
-                        return;// do not add the edge twice
-                    }
-                }
-            });
-            return overlap;
-        }
-        case Command::Tag::ETextureUploadCommand:
-            return _device->is_resource_in_bindless_array(
-                handle, static_cast<const TextureUploadCommand *>(command)->handle());
-        case Command::Tag::ETextureCopyCommand:
-            return _device->is_resource_in_bindless_array(
-                handle, static_cast<const TextureCopyCommand *>(command)->dst_handle());
-        case Command::Tag::ETextureToBufferCopyCommand:
-            return _device->is_resource_in_bindless_array(
-                handle, static_cast<const TextureToBufferCopyCommand *>(command)->buffer());
-        case Command::Tag::EBindlessArrayUpdateCommand:
-            return handle == static_cast<const BindlessArrayUpdateCommand *>(command)->handle();
-        default: break;
-    }
-    return false;
-}
-
-bool CommandScheduler::_check_bindless_array_write(uint64_t handle, const Command *command) const noexcept {
-    switch (command->tag()) {
-        case Command::Tag::EBindlessArrayUpdateCommand:
-            return handle == static_cast<const BindlessArrayUpdateCommand *>(command)->handle();
-        case Command::Tag::EShaderDispatchCommand: {
-            auto overlap = false;
-            static_cast<const ShaderDispatchCommand *>(command)->decode([&](auto argument) noexcept {
-                using T = std::decay_t<decltype(argument)>;
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                    overlap = true;
-                    return;// do not add the edge twice
-                }
-            });
-            return overlap;
-        }
-        default: break;
-    }
-    return false;
-}
-
-void CommandScheduler::visit(const BufferUploadCommand *command) noexcept {
-    // writes into the buffer range
-    auto curr = static_cast<uint>(_commands.size());
-    auto buffer = command->handle();
-    auto offset = command->offset();
-    auto size = command->size();
-    for (auto i : _pending_nodes) {
-        if (_check_buffer_write(buffer, offset, size, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
+void CommandScheduler::SetWriteLayer(
+    ResourceHandle *dstHandle,
+    Range range,
+    int64_t layer) {
+    switch (dstHandle->type) {
+        case ResourceType::Mesh:
+        case ResourceType::Accel: {
+            auto handle = static_cast<NoRangeHandle *>(dstHandle);
+            handle->view.writeLayer = layer;
+        } break;
+        case ResourceType::Bindless: {
+            auto handle = static_cast<BindlessHandle *>(dstHandle);
+            handle->view.writeLayer = layer;
+        } break;
+        default: {
+            auto handle = static_cast<RangeHandle *>(dstHandle);
+            auto emplaceResult = handle->views.try_emplace(range);
+            emplaceResult.first->second.writeLayer = layer;
+        } break;
     }
 }
-
-void CommandScheduler::visit(const BufferDownloadCommand *command) noexcept {
-    // reads from the buffer range
-    auto curr = static_cast<uint>(_commands.size());
-    auto buffer = command->handle();
-    auto offset = command->offset();
-    auto size = command->size();
-    for (auto i : _pending_nodes) {
-        if (_check_buffer_read(buffer, offset, size, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
-    }
-}
-
-void CommandScheduler::visit(const BufferCopyCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto src = command->src_handle();
-    auto src_offset = command->src_offset();
-    auto dst = command->dst_handle();
-    auto dst_offset = command->dst_offset();
-    auto size = command->size();
-    for (auto i : _pending_nodes) {
-        if (_check_buffer_read(src, src_offset, size, _commands[i]) ||
-            _check_buffer_write(dst, dst_offset, size, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
-    }
-}
-
-void CommandScheduler::visit(const BufferToTextureCopyCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto texture = command->texture();
-    auto texture_level = command->level();
-    auto buffer = command->buffer();
-    auto buffer_offset = command->buffer_offset();
-    auto buffer_size = command->size().x * command->size().y * command->size().z *
-                       pixel_storage_size(command->storage());
-    for (auto i : _pending_nodes) {
-        if (_check_buffer_read(buffer, buffer_offset, buffer_size, _commands[i]) ||
-            _check_texture_write(texture, texture_level, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
-    }
-}
-
-void CommandScheduler::visit(const ShaderDispatchCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto kernel = command->kernel();
-    for (auto i : _pending_nodes) {
-        auto overlap = false;
-        command->decode([&](auto argument) noexcept {
-            using T = std::decay_t<decltype(argument)>;
-            if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
-                if (auto usage = kernel.variable_usage(argument.variable_uid); usage == Usage::READ) {
-                    if (_check_buffer_read(argument.handle, argument.offset, argument.size, _commands[i])) {
-                        overlap = true;
-                        return;
-                    }
-                } else if (usage == Usage::WRITE || usage == Usage::READ_WRITE) {
-                    if (_check_buffer_write(argument.handle, argument.offset, argument.size, _commands[i])) {
-                        overlap = true;
-                        return;
-                    }
-                }
-            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-                if (auto usage = kernel.variable_usage(argument.variable_uid); usage == Usage::READ) {
-                    if (_check_texture_read(argument.handle, argument.level, _commands[i])) {
-                        overlap = true;
-                        return;
-                    }
-                } else if (usage == Usage::WRITE || usage == Usage::READ_WRITE) {
-                    if (_check_texture_write(argument.handle, argument.level, _commands[i])) {
-                        overlap = true;
-                        return;
-                    }
-                }
-            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-                if (_check_bindless_array_read(argument.handle, _commands[i])) {
-                    overlap = true;
-                    return;
-                }
-            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-                if (auto usage = kernel.variable_usage(argument.variable_uid); usage == Usage::READ) {
-                    if (_check_accel_read(argument.handle, _commands[i])) {
-                        overlap = true;
-                        return;
-                    }
-                } else if (usage == Usage::WRITE || usage == Usage::READ_WRITE) {
-                    if (_check_accel_write(argument.handle, _commands[i])) {
-                        overlap = true;
-                        return;
-                    }
-                }
+void CommandScheduler::SetReadLayer(
+    ResourceHandle *srcHandle,
+    Range range,
+    int64_t layer) {
+    switch (srcHandle->type) {
+        case ResourceType::Mesh:
+        case ResourceType::Accel: {
+            auto handle = static_cast<NoRangeHandle *>(srcHandle);
+            handle->view.readLayer = std::max<int64_t>(layer, handle->view.readLayer);
+        } break;
+        case ResourceType::Bindless: {
+            auto handle = static_cast<BindlessHandle *>(srcHandle);
+            handle->view.readLayer = std::max<int64_t>(layer, handle->view.readLayer);
+        } break;
+        default: {
+            auto handle = static_cast<RangeHandle *>(srcHandle);
+            auto emplaceResult = handle->views.try_emplace(range);
+            if (emplaceResult.second) {
+                emplaceResult.first->second.readLayer = layer;
+            } else {
+                emplaceResult.first->second.readLayer = std::max<int64_t>(emplaceResult.first->second.readLayer, layer);
             }
-        });
-        if (overlap) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
+        } break;
+    }
+}
+size_t CommandScheduler::SetWrite(
+    ResourceHandle *dstHandle,
+    Range range) {
+    size_t layer = 0;
+    switch (dstHandle->type) {
+        case ResourceType::Mesh:
+        case ResourceType::Accel: {
+            auto handle = static_cast<NoRangeHandle *>(dstHandle);
+            layer = GetLastLayerWrite(handle);
+            handle->view.writeLayer = layer;
+        } break;
+        case ResourceType::Bindless: {
+            auto handle = static_cast<BindlessHandle *>(dstHandle);
+            layer = GetLastLayerWrite(handle);
+            handle->view.writeLayer = layer;
+        } break;
+        default: {
+            auto handle = static_cast<RangeHandle *>(dstHandle);
+            layer = GetLastLayerWrite(handle, range);
+            auto ite = handle->views.try_emplace(range);
+            ite.first->second.writeLayer = layer;
+        } break;
+    }
+
+    return layer;
+}
+size_t CommandScheduler::SetWrite(
+    uint64_t handle,
+    Range range,
+    ResourceType type) {
+    auto dstHandle = GetHandle(
+        handle,
+        type);
+    return SetWrite(dstHandle, range);
+}
+size_t CommandScheduler::SetRW(
+    uint64_t read_handle,
+    Range read_range,
+    ResourceType read_type,
+    uint64_t write_handle,
+    Range write_range,
+    ResourceType write_type) {
+
+    size_t layer = 0;
+    auto srcHandle = GetHandle(
+        read_handle,
+        read_type);
+    auto dstHandle = GetHandle(
+        write_handle,
+        write_type);
+    luisa::move_only_function<void()> setReadLayer;
+    switch (read_type) {
+        case ResourceType::Mesh:
+        case ResourceType::Accel: {
+            auto handle = static_cast<NoRangeHandle *>(srcHandle);
+            layer = GetLastLayerRead(handle);
+            setReadLayer = [&]() {
+                auto handle = static_cast<NoRangeHandle *>(srcHandle);
+                handle->view.readLayer = std::max<int64_t>(layer, handle->view.readLayer);
+            };
+        } break;
+        case ResourceType::Bindless: {
+            auto handle = static_cast<BindlessHandle *>(srcHandle);
+            layer = GetLastLayerRead(handle);
+            setReadLayer = [&]() {
+                auto handle = static_cast<BindlessHandle *>(srcHandle);
+                handle->view.readLayer = std::max<int64_t>(layer, handle->view.readLayer);
+            };
+        } break;
+        default: {
+            auto handle = static_cast<RangeHandle *>(srcHandle);
+            layer = GetLastLayerRead(handle, read_range);
+            auto ite = handle->views.try_emplace(read_range);
+            if (ite.second) {
+                auto viewPtr = &ite.first->second;
+                setReadLayer = [viewPtr, &layer]() {
+                    viewPtr->readLayer = std::max<int64_t>(viewPtr->readLayer, layer);
+                };
+            } else {
+                auto viewPtr = &ite.first->second;
+                setReadLayer = [viewPtr, &layer]() {
+                    viewPtr->readLayer = layer;
+                };
+            }
+
+        } break;
+    }
+
+    switch (write_type) {
+        case ResourceType::Mesh:
+        case ResourceType::Accel: {
+            auto handle = static_cast<NoRangeHandle *>(dstHandle);
+            layer = std::max<int64_t>(layer, GetLastLayerWrite(handle));
+            handle->view.writeLayer = layer;
+        } break;
+        case ResourceType::Bindless: {
+            auto handle = static_cast<BindlessHandle *>(dstHandle);
+            layer = std::max<int64_t>(layer, GetLastLayerWrite(handle));
+            handle->view.writeLayer = layer;
+        } break;
+        default: {
+            auto handle = static_cast<RangeHandle *>(dstHandle);
+            layer = std::max<int64_t>(layer, GetLastLayerWrite(handle, write_range));
+            auto ite = handle->views.try_emplace(write_range);
+            ite.first->second.writeLayer = layer;
+        } break;
+    }
+    setReadLayer();
+    return layer;
+}
+//TODO: Most backend can not support copy & kernel-write at same time, disable copy's range
+static CommandScheduler::Range CopyRange(int64_t min = std::numeric_limits<int64_t>::min(), int64_t max = std::numeric_limits<int64_t>::max()) {
+    return CommandScheduler::Range();
+}
+void CommandScheduler::visit(BufferUploadCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), CopyRange(command->offset(), command->size()), ResourceType::Buffer));
+}
+void CommandScheduler::visit(BufferDownloadCommand *command) noexcept {
+    AddCommand(command, SetRead(command->handle(), CopyRange(command->offset(), command->size()), ResourceType::Buffer));
+}
+void CommandScheduler::visit(BufferCopyCommand *command) noexcept {
+    AddCommand(command, SetRW(command->src_handle(), CopyRange(command->src_offset(), command->size()), ResourceType::Buffer, command->dst_handle(), CopyRange(command->dst_offset(), command->size()), ResourceType::Buffer));
+}
+void CommandScheduler::visit(BufferToTextureCopyCommand *command) noexcept {
+    auto sz = command->size();
+    auto binSize = pixel_storage_size(command->storage()) * sz.x * sz.y * sz.z;
+    AddCommand(command, SetRW(command->buffer(), CopyRange(command->buffer_offset(), binSize), ResourceType::Buffer, command->texture(), CopyRange(command->level()), ResourceType::Texture));
+}
+// Texture : resource
+
+void CommandScheduler::visit(TextureUploadCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), CopyRange(command->level()), ResourceType::Texture));
+}
+void CommandScheduler::visit(TextureDownloadCommand *command) noexcept {
+    AddCommand(command, SetRead(command->handle(), CopyRange(command->level()), ResourceType::Texture));
+}
+void CommandScheduler::visit(TextureCopyCommand *command) noexcept {
+    AddCommand(command, SetRW(command->src_handle(), CopyRange(command->src_level()), ResourceType::Texture, command->dst_handle(), CopyRange(command->dst_level()), ResourceType::Texture));
+}
+void CommandScheduler::visit(TextureToBufferCopyCommand *command) noexcept {
+    auto sz = command->size();
+    auto binSize = pixel_storage_size(command->storage()) * sz.x * sz.y * sz.z;
+    AddCommand(command, SetRW(command->texture(), CopyRange(command->level()), ResourceType::Texture, command->buffer(), CopyRange(command->buffer_offset(), binSize), ResourceType::Buffer));
+}
+// Shader : function, read/write multi resources
+void CommandScheduler::visit(ShaderDispatchCommand *command) noexcept {
+    dispatchReadHandle.clear();
+    dispatchWriteHandle.clear();
+    useBindlessInPass = false;
+    useAccelInPass = false;
+    f = command->kernel();
+    arg = command->kernel().arguments().data();
+    dispatchLayer = 0;
+    command->decode(*this);
+    for (auto &&i : dispatchReadHandle) {
+        SetReadLayer(i.second, i.first, dispatchLayer);
+    }
+    for (auto &&i : dispatchWriteHandle) {
+        SetWriteLayer(i.second, i.first, dispatchLayer);
+    }
+    AddCommand(command, dispatchLayer);
+    if (useBindlessInPass) {
+        bindlessMaxLayer = std::max<int64_t>(bindlessMaxLayer, dispatchLayer);
+    }
+    if (useAccelInPass) {
+        maxAccelReadLevel = std::max<int64_t>(maxAccelReadLevel, dispatchLayer);
     }
 }
 
-void CommandScheduler::visit(const TextureUploadCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto texture = command->handle();
-    auto level = command->level();
-    for (auto i : _pending_nodes) {
-        if (_check_texture_write(texture, level, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
-    }
+// BindlessArray : read multi resources
+void CommandScheduler::visit(BindlessArrayUpdateCommand *command) noexcept {
+    AddCommand(command, SetWrite(command->handle(), Range(), ResourceType::Bindless));
 }
 
-void CommandScheduler::visit(const TextureDownloadCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto texture = command->handle();
-    auto level = command->level();
-    for (auto i : _pending_nodes) {
-        if (_check_texture_read(texture, level, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
-    }
+// Accel : conclude meshes and their buffer
+void CommandScheduler::visit(AccelBuildCommand *command) noexcept {
+    auto layer = SetWrite(command->handle(), Range(), ResourceType::Accel);
+    maxAccelWriteLevel = std::max<int64_t>(maxAccelWriteLevel, layer);
+    AddCommand(command, layer);
 }
 
-void CommandScheduler::visit(const TextureCopyCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto src = command->src_handle();
-    auto dst = command->dst_handle();
-    auto src_level = command->src_level();
-    auto dst_level = command->dst_level();
-    for (auto i : _pending_nodes) {
-        if (_check_texture_read(src, src_level, _commands[i]) ||
-            _check_texture_write(dst, dst_level, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
+size_t CommandScheduler::SetMesh(
+    uint64_t handle,
+    uint64_t vb,
+    Range vb_range,
+    uint64_t ib,
+    Range ib_range) {
+    auto vbHandle = GetHandle(
+        vb,
+        ResourceType::Buffer);
+    auto meshHandle = GetHandle(
+        handle,
+        ResourceType::Mesh);
+    auto layer = GetLastLayerRead(static_cast<RangeHandle *>(vbHandle), vb_range);
+    layer = std::max<int64_t>(layer, GetLastLayerWrite(static_cast<NoRangeHandle *>(meshHandle)));
+    auto SetHandle = [](auto &&handle, auto &&range, auto layer) {
+        auto ite = handle->views.try_emplace(range);
+        if (ite.second)
+            ite.first->second.readLayer = layer;
+        else
+            ite.first->second.readLayer = std::max<int64_t>(layer, ite.first->second.readLayer);
+    };
+    if (ib != vb) {
+        auto ibHandle = GetHandle(
+            ib,
+            ResourceType::Buffer);
+        auto rangeHandle = static_cast<RangeHandle *>(ibHandle);
+        layer = std::max<int64_t>(layer, GetLastLayerRead(rangeHandle, ib_range));
+        SetHandle(rangeHandle, ib_range, layer);
     }
+    SetHandle(static_cast<RangeHandle *>(vbHandle), vb_range, layer);
+    static_cast<NoRangeHandle *>(meshHandle)->view.writeLayer = layer;
+    maxMeshLevel = std::max<int64_t>(maxMeshLevel, layer);
+    return layer;
 }
 
-void CommandScheduler::visit(const TextureToBufferCopyCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto texture = command->texture();
-    auto texture_level = command->level();
-    auto buffer = command->buffer();
-    auto buffer_offset = command->buffer_offset();
-    auto buffer_size = command->size().x * command->size().y * command->size().z *
-                       pixel_storage_size(command->storage());
-    for (auto i : _pending_nodes) {
-        if (_check_texture_read(texture, texture_level, _commands[i]) ||
-            _check_buffer_write(buffer, buffer_offset, buffer_size, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
-    }
+// Mesh : conclude vertex and triangle buffers
+void CommandScheduler::visit(MeshBuildCommand *command) noexcept {
+    AddCommand(command, SetMesh(command->handle(), command->vertex_buffer(), Range(), command->triangle_buffer(), Range()));
 }
 
-void CommandScheduler::visit(const AccelBuildCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto accel = command->handle();
-    for (auto i : _pending_nodes) {
-        if (_check_accel_write(accel, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
+void CommandScheduler::clear() noexcept {
+    for (auto &&i : resMap) {
+        rangePool.recycle(i.second);
     }
+    for (auto &&i : noRangeResMap) {
+        noRangePool.recycle(i.second);
+    }
+    for (auto &&i : bindlessMap) {
+        bindlessHandlePool.recycle(i.second);
+    }
+
+    resMap.clear();
+    noRangeResMap.clear();
+    bindlessMap.clear();
+    bindlessMaxLayer = -1;
+    maxAccelReadLevel = -1;
+    maxAccelWriteLevel = -1;
+    maxMeshLevel = -1;
+    luisa::span<CommandList> sp(commandLists.data(), layerCount);
+    for (auto &&i : sp) {
+        i.clear();
+    }
+    layerCount = 0;
 }
 
-void CommandScheduler::visit(const MeshBuildCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto mesh = command->handle();
-    auto vertex_buffer = command->vertex_buffer();
-    auto vertex_buffer_offset = command->vertex_buffer_offset();
-    auto vertex_buffer_size = command->vertex_buffer_size();
-    auto triangle_buffer = command->triangle_buffer();
-    auto triangle_buffer_offset = command->triangle_buffer_offset();
-    auto triangle_buffer_size = command->triangle_buffer_size();
-    for (auto i : _pending_nodes) {
-        if (_check_buffer_read(vertex_buffer, vertex_buffer_offset, vertex_buffer_size, _commands[i]) ||
-            _check_buffer_read(triangle_buffer, triangle_buffer_offset, triangle_buffer_size, _commands[i]) ||
-            _check_mesh_write(mesh, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
-        }
+void CommandScheduler::AddCommand(Command *cmd, size_t layer) {
+    if (commandLists.size() <= layer) {
+        commandLists.resize(layer + 1);
     }
+    layerCount = std::max<int64_t>(layerCount, layer + 1);
+    commandLists[layer].append(luisa::unique_ptr<Command>{cmd});
 }
 
-void CommandScheduler::visit(const BindlessArrayUpdateCommand *command) noexcept {
-    auto curr = static_cast<uint>(_commands.size());
-    auto array = command->handle();
-    for (auto i : _pending_nodes) {
-        if (_check_bindless_array_write(array, _commands[i])) {
-            _edges[i].emplace_back(curr);
-            _dependency_count[curr]++;
+void CommandScheduler::AddDispatchHandle(
+    uint64_t handle,
+    ResourceType type,
+    Range range,
+    bool isWrite) {
+    if (isWrite) {
+        auto h = GetHandle(
+            handle,
+            type);
+        switch (type) {
+            case ResourceType::Accel:
+            case ResourceType::Mesh:
+                dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerWrite(static_cast<NoRangeHandle *>(h)));
+                break;
+            case ResourceType::Buffer:
+            case ResourceType::Texture:
+                dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerWrite(static_cast<RangeHandle *>(h), range));
+                break;
+            case ResourceType::Bindless:
+                dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerWrite(static_cast<BindlessHandle *>(h)));
+                break;
         }
+        dispatchWriteHandle.emplace_back(range, h);
+    } else {
+        auto h = GetHandle(
+            handle,
+            type);
+        switch (type) {
+            case ResourceType::Accel:
+            case ResourceType::Mesh:
+                dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerRead(static_cast<NoRangeHandle *>(h)));
+                break;
+            case ResourceType::Buffer:
+            case ResourceType::Texture:
+                dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerRead(static_cast<RangeHandle *>(h), range));
+                break;
+            case ResourceType::Bindless:
+                dispatchLayer = std::max<int64_t>(dispatchLayer, GetLastLayerRead(static_cast<BindlessHandle *>(h)));
+                break;
+        }
+        dispatchReadHandle.emplace_back(range, h);
     }
 }
-
-#pragma clang diagnostic pop
+void CommandScheduler::operator()(ShaderDispatchCommand::TextureArgument const &bf) {
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Texture,
+        Range(bf.level),
+        ((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0);
+    arg++;
+}
+void CommandScheduler::operator()(ShaderDispatchCommand::BufferArgument const &bf) {
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Buffer,
+        Range(bf.offset, bf.size),
+        ((uint)f.variable_usage(arg->uid()) & (uint)Usage::WRITE) != 0);
+    arg++;
+}
+void CommandScheduler::operator()(ShaderDispatchCommand::UniformArgument const &bf) {
+    arg++;
+}
+void CommandScheduler::operator()(ShaderDispatchCommand::BindlessArrayArgument const &bf) {
+    useBindlessInPass = true;
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Bindless,
+        Range(),
+        false);
+    arg++;
+}
+void CommandScheduler::operator()(ShaderDispatchCommand::AccelArgument const &bf) {
+    useAccelInPass = true;
+    AddDispatchHandle(
+        bf.handle,
+        ResourceType::Accel,
+        Range(),
+        false);
+    arg++;
+}
 
 }// namespace luisa::compute
