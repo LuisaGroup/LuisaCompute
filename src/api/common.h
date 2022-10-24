@@ -340,3 +340,9 @@ typedef struct LCCommandList {
     LCCommand *commands;
     size_t command_count;
 } LCCommandList;
+
+
+typedef struct LCAppContext {
+    void * gc_context;
+    void * ir_context;
+} LCAppContext;

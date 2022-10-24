@@ -1,5 +1,4 @@
-use bumpalo::Bump;
-use gc::{GcHeader, Trace};
+use gc::{GcHeader, GcObject, Trace};
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
@@ -943,12 +942,21 @@ pub enum Binding {
     BindlessArray(BindlessArrayBinding),
     Accel(AccelBinding),
 }
+impl Trace for Binding {
+    fn trace(&self) {}
+}
 
 #[derive(Debug, Serialize)]
 #[repr(C)]
 pub struct Capture {
     pub node: NodeRef,
     pub binding: Binding,
+}
+impl Trace for Capture {
+    fn trace(&self) {
+        self.node.trace();
+        self.binding.trace();
+    }
 }
 
 #[repr(C)]
@@ -958,6 +966,14 @@ pub struct KernelModule {
     pub captures: CBoxedSlice<Capture>,
     pub args: CBoxedSlice<NodeRef>,
     pub shared: CBoxedSlice<NodeRef>,
+}
+impl Trace for KernelModule {
+    fn trace(&self) {
+        self.module.trace();
+        self.captures.trace();
+        self.args.trace();
+        self.shared.trace();
+    }
 }
 
 impl Module {
@@ -1260,6 +1276,18 @@ pub extern "C" fn luisa_compute_gc_append_object(object: *mut GcHeader) {
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_instruction(inst: Instruction) -> Gc<Instruction> {
     Gc::new(inst)
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_new_callable_module(
+    m: CallableModule,
+) -> *mut GcObject<CallableModule> {
+    Gc::into_raw(Gc::new(m))
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_new_kernel_module(
+    m: KernelModule,
+) -> *mut GcObject<KernelModule> {
+    Gc::into_raw(Gc::new(m))
 }
 
 pub mod debug {
