@@ -1249,7 +1249,7 @@ pub extern "C" fn luisa_compute_gc_create_context() -> *mut gc::GcContext {
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_gc_init_context(ctx: *mut gc::GcContext) {
+pub extern "C" fn luisa_compute_gc_set_context(ctx: *mut gc::GcContext) {
     gc::set_context(ctx)
 }
 

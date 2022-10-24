@@ -455,7 +455,7 @@ LUISA_EXPORT_API LCDevice luisa_compute_create_external_device(LCContext ctx, LC
 LUISA_EXPORT_API void luisa_compute_init() LUISA_NOEXCEPT {
     auto ir_ctx = ir::luisa_compute_ir_new_context();
     auto gc_ctx = ir::luisa_compute_gc_create_context();
-    ir::luisa_compute_gc_init_context(gc_ctx);
+    ir::luisa_compute_gc_set_context(gc_ctx);
     ir::luisa_compute_ir_set_context(ir_ctx);
 }
 LUISA_EXPORT_API LCAppContext luisa_compute_app_context() LUISA_NOEXCEPT {
@@ -463,4 +463,11 @@ LUISA_EXPORT_API LCAppContext luisa_compute_app_context() LUISA_NOEXCEPT {
         .gc_context = ir::luisa_compute_gc_context(),
         .ir_context = ir::luisa_compute_ir_context(),
     };
+}
+
+LUISA_EXPORT_API void luisa_compute_set_app_context(LCAppContext ctx) LUISA_NOEXCEPT {
+    if (ctx.gc_context)
+        ir::luisa_compute_gc_set_context((ir::GcContext *)ctx.gc_context);
+    if (ctx.ir_context)
+        ir::luisa_compute_ir_set_context(ctx.ir_context);
 }
