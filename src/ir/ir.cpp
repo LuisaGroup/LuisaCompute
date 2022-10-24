@@ -1,5 +1,6 @@
-#include "ir.h"
 #include "ir.hpp"
+
+namespace luisa::compute {
 
 void luisa_compute_ir_initialize_context() {
     static std::once_flag flag;
@@ -11,8 +12,6 @@ void luisa_compute_ir_initialize_context() {
         luisa_compute_ir_set_context(ir_ctx);
     });
 }
-
-namespace luisa::compute {
 
 // TODO: is it good to go here?
 static auto context_initializer = []() noexcept {

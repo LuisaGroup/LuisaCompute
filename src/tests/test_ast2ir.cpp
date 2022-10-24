@@ -173,5 +173,6 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("IR binary dump done in {} ms.", clock.toc());
 
     std::ofstream bin_out{"test_ast2ir.bin", std::ios::binary};
-    bin_out.write(reinterpret_cast<const char *>(binary.ptr), binary.len);
+    bin_out.write(reinterpret_cast<const char *>(binary.ptr),
+                  static_cast<std::streamsize>(binary.len));
 }
