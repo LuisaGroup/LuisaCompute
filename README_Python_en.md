@@ -53,7 +53,7 @@ to add `luisa` to `PYTHONPATH` for your current shell.
 
 You can see the basic usages of Luisa in the following script. This
 program creates 10 threads, each writes 42 into the corresponding position
-in the cache.
+in the buffer.
 
 ```python
 import luisa
@@ -107,7 +107,7 @@ will check whether the given argument is consistent with the type hint. Only sin
 > prohibited. luisa functions can capture external variables, and if they are pure data variables (see the next section),
 > they are captured by value at compile time.
 
-Function return values are not supported when calling a Luisa function in Python in parallel. The only way to output a function is to write data to a cache or mapping (see the next section).
+Function return values are not supported when calling a Luisa function in Python in parallel. The only way to output a function is to write data to a buffer or texture (see the next section).
 
 The Luisa function currently supports only positional arguments, not keyword arguments, and does not support parameter defaults.
 
@@ -121,7 +121,7 @@ piece of memory in the storage space. Local variables of these types can be crea
 
 Apart from scalars, all objects of pure data types can get a copy on host side by calling `copy`.
 
-Caches, textures, resource indexes, and acceleration structures are resource types that are used to store resources 
+Buffers, textures, resource indexes, and acceleration structures are resource types that are used to store resources 
 shared by all threads. Resources can be referenced in Luisa functions, but creating local variables of resource types 
 is not allowed. These types may operate differently on device side (Luisa function) than on host side (Python code). 
 Typically, host side is responsible for initializing the data in the resource before the operation starts and collecting 
@@ -310,7 +310,7 @@ buf.copy_to(a3)
 > We recommend using upload/download with numpy arrays _only on scalar buffers_. For non-scalar buffers, we recommend
 > using list. If numpy array is used, the user is responsible for the memory layout of the data.
 
-On device side (in Luisa functions) the elements of the cache can be read and written.
+On device side (in Luisa functions) the elements of the buffer can be read and written.
 
 ```python
 buf.read(index)
@@ -339,3 +339,261 @@ A texture is used to store a two-dimensional image on the device. The size of a 
 channels, where the number of channels can be 1, 2 or 4. Since storing by 3 channels significantly affects performance, 
 if you only need to use 3 channels, create a 4-channel texture and use its first 3 components.
 
+You can create a texture from a numpy array
+
+```python
+tex = luisa.texture2d(arr) # arr with shape (height, width, channel)
+```
+
+This will create a texture with the corresponding data type and shape, and upload the data. The type of `arr` can only be `numpy.int32` or `numpy.float32`.
+
+You can also create a texture with specified type (see the section _Type Hints_) and size:
+
+```python
+tex = luisa.Texture2D.empty(w, h, channel, dtype, [storage])  # create an uninitialized texture
+tex = luisa.Texture2D.zeros(w, h, channel, dtype, [storage])  # create a texture with all 0s
+tex = luisa.Texture2D.ones(w, h, channel, dtype, [storage])   # create a texture with all 1s
+tex = luisa.Texture2D.filled(w, h, value, [storage])
+# if value is scalar, create a single channel texture and initialize it with value
+# if value is vector in 2D/4D, create a 2/4-channel texture and initialize it with value
+```
+
+The optional parameter `storage` specifies the precision of storage. See the following table:
+
+| storage   | float texture                             | int texture                     |
+| --------- | ----------------------------------------- | ------------------------------- |
+| `'byte'`  | 8-bit fixed point number between 0 and 1  | 8-bit signed integer            |
+| `'short'` | 16-bit fixed point number between 0 and 1 | 16-bit signed integer           |
+| `'int'`   | Unavailable                               | 32-bit signed integer (Default) |
+| `'half'`  | half precision float                      | Unavailable                     |
+| `'float'` | single precision float (Default)          | Unavailable                     |
+
+Texture type supports precision conversion. For example, the following code converts a float texture 
+into a byte one and stores it into a png file using `PIL` library.
+
+```python
+Image.fromarray(tex.to('byte').numpy()).save('output.png')
+```
+
+It is not allowed to access the elements of a texture directly on host side (in Python code). Instead, download a texture to a numpy array of the corresponding shape and type, or call the method `numpy` directly to return the download result.
+
+```python
+tex.copy_to(arr) # arr in shape (height, width, channel), whose type must correspond with tex
+arr1 = tex.numpy()
+```
+
+On device side (in Luisa functions), elements of the texture can be read and written.
+
+```python
+tex.read(coord)  # coord is of type int2, representing (x, y) coordinate.
+tex.write(coord, value)
+# for single-channel textures, value is scalar; for 2/4-channel textures, value is 2D/4D vector.
+```
+
+### Resource Index (`luisa.BindlessArray`)
+
+A resource index is a table on the device, each element of which stores a resource descriptor and can be used to index buffers and float textures. The default size of the index, `n_slots`, is 65536. A resource index can be created from a dict where each entry has a key that is an integer from 0 to `n_slots - 1` and a value that is a buffer or a float texture. For example:
+
+```python
+a = luisa.bindless_array({0: buf1, 42: tex1, 128: buf2})
+```
+
+You can also create an empty resource index. You can insert index items into or delete index items from a resource index, but note that after changing the index, you must call `update` before you use it:
+
+```python
+a = luisa.BindlessArray.empty(131072) # parameter n_slots is optional, default is 65536
+a = luisa.BindlessArray(131072) # same as above, creates an empty resource index
+a.emplace(index, res) # emplace the index of resource
+a.remove_buffer(index) # delete the buffer at position index
+a.remove_texture2d(index) # delete the texture at position index
+a.update() # update the resource index
+res in a # query if a resource is in the table
+```
+
+On the device side (in the Luisa function) the indexed resources can be read.
+
+```python
+a.buffer_read(E, idx, element_idx) # return E
+a.texture2d_read(idx, coord) # return float4
+a.texture2d_sample(idx, uv) # return float4
+a.texture2d_size(idx) # return float4
+```
+
+### Acceleration Structure `luisa.Accel`
+
+An acceleration structure is a data structure on device end, used to accelerate the calculation of the intersection of rays with the scene, which stores references to several triangular meshes, their spatial transformations and visibility.
+
+To construct an acceleration structure from a triangular grid:
+
+```python
+acc = luisa.accel(meshes)
+```
+
+`meshes` is a list of elements with type `luisa.Mesh`.
+
+You can create an empty accelration structure like this:
+
+```python
+acc = luisa.Accel.empty()
+a = luisa.Accel() # same as above
+```
+
+#### Updating the scene
+
+You can add or remove triangular meshes to the structure, set their spatial transformation and visibility, etc. 
+Note that after changing this acceleration structure, or changing the triangular meshes within it, `update` must be called.
+
+```python
+acc.add(mesh, [transform], [visible])
+# transform: float4x4, optional, indicates the spatial transformation acting on this triangular grid instance, default is the unit matrix
+# visible：bool, optional, indicates whether this mesh is visible (intersectable with rays)
+acc.set(index, mesh, [transform], [visible])
+acc.pop()
+len(acc)
+acc.set_transform_on_update(index, transform)
+acc.set_visibility_on_update(index, visibility)
+acc.update()
+```
+
+In addition, it is also possible to query and update the acceleration structure on device side (within Luisa functions).
+
+```python
+mat = acc.instance_transform(index) # querying transformation matrix
+acc.set_instance_transform(index, transform)
+acc.set_instance_visibility(index, visibility)
+```
+
+#### Ray intersection
+
+The acceleration structure provides two functions for ray intersection. `trace_closest` finds the first intersection of the ray with the scene (i.e. the intersection with the smallest t, t being the distance from the intersection to the origin of the ray) and returns information about the intersection, while `trace_any` determines only whether there is an intersection of the ray with the scene.
+
+```python
+hit = acc.trace_closest(ray) # returns Hit
+anyhit = acc.trace_any(ray) # returns bool
+```
+
+For further usages of acceleration structures, see the demo program `pt99.py`.
+
+#### Triangular Mesh `luisa.Mesh`
+
+A triangular mesh is a structure used to represent the geometry of an object, which contains a number of triangular facets. In order to represent a triangular mesh, two buffers need to be prepared.
+
+- vertex buffer: the elements are of type float3 and store the coordinates of each vertex in world space
+- triangle buffer: the elements are of type int and is of length `3 * n`, representing the indices of the three vertices of each triangle in the vertex buffer
+
+A triangular mesh can be constructed from these two buffers:
+
+```python
+mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
+```
+
+Note that the triangular mesh structure holds references to both buffers, i.e. this construction process does not copy the data in either buffer. If you want to change the triangle mesh, you may modify the data in the buffers and call `mesh.update()`.
+
+#### Ray `luisa.Ray`
+
+The module `luisa.accel` defines the structure `Ray`, which represents a ray in 3 dimensional space.
+
+To create a ray you can call the function
+
+```python
+make_ray(origin, direction, t_min, t_max)
+```
+
+where origin is of type float3 and represents the starting point of the ray, direction is a unit vector of type float3 and represents the direction of the ray. t_min, t_max are of type float and represent the range over which the rays are allowed to intersect, e.g. for an infinite ray, you could make `t_min=0`, `t_max=1e38`. The structure also provides a number of member variables and methods.
+
+```python
+# data members
+ray.t_min # float type
+ray.t_max # float type
+ray._origin # an array of 3 floats
+ray._direction # array of 3 floats
+# Member functions
+ray.get_origin() # reads _origin as a float3 type
+ray.get_direction() # reads _direction as a float3 type
+ray.set_origin(k) # write_origin as float3
+ray.set_direction(k) # write_direction as float3
+```
+
+#### Intersection information `luisa.Hit`
+
+Structure `Hit` is defined in module `luisa.accel` to store the results of `trace_closest`.
+
+```python
+hit = accel.trace_closest(ray)
+is_hit = accel.trace_any(ray)
+hit.inst # int type, the number of the mesh hit by the ray in the acceleration structure. If not hit then -1
+hit.prim # int type, the number of the triangle hit by the ray in the mesh's triangle buffer
+hit.bary # float2 type, the centre of gravity of the intersection point on the triangle
+hit.miss() # whether the ray missed.
+hit.interpolate(a,b,c) # a,b,c are the properties of the three vertices of the triangle, returning the properties of the intersection interpolated with the centre of gravity coordinates
+```
+
+The centre of gravity coordinates are used to represent the position of the point inside the triangle, in the convex space formed by A(0,0), B(1,0), C(0,1).
+
+## Type Hints
+
+Type hints can be used to pre-declare the element types of arrays, structures, caches or postings, and can also be used to hint the arguments of Luisa functions to check the types of the arguments.
+
+The type marker for scalar, vector and matrix types is the type itself, e.g. `bool`,`int3`,`float4x4`.
+
+An array has the type hint `luisa.ArrayType(size, dtype)`, where size is the length of the array and dtype is the type hint of the element in the array.
+
+A structure is type hinted as `luisa.StructType(alignment, **kwargs)`, where alignment is the memory alignment and is automatically computed if not specified; kwargs is a number of key-value pairs, where the keys are the member names and the values are the type hints of the members. Note that structures are sensitive to the order of their members.
+
+The following are two examples of using type hints.
+
+```python
+# creates a cache of 100 structs, each containing an int and a float
+buf = luisa.Buffer.empty(100, dtype=luisa.StructType(a=int, b=float))
+# creates a texture containing 100 x 100 x 4 floats (or 100 x 100 float4s)
+tex = luisa.Texture2D.empty(100, 100, 4, dtype=float)
+```
+
+In general, you do not need to use type hints for resource types, unless you wish to use them for parameter type checking: the
+
+```python
+luisa.BufferType(dtype) # dtype is the type hint for a scalar, vector, matrix, array or structure
+luisa.Texture2DType(dtype, channel) # dtype is int / float
+BindlessArray, luisa.Accel # The type tokens for resource indexes and accelerated structures are the types themselves
+```
+
+If you have created a variable `var`, you can call `luisa.types.dtype_of(var)` to get its type hint.
+
+## Type rules
+
+As Luisa is a statically typed language, its type checking is generally more strict, for example the assignment of variables must be type consistent.
+
+### Type conversions
+
+It is possible to convert types between scalars, and also between vector types of the same length. 
+
+```python
+int(a)
+float3(b)
+```
+
+### Type rules for operations
+
+The coercion rules for binary operators and binary built-in functions for different operations are as follows
+
+#### scalar arithmetic
+
+Implicit type conversions occur when operating on variables of different types.
+
+> e.g. `int + float -> float`.
+
+#### Vector / matrix operations in the same dimension
+
+Broadcast operators to the elements of a vector/matrix, does not support operations on variables of different types.
+
+> `float3 + float3` means that the corresponding elements of two `float3` are added separately.
+> 
+> `int3 + float3` is illegal.
+
+#### Operations on scalars and vectors
+
+Broadcasts the operator to each element of a vector; different types of variable operations are not supported.
+
+> `float + float4` means that the `float` scalar is added to each element of `float4` separately. 
+>
+> `int + float4` is illegal.
