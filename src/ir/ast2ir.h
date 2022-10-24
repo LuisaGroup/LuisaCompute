@@ -15,7 +15,7 @@ namespace detail {
 class FunctionBuilder;
 }
 
-class AST2IR {
+class LC_IR_API AST2IR {
 
 private:
     class IrBuilderGuard {
