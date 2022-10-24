@@ -5,6 +5,7 @@
 #include <luisa-compute.h>
 #include <ast/function_builder.h>
 #include <api/runtime.h>
+#include <ir/ir.hpp>
 #define TOMBSTONE 0xdeadbeef
 template<class T>
 struct RC {
@@ -449,4 +450,17 @@ LUISA_EXPORT_API LCDevice luisa_compute_create_external_device(LCContext ctx, LC
     auto ext_device = luisa::make_shared<ExternDevice>(ctx, impl);
     auto device = new Device{Device::Handle{ext_device}};
     return (LCDevice) new RC<Device>(device, [](Device *d) { delete d; });
+}
+
+LUISA_EXPORT_API void luisa_compute_init() LUISA_NOEXCEPT {
+    auto ir_ctx = ir::luisa_compute_ir_new_context();
+    auto gc_ctx = ir::luisa_compute_gc_create_context();
+    ir::luisa_compute_gc_init_context(gc_ctx);
+    ir::luisa_compute_ir_set_context(ir_ctx);
+}
+LUISA_EXPORT_API LCAppContext luisa_compute_app_context() LUISA_NOEXCEPT {
+    return LCAppContext{
+        .gc_context = ir::luisa_compute_gc_context(),
+        .ir_context = ir::luisa_compute_ir_context(),
+    };
 }

@@ -16,13 +16,13 @@ ir::Module AST2IR::_convert_body() noexcept {
     // finalize
     auto bb = ir::luisa_compute_ir_build_finish(*_current_builder());
     bb.set_root(true);
-    return {.kind = _function.tag() == Function::Tag::KERNEL ?
-                        ir::ModuleKind::Kernel :
-                        ir::ModuleKind::Function,
-            .entry = bb};
+    return ir::Module{.kind = _function.tag() == Function::Tag::KERNEL ?
+                                  ir::ModuleKind::Kernel :
+                                  ir::ModuleKind::Function,
+                      .entry = bb};
 }
 
-ir::KernelModule AST2IR::convert_kernel(Function function) noexcept {
+ir::Gc<ir::KernelModule> AST2IR::convert_kernel(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::KERNEL,
                  "Invalid function tag.");
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
@@ -90,17 +90,17 @@ ir::KernelModule AST2IR::convert_kernel(Function function) noexcept {
             shared.ptr[i] = _convert_shared_variable(_function.shared_variables()[i]);
         }
         auto module = _convert_body();
-        return ir::KernelModule{.module = module,
-                                .captures = captures,
-                                .args = non_captures,
-                                .shared = shared};
+        return ir::Gc<ir::KernelModule>::from_raw(luisa_compute_ir_new_kernel_module(ir::KernelModule{.module = module,
+                                                                                                      .captures = captures,
+                                                                                                      .args = non_captures,
+                                                                                                      .shared = shared}));
     });
 }
 
-ir::CallableModule AST2IR::convert_callable(Function function) noexcept {
+ir::Gc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::CALLABLE,
                  "Invalid function tag.");
-    if (auto m = ir::luisa_compute_ir_get_symbol(function.hash())) { return *m; }
+    if (auto m = ir::luisa_compute_ir_get_symbol(function.hash())) { return ir::Gc<ir::CallableModule>::from_raw(m); }
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
                      _variables.empty() && _builder_stack.empty() &&
                      !_function,
@@ -112,7 +112,8 @@ ir::CallableModule AST2IR::convert_callable(Function function) noexcept {
         for (auto i = 0u; i < arg_count; i++) {
             args.ptr[i] = _convert_argument(_function.arguments()[i]);
         }
-        return ir::CallableModule{.module = _convert_body(), .args = args};
+        return ir::Gc<ir::CallableModule>::from_raw(
+            ir::luisa_compute_ir_new_callable_module(ir::CallableModule{.module = _convert_body(), .args = args}));
     });
     ir::luisa_compute_ir_add_symbol(function.hash(), m);
     return m;
@@ -161,7 +162,7 @@ ir::IrBuilder *AST2IR::_current_builder() noexcept {
 
 ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
     auto register_type = [](ir::Type t) noexcept {
-        return ir::luisa_compute_ir_register_type(t);
+        return ir::Gc<ir::Type>::from_raw(ir::luisa_compute_ir_register_type(t));
     };
     // special handling for void
     if (type == nullptr) { return register_type({.tag = ir::Type::Tag::Void}); }

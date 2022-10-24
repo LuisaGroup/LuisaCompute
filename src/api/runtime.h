@@ -7,6 +7,8 @@
 #include <api/common.h>
 #include <api/device.h>
 
+LUISA_EXPORT_API void luisa_compute_init() LUISA_NOEXCEPT;
+LUISA_EXPORT_API LCAppContext luisa_compute_app_context() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCContext luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT;

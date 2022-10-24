@@ -36,6 +36,11 @@ class Gc {
 
 public:
     Gc() noexcept = default;
+    static Gc<T> from_raw(GcObject<T> *object) noexcept {
+        Gc<T> gc;
+        gc.object = object;
+        return gc;
+    }
     [[nodiscard]] auto get() noexcept { return &object->data; }
     [[nodiscard]] auto get() const noexcept { return const_cast<const T *>(&object->data); }
     [[nodiscard]] T *operator->() noexcept { return get(); }
@@ -45,6 +50,9 @@ public:
     }
     [[nodiscard]] bool is_root() const noexcept {
         return object->header.root;
+    }
+    [[nodiscard]] operator bool() const noexcept {
+        return object != nullptr;
     }
 };
 
