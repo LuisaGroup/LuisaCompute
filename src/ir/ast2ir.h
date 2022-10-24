@@ -106,7 +106,7 @@ private:
     [[nodiscard]] ir::NodeRef _literal(const Type *type, LiteralExpr::Value value) noexcept;
 
 public:
-    [[nodiscard]] ir::Gc<ir::KernelModule> convert_kernel(Function function) noexcept;
+    [[nodiscard]] luisa::shared_ptr<ir::Gc<ir::KernelModule>> convert_kernel(Function function) noexcept;
     [[nodiscard]] ir::Gc<ir::CallableModule> convert_callable(Function function) noexcept;
 };
 
