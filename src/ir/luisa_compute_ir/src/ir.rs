@@ -480,13 +480,16 @@ pub enum Func {
     //(struct, index) -> value; the value can be passed to an Update instruction
     GetElementPtr,
 
-    Matrix,
     // scalar -> matrix, the resulting type is stored in node
-    Matrix2,
+    Full,
+    // scalar/vector -> matrix, forming a diagonal matrix
+    Eye,
     // scalar x 4 -> matrix
-    Matrix3,
+    Matrix2,
     // scalar x 9 -> matrix
-    Matrix4, // scalar x 16 -> matrix
+    Matrix3,
+    // scalar x 16 -> matrix
+    Matrix4,
 
     Callable(u64),
     CpuCustomOp(CRc<CpuCustomOp>),

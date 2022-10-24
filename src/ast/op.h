@@ -52,6 +52,19 @@ enum struct BinaryOp : uint32_t {
     NOT_EQUAL
 };
 
+[[nodiscard]] constexpr auto is_relational(BinaryOp op) noexcept {
+    return op == BinaryOp::LESS ||
+           op == BinaryOp::GREATER ||
+           op == BinaryOp::LESS_EQUAL ||
+           op == BinaryOp::GREATER_EQUAL ||
+           op == BinaryOp::EQUAL ||
+           op == BinaryOp::NOT_EQUAL;
+}
+
+[[nodiscard]] constexpr auto is_logical(BinaryOp op) noexcept {
+    return op == BinaryOp::AND || op == BinaryOp::OR;
+}
+
 /**
  * @brief Enum of call operations.
  * 
