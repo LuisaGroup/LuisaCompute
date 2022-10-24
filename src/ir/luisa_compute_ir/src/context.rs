@@ -28,9 +28,9 @@ impl Context {
         } else {
             drop(types);
             let mut types = self.types.write();
-            let r = unsafe { std::mem::transmute(&*type_) };
+            // let r = unsafe { std::mem::transmute(&*type_) };
             types.insert(type_);
-            r
+            type_
         }
     }
 

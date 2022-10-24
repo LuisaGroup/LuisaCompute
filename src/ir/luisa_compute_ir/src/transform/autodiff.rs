@@ -169,6 +169,7 @@ impl<'a> StoreIntermediate<'a> {
             crate::ir::Instruction::Shared => {}
             crate::ir::Instruction::Uniform => {}
             crate::ir::Instruction::Local { .. } => {}
+            crate::ir::Instruction::Argument { .. } => todo!(),
             crate::ir::Instruction::UserData(_) => {}
             crate::ir::Instruction::Invalid => {}
             crate::ir::Instruction::Const(_) => {
@@ -254,6 +255,7 @@ impl Backward {
             crate::ir::Instruction::Shared => {}
             crate::ir::Instruction::Uniform => {}
             crate::ir::Instruction::Local { .. } => {}
+            crate::ir::Instruction::Argument { .. } => todo!(),
             crate::ir::Instruction::UserData(_) => {}
             crate::ir::Instruction::Invalid => {}
             crate::ir::Instruction::Const(_) => {}
