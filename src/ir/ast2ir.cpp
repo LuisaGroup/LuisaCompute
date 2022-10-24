@@ -33,7 +33,7 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
         auto bindings = _function.builder()->argument_bindings();
         auto capture_count = std::count_if(
             bindings.cbegin(), bindings.cend(), [](auto &&b) {
-                return luisa::holds_alternative<luisa::monostate>(b);
+                return !luisa::holds_alternative<luisa::monostate>(b);
             });
         auto non_capture_count = bindings.size() - capture_count;
         auto captures = _boxed_slice<ir::Capture>(capture_count);
@@ -97,8 +97,11 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
                  .shared = shared}));
     });
     m.set_root(true);
-    auto p = luisa::new_with_allocator<ir::Gc<ir::KernelModule>>(m);
-    return {p, [](auto p) noexcept { p->set_root(false); luisa::delete_with_allocator(p); }};
+    return {luisa::new_with_allocator<ir::Gc<ir::KernelModule>>(m),
+            [](auto p) noexcept {
+                p->set_root(false);
+                luisa::delete_with_allocator(p);
+            }};
 }
 
 ir::Gc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept {
@@ -220,21 +223,23 @@ ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
              .matrix = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
                                      .scalar = {ir::Primitive::Float32}},
                          .dimension = static_cast<uint>(type->dimension())}}});
-        case Type::Tag::ARRAY: return register_type(
-            {.tag = ir::Type::Tag::Array,
-             .array = {{.element = _convert_type(type->element()),
-                        .length = type->dimension()}}});
+        case Type::Tag::ARRAY: {
+            auto elem = _convert_type(type->element());
+            return register_type(
+                {.tag = ir::Type::Tag::Array,
+                 .array = {{.element = elem, .length = type->dimension()}}});
+        }
         case Type::Tag::STRUCTURE: {
             if (auto iter = _struct_types.find(type->hash());
                 iter != _struct_types.end()) { return iter->second; }
-            luisa::vector<ir::Gc<ir::Type>> members;
-            members.reserve(type->members().size());
-            for (auto member : type->members()) {
-                members.emplace_back(_convert_type(member));
+            auto m = type->members();
+            auto members = _boxed_slice<ir::Gc<ir::Type>>(m.size());
+            for (auto i = 0u; i < m.size(); i++) {
+                members.ptr[i] = _convert_type(m[i]);
             }
             auto t = register_type(
                 {.tag = ir::Type::Tag::Struct,
-                 .struct_ = {{.fields = {members.data(), members.size()},
+                 .struct_ = {{.fields = members,
                               .alignment = type->alignment(),
                               .size = type->size()}}});
             _struct_types.emplace(type->hash(), t);
@@ -700,7 +705,6 @@ ir::NodeRef AST2IR::_convert(const ContinueStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const ReturnStmt *stmt) noexcept {
-    // TODO: handle reference
     auto ret_type = _function.return_type();
     auto ret = ret_type ?
                    _cast(ret_type, stmt->expression()->type(),
@@ -789,7 +793,12 @@ ir::NodeRef AST2IR::_convert(const SwitchStmt *stmt) noexcept {
             auto case_tag = _cast(stmt->expression()->type(), case_stmt->expression()->type(),
                                   _convert_expr(case_stmt->expression()));
             auto case_block = _with_builder([this, case_stmt](auto b) noexcept {
-                static_cast<void>(_convert(case_stmt->body()));
+                for (auto s : case_stmt->body()->statements()) {
+                    if (s->tag() == Statement::Tag::BREAK) { break; }
+                    static_cast<void>(_convert_stmt(s));
+                    if (s->tag() == Statement::Tag::CONTINUE ||
+                        s->tag() == Statement::Tag::RETURN) { break; }
+                }
                 return ir::luisa_compute_ir_build_finish(*b);
             });
             case_blocks.emplace_back(ir::SwitchCase{
@@ -799,8 +808,13 @@ ir::NodeRef AST2IR::_convert(const SwitchStmt *stmt) noexcept {
                          "Only one default statement is "
                          "allowed in switch body.");
             default_block.emplace(_with_builder([this, s](auto b) noexcept {
-                static_cast<void>(_convert(
-                    static_cast<const SwitchDefaultStmt *>(s)));
+                auto default_stmt = static_cast<const SwitchDefaultStmt *>(s);
+                for (auto s : default_stmt->body()->statements()) {
+                    if (s->tag() == Statement::Tag::BREAK) { break; }
+                    static_cast<void>(_convert_stmt(s));
+                    if (s->tag() == Statement::Tag::CONTINUE ||
+                        s->tag() == Statement::Tag::RETURN) { break; }
+                }
                 return ir::luisa_compute_ir_build_finish(*b);
             }));
         }
@@ -907,15 +921,12 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
     auto b = _current_builder();
     auto node = [&] {
         switch (v.tag()) {
-            case Variable::Tag::REFERENCE:
-                // TODO: lower reference to return value
-                LUISA_ERROR_WITH_LOCATION("TODO");
             case Variable::Tag::BUFFER: {
                 auto instr = ir::luisa_compute_ir_new_instruction(
                     {.tag = ir::Instruction::Tag::Buffer});
+                auto elem = _convert_type(v.type()->element());
                 return ir::luisa_compute_ir_new_node(
-                    {.type_ = _convert_type(v.type()->element()),
-                     .instruction = instr});
+                    {.type_ = elem, .instruction = instr});
             }
             case Variable::Tag::TEXTURE: {
                 auto instr = ir::luisa_compute_ir_new_instruction(
@@ -941,9 +952,16 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
                      .instruction = instr});
             }
             default: {
-                // TODO: callable?
+                if (_function.tag() == Function::Tag::KERNEL) {
+                    auto instr = ir::luisa_compute_ir_new_instruction(
+                        {.tag = ir::Instruction::Tag::Uniform});
+                    return ir::luisa_compute_ir_new_node(
+                        {.type_ = _convert_type(v.type()),
+                         .instruction = instr});
+                }
                 auto instr = ir::luisa_compute_ir_new_instruction(
-                    {.tag = ir::Instruction::Tag::Uniform});
+                    {.tag = ir::Instruction::Tag::Argument,
+                     .argument = {v.tag() != Variable::Tag::REFERENCE}});
                 return ir::luisa_compute_ir_new_node(
                     {.type_ = _convert_type(v.type()),
                      .instruction = instr});

@@ -72,6 +72,7 @@ impl ToSSA {
                 record.stored.insert(node, *init);
                 return var;
             }
+            Instruction::Argument { .. } => todo!(),
             Instruction::UserData(_) => return node,
             Instruction::Invalid => return node,
             Instruction::Const(c) => return builder.const_(c.clone()),

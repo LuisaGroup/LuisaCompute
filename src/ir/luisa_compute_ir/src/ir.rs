@@ -217,6 +217,7 @@ impl Trace for Instruction {
             Instruction::Shared => {}
             Instruction::Uniform => {}
             Instruction::Local { init } => init.trace(),
+            Instruction::Argument { .. } => todo!(),
             Instruction::UserData(_) => {}
             Instruction::Invalid => {}
             Instruction::Const(c) => c.trace(),
@@ -619,6 +620,9 @@ pub enum Instruction {
     Local {
         init: NodeRef,
     },
+    Argument {
+        by_value: bool,
+    },
     UserData(UserNodeDataRef),
     Invalid,
     Const(Const),
@@ -942,6 +946,7 @@ pub enum Binding {
     BindlessArray(BindlessArrayBinding),
     Accel(AccelBinding),
 }
+
 impl Trace for Binding {
     fn trace(&self) {}
 }
@@ -952,6 +957,7 @@ pub struct Capture {
     pub node: NodeRef,
     pub binding: Binding,
 }
+
 impl Trace for Capture {
     fn trace(&self) {
         self.node.trace();
@@ -967,6 +973,7 @@ pub struct KernelModule {
     pub args: CBoxedSlice<NodeRef>,
     pub shared: CBoxedSlice<NodeRef>,
 }
+
 impl Trace for KernelModule {
     fn trace(&self) {
         self.module.trace();
@@ -1008,6 +1015,7 @@ impl ModuleCloner {
             Instruction::Shared => node,
             Instruction::Uniform => node,
             Instruction::Local { .. } => todo!(),
+            Instruction::Argument { .. } => todo!(),
             Instruction::UserData(_) => node,
             Instruction::Invalid => node,
             Instruction::Const(_) => todo!(),
@@ -1277,12 +1285,14 @@ pub extern "C" fn luisa_compute_gc_append_object(object: *mut GcHeader) {
 pub extern "C" fn luisa_compute_ir_new_instruction(inst: Instruction) -> Gc<Instruction> {
     Gc::new(inst)
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_callable_module(
     m: CallableModule,
 ) -> *mut GcObject<CallableModule> {
     Gc::into_raw(Gc::new(m))
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_kernel_module(
     m: KernelModule,
@@ -1295,16 +1305,25 @@ pub mod debug {
 
     use super::*;
 
-    pub fn dump_ir(module: &Module) -> serde_json::Value {
+    pub fn dump_ir_json(module: &Module) -> serde_json::Value {
         serde_json::to_value(&module).unwrap()
     }
 
+    pub fn dump_ir_binary(module: &Module) -> Vec<u8> {
+        bincode::serialize(module).unwrap()
+    }
+
     #[no_mangle]
-    pub extern "C" fn luisa_compute_ir_dump(module: &Module) -> CBoxedSlice<u8> {
-        let json = dump_ir(module);
+    pub extern "C" fn luisa_compute_ir_dump_json(module: &Module) -> CBoxedSlice<u8> {
+        let json = dump_ir_json(module);
         let s = serde_json::to_string(&json).unwrap();
         let cstring = CString::new(s).unwrap();
         CBoxedSlice::new(cstring.as_bytes().to_vec())
+    }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_dump_binary(module: &Module) -> CBoxedSlice<u8> {
+        CBoxedSlice::new(dump_ir_binary(module))
     }
 }
 
