@@ -22,11 +22,10 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 14
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      #      - name: "Setup CUDA"
-      #        uses: Jimver/cuda-toolkit@v0.2.4
-      #        with:
-      #          cuda: "11.4.0"
-      #          linux-local-args: '["--toolkit"]'
+      - name: "Setup CUDA"
+        uses: Jimver/cuda-toolkit@v0.2.8
+        with:
+          linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LLVM_ROOT=/usr/lib/llvm-14
@@ -54,10 +53,10 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: recursive
-      #      - name: "Setup CUDA"
-      #        uses: Jimver/cuda-toolkit@v0.2.4
-      #        with:
-      #          cuda: "11.4.0"
+      - name: "Setup CUDA"
+        uses: Jimver/cuda-toolkit@v0.2.8
+        with:
+          cuda: "11.4.0"
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
