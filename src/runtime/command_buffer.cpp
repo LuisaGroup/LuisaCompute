@@ -22,8 +22,8 @@ CommandBuffer::~CommandBuffer() noexcept {
     }
 }
 
-CommandBuffer &CommandBuffer::operator<<(Command *cmd) &noexcept {
-    _command_list.append(cmd);
+CommandBuffer &CommandBuffer::operator<<(luisa::unique_ptr<Command> cmd) &noexcept {
+    _command_list.append(std::move(cmd));
     return *this;
 }
 

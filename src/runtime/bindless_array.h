@@ -63,7 +63,7 @@ public:
         return *this;
     }
 
-    [[nodiscard]] Command *update() noexcept;
+    [[nodiscard]] luisa::unique_ptr<Command> update() noexcept;
 
     // see implementations in dsl/expr.h
     template<typename I>

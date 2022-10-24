@@ -79,8 +79,8 @@ struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 class LC_RUNTIME_API Device {
 
 public:
-    class Extension {
-    };
+    class Extension {};
+
     class CpuExtension : public Extension {
     public:
         struct KernelClosure {
@@ -95,6 +95,7 @@ public:
         // this functions makes stream operatiions synchronous to minize overhead
         virtual void stream_no_async(uint64_t stream, bool no_async) noexcept = 0;
     };
+
     class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
