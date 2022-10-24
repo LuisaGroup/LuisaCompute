@@ -5,3 +5,4 @@ target_link_libraries(luisa-compute-ir-api PUBLIC luisa_compute_ir luisa-compute
 target_include_directories(luisa-compute-ir-api PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(luisa-compute-ir-api PUBLIC luisa_compute_ir)
 target_compile_definitions(luisa-compute-ir-api PRIVATE LC_IR_EXPORT_DLL=1)
+set_target_properties(luisa-compute-ir-api PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
