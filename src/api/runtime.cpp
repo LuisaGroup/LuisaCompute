@@ -365,7 +365,9 @@ public:
         impl->synchronize_stream(impl, stream_handle);
     }
     void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override {
-        auto c_cmd_list = nullptr;
+        auto c_cmd_list = compute::detail::CommandListConverter::get(list);
+        LUISA_ASSERT(c_cmd_list != nullptr, "null!");
+        impl->dispatch(impl, stream_handle, *c_cmd_list);
     }
     void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
         for (auto &&list : lists) { dispatch(stream_handle, list); }
