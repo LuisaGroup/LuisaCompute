@@ -105,6 +105,7 @@ ir::CallableModule AST2IR::convert_callable(Function function) noexcept {
                      _variables.empty() && _builder_stack.empty() &&
                      !_function,
                  "Invalid state.");
+    _function = function;
     auto m = _with_builder([this](auto builder) noexcept {
         auto arg_count = _function.arguments().size();
         auto args = _boxed_slice<ir::NodeRef>(arg_count);
@@ -359,10 +360,16 @@ ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
     auto rhs_type = expr->rhs()->type();
     auto lhs = _convert_expr(expr->lhs());
     auto rhs = _convert_expr(expr->rhs());
-    if ((lhs_type->is_scalar() && rhs_type->is_scalar()) ||
-        (expr->type()->is_vector() && expr->type()->element()->tag() == Type::Tag::BOOL)) {
-        lhs = _cast(expr->type(), expr->lhs()->type(), lhs);
-        rhs = _cast(expr->type(), expr->rhs()->type(), rhs);
+    if (is_relational(expr->op())) {
+
+    } else if (is_logical(expr->op())) {
+
+    } else {
+        if (lhs_type->is_scalar() && rhs_type->is_scalar()) {
+            // TODO: conversion
+            lhs = _cast(expr->type(), expr->lhs()->type(), lhs);
+            rhs = _cast(expr->type(), expr->rhs()->type(), rhs);
+        }
     }
     std::array args{lhs, rhs};
     return ir::luisa_compute_ir_build_call(
@@ -685,6 +692,7 @@ ir::NodeRef AST2IR::_convert(const ContinueStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const ReturnStmt *stmt) noexcept {
+    // TODO: handle reference
     auto ret_type = _function.return_type();
     auto ret = ret_type ?
                    _cast(ret_type, stmt->expression()->type(),
@@ -892,6 +900,7 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
     auto node = [&] {
         switch (v.tag()) {
             case Variable::Tag::REFERENCE:
+                // TODO: lower reference to return value
                 LUISA_ERROR_WITH_LOCATION("TODO");
             case Variable::Tag::BUFFER: {
                 auto instr = ir::luisa_compute_ir_new_instruction(
@@ -924,6 +933,7 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
                      .instruction = instr});
             }
             default: {
+                // TODO: callable?
                 auto instr = ir::luisa_compute_ir_new_instruction(
                     {.tag = ir::Instruction::Tag::Uniform});
                 return ir::luisa_compute_ir_new_node(
@@ -1005,97 +1015,23 @@ ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRe
     // scalar to vector
     if (type_dst->is_vector() && type_src->is_scalar()) {
         auto elem = _cast(type_dst->element(), type_src, node_src);
-        auto dim = type_dst->dimension();
-        if (dim == 2u) {
-            std::array args{elem, elem};
-            return ir::luisa_compute_ir_build_call(
-                builder, {.tag = ir::Func::Tag::Vec2},
-                {.ptr = args.data(), .len = args.size()},
-                _convert_type(type_dst));
-        }
-        if (dim == 3u) {
-            std::array args{elem, elem, elem};
-            return ir::luisa_compute_ir_build_call(
-                builder, {.tag = ir::Func::Tag::Vec3},
-                {.ptr = args.data(), .len = args.size()},
-                _convert_type(type_dst));
-        }
-        if (dim == 4u) {
-            std::array args{elem, elem, elem, elem};
-            return ir::luisa_compute_ir_build_call(
-                builder, {.tag = ir::Func::Tag::Vec4},
-                {.ptr = args.data(), .len = args.size()},
-                _convert_type(type_dst));
-        }
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid vector dimension: {}.", dim);
+        return ir::luisa_compute_ir_build_call(
+            builder, {.tag = ir::Func::Tag::Vec},
+            {.ptr = &elem, .len = 1u},
+            _convert_type(type_dst));
     }
     // scalar to matrix
     if (type_dst->is_matrix() && type_src->is_scalar()) {
         LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT,
                      "Only float matrices are supported.");
         auto elem = _cast(Type::of<float>(), type_src, node_src);
-        auto dim = type_dst->dimension();
-        if (diagonal_matrix) {
-            auto zero = _literal(Type::of<float>(), 0.f);
-            if (dim == 2u) {
-                std::array args{elem, zero,
-                                zero, elem};
-                return ir::luisa_compute_ir_build_call(
-                    builder, {.tag = ir::Func::Tag::Matrix2},
-                    {.ptr = args.data(), .len = args.size()},
-                    _convert_type(type_dst));
-            }
-            if (dim == 3u) {
-                std::array args{elem, zero, zero,
-                                zero, elem, zero,
-                                zero, zero, elem};
-                return ir::luisa_compute_ir_build_call(
-                    builder, {.tag = ir::Func::Tag::Matrix3},
-                    {.ptr = args.data(), .len = args.size()},
-                    _convert_type(type_dst));
-            }
-            if (dim == 4u) {
-                std::array args{elem, zero, zero, zero,
-                                zero, elem, zero, zero,
-                                zero, zero, elem, zero,
-                                zero, zero, zero, elem};
-                return ir::luisa_compute_ir_build_call(
-                    builder, {.tag = ir::Func::Tag::Matrix4},
-                    {.ptr = args.data(), .len = args.size()},
-                    _convert_type(type_dst));
-            }
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid matrix dimension: {}.", dim);
-        }
-        // non-diagonal matrix
-        if (dim == 2u) {
-            std::array args{elem, elem,
-                            elem, elem};
-            return ir::luisa_compute_ir_build_call(
-                builder, {.tag = ir::Func::Tag::Matrix2},
-                {.ptr = args.data(), .len = args.size()},
-                _convert_type(type_dst));
-        }
-        if (dim == 3u) {
-            std::array args{elem, elem, elem,
-                            elem, elem, elem,
-                            elem, elem, elem};
-            return ir::luisa_compute_ir_build_call(
-                builder, {.tag = ir::Func::Tag::Matrix3},
-                {.ptr = args.data(), .len = args.size()},
-                _convert_type(type_dst));
-        }
-        if (dim == 4u) {
-            std::array args{elem, elem, elem, elem,
-                            elem, elem, elem, elem,
-                            elem, elem, elem, elem,
-                            elem, elem, elem, elem};
-            return ir::luisa_compute_ir_build_call(
-                builder, {.tag = ir::Func::Tag::Matrix4},
-                {.ptr = args.data(), .len = args.size()},
-                _convert_type(type_dst));
-        }
+        return ir::luisa_compute_ir_build_call(
+            builder,
+            {.tag = diagonal_matrix ?
+                        ir::Func::Tag::Eye :
+                        ir::Func::Tag::Full},
+            {.ptr = &elem, .len = 1u},
+            _convert_type(type_dst));
     }
     LUISA_ERROR_WITH_LOCATION(
         "Invalid type cast: {} -> {}.",
