@@ -55,8 +55,6 @@ jobs:
           submodules: recursive
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
-        with:
-          cuda: "11.4.0"
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
