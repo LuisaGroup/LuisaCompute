@@ -5,6 +5,9 @@
 #include <ir/ast2ir.h>
 #include <ast/function_builder.h>
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "misc-no-recursion"
+
 namespace luisa::compute {
 
 ir::Module AST2IR::_convert_body() noexcept {
@@ -289,6 +292,7 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                 auto c = [&]() noexcept -> ir::Const {
                     if (x == static_cast<T>(0)) {
                         ir::Const cc{.tag = ir::Const::Tag::Zero};
+                        // FIXME: clang has trouble if designated initializer is used for .zero
                         cc.zero = {_convert_type(expr->type())};
                         return cc;
                     }
@@ -313,6 +317,7 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                 auto slice = _boxed_slice<uint8_t>(sizeof(T));
                 std::memcpy(slice.ptr, &x, sizeof(T));
                 auto c = ir::Const{.tag = ir::Const::Tag::Generic};
+                // FIXME: clang has trouble if designated initializer is used for .generic
                 c.generic = {slice, _convert_type(expr->type())};
                 auto b = _current_builder();
                 auto node = ir::luisa_compute_ir_build_const(b, c);
@@ -344,12 +349,16 @@ ir::NodeRef AST2IR::_convert(const UnaryExpr *expr) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
-    auto tag = [expr] {
+    auto lhs_type = expr->lhs()->type();
+    auto rhs_type = expr->rhs()->type();
+    auto is_matrix_scalar = (lhs_type->is_scalar() && rhs_type->is_matrix()) ||
+                            (lhs_type->is_matrix() && rhs_type->is_scalar());
+    auto tag = [expr, is_matrix_scalar] {
         switch (expr->op()) {
             case BinaryOp::ADD: return ir::Func::Tag::Add;
             case BinaryOp::SUB: return ir::Func::Tag::Sub;
-            case BinaryOp::MUL: return ir::Func::Tag::Mul;
-            case BinaryOp::DIV: return ir::Func::Tag::Div;
+            case BinaryOp::MUL: return is_matrix_scalar ? ir::Func::Tag::MatCompMul : ir::Func::Tag::Mul;
+            case BinaryOp::DIV: return is_matrix_scalar ? ir::Func::Tag::MatCompDiv : ir::Func::Tag::Div;
             case BinaryOp::MOD: return ir::Func::Tag::Rem;
             case BinaryOp::BIT_AND: return ir::Func::Tag::BitAnd;
             case BinaryOp::BIT_OR: return ir::Func::Tag::BitOr;
@@ -369,21 +378,15 @@ ir::NodeRef AST2IR::_convert(const BinaryExpr *expr) noexcept {
             "Unsupported binary operator: 0x{:02x}.",
             luisa::to_underlying(expr->op()));
     }();
-    auto lhs_type = expr->lhs()->type();
-    auto rhs_type = expr->rhs()->type();
     auto lhs = _convert_expr(expr->lhs());
     auto rhs = _convert_expr(expr->rhs());
-    if (is_relational(expr->op())) {
-
-    } else if (is_logical(expr->op())) {
-
-    } else {
-        if (lhs_type->is_scalar() && rhs_type->is_scalar()) {
-            // TODO: conversion
-            lhs = _cast(expr->type(), expr->lhs()->type(), lhs);
-            rhs = _cast(expr->type(), expr->rhs()->type(), rhs);
-        }
-    }
+    auto prom = promote_types(expr->op(), lhs_type, rhs_type);
+    lhs = _cast(prom.lhs, lhs_type, lhs);
+    rhs = _cast(prom.rhs, rhs_type, rhs);
+    LUISA_ASSERT(*expr->type() == *prom.result,
+                 "Type mismatch: {} vs {}.",
+                 expr->type()->description(),
+                 prom.result->description());
     std::array args{lhs, rhs};
     return ir::luisa_compute_ir_build_call(
         _current_builder(), {.tag = tag},
@@ -668,7 +671,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
 ir::NodeRef AST2IR::_convert(const CastExpr *expr) noexcept {
     auto src = _convert_expr(expr->expression());
     if (expr->op() == CastOp::STATIC) {
-        return _cast(expr->type(), expr->expression()->type(), src, true);
+        return _cast(expr->type(), expr->expression()->type(), src);
     }
     return ir::luisa_compute_ir_build_call(
         _current_builder(), {.tag = ir::Func::Tag::Bitcast},
@@ -887,7 +890,7 @@ ir::NodeRef AST2IR::_convert(const ForStmt *stmt) noexcept {
             {.tag = ir::Instruction::Tag::Update,
              .update = {.var = var, .value = next}});
         auto node = ir::luisa_compute_ir_new_node(
-            {.type_ = _convert_type(nullptr),// TODO: check if UpdateNode returns void
+            {.type_ = _convert_type(nullptr),
              .instruction = instr});
         ir::luisa_compute_ir_append_node(b, node);
         // finish
@@ -1018,7 +1021,7 @@ ir::NodeRef AST2IR::_convert_builtin_variable(Variable v) noexcept {
     return node;
 }
 
-ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRef node_src, bool diagonal_matrix) noexcept {
+ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRef node_src) noexcept {
     if (*type_dst == *type_src) { return node_src; }
     // scalar to scalar
     auto builder = _current_builder();
@@ -1053,9 +1056,7 @@ ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRe
         auto elem = _cast(Type::of<float>(), type_src, node_src);
         return ir::luisa_compute_ir_build_call(
             builder,
-            {.tag = diagonal_matrix ?
-                        ir::Func::Tag::Eye :
-                        ir::Func::Tag::Full},
+            {.tag = ir::Func::Tag::Mat},
             {.ptr = &elem, .len = 1u},
             _convert_type(type_dst));
     }
@@ -1111,3 +1112,5 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
 }
 
 }// namespace luisa::compute
+
+#pragma clang diagnostic pop

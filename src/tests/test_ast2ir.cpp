@@ -161,7 +161,7 @@ int main(int argc, char *argv[]) {
     auto ir = AST2IR{}.convert_kernel(kernel_def.function()->function());
     LUISA_INFO("AST2IR done in {} ms.", clock.toc());
     clock.tic();
-    auto dump = ir::luisa_compute_ir_dump_json(&(*ir)->module);
+    auto dump = ir::luisa_compute_ir_dump_json(&ir->get()->module);
     LUISA_INFO("IR json dump done in {} ms.", clock.toc());
     auto json = luisa::json::parse(luisa::string_view{
         reinterpret_cast<const char *>(dump.ptr), dump.len});
@@ -169,7 +169,7 @@ int main(int argc, char *argv[]) {
     out << json.dump(4);
 
     clock.tic();
-    auto binary = ir::luisa_compute_ir_dump_binary(&(*ir)->module);
+    auto binary = ir::luisa_compute_ir_dump_binary(&ir->get()->module);
     LUISA_INFO("IR binary dump done in {} ms.", clock.toc());
 
     std::ofstream bin_out{"test_ast2ir.bin", std::ios::binary};

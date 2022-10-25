@@ -322,6 +322,8 @@ pub enum Func {
     Le,
     Gt,
     Ge,
+    MatCompMul,
+    MatCompDiv,
 
     // Unary op
     Neg,
@@ -339,6 +341,12 @@ pub enum Func {
     Abs,
     Min,
     Max,
+
+    // reduction
+    ReduceSum,
+    ReduceProd,
+    ReduceMin,
+    ReduceMax,
 
     // bit manipulation
     Clz,
@@ -480,10 +488,8 @@ pub enum Func {
     //(struct, index) -> value; the value can be passed to an Update instruction
     GetElementPtr,
 
-    // scalar -> matrix, the resulting type is stored in node
-    Full,
-    // scalar/vector -> matrix, forming a diagonal matrix
-    Eye,
+    // scalar -> matrix, all elements are set to the scalar
+    Mat,
     // scalar x 4 -> matrix
     Matrix2,
     // scalar x 9 -> matrix

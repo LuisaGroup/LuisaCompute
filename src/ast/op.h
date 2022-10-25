@@ -11,6 +11,8 @@
 
 namespace luisa::compute {
 
+class Type;
+
 /**
  * @brief Enum of unary operations.
  * 
@@ -51,6 +53,14 @@ enum struct BinaryOp : uint32_t {
     EQUAL,
     NOT_EQUAL
 };
+
+struct TypePromotion {
+    const Type *lhs{nullptr};
+    const Type *rhs{nullptr};
+    const Type *result{nullptr};
+};
+
+[[nodiscard]] TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexcept;
 
 [[nodiscard]] constexpr auto is_relational(BinaryOp op) noexcept {
     return op == BinaryOp::LESS ||
