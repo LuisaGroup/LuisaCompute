@@ -518,7 +518,9 @@ impl Validator {
             }
         }
     }
-    fn validate(&mut self, module: &Module) {}
+    fn validate(&mut self, module: &Module) {
+        self.check_block(&module.entry);
+    }
 }
 pub struct Validate;
 impl Transform for Validate {
