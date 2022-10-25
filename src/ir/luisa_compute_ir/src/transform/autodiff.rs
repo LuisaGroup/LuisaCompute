@@ -46,7 +46,7 @@ fn grad_type_of_ve(t: &VectorElementType) -> Option<VectorElementType> {
     }
 }
 
-fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
+pub fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
     GRAD_TYPES.with(|grad_types| {
         if let Some(t) = grad_types.borrow().get(&type_) {
             return *t;
