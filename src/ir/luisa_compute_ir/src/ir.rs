@@ -28,6 +28,33 @@ pub enum VectorElementType {
     Scalar(Primitive),
     Vector(Gc<VectorType>),
 }
+impl VectorElementType {
+    pub fn is_float(&self) -> bool {
+        match self {
+            VectorElementType::Scalar(Primitive::Float32) => true,
+            VectorElementType::Scalar(Primitive::Float64) => true,
+            VectorElementType::Vector(v) => v.element.is_float(),
+            _ => false,
+        }
+    }
+    pub fn is_int(&self) -> bool {
+        match self {
+            VectorElementType::Scalar(Primitive::Int32) => true,
+            VectorElementType::Scalar(Primitive::Uint32) => true,
+            VectorElementType::Scalar(Primitive::Int64) => true,
+            VectorElementType::Scalar(Primitive::Uint64) => true,
+            VectorElementType::Vector(v) => v.element.is_int(),
+            _ => false,
+        }
+    }
+    pub fn is_bool(&self) -> bool {
+        match self {
+            VectorElementType::Scalar(Primitive::Bool) => true,
+            VectorElementType::Vector(v) => v.element.is_bool(),
+            _ => false,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
@@ -175,6 +202,63 @@ impl Type {
             Type::Vector(t) => t.element.size(), // TODO
             Type::Matrix(t) => t.element.size(),
             Type::Array(t) => t.element.alignment(),
+        }
+    }
+    pub fn vector(element: Primitive, length: u32) -> Gc<Type> {
+        context::register_type(Type::Vector(VectorType {
+            element: VectorElementType::Scalar(element),
+            length,
+        }))
+    }
+    pub fn vector_vector(element: Gc<VectorType>, length: u32) -> Gc<Type> {
+        context::register_type(Type::Vector(VectorType {
+            element: VectorElementType::Vector(element),
+            length,
+        }))
+    }
+    pub fn matrix(element: Primitive, dimension: u32) -> Gc<Type> {
+        context::register_type(Type::Matrix(MatrixType {
+            element: VectorElementType::Scalar(element),
+            dimension,
+        }))
+    }
+    pub fn matrix_vector(element: Gc<VectorType>, dimension: u32) -> Gc<Type> {
+        context::register_type(Type::Matrix(MatrixType {
+            element: VectorElementType::Vector(element),
+            dimension,
+        }))
+    }
+    pub fn is_float(&self) -> bool {
+        match self {
+            Type::Primitive(p) => match p {
+                Primitive::Float32 | Primitive::Float64 => true,
+                _ => false,
+            },
+            Type::Vector(v) => v.element.is_float(),
+            Type::Matrix(m) => m.element.is_float(),
+            _ => false,
+        }
+    }
+    pub fn is_bool(&self) -> bool {
+        match self {
+            Type::Primitive(p) => match p {
+                Primitive::Bool => true,
+                _ => false,
+            },
+            Type::Vector(v) => v.element.is_bool(),
+            Type::Matrix(m) => m.element.is_bool(),
+            _ => false,
+        }
+    }
+    pub fn is_int(&self) -> bool {
+        match self {
+            Type::Primitive(p) => match p {
+                Primitive::Int32 | Primitive::Uint32 | Primitive::Int64 | Primitive::Uint64 => true,
+                _ => false,
+            },
+            Type::Vector(v) => v.element.is_int(),
+            Type::Matrix(m) => m.element.is_int(),
+            _ => false,
         }
     }
 }

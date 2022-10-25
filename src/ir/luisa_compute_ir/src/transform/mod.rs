@@ -2,6 +2,7 @@ pub mod autodiff;
 pub mod lower_control_flow;
 pub mod ssa;
 pub mod vectorize;
+pub mod validate;
 use crate::ir;
 
 pub trait Transform {
