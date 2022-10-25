@@ -80,11 +80,18 @@ int main(int argc, char *argv[]) {
     Constant int_consts = const_vector;
 
     Kernel1D<Buffer<float>, uint> kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
-        for (auto n = 0u; n < 10000u; n++) {
+        for (auto n = 0u; n < 1u; n++) {
             Shared<float4> shared_floats{16};
+
+            count += 1u;
 
             Constant float_consts = {1.0f, 2.0f};
             auto ff = float_consts.read(0);
+
+            Var mat = make_float2x2(1.0f, 2.0f, 3.0f, 4.0f);
+            Var mat2 = make_float2x2(1.0f, 2.0f, 3.0f, 4.0f);
+            Var mat3 = mat * mat2;
+            Var mat4 = mat3 * make_float2(2.f);
 
             Var v_int = 10;
             Var t = make_int3(1, 2, 3);
