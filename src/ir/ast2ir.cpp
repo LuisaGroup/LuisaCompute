@@ -958,9 +958,21 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
                 if (_function.tag() == Function::Tag::KERNEL) {
                     auto instr = ir::luisa_compute_ir_new_instruction(
                         {.tag = ir::Instruction::Tag::Uniform});
-                    return ir::luisa_compute_ir_new_node(
+                    auto node = ir::luisa_compute_ir_new_node(
                         {.type_ = _convert_type(v.type()),
                          .instruction = instr});
+                    // uniform variables are not writable, so make a copy if needed
+                    if (auto usage = _function.variable_usage(v.uid());
+                        usage == Usage::NONE || usage == Usage::READ) {// no copy needed
+                        return node;
+                    }
+                    // copy to local
+                    ir::luisa_compute_ir_append_node(b, node);
+                    auto local = ir::luisa_compute_ir_new_instruction(
+                        {.tag = ir::Instruction::Tag::Local, .local = {node}});
+                    return ir::luisa_compute_ir_new_node(
+                        {.type_ = _convert_type(v.type()),
+                         .instruction = local});
                 }
                 auto instr = ir::luisa_compute_ir_new_instruction(
                     {.tag = ir::Instruction::Tag::Argument,
