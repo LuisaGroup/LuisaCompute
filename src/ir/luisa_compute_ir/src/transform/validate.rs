@@ -13,12 +13,15 @@ use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
 use super::Transform;
+
 struct Validator {}
+
 fn check_types_equal(types: &[Gc<Type>]) -> bool {
     let mut iter = types.iter();
     let first = iter.next().unwrap();
     iter.all(|t| t == first && *t != Type::void())
 }
+
 fn _vector_compatible(a: &VectorType, b: &VectorType) -> bool {
     if a.length != b.length {
         return false;
@@ -29,6 +32,7 @@ fn _vector_compatible(a: &VectorType, b: &VectorType) -> bool {
         _ => false,
     }
 }
+
 fn _matrix_compatible(a: &MatrixType, b: &MatrixType) -> bool {
     if a.dimension != b.dimension {
         return false;
@@ -39,6 +43,7 @@ fn _matrix_compatible(a: &MatrixType, b: &MatrixType) -> bool {
         _ => false,
     }
 }
+
 fn vector_compatible(a: Gc<Type>, b: Gc<Type>) -> bool {
     match (a.as_ref(), b.as_ref()) {
         (Type::Vector(a), Type::Vector(b)) => _vector_compatible(a, b),
@@ -46,6 +51,7 @@ fn vector_compatible(a: Gc<Type>, b: Gc<Type>) -> bool {
         _ => false,
     }
 }
+
 impl Validator {
     fn new() -> Self {
         Self {}
@@ -522,7 +528,9 @@ impl Validator {
         self.check_block(&module.entry);
     }
 }
+
 pub struct Validate;
+
 impl Transform for Validate {
     fn transform(&self, module: Module) -> Module {
         let mut validator = Validator::new();
