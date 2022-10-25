@@ -54,7 +54,7 @@ impl ToSSA {
         }
         let instruction = node.get().instruction;
         let type_ = node.get().type_;
-        match instruction {
+        match instruction.as_ref() {
             Instruction::Buffer => return node,
             Instruction::Bindless => return node,
             Instruction::Texture2D => return node,
@@ -148,16 +148,19 @@ impl ToSSA {
                 let body = self.promote_bb(*body, IrBuilder::new(), &mut body_record);
                 let cond = self.promote(*cond, builder, record);
                 builder.loop_(body, cond)
-            },
-            Instruction::Comment(_) => return node
+            }
+            Instruction::Comment(_) => return node,
+            Instruction::Return(_) => {
+                panic!("call LowerControlFlow before ToSSA");
+            }
         }
     }
     fn promote_bb(
         &self,
-        bb: &'static BasicBlock,
+        bb: Gc<BasicBlock>,
         mut builder: IrBuilder,
         record: &mut SSABlockRecord,
-    ) -> &'static BasicBlock {
+    ) -> Gc<BasicBlock> {
         for node in bb.nodes().iter() {
             self.promote(*node, &mut builder, record);
         }

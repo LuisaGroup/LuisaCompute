@@ -7,14 +7,15 @@ version = "0.1.0"
 
 [dependencies]
 bumpalo = "3.11.0"
+gc = {git = "https://github.com/shiinamiyuki/gc"}
 lazy_static = "1.4.0"
 parking_lot = "0.12.1"
+serde = {version = "1", features = ["derive"]}
 serde_json = "1"
-serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 cbindgen = "0.24.3"
 
 [lib]
-name = "luisa_compute_ir"
 crate-type = ["staticlib", "rlib"]
+name = "luisa_compute_ir"

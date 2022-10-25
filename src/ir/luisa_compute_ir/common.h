@@ -10,6 +10,13 @@ const static inline size_t usize_MAX = (size_t)-1;
 namespace luisa::compute::ir {
 struct VectorType;
 struct Type;
+
+template<class T>
+struct Gc{
+    const T ** ptr = nullptr;
+    const T * operator->() const { return *ptr; }
+};
+
 }// namespace luisa::compute::ir
 
 #else

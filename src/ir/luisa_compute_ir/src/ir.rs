@@ -1,4 +1,5 @@
 use bumpalo::Bump;
+use gc::Trace;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
@@ -26,7 +27,7 @@ pub enum Primitive {
 #[repr(C)]
 pub enum VectorElementType {
     Scalar(Primitive),
-    Vector(&'static VectorType),
+    Vector(Gc<VectorType>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -46,7 +47,7 @@ pub struct MatrixType {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct StructType {
-    pub fields: CSlice<'static, &'static Type>,
+    pub fields: CBoxedSlice<Gc<Type>>,
     pub alignment: usize,
     pub size: usize,
     // pub id: u64,
@@ -55,7 +56,7 @@ pub struct StructType {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct ArrayType {
-    pub element: &'static Type,
+    pub element: Gc<Type>,
     pub length: usize,
 }
 
@@ -70,6 +71,46 @@ pub enum Type {
     Array(ArrayType),
 }
 
+impl Trace for Type {
+    fn trace(&self) {
+        match self {
+            Type::Void => {}
+            Type::Primitive(_) => {}
+            Type::Vector(v) => v.trace(),
+            Type::Matrix(m) => m.trace(),
+            Type::Struct(s) => s.trace(),
+            Type::Array(a) => a.trace(),
+        }
+    }
+}
+impl Trace for VectorElementType {
+    fn trace(&self) {
+        match self {
+            VectorElementType::Scalar(_) => {}
+            VectorElementType::Vector(v) => v.trace(),
+        }
+    }
+}
+impl Trace for VectorType {
+    fn trace(&self) {
+        self.element.trace();
+    }
+}
+impl Trace for MatrixType {
+    fn trace(&self) {
+        self.element.trace();
+    }
+}
+impl Trace for StructType {
+    fn trace(&self) {
+        self.fields.trace();
+    }
+}
+impl Trace for ArrayType {
+    fn trace(&self) {
+        self.element.trace();
+    }
+}
 impl VectorElementType {
     pub fn size(&self) -> usize {
         match self {
@@ -106,6 +147,9 @@ impl MatrixType {
 }
 
 impl Type {
+    pub fn void() -> Gc<Type> {
+        Gc::new(Type::Void)
+    }
     pub fn size(&self) -> usize {
         match self {
             Type::Void => 0,
@@ -133,16 +177,85 @@ impl Type {
 #[derive(Clone, Debug, Copy, Serialize)]
 #[repr(C)]
 pub struct Node {
-    pub type_: &'static Type,
+    pub type_: Gc<Type>,
     pub next: NodeRef,
     pub prev: NodeRef,
-    pub instruction: &'static Instruction,
+    pub instruction: Gc<Instruction>,
 }
-
-pub const INVALID_REF: NodeRef = NodeRef(usize::MAX);
+impl Trace for Node {
+    fn trace(&self) {
+        self.type_.trace();
+        self.instruction.trace();
+        self.next.trace();
+        self.prev.trace();
+    }
+}
+impl Trace for NodeRef {
+    fn trace(&self) {
+        unsafe {
+            let ptr: Gc<Node> = std::mem::transmute(self.0);
+            ptr.trace();
+        }
+    }
+}
+impl Trace for Instruction {
+    fn trace(&self) {
+        match self {
+            Instruction::Buffer => {}
+            Instruction::Bindless => {}
+            Instruction::Texture2D => {}
+            Instruction::Texture3D => {}
+            Instruction::Accel => {}
+            Instruction::Shared => {}
+            Instruction::Uniform => {}
+            Instruction::Local { init } => init.trace(),
+            Instruction::UserData(_) => {}
+            Instruction::Invalid => {}
+            Instruction::Const(c) => c.trace(),
+            Instruction::Update { var, value } => {
+                var.trace();
+                value.trace();
+            }
+            Instruction::Call(f, args) => {
+                f.trace();
+                args.trace();
+            }
+            Instruction::Phi(incomings) => {
+                incomings.trace();
+            }
+            Instruction::Return(v) => v.trace(),
+            Instruction::Loop { body, cond } => {
+                body.trace();
+                cond.trace();
+            }
+            Instruction::Break => {}
+            Instruction::Continue => {}
+            Instruction::If {
+                cond,
+                true_branch,
+                false_branch,
+            } => {
+                cond.trace();
+                true_branch.trace();
+                false_branch.trace();
+            }
+            Instruction::Switch {
+                value,
+                default,
+                cases,
+            } => {
+                value.trace();
+                default.trace();
+                cases.trace();
+            }
+            Instruction::Comment(_) => todo!(),
+        }
+    }
+}
+pub const INVALID_REF: NodeRef = NodeRef(0);
 
 impl Node {
-    pub fn new(instruction: &'static Instruction, type_: &'static Type) -> Node {
+    pub fn new(instruction: Gc<Instruction>, type_: Gc<Type>) -> Node {
         Node {
             instruction,
             type_,
@@ -369,11 +482,14 @@ pub enum Func {
     Callable(u64),
     CpuCustomOp(CRc<CpuCustomOp>),
 }
+impl Trace for Func {
+    fn trace(&self) {}
+}
 
 #[derive(Clone, Debug, Serialize)]
 #[repr(C)]
 pub enum Const {
-    Zero(&'static Type),
+    Zero(Gc<Type>),
     Bool(bool),
     Int32(i32),
     Uint32(u32),
@@ -381,7 +497,16 @@ pub enum Const {
     Uint64(u64),
     Float32(f32),
     Float64(f64),
-    Generic(CBoxedSlice<u8>, &'static Type),
+    Generic(CBoxedSlice<u8>, Gc<Type>),
+}
+impl Trace for Const {
+    fn trace(&self) {
+        match self {
+            Const::Zero(ty) => ty.trace(),
+            Const::Generic(_, ty) => ty.trace(),
+            _ => {}
+        }
+    }
 }
 
 impl Const {
@@ -391,7 +516,7 @@ impl Const {
             _ => panic!("not an i32"),
         }
     }
-    pub fn type_(&self) -> &'static Type {
+    pub fn type_(&self) -> Gc<Type> {
         match self {
             Const::Zero(ty) => ty.clone(),
             Const::Bool(_) => <bool as TypeOf>::type_(),
@@ -401,7 +526,7 @@ impl Const {
             Const::Uint64(_) => <u64 as TypeOf>::type_(),
             Const::Float32(_) => <f32 as TypeOf>::type_(),
             Const::Float64(_) => <f64 as TypeOf>::type_(),
-            Const::Generic(_, t) => t,
+            Const::Generic(_, t) => *t,
         }
     }
 }
@@ -419,7 +544,13 @@ pub struct UserNodeDataRef(pub usize);
 #[repr(C)]
 pub struct PhiIncoming {
     pub value: NodeRef,
-    pub block: &'static BasicBlock,
+    pub block: Gc<BasicBlock>,
+}
+impl Trace for PhiIncoming {
+    fn trace(&self) {
+        self.block.trace();
+        self.value.trace();
+    }
 }
 
 #[repr(C)]
@@ -451,9 +582,14 @@ impl Debug for CpuCustomOp {
 #[derive(Clone, Debug, Serialize)]
 pub struct SwitchCase {
     pub value: NodeRef,
-    pub block: &'static BasicBlock,
+    pub block: Gc<BasicBlock>,
 }
-
+impl Trace for SwitchCase {
+    fn trace(&self) {
+        self.value.trace();
+        self.block.trace();
+    }
+}
 #[repr(C)]
 #[derive(Clone, Debug, Serialize)]
 pub enum Instruction {
@@ -491,19 +627,19 @@ pub enum Instruction {
     */
     Return(NodeRef),
     Loop {
-        body: &'static BasicBlock,
+        body: Gc<BasicBlock>,
         cond: NodeRef,
     },
     Break,
     Continue,
     If {
         cond: NodeRef,
-        true_branch: &'static BasicBlock,
-        false_branch: &'static BasicBlock,
+        true_branch: Gc<BasicBlock>,
+        false_branch: Gc<BasicBlock>,
     },
     Switch {
         value: NodeRef,
-        default: &'static BasicBlock,
+        default: Gc<BasicBlock>,
         cases: CBoxedSlice<SwitchCase>,
     },
     Comment(CBoxedSlice<u8>),
@@ -513,14 +649,10 @@ pub enum Instruction {
 //     new_node(Node::new(
 //         Instruction::UserData(Rc::new(data)),
 //         false,
-//         &VOID_TYPE,
+//         Type::void(),
 //     ))
 // }
 const INVALID_INST: Instruction = Instruction::Invalid;
-
-pub(crate) fn with_node_pool<T>(f: impl FnOnce(&mut [*mut Node]) -> T) -> T {
-    with_context(|ctx| f(&mut ctx.nodes))
-}
 
 pub(crate) fn new_node(node: Node) -> NodeRef {
     with_context(|ctx| ctx.alloc_node(node))
@@ -537,11 +669,21 @@ pub struct BasicBlock {
     pub(crate) first: NodeRef,
     pub(crate) last: NodeRef,
 }
+impl Trace for BasicBlock {
+    fn trace(&self) {
+        let mut cur = self.first;
+        while cur != INVALID_REF {
+            let node = cur.get();
+            node.trace();
+            cur = node.next;
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct NodeRefAndNode {
     id: NodeRef,
-    data: &'static Node,
+    data: Node,
 }
 
 impl Serialize for BasicBlock {
@@ -552,7 +694,7 @@ impl Serialize for BasicBlock {
             .iter()
             .map(|n| NodeRefAndNode {
                 id: *n,
-                data: n.get(),
+                data: *n.get(),
             })
             .collect::<Vec<_>>();
         state.serialize_field("nodes", &nodes)?;
@@ -585,8 +727,8 @@ impl BasicBlock {
         vec
     }
     pub(crate) fn new() -> Self {
-        let first = new_node(Node::new(&Instruction::Invalid, &VOID_TYPE));
-        let last = new_node(Node::new(&Instruction::Invalid, &VOID_TYPE));
+        let first = new_node(Node::new(Gc::new(Instruction::Invalid), Type::void()));
+        let last = new_node(Node::new(Gc::new(Instruction::Invalid), Type::void()));
         first.update(|node| node.next = last);
         last.update(|node| node.prev = first);
         Self { first, last }
@@ -619,33 +761,41 @@ impl BasicBlock {
     }
 }
 
-pub static VOID_TYPE: Type = Type::Void;
-
 impl NodeRef {
     pub fn get_i32(&self) -> i32 {
-        match self.get().instruction {
+        match self.get().instruction.as_ref() {
             Instruction::Const(c) => c.get_i32(),
             _ => panic!("not i32 node"),
         }
     }
-    pub fn get(&self) -> &'static Node {
+    pub fn get_gc_node(&self) -> Gc<Node> {
         assert!(self.valid());
-        with_node_pool(|pool| unsafe { std::mem::transmute(pool[self.0]) })
+        unsafe { std::mem::transmute(self.0) }
+    }
+    pub fn get<'a>(&'a self) -> &'a Node {
+        // assert!(self.valid());
+        // with_node_pool(|pool| unsafe { std::mem::transmute(pool[self.0]) })
+        let gc = self.get_gc_node();
+        unsafe { std::mem::transmute(gc.as_ref()) }
     }
     pub fn valid(&self) -> bool {
         self.0 != INVALID_REF.0
     }
     pub fn set(&self, node: Node) {
-        assert!(self.valid());
-        with_node_pool(|pool| unsafe { *pool[self.0] = node });
+        let gc = self.get_gc_node();
+        unsafe {
+            *Gc::get_mut(&gc) = node;
+        }
     }
     pub fn update<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T {
-        assert!(self.valid());
-        with_node_pool(|pool| unsafe { f(&mut *pool[self.0]) })
+        let gc = self.get_gc_node();
+        unsafe {
+            let node = Gc::get_mut(&gc);
+            f(node)
+        }
     }
-    pub fn type_(&self) -> &'static Type {
-        assert!(self.valid());
-        with_node_pool(|pool| unsafe { (*pool[self.0]).type_ })
+    pub fn type_(&self) -> Gc<Type> {
+        self.get().type_
     }
     pub fn is_linked(&self) -> bool {
         assert!(self.valid());
@@ -698,7 +848,12 @@ pub enum ModuleKind {
 #[derive(Debug, Serialize)]
 pub struct Module {
     pub kind: ModuleKind,
-    pub entry: &'static BasicBlock,
+    pub entry: Gc<BasicBlock>,
+}
+impl Trace for Module {
+    fn trace(&self) {
+        self.entry.trace();
+    }
 }
 
 #[repr(C)]
@@ -708,7 +863,13 @@ pub struct CallableModule {
     pub args: CBoxedSlice<NodeRef>,
     pub ret: NodeRef,
 }
-
+impl Trace for CallableModule {
+    fn trace(&self) {
+        self.module.trace();
+        self.args.trace();
+        self.ret.trace();
+    }
+}
 // buffer binding
 #[repr(C)]
 #[derive(Debug, Serialize)]
@@ -766,7 +927,7 @@ pub struct KernelModule {
 }
 
 impl Module {
-    pub fn from_fragment(entry: &'static BasicBlock) -> Self {
+    pub fn from_fragment(entry: Gc<BasicBlock>) -> Self {
         Self {
             kind: ModuleKind::Block,
             entry,
@@ -788,7 +949,7 @@ impl ModuleCloner {
         if let Some(&node) = self.node_map.get(&node) {
             return node;
         }
-        let new_node = match node.get().instruction {
+        let new_node = match node.get().instruction.as_ref() {
             Instruction::Buffer => node,
             Instruction::Bindless => node,
             Instruction::Texture2D => node,
@@ -808,16 +969,13 @@ impl ModuleCloner {
             Instruction::Continue => builder.continue_(),
             Instruction::If { .. } => todo!(),
             Instruction::Switch { .. } => todo!(),
-            Instruction::Comment(_) => builder.clone_node(node)
+            Instruction::Comment(_) => builder.clone_node(node),
+            Instruction::Return(_) => todo!(),
         };
         self.node_map.insert(node, new_node);
         new_node
     }
-    fn clone_block(
-        &mut self,
-        block: &'static BasicBlock,
-        mut builder: IrBuilder,
-    ) -> &'static BasicBlock {
+    fn clone_block(&mut self, block: Gc<BasicBlock>, mut builder: IrBuilder) -> Gc<BasicBlock> {
         let mut cur = block.first.get().next;
         while cur != block.last {
             let _ = self.clone_node(cur, &mut builder);
@@ -844,13 +1002,13 @@ impl Clone for Module {
 
 #[repr(C)]
 pub struct IrBuilder {
-    bb: &'static mut BasicBlock,
+    bb: Gc<BasicBlock>,
     insert_point: NodeRef,
 }
 
 impl IrBuilder {
     pub fn new() -> Self {
-        let bb = context::alloc_deferred_drop(BasicBlock::new());
+        let bb = Gc::new(BasicBlock::new());
         let insert_point = bb.first;
         Self { bb, insert_point }
     }
@@ -862,75 +1020,66 @@ impl IrBuilder {
         self.insert_point = node;
     }
     pub fn break_(&mut self) -> NodeRef {
-        let new_node = new_node(Node::new(
-            context::alloc_deferred_drop(Instruction::Break),
-            &VOID_TYPE,
-        ));
+        let new_node = new_node(Node::new(Gc::new(Instruction::Break), Type::void()));
         self.append(new_node);
         new_node
     }
     pub fn continue_(&mut self) -> NodeRef {
-        let new_node = new_node(Node::new(
-            context::alloc_deferred_drop(Instruction::Continue),
-            &VOID_TYPE,
-        ));
+        let new_node = new_node(Node::new(Gc::new(Instruction::Continue), Type::void()));
         self.append(new_node);
         new_node
     }
-    pub fn zero_initializer(&mut self, ty: &'static Type) -> NodeRef {
+    pub fn zero_initializer(&mut self, ty: Gc<Type>) -> NodeRef {
         self.call(Func::ZeroInitializer, &[], ty)
     }
     pub fn requires_gradient(&mut self, node: NodeRef) -> NodeRef {
-        self.call(Func::RequiresGradient, &[node], &VOID_TYPE)
+        self.call(Func::RequiresGradient, &[node], Type::void())
     }
     pub fn gradient(&mut self, node: NodeRef) -> NodeRef {
         self.call(Func::Gradient, &[node], node.type_())
     }
     pub fn clone_node(&mut self, node: NodeRef) -> NodeRef {
         let node = node.get();
-        let new_node = new_node(Node::new(
-            context::alloc_deferred_drop(node.instruction.clone()),
-            node.type_,
-        ));
+        let new_node = new_node(Node::new(node.instruction, node.type_));
         self.append(new_node);
         new_node
     }
     pub fn const_(&mut self, const_: Const) -> NodeRef {
         let t = const_.type_();
-        let node = Node::new(context::alloc_deferred_drop(Instruction::Const(const_)), t);
+        let node = Node::new(Gc::new(Instruction::Const(const_)), t);
         let node = new_node(node);
         self.append(node.clone());
         node
     }
-    pub fn local_zero_init(&mut self, ty: &'static Type) -> NodeRef {
+    pub fn local_zero_init(&mut self, ty: Gc<Type>) -> NodeRef {
         let node = self.zero_initializer(ty);
         let local = self.local(node);
         local
     }
     pub fn local(&mut self, init: NodeRef) -> NodeRef {
         let t = init.type_();
-        let node = Node::new(context::alloc_deferred_drop(Instruction::Local { init }), t);
+        let node = Node::new(Gc::new(Instruction::Local { init }), t);
         let node = new_node(node);
         self.append(node.clone());
         node
     }
-    pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: &'static Type) -> NodeRef {
+    pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: Gc<Type>) -> NodeRef {
         let node = Node::new(
-            context::alloc_deferred_drop(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
+            Gc::new(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
             ret_type,
         );
         let node = new_node(node);
         self.append(node.clone());
         node
     }
-    pub fn cast(&mut self, node: NodeRef, t: &'static Type) -> NodeRef {
+    pub fn cast(&mut self, node: NodeRef, t: Gc<Type>) -> NodeRef {
         self.call(Func::Cast, &[node], t)
     }
-    pub fn bitcast(&mut self, node: NodeRef, t: &'static Type) -> NodeRef {
+    pub fn bitcast(&mut self, node: NodeRef, t: Gc<Type>) -> NodeRef {
         self.call(Func::Bitcast, &[node], t)
     }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) {
-        match var.get().instruction {
+        match var.get().instruction.as_ref() {
             Instruction::Local { .. } => {}
             Instruction::Call(func, _) => match func {
                 Func::GetElementPtr => {}
@@ -938,16 +1087,13 @@ impl IrBuilder {
             },
             _ => panic!("not a var"),
         }
-        let node = Node::new(
-            context::alloc_deferred_drop(Instruction::Update { var, value }),
-            &VOID_TYPE,
-        );
+        let node = Node::new(Gc::new(Instruction::Update { var, value }), Type::void());
         let node = new_node(node);
         self.append(node);
     }
-    pub fn phi(&mut self, incoming: &[PhiIncoming], t: &'static Type) -> NodeRef {
+    pub fn phi(&mut self, incoming: &[PhiIncoming], t: Gc<Type>) -> NodeRef {
         let node = Node::new(
-            context::alloc_deferred_drop(Instruction::Phi(CBoxedSlice::new(incoming.to_vec()))),
+            Gc::new(Instruction::Phi(CBoxedSlice::new(incoming.to_vec()))),
             t,
         );
         let node = new_node(node);
@@ -957,31 +1103,28 @@ impl IrBuilder {
     pub fn if_(
         &mut self,
         cond: NodeRef,
-        true_branch: &'static BasicBlock,
-        false_branch: &'static BasicBlock,
+        true_branch: Gc<BasicBlock>,
+        false_branch: Gc<BasicBlock>,
     ) -> NodeRef {
         let node = Node::new(
-            context::alloc_deferred_drop(Instruction::If {
+            Gc::new(Instruction::If {
                 cond,
                 true_branch,
                 false_branch,
             }),
-            &VOID_TYPE,
+            Type::void(),
         );
         let node = new_node(node);
         self.append(node);
         node
     }
-    pub fn loop_(&mut self, body: &'static BasicBlock, cond: NodeRef) -> NodeRef {
-        let node = Node::new(
-            context::alloc_deferred_drop(Instruction::Loop { body, cond }),
-            &VOID_TYPE,
-        );
+    pub fn loop_(&mut self, body: Gc<BasicBlock>, cond: NodeRef) -> NodeRef {
+        let node = Node::new(Gc::new(Instruction::Loop { body, cond }), Type::void());
         let node = new_node(node);
         self.append(node);
         node
     }
-    pub fn finish(self) -> &'static BasicBlock {
+    pub fn finish(self) -> Gc<BasicBlock> {
         self.bb
     }
 }
@@ -1006,7 +1149,7 @@ pub extern "C" fn luisa_compute_ir_build_call(
     builder: &mut IrBuilder,
     func: Func,
     args: CSlice<NodeRef>,
-    ret_type: &'static Type,
+    ret_type: Gc<Type>,
 ) -> NodeRef {
     let args = args.as_ref();
     builder.call(func, args, ret_type)
@@ -1034,7 +1177,7 @@ pub extern "C" fn luisa_compute_ir_build_local(builder: &mut IrBuilder, init: No
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder: &mut IrBuilder,
-    ty: &'static Type,
+    ty: Gc<Type>,
 ) -> NodeRef {
     builder.local_zero_init(ty)
 }
@@ -1045,7 +1188,7 @@ pub extern "C" fn luisa_compute_ir_new_builder() -> IrBuilder {
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> &'static BasicBlock {
+pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Gc<BasicBlock> {
     builder.finish()
 }
 
@@ -1064,5 +1207,13 @@ pub mod debug {
         let s = serde_json::to_string(&json).unwrap();
         let cstring = CString::new(s).unwrap();
         CBoxedSlice::new(cstring.as_bytes().to_vec())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_layout() {
+        assert_eq!(std::mem::size_of::<super::NodeRef>(), 8);
     }
 }

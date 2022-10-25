@@ -1,57 +1,63 @@
 use std::{
     any::TypeId,
+    borrow::BorrowMut,
+    cell::RefCell,
     collections::{HashMap, HashSet},
     hash::Hash,
+    os::windows::thread,
 };
 
+use gc::Gc;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
 use crate::{
     context,
     ir::{
-        BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef, StructType,
-        Type, VectorElementType, VectorType, VOID_TYPE, ArrayType,
+        ArrayType, BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef,
+        StructType, Type, VectorElementType, VectorType,
     },
-    CSlice, TypeOf,
+    CBoxedSlice, CSlice, TypeOf,
 };
 
 use super::Transform;
 // Simple backward autodiff
 // Loop is not supported since users would use path replay[https://rgl.epfl.ch/publications/Vicini2021PathReplay] anyway
 
-lazy_static! {
-    static ref GRAD_TYPES: RwLock<HashMap<&'static Type, Option<&'static Type>>> =
-        RwLock::new(HashMap::new());
+thread_local! {
+    static GRAD_TYPES: RefCell<HashMap<Gc<Type>, Option<Gc<Type>>>> =
+    RefCell::new(HashMap::new());
 }
-fn grad_type_of_ve(t: &'static VectorElementType) -> Option<VectorElementType> {
+fn grad_type_of_ve(t: &VectorElementType) -> Option<VectorElementType> {
     match t {
         VectorElementType::Scalar(p) => {
             let p = grad_type_of(context::register_type(Type::Primitive(*p)))?;
-            Some(VectorElementType::Scalar(match p {
+            Some(VectorElementType::Scalar(match p.as_ref() {
                 Type::Primitive(p) => *p,
                 _ => unreachable!(),
             }))
         }
         VectorElementType::Vector(v) => {
             let v = grad_type_of(context::register_type(Type::Vector((**v).clone())))?;
-            Some(VectorElementType::Vector(match v {
-                Type::Vector(vt) => vt,
+            Some(VectorElementType::Vector(match v.as_ref() {
+                Type::Vector(vt) => Gc::new(vt.clone()),
                 _ => unreachable!(),
             }))
         }
     }
 }
-fn grad_type_of(type_: &'static Type) -> Option<&'static Type> {
-    if let Some(t) = GRAD_TYPES.read().get(type_) {
-        return *t;
-    }
-    let t = _grad_type_of(type_);
-    GRAD_TYPES.write().insert(type_, t);
-    t
+fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
+    GRAD_TYPES.with(|grad_types| {
+        if let Some(t) = grad_types.borrow().get(&type_) {
+            return *t;
+        }
+        let t = _grad_type_of(type_);
+        grad_types.borrow_mut().insert(type_, t);
+        t
+    })
 }
-fn _grad_type_of(type_: &'static Type) -> Option<&'static Type> {
-    let ty = match type_ {
+fn _grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
+    let ty = match type_.as_ref() {
         Type::Void => None,
         Type::Primitive(p) => match p {
             crate::ir::Primitive::Bool => None,
@@ -77,11 +83,11 @@ fn _grad_type_of(type_: &'static Type) -> Option<&'static Type> {
             }))
         }
         Type::Struct(st) => {
-            let fields: Vec<&'static Type> = st
+            let fields: Vec<Gc<Type>> = st
                 .fields
                 .as_ref()
                 .iter()
-                .map(|f| grad_type_of(f))
+                .map(|f| grad_type_of(*f))
                 .filter(|f| f.is_some())
                 .map(|f| f.unwrap())
                 .collect();
@@ -89,14 +95,14 @@ fn _grad_type_of(type_: &'static Type) -> Option<&'static Type> {
             let size = fields.iter().map(|f| f.size()).sum();
             let fields: &[_] = Vec::leak(fields.to_vec());
             Some(Type::Struct(StructType {
-                fields: CSlice::from(fields),
+                fields: CBoxedSlice::from(fields),
                 alignment,
                 size,
             }))
         }
         Type::Array(a) => {
             let element = grad_type_of(a.element)?;
-            Some(Type::Array(ArrayType{
+            Some(Type::Array(ArrayType {
                 element,
                 length: a.length,
             }))
@@ -152,7 +158,7 @@ impl<'a> StoreIntermediate<'a> {
         let instruction = node.get().instruction;
         let type_ = node.get().type_;
         let grad_type = grad_type_of(type_);
-        match instruction {
+        match instruction.as_ref() {
             crate::ir::Instruction::Buffer => {}
             crate::ir::Instruction::Bindless => {}
             crate::ir::Instruction::Texture2D => {}
@@ -208,6 +214,7 @@ impl<'a> StoreIntermediate<'a> {
             }
             crate::ir::Instruction::Switch { .. } => todo!(),
             crate::ir::Instruction::Comment { .. } => {}
+            crate::ir::Instruction::Return(_) => {}
         }
     }
 }
@@ -233,7 +240,7 @@ impl Backward {
             return;
         }
         let grad_type = grad_type.unwrap();
-        match instruction {
+        match instruction.as_ref() {
             crate::ir::Instruction::Buffer => {}
             crate::ir::Instruction::Bindless => {}
             crate::ir::Instruction::Texture2D => {}
@@ -283,21 +290,20 @@ impl Backward {
                 true_branch,
                 false_branch,
             } => todo!(),
-            crate::ir::Instruction::Switch { .. }=> todo!(),
+            crate::ir::Instruction::Switch { .. } => todo!(),
             crate::ir::Instruction::Comment { .. } => {}
+            crate::ir::Instruction::Return(_) => {
+                panic!("should not have return in autodiff section")
+            }
         }
     }
-    fn backward_block(
-        &mut self,
-        block: &BasicBlock,
-        mut builder: IrBuilder,
-    ) -> &'static BasicBlock {
+    fn backward_block(&mut self, block: &BasicBlock, mut builder: IrBuilder) -> Gc<BasicBlock> {
         for node in block.nodes().iter().rev() {
             self.backward(*node, &mut builder);
         }
         for v in &self.final_grad {
             let grad = self.grads.get(v).unwrap();
-            builder.call(Func::GradientMarker, &[*v, *grad], &VOID_TYPE);
+            builder.call(Func::GradientMarker, &[*v, *grad], Type::void());
         }
         builder.finish()
     }
@@ -310,7 +316,7 @@ impl Transform for Autodiff {
             "autodiff should be applied to a block"
         );
         let mut store = StoreIntermediate::new(&module);
-        store.visit_block(module.entry);
+        store.visit_block(&module.entry);
         let StoreIntermediate {
             grads,
             final_grad,
@@ -322,7 +328,7 @@ impl Transform for Autodiff {
             final_grad,
             intermediate,
         };
-        let bb = backward.backward_block(module.entry, IrBuilder::new());
+        let bb = backward.backward_block(&module.entry, IrBuilder::new());
         Module {
             kind: ModuleKind::Block,
             entry: bb,

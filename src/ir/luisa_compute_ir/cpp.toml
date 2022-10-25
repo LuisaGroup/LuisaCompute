@@ -58,7 +58,7 @@ usize_is_size_t = true
 
 [export]
 include = ["Node", "CRc", "CBox", "CSlice", "CBoxedSlice", "Instruction", "BasicBlock", "CallableModule", "KernelModule"]
-exclude = []
+exclude = ["Gc"]
 # prefix = "CAPI_"
 item_types = []
 renaming_overrides_prefixing = false
