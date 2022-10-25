@@ -103,41 +103,48 @@ impl Validator {
             Instruction::Call(func, args) => {
                 let args = args.as_ref();
                 macro_rules! check_binop_float_int {
-                    () => {
+                    () => {{
                         assert_eq!(args.len(), 2);
                         check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
                         assert!(!type_.is_bool());
-                    };
+                    }};
                 }
                 macro_rules! check_binop_same {
-                    () => {
+                    () => {{
                         assert_eq!(args.len(), 2);
                         check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
-                    };
+                    }};
                 }
                 macro_rules! check_binop_bitwise {
-                    () => {
+                    () => {{
                         assert_eq!(args.len(), 2);
                         assert!(args[0].type_().is_int());
                         assert!(args[1].type_().is_int());
                         check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
                         assert!(!type_.is_bool());
-                    };
+                    }};
                 }
                 macro_rules! check_binop_bitwise_bool {
-                    () => {
+                    () => {{
                         assert_eq!(args.len(), 2);
                         assert!(args[0].type_().is_int() || args[0].type_().is_bool());
                         assert!(args[1].type_().is_int() || args[1].type_().is_bool());
                         check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
-                    };
+                    }};
                 }
                 macro_rules! check_cmp {
-                    () => {
+                    () => {{
                         assert_eq!(args.len(), 2);
                         check_types_equal(&[args[0].type_(), args[1].type_()]);
                         assert!(type_.is_bool());
-                    };
+                    }};
+                }
+                macro_rules! check_float_func1 {
+                    () => {{
+                        assert_eq!(args.len(), 1);
+                        assert!(args[0].type_().is_float());
+                        assert_eq!(type_, args[0].type_());
+                    }};
                 }
                 match func {
                     Func::ZeroInitializer => {
@@ -375,34 +382,34 @@ impl Validator {
                     Func::Reverse => todo!(),
                     Func::IsInf => todo!(),
                     Func::IsNan => todo!(),
-                    Func::Acos => todo!(),
-                    Func::Acosh => todo!(),
-                    Func::Asin => todo!(),
-                    Func::Asinh => todo!(),
-                    Func::Atan => todo!(),
+                    Func::Acos => check_float_func1!(),
+                    Func::Acosh => check_float_func1!(),
+                    Func::Asin => check_float_func1!(),
+                    Func::Asinh => check_float_func1!(),
+                    Func::Atan => check_float_func1!(),
                     Func::Atan2 => todo!(),
-                    Func::Atanh => todo!(),
-                    Func::Cos => todo!(),
-                    Func::Cosh => todo!(),
-                    Func::Sin => todo!(),
-                    Func::Sinh => todo!(),
-                    Func::Tan => todo!(),
-                    Func::Tanh => todo!(),
-                    Func::Exp => todo!(),
-                    Func::Exp2 => todo!(),
-                    Func::Exp10 => todo!(),
+                    Func::Atanh => check_float_func1!(),
+                    Func::Cos => check_float_func1!(),
+                    Func::Cosh => check_float_func1!(),
+                    Func::Sin => check_float_func1!(),
+                    Func::Sinh => check_float_func1!(),
+                    Func::Tan => check_float_func1!(),
+                    Func::Tanh => check_float_func1!(),
+                    Func::Exp => check_float_func1!(),
+                    Func::Exp2 => check_float_func1!(),
+                    Func::Exp10 => check_float_func1!(),
                     Func::Log => todo!(),
-                    Func::Log2 => todo!(),
-                    Func::Log10 => todo!(),
+                    Func::Log2 => check_float_func1!(),
+                    Func::Log10 => check_float_func1!(),
                     Func::Powi => todo!(),
                     Func::Powf => todo!(),
-                    Func::Sqrt => todo!(),
-                    Func::Rsqrt => todo!(),
-                    Func::Ceil => todo!(),
-                    Func::Floor => todo!(),
-                    Func::Fract => todo!(),
-                    Func::Trunc => todo!(),
-                    Func::Round => todo!(),
+                    Func::Sqrt => check_float_func1!(),
+                    Func::Rsqrt => check_float_func1!(),
+                    Func::Ceil => check_float_func1!(),
+                    Func::Floor => check_float_func1!(),
+                    Func::Fract => check_float_func1!(),
+                    Func::Trunc => check_float_func1!(),
+                    Func::Round => check_float_func1!(),
                     Func::Fma => todo!(),
                     Func::Copysign => todo!(),
                     Func::Cross => todo!(),

@@ -265,8 +265,8 @@ impl<T> CBoxedSlice<T> {
         }
     }
 }
-unsafe impl<T:Send> Send for CBoxedSlice<T> {}
-unsafe impl<T:Sync> Sync for CBoxedSlice<T> {}
+unsafe impl<T: Send> Send for CBoxedSlice<T> {}
+unsafe impl<T: Sync> Sync for CBoxedSlice<T> {}
 impl<T> AsRef<[T]> for CBoxedSlice<T> {
     fn as_ref(&self) -> &[T] {
         unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
