@@ -101,8 +101,7 @@ private:
     [[nodiscard]] ir::Module _convert_body() noexcept;
 
     // helper functions
-    [[nodiscard]] ir::NodeRef _cast(const Type *type_dst, const Type *type_src,
-                                    ir::NodeRef node_src, bool diagonal_matrix = false) noexcept;
+    [[nodiscard]] ir::NodeRef _cast(const Type *type_dst, const Type *type_src, ir::NodeRef node_src) noexcept;
     [[nodiscard]] ir::NodeRef _literal(const Type *type, LiteralExpr::Value value) noexcept;
 
 public:

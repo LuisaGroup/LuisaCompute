@@ -321,6 +321,7 @@ public:
     [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto description() const noexcept { return luisa::string_view{_description}; }
     [[nodiscard]] constexpr size_t dimension() const noexcept {
+        if (is_scalar()) { return 1u; }
         assert(is_array() || is_vector() || is_matrix() || is_texture());
         return _dimension;
     }
@@ -341,7 +342,6 @@ public:
     [[nodiscard]] constexpr auto is_basic() const noexcept {
         return is_scalar() || is_vector() || is_matrix();
     }
-
     [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == Tag::ARRAY; }
     [[nodiscard]] constexpr bool is_vector() const noexcept { return _tag == Tag::VECTOR; }
     [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }
