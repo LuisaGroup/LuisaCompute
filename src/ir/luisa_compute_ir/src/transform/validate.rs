@@ -1,18 +1,7 @@
-use std::{
-    any::TypeId,
-    borrow::BorrowMut,
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    hash::Hash,
-};
-
 use super::autodiff::grad_type_of;
-use crate::{context, ir::*, CBoxedSlice, CSlice, TypeOf};
-use gc::Gc;
-use lazy_static::lazy_static;
-use parking_lot::RwLock;
-
 use super::Transform;
+use crate::{context, ir::*, TypeOf};
+use gc::Gc;
 struct Validator {}
 fn check_types_equal(types: &[Gc<Type>]) -> bool {
     let mut iter = types.iter();
