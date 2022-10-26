@@ -1,7 +1,5 @@
 # corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
-add_custom_target(
-        luisa_compute_api_types
-        DEPENDS luisa_compute_api_types/src/lib.rs
+execute_process(
         COMMAND cargo build
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/luisa_compute_api_types)
 
@@ -17,8 +15,6 @@ target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-backends
         luisa-compute-ir-api
         )
-add_dependencies(luisa-compute-api luisa_compute_api_types)
-# add_dependencies(luisa-compute-api luisa-compute-serialize)
 set_target_properties(luisa-compute-api PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
        
