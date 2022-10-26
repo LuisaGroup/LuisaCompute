@@ -212,7 +212,7 @@ LUISA_EXPORT_API void luisa_compute_shader_destroy(LCDevice device, LCShader sha
 
 LUISA_EXPORT_API LCEvent luisa_compute_event_create(LCDevice device) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return (LCEvent)d->retain()->object()->impl()->create_event();
+    return {d->retain()->object()->impl()->create_event()};
 }
 
 LUISA_EXPORT_API void luisa_compute_event_destroy(LCDevice device, LCEvent event) LUISA_NOEXCEPT {
