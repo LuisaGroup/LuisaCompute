@@ -137,7 +137,7 @@ typedef struct LCBufferDownloadCommand {
     struct LCBuffer buffer;
     size_t offset;
     size_t size;
-    const uint8_t *data;
+    uint8_t *data;
 } LCBufferDownloadCommand;
 
 typedef struct LCBufferCopyCommand {
@@ -183,7 +183,7 @@ typedef struct LCTextureDownloadCommand {
     enum LCPixelStorage storage;
     uint32_t level;
     uint32_t size[3];
-    const uint8_t *data;
+    uint8_t *data;
 } LCTextureDownloadCommand;
 
 typedef struct LCIrModule {

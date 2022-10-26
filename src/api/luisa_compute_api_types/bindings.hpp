@@ -168,7 +168,7 @@ struct BufferDownloadCommand {
     Buffer buffer;
     size_t offset;
     size_t size;
-    const uint8_t *data;
+    uint8_t *data;
 };
 
 struct BufferCopyCommand {
@@ -214,7 +214,7 @@ struct TextureDownloadCommand {
     PixelStorage storage;
     uint32_t level;
     uint32_t size[3];
-    const uint8_t *data;
+    uint8_t *data;
 };
 
 struct IrModule {

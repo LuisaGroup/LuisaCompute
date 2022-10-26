@@ -257,7 +257,7 @@ pub struct BufferDownloadCommand {
     pub buffer: Buffer,
     pub offset: usize,
     pub size: usize,
-    pub data: *const u8,
+    pub data: *mut u8,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
@@ -304,7 +304,7 @@ pub struct TextureDownloadCommand {
     pub storage: PixelStorage,
     pub level: u32,
     pub size: [u32; 3],
-    pub data: *const u8,
+    pub data: *mut u8,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
