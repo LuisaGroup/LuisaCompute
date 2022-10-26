@@ -1,4 +1,4 @@
-corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
+# corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
 set(LUISA_COMPUTE_API_SOURCES
         device.h
         runtime.cpp runtime.h
@@ -9,7 +9,8 @@ target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-compile
         luisa-compute-backends
         luisa-compute-ir-api
-        luisa_compute_api_types)
+        # luisa_compute_api_types
+        )
 # add_dependencies(luisa-compute-api luisa-compute-serialize)
 set_target_properties(luisa-compute-api PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
