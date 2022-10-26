@@ -3,7 +3,7 @@
 //
 
 #include <luisa-compute.h>
-#include <runtime/command_reorder_visitor.h>
+#include <runtime/command_scheduler.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    CommandReorderVisitor commandReorderVisitor(device.impl());
+    CommandScheduler commandReorderVisitor(device.impl());
     commandReorderVisitor.clear();
     {
         luisa::vector<float> vec(width * height);
@@ -50,10 +50,10 @@ int main(int argc, char *argv[]) {
                << synchronize();
         LUISA_INFO("End");
 
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(shader(buffer).dispatch(1024u));
         feed.emplace_back(buffer.copy_to(nullptr));
-        for (auto cmd : feed) { cmd->accept(commandReorderVisitor); }
+        for (auto &&cmd : feed) { cmd->accept(commandReorderVisitor); }
         auto reordered_lists = commandReorderVisitor.command_lists();
         LUISA_INFO("Size: {}.", reordered_lists.size());
         assert(reordered_lists.size() == 2u);
@@ -76,14 +76,14 @@ int main(int argc, char *argv[]) {
          *        /
          * texture1 -- texture -- texture2
          */
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(texture.copy_from(texture1));// 0
         feed.emplace_back(texture2.copy_from(texture));// 1
         feed.emplace_back(buffer1.copy_from(buffer));  // 0
         feed.emplace_back(buffer2.copy_from(buffer));  // 0
         feed.emplace_back(bindless_array.update());    // 0
 
-        for (auto command : feed) {
+        for (auto &&command : feed) {
             command->accept(commandReorderVisitor);
         }
         auto reordered_list = commandReorderVisitor.command_lists();
@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
-            for (auto command : command_list)
+            for (auto &&command : command_list)
                 ++size[i];
         }
         assert(size[0] == 4);
@@ -114,7 +114,7 @@ int main(int argc, char *argv[]) {
          *        /
          * texture1 -- texture -- texture2
          */
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(texture.copy_from(texture1));// 0
         feed.emplace_back(texture2.copy_from(texture));// 1
         feed.emplace_back(buffer1.copy_from(buffer));  // 0
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
          * but bindless_array is inserted before buffer2's copy
          */
 
-        for (auto command : feed) {
+        for (auto &&command : feed) {
             command->accept(commandReorderVisitor);
         }
         auto reordered_list = commandReorderVisitor.command_lists();
@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
-            for (auto command : command_list)
+            for (auto &&command : command_list)
                 ++size[i];
         }
         assert(size[0] == 4);
@@ -156,14 +156,14 @@ int main(int argc, char *argv[]) {
          *        /
          * texture1 -- texture -- texture2
          */
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(texture.copy_from(texture1));
         feed.emplace_back(texture2.copy_from(texture));
         feed.emplace_back(buffer1.copy_from(buffer));
         feed.emplace_back(bindless_array.update());
         feed.emplace_back(buffer2.copy_from(buffer));
 
-        for (auto command : feed) {
+        for (auto &&command : feed) {
             command->accept(commandReorderVisitor);
         }
         auto reordered_list = commandReorderVisitor.command_lists();
@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
-            for (auto command : command_list)
+            for (auto &&command : command_list)
                 ++size[i];
         }
         assert(size[0] == 4);
@@ -186,13 +186,13 @@ int main(int argc, char *argv[]) {
          *                             /
          * buffer -- buffer1 -- buffer -- buffer1
          */
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(buffer1.copy_from(buffer));
         feed.emplace_back(buffer.copy_from(buffer1));
         feed.emplace_back(buffer1.copy_from(buffer));
         feed.emplace_back(buffer2.copy_from(buffer));
 
-        for (auto command : feed) {
+        for (auto &&command : feed) {
             command->accept(commandReorderVisitor);
         }
         auto reordered_list = commandReorderVisitor.command_lists();
@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
-            for (auto command : command_list)
+            for (auto &&command : command_list)
                 ++size[i];
         }
         assert(size[0] == 1);
@@ -240,12 +240,12 @@ int main(int argc, char *argv[]) {
         auto shader1 = device.compile(kernel1);
         auto shader2 = device.compile(kernel2);
 
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(shader(texture, texture1, texture2).dispatch(width, height));
         feed.emplace_back(shader1(texture, texture1).dispatch(width, height));
         feed.emplace_back(shader2(texture, texture2).dispatch(width, height));
 
-        for (auto command : feed) {
+        for (auto &&command : feed) {
             command->accept(commandReorderVisitor);
         }
         auto reordered_list = commandReorderVisitor.command_lists();
@@ -253,7 +253,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
-            for (auto command : command_list)
+            for (auto &&command : command_list)
                 ++size[i];
         }
         assert(size[0] == 1);
@@ -265,11 +265,11 @@ int main(int argc, char *argv[]) {
         auto bindless_array = device.create_bindless_array();
         bindless_array.emplace(0u, buffer);
 
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(buffer.copy_to(nullptr));
         feed.emplace_back(bindless_array.update());
 
-        for (auto command : feed) {
+        for (auto &&command : feed) {
             command->accept(commandReorderVisitor);
         }
         auto const &reordered_list = commandReorderVisitor.command_lists();
@@ -294,12 +294,12 @@ int main(int argc, char *argv[]) {
          * vertex_buffer1 ---------------------  ------ mesh1
          */
 
-        luisa::vector<Command *> feed;
+        luisa::vector<luisa::unique_ptr<Command>> feed;
         feed.emplace_back(mesh.build()); // 0
         feed.emplace_back(mesh1.build());// 0
         feed.emplace_back(accel.build());// 1
 
-        for (auto command : feed) {
+        for (auto &&command : feed) {
             command->accept(commandReorderVisitor);
         }
         auto reordered_list = commandReorderVisitor.command_lists();
@@ -307,7 +307,7 @@ int main(int argc, char *argv[]) {
         luisa::vector<int> size(reordered_list.size(), 0);
         for (auto i = 0; i < reordered_list.size(); ++i) {
             auto &command_list = reordered_list[i];
-            for (auto command : command_list)
+            for (auto &&command : command_list)
                 ++size[i];
         }
         assert(size[0] == 2);

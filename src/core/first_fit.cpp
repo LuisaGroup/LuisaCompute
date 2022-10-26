@@ -2,8 +2,6 @@
 // Created by Mike on 2021/12/10.
 //
 
-#include <fmt/format.h>
-
 #include <core/pool.h>
 #include <core/mathematics.h>
 #include <core/first_fit.h>

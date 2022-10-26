@@ -11,7 +11,7 @@ namespace luisa::compute {
 namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
-    _command->encode_accel(accel.handle());
+    _shader_command()->encode_accel(accel.handle());
     return *this;
 }
 
@@ -23,7 +23,7 @@ Accel::Accel(Device::Interface *device, AccelUsageHint hint) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(hint)},
       _mutex{luisa::make_unique<std::mutex>()} {}
 
-Command *Accel::build(Accel::BuildRequest request) noexcept {
+luisa::unique_ptr<Command> Accel::build(Accel::BuildRequest request) noexcept {
     std::scoped_lock lock{*_mutex};
     if (_mesh_handles.empty()) { LUISA_ERROR_WITH_LOCATION(
         "Building acceleration structure without instances."); }

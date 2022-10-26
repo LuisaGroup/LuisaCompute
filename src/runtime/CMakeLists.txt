@@ -11,14 +11,13 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         image.h
         volume.h
         bindless_array.cpp bindless_array.h
-        shader.h
+        shader.cpp shader.h
         sampler.h
         resource.cpp resource.h
         mipmap.h
-        command_reorder_visitor.h command_reorder_visitor.cpp
+        command_scheduler.h command_scheduler.cpp
         swap_chain.h swap_chain.cpp
-        resource_tracker.cpp resource_tracker.h
-        command_scheduler.cpp command_scheduler.h)
+        resource_tracker.cpp resource_tracker.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast)

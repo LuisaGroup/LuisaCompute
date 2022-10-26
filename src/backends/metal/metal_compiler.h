@@ -32,6 +32,10 @@ private:
 public:
     explicit MetalCompiler(MetalDevice *device) noexcept
         : _device{device}, _cache{Cache::create(max_cache_item_count)} {}
+    MetalCompiler(MetalCompiler &&) noexcept = default;
+    MetalCompiler(const MetalCompiler &) noexcept = delete;
+    MetalCompiler &operator=(MetalCompiler &&) noexcept = default;
+    MetalCompiler &operator=(const MetalCompiler &) noexcept = delete;
     [[nodiscard]] MetalShader compile(Function kernel, std::string_view meta_options) noexcept;
 };
 

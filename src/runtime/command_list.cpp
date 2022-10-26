@@ -7,33 +7,22 @@
 
 namespace luisa::compute {
 
-void CommandList::_recycle() noexcept {
-    if (!_commands.empty()) {
-        for (auto cmd : _commands) {
-            cmd->recycle();
-        }
-    }
+void CommandList::append(luisa::unique_ptr<Command> cmd) noexcept {
+    _commands.emplace_back(std::move(cmd));
 }
 
-void CommandList::append(Command *cmd) noexcept {
-    _commands.emplace_back(cmd);
-}
-
-luisa::vector<Command *> CommandList::steal_commands() noexcept {
-    return std::move(_commands);
+luisa::vector<luisa::unique_ptr<Command>> CommandList::steal_commands() noexcept {
+    luisa::vector<luisa::unique_ptr<Command>> cmds;
+    cmds.swap(_commands);
+    return cmds;
 }
 
 CommandList::CommandList(CommandList &&another) noexcept = default;
 
 CommandList &CommandList::operator=(CommandList &&rhs) noexcept {
-    if (&rhs != this) [[likely]] {
-        _recycle();
-        _commands = std::move(rhs._commands);
-    }
+    if (&rhs != this) [[likely]] { _commands = std::move(rhs._commands); }
     return *this;
 }
-
-CommandList::~CommandList() noexcept { _recycle(); }
 
 class CommandDumpVisitor : CommandVisitor {
 
@@ -214,7 +203,7 @@ public:
     [[nodiscard]] nlohmann::json dump(const CommandList &list) noexcept {
         auto json = nlohmann::json::array();
         _json = &json;
-        for (auto cmd : list) { cmd->accept(*this); }
+        for (auto &&cmd : list) { cmd->accept(*this); }
         _json = nullptr;
         return json;
     }

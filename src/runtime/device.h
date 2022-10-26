@@ -18,6 +18,7 @@
 #include <runtime/pixel.h>
 #include <runtime/sampler.h>
 #include <runtime/command_list.h>
+#include <api/common.h>
 
 namespace luisa::compute {
 
@@ -78,8 +79,8 @@ struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 class LC_RUNTIME_API Device {
 
 public:
-    class Extension {
-    };
+    class Extension {};
+
     class CpuExtension : public Extension {
     public:
         struct KernelClosure {
@@ -94,6 +95,7 @@ public:
         // this functions makes stream operatiions synchronous to minize overhead
         virtual void stream_no_async(uint64_t stream, bool no_async) noexcept = 0;
     };
+
     class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
@@ -153,10 +155,6 @@ public:
         [[nodiscard]] virtual uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept = 0;
         virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
-        [[nodiscard]] virtual uint64_t create_shader2(Function kernel, std::string_view meta_options) noexcept  {
-            LUISA_ERROR_WITH_LOCATION("Should not be called.");
-        }
-
         // event
         [[nodiscard]] virtual uint64_t create_event() noexcept = 0;
         virtual void destroy_event(uint64_t handle) noexcept = 0;
@@ -176,6 +174,14 @@ public:
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
         [[nodiscard]] virtual bool requires_command_reordering() const noexcept { return true; }
         [[nodiscard]] virtual Extension *extension() noexcept { return nullptr; }
+
+        // _ex are experiemental apis
+        [[nodiscard]] virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept {
+            LUISA_ERROR_WITH_LOCATION("Should not be called.");
+        }
+
+        // if the interface uses C API device interface, command list is handled slightly differently
+        [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
     };
 
     using Deleter = void(Interface *);

@@ -138,3 +138,22 @@ def from_lctype(lctype):
         return basic_lctype_to_dtype_dict[lctype]
     raise Exception(f"from_lctype({lctype}:{lctype.description()}): unsupported")
 
+
+coerce_map = {
+    float: [int, uint, float],
+    int: [int, uint],
+    uint: [uint],
+    bool: [bool],
+    float2: [int2, uint2, float2],
+    int2: [int2, uint2],
+    uint2: [uint2],
+    bool2: [bool2],
+    float3: [int3, uint3, float3],
+    int3: [int3, uint3],
+    uint3: [uint3],
+    bool3: [bool3],
+    float4: [int4, uint4, float4],
+    int4: [int4, uint4],
+    uint4: [uint4],
+    bool4: [bool4],
+}

@@ -43,7 +43,7 @@ public:
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, bool visible) noexcept;
-    [[nodiscard]] Command *build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
+    [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
 
     // shader functions
     [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;

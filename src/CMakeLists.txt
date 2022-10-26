@@ -63,7 +63,8 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-rtx
         luisa-compute-gui
         luisa-compute-api
-        luisa-compute-backends)
+        luisa-compute-backends
+        luisa-compute-ir-api)
 add_library(luisa::compute ALIAS luisa-compute)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)

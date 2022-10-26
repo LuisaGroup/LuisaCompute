@@ -266,7 +266,7 @@ int main(int argc, char *argv[]) {
             beta *= 1.0f / q;
         };
         seed_image.write(coord, make_uint4(state));
-        $if(any(isnan(radiance))) { radiance = make_float3(0.0f); };
+        $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 

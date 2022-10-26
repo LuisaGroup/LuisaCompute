@@ -1,13 +1,31 @@
-#include "ir.h"
+#include "ir.hpp"
 
 namespace luisa::compute {
+
+void luisa_compute_ir_initialize_context() {
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        using namespace luisa::compute::ir;
+        auto gc_ctx = luisa_compute_gc_create_context();
+        luisa_compute_gc_set_context(gc_ctx);
+        auto ir_ctx = luisa_compute_ir_new_context();
+        luisa_compute_ir_set_context(ir_ctx);
+    });
+}
+
+// TODO: is it good to go here?
+static auto context_initializer = []() noexcept {
+    luisa_compute_ir_initialize_context();
+    return 0;
+}();
+
 using ir::Func;
 using ir::Instruction;
 struct Converter {
     detail::FunctionBuilder *builder;
     luisa::unordered_map<const ir::Type *, const Type *> type_map;
     luisa::unordered_map<ir::NodeRef, const Expression *, NodeRefHash> node_map;
-    // luisa::unordered_map<const 
+    // luisa::unordered_map<const
     const Type *convert(const ir::Type *ty) noexcept {
         if (auto it = type_map.find(ty); it != type_map.end()) {
             return it->second;
@@ -59,50 +77,50 @@ struct Converter {
     const Expression *_convert(const ir::NodeRef &node_ref) noexcept {
         auto node = ir::luisa_compute_ir_node_get(node_ref);
         auto inst = node->instruction;
-        auto ty = convert(node->type_);
+        auto ty = convert(node->type_.get());
         switch (inst->tag) {
             case Instruction::Tag::Local: {
                 return builder->local(ty);
             }
             case Instruction::Tag::Call: {
                 auto call = inst->call;
-                auto func = call._0;
+                auto func = call._0.tag;
                 auto &args_v = call._1;
                 auto args = args_v.ptr;
-                if (func == Func::Gradient) {
+                if (func == Func::Tag::Gradient) {
                     return nullptr;
                 }
-                if (func == Func::RequiresGradient) {
+                if (func == Func::Tag::RequiresGradient) {
                     return nullptr;
                 }
-                if (func == Func::GradientMarker) {
+                if (func == Func::Tag::GradientMarker) {
                     auto v = convert(args[0]);
                     auto grad = convert(args[1]);
                 }
                 auto v = ([&] {switch (func) {
-                    case Func::Add:
+                    case Func::Tag::Add:
                         return builder->binary(ty, BinaryOp::ADD, convert(args[0]), convert(args[1]));
-                    case Func::Sub:
+                    case Func::Tag::Sub:
                         return builder->binary(ty, BinaryOp::SUB, convert(args[0]), convert(args[1]));
-                    case Func::Mul:
+                    case Func::Tag::Mul:
                         return builder->binary(ty, BinaryOp::MUL, convert(args[0]), convert(args[1]));
-                    case Func::Div:
+                    case Func::Tag::Div:
                         return builder->binary(ty, BinaryOp::DIV, convert(args[0]), convert(args[1]));
-                    case Func::Rem:
+                    case Func::Tag::Rem:
                         // TODO: this is actually different
                         return builder->binary(ty, BinaryOp::MOD, convert(args[0]), convert(args[1]));
-                    case Func::BitAnd:
+                    case Func::Tag::BitAnd:
                         return builder->binary(ty, BinaryOp::BIT_AND, convert(args[0]), convert(args[1]));
-                    case Func::BitOr:
+                    case Func::Tag::BitOr:
                         return builder->binary(ty, BinaryOp::BIT_OR, convert(args[0]), convert(args[1]));
-                    case Func::BitXor:
+                    case Func::Tag::BitXor:
                         return builder->binary(ty, BinaryOp::BIT_XOR, convert(args[0]), convert(args[1]));
-                    case Func::Shl:
+                    case Func::Tag::Shl:
                         return builder->binary(ty, BinaryOp::SHL, convert(args[0]), convert(args[1]));
-                    case Func::Shr:
+                    case Func::Tag::Shr:
                         return builder->binary(ty, BinaryOp::SHR, convert(args[0]), convert(args[1]));
-                    case Func::RotLeft:
-                    case Func::RotRight:
+                    case Func::Tag::RotLeft:
+                    case Func::Tag::RotRight:
                         LUISA_ERROR_WITH_LOCATION("Ask the author to implement this.");
                         break;
                         // return builder->binary(ty, BinaryOp::ROT_LEFT, convert(args[0]), convert(args[1]));
@@ -123,13 +141,13 @@ void convert_to_ast(const ir::Module *module, detail::FunctionBuilder *builder) 
 struct ToIR {
     const ScopeStmt *stmt;
     luisa::unordered_map<const Expression *, ir::NodeRef> expr_map;
-    luisa::unordered_map<const Type *, ir::Type *> type_map;
+    luisa::unordered_map<const Type *, ir::Gc<ir::Type>> type_map;
     luisa::unordered_map<uint32_t, ir::NodeRef> var_map;
     ir::IrBuilder *var_def_builder = nullptr;
-    ir::Type *_build_type(const Type *ty) noexcept {
-        return nullptr;
+    ir::Gc<ir::Type> _build_type(const Type *ty) noexcept {
+        return {};
     }
-    ir::Type *build_type(const Type *ty) noexcept {
+    ir::Gc<ir::Type> build_type(const Type *ty) noexcept {
         auto it = type_map.find(ty);
         if (it != type_map.end()) {
             return it->second;
@@ -154,13 +172,13 @@ struct ToIR {
             ir::Func func;
             switch (op) {
                 case BinaryOp::ADD:
-                    func = ir::Func::Add;
+                    func.tag = ir::Func::Tag::Add;
                     break;
                 case BinaryOp::SUB:
-                    func = ir::Func::Sub;
+                    func.tag = ir::Func::Tag::Sub;
                     break;
                 case BinaryOp::MUL:
-                    func = ir::Func::Mul;
+                    func.tag = ir::Func::Tag::Mul;
                     break;
                 default:
                     abort();
@@ -171,11 +189,11 @@ struct ToIR {
             ir::Func func;
             switch (op) {
                 case UnaryOp::MINUS:
-                    func = ir::Func::Neg;
+                    func.tag = ir::Func::Tag::Neg;
                     break;
                 case UnaryOp::NOT:
                 case UnaryOp::BIT_NOT:
-                    func = ir::Func::BitNot;
+                    func.tag = ir::Func::Tag::BitNot;
                     break;
                 case UnaryOp::PLUS:
                     return build_expr(unary->operand(), builder);
@@ -196,33 +214,33 @@ struct ToIR {
             auto value = literal->value();
             ir::NodeRef node;
             ir::Const cst;
-            luisa::visit([&](auto &&value) {
-                using T = std::decay_t<decltype(value)>;
-
-                if constexpr (std::is_same_v<T, float>) {
-                    cst.tag = ir::Const::Tag::Float32;
-                    cst.float32._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else if constexpr (std::is_same_v<T, int32_t>) {
-                    cst.tag = ir::Const::Tag::Int32;
-                    cst.int32._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else if constexpr (std::is_same_v<T, uint32_t>) {
-                    cst.tag = ir::Const::Tag::Uint32;
-                    cst.uint32._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else if constexpr (std::is_same_v<T, bool>) {
-                    cst.tag = ir::Const::Tag::Bool;
-                    cst.bool_._0 = value;
-                    node = ir::luisa_compute_ir_build_const(builder, cst);
-                } else {
-                    LUISA_ERROR_WITH_LOCATION("unreachable");
-                }
-            },
-                         value);
+            luisa::visit(
+                [&](auto &&value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, float>) {
+                        cst.tag = ir::Const::Tag::Float32;
+                        cst.float32._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else if constexpr (std::is_same_v<T, int32_t>) {
+                        cst.tag = ir::Const::Tag::Int32;
+                        cst.int32._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else if constexpr (std::is_same_v<T, uint32_t>) {
+                        cst.tag = ir::Const::Tag::Uint32;
+                        cst.uint32._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else if constexpr (std::is_same_v<T, bool>) {
+                        cst.tag = ir::Const::Tag::Bool;
+                        cst.bool_._0 = value;
+                        node = ir::luisa_compute_ir_build_const(builder, cst);
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION("unreachable");
+                    }
+                },
+                value);
         }
     }
-    const ir::BasicBlock *build_block(const ScopeStmt *stmt) {
+    ir::Gc<ir::BasicBlock> build_block(const ScopeStmt *stmt) {
         auto builder = ir::luisa_compute_ir_new_builder();
         for (auto s : stmt->statements()) {
             if (auto expr = dynamic_cast<const ExprStmt *>(s)) {
@@ -235,7 +253,7 @@ struct ToIR {
                 ir::luisa_compute_ir_build_update(&builder, lhs_node, rhs_node);
             }
         }
-        return ir::luisa_compute_ir_build_finish(std::move(builder));
+        return ir::luisa_compute_ir_build_finish(builder);
     }
 };
 LC_IR_API ir::Module convert_to_ir(const ScopeStmt *stmt) noexcept {

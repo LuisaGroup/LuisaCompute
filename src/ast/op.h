@@ -11,6 +11,8 @@
 
 namespace luisa::compute {
 
+class Type;
+
 /**
  * @brief Enum of unary operations.
  * 
@@ -51,6 +53,27 @@ enum struct BinaryOp : uint32_t {
     EQUAL,
     NOT_EQUAL
 };
+
+struct TypePromotion {
+    const Type *lhs{nullptr};
+    const Type *rhs{nullptr};
+    const Type *result{nullptr};
+};
+
+[[nodiscard]] TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexcept;
+
+[[nodiscard]] constexpr auto is_relational(BinaryOp op) noexcept {
+    return op == BinaryOp::LESS ||
+           op == BinaryOp::GREATER ||
+           op == BinaryOp::LESS_EQUAL ||
+           op == BinaryOp::GREATER_EQUAL ||
+           op == BinaryOp::EQUAL ||
+           op == BinaryOp::NOT_EQUAL;
+}
+
+[[nodiscard]] constexpr auto is_logical(BinaryOp op) noexcept {
+    return op == BinaryOp::AND || op == BinaryOp::OR;
+}
 
 /**
  * @brief Enum of call operations.
@@ -189,6 +212,39 @@ enum struct CallOp : uint32_t {
 };
 
 static constexpr size_t call_op_count = to_underlying(CallOp::TRACE_ANY) + 1u;
+
+[[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
+    return op == CallOp::ATOMIC_EXCHANGE ||
+           op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
+           op == CallOp::ATOMIC_FETCH_ADD ||
+           op == CallOp::ATOMIC_FETCH_SUB ||
+           op == CallOp::ATOMIC_FETCH_AND ||
+           op == CallOp::ATOMIC_FETCH_OR ||
+           op == CallOp::ATOMIC_FETCH_XOR ||
+           op == CallOp::ATOMIC_FETCH_MIN ||
+           op == CallOp::ATOMIC_FETCH_MAX;
+}
+
+[[nodiscard]] constexpr auto is_vector_maker(CallOp op) noexcept {
+    return op == CallOp::MAKE_BOOL2 ||
+           op == CallOp::MAKE_BOOL3 ||
+           op == CallOp::MAKE_BOOL4 ||
+           op == CallOp::MAKE_INT2 ||
+           op == CallOp::MAKE_INT3 ||
+           op == CallOp::MAKE_INT4 ||
+           op == CallOp::MAKE_UINT2 ||
+           op == CallOp::MAKE_UINT3 ||
+           op == CallOp::MAKE_UINT4 ||
+           op == CallOp::MAKE_FLOAT2 ||
+           op == CallOp::MAKE_FLOAT3 ||
+           op == CallOp::MAKE_FLOAT4;
+}
+
+[[nodiscard]] constexpr auto is_matrix_maker(CallOp op) noexcept {
+    return op == CallOp::MAKE_FLOAT2X2 ||
+           op == CallOp::MAKE_FLOAT3X3 ||
+           op == CallOp::MAKE_FLOAT4X4;
+}
 
 /**
  * @brief Set of call operations.

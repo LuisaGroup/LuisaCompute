@@ -17,13 +17,15 @@ Printer::Printer(Device &device, luisa::string_view name, size_t capacity) noexc
     _logger.set_level(spdlog::level::trace);
 }
 
-Command *Printer::reset() noexcept {
+luisa::unique_ptr<Command> Printer::reset() noexcept {
     _reset_called = true;
     static const auto zero = 0u;
     return _buffer.view(_buffer.size() - 1u, 1u).copy_from(&zero);
 }
 
-std::tuple<Command *, luisa::move_only_function<void()>, Command *>
+std::tuple<luisa::unique_ptr<Command>,
+           luisa::move_only_function<void()>,
+           luisa::unique_ptr<Command>>
 Printer::retrieve() noexcept {
     if (!_reset_called) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(

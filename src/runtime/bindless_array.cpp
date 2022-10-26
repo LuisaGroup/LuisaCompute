@@ -9,15 +9,6 @@
 
 namespace luisa::compute {
 
-namespace detail {
-
-ShaderInvokeBase &ShaderInvokeBase::operator<<(const BindlessArray &array) noexcept {
-    _command->encode_bindless_array(array.handle());
-    return *this;
-}
-
-}// namespace detail
-
 BindlessArray Device::create_bindless_array(size_t slots) noexcept {
     return _create<BindlessArray>(slots);
 }
@@ -68,7 +59,7 @@ BindlessArray &BindlessArray::remove_tex3d(size_t index) noexcept {
     return *this;
 }
 
-Command *BindlessArray::update() noexcept {
+luisa::unique_ptr<Command> BindlessArray::update() noexcept {
     return BindlessArrayUpdateCommand::create(handle());
 }
 

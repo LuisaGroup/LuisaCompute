@@ -12,6 +12,10 @@ class BasicTypeCheck:
         return dtype == bool
 
     @staticmethod
+    def is_float(dtype):
+        return dtype == float
+
+    @staticmethod
     def is_scalar(dtype):
         return dtype in scalar_dtypes
 

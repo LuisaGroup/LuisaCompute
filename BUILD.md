@@ -7,6 +7,16 @@
 - CMake 3.20+
 - C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
     - MSVC and Clang (with GNU-style command-line options) are recommended and tested on Windows
+- On Linux, `uuid-dev` is required to build the core libraries and the following libraries are required for the GUI module:
+    - libopencv-dev
+    - libglfw3-dev
+    - libxinerama-dev
+    - libxcursor-dev
+    - libxi-dev
+- On macOS with M1, you need to install `embree` since a pre-built binary is not provided by the official embree repo. We recommend using [Homebrew](https://brew.sh/) to install it. You can install it by running `brew install embree`.
+
+### Rust (IR module / Rust frontend)
+- Rust 1.56+ (latest stable version is recommended)
 
 ### Backends
 
@@ -25,7 +35,8 @@
     - Apple M1 chips are recommended (older GPUs are probably supported but not tested)
 - LLVM
     - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
-    - LLVM 12+ with the corresponding targets and features enabled
+    - LLVM 13+ with the corresponding targets and features enabled
+        - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_ROOT=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
 
 ### Python
 
@@ -39,6 +50,8 @@
 The ISPC backend is disabled by default. Other backends will automatically be enabled if the corresponding
 APIs/frameworks are detected. You can override the default settings by specifying CMake flags manually, in
 form of `-D FLAG=value` behind the first cmake command.
+
+Note: On Windows, please remember to replace the backslashes `\\` in the paths with `/` when passing arguments to CMake.
 
 In case you need to run the ISPC backend, download the [ISPC compiler executable](https://ispc.github.io/downloads.html)
 of your platform and copy the executable (e.g., `ispc` or `ispc.exe`) to `src/backends/ispc/ispc_support/` before
@@ -56,11 +69,12 @@ of linking object files into shared libraries.
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
 
-> Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree. 
-> Therefore, if you would like to enable the CUDA backend, you will need to manually copy the OptiX header
-> files to `src/backends/cuda/optix` *before* configuration and building, so that the folder *directly*
-> contains `optix.h`. The default location of OptiX is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include`
->  on Windows, and `/home/<user-name>/OptiX_.../include` on Linux.
+Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree.
+Therefore, if you would like to enable the CUDA backend, you will need to either
+- Manually copy the OptiX header files under `<optix-installation>/include` to `src/backends/cuda/optix` (so that the folder *directly* contains `optix.h`); or
+- Specify the OptiX installation directory with `-D OptiX_DIR=<optix-installation>`
+
+*before* configuration and building. The default location of the OptiX installation is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and `/home/<user>/NVIDIA-OptiX-SDK-7.x.0-linux64-x86_64/include` on Linux.
 
 ## Build Commands
 
