@@ -20,7 +20,7 @@ Note that you may switch `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|ISPC|DX|METAL}` to `ON
 different backends, But in order to produce a Python library, `LUISA_COMPUTE_ENABLE_PYTHON` must
 be turned `ON`.
 
-> If you build with `LUISA_COMPUTE_ENABLE_CUDA` on, you may face the followig error:
+> If you build with `LUISA_COMPUTE_ENABLE_CUDA` on, you may face the following error:
 > 
 > ```
 > CMake Error at src/backends/cuda/CMakeLists.txt:15 (message):
@@ -40,7 +40,7 @@ python3 test.py
 
 This will run the test script and output `mandelbrot.png`.
 
-Currently, we are not yet ready to provide .whl packages, so the best approach to use compiled `luisa`
+Currently, we are not yet ready to provide `.whl` packages, so the best approach to use compiled `luisa`
 library is to set `PYTHONPATH` environment variable. For example, you may run
 
 ```bash
@@ -597,3 +597,204 @@ Broadcasts the operator to each element of a vector; different types of variable
 > `float + float4` means that the `float` scalar is added to each element of `float4` separately. 
 >
 > `int + float4` is illegal.
+
+## Built-in functions and methods
+
+Built-in functions can be called within luisa functions without prefix (module name).
+
+Some types have callable methods, see the documentation for the corresponding type.
+
+### Thread-related
+
+```python
+'dispatch_id',
+'dispatch_size',
+'thread_id',
+'block_id',
+'set_block_size',
+'synchronize_block',
+```
+
+### Mathematical functions
+
+The built-in math functions support scalar and vector operations. Passing in vector arguments broadcasts the function to each dimension of the vector.
+
+```python
+'isinf', 'isnan',
+'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
+'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
+'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'abs', 'pow'
+```
+
+### vector / matrix creation
+
+Note: calls to constructs of the corresponding type (i.e. without the `make_` call) are equivalent. For instance, 
+`make_int2(1, 2)` is equivalent with `int2(1, 2)`.
+
+```python
+'make_uint2', 'make_int2', 'make_float2', 'make_bool2',
+'make_uint3', 'make_int3', 'make_float3', 'make_bool3',
+'make_uint4', 'make_int4', 'make_float4', 'make_bool4',
+'make_float2x2', 'make_float3x3', 'make_float4x4',
+```
+
+For scalar type `T = int|uint|float|bool` and length `N = 2|3|4`, there are built-in functions `make_<T><N>` that create a vector of type T and length N.
+
+> For example `make_int2` and `make_float3`
+
+`make_<T><N>` supports flexible argument types, just make sure that the length of all arguments sums to `N`.
+
+> For example, `make_int3` can accept three `int`, one `int2` and one `int`, or one `int` and one `int2`.
+
+If the incoming argument is not of type `T`, then it will be converted to `T` following C's implicit type conversion rules.
+
+> If you call `make_int3(0.5, 1.5, 2.5)` you get `int3(0, 1, 2)`
+
+The built-in functions for creating matrices are similar to vectors, except that they only support `float` types, i.e. only `make_float2x2, make_float3x3, make_float4x4`.
+
+`make_float<N>x<N>` requires one of the following three parameters.
+
+- A `float<N>x<N>` type
+- `N ` one `float<N>` type
+- `N * N` of type `float`
+
+`make_float<N>x<N>` does not yet support implicit type conversion.
+
+### vector / matrix operations
+
+```python
+'dot', 'cross',
+'length', 'length_squared', 'normalize',
+'determinant', 'transpose', 'inverse',
+```
+
+### Other numeric operations
+
+```python
+'copysign', 'fma',
+'min', 'max',
+'all', 'any',
+'select', 'clamp', 'step', 'lerp',
+'clz', 'ctz', 'popcount', 'reverse',
+```
+
+### Other
+
+```python
+'clz', 'ctz', 'popcount', 'reverse',
+'array', 'struct',
+'make_ray', 'inf_ray', 'offset_ray_origin',
+'print', 'len'
+```
+
+## Variables
+
+The type of a local variable remains the same throughout the function. Example.
+
+```python
+@luisa.func
+def fill():
+    a = 1 # defines a local variable of type int
+    a = 2 # assign a value
+    a = 1.5 # forbidden, it changes the type of a
+```
+
+## Syntax reference
+
+The syntax of Luisa functions generally follows that of Python, and the following references are only for the parts of 
+Luisa that are incompatible with Python syntax.
+
+Unless a specific built-in function specifies a permitted exception, any variable, argument, or return value in a Luisa 
+function must be of the type listed in the "Types" section, and does not support types such as list, tuple, dict, set, 
+etc. provided by python.
+
+### for loops
+
+can iterate over objects such as vectors, matrices, arrays, and `range(...) `
+
+## Python-Luisa Developer Documentation
+
+## Overview
+
+Due to issue [#10](https://github.com/LuisaGroup/LuisaCompute/issues/10) and considerations related to inferring argument types, and inferring kernel/callable, a luisa.func does not compile immediately when constructing, but only records python functions. When called in parallel in python, it is compiled as kernel; when called in lisa.func, it is compiled as callable.
+
+FuncInstanceInfo is a concrete (with specified argument types) kernel/callable.
+
+## File structure
+
+`src/py/lcapi.cpp` exports the PyBind interface to a library named lcapi
+
+`src/py/luisa` python library, where
+
+luisa function-related sections.
+
+- `src/py/luisa/func.py` defines the construction and calls of the luisa functions
+- `src/py/luisa/astbuilder.py` traverses the Python AST and calls FunctionBuilder
+
+Type definition-related sections.
+
+- `src/py/luisa/types.py` Type information
+- `src/py/luisa/mathtypes.py` introduces vector and matrix types
+- `src/py/luisa/array.py` Array types
+- `src/py/luisa/struct.py` structure types
+- `src/py/luisa/buffer.py` cache type
+- `src/py/luisa/texture2d.py` cache type
+- `src/py/luisa/bindless.py` Resource index type
+- `src/py/luisa/accel.py` acceleration structure type
+
+Other: ...
+
+## LuisaCompute API
+
+No documentation available at this time. See `src/py/lcapi.cpp` and the c++ functions it points to.
+
+Using PyBind11 export, you need to pay attention to the reference counting method when returning objects, see [Return value policies](https://pybind11.readthedocs.io/en/stable/advanced/functions.html)
+
+
+
+## Abstract syntax trees
+
+Using the syntax parsing tools provided by Python, user functions can be parsed into a Python Abstract Syntax Tree (AST). The astbuilder module recursively traverses this syntax tree, calling lcapi during the traversal to convert the tree into a function representation of LuisaCompute.
+
+For each kernel/callable, some global information is maintained during the traversal.
+
+local_variable[variable_name] -> VariableInfo (dtype, expr, is_arg)
+
+return_type
+
+uses_printer
+
+During the recursive traversal of the syntax tree, two properties are computed for each expression node of the AST.
+
+`node.dtype` The type tag of the node, indicating the type of its expression value, see the "Types" section of the user documentation.
+
+If the type of the node is a data type (i.e., the token type is a type other than ref in the user documentation, not a "non-data type token" as described below), then calling `luisa.types.to_lctype(node.dtype)` converts the type token to ` lcapi.Types`
+
+` node.expr` The expression for that node. If the type of the node is a data type, then its expression is of type ` lcapi.Expression`; otherwise see below
+
+`node.lr` whether the node is a left or right value. `'l'` or `'r'`
+
+## Non-data type tags
+
+In addition to the type tag in the user documentation, the AST node's type tag `node.dtype` can be the following values. These values may not be used as parameter type tags for kernel/callable.
+
+- `type`: The node represents a type, where `node.expr` is the corresponding type tag
+
+- `CallableType`: This node represents a callable, where `node.expr` is the callable
+
+- `BuiltinFuncType`: This node represents a built-in function, at this point `node.expr` is a string, the name of the built-in function
+
+- `BuiltinFuncBuilder`: This node represents a built-in function, at this point `node.expr` is a function ` (argnodes)->(dtype,expr)`
+
+- `str`: This node represents a string, in which case `node.expr` is a string literal. This is only allowed in the arguments to the `print` function
+
+- `list` is a list; this is only allowed in the arguments to array.
+
+## Unimplemented features
+
+- Full object-oriented support, including classes, polymorphism, etc.
+- Dynamic objects? To be discussed
+- Plug-in implementation? To be discussed
+- Mixed compile-time and run-time computation in functions? To be discussed
+- BufferView, TextureView, 2D Buffer
+- Uploading and downloading slice

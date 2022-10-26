@@ -6,17 +6,42 @@ Luisa 是一个嵌入Python的领域专用语言（DSL），面向高性能图�
 ## 编译与运行
 
 ```bash
-cmake -S . -B build_debug -G Ninja -D CMAKE_BUILD_TYPE=Debug -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_PYTHON=ON -D LUISA_COMPUTE_ENABLE_LLVM=OFF -D LUISA_COMPUTE_ENABLE_ISPC=ON -D LUISA_COMPUTE_ENABLE_METAL=OFF
-cmake --build build_debug
+cmake -S . -B build_release -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_PYTHON=ON
+cmake --build build_release -j
 ```
-此编译命令会在`build_debug`下生成可被python引入的luisa库。
+
+此编译命令会在`build_release`下生成可被python引入的luisa库。
+
+用户可以修改 `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|ISPC|DX|METAL}` 为 `ON|OFF` 来开启或关闭不同后端的 feature，但想得到 Python 库
+则必须将 `LUISA_COMPUTE_ENABLE_PYTHON` 设置为 `ON`。
+
+> 如果在开启 `CUDA` 后端后编译，你可能会遇到以下报错：
+> 
+> ```
+> CMake Error at src/backends/cuda/CMakeLists.txt:15 (message):
+> OptiX_DIR is not defined and OptiX headers are not copied to
+> '[Project Directory]/src/backends/cuda/optix'
+> ```
+>
+> 你既可以手动将 Optix 头文件拷贝到上述目录下，也可以在 CMake 中手动指定 OptiX 的路径。
 
 运行测试脚本：
 
 ```bash
-cd build_debug/bin
+cd build_release/bin
 python3 test.py
 ```
+
+你将在该目录下看到 `mandelbrot.png`。
+
+目前我们还没有提供 `.whl` 包，因此也无法通过 PyPI 分发 luisa。想要使用 luisa，最好的办法是设置 `PYTHONPATH` 环境变量。
+例如，在 UNIX 系统下你可以运行
+
+```bash
+source set_python_path.sh build_release
+```
+
+来将 `luisa` 所在目录添加到当前 shell 的 `PYTHONPATH` 中。
 
 ## 语言用例
 
@@ -41,7 +66,7 @@ Luisa函数是用于进行大量运算的设施。
 
 使用修饰符 `luisa.func` 可以将一个函数标记为Luisa函数。编写Luisa函数使用的语法与Python语法相同，尽管使用上稍有差别，见语法参考；一个Luisa函数在被调用时会被即时编译为静态类型的代码，从而在后端设备上运行。
 
-一个Luisa函数可以被Python代码**并行地**调用，在Python代码上调用时，必须指定参数 `dispatch_size`，即并行线程的数量。例如，在上例中并行地调用了100个`fill`函数的线程，每个线程的代码相同，但`dispatch_id()`不同。Luisa函数也可以被另一个Luisa函数调用，此时即与Python中函数调用的方法相同。
+一个Luisa函数可以被Python代码**并行地**调用，在Python代码上调用时，必须指定参数 `dispatch_size`，即并行线程的数量。例如，在上例中并行地调用了10个`fill`函数的线程，每个线程的代码相同，但`dispatch_id()`不同。Luisa函数也可以被另一个Luisa函数调用，此时即与Python中函数调用的方法相同。
 
 > 可以这样理解：Python代码是宿主端的代码，在CPU上运行。Luisa函数是设备端的代码，在加速设备上运行（加速设备可以是GPU，也可以是CPU自身）。宿主端用于控制发出多个设备端的线程，以及初始化与收集数据；而设备端用于执行主要的运算。
 >
@@ -616,6 +641,8 @@ def fill():
 ```
 
 ## 语法参考
+
+Luisa 函数的语法大致遵循 Python，以下参考仅针对 Luisa 与 Python 语法不兼容的部分。
 
 除非特定内置函数指明允许的特例，luisa函数中任何变量、参数或返回值必须是"类型"一节中列出的类型，不支持 list, tuple, dict, set 等python提供的类型。
 
