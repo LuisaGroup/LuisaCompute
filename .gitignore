@@ -344,5 +344,9 @@ doxygen_output
 *.S
 
 
+<<<<<<< HEAD
 src/ir/luisa-compute-ir/target/**
 src/api/luisa_compute_api_types/target/**
+=======
+src/ir/luisa-compute-ir/target/**
+>>>>>>> 132206596b679c2b5cda923c7b5105c1cc88038e

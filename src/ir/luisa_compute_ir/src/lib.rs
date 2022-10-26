@@ -1,7 +1,7 @@
 pub mod ffi;
 pub mod ir;
 pub use ffi::*;
-use std::{collections::HashMap, hash::Hash, rc::Rc};
+use std::{hash::Hash, collections::HashMap, rc::Rc};
 pub mod context;
 pub mod transform;
 pub use gc::Gc;
