@@ -345,3 +345,4 @@ doxygen_output
 
 
 src/ir/luisa-compute-ir/target/**
+src/api/luisa_compute_api_types/target/**
