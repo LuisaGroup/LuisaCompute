@@ -2,12 +2,14 @@
 // Created by Mike Smith on 2022/10/17.
 //
 
-#include <bindings.hpp>
+#pragma once
 
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
 #include <ast/function.h>
+
+#include <ir/luisa_compute_ir/bindings.hpp>
 
 namespace luisa::compute {
 

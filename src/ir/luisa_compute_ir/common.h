@@ -20,8 +20,8 @@ struct GcHeader {
     GcHeader *next;
     GcTraceFunc trace;
     GcDeleteFunc del;
-    bool mark = false;
-    bool root = false;
+    bool mark;
+    bool root;
 };
 
 template<class T>
