@@ -1,8 +1,10 @@
 # corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
+option(LUISA_COMPUTE_RUST OFF)
+if(NOT LUISA_COMPUTE_RUST)
 execute_process(
         COMMAND cargo build
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/luisa_compute_api_types)
-
+endif()
 set(LUISA_COMPUTE_API_SOURCES
         device.h
         runtime.cpp runtime.h
