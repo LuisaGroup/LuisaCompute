@@ -20,6 +20,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         resource_tracker.cpp resource_tracker.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
+add_dependencies(luisa-compute-runtime luisa_compute_api_types)
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast)
 target_compile_definitions(luisa-compute-runtime PRIVATE LC_RUNTIME_EXPORT_DLL=1)
 set_target_properties(luisa-compute-runtime PROPERTIES

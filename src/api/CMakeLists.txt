@@ -1,20 +1,23 @@
 # corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
-add_custom_command(OUTPUT bindings.h bindings.hpp
-        DEPENDS src/lib.rs
+add_custom_target(
+        luisa_compute_api_types
+        DEPENDS luisa_compute_api_types/src/lib.rs
         COMMAND cargo build
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/luisa_compute_api_types)
+
 set(LUISA_COMPUTE_API_SOURCES
         device.h
         runtime.cpp runtime.h
-        logging.cpp logging.h)
+        logging.cpp logging.h
+        )
 add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})
 target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-runtime
         luisa-compute-compile
         luisa-compute-backends
         luisa-compute-ir-api
-        # luisa_compute_api_types
         )
+add_dependencies(luisa-compute-api luisa_compute_api_types)
 # add_dependencies(luisa-compute-api luisa-compute-serialize)
 set_target_properties(luisa-compute-api PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
