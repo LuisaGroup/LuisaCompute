@@ -1,4 +1,8 @@
 # corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
+add_custom_command(OUTPUT bindings.h bindings.hpp
+        DEPENDS src/lib.rs
+        COMMAND cargo build
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/luisa_compute_api_types)
 set(LUISA_COMPUTE_API_SOURCES
         device.h
         runtime.cpp runtime.h
