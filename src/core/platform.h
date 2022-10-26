@@ -13,6 +13,8 @@
 #define LUISA_NOEXCEPT
 #endif
 
+
+
 #ifdef _MSC_VER
 #define LUISA_FORCE_INLINE inline
 #define LUISA_NEVER_INLINE __declspec(noinline)
@@ -20,11 +22,20 @@
 #define LUISA_EXPORT_API LUISA_EXTERN_C __declspec(dllexport)
 #define LUISA_IMPORT_API LUISA_EXTERN_C __declspec(dllimport)
 #else
+#ifdef __cplusplus
 #define LUISA_FORCE_INLINE [[gnu::always_inline, gnu::hot]] inline
 #define LUISA_NEVER_INLINE [[gnu::noinline]]
 #define LUISA_DLL
 #define LUISA_EXPORT_API LUISA_EXTERN_C [[gnu::visibility("default")]]
 #define LUISA_IMPORT_API LUISA_EXTERN_C
+#else 
+// TODO: 
+#define LUISA_FORCE_INLINE inline
+#define LUISA_NEVER_INLINE 
+#define LUISA_DLL
+#define LUISA_EXPORT_API LUISA_EXTERN_C 
+#define LUISA_IMPORT_API LUISA_EXTERN_C
+#endif
 #endif
 
 #if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
