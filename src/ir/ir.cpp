@@ -1,4 +1,4 @@
-#include "ir.hpp"
+#include <ir/ir.hpp>
 
 namespace luisa::compute {
 
