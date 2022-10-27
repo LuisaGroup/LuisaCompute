@@ -219,6 +219,7 @@ impl<'a> StoreIntermediate<'a> {
             }
             crate::ir::Instruction::Switch { .. } => todo!(),
             crate::ir::Instruction::Comment { .. } => {}
+            crate::ir::Instruction::Debug { .. } => {}
         }
     }
 }
@@ -300,6 +301,7 @@ impl Backward {
             } => todo!(),
             crate::ir::Instruction::Switch { .. } => todo!(),
             crate::ir::Instruction::Comment { .. } => {}
+            crate::ir::Instruction::Debug { .. } => {}
             crate::ir::Instruction::Return(_) => {
                 panic!("should not have return in autodiff section")
             }

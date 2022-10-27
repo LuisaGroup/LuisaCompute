@@ -343,6 +343,7 @@ impl Trace for Instruction {
                 cases.trace();
             }
             Instruction::Comment(_) => todo!(),
+            crate::ir::Instruction::Debug { .. } => {}
         }
     }
 }
@@ -367,7 +368,7 @@ pub enum Func {
 
     Assume,
     Unreachable,
-    Assert,
+    Assert, // Assert(condition, message*) message is of Instruction::Debug
 
     ThreadId,
     BlockId,
@@ -515,7 +516,7 @@ pub enum Func {
     BufferRead,
     /// (buffer, index, value) -> void: writes value into the inde
     BufferWrite,
-    /// (buffer, index) -> uint: returns buffer size in *elements*
+    /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
     /// (texture, coord) -> value
     TextureRead,
@@ -768,6 +769,7 @@ pub enum Instruction {
         cases: CBoxedSlice<SwitchCase>,
     },
     Comment(CBoxedSlice<u8>),
+    Debug(CBoxedSlice<u8>), // for CPU only, would print the message if executed
 }
 
 // pub fn new_user_node<T: UserNodeData>(data: T) -> NodeRef {
@@ -1120,6 +1122,7 @@ impl ModuleCloner {
             Instruction::If { .. } => todo!(),
             Instruction::Switch { .. } => todo!(),
             Instruction::Comment(_) => builder.clone_node(node),
+            crate::ir::Instruction::Debug { .. } => builder.clone_node(node),
         };
         self.node_map.insert(node, new_node);
         new_node

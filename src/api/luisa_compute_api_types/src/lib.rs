@@ -349,6 +349,7 @@ pub enum Command {
     ShaderDispatch(ShaderDispatchCommand),
     MeshBuild(MeshBuildCommand),
     AccelBuild(AccelBuildCommand),
+    BindlessArrayUpdate(BindlessArray),
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]

@@ -511,7 +511,7 @@ impl Validator {
             }
             Instruction::Comment(_) => {
                 assert_eq!(type_, Type::void());
-            }
+            } crate::ir::Instruction::Debug { .. } => {}
         }
     }
     fn validate(&mut self, module: &Module) {
