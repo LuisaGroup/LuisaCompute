@@ -8,7 +8,7 @@
 
 #include <cuda.h>
 #include <nvrtc.h>
-#include <optix.h>
+#include <backends/cuda/optix_api.h>
 
 #include <core/logging.h>
 
@@ -30,14 +30,14 @@
         }                                                 \
     }()
 
-#define LUISA_CHECK_OPTIX(...)                                  \
-    [&] {                                                       \
-        if (auto error = __VA_ARGS__; error != OPTIX_SUCCESS) { \
-            LUISA_ERROR_WITH_LOCATION(                          \
-                "{}: {}.",                                      \
-                optixGetErrorName(error),                       \
-                optixGetErrorString(error));                    \
-        }                                                       \
+#define LUISA_CHECK_OPTIX(...)                       \
+    [&] {                                            \
+        if (auto error = __VA_ARGS__; error != 0) {  \
+            LUISA_ERROR_WITH_LOCATION(               \
+                "{}: {}.",                           \
+                optix::api().getErrorName(error),    \
+                optix::api().getErrorString(error)); \
+        }                                            \
     }()
 
 #define LUISA_CHECK_OPTIX_WITH_LOG(log, log_size, ...)          \

@@ -30,7 +30,8 @@ if (CUDAToolkit_FOUND)
             cuda_accel.cpp cuda_accel.h
             cuda_mesh.cpp cuda_mesh.h
             cuda_shader.cpp cuda_shader.h
-            cuda_callback_context.h)
+            cuda_callback_context.h
+            optix_api.cpp optix_api.h)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cuda_driver CUDA::nvrtc)
