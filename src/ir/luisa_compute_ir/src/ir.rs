@@ -1290,6 +1290,14 @@ pub extern "C" fn luisa_compute_ir_new_node(node: Node) -> NodeRef {
 pub extern "C" fn luisa_compute_ir_node_get(node_ref: NodeRef) -> *const Node {
     node_ref.get()
 }
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_set_root(node_ref: NodeRef, flag: bool) {
+    if flag {
+        Gc::set_root(node_ref.get_gc_node());
+    } else {
+        Gc::unset_root(node_ref.get_gc_node());
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_append_node(builder: &mut IrBuilder, node_ref: NodeRef) {
