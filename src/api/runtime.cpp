@@ -285,16 +285,84 @@ LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFor
         to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format))));
 }
 
+inline Sampler convert_sampler(LCSampler sampler) {
+    Sampler s;
+    switch (sampler.address) {
+        case LC_SAMPLER_ADDRESS_ZERO:
+            s.set_address(Sampler::Address::ZERO);
+            break;
+        case LC_SAMPLER_ADDRESS_EDGE:
+            s.set_address(Sampler::Address::EDGE);
+            break;
+        case LC_SAMPLER_ADDRESS_REPEAT:
+            s.set_address(Sampler::Address::REPEAT);
+            break;
+        case LC_SAMPLER_ADDRESS_MIRROR:
+            s.set_address(Sampler::Address::MIRROR);
+            break;
+        default:
+            LUISA_ERROR_WITH_LOCATION("Invalid sampler address mode {}", static_cast<int>(sampler.address));
+    }
+    switch (sampler.filter) {
+        case LC_SAMPLER_FILTER_POINT:
+            s.set_filter(Sampler::Filter::POINT);
+            break;
+        case LC_SAMPLER_FILTER_LINEAR_LINEAR:
+            s.set_filter(Sampler::Filter::LINEAR_LINEAR);
+            break;
+        case LC_SAMPLER_FILTER_ANISOTROPIC:
+            s.set_filter(Sampler::Filter::ANISOTROPIC);
+            break;
+        case LC_SAMPLER_FILTER_LINEAR_POINT:
+            s.set_filter(Sampler::Filter::LINEAR_POINT);
+            break;
+        default:
+            LUISA_ERROR_WITH_LOCATION("Invalid sampler filter mode {}", static_cast<int>(sampler.filter));
+    }
+}
+
 LUISA_EXPORT_API LCBindlessArray luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto bindless_array = luisa::new_with_allocator<BindlessArray>(d->retain()->object()->create_bindless_array(n));
-    return from_ptr<LCBindlessArray>(bindless_array);
+    auto bindless_array = d->retain()->object()->impl()->create_bindless_array(n);
+    return LCBindlessArray{bindless_array};
+}
+LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_buffer(LCDevice device, LCBindlessArray array, size_t index, LCBuffer buffer) LUISA_NOEXCEPT {
+    auto handle = array._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->emplace_buffer_in_bindless_array(handle, index, buffer._0, 0);
+}
+
+LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex2d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT {
+    auto handle = array._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->emplace_tex2d_in_bindless_array(handle, index, texture._0, convert_sampler(sampler));
+}
+LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex3d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT {
+    auto handle = array._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->emplace_tex3d_in_bindless_array(handle, index, texture._0, convert_sampler(sampler));
+}
+LUISA_EXPORT_API void luisa_compute_bindless_array_remove_buffer(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
+    auto handle = array._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->remove_buffer_in_bindless_array(handle, index);
+}
+LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex2d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
+    auto handle = array._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->remove_tex2d_in_bindless_array(handle, index);
+}
+LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex3d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
+    auto handle = array._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->remove_tex3d_in_bindless_array(handle, index);
 }
 
 LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT {
-    auto bindless_array = reinterpret_cast<BindlessArray *>(array._0);
-    luisa::delete_with_allocator(bindless_array);
-    reinterpret_cast<RC<Device> *>(device._0)->release();
+    auto handle = array._0;
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->destroy_bindless_array(handle);
+    d->release();
 }
 
 class ExternDevice : public Device::Interface {

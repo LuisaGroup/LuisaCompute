@@ -45,12 +45,12 @@ LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent e
 
 LUISA_EXPORT_API LCBindlessArray luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_buffer(LCBindlessArray array, size_t index, LCBuffer buffer) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex2d(LCBindlessArray array, size_t index, LCTexture texture, uint32_t sampler) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex3d(LCBindlessArray array, size_t index, LCTexture texture, uint32_t sampler) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_buffer(LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex2d(LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex3d(LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_buffer(LCDevice device, LCBindlessArray array, size_t index, LCBuffer buffer) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex2d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex3d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_bindless_array_remove_buffer(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex2d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex3d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCMesh luisa_compute_mesh_create(
     LCDevice device,
