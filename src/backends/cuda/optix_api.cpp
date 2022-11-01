@@ -44,6 +44,7 @@
 #include <cfgmgr32.h>
 #else
 #include <dlfcn.h>
+#include <glob.h>
 #endif
 
 namespace luisa::compute::optix {
@@ -95,10 +96,11 @@ static constexpr auto ABI_VERSION = 47u;
 
             if (handle) { break; }
         }
-        if (reg_key != 0) { RegCloseKey(reg_key); }
+        if (reg_key) { RegCloseKey(reg_key); }
     }
 #else
-    void *handle = dlopen("libnvoptix.so.1", RTLD_LAZY);
+    constexpr auto fname = "libnvoptix.so.1";
+    void *handle = dlopen(fname, RTLD_LAZY);
 
     if (!handle) {
         glob_t g;
@@ -106,7 +108,7 @@ static constexpr auto ABI_VERSION = 47u;
             const char *chosen = nullptr;
             if (g.gl_pathc > 1) {
                 LUISA_INFO("find_optix_library(): Multiple versions of "
-                           "{} were found on your system!\n",
+                           "{} were found on your system!",
                            fname);
                 std::sort(g.gl_pathv, g.gl_pathv + g.gl_pathc,
                           [](const char *a, const char *b) {
@@ -142,10 +144,7 @@ static constexpr auto ABI_VERSION = 47u;
                     if (chosen)
                         break;
                 }
-                LUISA_INFO("\nChoosing the last one. Specify a path manually "
-                           "using the environment\nvariable '{}' to override this "
-                           "behavior.\n",
-                           env_var);
+                LUISA_INFO("Choosing the last one.");
             } else if (g.gl_pathc == 1) {
                 chosen = g.gl_pathv[0];
             }
