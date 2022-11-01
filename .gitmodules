@@ -21,7 +21,7 @@
 	url = https://github.com/ocornut/imgui.git
 [submodule "src/ext/EASTL"]
 	path = src/ext/EASTL
-	url = https://github.com/Mike-Leo-Smith/EASTL.git
+	url = https://github.com/LuisaGroup/EASTL.git
 [submodule "src/ext/doxygen-awesome-css"]
 	path = src/ext/doxygen-awesome-css
 	url = https://github.com/jothepro/doxygen-awesome-css.git
