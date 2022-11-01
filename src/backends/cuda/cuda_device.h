@@ -5,12 +5,12 @@
 #pragma once
 
 #include <cuda.h>
-#include <optix.h>
 
 #include <runtime/device.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
 
@@ -49,7 +49,7 @@ public:
 
     private:
         CUcontext _context{nullptr};
-        OptixDeviceContext _optix_context{nullptr};
+        optix::DeviceContext _optix_context{nullptr};
         CUdevice _device{0};
         uint32_t _compute_capability{};
 

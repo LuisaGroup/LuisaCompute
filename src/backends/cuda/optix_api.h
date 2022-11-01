@@ -2,391 +2,455 @@
 
 #include <cuda.h>
 #include <cstdint>
-#include <stdint.h>
 
 namespace luisa::compute::optix {
 
-using OptixResult = int;
-using OptixProgramGroupKind = int;
-using OptixCompileDebugLevel = int;
-using OptixDeviceContext = void *;
-using OptixLogCallback = void (*)(unsigned int, const char *, const char *, void *);
-using OptixTask = void *;
-using OptixModule = void *;
-using OptixDeviceContext = void *;
-using OptixProgramGroup = void *;
-using OptixPipeline = void *;
-using OptixDenoiser = void *;
+constexpr auto VERSION = 70300u;
 
-#define OPTIX_EXCEPTION_FLAG_NONE 0
-#define OPTIX_EXCEPTION_FLAG_STACK_OVERFLOW 1
-#define OPTIX_EXCEPTION_FLAG_TRACE_DEPTH 2
-#define OPTIX_EXCEPTION_FLAG_DEBUG 8
-#define OPTIX_COMPILE_DEBUG_LEVEL_NONE 0x2350
-#define OPTIX_COMPILE_DEBUG_LEVEL_MINIMAL 0x2351
-#define OPTIX_COMPILE_OPTIMIZATION_LEVEL_0 0x2340
-#define OPTIX_COMPILE_OPTIMIZATION_LEVEL_1 0x2341
-#define OPTIX_COMPILE_OPTIMIZATION_LEVEL_2 0x2342
-#define OPTIX_COMPILE_OPTIMIZATION_LEVEL_3 0x2343
-#define OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_OFF 0
-#define OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL ((int)0xFFFFFFFF)
-#define OPTIX_MODULE_COMPILE_STATE_COMPLETED 0x2364
-#define OPTIX_PROGRAM_GROUP_KIND_RAYGEN 0x2421
-#define OPTIX_PROGRAM_GROUP_KIND_CALLABLES 0x2425
-#define OPTIX_PROGRAM_GROUP_KIND_MISS 0x2422
-#define OPTIX_SBT_RECORD_HEADER_SIZE 32
-#define OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS 1
+using uint = uint32_t;
 
-struct OptixPipelineCompileOptions {
+using Result = uint;
+using ProgramGroupKind = uint;
+using CompileDebugLevel = uint;
+using DeviceContext = void *;
+using LogCallback = void (*)(uint, const char *, const char *, void *);
+using Module = void *;
+using DeviceContext = void *;
+using ProgramGroup = void *;
+using Pipeline = void *;
+using Denoiser = void *;
+using TraversableHandle = uint64_t;
+using BuildOperation = uint;
+
+constexpr auto EXCEPTION_FLAG_NONE = 0u;
+constexpr auto EXCEPTION_FLAG_STACK_OVERFLOW = 1u;
+constexpr auto EXCEPTION_FLAG_TRACE_DEPTH = 2u;
+constexpr auto EXCEPTION_FLAG_DEBUG = 8u;
+
+constexpr auto COMPILE_DEBUG_LEVEL_NONE = 0x2350u;
+constexpr auto COMPILE_DEBUG_LEVEL_MINIMAL = 0x2351u;
+constexpr auto COMPILE_OPTIMIZATION_LEVEL_0 = 0x2340u;
+constexpr auto COMPILE_OPTIMIZATION_LEVEL_1 = 0x2341u;
+constexpr auto COMPILE_OPTIMIZATION_LEVEL_2 = 0x2342u;
+constexpr auto COMPILE_OPTIMIZATION_LEVEL_3 = 0x2343u;
+
+constexpr auto DEVICE_CONTEXT_VALIDATION_MODE_OFF = 0u;
+constexpr auto DEVICE_CONTEXT_VALIDATION_MODE_ALL = 0xFFFFFFFFu;
+
+constexpr auto MODULE_COMPILE_STATE_COMPLETED = 0x2364u;
+
+constexpr auto SBT_RECORD_HEADER_SIZE = 32u;
+constexpr auto SBT_RECORD_ALIGNMENT = 16u;
+constexpr auto ACCEL_BUFFER_BYTE_ALIGNMENT = 128u;
+constexpr auto INSTANCE_BYTE_ALIGNMENT = 16u;
+constexpr auto COMPILE_DEFAULT_MAX_REGISTER_COUNT = 0u;
+
+constexpr auto BUILD_FLAG_NONE = 0u;
+constexpr auto BUILD_FLAG_ALLOW_UPDATE = 1u << 0u;
+constexpr auto BUILD_FLAG_ALLOW_COMPACTION = 1u << 1u;
+constexpr auto BUILD_FLAG_PREFER_FAST_TRACE = 1u << 2u;
+constexpr auto BUILD_FLAG_PREFER_FAST_BUILD = 1u << 3u;
+
+constexpr auto BUILD_INPUT_TYPE_TRIANGLES = 0x2141u;
+constexpr auto BUILD_INPUT_TYPE_INSTANCES = 0x2143u;
+
+constexpr auto BUILD_OPERATION_BUILD = 0x2161u;
+constexpr auto BUILD_OPERATION_UPDATE = 0x2162u;
+
+constexpr auto PROPERTY_TYPE_COMPACTED_SIZE = 0x2181u;
+constexpr auto PROPERTY_TYPE_AABBS = 0x2182u;
+
+constexpr auto GEOMETRY_FLAG_NONE = 0u;
+constexpr auto GEOMETRY_FLAG_DISABLE_ANYHIT = 1u << 0u;
+constexpr auto GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL = 1u << 1u;
+constexpr auto GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 2u;
+
+constexpr auto VERTEX_FORMAT_NONE      = 0u;
+constexpr auto VERTEX_FORMAT_FLOAT3    = 0x2121u;
+constexpr auto VERTEX_FORMAT_FLOAT2    = 0x2122u;
+constexpr auto VERTEX_FORMAT_HALF3     = 0x2123u;
+constexpr auto VERTEX_FORMAT_HALF2     = 0x2124u;
+constexpr auto VERTEX_FORMAT_SNORM16_3 = 0x2125u;
+constexpr auto VERTEX_FORMAT_SNORM16_2 = 0x2126u;
+
+constexpr auto INDICES_FORMAT_NONE = 0u;
+constexpr auto INDICES_FORMAT_UNSIGNED_SHORT3 = 0x2102u;
+constexpr auto INDICES_FORMAT_UNSIGNED_INT3 = 0x2103u;
+
+constexpr auto PRIMITIVE_TYPE_FLAGS_TRIANGLE = 1u << 31u;
+
+constexpr auto TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY = 0u;
+constexpr auto TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS = 1u << 0u;
+constexpr auto TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING = 1u << 1u;
+
+constexpr auto PROGRAM_GROUP_KIND_RAYGEN = 0x2421u;
+constexpr auto PROGRAM_GROUP_KIND_MISS = 0x2422u;
+constexpr auto PROGRAM_GROUP_KIND_EXCEPTION = 0x2423u;
+constexpr auto PROGRAM_GROUP_KIND_HITGROUP = 0x2424u;
+constexpr auto PROGRAM_GROUP_KIND_CALLABLES = 0x2425u;
+
+struct PipelineCompileOptions {
     int usesMotionBlur;
-    unsigned int traversableGraphFlags;
-    int numPayloadValues;
-    int numAttributeValues;
-    unsigned int exceptionFlags;
+    uint traversableGraphFlags;
+    uint numPayloadValues;
+    uint numAttributeValues;
+    uint exceptionFlags;
     const char *pipelineLaunchParamsVariableName;
-    unsigned int usesPrimitiveTypeFlags;
-    unsigned int reserved;
+    uint usesPrimitiveTypeFlags;
+    uint reserved;
     size_t reserved2;
 };
 
-struct OptixShaderBindingTable {
+struct ShaderBindingTable {
     CUdeviceptr raygenRecord;
     CUdeviceptr exceptionRecord;
     CUdeviceptr missRecordBase;
-    unsigned int missRecordStrideInBytes;
-    unsigned int missRecordCount;
+    uint missRecordStrideInBytes;
+    uint missRecordCount;
     CUdeviceptr hitgroupRecordBase;
-    unsigned int hitgroupRecordStrideInBytes;
-    unsigned int hitgroupRecordCount;
+    uint hitgroupRecordStrideInBytes;
+    uint hitgroupRecordCount;
     CUdeviceptr callablesRecordBase;
-    unsigned int callablesRecordStrideInBytes;
-    unsigned int callablesRecordCount;
+    uint callablesRecordStrideInBytes;
+    uint callablesRecordCount;
 };
 
-struct OptixDeviceContextOptions {
-    OptixLogCallback logCallbackFunction;
+struct DeviceContextOptions {
+    LogCallback logCallbackFunction;
     void *logCallbackData;
-    int logCallbackLevel;
-    int validationMode;
+    uint logCallbackLevel;
+    uint validationMode;
 };
 
-struct OptixPayloadType {
-    unsigned int numPayloadValues;
-    const unsigned int *payloadSemantics;
+struct PayloadType {
+    uint numPayloadValues;
+    const uint *payloadSemantics;
 };
 
-struct OptixModuleCompileOptions {
-    int maxRegisterCount;
-    int optLevel;
-    int debugLevel;
+struct ModuleCompileOptions {
+    uint maxRegisterCount;
+    uint optLevel;
+    uint debugLevel;
     const void *boundValues;
-    unsigned int numBoundValues;
-    unsigned int numPayloadTypes;
-    OptixPayloadType *payloadTypes;
+    uint numBoundValues;
+    uint numPayloadTypes;
+    PayloadType *payloadTypes;
 };
 
-struct OptixPipelineLinkOptions {
-    unsigned int maxTraceDepth;
-    OptixCompileDebugLevel debugLevel;
+struct PipelineLinkOptions {
+    uint maxTraceDepth;
+    CompileDebugLevel debugLevel;
 };
 
-struct OptixProgramGroupSingleModule {
-    OptixModule module;
+struct ProgramGroupSingleModule {
+    Module module;
     const char *entryFunctionName;
 };
 
-struct OptixProgramGroupHitgroup {
-    OptixModule moduleCH;
+struct ProgramGroupHitgroup {
+    Module moduleCH;
     const char *entryFunctionNameCH;
-    OptixModule moduleAH;
+    Module moduleAH;
     const char *entryFunctionNameAH;
-    OptixModule moduleIS;
+    Module moduleIS;
     const char *entryFunctionNameIS;
 };
 
-struct OptixProgramGroupCallables {
-    OptixModule moduleDC;
+struct ProgramGroupCallables {
+    Module moduleDC;
     const char *entryFunctionNameDC;
-    OptixModule moduleCC;
+    Module moduleCC;
     const char *entryFunctionNameCC;
 };
 
-struct OptixProgramGroupDesc {
-    OptixProgramGroupKind kind;
-    unsigned int flags;
-
+struct ProgramGroupDesc {
+    ProgramGroupKind kind;
+    uint flags;
     union {
-        OptixProgramGroupSingleModule raygen;
-        OptixProgramGroupSingleModule miss;
-        OptixProgramGroupSingleModule exception;
-        OptixProgramGroupCallables callables;
-        OptixProgramGroupHitgroup hitgroup;
+        ProgramGroupSingleModule raygen;
+        ProgramGroupSingleModule miss;
+        ProgramGroupSingleModule exception;
+        ProgramGroupCallables callables;
+        ProgramGroupHitgroup hitgroup;
     };
 };
 
-struct OptixStackSizes {
-    unsigned int cssRG;
-    unsigned int cssMS;
-    unsigned int cssCH;
-    unsigned int cssAH;
-    unsigned int cssIS;
-    unsigned int cssCC;
-    unsigned int dssDC;
+struct StackSizes {
+    uint cssRG;
+    uint cssMS;
+    uint cssCH;
+    uint cssAH;
+    uint cssIS;
+    uint cssCC;
+    uint dssDC;
 };
 
-struct OptixProgramGroupOptions {
-    OptixPayloadType *payloadType;
+struct ProgramGroupOptions {
+    PayloadType *payloadType;
 };
 
-struct OptixBuiltinISOptions {
-    uint32_t builtinISModuleType;
+struct BuiltinISOptions {
+    uint builtinISModuleType;
     int usesMotionBlur;
 };
 
-struct OptixMotionOptions {
+struct MotionOptions {
     unsigned short numKeys;
     unsigned short flags;
     float timeBegin;
     float timeEnd;
 };
 
-struct OptixAccelBuildOptions {
-    unsigned int buildFlags;
-    uint32_t operation;
-    OptixMotionOptions motionOptions;
+struct AccelBuildOptions {
+    uint buildFlags;
+    uint operation;
+    MotionOptions motionOptions;
 };
 
-struct OptixBuildInputTriangleArray {
+struct alignas(16) Instance {
+    float transform[12];
+    uint instanceId;
+    uint sbtOffset;
+    uint visibilityMask;
+    uint flags;
+    TraversableHandle handle;
+    uint pad[2];
+};
+
+static_assert(sizeof(Instance) == 80u);
+
+struct BuildInputTriangleArray {
     const CUdeviceptr *vertexBuffers;
-    unsigned int numVertices;
-    uint32_t vertexFormat;
-    unsigned int vertexStrideInBytes;
+    uint numVertices;
+    uint vertexFormat;
+    uint vertexStrideInBytes;
     CUdeviceptr indexBuffer;
-    unsigned int numIndexTriplets;
-    uint32_t indexFormat;
-    unsigned int indexStrideInBytes;
+    uint numIndexTriplets;
+    uint indexFormat;
+    uint indexStrideInBytes;
     CUdeviceptr preTransform;
-    const unsigned int *flags;
-    unsigned int numSbtRecords;
+    const uint *flags;
+    uint numSbtRecords;
     CUdeviceptr sbtIndexOffsetBuffer;
-    unsigned int sbtIndexOffsetSizeInBytes;
-    unsigned int sbtIndexOffsetStrideInBytes;
-    unsigned int primitiveIndexOffset;
-    uint32_t transformFormat;
+    uint sbtIndexOffsetSizeInBytes;
+    uint sbtIndexOffsetStrideInBytes;
+    uint primitiveIndexOffset;
+    uint transformFormat;
 };
 
-struct OptixBuildInputInstanceArray {
+struct BuildInputInstanceArray {
     CUdeviceptr instances;
-    unsigned int numInstances;
+    uint numInstances;
 };
 
-struct OptixBuildInput {
-    uint32_t type;
+struct BuildInput {
+    uint type;
     union {
-        OptixBuildInputTriangleArray triangleArray;
-        OptixBuildInputInstanceArray instanceArray;
-        char pad[1024];
+        BuildInputTriangleArray triangleArray;
+        BuildInputInstanceArray instanceArray;
+        uint8_t pad[1024];
     };
 };
 
-struct OptixAccelBufferSizes {
+struct AccelBufferSizes {
     size_t outputSizeInBytes;
     size_t tempSizeInBytes;
     size_t tempUpdateSizeInBytes;
 };
 
-struct OptixAccelEmitDesc {
+struct AccelEmitDesc {
     CUdeviceptr result;
-    uint32_t type;
+    uint type;
 };
 
-struct OptixAccelRelocationInfo {
-    unsigned long long info[4];
+struct AccelRelocationInfo {
+    uint64_t info[4];
 };
 
-struct OptixDenoiserOptions {
-    unsigned int guideAlbedo;
-    unsigned int guideNormal;
+struct DenoiserOptions {
+    uint guideAlbedo;
+    uint guideNormal;
 };
 
-struct OptixDenoiserSizes {
+struct DenoiserSizes {
     size_t stateSizeInBytes;
     size_t withOverlapScratchSizeInBytes;
     size_t withoutOverlapScratchSizeInBytes;
-    unsigned int overlapWindowSizeInPixels;
+    uint overlapWindowSizeInPixels;
 };
 
-struct OptixDenoiserParams {
-    unsigned int denoiseAlpha;
+struct DenoiserParams {
+    uint denoiseAlpha;
     CUdeviceptr hdrIntensity;
     float blendFactor;
     CUdeviceptr hdrAverageColor;
 };
 
-struct OptixImage2D {
+struct Image2D {
     CUdeviceptr data;
-    unsigned int width;
-    unsigned int height;
-    unsigned int rowStrideInBytes;
-    unsigned int pixelStrideInBytes;
-    uint32_t format;
+    uint width;
+    uint height;
+    uint rowStrideInBytes;
+    uint pixelStrideInBytes;
+    uint format;
 };
 
-struct OptixDenoiserGuideLayer {
-    OptixImage2D albedo;
-    OptixImage2D normal;
-    OptixImage2D flow;
+struct DenoiserGuideLayer {
+    Image2D albedo;
+    Image2D normal;
+    Image2D flow;
 };
 
-struct OptixDenoiserLayer {
-    OptixImage2D input;
-    OptixImage2D previousOutput;
-    OptixImage2D output;
+struct DenoiserLayer {
+    Image2D input;
+    Image2D previousOutput;
+    Image2D output;
 };
 
-struct OptixFunctionTable {
-    const char *(*getErrorName)(OptixResult result);
-    const char *(*getErrorString)(OptixResult result);
-    OptixResult (*deviceContextCreate)(CUcontext fromContext, const OptixDeviceContextOptions *options, OptixDeviceContext *context);
-    OptixResult (*deviceContextDestroy)(OptixDeviceContext context);
-    OptixResult (*deviceContextGetProperty)(OptixDeviceContext context, uint32_t property, void *value, size_t sizeInBytes);
-    OptixResult (*deviceContextSetLogCallback)(OptixDeviceContext context,
-                                               OptixLogCallback callbackFunction,
-                                               void *callbackData,
-                                               unsigned int callbackLevel);
-    OptixResult (*deviceContextSetCacheEnabled)(OptixDeviceContext context, int enabled);
-    OptixResult (*deviceContextSetCacheLocation)(OptixDeviceContext context, const char *location);
-    OptixResult (*deviceContextSetCacheDatabaseSizes)(OptixDeviceContext context, size_t lowWaterMark, size_t highWaterMark);
-    OptixResult (*deviceContextGetCacheEnabled)(OptixDeviceContext context, int *enabled);
-    OptixResult (*deviceContextGetCacheLocation)(OptixDeviceContext context, char *location, size_t locationSize);
-    OptixResult (*deviceContextGetCacheDatabaseSizes)(OptixDeviceContext context, size_t *lowWaterMark, size_t *highWaterMark);
-    OptixResult (*moduleCreateFromPTX)(OptixDeviceContext context,
-                                       const OptixModuleCompileOptions *moduleCompileOptions,
-                                       const OptixPipelineCompileOptions *pipelineCompileOptions,
-                                       const char *PTX,
-                                       size_t PTXsize,
-                                       char *logString,
-                                       size_t *logStringSize,
-                                       OptixModule *module);
-    OptixResult (*moduleDestroy)(OptixModule module);
-    OptixResult (*builtinISModuleGet)(OptixDeviceContext context,
-                                      const OptixModuleCompileOptions *moduleCompileOptions,
-                                      const OptixPipelineCompileOptions *pipelineCompileOptions,
-                                      const OptixBuiltinISOptions *builtinISOptions,
-                                      OptixModule *builtinModule);
-    OptixResult (*programGroupCreate)(OptixDeviceContext context,
-                                      const OptixProgramGroupDesc *programDescriptions,
-                                      unsigned int numProgramGroups,
-                                      const OptixProgramGroupOptions *options,
-                                      char *logString,
-                                      size_t *logStringSize,
-                                      OptixProgramGroup *programGroups);
-    OptixResult (*programGroupDestroy)(OptixProgramGroup programGroup);
-    OptixResult (*programGroupGetStackSize)(OptixProgramGroup programGroup, OptixStackSizes *stackSizes);
-    OptixResult (*pipelineCreate)(OptixDeviceContext context,
-                                  const OptixPipelineCompileOptions *pipelineCompileOptions,
-                                  const OptixPipelineLinkOptions *pipelineLinkOptions,
-                                  const OptixProgramGroup *programGroups,
-                                  unsigned int numProgramGroups,
+struct FunctionTable {
+    const char *(*getErrorName)(Result result);
+    const char *(*getErrorString)(Result result);
+    Result (*deviceContextCreate)(CUcontext fromContext, const DeviceContextOptions *options, DeviceContext *context);
+    Result (*deviceContextDestroy)(DeviceContext context);
+    Result (*deviceContextGetProperty)(DeviceContext context, uint property, void *value, size_t sizeInBytes);
+    Result (*deviceContextSetLogCallback)(DeviceContext context,
+                                          LogCallback callbackFunction,
+                                          void *callbackData,
+                                          uint callbackLevel);
+    Result (*deviceContextSetCacheEnabled)(DeviceContext context, int enabled);
+    Result (*deviceContextSetCacheLocation)(DeviceContext context, const char *location);
+    Result (*deviceContextSetCacheDatabaseSizes)(DeviceContext context, size_t lowWaterMark, size_t highWaterMark);
+    Result (*deviceContextGetCacheEnabled)(DeviceContext context, int *enabled);
+    Result (*deviceContextGetCacheLocation)(DeviceContext context, char *location, size_t locationSize);
+    Result (*deviceContextGetCacheDatabaseSizes)(DeviceContext context, size_t *lowWaterMark, size_t *highWaterMark);
+    Result (*moduleCreateFromPTX)(DeviceContext context,
+                                  const ModuleCompileOptions *moduleCompileOptions,
+                                  const PipelineCompileOptions *pipelineCompileOptions,
+                                  const char *PTX,
+                                  size_t PTXsize,
                                   char *logString,
                                   size_t *logStringSize,
-                                  OptixPipeline *pipeline);
-    OptixResult (*pipelineDestroy)(OptixPipeline pipeline);
-    OptixResult (*pipelineSetStackSize)(OptixPipeline pipeline,
-                                        unsigned int directCallableStackSizeFromTraversal,
-                                        unsigned int directCallableStackSizeFromState,
-                                        unsigned int continuationStackSize,
-                                        unsigned int maxTraversableGraphDepth);
-    OptixResult (*accelComputeMemoryUsage)(OptixDeviceContext context,
-                                           const OptixAccelBuildOptions *accelOptions,
-                                           const OptixBuildInput *buildInputs,
-                                           unsigned int numBuildInputs,
-                                           OptixAccelBufferSizes *bufferSizes);
-    OptixResult (*accelBuild)(OptixDeviceContext context,
-                              CUstream stream,
-                              const OptixAccelBuildOptions *accelOptions,
-                              const OptixBuildInput *buildInputs,
-                              unsigned int numBuildInputs,
-                              CUdeviceptr tempBuffer,
-                              size_t tempBufferSizeInBytes,
-                              CUdeviceptr outputBuffer,
-                              size_t outputBufferSizeInBytes,
-                              uint64_t *outputHandle,
-                              const OptixAccelEmitDesc *emittedProperties,
-                              unsigned int numEmittedProperties);
-    OptixResult (*accelGetRelocationInfo)(OptixDeviceContext context, uint64_t handle, OptixAccelRelocationInfo *info);
+                                  Module *module);
+    Result (*moduleDestroy)(Module module);
+    Result (*builtinISModuleGet)(DeviceContext context,
+                                 const ModuleCompileOptions *moduleCompileOptions,
+                                 const PipelineCompileOptions *pipelineCompileOptions,
+                                 const BuiltinISOptions *builtinISOptions,
+                                 Module *builtinModule);
+    Result (*programGroupCreate)(DeviceContext context,
+                                 const ProgramGroupDesc *programDescriptions,
+                                 uint numProgramGroups,
+                                 const ProgramGroupOptions *options,
+                                 char *logString,
+                                 size_t *logStringSize,
+                                 ProgramGroup *programGroups);
+    Result (*programGroupDestroy)(ProgramGroup programGroup);
+    Result (*programGroupGetStackSize)(ProgramGroup programGroup, StackSizes *stackSizes);
+    Result (*pipelineCreate)(DeviceContext context,
+                             const PipelineCompileOptions *pipelineCompileOptions,
+                             const PipelineLinkOptions *pipelineLinkOptions,
+                             const ProgramGroup *programGroups,
+                             uint numProgramGroups,
+                             char *logString,
+                             size_t *logStringSize,
+                             Pipeline *pipeline);
+    Result (*pipelineDestroy)(Pipeline pipeline);
+    Result (*pipelineSetStackSize)(Pipeline pipeline,
+                                   uint directCallableStackSizeFromTraversal,
+                                   uint directCallableStackSizeFromState,
+                                   uint continuationStackSize,
+                                   uint maxTraversableGraphDepth);
+    Result (*accelComputeMemoryUsage)(DeviceContext context,
+                                      const AccelBuildOptions *accelOptions,
+                                      const BuildInput *buildInputs,
+                                      uint numBuildInputs,
+                                      AccelBufferSizes *bufferSizes);
+    Result (*accelBuild)(DeviceContext context,
+                         CUstream stream,
+                         const AccelBuildOptions *accelOptions,
+                         const BuildInput *buildInputs,
+                         uint numBuildInputs,
+                         CUdeviceptr tempBuffer,
+                         size_t tempBufferSizeInBytes,
+                         CUdeviceptr outputBuffer,
+                         size_t outputBufferSizeInBytes,
+                         uint64_t *outputHandle,
+                         const AccelEmitDesc *emittedProperties,
+                         uint numEmittedProperties);
+    Result (*accelGetRelocationInfo)(DeviceContext context, TraversableHandle handle, AccelRelocationInfo *info);
 
-    OptixResult (*accelCheckRelocationCompatibility)(OptixDeviceContext context,
-                                                     const OptixAccelRelocationInfo *info,
-                                                     int *compatible);
-    OptixResult (*accelRelocate)(OptixDeviceContext context,
-                                 CUstream stream,
-                                 const OptixAccelRelocationInfo *info,
-                                 CUdeviceptr instanceTraversableHandles,
-                                 size_t numInstanceTraversableHandles,
-                                 CUdeviceptr targetAccel,
-                                 size_t targetAccelSizeInBytes,
-                                 uint64_t *targetHandle);
-    OptixResult (*accelCompact)(OptixDeviceContext context,
-                                CUstream stream,
-                                uint64_t inputHandle,
-                                CUdeviceptr outputBuffer,
-                                size_t outputBufferSizeInBytes,
-                                uint64_t *outputHandle);
-    OptixResult (*convertPointerToTraversableHandle)(OptixDeviceContext onDevice,
-                                                     CUdeviceptr pointer,
-                                                     uint32_t traversableType,
-                                                     uint64_t *traversableHandle);
-    OptixResult (*sbtRecordPackHeader)(OptixProgramGroup programGroup, void *sbtRecordHeaderHostPointer);
-    OptixResult (*launch)(OptixPipeline pipeline,
-                          CUstream stream,
-                          CUdeviceptr pipelineParams,
-                          size_t pipelineParamsSize,
-                          const OptixShaderBindingTable *sbt,
-                          unsigned int width,
-                          unsigned int height,
-                          unsigned int depth);
-    OptixResult (*denoiserCreate)(OptixDeviceContext context, uint32_t modelKind, const OptixDenoiserOptions *options, OptixDenoiser *returnHandle);
-    OptixResult (*denoiserDestroy)(OptixDenoiser handle);
-    OptixResult (*denoiserComputeMemoryResources)(const OptixDenoiser handle,
-                                                  unsigned int maximumInputWidth,
-                                                  unsigned int maximumInputHeight,
-                                                  OptixDenoiserSizes *returnSizes);
-    OptixResult (*denoiserSetup)(OptixDenoiser denoiser,
-                                 CUstream stream,
-                                 unsigned int inputWidth,
-                                 unsigned int inputHeight,
-                                 CUdeviceptr state,
-                                 size_t stateSizeInBytes,
-                                 CUdeviceptr scratch,
-                                 size_t scratchSizeInBytes);
-    OptixResult (*denoiserInvoke)(OptixDenoiser denoiser,
-                                  CUstream stream,
-                                  const OptixDenoiserParams *params,
-                                  CUdeviceptr denoiserState,
-                                  size_t denoiserStateSizeInBytes,
-                                  const OptixDenoiserGuideLayer *guideLayer,
-                                  const OptixDenoiserLayer *layers,
-                                  unsigned int numLayers,
-                                  unsigned int inputOffsetX,
-                                  unsigned int inputOffsetY,
-                                  CUdeviceptr scratch,
-                                  size_t scratchSizeInBytes);
-    OptixResult (*denoiserComputeIntensity)(OptixDenoiser handle,
-                                            CUstream stream,
-                                            const OptixImage2D *inputImage,
-                                            CUdeviceptr outputIntensity,
-                                            CUdeviceptr scratch,
-                                            size_t scratchSizeInBytes);
-    OptixResult (*denoiserComputeAverageColor)(OptixDenoiser handle,
-                                               CUstream stream,
-                                               const OptixImage2D *inputImage,
-                                               CUdeviceptr outputAverageColor,
-                                               CUdeviceptr scratch,
-                                               size_t scratchSizeInBytes);
-    OptixResult (*denoiserCreateWithUserModel)(OptixDeviceContext context, const void *data, size_t dataSizeInBytes, OptixDenoiser *returnHandle);
+    Result (*accelCheckRelocationCompatibility)(DeviceContext context,
+                                                const AccelRelocationInfo *info,
+                                                int *compatible);
+    Result (*accelRelocate)(DeviceContext context,
+                            CUstream stream,
+                            const AccelRelocationInfo *info,
+                            CUdeviceptr instanceTraversableHandles,
+                            size_t numInstanceTraversableHandles,
+                            CUdeviceptr targetAccel,
+                            size_t targetAccelSizeInBytes,
+                            uint64_t *targetHandle);
+    Result (*accelCompact)(DeviceContext context,
+                           CUstream stream,
+                           uint64_t inputHandle,
+                           CUdeviceptr outputBuffer,
+                           size_t outputBufferSizeInBytes,
+                           uint64_t *outputHandle);
+    Result (*convertPointerToTraversableHandle)(DeviceContext onDevice,
+                                                CUdeviceptr pointer,
+                                                uint traversableType,
+                                                uint64_t *traversableHandle);
+    Result (*sbtRecordPackHeader)(ProgramGroup programGroup, void *sbtRecordHeaderHostPointer);
+    Result (*launch)(Pipeline pipeline,
+                     CUstream stream,
+                     CUdeviceptr pipelineParams,
+                     size_t pipelineParamsSize,
+                     const ShaderBindingTable *sbt,
+                     uint width,
+                     uint height,
+                     uint depth);
+    Result (*denoiserCreate)(DeviceContext context, uint modelKind, const DenoiserOptions *options, Denoiser *returnHandle);
+    Result (*denoiserDestroy)(Denoiser handle);
+    Result (*denoiserComputeMemoryResources)(Denoiser handle,
+                                             uint maximumInputWidth,
+                                             uint maximumInputHeight,
+                                             DenoiserSizes *returnSizes);
+    Result (*denoiserSetup)(Denoiser denoiser,
+                            CUstream stream,
+                            uint inputWidth,
+                            uint inputHeight,
+                            CUdeviceptr state,
+                            size_t stateSizeInBytes,
+                            CUdeviceptr scratch,
+                            size_t scratchSizeInBytes);
+    Result (*denoiserInvoke)(Denoiser denoiser,
+                             CUstream stream,
+                             const DenoiserParams *params,
+                             CUdeviceptr denoiserState,
+                             size_t denoiserStateSizeInBytes,
+                             const DenoiserGuideLayer *guideLayer,
+                             const DenoiserLayer *layers,
+                             uint numLayers,
+                             uint inputOffsetX,
+                             uint inputOffsetY,
+                             CUdeviceptr scratch,
+                             size_t scratchSizeInBytes);
+    Result (*denoiserComputeIntensity)(Denoiser handle,
+                                       CUstream stream,
+                                       const Image2D *inputImage,
+                                       CUdeviceptr outputIntensity,
+                                       CUdeviceptr scratch,
+                                       size_t scratchSizeInBytes);
+    Result (*denoiserComputeAverageColor)(Denoiser handle,
+                                          CUstream stream,
+                                          const Image2D *inputImage,
+                                          CUdeviceptr outputAverageColor,
+                                          CUdeviceptr scratch,
+                                          size_t scratchSizeInBytes);
+    Result (*denoiserCreateWithUserModel)(DeviceContext context, const void *data,
+                                          size_t dataSizeInBytes, Denoiser *returnHandle);
 };
 
-[[nodiscard]] const OptixFunctionTable &api() noexcept;
+[[nodiscard]] const FunctionTable &api() noexcept;
 
 }// namespace luisa::compute::optix
