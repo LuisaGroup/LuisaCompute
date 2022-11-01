@@ -68,8 +68,6 @@ of linking object files into shared libraries.
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
 
-*before* configuration and building. The default location of the OptiX installation is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and `/home/<user>/NVIDIA-OptiX-SDK-7.x.0-linux64-x86_64/include` on Linux.
-
 ## Build Commands
 
 ```bash
