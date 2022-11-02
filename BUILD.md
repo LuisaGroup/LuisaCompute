@@ -23,7 +23,6 @@
 - CUDA
     - CUDA 11.2 or higher
     - RTX-compatible graphics cards with appropriate drivers
-    - OptiX 7.1 or higher
 - DirectX
     - DirectX 12 with ray tracing support
     - RTX-compatible graphics card with appropriate drivers
@@ -68,13 +67,6 @@ of linking object files into shared libraries.
 - `LUISA_COMPUTE_ENABLE_LLVM`: Enable LLVM backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
-
-Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree.
-Therefore, if you would like to enable the CUDA backend, you will need to either
-- Manually copy the OptiX header files under `<optix-installation>/include` to `src/backends/cuda/optix` (so that the folder *directly* contains `optix.h`); or
-- Specify the OptiX installation directory with `-D OptiX_DIR=<optix-installation>`
-
-*before* configuration and building. The default location of the OptiX installation is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and `/home/<user>/NVIDIA-OptiX-SDK-7.x.0-linux64-x86_64/include` on Linux.
 
 ## Build Commands
 

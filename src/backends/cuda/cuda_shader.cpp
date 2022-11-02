@@ -2,14 +2,11 @@
 // Created by Mike on 2021/12/4.
 //
 
-#include "core/hash.h"
-#include "core/spin_mutex.h"
 #include <cuda.h>
 #include <mutex>
-#include <optix.h>
-#include <optix_stubs.h>
-#include <optix_stack_size.h>
 
+#include <core/hash.h>
+#include <core/spin_mutex.h>
 #include <ast/function.h>
 #include <runtime/command.h>
 #include <backends/cuda/cuda_error.h>
@@ -19,6 +16,7 @@
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_shader.h>
+#include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
 
@@ -104,28 +102,42 @@ public:
     }
 };
 
-// TODO...
+/// Retrieves direct and continuation stack sizes for each program in the program group and accumulates the upper bounds
+/// in the correponding output variables based on the semantic type of the program. Before the first invocation of this
+/// function with a given instance of #OptixStackSizes, the members of that instance should be set to 0.
+inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup programGroup) noexcept {
+    optix::StackSizes local{};
+    LUISA_CHECK_OPTIX(optix::api().programGroupGetStackSize(programGroup, &local));
+    sizes.cssRG = std::max(sizes.cssRG, local.cssRG);
+    sizes.cssMS = std::max(sizes.cssMS, local.cssMS);
+    sizes.cssCH = std::max(sizes.cssCH, local.cssCH);
+    sizes.cssAH = std::max(sizes.cssAH, local.cssAH);
+    sizes.cssIS = std::max(sizes.cssIS, local.cssIS);
+    sizes.cssCC = std::max(sizes.cssCC, local.cssCC);
+    sizes.dssDC = std::max(sizes.dssDC, local.dssDC);
+}
+
 class CUDAShaderOptiX final : public CUDAShader {
 
 public:
-    struct alignas(OPTIX_SBT_RECORD_ALIGNMENT) SBTRecord {
-        std::byte data[OPTIX_SBT_RECORD_HEADER_SIZE];
+    struct alignas(optix::SBT_RECORD_ALIGNMENT) SBTRecord {
+        std::byte data[optix::SBT_RECORD_HEADER_SIZE];
     };
 
 private:
     CUDADevice *_device;
     size_t _argument_buffer_size{};
-    OptixModule _module{};
-    OptixProgramGroup _program_group_rg{};
-    OptixProgramGroup _program_group_ch_closest{};
-    OptixProgramGroup _program_group_ch_any{};
-    OptixProgramGroup _program_group_miss{};
-    OptixPipeline _pipeline{};
+    optix::Module _module{};
+    optix::ProgramGroup _program_group_rg{};
+    optix::ProgramGroup _program_group_ch_closest{};
+    optix::ProgramGroup _program_group_ch_any{};
+    optix::ProgramGroup _program_group_miss{};
+    optix::Pipeline _pipeline{};
     luisa::string _entry;
     mutable CUdeviceptr _sbt_buffer{};
     mutable luisa::spin_mutex _mutex;
     mutable CUevent _sbt_event{};
-    mutable OptixShaderBindingTable _sbt{};
+    mutable optix::ShaderBindingTable _sbt{};
     mutable luisa::unordered_set<CUstream> _sbt_recoreded_streams;
 
 public:
@@ -156,79 +168,80 @@ public:
             entry, _argument_buffer_size);
 
         // create module
-        OptixModuleCompileOptions module_compile_options{};
-        module_compile_options.maxRegisterCount = OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
-        module_compile_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
-        module_compile_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_LEVEL_3;
-        OptixPipelineCompileOptions pipeline_compile_options{};
-        pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
-        pipeline_compile_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
+        optix::ModuleCompileOptions module_compile_options{};
+        module_compile_options.maxRegisterCount = optix::COMPILE_DEFAULT_MAX_REGISTER_COUNT;
+        module_compile_options.debugLevel = optix::COMPILE_DEBUG_LEVEL_NONE;
+        module_compile_options.optLevel = optix::COMPILE_OPTIMIZATION_LEVEL_3;
+        optix::PipelineCompileOptions pipeline_compile_options{};
+        pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
+        pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
         pipeline_compile_options.numPayloadValues = 4u;
-        pipeline_compile_options.usesPrimitiveTypeFlags = OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE;
+        pipeline_compile_options.usesPrimitiveTypeFlags = optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
         pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
         char log[2048];// For error reporting from OptiX creation functions
         size_t log_size;
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
-            optixModuleCreateFromPTX(
+            optix::api().moduleCreateFromPTX(
                 device->handle().optix_context(), &module_compile_options,
                 &pipeline_compile_options, ptx, ptx_size,
                 log, &log_size, &_module));
 
         // create program groups
-        OptixProgramGroupOptions program_group_options{};
-        OptixProgramGroupDesc program_group_desc_rg{};
-        program_group_desc_rg.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
+        optix::ProgramGroupOptions program_group_options{};
+        optix::ProgramGroupDesc program_group_desc_rg{};
+        program_group_desc_rg.kind = optix::PROGRAM_GROUP_KIND_RAYGEN;
         program_group_desc_rg.raygen.module = _module;
         program_group_desc_rg.raygen.entryFunctionName = entry;
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
-            optixProgramGroupCreate(
+            optix::api().programGroupCreate(
                 device->handle().optix_context(),
                 &program_group_desc_rg, 1u,
                 &program_group_options,
                 log, &log_size, &_program_group_rg));
-        OptixProgramGroupDesc program_group_desc_ch_closest{};
-        program_group_desc_ch_closest.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+        optix::ProgramGroupDesc program_group_desc_ch_closest{};
+        program_group_desc_ch_closest.kind = optix::PROGRAM_GROUP_KIND_HITGROUP;
         program_group_desc_ch_closest.hitgroup.moduleCH = _module;
         program_group_desc_ch_closest.hitgroup.entryFunctionNameCH = "__closesthit__trace_closest";
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
-            optixProgramGroupCreate(
+            optix::api().programGroupCreate(
                 device->handle().optix_context(),
                 &program_group_desc_ch_closest, 1u,
                 &program_group_options,
                 log, &log_size, &_program_group_ch_closest));
-        OptixProgramGroupDesc program_group_desc_ch_any{};
-        program_group_desc_ch_any.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+        optix::ProgramGroupDesc program_group_desc_ch_any{};
+        program_group_desc_ch_any.kind = optix::PROGRAM_GROUP_KIND_HITGROUP;
         program_group_desc_ch_any.hitgroup.moduleCH = _module;
         program_group_desc_ch_any.hitgroup.entryFunctionNameCH = "__closesthit__trace_any";
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
-            optixProgramGroupCreate(
+            optix::api().programGroupCreate(
                 device->handle().optix_context(),
                 &program_group_desc_ch_any, 1u,
                 &program_group_options,
                 log, &log_size, &_program_group_ch_any));
-        OptixProgramGroupDesc program_group_desc_miss{};
-        program_group_desc_miss.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+        optix::ProgramGroupDesc program_group_desc_miss{};
+        program_group_desc_miss.kind = optix::PROGRAM_GROUP_KIND_MISS;
 
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
-            optixProgramGroupCreate(
+            optix::api().programGroupCreate(
                 device->handle().optix_context(),
                 &program_group_desc_miss, 1u,
                 &program_group_options,
                 log, &log_size, &_program_group_miss));
 
         // create pipeline
-        OptixProgramGroup program_groups[]{_program_group_rg, _program_group_ch_closest, _program_group_ch_any};
-        OptixPipelineLinkOptions pipeline_link_options{};
-        pipeline_link_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
+        optix::ProgramGroup program_groups[]{
+            _program_group_rg, _program_group_ch_closest, _program_group_ch_any};
+        optix::PipelineLinkOptions pipeline_link_options{};
+        pipeline_link_options.debugLevel = optix::COMPILE_DEBUG_LEVEL_NONE;
         pipeline_link_options.maxTraceDepth = 1u;
         LUISA_CHECK_OPTIX_WITH_LOG(
             log, log_size,
-            optixPipelineCreate(
+            optix::api().pipelineCreate(
                 device->handle().optix_context(),
                 &pipeline_compile_options,
                 &pipeline_link_options,
@@ -237,34 +250,23 @@ public:
                 &_pipeline));
 
         // compute stack sizes
-        OptixStackSizes stack_sizes{};
+        optix::StackSizes stack_sizes{};
         for (auto pg : program_groups) {
-            LUISA_CHECK_OPTIX(optixUtilAccumulateStackSizes(pg, &stack_sizes));
+            accumulate_stack_sizes(stack_sizes, pg);
         }
-        uint32_t direct_callable_stack_size_from_traversal;
-        uint32_t direct_callable_stack_size_from_state;
-        uint32_t continuation_stack_size;
-        LUISA_CHECK_OPTIX(optixUtilComputeStackSizes(
-            &stack_sizes, 1u, 0u, 0u,
-            &direct_callable_stack_size_from_traversal,
-            &direct_callable_stack_size_from_state,
-            &continuation_stack_size));
-        LUISA_CHECK_OPTIX(optixPipelineSetStackSize(
-            _pipeline,
-            direct_callable_stack_size_from_traversal,
-            direct_callable_stack_size_from_state,
-            continuation_stack_size, 2u));
+        LUISA_CHECK_OPTIX(optix::api().pipelineSetStackSize(
+            _pipeline, 0u, 0u, 0u, 2u));
     }
 
     ~CUDAShaderOptiX() noexcept override {
         LUISA_CHECK_CUDA(cuMemFree(_sbt_buffer));
         LUISA_CHECK_CUDA(cuEventDestroy(_sbt_event));
-        LUISA_CHECK_OPTIX(optixPipelineDestroy(_pipeline));
-        LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_rg));
-        LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_ch_any));
-        LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_ch_closest));
-        LUISA_CHECK_OPTIX(optixProgramGroupDestroy(_program_group_miss));
-        LUISA_CHECK_OPTIX(optixModuleDestroy(_module));
+        LUISA_CHECK_OPTIX(optix::api().pipelineDestroy(_pipeline));
+        LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_rg));
+        LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ch_any));
+        LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ch_closest));
+        LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_miss));
+        LUISA_CHECK_OPTIX(optix::api().moduleDestroy(_module));
     }
 
 private:
@@ -275,10 +277,10 @@ private:
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
             auto sbt_record_buffer = stream->upload_pool()->allocate(sbt_buffer_size);
             auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer->address());
-            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
-            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
-            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_ch_any, &sbt_records[2]));
-            LUISA_CHECK_OPTIX(optixSbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_any, &sbt_records[2]));
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 _sbt_buffer, sbt_record_buffer->address(),
                 sbt_buffer_size, cuda_stream));
@@ -348,7 +350,7 @@ public:
             auto argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
                 &argument_buffer, host_argument_buffer->address(), 0u));
-            LUISA_CHECK_OPTIX(optixLaunch(
+            LUISA_CHECK_OPTIX(optix::api().launch(
                 _pipeline, cuda_stream, argument_buffer,
                 _argument_buffer_size, &_sbt, s.x, s.y, s.z));
         } else {
@@ -358,7 +360,7 @@ public:
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
                 argument_buffer, host_argument_buffer->address(),
                 _argument_buffer_size, cuda_stream));
-            LUISA_CHECK_OPTIX(optixLaunch(
+            LUISA_CHECK_OPTIX(optix::api().launch(
                 _pipeline, cuda_stream, argument_buffer,
                 _argument_buffer_size, &_sbt, s.x, s.y, s.z));
             LUISA_CHECK_CUDA(cuMemFreeAsync(argument_buffer, cuda_stream));

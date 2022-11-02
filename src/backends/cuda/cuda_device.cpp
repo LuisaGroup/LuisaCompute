@@ -2,7 +2,6 @@
 // Created by Mike on 7/28/2021.
 //
 
-#include "backends/cuda/cuda_error.h"
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -10,11 +9,9 @@
 
 #include <nlohmann/json.hpp>
 
-#include <optix_stubs.h>
-#include <optix_function_table_definition.h>
-
 #include <runtime/sampler.h>
 #include <runtime/bindless_array.h>
+#include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_mesh.h>
 #include <backends/cuda/cuda_accel.h>
@@ -24,6 +21,7 @@
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_shader.h>
+#include <backends/cuda/optix_api.h>
 
 #include <backends/cuda/cuda_accel_update_embedded.inl.h>
 
@@ -415,7 +413,7 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     static std::once_flag flag;
     std::call_once(flag, [] {
         LUISA_CHECK_CUDA(cuInit(0));
-        LUISA_CHECK_OPTIX(optixInit());
+        static_cast<void>(optix::api());
     });
 
     // cuda
@@ -442,9 +440,12 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 
     // optix
-    OptixDeviceContextOptions optix_options{};
-    optix_options.logCallbackLevel = 4;
-    optix_options.logCallbackFunction = [](uint32_t level, const char *tag, const char *message, void *) noexcept {
+    optix::DeviceContextOptions optix_options{};
+    optix_options.logCallbackLevel = 4u;
+#ifndef NDEBUG
+    optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+#endif
+    optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
         auto log = fmt::format("Logs from OptiX ({}): {}", tag, message);
         if (level >= 4) {
             LUISA_INFO("{}", log);
@@ -452,11 +453,12 @@ CUDADevice::Handle::Handle(uint index) noexcept {
             LUISA_WARNING("{}", log);
         }
     };
-    LUISA_CHECK_OPTIX(optixDeviceContextCreate(_context, &optix_options, &_optix_context));
+    LUISA_CHECK_OPTIX(optix::api().deviceContextCreate(
+        _context, &optix_options, &_optix_context));
 }
 
 CUDADevice::Handle::~Handle() noexcept {
-    LUISA_CHECK_OPTIX(optixDeviceContextDestroy(_optix_context));
+    LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
     LUISA_INFO("Destroyed CUDA device: {}.", name());
 }

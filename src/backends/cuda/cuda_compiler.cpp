@@ -4,10 +4,10 @@
 
 #include <fstream>
 
-#include <optix.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_codegen.h>
 #include <backends/cuda/cuda_compiler.h>
+#include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
 
@@ -28,7 +28,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
     LUISA_CHECK_NVRTC(nvrtcVersion(&ver_major, &ver_minor));
     auto nvrtc_option = luisa::format("-DLC_NVRTC_VERSION={}", nvrtc_version);
     auto sm_option = fmt::format("-arch=compute_{}", sm);
-    auto rt_option = fmt::format("-DLC_OPTIX_VERSION={}", function.raytracing() ? OPTIX_VERSION : 0);
+    auto rt_option = fmt::format("-DLC_OPTIX_VERSION={}", function.raytracing() ? optix::VERSION : 0);
     auto const_option = fmt::format("-Dlc_constant={}", nvrtc_version <= 110200 ? "const" : "constexpr");
     std::array options{
         sm_option.c_str(),
