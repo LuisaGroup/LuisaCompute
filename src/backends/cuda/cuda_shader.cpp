@@ -117,6 +117,10 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
     sizes.dssDC = std::max(sizes.dssDC, local.dssDC);
 }
 
+[[nodiscard]] inline uint compute_continuation_stack_size(optix::StackSizes ss) noexcept {
+    return ss.cssRG + std::max(std::max(ss.cssCH, ss.cssMS), ss.cssIS + ss.cssAH);
+}
+
 class CUDAShaderOptiX final : public CUDAShader {
 
 public:
@@ -254,8 +258,9 @@ public:
         for (auto pg : program_groups) {
             accumulate_stack_sizes(stack_sizes, pg);
         }
+        auto continuation_stack_size = compute_continuation_stack_size(stack_sizes);
         LUISA_CHECK_OPTIX(optix::api().pipelineSetStackSize(
-            _pipeline, 0u, 0u, 0u, 2u));
+            _pipeline, 0u, 0u, continuation_stack_size, 2u));
     }
 
     ~CUDAShaderOptiX() noexcept override {
