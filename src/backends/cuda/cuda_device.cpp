@@ -443,7 +443,8 @@ CUDADevice::Handle::Handle(uint index) noexcept {
     optix::DeviceContextOptions optix_options{};
     optix_options.logCallbackLevel = 4u;
 #ifndef NDEBUG
-    optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+// Disable due to too much overhead
+//    optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
 #endif
     optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
         auto log = fmt::format("Logs from OptiX ({}): {}", tag, message);
