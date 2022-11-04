@@ -39,8 +39,7 @@
 
 ### Python
 
-- Python 3.9+ (please pass the correct `-D Python_ROOT_DIR=<Python-install-dir>` option to CMake if you have multiple
-  versions of Python installed)
+- Python 3.9+: if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
 - Packages: astpretty, dearpygui, sourceinspect, numpy, pillow
 - Backend-specific requirements are the same as above
 
@@ -71,8 +70,8 @@ of linking object files into shared libraries.
 ## Build Commands
 
 ```bash
-cmake  -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release # =Debug if you want a debug build; optionally followed by other flags as listed above
-cmake --build <build-dir>
+cmake -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release # if you want a debug build, change to `-D CMAKE_BUILD_TYPE=Debug`; optionally followed by other flags as listed above
+cmake --build <build-dir> # on windows, add `--config=Release` in a release build
 ```
 
 > Note: a typical choice of `<build-dir>` is `build`, as assumed the default in the `set_python_path.{bat|ps1|sh}`
