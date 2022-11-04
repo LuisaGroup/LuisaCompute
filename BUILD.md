@@ -71,7 +71,7 @@ of linking object files into shared libraries.
 
 ```bash
 cmake -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release # if you want a debug build, change to `-D CMAKE_BUILD_TYPE=Debug`; optionally followed by other flags as listed above
-cmake --build <build-dir> # on windows, add `--config=Release` in a release build
+cmake --build <build-dir> # when building on Windows using Visual Studio Generators, add `--config=Release` in a release build
 ```
 
 > Note: a typical choice of `<build-dir>` is `build`, as assumed the default in the `set_python_path.{bat|ps1|sh}`
