@@ -1,7 +1,7 @@
 
 # Roadmap
 
-We list some possible future works here. If you have any ideas and suggestions, welcome to open an [issue](https://github.com/LuisaGroup/LuisaCompute/issues) or start a [discussion](https://github.com/LuisaGroup/LuisaCompute/discussions)!
+We list some possible future work here. If you have any ideas and suggestions, welcome to open an [issue](https://github.com/LuisaGroup/LuisaCompute/issues) or start a [discussion](https://github.com/LuisaGroup/LuisaCompute/discussions)!
 
  - ✅ Done and fully functional
  - ⚠️ Done but with minor issues
