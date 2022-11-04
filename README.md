@@ -70,7 +70,7 @@ Kernel2D fill = [&](ImageFloat image) {
 
 ### Unified Runtime with Resource Wrappers
 
-Likewise the RHIs in game engines, we introduce an abstract runtime layer to re-unify the fragmented graphics APIs across platforms. It extracts the common concepts and constructs shared by the backend APIs and plays the bridging role between the high-level frontend interfaces and the low-level backend implementations.
+Like the RHIs in game engines, we introduce an abstract runtime layer to re-unify the fragmented graphics APIs across platforms. It extracts the common concepts and constructs shared by the backend APIs and plays the bridging role between the high-level frontend interfaces and the low-level backend implementations.
 
 On the programming interfaces for users, we provide high-level resource wrappers to ease programming and eliminate boilerplate code. They are strongly and statically typed modern C++ objects, which not only simplify the generation of commands via convenient member methods but also support close interaction with the DSL. Moreover, with the resource usage information in kernels and commands, the runtime automatically probes the dependencies between commands and re-schedules them to improve hardware utilization.
 
@@ -154,7 +154,7 @@ Using LuisaCompute to construct a graphics application basically involves the fo
 4. Generate `Command`s via each resource's interface (e.g., `Buffer<T>::copy_to`), or `Shader`'s `operator()` and `dispatch`, and submit them to the stream;
 5. Wait for the results by inserting a `synchronize` phoney command to the `Stream`.
 
-Putting the above together, a miminal example program that write gradient color to an image would look like
+Putting the above together, a minimal example program that write gradient color to an image would look like
 ```cpp
 
 #include <luisa-compute.h>
