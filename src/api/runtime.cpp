@@ -450,7 +450,7 @@ public:
         for (auto &&list : lists) { dispatch(stream_handle, list); }
     }
     void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept override {
-        abort();
+        func();
     }
     [[nodiscard]] void *stream_native_handle(uint64_t handle) const noexcept override {
         return impl->stream_native_handle(impl, handle);

@@ -62,8 +62,6 @@ typedef struct LCDeviceInterface {
     void (*destroy_stream)(struct LCDeviceInterface *self, uint64_t handle);
     void (*synchronize_stream)(struct LCDeviceInterface *self, uint64_t stream_handle);
     void (*dispatch)(struct LCDeviceInterface *self, uint64_t stream_handle, LCCommandList list);
-    void (*dispatch_span)(struct LCDeviceInterface *self, uint64_t stream_handle, LCCommandList lists, size_t count);
-    void (*dispatch_func)(struct LCDeviceInterface *self, uint64_t stream_handle, void (*func)(void *), void *arg);
     void *(*stream_native_handle)(struct LCDeviceInterface *self, uint64_t handle);
 
     // swap chain
