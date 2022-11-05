@@ -781,7 +781,7 @@ pub enum Instruction {
 // }
 const INVALID_INST: Instruction = Instruction::Invalid;
 
-pub(crate) fn new_node(node: Node) -> NodeRef {
+pub fn new_node(node: Node) -> NodeRef {
     with_context(|ctx| ctx.alloc_node(node))
 }
 
