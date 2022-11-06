@@ -4,6 +4,7 @@
 
 typedef struct LCDeviceInterface {
     LCContext ctx;
+    void * data;
     void (*dtor)(struct LCDeviceInterface *self);
 
     // buffer
