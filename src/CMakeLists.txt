@@ -21,6 +21,8 @@ option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
 
+option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
+
 add_subdirectory(ext)
 
 add_library(luisa-compute-include INTERFACE)

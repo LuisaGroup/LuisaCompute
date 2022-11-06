@@ -29,4 +29,8 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             "-framework Foundation"
             "-framework Metal"
             "-framework QuartzCore")
+elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
+    message(FATAL_ERROR "Metal backend requires clang.")
+else ()
+    message(WARNING "Metal backend requires clang but LuisaCompute is using ${CMAKE_CXX_COMPILER_ID}. The backend will be disabled.")
 endif ()

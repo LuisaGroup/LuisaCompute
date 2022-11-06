@@ -32,6 +32,8 @@ if (LLVM_FOUND) # link with llvm for jit
     else ()
         target_compile_options(luisa-compute-backend-llvm PRIVATE -ffast-math)
     endif ()
+elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
+    message(FATAL_ERROR "LLVM not found for the LLVM backend.")
 else ()
     message(WARNING "LLVM not found. LLVM backend will not be built.")
 endif ()
