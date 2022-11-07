@@ -449,6 +449,7 @@ impl Validator {
                     Func::ExtractElement => todo!(),
                     Func::InsertElement => todo!(),
                     Func::GetElementPtr => todo!(),
+                    Func::Struct=>todo!(),
                     Func::Mat => todo!(),
                     Func::Matrix2 => todo!(),
                     Func::Matrix3 => todo!(),

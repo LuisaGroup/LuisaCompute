@@ -572,6 +572,8 @@ pub enum Func {
     InsertElement,
     //(struct, index) -> value; the value can be passed to an Update instruction
     GetElementPtr,
+    // (fields, ...) -> struct
+    Struct,
 
     // scalar -> matrix, all elements are set to the scalar
     Mat,
