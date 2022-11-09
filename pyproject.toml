@@ -1,0 +1,12 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "scikit-build",
+    "cmake",
+    "ninja",
+    "pybind11"
+]
+
+[tool.pytest.ini_options]
+norecursedirs = [ "ext" ]

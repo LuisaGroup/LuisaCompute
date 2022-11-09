@@ -69,6 +69,7 @@ endif ()
 
 option(LUISA_COMPUTE_BUILD_TESTS "Build tests for LuisaCompute" ${LUISA_COMPUTE_MASTER_PROJECT})
 option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build" OFF)
+option(LUISA_PROJECT_DYLIB_PATH "dylib path" "luisa/dylibs")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -78,3 +79,23 @@ set(CMAKE_FIND_PACKAGE_SORT_ORDER NATURAL)
 set(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
 
 add_subdirectory(src)
+
+file(GLOB ARTIFACTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/*.so"
+    LIST_DIRECTORIES false)
+
+install(
+    FILES ${ARTIFACTS}
+    DESTINATION ${LUISA_PROJECT_DYLIB_PATH}
+)
+
+install(
+    TARGETS lcapi
+    LIBRARY DESTINATION "luisa/dylibs"
+    RUNTIME DESTINATION ${LUISA_PROJECT_DYLIB_PATH}
+)
+
+# add_custom_target(packaging)
+
+# add_custom_command(
+
+# )
