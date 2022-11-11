@@ -32,6 +32,7 @@
 #include <EASTL/vector_map.h>
 #include <EASTL/vector_set.h>
 #include <EASTL/shared_array.h>
+#include <EASTL/fixed_vector.h>
 #include <EASTL/fixed_hash_map.h>
 #include <EASTL/fixed_hash_set.h>
 #include <EASTL/vector_multimap.h>
@@ -149,6 +150,9 @@ using eastl::fixed_multimap;
 using eastl::fixed_multiset;
 using eastl::fixed_set;
 using eastl::ring_buffer;
+
+template<typename T, size_t n, bool allow_overflow = true, typename Alloc = allocator<T>>
+using fixed_vector = eastl::fixed_vector<T, n, allow_overflow, Alloc>;
 
 using eastl::lru_cache;
 
