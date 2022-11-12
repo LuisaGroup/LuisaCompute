@@ -1217,6 +1217,11 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
+    pub fn store(&mut self, var: NodeRef, value: NodeRef) {
+        let node = Node::new(Gc::new(Instruction::Update { var, value }), Type::void());
+        let node = new_node(node);
+        self.append(node);
+    }
     pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: Gc<Type>) -> NodeRef {
         let node = Node::new(
             Gc::new(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
