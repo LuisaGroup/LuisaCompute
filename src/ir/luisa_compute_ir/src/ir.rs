@@ -964,6 +964,13 @@ impl NodeRef {
             node.next = *self;
         });
     }
+    pub fn is_lvalue(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Local { .. } => true,
+            Instruction::Call(f, _) => *f == Func::GetElementPtr,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -1218,6 +1225,7 @@ impl IrBuilder {
         node
     }
     pub fn store(&mut self, var: NodeRef, value: NodeRef) {
+        assert!(var.is_lvalue());
         let node = Node::new(Gc::new(Instruction::Update { var, value }), Type::void());
         let node = new_node(node);
         self.append(node);
