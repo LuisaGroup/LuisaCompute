@@ -208,6 +208,9 @@ impl Validator {
                         }
                         assert!(vector_compatible(type_, args[0].type_()));
                     }
+                    Func::Load=>{
+                        assert!(args[0].is_lvalue());
+                    }
                     Func::Add => {
                         check_binop_float_int!();
                     }
