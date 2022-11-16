@@ -7,7 +7,7 @@ use crate::*;
 use std::any::Any;
 use std::cell::RefCell;
 use std::ffi::CString;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -20,6 +20,20 @@ pub enum Primitive {
     Uint64,
     Float32,
     Float64,
+}
+
+impl std::fmt::Display for Primitive {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::Bool => "bool",
+            Self::Int32 => "i32",
+            Self::Uint32 => "u32",
+            Self::Int64 => "i64",
+            Self::Uint64 => "u64",
+            Self::Float32 => "f32",
+            Self::Float64 => "f64",
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -56,6 +70,15 @@ impl VectorElementType {
     }
 }
 
+impl std::fmt::Display for VectorElementType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Scalar(primitive) => std::fmt::Display::fmt(primitive, f),
+            Self::Vector(vector) => std::fmt::Display::fmt(vector, f),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct VectorType {
@@ -63,11 +86,23 @@ pub struct VectorType {
     pub length: u32,
 }
 
+impl std::fmt::Display for VectorType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Vec<{};{}>", self.element, self.length)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct MatrixType {
     pub element: VectorElementType,
     pub dimension: u32,
+}
+
+impl std::fmt::Display for MatrixType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Mat<{};{}>", self.element, self.dimension)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -79,11 +114,28 @@ pub struct StructType {
     // pub id: u64,
 }
 
+impl std::fmt::Display for StructType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Struct<")?;
+        for field in self.fields.as_ref().iter() {
+            write!(f, "{},", field)?;
+        }
+        write!(f, ">")?;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct ArrayType {
     pub element: Gc<Type>,
     pub length: usize,
+}
+
+impl std::fmt::Display for ArrayType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Arr<{}; {}>", self.element, self.length)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -95,6 +147,19 @@ pub enum Type {
     Matrix(MatrixType),
     Struct(StructType),
     Array(ArrayType),
+}
+
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Void => write!(f, "void"),
+            Self::Primitive(primitive) => std::fmt::Display::fmt(primitive, f),
+            Self::Vector(vector) => std::fmt::Display::fmt(vector, f),
+            Self::Matrix(matrix) => std::fmt::Display::fmt(matrix, f),
+            Self::Struct(struct_type) => std::fmt::Display::fmt(struct_type, f),
+            Self::Array(arr) => std::fmt::Display::fmt(arr, f),
+        }
+    }
 }
 
 impl Trace for Type {
@@ -608,6 +673,22 @@ pub enum Const {
     Float32(f32),
     Float64(f64),
     Generic(CBoxedSlice<u8>, Gc<Type>),
+}
+
+impl std::fmt::Display for Const {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Const::Zero(t) => write!(f, "0_{}", t),
+            Const::Bool(b) => write!(f, "{}", b),
+            Const::Int32(i) => write!(f, "{}", i),
+            Const::Uint32(u) => write!(f, "{}", u),
+            Const::Int64(i) => write!(f, "{}", i),
+            Const::Uint64(u) => write!(f, "{}", u),
+            Const::Float32(fl) => write!(f, "{}", fl),
+            Const::Float64(fl) => write!(f, "{}", fl),
+            Const::Generic(_, _) => todo!(),
+        }
+    }
 }
 
 impl Trace for Const {
@@ -1422,6 +1503,7 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
 
 pub mod debug {
     use std::ffi::CString;
+    use crate::display::DisplayIR;
 
     use super::*;
 
@@ -1444,6 +1526,14 @@ pub mod debug {
     #[no_mangle]
     pub extern "C" fn luisa_compute_ir_dump_binary(module: &Module) -> CBoxedSlice<u8> {
         CBoxedSlice::new(dump_ir_binary(module))
+    }
+
+    #[no_mangle]
+    pub extern "C" fn luisa_compute_ir_dump_human_readable(module: &Module) -> CBoxedSlice<u8> {
+        let mut d = DisplayIR::new();
+        let s = d.display_ir(module);
+        let cstring = CString::new(s).unwrap();
+        CBoxedSlice::new(cstring.as_bytes().to_vec())
     }
 }
 
