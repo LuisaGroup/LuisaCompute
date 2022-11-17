@@ -4,7 +4,6 @@ pub use ffi::*;
 use std::{hash::Hash, collections::HashMap, rc::Rc};
 pub mod context;
 pub mod transform;
-mod output;
 mod display;
 
 pub use gc::Gc;
