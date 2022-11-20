@@ -2,8 +2,10 @@
 // Created by Mike on 2021/12/4.
 //
 
-#include <cuda.h>
+#include <algorithm>
 #include <mutex>
+
+#include <cuda.h>
 
 #include <core/hash.h>
 #include <core/spin_mutex.h>
@@ -28,9 +30,21 @@ private:
     luisa::string _entry;
 
 public:
-    CUDAShaderNative(const char *ptx, const char *entry) noexcept
+    CUDAShaderNative(const char *ptx, size_t ptx_size, const char *entry) noexcept
         : _entry{entry} {
-        LUISA_CHECK_CUDA(cuModuleLoadData(&_module, ptx));
+        // For users with newer CUDA and older driver,
+        // the generated PTX might be reported invalid.
+        // We have to patch the ".version 7.x" instruction.
+        using namespace std::string_view_literals;
+        luisa::string s{ptx, ptx_size};
+        auto pattern = ".version 7."sv;
+        if (auto p = s.find(pattern); p != luisa::string_view::npos) {
+            auto begin = p + pattern.size();
+            auto end = begin;
+            for (; isdigit(s[end]); end++) {}
+            s.replace(begin, end - begin, "0");
+        }
+        LUISA_CHECK_CUDA(cuModuleLoadData(&_module, s.c_str()));
         LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
     }
 
@@ -374,10 +388,11 @@ public:
     }
 };
 
-CUDAShader *CUDAShader::create(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry, bool is_raytracing) noexcept {
+CUDAShader *CUDAShader::create(CUDADevice *device, const char *ptx, size_t ptx_size,
+                               const char *entry, bool is_raytracing) noexcept {
     return is_raytracing ?
                static_cast<CUDAShader *>(new_with_allocator<CUDAShaderOptiX>(device, ptx, ptx_size, entry)) :
-               static_cast<CUDAShader *>(new_with_allocator<CUDAShaderNative>(ptx, entry));
+               static_cast<CUDAShader *>(new_with_allocator<CUDAShaderNative>(ptx, ptx_size, entry));
 }
 
 void CUDAShader::destroy(CUDAShader *shader) noexcept {
