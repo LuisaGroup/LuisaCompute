@@ -27,25 +27,34 @@ cbuffer _Global : register(b0){
 uint dsp;
 uint count;
 }
-static const uint flag_visibility_on = 1u << 2u;
 [numthreads(64,1,1)]
 void main(uint id : SV_DISPATCHTHREADID){
 if(id >= dsp) return;
+const uint flag_visibility_on=1u << 2u;
+const uint flag_visibility_off=1u << 3u;
+const uint flag_visibility=flag_visibility_on | flag_visibility_off;
+const uint flag_transform=1u << 1u;
+const uint flag_mesh=1u << 0u;
 InputInst v = _SetBuffer[id];
 if(v.index >= count) return;
-MeshInst r;
-r.p0 = v.p0;
-r.p1 = v.p1;
-r.p2 = v.p2;
+MeshInst r=_InstBuffer[v.index];
+if((v.flags&flag_transform)!=0){
+r.p0=v.p0;
+r.p1=v.p1;
+r.p2=v.p2;
+}
 r.InstanceID = v.index;
-if((v.flags & flag_visibility_on) != 0)
-r.InstanceMask = 255;
+if((v.flags&flag_visibility)!=0){
+if((v.flags&flag_visibility_on)!=0)
+r.InstanceMask=255;
 else
-r.InstanceMask = 0;
-
+r.InstanceMask=0;
+}
 r.InstanceContributionToHitGroupIndex = 0;
 r.Flags = 0;
-r.accelStructPtr = v.mesh;
+if((v.flags&flag_mesh)!=0){
+r.accelStructPtr=v.mesh;
+}
 _InstBuffer[v.index] = r;
 }
 )"sv;

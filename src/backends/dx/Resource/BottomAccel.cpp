@@ -38,7 +38,7 @@ BottomAccel::BottomAccel(
         switch (hint) {
             case AccelUsageHint::FAST_TRACE:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-            case AccelUsageHint::FAST_BUILD:
+            default:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
         }
     };
