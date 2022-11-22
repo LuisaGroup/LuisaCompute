@@ -32,19 +32,23 @@ private:
 public:
     CUDAShaderNative(const char *ptx, size_t ptx_size, const char *entry) noexcept
         : _entry{entry} {
-        // For users with newer CUDA and older driver,
-        // the generated PTX might be reported invalid.
-        // We have to patch the ".version 7.x" instruction.
-        using namespace std::string_view_literals;
-        luisa::string s{ptx, ptx_size};
-        auto pattern = ".version 7."sv;
-        if (auto p = s.find(pattern); p != luisa::string_view::npos) {
-            auto begin = p + pattern.size();
-            auto end = begin;
-            for (; isdigit(s[end]); end++) {}
-            s.replace(begin, end - begin, "0");
+        auto ret = cuModuleLoadData(&_module, ptx);
+        if (ret == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
+            // For users with newer CUDA and older driver,
+            // the generated PTX might be reported invalid.
+            // We have to patch the ".version 7.x" instruction.
+            using namespace std::string_view_literals;
+            luisa::string s{ptx, ptx_size};
+            auto pattern = ".version 7."sv;
+            if (auto p = s.find(pattern); p != luisa::string_view::npos) {
+                auto begin = p + pattern.size();
+                auto end = begin;
+                for (; isdigit(s[end]); end++) {}
+                s.replace(begin, end - begin, "0");
+            }
+            ret = cuModuleLoadData(&_module, s.c_str());
         }
-        LUISA_CHECK_CUDA(cuModuleLoadData(&_module, s.c_str()));
+        LUISA_CHECK_CUDA(ret);
         LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
     }
 
