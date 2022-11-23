@@ -22,7 +22,7 @@ int main() {
             LUISA_INFO("Start thread 2a");
             ThreadPool::global().async([]() {
                 LUISA_INFO("Start thread 3");
-                sleep(1u);
+                sleep(5u);
                 LUISA_INFO("End thread 3");
             });
             sleep(1u);
@@ -37,5 +37,4 @@ int main() {
         LUISA_INFO("End thread 1");
     });
     ThreadPool::global().synchronize();
-    sleep(1u);
 }

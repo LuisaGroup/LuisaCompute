@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2021/12/23.
 //
 
-#if __clang_major__ >= 14
+#if !defined(__clang_major__) || __clang_major__ >= 14
 #define LUISA_COMPUTE_USE_STD_BARRIER
 #endif
 
