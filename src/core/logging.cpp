@@ -23,11 +23,13 @@ namespace detail {
     }();
     return logger;
 }
-}
+}// namespace detail
 
 void log_level_verbose() noexcept { detail::default_logger().set_level(spdlog::level::debug); }
 void log_level_info() noexcept { detail::default_logger().set_level(spdlog::level::info); }
 void log_level_warning() noexcept { detail::default_logger().set_level(spdlog::level::warn); }
 void log_level_error() noexcept { detail::default_logger().set_level(spdlog::level::err); }
+
+void log_flush() noexcept { detail::default_logger().flush(); }
 
 }// namespace luisa
