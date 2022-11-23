@@ -92,9 +92,8 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept : _should_stop{false} {
             }
         }});
     }
-    LUISA_INFO(
-        "Created thread pool with {} thread{}.",
-        num_threads, num_threads == 1u ? "" : "s");
+    LUISA_INFO("Created thread pool with {} thread{}.",
+               num_threads, num_threads == 1u ? "" : "s");
 }
 
 void ThreadPool::barrier() noexcept {
@@ -104,8 +103,13 @@ void ThreadPool::barrier() noexcept {
 
 void ThreadPool::synchronize() noexcept {
     detail::check_not_in_worker_thread("synchronize");
-    _dispatch_all([this] { _synchronize_barrier->arrive_and_wait(); });
-    _synchronize_barrier->arrive_and_wait();
+    while ([this] {
+        std::scoped_lock lock{_mutex};
+        return !_tasks.empty();
+    }()) {
+        _dispatch_all([this] { _synchronize_barrier->arrive_and_wait(); });
+        _synchronize_barrier->arrive_and_wait();
+    }
 }
 
 void ThreadPool::_dispatch(luisa::function<void()> task) noexcept {
