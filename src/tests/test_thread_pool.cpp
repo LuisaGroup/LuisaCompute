@@ -20,6 +20,7 @@ int main() {
         LUISA_INFO("Start thread 1");
         ThreadPool::global().async([]() {
             LUISA_INFO("Start thread 2a");
+            sleep(5u);
             ThreadPool::global().async([]() {
                 LUISA_INFO("Start thread 3");
                 sleep(5u);
