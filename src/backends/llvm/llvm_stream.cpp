@@ -97,11 +97,11 @@ void LLVMStream::visit(const ShaderDispatchCommand *command) noexcept {
         }
     });
     auto arg_buffer = luisa::make_shared<luisa::vector<std::byte>>(std::move(argument_buffer));
-    auto shared_mem = arg_buffer->data() + shader->argument_buffer_size();
     auto dispatch_size = command->dispatch_size();
     auto block_size = command->kernel().block_size();
     auto grid_size = (dispatch_size + block_size - 1u) / block_size;
     auto smem_size = shader->shared_memory_size();
+    auto shared_mem = shader->shared_memory_size() == 0u ? nullptr : arg_buffer->data() + shader->argument_buffer_size();
     _pool.parallel(grid_size.x, grid_size.y, grid_size.z,
                    [shader, arg_buffer, shared_mem, smem_size, dispatch_size](auto bx, auto by, auto bz) noexcept {
                        shader->invoke(arg_buffer->data(),
