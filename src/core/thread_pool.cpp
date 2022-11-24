@@ -18,13 +18,17 @@ namespace luisa {
 
 namespace detail {
 
-[[nodiscard]] static inline auto &is_worker_thread() noexcept {
+[[nodiscard]] static auto &is_worker_thread() noexcept {
     static thread_local auto is_worker = false;
     return is_worker;
 }
 
+[[nodiscard]] static auto &worker_thread_index() noexcept {
+    static thread_local auto id = 0u;
+    return id;
+}
+
 static inline void check_not_in_worker_thread(std::string_view f) noexcept {
-#ifndef NDEBUG
     if (is_worker_thread()) [[unlikely]] {
         std::ostringstream oss;
         oss << std::this_thread::get_id();
@@ -33,7 +37,6 @@ static inline void check_not_in_worker_thread(std::string_view f) noexcept {
             "from worker thread {}.",
             f, oss.str());
     }
-#endif
 }
 
 }// namespace detail
@@ -79,8 +82,9 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept : _should_stop{false} {
     _synchronize_barrier = luisa::make_unique<Barrier>(num_threads + 1u /* main thread */);
     _threads.reserve(num_threads);
     for (auto i = 0u; i < num_threads; i++) {
-        _threads.emplace_back(std::thread{[this] {
+        _threads.emplace_back(std::thread{[this, i] {
             detail::is_worker_thread() = true;
+            detail::worker_thread_index() = i;
             for (;;) {
                 std::unique_lock lock{_mutex};
                 _cv.wait(lock, [this] { return !_tasks.empty() || _should_stop; });
@@ -144,6 +148,13 @@ ThreadPool &ThreadPool::global() noexcept {
 
 uint ThreadPool::task_count() const noexcept {
     return _task_count.load();
+}
+
+uint ThreadPool::worker_thread_index() noexcept {
+    LUISA_ASSERT(detail::is_worker_thread(),
+                 "ThreadPool::worker_thread_index() "
+                 "called in non-worker thread.");
+    return detail::worker_thread_index();
 }
 
 }// namespace luisa

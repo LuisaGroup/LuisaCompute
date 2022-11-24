@@ -46,6 +46,7 @@ public:
     ThreadPool &operator=(const ThreadPool &) noexcept = delete;
     /// Return global static ThreadPool instance
     [[nodiscard]] static ThreadPool &global() noexcept;
+    [[nodiscard]] static uint worker_thread_index() noexcept;
 
 public:
     /// Barrier all threads
