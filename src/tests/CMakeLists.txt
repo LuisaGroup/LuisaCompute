@@ -16,6 +16,9 @@ target_link_libraries(test_dsl_sugar PRIVATE luisa::compute)
 add_executable(test_runtime test_runtime.cpp)
 target_link_libraries(test_runtime PRIVATE luisa::compute)
 
+add_executable(test_printer test_printer.cpp)
+target_link_libraries(test_printer PRIVATE luisa::compute)
+
 add_executable(test_simple test_simple.cpp)
 target_link_libraries(test_simple PRIVATE luisa::compute)
 
