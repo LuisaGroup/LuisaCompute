@@ -2,7 +2,7 @@
 // Created by Mike Smith on 2021/12/23.
 //
 
-#if __clang_major__ >= 14
+#if !defined(__clang_major__) || __clang_major__ >= 14
 #define LUISA_COMPUTE_USE_STD_BARRIER
 #endif
 
@@ -18,13 +18,17 @@ namespace luisa {
 
 namespace detail {
 
-[[nodiscard]] static inline auto &is_worker_thread() noexcept {
+[[nodiscard]] static auto &is_worker_thread() noexcept {
     static thread_local auto is_worker = false;
     return is_worker;
 }
 
+[[nodiscard]] static auto &worker_thread_index() noexcept {
+    static thread_local auto id = 0u;
+    return id;
+}
+
 static inline void check_not_in_worker_thread(std::string_view f) noexcept {
-#ifndef NDEBUG
     if (is_worker_thread()) [[unlikely]] {
         std::ostringstream oss;
         oss << std::this_thread::get_id();
@@ -33,7 +37,6 @@ static inline void check_not_in_worker_thread(std::string_view f) noexcept {
             "from worker thread {}.",
             f, oss.str());
     }
-#endif
 }
 
 }// namespace detail
@@ -79,8 +82,9 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept : _should_stop{false} {
     _synchronize_barrier = luisa::make_unique<Barrier>(num_threads + 1u /* main thread */);
     _threads.reserve(num_threads);
     for (auto i = 0u; i < num_threads; i++) {
-        _threads.emplace_back(std::thread{[this] {
+        _threads.emplace_back(std::thread{[this, i] {
             detail::is_worker_thread() = true;
+            detail::worker_thread_index() = i;
             for (;;) {
                 std::unique_lock lock{_mutex};
                 _cv.wait(lock, [this] { return !_tasks.empty() || _should_stop; });
@@ -92,9 +96,8 @@ ThreadPool::ThreadPool(size_t num_threads) noexcept : _should_stop{false} {
             }
         }});
     }
-    LUISA_INFO(
-        "Created thread pool with {} thread{}.",
-        num_threads, num_threads == 1u ? "" : "s");
+    LUISA_INFO("Created thread pool with {} thread{}.",
+               num_threads, num_threads == 1u ? "" : "s");
 }
 
 void ThreadPool::barrier() noexcept {
@@ -104,8 +107,10 @@ void ThreadPool::barrier() noexcept {
 
 void ThreadPool::synchronize() noexcept {
     detail::check_not_in_worker_thread("synchronize");
-    _dispatch_all([this] { _synchronize_barrier->arrive_and_wait(); });
-    _synchronize_barrier->arrive_and_wait();
+    while (task_count() != 0u) {
+        _dispatch_all([this] { _synchronize_barrier->arrive_and_wait(); });
+        _synchronize_barrier->arrive_and_wait();
+    }
 }
 
 void ThreadPool::_dispatch(luisa::function<void()> task) noexcept {
@@ -143,6 +148,13 @@ ThreadPool &ThreadPool::global() noexcept {
 
 uint ThreadPool::task_count() const noexcept {
     return _task_count.load();
+}
+
+uint ThreadPool::worker_thread_index() noexcept {
+    LUISA_ASSERT(detail::is_worker_thread(),
+                 "ThreadPool::worker_thread_index() "
+                 "called in non-worker thread.");
+    return detail::worker_thread_index();
 }
 
 }// namespace luisa

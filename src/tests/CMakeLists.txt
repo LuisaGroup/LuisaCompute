@@ -19,6 +19,9 @@ target_link_libraries(test_dsl_sugar PRIVATE luisa::compute)
 add_executable(test_runtime test_runtime.cpp)
 target_link_libraries(test_runtime PRIVATE luisa::compute)
 
+add_executable(test_printer test_printer.cpp)
+target_link_libraries(test_printer PRIVATE luisa::compute)
+
 add_executable(test_simple test_simple.cpp)
 target_link_libraries(test_simple PRIVATE luisa::compute)
 
@@ -51,6 +54,12 @@ target_link_libraries(test_ispc_101 PRIVATE luisa::compute)
 
 add_executable(test_command_reorder test_command_reorder.cpp)
 target_link_libraries(test_command_reorder PRIVATE luisa::compute)
+
+add_executable(test_command_schedule test_command_schedule.cpp)
+target_link_libraries(test_command_schedule PRIVATE luisa::compute)
+
+add_executable(test_thread_pool test_thread_pool.cpp)
+target_link_libraries(test_thread_pool PRIVATE luisa::compute)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
 
