@@ -17,7 +17,7 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install cmake
-          sudo apt-get -y install gcc-11 g++-11 build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get -y install gcc-11 g++-11 gcc-12 g++-12 clang build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 14
@@ -28,7 +28,7 @@ jobs:
           linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LLVM_ROOT=/usr/lib/llvm-14
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=clang-D CMAKE_CXX_COMPILER=clang++ -D LLVM_ROOT=/usr/lib/llvm-14
           cmake --build build
 
   build-macos:
