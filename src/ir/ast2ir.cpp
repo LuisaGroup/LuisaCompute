@@ -78,7 +78,7 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
                         captures.ptr[capture_index++] = {
                             .node = node,
                             .binding = {.tag = ir::Binding::Tag::Accel,
-                                        .bindless_array = {b.handle}}};
+                                        .accel = {b.handle}}};
                     }},
                 binding);
         }
