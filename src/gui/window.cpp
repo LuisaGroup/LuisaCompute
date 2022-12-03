@@ -274,7 +274,7 @@ void Window::_end_frame() noexcept {
         int display_w, display_h;
         glfwGetFramebufferSize(_handle, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
-        glClearColor(0.3f, 0.5f, 0.7f, 1.0f);
+        glClearColor(.15f, .15f, .15f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(_handle);
