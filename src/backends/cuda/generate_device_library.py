@@ -325,7 +325,7 @@ struct lc_float{i}x{i} {{
 
         # lerp
         print(
-            f"[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept {{ return a + t * (b - a); }}",
+            f"[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept {{ return lc_fma(t, b - a, a); }}",
             file=file)
         generate_vector_call("lerp", "lc_lerp_impl", "f", ["a", "b", "t"])
 
