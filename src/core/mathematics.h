@@ -41,6 +41,8 @@ using std::cos;
 using std::sin;
 using std::tan;
 
+using std::fma;
+
 using std::sqrt;
 
 using std::ceil;
@@ -205,6 +207,32 @@ template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
     return Vector<T, 4>{max(v.x, u), max(v.y, u), max(v.z, u), max(v.w, u)};
 }
 
+template<typename A, typename B, typename C,
+         std::enable_if_t<std::disjunction_v<
+                              is_vector<A>, is_vector<B>, is_vector<C>>,
+                          int> = 0>
+[[nodiscard]] inline auto fma(A a, B b, C c) noexcept {
+    constexpr auto dim_a = vector_dimension_v<A>;
+    constexpr auto dim_b = vector_dimension_v<B>;
+    constexpr auto dim_c = vector_dimension_v<C>;
+    constexpr auto dim = std::max({dim_a, dim_b, dim_c});
+    static_assert((dim_a == 1 || dim_a == dim) &&
+                  (dim_b == 1 || dim_b == dim) &&
+                  (dim_c == 1 || dim_c == dim));
+    static_assert(std::is_same_v<vector_element_t<A>, float> &&
+                  std::is_same_v<vector_element_t<B>, float> &&
+                  std::is_same_v<vector_element_t<C>, float>);
+    using V = Vector<float, dim>;
+    auto va = V{a};
+    auto vb = V{b};
+    auto vc = V{c};
+    V result{};
+    for (auto i = 0; i < dim; ++i) {
+        result[i] = fma(va[i], vb[i], vc[i]);
+    }
+    return result;
+};
+
 template<typename T, std::enable_if_t<std::disjunction_v<is_scalar<T>, is_vector<T>>, int> = 0>
 [[nodiscard]] constexpr auto select(T f, T t, bool pred) noexcept {
     return pred ? t : f;
@@ -233,9 +261,10 @@ template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 
 template<typename A, typename B, typename T,
          std::enable_if_t<std::conjunction_v<
-             std::disjunction<is_scalar<A>, is_vector<A>>,
-             std::disjunction<is_scalar<B>, is_vector<B>>,
-             std::disjunction<is_scalar<T>, is_vector<T>>>, int> = 0>
+                              std::disjunction<is_scalar<A>, is_vector<A>>,
+                              std::disjunction<is_scalar<B>, is_vector<B>>,
+                              std::disjunction<is_scalar<T>, is_vector<T>>>,
+                          int> = 0>
 [[nodiscard]] constexpr auto lerp(A a, B b, T t) noexcept {
     auto v = t * (b - a) + a;
     return select(v, a + b, isinf(a) || isinf(b));
@@ -243,9 +272,10 @@ template<typename A, typename B, typename T,
 
 template<typename X, typename A, typename B,
          std::enable_if_t<std::conjunction_v<
-             std::disjunction<is_scalar<X>, is_vector<X>>,
-             std::disjunction<is_scalar<A>, is_vector<A>>,
-             std::disjunction<is_scalar<B>, is_vector<B>>>, int> = 0>
+                              std::disjunction<is_scalar<X>, is_vector<X>>,
+                              std::disjunction<is_scalar<A>, is_vector<A>>,
+                              std::disjunction<is_scalar<B>, is_vector<B>>>,
+                          int> = 0>
 [[nodiscard]] constexpr auto clamp(X x, A a, B b) noexcept {
     return min(max(x, a), b);
 }
