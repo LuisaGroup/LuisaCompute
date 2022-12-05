@@ -191,7 +191,7 @@ public:
 
         // create module
         optix::ModuleCompileOptions module_compile_options{};
-        module_compile_options.maxRegisterCount = optix::COMPILE_DEFAULT_MAX_REGISTER_COUNT;
+        module_compile_options.maxRegisterCount = 80u;
         module_compile_options.debugLevel = optix::COMPILE_DEBUG_LEVEL_NONE;
         module_compile_options.optLevel = optix::COMPILE_OPTIMIZATION_LEVEL_3;
         optix::PipelineCompileOptions pipeline_compile_options{};
