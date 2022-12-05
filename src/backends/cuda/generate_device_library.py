@@ -392,21 +392,21 @@ struct lc_float{i}x{i} {{
 
         # cross
         print("""[[nodiscard]] __device__ constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept {
-    return lc_make_float3(lc_fma(u.y, v.z, -v.y * u.z),
-                          lc_fma(u.z, v.x, -v.z * u.x),
-                          lc_fma(u.x, v.y, -v.x * u.y));
+    return lc_make_float3(u.y * v.z - v.y * u.z,
+                          u.z * v.x - v.z * u.x,
+                          u.x * v.y - v.x * u.y);
 }""", file=file)
         print(file=file)
 
         # dot
         print("""[[nodiscard]] __device__ inline auto lc_dot(lc_float2 a, lc_float2 b) noexcept {
-    return lc_fma(a.x, b.x, a.y * b.y);
+    return a.x * b.x + a.y * b.y;
 }""", file=file)
         print("""[[nodiscard]] __device__ inline auto lc_dot(lc_float3 a, lc_float3 b) noexcept {
-    return lc_fma(a.x, b.x, lc_fma(a.y, b.y, a.z * b.z));
+    return a.x * b.x + a.y * b.y + a.z * b.z;
 }""", file=file)
         print("""[[nodiscard]] __device__ inline auto lc_dot(lc_float4 a, lc_float4 b) noexcept {
-    return lc_fma(a.x, b.x, lc_fma(a.y, b.y, lc_fma(a.z, b.z, a.w * b.w)));
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }""", file=file)
         print(file=file)
 
