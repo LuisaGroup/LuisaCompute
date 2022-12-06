@@ -1856,7 +1856,7 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_clamp(lc_float3 v, lc_float3 lo, lc_float3 hi) noexcept { return lc_make_float3(lc_clamp_impl(v.x, lo.x, hi.x), lc_clamp_impl(v.y, lo.y, hi.y), lc_clamp_impl(v.z, lo.z, hi.z)); }
 [[nodiscard]] __device__ inline auto lc_clamp(lc_float4 v, lc_float4 lo, lc_float4 hi) noexcept { return lc_make_float4(lc_clamp_impl(v.x, lo.x, hi.x), lc_clamp_impl(v.y, lo.y, hi.y), lc_clamp_impl(v.z, lo.z, hi.z), lc_clamp_impl(v.w, lo.w, hi.w)); }
 
-[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept { return a + t * (b - a); }
+[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept { return lc_fma(t, b - a, a); }
 [[nodiscard]] __device__ inline auto lc_lerp(lc_float a, lc_float b, lc_float t) noexcept { return lc_lerp_impl(a, b, t); }
 [[nodiscard]] __device__ inline auto lc_lerp(lc_float2 a, lc_float2 b, lc_float2 t) noexcept { return lc_make_float2(lc_lerp_impl(a.x, b.x, t.x), lc_lerp_impl(a.y, b.y, t.y)); }
 [[nodiscard]] __device__ inline auto lc_lerp(lc_float3 a, lc_float3 b, lc_float3 t) noexcept { return lc_make_float3(lc_lerp_impl(a.x, b.x, t.x), lc_lerp_impl(a.y, b.y, t.y), lc_lerp_impl(a.z, b.z, t.z)); }
@@ -1887,14 +1887,14 @@ template<typename T>
 
 [[nodiscard]] __device__ inline auto lc_smoothstep_impl(lc_float edge0, lc_float edge1, lc_float x) noexcept {
     auto t = lc_clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
+    return t * t * lc_fma(-2.f, t, 3.f);
 }
 [[nodiscard]] __device__ inline auto lc_smoothstep(lc_float edge0, lc_float edge1, lc_float x) noexcept { return lc_smoothstep_impl(edge0, edge1, x); }
 [[nodiscard]] __device__ inline auto lc_smoothstep(lc_float2 edge0, lc_float2 edge1, lc_float2 x) noexcept { return lc_make_float2(lc_smoothstep_impl(edge0.x, edge1.x, x.x), lc_smoothstep_impl(edge0.y, edge1.y, x.y)); }
 [[nodiscard]] __device__ inline auto lc_smoothstep(lc_float3 edge0, lc_float3 edge1, lc_float3 x) noexcept { return lc_make_float3(lc_smoothstep_impl(edge0.x, edge1.x, x.x), lc_smoothstep_impl(edge0.y, edge1.y, x.y), lc_smoothstep_impl(edge0.z, edge1.z, x.z)); }
 [[nodiscard]] __device__ inline auto lc_smoothstep(lc_float4 edge0, lc_float4 edge1, lc_float4 x) noexcept { return lc_make_float4(lc_smoothstep_impl(edge0.x, edge1.x, x.x), lc_smoothstep_impl(edge0.y, edge1.y, x.y), lc_smoothstep_impl(edge0.z, edge1.z, x.z), lc_smoothstep_impl(edge0.w, edge1.w, x.w)); }
 
-[[nodiscard]] __device__ inline auto lc_mod_impl(lc_float x, lc_float y) noexcept { return x - y * lc_floor(x / y); }
+[[nodiscard]] __device__ inline auto lc_mod_impl(lc_float x, lc_float y) noexcept { return lc_fma(-y, lc_floor(x / y), x); }
 [[nodiscard]] __device__ inline auto lc_mod(lc_float x, lc_float y) noexcept { return lc_mod_impl(x, y); }
 [[nodiscard]] __device__ inline auto lc_mod(lc_float2 x, lc_float2 y) noexcept { return lc_make_float2(lc_mod_impl(x.x, y.x), lc_mod_impl(x.y, y.y)); }
 [[nodiscard]] __device__ inline auto lc_mod(lc_float3 x, lc_float3 y) noexcept { return lc_make_float3(lc_mod_impl(x.x, y.x), lc_mod_impl(x.y, y.y), lc_mod_impl(x.z, y.z)); }
@@ -1932,11 +1932,21 @@ template<typename T>
 [[nodiscard]] __device__ inline auto lc_ctz(lc_uint3 x) noexcept { return lc_make_uint3(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z)); }
 [[nodiscard]] __device__ inline auto lc_ctz(lc_uint4 x) noexcept { return lc_make_uint4(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z), lc_ctz_impl(x.w)); }
 
-[[nodiscard]] __device__ constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept { return lc_make_float3(u.y * v.z - v.y * u.z, u.z * v.x - v.z * u.x, u.x * v.y - v.x * u.y); }
+[[nodiscard]] __device__ constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept {
+    return lc_make_float3(u.y * v.z - v.y * u.z,
+                          u.z * v.x - v.z * u.x,
+                          u.x * v.y - v.x * u.y);
+}
 
-[[nodiscard]] __device__ inline auto lc_dot(lc_float2 a, lc_float2 b) noexcept { return a.x * b.x + a.y * b.y; }
-[[nodiscard]] __device__ inline auto lc_dot(lc_float3 a, lc_float3 b) noexcept { return a.x * b.x + a.y * b.y + a.z * b.z; }
-[[nodiscard]] __device__ inline auto lc_dot(lc_float4 a, lc_float4 b) noexcept { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
+[[nodiscard]] __device__ inline auto lc_dot(lc_float2 a, lc_float2 b) noexcept {
+    return a.x * b.x + a.y * b.y;
+}
+[[nodiscard]] __device__ inline auto lc_dot(lc_float3 a, lc_float3 b) noexcept {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+[[nodiscard]] __device__ inline auto lc_dot(lc_float4 a, lc_float4 b) noexcept {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
 
 [[nodiscard]] __device__ inline auto lc_length(lc_float2 v) noexcept { return sqrtf(lc_dot(v, v)); }
 [[nodiscard]] __device__ inline auto lc_length(lc_float3 v) noexcept { return sqrtf(lc_dot(v, v)); }

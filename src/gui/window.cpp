@@ -144,7 +144,7 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
 
     glfwSetWindowUserPointer(_handle, this);
     glfwSetMouseButtonCallback(_handle, [](GLFWwindow *window, int button, int action, int mods) noexcept {
-        if (ImGui::GetIO().WantCaptureMouse) {  // ImGui is handling the mouse
+        if (ImGui::GetIO().WantCaptureMouse) {// ImGui is handling the mouse
             ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
         } else {
             auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
@@ -165,7 +165,7 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
         if (auto &&cb = self->_window_size_callback) { cb(make_uint2(width, height)); }
     });
     glfwSetKeyCallback(_handle, [](GLFWwindow *window, int key, int scancode, int action, int mods) noexcept {
-        if (ImGui::GetIO().WantCaptureKeyboard) {  // ImGui is handling the keyboard
+        if (ImGui::GetIO().WantCaptureKeyboard) {// ImGui is handling the keyboard
             ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
         } else {
             auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
@@ -173,7 +173,7 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
         }
     });
     glfwSetScrollCallback(_handle, [](GLFWwindow *window, double dx, double dy) noexcept {
-        if (ImGui::GetIO().WantCaptureMouse) {  // ImGui is handling the mouse
+        if (ImGui::GetIO().WantCaptureMouse) {// ImGui is handling the mouse
             ImGui_ImplGlfw_ScrollCallback(window, dx, dy);
         } else {
             auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
@@ -260,18 +260,21 @@ void Window::_end_frame() noexcept {
     if (!should_close()) {
         // background
         if (_texture != nullptr) {
-            ImVec2 background_size{
-                static_cast<float>(_texture->size().x),
-                static_cast<float>(_texture->size().y)};
+            auto s = make_float2(size());
+            auto t = make_float2(_texture->size());
+            // aspect fit
+            auto scale = std::min(s.x / t.x, s.y / t.y);
+            auto tl = (s - t * scale) * 0.5f;
+            auto br = tl + t * scale;
             ImGui::GetBackgroundDrawList()->AddImage(
-                _texture->handle(), {}, background_size);
+                _texture->handle(), {tl.x, tl.y}, {br.x, br.y});
         }
         // rendering
         ImGui::Render();
         int display_w, display_h;
         glfwGetFramebufferSize(_handle, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
-        glClearColor(0.3f, 0.5f, 0.7f, 1.0f);
+        glClearColor(.15f, .15f, .15f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(_handle);

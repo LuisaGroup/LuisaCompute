@@ -325,7 +325,7 @@ struct lc_float{i}x{i} {{
 
         # lerp
         print(
-            f"[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept {{ return a + t * (b - a); }}",
+            f"[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept {{ return lc_fma(t, b - a, a); }}",
             file=file)
         generate_vector_call("lerp", "lc_lerp_impl", "f", ["a", "b", "t"])
 
@@ -359,14 +359,14 @@ struct lc_float{i}x{i} {{
         print(
             f"""[[nodiscard]] __device__ inline auto lc_smoothstep_impl(lc_float edge0, lc_float edge1, lc_float x) noexcept {{
     auto t = lc_clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
+    return t * t * lc_fma(-2.f, t, 3.f);
 }}""",
             file=file)
         generate_vector_call("smoothstep", "lc_smoothstep_impl", "f", ["edge0", "edge1", "x"])
 
         # mod
         print(
-            f"[[nodiscard]] __device__ inline auto lc_mod_impl(lc_float x, lc_float y) noexcept {{ return x - y * lc_floor(x / y); }}",
+            f"[[nodiscard]] __device__ inline auto lc_mod_impl(lc_float x, lc_float y) noexcept {{ return lc_fma(-y, lc_floor(x / y), x); }}",
             file=file)
         generate_vector_call("mod", "lc_mod_impl", "f", ["x", "y"])
 
@@ -391,16 +391,23 @@ struct lc_float{i}x{i} {{
         generate_vector_call("ctz", "lc_ctz_impl", "u", ["x"])
 
         # cross
-        print(
-            "[[nodiscard]] __device__ constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept { return lc_make_float3(u.y * v.z - v.y * u.z, u.z * v.x - v.z * u.x, u.x * v.y - v.x * u.y); }",
-            file=file)
+        print("""[[nodiscard]] __device__ constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept {
+    return lc_make_float3(u.y * v.z - v.y * u.z,
+                          u.z * v.x - v.z * u.x,
+                          u.x * v.y - v.x * u.y);
+}""", file=file)
         print(file=file)
 
         # dot
-        for n in range(2, 5):
-            print(
-                f"[[nodiscard]] __device__ inline auto lc_dot(lc_float{n} a, lc_float{n} b) noexcept {{ return {' + '.join(f'a.{e} * b.{e}' for e in 'xyzw'[:n])}; }}",
-                file=file)
+        print("""[[nodiscard]] __device__ inline auto lc_dot(lc_float2 a, lc_float2 b) noexcept {
+    return a.x * b.x + a.y * b.y;
+}""", file=file)
+        print("""[[nodiscard]] __device__ inline auto lc_dot(lc_float3 a, lc_float3 b) noexcept {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}""", file=file)
+        print("""[[nodiscard]] __device__ inline auto lc_dot(lc_float4 a, lc_float4 b) noexcept {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}""", file=file)
         print(file=file)
 
         # length
