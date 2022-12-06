@@ -458,7 +458,7 @@ template<size_t N>
 }
 
 // transforms
-constexpr auto translation(const float3 v) noexcept {
+[[nodiscard]] constexpr auto translation(const float3 v) noexcept {
     return make_float4x4(
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -466,7 +466,7 @@ constexpr auto translation(const float3 v) noexcept {
         v.x, v.y, v.z, 1.0f);
 }
 
-inline auto rotation(const float3 axis, float angle) noexcept {
+[[nodiscard]] inline auto rotation(const float3 axis, float angle) noexcept {
     if (angle == 0.0f) { return make_float4x4(1.0f); }
     auto c = cos(angle);
     auto s = sin(angle);
@@ -479,7 +479,7 @@ inline auto rotation(const float3 axis, float angle) noexcept {
         0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-constexpr auto scaling(const float3 s) noexcept {
+[[nodiscard]] constexpr auto scaling(const float3 s) noexcept {
     return make_float4x4(
         s.x, 0.0f, 0.0f, 0.0f,
         0.0f, s.y, 0.0f, 0.0f,
@@ -487,8 +487,36 @@ constexpr auto scaling(const float3 s) noexcept {
         0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-constexpr auto scaling(float s) noexcept {
+[[nodiscard]] constexpr auto scaling(float s) noexcept {
     return scaling(make_float3(s));
+}
+
+[[nodiscard]] constexpr auto sign(float x) noexcept { return x < 0.f ? -1.f : 1.f; }
+
+[[nodiscard]] constexpr auto sign(float2 v) noexcept {
+    return make_float2(sign(v.x), sign(v.y));
+}
+
+[[nodiscard]] constexpr auto sign(float3 v) noexcept {
+    return make_float3(sign(v.x), sign(v.y), sign(v.z));
+}
+
+[[nodiscard]] constexpr auto sign(float4 v) noexcept {
+    return make_float4(sign(v.x), sign(v.y), sign(v.z), sign(v.w));
+}
+
+[[nodiscard]] constexpr auto sign(int x) noexcept { return x < 0 ? -1 : 1; }
+
+[[nodiscard]] constexpr auto sign(int2 v) noexcept {
+    return make_int2(sign(v.x), sign(v.y));
+}
+
+[[nodiscard]] constexpr auto sign(int3 v) noexcept {
+    return make_int3(sign(v.x), sign(v.y), sign(v.z));
+}
+
+[[nodiscard]] constexpr auto sign(int4 v) noexcept {
+    return make_int4(sign(v.x), sign(v.y), sign(v.z), sign(v.w));
 }
 
 }// namespace luisa
