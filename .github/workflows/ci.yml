@@ -9,9 +9,10 @@ jobs:
         os: [ ubuntu-20.04, ubuntu-22.04 ]
         gcc: [ 11, 12 ]
         llvm: [ 14, 15 ]
-        include:
+        exclude:
           - os: ubuntu-20.04
-            gcc: 11
+            gcc: 12
+        include:
           - gcc: 11
             cc: gcc-11
             cxx: g++-11
