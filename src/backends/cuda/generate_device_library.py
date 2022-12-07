@@ -325,7 +325,7 @@ struct lc_float{i}x{i} {{
 
         # lerp
         print(
-            f"[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept {{ return lc_fma(t, b - a, a); }}",
+            f"[[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept {{ return t * (b - a) + a; }}",
             file=file)
         generate_vector_call("lerp", "lc_lerp_impl", "f", ["a", "b", "t"])
 
@@ -359,14 +359,14 @@ struct lc_float{i}x{i} {{
         print(
             f"""[[nodiscard]] __device__ inline auto lc_smoothstep_impl(lc_float edge0, lc_float edge1, lc_float x) noexcept {{
     auto t = lc_clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-    return t * t * lc_fma(-2.f, t, 3.f);
+    return t * t * (3.f - 2.f * t);
 }}""",
             file=file)
         generate_vector_call("smoothstep", "lc_smoothstep_impl", "f", ["edge0", "edge1", "x"])
 
         # mod
         print(
-            f"[[nodiscard]] __device__ inline auto lc_mod_impl(lc_float x, lc_float y) noexcept {{ return lc_fma(-y, lc_floor(x / y), x); }}",
+            f"[[nodiscard]] __device__ inline auto lc_mod_impl(lc_float x, lc_float y) noexcept {{ return x - y * lc_floor(x / y); }}",
             file=file)
         generate_vector_call("mod", "lc_mod_impl", "f", ["x", "y"])
 
