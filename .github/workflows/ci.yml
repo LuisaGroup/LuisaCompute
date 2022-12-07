@@ -10,22 +10,14 @@ jobs:
         os: [ ubuntu-20.04, ubuntu-22.04 ]
         gcc: [ 11, 12 ]
         llvm: [ 14, 15 ]
-        compiler: [ gcc-11, gcc-12, clang-14, clang-15 ]
+        compiler: [ gcc, clang ]
         config: [ Release, Debug ]
         exclude:
           - os: ubuntu-20.04
             gcc: 12
           - os: ubuntu-22.04
             gcc: 11
-          - gcc: 11
-            compiler: gcc-12
-          - gcc: 12
-            compiler: gcc-11
-          - llvm: 14
-            compiler: clang-15
-          - llvm: 15
-            compiler: clang-14
-    name: ${{ matrix.os }} / llvm-${{ matrix.llvm }} / ${{ matrix.compiler }} / ${{ matrix.config }}
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }} / llvm-${{ matrix.llvm }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -47,7 +39,14 @@ jobs:
           linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${{ matrix.compiler }} -D CMAKE_CXX_COMPILER=${{ matrix.compiler }} -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            export LUISA_CC=gcc-${{ matrix.gcc }}
+            export LUISA_CXX=g++-${{ matrix.gcc }}
+          else
+            export LUISA_CC=clang-${{ matrix.llvm }}
+            export LUISA_CXX=clang++-${{ matrix.llvm }}
+          fi
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
 
   build-macos:
