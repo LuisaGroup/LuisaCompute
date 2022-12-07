@@ -15,6 +15,8 @@ jobs:
         exclude:
           - os: ubuntu-20.04
             gcc: 12
+          - os: ubuntu-22.04
+            gcc: 11
           - gcc: 11
             compiler: gcc-12
           - gcc: 12
