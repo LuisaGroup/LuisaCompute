@@ -72,6 +72,7 @@ MetalShader MetalCompiler::compile(
     auto desc = [[MTLComputePipelineDescriptor alloc] init];
     desc.computeFunction = func;
     desc.threadGroupSizeIsMultipleOfThreadExecutionWidth = YES;
+    desc.maxCallStackDepth = 1;
     desc.maxTotalThreadsPerThreadgroup = block_size.x * block_size.y * block_size.z;
     desc.label = objc_name;
     auto pso = [_device->handle() newComputePipelineStateWithDescriptor:desc
