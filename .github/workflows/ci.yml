@@ -6,29 +6,32 @@ jobs:
   build-linux:
     strategy:
       matrix:
-        os: [ ubuntu-22.04, ubuntu-20.04 ]
-        gcc: [ 11 ]
+        os: [ ubuntu-20.04, ubuntu-22.04 ]
+        gcc: [ 11, 12 ]
         llvm: [ 14, 15 ]
         include:
-          - cc: gcc-11
-            cxx: g++-11
+          - os: ubuntu-20.04
             gcc: 11
-          - cc: clang-14
+          - gcc: 11
+            cc: gcc-11
+            cxx: g++-11
+          - gcc: 12
+            cc: gcc-12
+            cxx: g++-12
+          - llvm: 14
+            cc: clang-14
             cxx: clang++-14
-            llvm: 14
-          - cc: clang-15
+          - llvm: 15
+            cc: clang-15
             cxx: clang++-15
-            llvm: 15
     runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} / llvm-${{ matrix.llvm }} / ${{ matrix.cc }}
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          sudo apt-get purge --auto-remove cmake
-          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null
-          sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install cmake
