@@ -4,7 +4,17 @@ on: [ push, pull_request ]
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ ubuntu-22.04, ubuntu-20.04 ]
+        gcc: [ 11, 12 ]
+        llvm: [ 14, 15 ]
+        include:
+          - cc: gcc-${{ matrix.gcc }}
+            cxx: g++-${{ matrix.gcc }}
+          - cc: clang-${{ matrix.llvm }}
+            cxx: clang++-${{ matrix.llvm }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -17,17 +27,22 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install cmake
-          sudo apt-get -y install gcc-11 g++-11 build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
+<<<<<<< Updated upstream
           sudo ./llvm.sh 14
+=======
+          sudo ./llvm.sh ${{ matrix.llvm }}
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+>>>>>>> Stashed changes
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
         with:
           linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LLVM_ROOT=/usr/lib/llvm-14
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=${{ matrix.cc }} -D CMAKE_CXX_COMPILER=${{ matrix.cxx }} -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
 
   build-macos:
