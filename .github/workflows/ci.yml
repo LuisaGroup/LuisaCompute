@@ -10,6 +10,7 @@ jobs:
         gcc: [ 11, 12 ]
         llvm: [ 14, 15 ]
         compiler: [ gcc-11, gcc-12, clang-14, clang-15 ]
+        config: [ Release, Debug ]
         exclude:
           - os: ubuntu-20.04
             gcc: 12
@@ -21,8 +22,8 @@ jobs:
             compiler: clang-15
           - llvm: 15
             compiler: clang-14
+    name: ${{ matrix.os }} / llvm-${{ matrix.llvm }} / ${{ matrix.compiler }} / ${{ matrix.config }}
     runs-on: ${{ matrix.os }}
-    name: ${{ matrix.os }} / llvm-${{ matrix.llvm }} / ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -43,11 +44,16 @@ jobs:
           linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=${{ matrix.compiler }} -D CMAKE_CXX_COMPILER=${{ matrix.compiler }} -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${{ matrix.compiler }} -D CMAKE_CXX_COMPILER=${{ matrix.compiler }} -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
 
   build-macos:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [ macos-11, macos-12 ]
+        config: [ Release, Debug ]
+    name: ${{ matrix.os }} / ${{ matrix.config }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -57,12 +63,17 @@ jobs:
           brew install cmake ninja opencv llvm sccache glfw
       - name: "Configure and Build"
         run: |
-          export PATH=$PATH:/usr/local/opt/llvm/bin
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D LUISA_COMPUTE_ENABLE_METAL=OFF -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++
+          export PATH=/usr/local/opt/llvm/bin:$PATH
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
           cmake --build build
 
   build-windows:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [ windows-2022 ]
+        config: [ Release, Debug ]
+    name: ${{ matrix.os }} / ${{ matrix.config }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -77,5 +88,5 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER:FILEPATH=cl.exe -D CMAKE_CXX_COMPILER:FILEPATH=cl.exe
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=cl.exe -D CMAKE_CXX_COMPILER:FILEPATH=cl.exe
           cmake --build build
