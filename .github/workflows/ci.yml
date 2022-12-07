@@ -30,12 +30,8 @@ jobs:
           sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-<<<<<<< Updated upstream
-          sudo ./llvm.sh 14
-=======
           sudo ./llvm.sh ${{ matrix.llvm }}
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
->>>>>>> Stashed changes
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
         with:
