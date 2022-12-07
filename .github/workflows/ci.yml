@@ -18,7 +18,7 @@ jobs:
           - gcc: 12
             compiler: gcc-11
     runs-on: ${{ matrix.os }}
-    name: ${{ matrix.os }} / llvm-${{ matrix.llvm }} / ${{ matrix.cc }}
+    name: ${{ matrix.os }} / llvm-${{ matrix.llvm }} / ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v3
         with:
