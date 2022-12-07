@@ -17,6 +17,10 @@ jobs:
             compiler: gcc-12
           - gcc: 12
             compiler: gcc-11
+          - llvm: 14
+            compiler: clang-15
+          - llvm: 15
+            compiler: clang-14
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }} / llvm-${{ matrix.llvm }} / ${{ matrix.compiler }}
     steps:
