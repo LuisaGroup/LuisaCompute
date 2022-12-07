@@ -10,10 +10,14 @@ jobs:
         gcc: [ 11, 12 ]
         llvm: [ 14, 15 ]
         include:
-          - cc: gcc-${{ matrix.gcc }}
-            cxx: g++-${{ matrix.gcc }}
-          - cc: clang-${{ matrix.llvm }}
-            cxx: clang++-${{ matrix.llvm }}
+          - cc: gcc-11
+            cxx: g++-11
+          - cc: gcc-12
+            cxx: g++-12
+          - cc: clang-14
+            cxx: clang++-14
+          - cc: clang-15
+            cxx: clang++-15
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
