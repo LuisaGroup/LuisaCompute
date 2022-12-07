@@ -7,15 +7,12 @@ jobs:
     strategy:
       matrix:
         os: [ ubuntu-22.04, ubuntu-20.04 ]
-        gcc: [ 12 ]
+        gcc: [ 11 ]
         llvm: [ 14, 15 ]
         include:
           - cc: gcc-11
             cxx: g++-11
             gcc: 11
-          - cc: gcc-12
-            cxx: g++-12
-            gcc: 12
           - cc: clang-14
             cxx: clang++-14
             llvm: 14
