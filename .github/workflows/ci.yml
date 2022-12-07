@@ -5,6 +5,7 @@ on: [ push, pull_request ]
 jobs:
   build-linux:
     strategy:
+      fail-fast: false
       matrix:
         os: [ ubuntu-20.04, ubuntu-22.04 ]
         gcc: [ 11, 12 ]
@@ -49,6 +50,7 @@ jobs:
 
   build-macos:
     strategy:
+      fail-fast: false
       matrix:
         os: [ macos-11, macos-12 ]
         config: [ Release, Debug ]
@@ -69,6 +71,7 @@ jobs:
 
   build-windows:
     strategy:
+      fail-fast: false
       matrix:
         os: [ windows-2022 ]
         config: [ Release, Debug ]
