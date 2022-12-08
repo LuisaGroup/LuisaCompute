@@ -45,11 +45,13 @@ jobs:
           if [ "${{ matrix.compiler }}" = "gcc" ]; then
             export LUISA_CC=gcc-${{ matrix.gcc }}
             export LUISA_CXX=g++-${{ matrix.gcc }}
+            export LUISA_STDLIB=libstdc++
           else
             export LUISA_CC=clang-${{ matrix.llvm }}
             export LUISA_CXX=clang++-${{ matrix.llvm }}
+            export LUISA_STDLIB=libc++
           fi
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="-stdlib=${LUISA_STDLIB}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
 
   build-macos:
@@ -58,7 +60,8 @@ jobs:
       matrix:
         os: [ macos-11, macos-12 ]
         config: [ Release, Debug ]
-    name: ${{ matrix.os }} / ${{ matrix.config }}
+        compiler: [ homebrew-clang, system-clang ]
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -67,9 +70,11 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install cmake ninja opencv llvm sccache glfw
+          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
+            export PATH=/usr/local/opt/llvm/bin:$PATH
+          fi
       - name: "Configure and Build"
         run: |
-          export PATH=/usr/local/opt/llvm/bin:$PATH
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
           cmake --build build
 
