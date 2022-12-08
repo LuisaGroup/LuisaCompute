@@ -61,8 +61,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-11, macos-12 ]
-        config: [ Release, Debug ]
         compiler: [ homebrew-clang, system-clang ]
+        config: [ Release, Debug ]
+        exclude:
+          - os: macos-11
+            compiler: system-clang
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
     steps:
@@ -84,10 +87,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ windows-2022 ]
+        os: [ 2019, 2022 ]
         config: [ Release, Debug ]
-    name: ${{ matrix.os }} / ${{ matrix.config }}
-    runs-on: ${{ matrix.os }}
+    name: windows-${{ matrix.os }} / ${{ matrix.config }}
+    runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -101,6 +104,6 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=cl.exe -D CMAKE_CXX_COMPILER:FILEPATH=cl.exe
           cmake --build build
