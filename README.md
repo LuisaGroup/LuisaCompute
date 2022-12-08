@@ -611,21 +611,22 @@ See [ROADMAP.md](ROADMAP.md).
 
 ```bibtex
 @article{Zheng2022LuisaRender,
-    title = {LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures},
     author = {Zheng, Shaokun and Zhou, Zhiqian and Chen, Xin and Yan, Difei and Zhang, Chuyan and Geng, Yuefeng and Gu, Yan and Xu, Kun},
-    journal = {ACM Trans. Graph.},
-    volume = {41},
-    number = {6},
+    title = {LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures},
     year = {2022},
     issue_date = {December 2022},
     publisher = {Association for Computing Machinery},
     address = {New York, NY, USA},
+    volume = {41},
+    number = {6},
     issn = {0730-0301},
     url = {https://doi.org/10.1145/3550454.3555463},
     doi = {10.1145/3550454.3555463},
-    month = {dec},
+    journal = {ACM Trans. Graph.},
+    month = {nov},
     articleno = {232},
-    numpages = {19}
+    numpages = {19},
+    keywords = {stream architecture, rendering framework, cross-platform renderer}
 }
 ```
 
