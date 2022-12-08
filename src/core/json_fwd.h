@@ -10,9 +10,9 @@
 namespace luisa {
 
 using json = nlohmann::basic_json<
-    std::map, luisa::vector, luisa::string,
+    std::map, std::vector, luisa::string,
     bool, std::int64_t, std::uint64_t, double,
     luisa::allocator, ::nlohmann::adl_serializer,
-    luisa::vector<std::uint8_t>>;
+    std::vector<std::uint8_t, luisa::allocator<std::uint8_t>>>;
 
 }

@@ -102,8 +102,7 @@ json FunctionSerializer::dump(const CallExpr *expr) const noexcept {
     auto call = json::object();
     call.emplace("tag", "call");
     call.emplace("type", expr->type() ? expr->type()->description() : "void");
-    luisa::vector<json> args;
-    args.reserve(expr->arguments().size());
+    auto args = json::array();
     for (const auto &arg : expr->arguments()) { args.emplace_back(dump_expr(arg)); }
     call.emplace("arguments", std::move(args));
     if (expr->is_builtin()) {
@@ -138,8 +137,7 @@ json FunctionSerializer::dump(const ReturnStmt *stmt) const noexcept {
 }
 
 json FunctionSerializer::dump(const ScopeStmt *stmt) const noexcept {
-    luisa::vector<json, luisa::allocator<json>> stmts;
-    stmts.reserve(stmt->statements().size());
+    auto stmts = json::array();
     for (auto s : stmt->statements()) { stmts.emplace_back(dump_stmt(s)); }
     return {{"tag", "scope"}, {"statements", std::move(stmts)}};
 }
@@ -223,7 +221,7 @@ void FunctionSerializer::dump(Function f) const noexcept {
         auto bs = f.block_size();
         func.emplace("block_size", std::array{bs.x, bs.y, bs.z});
     }
-    luisa::vector<json, luisa::allocator<json>> variables(f.builder()->_variable_usages.size(), json::object());
+    std::vector<json, luisa::allocator<json>> variables(f.builder()->_variable_usages.size(), json::object());
     // built-in variables must be serialized first, as
     // they might also be used as arguments in Callables
     for (auto v : f.builtin_variables()) {
