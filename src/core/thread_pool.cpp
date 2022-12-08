@@ -2,7 +2,10 @@
 // Created by Mike Smith on 2021/12/23.
 //
 
-#if !defined(__clang_major__) || __clang_major__ >= 14
+#include <version>
+#include <sstream>
+
+#if (!defined(__clang_major__) || __clang_major__ >= 14) && defined(__cpp_lib_barrier)
 #define LUISA_COMPUTE_USE_STD_BARRIER
 #endif
 
@@ -10,7 +13,6 @@
 #include <barrier>
 #endif
 
-#include <sstream>
 #include <core/logging.h>
 #include <core/thread_pool.h>
 
