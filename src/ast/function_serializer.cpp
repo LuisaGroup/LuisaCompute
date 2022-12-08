@@ -195,7 +195,8 @@ json FunctionSerializer::dump(const CommentStmt *stmt) const noexcept {
 }
 
 void FunctionSerializer::dump(const ConstantData &c) const noexcept {
-    auto key = luisa::format("{:016x}", c.hash());
+    // TODO: better not to have this string construction
+    auto key = std::string{luisa::format("{:016x}", c.hash())};
     LUISA_ASSERT(_constants != nullptr, "Constants map is null");
     if (!_constants->contains(key)) {
         luisa::visit(
