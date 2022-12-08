@@ -47,13 +47,13 @@ jobs:
           if [ "${{ matrix.compiler }}" = "gcc" ]; then
             export LUISA_CC=gcc-${{ matrix.gcc }}
             export LUISA_CXX=g++-${{ matrix.gcc }}
-            export LUISA_STDLIB=libstdc++
+            export LUISA_FLAGS=""
           else
             export LUISA_CC=clang-${{ matrix.llvm }}
             export LUISA_CXX=clang++-${{ matrix.llvm }}
-            export LUISA_STDLIB=libc++
+            export LUISA_FLAGS="-stdlib=libc++"
           fi
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="-stdlib=${LUISA_STDLIB}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
 
   build-macos:
