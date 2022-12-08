@@ -7,11 +7,6 @@
 #include <numeric>
 #include <algorithm>
 
-#ifdef OPENCV_ENABLED
-#include <opencv2/opencv.hpp>
-#define ENABLE_DISPLAY
-#endif
-
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
@@ -21,6 +16,16 @@
 
 using namespace luisa;
 using namespace luisa::compute;
+
+#ifndef ENABLE_DISPLAY
+#ifdef LUISA_GUI_ENABLED
+#define ENABLE_DISPLAY 1
+#endif
+#endif
+
+#if ENABLE_DISPLAY
+#include <gui/window.h>
+#endif
 
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 int main(int argc, char *argv[]) {
@@ -170,7 +175,7 @@ int main(int argc, char *argv[]) {
             pos = hit_pos + 1e-4f * d;
             throughput *= c;
         };
-        auto accum_color = accum_image.read(global_id).xyz() + throughput.zyx() * hit_light;
+        auto accum_color = accum_image.read(global_id).xyz() + throughput.xyz() * hit_light;
         accum_image.write(global_id, make_float4(accum_color, 1.0f));
         seed_image.write(global_id, seed);
     };
@@ -184,22 +189,25 @@ int main(int argc, char *argv[]) {
     }
     auto device = context.create_device(argv[1]);
     auto render = device.compile(render_kernel);
-//    exit(0);
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
     auto seed_image = device.create_buffer<uint>(width * height);
     auto accum_image = device.create_buffer<float4>(width * height);
     auto stream = device.create_stream();
-    auto copy_event = device.create_event();
 
+#if ENABLE_DISPLAY
+    luisa::vector<float4> pixels(width * height);
+    Window window{"SDF Renderer", make_uint2(width, height)};
+    window.set_key_callback([&](int key, int action) {
+        if (action == GLFW_PRESS && (key == GLFW_KEY_ESCAPE || key == GLFW_KEY_Q)) {
+            window.set_should_close();
+        }
+    });
     static constexpr auto interval = 4u;
-
-#ifdef ENABLE_DISPLAY
-    cv::Mat cv_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
-    cv::Mat cv_back_image{height, width, CV_32FC4, cv::Scalar::all(1.0)};
-    static constexpr auto total_spp = 500000u;
+    static constexpr auto total_spp = 16384u;
 #else
+    static constexpr auto interval = 64u;
     static constexpr auto total_spp = 1024u;
 #endif
 
@@ -208,41 +216,50 @@ int main(int argc, char *argv[]) {
     auto spp_count = 0u;
     for (auto spp = 0u; spp < total_spp; spp += interval) {
 
-#ifdef ENABLE_DISPLAY
-        // swap buffers
-        copy_event.synchronize();
-        std::swap(cv_image, cv_back_image);
-#endif
-
         // render
         auto command_buffer = stream.command_buffer();
         for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
             command_buffer << render(seed_image, accum_image, frame).dispatch(width, height);
             spp_count++;
         }
-        command_buffer << commit();
 
-#ifdef ENABLE_DISPLAY
-        command_buffer << accum_image.copy_to(cv_back_image.data)
-                       << copy_event.signal();
+#if ENABLE_DISPLAY
+        command_buffer << accum_image.copy_to(pixels.data())
+                       << synchronize();
+
+        if (window.should_close()) { break; }
 
         // display
-        cv_image *= 1.0 / std::max(spp, 1u);
-        auto mean = std::max(cv::mean(cv::mean(cv_image))[0], 1e-3);
-        cv::sqrt(cv_image * (0.24 / mean), cv_image);
-        cv::imshow("Display", cv_image);
-        if (auto key = cv::waitKey(1); key == 'q' || key == 27) { break; }
-        auto t = clock.toc();
-        LUISA_INFO(
-            "{:.2f} samples/s [{}/{}]",
-            interval * 1000.0 / (t - last_t),
-            spp + interval, total_spp);
-        last_t = t;
+        auto sum = 0.;
+        for (auto p : pixels) { sum += p.x + p.y + p.z; }
+        auto mean = sum / (width * height);
+        auto scale = static_cast<float>(.24 / mean);
+        for (auto &p : pixels) { p = make_float4(sqrt(make_float3(p) * scale), 1.f); }
+        window.run_one_frame([&] {
+            window.set_background(pixels.data(), make_uint2(width, height));
+            auto t = clock.toc();
+            auto fps = interval * 1000.0 / (t - last_t);
+            auto frames = spp + interval;
+            ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Text("Samples: %u", frames);
+            ImGui::Text("FPS: %.2f", fps);
+            ImGui::End();
+            last_t = t;
+        });
+#else
+        command_buffer << commit();
 #endif
     }
-#ifdef ENABLE_DISPLAY
-    stream << accum_image.copy_to(cv_back_image.data);
-#endif
     stream << synchronize();
-    LUISA_INFO("{} samples/s", spp_count / (clock.toc() - t0) * 1000);
+    auto average_fps = spp_count / (clock.toc() - t0) * 1000;
+    LUISA_INFO("{} samples/s", average_fps);
+
+#if ENABLE_DISPLAY
+    window.run([average_fps] {
+        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Text("Samples: %u", total_spp);
+        ImGui::Text("FPS: %.2f", average_fps);
+        ImGui::End();
+    });
+#endif
 }

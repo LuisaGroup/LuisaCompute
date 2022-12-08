@@ -58,7 +58,13 @@ target_link_libraries(test_command_reorder PRIVATE luisa::compute)
 add_executable(test_thread_pool test_thread_pool.cpp)
 target_link_libraries(test_thread_pool PRIVATE luisa::compute)
 
+add_executable(test_sdf_renderer test_sdf_renderer.cpp)
+target_link_libraries(test_sdf_renderer PRIVATE luisa::compute)
+
 if (LUISA_COMPUTE_ENABLE_GUI)
+
+    add_executable(test_game_of_life test_game_of_life.cpp)
+    target_link_libraries(test_game_of_life PRIVATE luisa::compute ${OpenCV_LIBS})
 
     add_executable(test_photon_mapping test_photon_mapping.cpp)
     target_link_libraries(test_photon_mapping PRIVATE luisa::compute)
@@ -97,18 +103,5 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         add_executable(test_path_tracing_present test_path_tracing_present.cpp)
         target_link_libraries(test_path_tracing_present PRIVATE luisa::compute)
     endif ()
-endif ()
 
-add_executable(test_sdf_renderer test_sdf_renderer.cpp)
-target_link_libraries(test_sdf_renderer PRIVATE luisa::compute)
-
-find_package(OpenCV CONFIG)
-if (OpenCV_FOUND)
-    message(STATUS "OpenCV: ${OpenCV_LIBS}")
-    target_link_libraries(test_sdf_renderer PRIVATE ${OpenCV_LIBS})
-    target_compile_definitions(test_sdf_renderer PRIVATE OPENCV_ENABLED)
-    add_executable(test_game_of_life test_game_of_life.cpp)
-    target_link_libraries(test_game_of_life PRIVATE luisa::compute ${OpenCV_LIBS})
-    add_executable(test_sdf_renderer_multidev test_sdf_renderer_multidev.cpp)
-    target_link_libraries(test_sdf_renderer_multidev PRIVATE luisa::compute ${OpenCV_LIBS})
 endif ()

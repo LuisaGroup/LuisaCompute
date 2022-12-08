@@ -40,7 +40,7 @@ LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***uni
 - A unified runtime with resource wrappers for cross-platform resource management and command scheduling; and
 - Multiple optimized backends, including CUDA, DirectX, Metal, LLVM, and ISPC.
 
-To demonstrate the practicality of the system, we build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is 5–11× faster than [PBRT-v4](https://github.com/mmp/pbrt-v4) and 4–16× faster than [Mitsuba 3](https://github.com/mitsuba-renderer/mitsuba3) on modern GPUs.
+To demonstrate the practicality of the system, we also build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is faster than the state-of-the-art rendering frameworks on modern GPUs.
 
 ### Embedded Domain-Specific Language
 

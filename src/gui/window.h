@@ -62,8 +62,8 @@ public:
     Window &set_key_callback(KeyCallback cb) noexcept;
     Window &set_scroll_callback(ScrollCallback cb) noexcept;
 
-    void set_background(const std::array<uint8_t, 4u> *pixels, uint2 size) noexcept;
-    void set_background(const float4 *pixels, uint2 size) noexcept;
+    void set_background(const std::array<uint8_t, 4u> *pixels, uint2 size, bool bilerp = true) noexcept;
+    void set_background(const float4 *pixels, uint2 size, bool bilerp = true) noexcept;
 
     void set_should_close() noexcept;
     void set_size(uint2 size) noexcept;
@@ -83,4 +83,4 @@ public:
     }
 };
 
-}
+}// namespace luisa::compute
