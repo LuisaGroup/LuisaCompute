@@ -89,6 +89,7 @@ jobs:
       matrix:
         os: [ 2019, 2022 ]
         config: [ Release, Debug ]
+        compiler: [ cl, clang, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }}
     runs-on: windows-${{ matrix.os }}
     steps:
@@ -104,6 +105,10 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=cl.exe -D CMAKE_CXX_COMPILER:FILEPATH=cl.exe
+          if "${{ matrix.os }}" == "2019" (
+            call "C:\Program Files (x86)\Microsoft Visual Studio\${{ matrix.os }}\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          ) else (
+            call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          )
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
           cmake --build build
