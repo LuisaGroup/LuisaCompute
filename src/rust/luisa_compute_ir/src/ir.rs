@@ -1095,7 +1095,7 @@ impl Trace for CallableModule {
 
 // buffer binding
 #[repr(C)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Copy, Clone)]
 pub struct BufferBinding {
     pub handle: u64,
     pub offset: u64,
@@ -1104,7 +1104,7 @@ pub struct BufferBinding {
 
 // texture binding
 #[repr(C)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Copy, Clone)]
 pub struct TextureBinding {
     pub handle: u64,
     pub level: u32,
@@ -1112,20 +1112,20 @@ pub struct TextureBinding {
 
 // bindless array binding
 #[repr(C)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Copy, Clone)]
 pub struct BindlessArrayBinding {
     pub handle: u64,
 }
 
 // accel binding
 #[repr(C)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Copy, Clone)]
 pub struct AccelBinding {
     pub handle: u64,
 }
 
 #[repr(C)]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Copy, Clone)]
 pub enum Binding {
     Buffer(BufferBinding),
     Texture(TextureBinding),
@@ -1137,7 +1137,7 @@ impl Trace for Binding {
     fn trace(&self) {}
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Copy, Clone)]
 #[repr(C)]
 pub struct Capture {
     pub node: NodeRef,
