@@ -28,7 +28,10 @@ jobs:
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install cmake
-          sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} 
+          fi
+          sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh ${{ matrix.llvm }}
