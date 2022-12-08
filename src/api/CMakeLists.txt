@@ -1,4 +1,3 @@
-corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
 # option(LUISA_COMPUTE_RUST OFF)
 # if(NOT LUISA_COMPUTE_RUST)
 # execute_process(
@@ -12,11 +11,13 @@ set(LUISA_COMPUTE_API_SOURCES
         )
 add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})
 target_link_libraries(luisa-compute-api PRIVATE
-        luisa_compute_api_types
         luisa-compute-runtime
         luisa-compute-compile
         luisa-compute-backends
         luisa-compute-ir-api
+        )
+target_link_libraries(luisa-compute-api INTERFACE
+        luisa-compute-rust-meta
         )
 set_target_properties(luisa-compute-api PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})

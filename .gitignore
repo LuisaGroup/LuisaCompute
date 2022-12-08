@@ -344,6 +344,6 @@ doxygen_output
 *.S
 
 
-src/ir/luisa-compute-ir/target/**
-src/api/luisa_compute_api_types/target/**
-src/api/luisa_compute_api_types/bindings.*
+src/rust/luisa-compute-ir/target/**
+src/rust/luisa_compute_api_types/target/**
+src/rust/luisa_compute_api_types/bindings.*

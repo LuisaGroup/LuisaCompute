@@ -9,7 +9,7 @@
 #include <ast/statement.h>
 #include <ast/function.h>
 
-#include <ir/luisa_compute_ir/bindings.hpp>
+#include <luisa_compute_ir/bindings.hpp>
 
 namespace luisa::compute {
 

@@ -39,7 +39,7 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
             -Wno-invalid-offsetof
             -Wno-pragmas)
 endif ()
-
+add_subdirectory(rust)
 add_subdirectory(api)
 add_subdirectory(core)
 add_subdirectory(vstl)

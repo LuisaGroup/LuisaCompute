@@ -3,7 +3,7 @@
 #include <core/dll_export.h>
 #include <ast/function_builder.h>
 
-#include <ir/luisa_compute_ir/bindings.hpp>
+#include <luisa_compute_ir/bindings.hpp>
 
 namespace luisa::compute {
 
