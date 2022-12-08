@@ -90,7 +90,7 @@ jobs:
         os: [ 2019, 2022 ]
         config: [ Release, Debug ]
         compiler: [ cl, clang, clang-cl ]
-    name: windows-${{ matrix.os }} / ${{ matrix.config }}
+    name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
