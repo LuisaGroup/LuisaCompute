@@ -29,7 +29,9 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install cmake
           if [ "${{ matrix.compiler }}" = "gcc" ]; then
-            sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} 
+            sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }}
+          else
+            sudo apt-get -y libc++-${{ matrix.llvm }}-dev libc++abi-${{ matrix.llvm }}-dev
           fi
           sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           wget https://apt.llvm.org/llvm.sh
