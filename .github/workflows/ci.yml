@@ -9,7 +9,7 @@ jobs:
       matrix:
         os: [ ubuntu-20.04, ubuntu-22.04 ]
         gcc: [ 11, 12 ]
-        llvm: [ 14, 15 ]
+        llvm: [ 14, 15, 16 ]
         compiler: [ gcc, clang ]
         config: [ Release, Debug ]
         exclude:
@@ -72,11 +72,11 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install cmake ninja opencv llvm sccache glfw
+      - name: "Configure and Build"
+        run: |
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
             export PATH=/usr/local/opt/llvm/bin:$PATH
           fi
-      - name: "Configure and Build"
-        run: |
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
           cmake --build build
 
