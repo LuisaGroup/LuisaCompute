@@ -310,7 +310,7 @@ pub struct TextureDownloadCommand {
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ShaderDispatchCommand {
     pub shader: Shader,
-    pub m: KernelModule,
+    // pub m: KernelModule,
     pub dispatch_size: [u32; 3],
     pub args: *const Argument,
     pub args_count: usize,
