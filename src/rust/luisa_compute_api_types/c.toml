@@ -59,7 +59,7 @@ usize_is_size_t = true
 [export]
 include = [ "Buffer", "Context", "Device", "Event", "Stream", "Shader",
             "AccelUsageHint", "AccelBuildRequest", "AccelBuildModificationFlags", "AccelBuildModification", "PixelStorage",
-            "PixelFormat", "SamplerFilter", "SamplerAddress", "Sampler", "CommandList", "AppContext"]
+            "PixelFormat", "SamplerFilter", "SamplerAddress", "Sampler", "CommandList", "AppContext", "KernelModule"]
 exclude = []
 # prefix = "CAPI_"
 item_types = []
