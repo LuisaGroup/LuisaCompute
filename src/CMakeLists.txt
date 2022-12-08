@@ -39,25 +39,24 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
             -Wno-invalid-offsetof
             -Wno-pragmas)
 endif ()
-add_subdirectory(rust)
+
 add_subdirectory(api)
 add_subdirectory(core)
 add_subdirectory(vstl)
-add_subdirectory(meta)
 add_subdirectory(ast)
 add_subdirectory(runtime)
 add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
 add_subdirectory(gui)
-add_subdirectory(backends)
+add_subdirectory(rust)
 add_subdirectory(ir)
+add_subdirectory(backends)
 
 add_library(luisa-compute INTERFACE luisa-compute.h)
 target_link_libraries(luisa-compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl
-        luisa-compute-meta
         luisa-compute-ast
         luisa-compute-compile
         luisa-compute-runtime
