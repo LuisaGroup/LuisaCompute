@@ -1,10 +1,10 @@
-# corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
-option(LUISA_COMPUTE_RUST OFF)
-if(NOT LUISA_COMPUTE_RUST)
-execute_process(
-        COMMAND cargo build
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/luisa_compute_api_types)
-endif()
+corrosion_import_crate(MANIFEST_PATH luisa_compute_api_types/Cargo.toml)
+# option(LUISA_COMPUTE_RUST OFF)
+# if(NOT LUISA_COMPUTE_RUST)
+# execute_process(
+#         COMMAND cargo build
+#         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/luisa_compute_api_types)
+# endif()
 set(LUISA_COMPUTE_API_SOURCES
         device.h
         runtime.cpp runtime.h
@@ -12,6 +12,7 @@ set(LUISA_COMPUTE_API_SOURCES
         )
 add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})
 target_link_libraries(luisa-compute-api PRIVATE
+        luisa_compute_api_types
         luisa-compute-runtime
         luisa-compute-compile
         luisa-compute-backends
