@@ -17,7 +17,6 @@
 #include <runtime/pixel.h>
 #include <runtime/sampler.h>
 #include <runtime/command_list.h>
-#include <api/common.h>
 
 namespace luisa::compute {
 

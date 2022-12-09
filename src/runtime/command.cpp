@@ -4,6 +4,8 @@
 
 #include <core/logging.h>
 #include <runtime/command.h>
+#include <ast/variable.h>
+#include <ast/function_builder.h>
 
 namespace luisa::compute {
 

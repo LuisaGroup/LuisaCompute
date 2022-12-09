@@ -16,10 +16,8 @@
 #include <core/logging.h>
 #include <core/basic_types.h>
 #include <core/pool.h>
-#include <ast/variable.h>
-#include <ast/function.h>
 #include <runtime/pixel.h>
-#include <ast/function_builder.h>
+#include <ast/function.h>
 
 namespace luisa::compute {
 
