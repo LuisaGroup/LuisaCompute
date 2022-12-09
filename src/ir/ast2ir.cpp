@@ -97,10 +97,10 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
         auto module = _convert_body();
         return ir::Gc<ir::KernelModule>::from_raw(
             ir::luisa_compute_ir_new_kernel_module(
-                {.module = module,
-                 .captures = captures,
-                 .args = non_captures,
-                 .shared = shared}));
+                ir::KernelModule{.module = module,
+                                 .captures = captures,
+                                 .args = non_captures,
+                                 .shared = shared}));
     });
     m.set_root(true);
     return {luisa::new_with_allocator<ir::Gc<ir::KernelModule>>(m),
@@ -129,7 +129,8 @@ ir::Gc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept 
         }
         return ir::Gc<ir::CallableModule>::from_raw(
             ir::luisa_compute_ir_new_callable_module(
-                {.module = _convert_body(), .args = args}));
+                ir::CallableModule{.module = _convert_body(),
+                                   .args = args}));
     });
     ir::luisa_compute_ir_add_symbol(function.hash(), m);
     return m;
@@ -178,7 +179,8 @@ ir::IrBuilder *AST2IR::_current_builder() noexcept {
 
 ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
     auto register_type = [](ir::Type t) noexcept {
-        return ir::Gc<ir::Type>::from_raw(ir::luisa_compute_ir_register_type(t));
+        return ir::Gc<ir::Type>::from_raw(
+            ir::luisa_compute_ir_register_type(t));
     };
     // special handling for void
     if (type == nullptr) { return register_type(ir::Type{
@@ -295,8 +297,8 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
             if constexpr (is_scalar_v<T>) {
                 auto c = [&]() noexcept -> ir::Const {
                     if (x == static_cast<T>(0)) {
-                        ir::Const cc{.tag = ir::Const::Tag::Zero};
-                        // FIXME: clang has trouble if designated initializer is used for .zero
+                        ir::Const cc{};
+                        cc.tag = ir::Const::Tag::Zero;
                         cc.zero = {_convert_type(expr->type())};
                         return cc;
                     }
@@ -320,8 +322,8 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                 if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
                 auto slice = _boxed_slice<uint8_t>(sizeof(T));
                 std::memcpy(slice.ptr, &x, sizeof(T));
-                auto c = ir::Const{.tag = ir::Const::Tag::Generic};
-                // FIXME: clang has trouble if designated initializer is used for .generic
+                auto c = ir::Const{};
+                c.tag = ir::Const::Tag::Generic;
                 c.generic = {slice, _convert_type(expr->type())};
                 auto b = _current_builder();
                 auto node = ir::luisa_compute_ir_build_const(b, c);
@@ -703,7 +705,7 @@ ir::NodeRef AST2IR::_convert(const BreakStmt *stmt) noexcept {
 
 ir::NodeRef AST2IR::_convert(const ContinueStmt *stmt) noexcept {
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::Continue});
+        ir::Instruction{.tag = ir::Instruction::Tag::Continue});
     auto void_type = _convert_type(nullptr);
     auto node = ir::luisa_compute_ir_new_node(
         ir::Node{.type_ = void_type, .instruction = instr});
@@ -718,7 +720,7 @@ ir::NodeRef AST2IR::_convert(const ReturnStmt *stmt) noexcept {
                          _convert_expr(stmt->expression())) :
                    ir::INVALID_REF;
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::Return, .return_ = {ret}});
+        ir::Instruction{.tag = ir::Instruction::Tag::Return, .return_ = {ret}});
     auto node = ir::luisa_compute_ir_new_node(
         ir::Node{.type_ = _convert_type(ret_type), .instruction = instr});
     ir::luisa_compute_ir_append_node(_current_builder(), node);
@@ -747,10 +749,10 @@ ir::NodeRef AST2IR::_convert(const IfStmt *stmt) noexcept {
         return ir::luisa_compute_ir_build_finish(*b);
     });
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::If,
-         .if_ = {.cond = cond,
-                 .true_branch = true_block,
-                 .false_branch = false_block}});
+        ir::Instruction{.tag = ir::Instruction::Tag::If,
+                        .if_ = {.cond = cond,
+                                .true_branch = true_block,
+                                .false_branch = false_block}});
     auto node = ir::luisa_compute_ir_new_node(
         ir::Node{.type_ = _convert_type(nullptr),
                  .instruction = instr});
@@ -765,8 +767,8 @@ ir::NodeRef AST2IR::_convert(const LoopStmt *stmt) noexcept {
         return ir::luisa_compute_ir_build_finish(*b);
     });
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::Loop,
-         .loop = {.body = body, .cond = cond}});
+        ir::Instruction{.tag = ir::Instruction::Tag::Loop,
+                        .loop = {.body = body, .cond = cond}});
     auto node = ir::luisa_compute_ir_new_node(
         ir::Node{.type_ = _convert_type(nullptr),
                  .instruction = instr});
@@ -857,8 +859,8 @@ ir::NodeRef AST2IR::_convert(const AssignStmt *stmt) noexcept {
     auto rhs = _cast(stmt->lhs()->type(), stmt->rhs()->type(),
                      _convert_expr(stmt->rhs()));
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::Update,
-         .update = {.var = lhs, .value = rhs}});
+        ir::Instruction{.tag = ir::Instruction::Tag::Update,
+                        .update = {.var = lhs, .value = rhs}});
     auto node = ir::luisa_compute_ir_new_node(
         ir::Node{.type_ = _convert_type(nullptr),// TODO: check if UpdateNode returns void
                  .instruction = instr});
@@ -891,8 +893,8 @@ ir::NodeRef AST2IR::_convert(const ForStmt *stmt) noexcept {
             _convert_type(stmt->variable()->type()));
         // var = next
         auto instr = ir::luisa_compute_ir_new_instruction(
-            {.tag = ir::Instruction::Tag::Update,
-             .update = {.var = var, .value = next}});
+            ir::Instruction{.tag = ir::Instruction::Tag::Update,
+                            .update = {.var = var, .value = next}});
         auto node = ir::luisa_compute_ir_new_node(
             ir::Node{.type_ = _convert_type(nullptr),
                      .instruction = instr});
@@ -901,11 +903,11 @@ ir::NodeRef AST2IR::_convert(const ForStmt *stmt) noexcept {
         return ir::luisa_compute_ir_build_finish(*b);
     });
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::GenericLoop,
-         .generic_loop = {.prepare = prepare,
-                          .cond = cond,
-                          .body = body,
-                          .update = update}});
+        ir::Instruction{.tag = ir::Instruction::Tag::GenericLoop,
+                        .generic_loop = {.prepare = prepare,
+                                         .cond = cond,
+                                         .body = body,
+                                         .update = update}});
     auto node = ir::luisa_compute_ir_new_node(
         ir::Node{.type_ = _convert_type(nullptr), .instruction = instr});
     ir::luisa_compute_ir_append_node(_current_builder(), node);
@@ -917,9 +919,11 @@ ir::NodeRef AST2IR::_convert(const CommentStmt *stmt) noexcept {
     auto msg = _boxed_slice<uint8_t>(stmt->comment().size());
     std::memcpy(msg.ptr, stmt->comment().data(), stmt->comment().size());
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::Comment, .comment = {msg}});
+        ir::Instruction{.tag = ir::Instruction::Tag::Comment,
+                        .comment = {msg}});
     auto node = ir::luisa_compute_ir_new_node(
-        ir::Node{.type_ = _convert_type(nullptr), .instruction = instr});
+        ir::Node{.type_ = _convert_type(nullptr),
+                 .instruction = instr});
     ir::luisa_compute_ir_append_node(b, node);
     return node;
 }
@@ -930,30 +934,30 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
         switch (v.tag()) {
             case Variable::Tag::BUFFER: {
                 auto instr = ir::luisa_compute_ir_new_instruction(
-                    {.tag = ir::Instruction::Tag::Buffer});
+                    ir::Instruction{.tag = ir::Instruction::Tag::Buffer});
                 auto elem = _convert_type(v.type()->element());
                 return ir::luisa_compute_ir_new_node(
                     ir::Node{.type_ = elem, .instruction = instr});
             }
             case Variable::Tag::TEXTURE: {
                 auto instr = ir::luisa_compute_ir_new_instruction(
-                    {.tag = v.type()->dimension() == 2u ?
-                                ir::Instruction::Tag::Texture2D :
-                                ir::Instruction::Tag::Texture3D});
+                    ir::Instruction{.tag = v.type()->dimension() == 2u ?
+                                               ir::Instruction::Tag::Texture2D :
+                                               ir::Instruction::Tag::Texture3D});
                 return ir::luisa_compute_ir_new_node(
                     ir::Node{.type_ = _convert_type(v.type()->element()),
                              .instruction = instr});
             }
             case Variable::Tag::BINDLESS_ARRAY: {
                 auto instr = ir::luisa_compute_ir_new_instruction(
-                    {.tag = ir::Instruction::Tag::Bindless});
+                    ir::Instruction{.tag = ir::Instruction::Tag::Bindless});
                 return ir::luisa_compute_ir_new_node(
                     ir::Node{.type_ = _convert_type(nullptr),
                              .instruction = instr});
             }
             case Variable::Tag::ACCEL: {
                 auto instr = ir::luisa_compute_ir_new_instruction(
-                    {.tag = ir::Instruction::Tag::Accel});
+                    ir::Instruction{.tag = ir::Instruction::Tag::Accel});
                 return ir::luisa_compute_ir_new_node(
                     ir::Node{.type_ = _convert_type(nullptr),
                              .instruction = instr});
@@ -961,7 +965,7 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
             default: {
                 if (_function.tag() == Function::Tag::KERNEL) {
                     auto instr = ir::luisa_compute_ir_new_instruction(
-                        {.tag = ir::Instruction::Tag::Uniform});
+                        ir::Instruction{.tag = ir::Instruction::Tag::Uniform});
                     auto node = ir::luisa_compute_ir_new_node(
                         ir::Node{.type_ = _convert_type(v.type()),
                                  .instruction = instr});
@@ -973,14 +977,14 @@ ir::NodeRef AST2IR::_convert_argument(Variable v) noexcept {
                     // copy to local
                     ir::luisa_compute_ir_append_node(b, node);
                     auto local = ir::luisa_compute_ir_new_instruction(
-                        {.tag = ir::Instruction::Tag::Local, .local = {node}});
+                        ir::Instruction{.tag = ir::Instruction::Tag::Local, .local = {node}});
                     return ir::luisa_compute_ir_new_node(
                         ir::Node{.type_ = _convert_type(v.type()),
                                  .instruction = local});
                 }
                 auto instr = ir::luisa_compute_ir_new_instruction(
-                    {.tag = ir::Instruction::Tag::Argument,
-                     .argument = {v.tag() != Variable::Tag::REFERENCE}});
+                    ir::Instruction{.tag = ir::Instruction::Tag::Argument,
+                                    .argument = {v.tag() != Variable::Tag::REFERENCE}});
                 return ir::luisa_compute_ir_new_node(
                     ir::Node{.type_ = _convert_type(v.type()),
                              .instruction = instr});
@@ -997,7 +1001,7 @@ ir::NodeRef AST2IR::_convert_shared_variable(Variable v) noexcept {
     auto b = _current_builder();
     auto type = _convert_type(v.type());
     auto instr = ir::luisa_compute_ir_new_instruction(
-        {.tag = ir::Instruction::Tag::Shared});
+        ir::Instruction{.tag = ir::Instruction::Tag::Shared});
     auto node = ir::luisa_compute_ir_new_node(
         ir::Node{.type_ = type, .instruction = instr});
     ir::luisa_compute_ir_append_node(b, node);
