@@ -55,7 +55,6 @@ jobs:
           fi
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
-
   build-macos:
     strategy:
       fail-fast: false
@@ -75,7 +74,6 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install cmake ninja opencv llvm sccache glfw
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Configure and Build"
         run: |
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
@@ -83,7 +81,6 @@ jobs:
           fi
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
           cmake --build build
-
   build-windows:
     strategy:
       fail-fast: false
@@ -102,7 +99,7 @@ jobs:
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
-          version: 1.11.1
+          version: 1.10.2
       - name: "Configure and Build"
         shell: cmd
         run: |
