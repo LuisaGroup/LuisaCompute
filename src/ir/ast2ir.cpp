@@ -54,31 +54,34 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
                         non_captures.ptr[non_capture_index++] = node;
                     },
                     [&](FB::BufferBinding b) noexcept {
-                        captures.ptr[capture_index++] = {
-                            .node = node,
-                            .binding = {.tag = ir::Binding::Tag::Buffer,
-                                        .buffer = {{.handle = b.handle,
-                                                    .offset = b.offset_bytes,
-                                                    .size = b.size_bytes}}}};
+                        ir::Capture c{};
+                        c.node = node;
+                        c.binding.tag = ir::Binding::Tag::Buffer;
+                        c.binding.buffer = {{.handle = b.handle,
+                                             .offset = b.offset_bytes,
+                                             .size = b.size_bytes}};
+                        captures.ptr[capture_index++] = c;
                     },
                     [&](FB::TextureBinding b) noexcept {
-                        captures.ptr[capture_index++] = {
-                            .node = node,
-                            .binding = {.tag = ir::Binding::Tag::Texture,
-                                        .texture = {{.handle = b.handle,
-                                                     .level = b.level}}}};
+                        ir::Capture c{};
+                        c.node = node;
+                        c.binding.tag = ir::Binding::Tag::Texture;
+                        c.binding.texture = {{.handle = b.handle,
+                                              .level = b.level}};
+                        captures.ptr[capture_index++] = c;
                     },
                     [&](FB::BindlessArrayBinding b) noexcept {
-                        captures.ptr[capture_index++] = {
-                            .node = node,
-                            .binding = {.tag = ir::Binding::Tag::BindlessArray,
-                                        .bindless_array = {b.handle}}};
+                        ir::Capture c{};
+                        c.node = node;
+                        c.binding.tag = ir::Binding::Tag::BindlessArray;
+                        c.binding.bindless_array = {b.handle};
+                        captures.ptr[capture_index++] = c;
                     },
                     [&](FB::AccelBinding b) noexcept {
-                        captures.ptr[capture_index++] = {
-                            .node = node,
-                            .binding = {.tag = ir::Binding::Tag::Accel,
-                                        .accel = {b.handle}}};
+                        ir::Capture c{};
+                        c.node = node;
+                        c.binding.tag = ir::Binding::Tag::Accel;
+                        c.binding.accel = {b.handle};
                     }},
                 binding);
         }
@@ -178,59 +181,60 @@ ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
         return ir::Gc<ir::Type>::from_raw(ir::luisa_compute_ir_register_type(t));
     };
     // special handling for void
-    if (type == nullptr) { return register_type({.tag = ir::Type::Tag::Void}); }
+    if (type == nullptr) { return register_type(ir::Type{
+        .tag = ir::Type::Tag::Void}); }
     // basic types
     switch (type->tag()) {
         case Type::Tag::BOOL: return register_type(
-            {.tag = ir::Type::Tag::Primitive,
-             .primitive = {ir::Primitive::Bool}});
+            ir::Type{.tag = ir::Type::Tag::Primitive,
+                     .primitive = {ir::Primitive::Bool}});
         case Type::Tag::FLOAT: return register_type(
-            {.tag = ir::Type::Tag::Primitive,
-             .primitive = {ir::Primitive::Float32}});
+            ir::Type{.tag = ir::Type::Tag::Primitive,
+                     .primitive = {ir::Primitive::Float32}});
         case Type::Tag::INT: return register_type(
-            {.tag = ir::Type::Tag::Primitive,
-             .primitive = {ir::Primitive::Int32}});
+            ir::Type{.tag = ir::Type::Tag::Primitive,
+                     .primitive = {ir::Primitive::Int32}});
         case Type::Tag::UINT: return register_type(
-            {.tag = ir::Type::Tag::Primitive,
-             .primitive = {ir::Primitive::Uint32}});
+            ir::Type{.tag = ir::Type::Tag::Primitive,
+                     .primitive = {ir::Primitive::Uint32}});
         case Type::Tag::VECTOR: {
             auto dim = static_cast<uint>(type->dimension());
             switch (auto elem = type->element(); elem->tag()) {
                 case Type::Tag::BOOL:
                     return register_type(
-                        {.tag = ir::Type::Tag::Vector,
-                         .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                                 .scalar = {ir::Primitive::Bool}},
-                                     .length = dim}}});
+                        ir::Type{.tag = ir::Type::Tag::Vector,
+                                 .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
+                                                         .scalar = {ir::Primitive::Bool}},
+                                             .length = dim}}});
                 case Type::Tag::FLOAT: return register_type(
-                    {.tag = ir::Type::Tag::Vector,
-                     .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                             .scalar = {ir::Primitive::Float32}},
-                                 .length = dim}}});
+                    ir::Type{.tag = ir::Type::Tag::Vector,
+                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
+                                                     .scalar = {ir::Primitive::Float32}},
+                                         .length = dim}}});
                 case Type::Tag::INT: return register_type(
-                    {.tag = ir::Type::Tag::Vector,
-                     .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                             .scalar = {ir::Primitive::Int32}},
-                                 .length = dim}}});
+                    ir::Type{.tag = ir::Type::Tag::Vector,
+                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
+                                                     .scalar = {ir::Primitive::Int32}},
+                                         .length = dim}}});
                 case Type::Tag::UINT: return register_type(
-                    {.tag = ir::Type::Tag::Vector,
-                     .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                             .scalar = {ir::Primitive::Uint32}},
-                                 .length = dim}}});
+                    ir::Type{.tag = ir::Type::Tag::Vector,
+                             .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
+                                                     .scalar = {ir::Primitive::Uint32}},
+                                         .length = dim}}});
                 default: break;
             }
             LUISA_ERROR_WITH_LOCATION("Invalid vector type: {}.", type->description());
         }
         case Type::Tag::MATRIX: return register_type(
-            {.tag = ir::Type::Tag::Matrix,
-             .matrix = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
-                                     .scalar = {ir::Primitive::Float32}},
-                         .dimension = static_cast<uint>(type->dimension())}}});
+            ir::Type{.tag = ir::Type::Tag::Matrix,
+                     .matrix = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
+                                             .scalar = {ir::Primitive::Float32}},
+                                 .dimension = static_cast<uint>(type->dimension())}}});
         case Type::Tag::ARRAY: {
             auto elem = _convert_type(type->element());
             return register_type(
-                {.tag = ir::Type::Tag::Array,
-                 .array = {{.element = elem, .length = type->dimension()}}});
+                ir::Type{.tag = ir::Type::Tag::Array,
+                         .array = {{.element = elem, .length = type->dimension()}}});
         }
         case Type::Tag::STRUCTURE: {
             if (auto iter = _struct_types.find(type->hash());
@@ -241,10 +245,10 @@ ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
                 members.ptr[i] = _convert_type(m[i]);
             }
             auto t = register_type(
-                {.tag = ir::Type::Tag::Struct,
-                 .struct_ = {{.fields = members,
-                              .alignment = type->alignment(),
-                              .size = type->size()}}});
+                ir::Type{.tag = ir::Type::Tag::Struct,
+                         .struct_ = {{.fields = members,
+                                      .alignment = type->alignment(),
+                                      .size = type->size()}}});
             _struct_types.emplace(type->hash(), t);
             return t;
         }
