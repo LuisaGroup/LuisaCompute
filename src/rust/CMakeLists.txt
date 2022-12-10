@@ -1,5 +1,5 @@
 corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
-if (WIN32)# FIXME: Will this have problems with environments link MinGW?
+if (WIN32 AND NOT MINGW AND NOT MSYS)
     corrosion_set_linker(luisa_compute_ir link.exe)
     corrosion_set_linker(luisa_compute_api_types link.exe)
 endif ()
