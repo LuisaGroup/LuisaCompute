@@ -108,16 +108,16 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
         endif ()
         FetchContent_MakeAvailable(tbb_binary)
         FetchContent_GetProperties(tbb_binary)
-        set(tbb_ROOT ${tbb_binary_SOURCE_DIR})
-        find_package(tbb CONFIG REQUIRED)
+        set(TBB_ROOT ${tbb_binary_SOURCE_DIR})
+        find_package(TBB CONFIG REQUIRED)
         add_custom_command(TARGET luisa-compute-ext-copy
-                DEPENDS "$<TARGET_FILE:tbb>"
+                DEPENDS "$<TARGET_FILE:TBB::tbb>"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:tbb>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+                "$<TARGET_FILE:TBB::tbb>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
         add_custom_command(TARGET luisa-compute-ext-copy
-                DEPENDS "$<TARGET_LINKER_FILE:tbb>"
+                DEPENDS "$<TARGET_LINKER_FILE:TBB::tbb>"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_LINKER_FILE:tbb>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+                "$<TARGET_LINKER_FILE:TBB::tbb>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
         # embree
         set(LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION "3.13.5")
         message(STATUS "Downloading embree ${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}...")
