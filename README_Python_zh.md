@@ -15,6 +15,16 @@ cmake --build build_release -j
 用户可以修改 `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|ISPC|DX|METAL}` 为 `ON|OFF` 来开启或关闭不同后端的 feature，但想得到 Python 库
 则必须将 `LUISA_COMPUTE_ENABLE_PYTHON` 设置为 `ON`。
 
+> 如果在开启 `CUDA` 后端后编译，你可能会遇到以下报错：
+> 
+> ```
+> CMake Error at src/backends/cuda/CMakeLists.txt:15 (message):
+> OptiX_DIR is not defined and OptiX headers are not copied to
+> '[Project Directory]/src/backends/cuda/optix'
+> ```
+>
+> 你既可以手动将 Optix 头文件拷贝到上述目录下，也可以在 CMake 中手动指定 OptiX 的路径。
+
 运行测试脚本：
 
 ```bash
