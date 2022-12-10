@@ -231,7 +231,7 @@ template<typename T, size_t N>
     } else if constexpr (N == 3u) {
         return luisa::bool3{!v.x, !v.y, !v.z};
     } else {
-        return luisa::bool3{!v.x, !v.y, !v.z, !v.w};
+        return luisa::bool4{!v.x, !v.y, !v.z, !v.w};
     }
 }
 

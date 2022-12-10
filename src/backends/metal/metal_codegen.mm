@@ -1107,6 +1107,10 @@ template<typename T, access a, typename Value>
 }
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(device float *a, float val, memory_order) {
+#if __METAL_VERSION__ >= 300
+  auto aa = reinterpret_cast<device atomic_float *>(a);
+  return atomic_fetch_add_explicit(aa, val, memory_order_relaxed);
+#else
   auto ok = false;
   auto old_val = 0.0f;
   while (!ok) {
@@ -1117,6 +1121,7 @@ template<typename T, access a, typename Value>
         as_type<int>(new_val), memory_order_relaxed, memory_order_relaxed);
   }
   return old_val;
+#endif
 }
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_fetch_add_explicit_float(threadgroup float *a, float val, memory_order) {
@@ -1132,12 +1137,17 @@ template<typename T, access a, typename Value>
   return old_val;
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(device float *a, float val, memory_order o) {
-  return atomic_fetch_add_explicit_float(a, -val, o);
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(device float *a, float val, memory_order) {
+#if __METAL_VERSION__ >= 300
+  auto aa = reinterpret_cast<device atomic_float *>(a);
+  return atomic_fetch_sub_explicit(aa, val, memory_order_relaxed);
+#else
+  return atomic_fetch_add_explicit_float(a, -val, memory_order_relaxed);
+#endif
 }
 
-[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(threadgroup float *a, float val, memory_order o) {
-  return atomic_fetch_add_explicit_float(a, -val, o);
+[[gnu::always_inline, nodiscard]] inline auto atomic_fetch_sub_explicit_float(threadgroup float *a, float val, memory_order) {
+  return atomic_fetch_add_explicit_float(a, -val, memory_order_relaxed);
 }
 
 [[gnu::always_inline, nodiscard]] inline auto atomic_fetch_min_explicit_float(device float *a, float val, memory_order) {

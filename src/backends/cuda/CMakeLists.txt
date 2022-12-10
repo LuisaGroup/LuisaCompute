@@ -1,20 +1,6 @@
 find_package(CUDAToolkit)
 if (CUDAToolkit_FOUND)
-
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
-    if (DEFINED OptiX_DIR)
-        if (EXISTS "${OptiX_DIR}/include/optix.h")
-            set(OptiX_INCLUDE_DIR "${OptiX_DIR}/include")
-        else ()
-            message(FATAL_ERROR "OptiX_DIR is set to '${OptiX_DIR}', but 'optix.h' is not found at '${OptiX_DIR}/include/optix.h'")
-        endif ()
-    else ()
-        if (EXISTS optix/optix.h)
-            set(OptiX_INCLUDE_DIR optix)
-        else ()
-            message(FATAL_ERROR "OptiX_DIR is not defined and OptiX headers are not copied to '${CMAKE_CURRENT_SOURCE_DIR}/optix'")
-        endif ()
-    endif ()
     set(LUISA_COMPUTE_CUDA_SOURCES
             cuda_error.h
             cuda_bindless_array.cpp cuda_bindless_array.h
@@ -30,8 +16,8 @@ if (CUDAToolkit_FOUND)
             cuda_accel.cpp cuda_accel.h
             cuda_mesh.cpp cuda_mesh.h
             cuda_shader.cpp cuda_shader.h
-            cuda_callback_context.h)
-
+            cuda_callback_context.h
+            optix_api.cpp optix_api.h)
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(luisa-compute-backend-cuda PRIVATE CUDA::cuda_driver CUDA::nvrtc)
     if (WIN32)

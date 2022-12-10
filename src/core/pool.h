@@ -20,7 +20,7 @@ namespace luisa {
  * @tparam T type
  * @tparam thread_safe whether the pool is thread-safe
  */
-template<typename T, bool thread_safe = true>
+template<typename T, bool thread_safe = true, bool check_recycle = true>
 class Pool : public thread_safety<conditional_mutex_t<true>> {
 
 public:
@@ -59,13 +59,15 @@ public:
      */
     ~Pool() noexcept {
         if (!_blocks.empty()) {
-            if (auto available = _available_objects.size(),
-                expected = _blocks.size() * block_size;
-                available != expected) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "Leaks detected in pool: "
-                    "expected {} objects but got {}.",
-                    expected, available);
+            if constexpr (check_recycle) {
+                if (auto available = _available_objects.size(),
+                    expected = _blocks.size() * block_size;
+                    available != expected) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Leaks detected in pool: "
+                        "expected {} objects but got {}.",
+                        expected, available);
+                }
             }
             for (auto b : _blocks) {
                 detail::allocator_deallocate(b, alignof(T));

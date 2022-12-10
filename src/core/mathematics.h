@@ -41,6 +41,8 @@ using std::cos;
 using std::sin;
 using std::tan;
 
+using std::fma;
+
 using std::sqrt;
 
 using std::ceil;
@@ -205,6 +207,32 @@ template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
     return Vector<T, 4>{max(v.x, u), max(v.y, u), max(v.z, u), max(v.w, u)};
 }
 
+template<typename A, typename B, typename C,
+         std::enable_if_t<std::disjunction_v<
+                              is_vector<A>, is_vector<B>, is_vector<C>>,
+                          int> = 0>
+[[nodiscard]] inline auto fma(A a, B b, C c) noexcept {
+    constexpr auto dim_a = vector_dimension_v<A>;
+    constexpr auto dim_b = vector_dimension_v<B>;
+    constexpr auto dim_c = vector_dimension_v<C>;
+    constexpr auto dim = std::max({dim_a, dim_b, dim_c});
+    static_assert((dim_a == 1 || dim_a == dim) &&
+                  (dim_b == 1 || dim_b == dim) &&
+                  (dim_c == 1 || dim_c == dim));
+    static_assert(std::is_same_v<vector_element_t<A>, float> &&
+                  std::is_same_v<vector_element_t<B>, float> &&
+                  std::is_same_v<vector_element_t<C>, float>);
+    using V = Vector<float, dim>;
+    auto va = V{a};
+    auto vb = V{b};
+    auto vc = V{c};
+    V result{};
+    for (auto i = 0; i < dim; ++i) {
+        result[i] = fma(va[i], vb[i], vc[i]);
+    }
+    return result;
+};
+
 template<typename T, std::enable_if_t<std::disjunction_v<is_scalar<T>, is_vector<T>>, int> = 0>
 [[nodiscard]] constexpr auto select(T f, T t, bool pred) noexcept {
     return pred ? t : f;
@@ -233,9 +261,10 @@ template<typename T, std::enable_if_t<is_scalar_v<T>, int> = 0>
 
 template<typename A, typename B, typename T,
          std::enable_if_t<std::conjunction_v<
-             std::disjunction<is_scalar<A>, is_vector<A>>,
-             std::disjunction<is_scalar<B>, is_vector<B>>,
-             std::disjunction<is_scalar<T>, is_vector<T>>>, int> = 0>
+                              std::disjunction<is_scalar<A>, is_vector<A>>,
+                              std::disjunction<is_scalar<B>, is_vector<B>>,
+                              std::disjunction<is_scalar<T>, is_vector<T>>>,
+                          int> = 0>
 [[nodiscard]] constexpr auto lerp(A a, B b, T t) noexcept {
     auto v = t * (b - a) + a;
     return select(v, a + b, isinf(a) || isinf(b));
@@ -243,9 +272,10 @@ template<typename A, typename B, typename T,
 
 template<typename X, typename A, typename B,
          std::enable_if_t<std::conjunction_v<
-             std::disjunction<is_scalar<X>, is_vector<X>>,
-             std::disjunction<is_scalar<A>, is_vector<A>>,
-             std::disjunction<is_scalar<B>, is_vector<B>>>, int> = 0>
+                              std::disjunction<is_scalar<X>, is_vector<X>>,
+                              std::disjunction<is_scalar<A>, is_vector<A>>,
+                              std::disjunction<is_scalar<B>, is_vector<B>>>,
+                          int> = 0>
 [[nodiscard]] constexpr auto clamp(X x, A a, B b) noexcept {
     return min(max(x, a), b);
 }
@@ -428,7 +458,7 @@ template<size_t N>
 }
 
 // transforms
-constexpr auto translation(const float3 v) noexcept {
+[[nodiscard]] constexpr auto translation(const float3 v) noexcept {
     return make_float4x4(
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -436,7 +466,7 @@ constexpr auto translation(const float3 v) noexcept {
         v.x, v.y, v.z, 1.0f);
 }
 
-inline auto rotation(const float3 axis, float angle) noexcept {
+[[nodiscard]] inline auto rotation(const float3 axis, float angle) noexcept {
     if (angle == 0.0f) { return make_float4x4(1.0f); }
     auto c = cos(angle);
     auto s = sin(angle);
@@ -449,7 +479,7 @@ inline auto rotation(const float3 axis, float angle) noexcept {
         0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-constexpr auto scaling(const float3 s) noexcept {
+[[nodiscard]] constexpr auto scaling(const float3 s) noexcept {
     return make_float4x4(
         s.x, 0.0f, 0.0f, 0.0f,
         0.0f, s.y, 0.0f, 0.0f,
@@ -457,8 +487,36 @@ constexpr auto scaling(const float3 s) noexcept {
         0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-constexpr auto scaling(float s) noexcept {
+[[nodiscard]] constexpr auto scaling(float s) noexcept {
     return scaling(make_float3(s));
+}
+
+[[nodiscard]] constexpr auto sign(float x) noexcept { return x < 0.f ? -1.f : 1.f; }
+
+[[nodiscard]] constexpr auto sign(float2 v) noexcept {
+    return make_float2(sign(v.x), sign(v.y));
+}
+
+[[nodiscard]] constexpr auto sign(float3 v) noexcept {
+    return make_float3(sign(v.x), sign(v.y), sign(v.z));
+}
+
+[[nodiscard]] constexpr auto sign(float4 v) noexcept {
+    return make_float4(sign(v.x), sign(v.y), sign(v.z), sign(v.w));
+}
+
+[[nodiscard]] constexpr auto sign(int x) noexcept { return x < 0 ? -1 : 1; }
+
+[[nodiscard]] constexpr auto sign(int2 v) noexcept {
+    return make_int2(sign(v.x), sign(v.y));
+}
+
+[[nodiscard]] constexpr auto sign(int3 v) noexcept {
+    return make_int3(sign(v.x), sign(v.y), sign(v.z));
+}
+
+[[nodiscard]] constexpr auto sign(int4 v) noexcept {
+    return make_int4(sign(v.x), sign(v.y), sign(v.z), sign(v.w));
 }
 
 }// namespace luisa

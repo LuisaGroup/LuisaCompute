@@ -7,10 +7,10 @@
 #include <vector>
 
 #include <cuda.h>
-#include <optix.h>
 
 #include <rtx/accel.h>
 #include <core/dirty_range.h>
+#include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
 
@@ -31,12 +31,12 @@ public:
      * 
      */
     struct alignas(16) Binding {
-        OptixTraversableHandle handle;
+        optix::TraversableHandle handle;
         CUdeviceptr instances;
     };
 
 private:
-    OptixTraversableHandle _handle{};
+    optix::TraversableHandle _handle{};
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};

@@ -5,7 +5,7 @@ from . import globalvars
 from .func import func
 from .mathtypes import *
 from .array import array, ArrayType
-from .struct import struct, StructType
+from .struct import struct, StructType, make_struct
 from .buffer import buffer, Buffer, BufferType
 from .texture2d import texture2d, Texture2D, Texture2DType
 from lcapi import PixelStorage

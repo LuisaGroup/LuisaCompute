@@ -23,7 +23,6 @@
 - CUDA
     - CUDA 11.2 or higher
     - RTX-compatible graphics cards with appropriate drivers
-    - OptiX 7.1 or higher
 - DirectX
     - DirectX 12 with ray tracing support
     - RTX-compatible graphics card with appropriate drivers
@@ -40,8 +39,7 @@
 
 ### Python
 
-- Python 3.9+ (please pass the correct `-D Python_ROOT_DIR=<Python-install-dir>` option to CMake if you have multiple
-  versions of Python installed)
+- Python 3.9+: if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
 - Packages: astpretty, dearpygui, sourceinspect, numpy, pillow
 - Backend-specific requirements are the same as above
 
@@ -69,18 +67,11 @@ of linking object files into shared libraries.
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
 
-Note: Due to license restrictions, we are not allowed to provide OptiX headers directly in tree.
-Therefore, if you would like to enable the CUDA backend, you will need to either
-- Manually copy the OptiX header files under `<optix-installation>/include` to `src/backends/cuda/optix` (so that the folder *directly* contains `optix.h`); or
-- Specify the OptiX installation directory with `-D OptiX_DIR=<optix-installation>`
-
-*before* configuration and building. The default location of the OptiX installation is `C:\ProgramData\NVIDIA Corporation\OptiX SDK 7.x.0\include` on Windows, and `/home/<user>/NVIDIA-OptiX-SDK-7.x.0-linux64-x86_64/include` on Linux.
-
 ## Build Commands
 
 ```bash
-cmake  -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release # =Debug if you want a debug build; optionally followed by other flags as listed above
-cmake --build <build-dir>
+cmake -S . -B <build-dir> -D CMAKE_BUILD_TYPE=Release # if you want a debug build, change to `-D CMAKE_BUILD_TYPE=Debug`; optionally followed by other flags as listed above
+cmake --build <build-dir> # when building on Windows using Visual Studio Generators, add `--config=Release` in a release build
 ```
 
 > Note: a typical choice of `<build-dir>` is `build`, as assumed the default in the `set_python_path.{bat|ps1|sh}`

@@ -5,9 +5,9 @@
 #pragma once
 
 #include <cuda.h>
-#include <optix.h>
 
 #include <rtx/mesh.h>
+#include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
 
@@ -22,7 +22,7 @@ class CUDAHeap;
 class CUDAMesh {
 
 private:
-    OptixTraversableHandle _handle{};
+    optix::TraversableHandle _handle{};
     CUdeviceptr _bvh_buffer_handle{};
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
@@ -35,7 +35,7 @@ private:
     CUDAHeap *_heap{nullptr};
 
 private:
-    [[nodiscard]] OptixBuildInput _make_build_input() const noexcept;
+    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept;
 
 public:
     /**

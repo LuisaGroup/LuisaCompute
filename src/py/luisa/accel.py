@@ -1,18 +1,43 @@
 import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .struct import StructType
+from .struct import make_struct
 from .array import ArrayType
 from .mathtypes import *
 from .func import func
 from .types import uint, to_lctype
 from .builtin import _builtin_call, _bitwise_cast
 
-# Ray
-Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
+
+@make_struct
+class Ray:
+    alignment = 16
+    _origin: ArrayType(3, float)
+    t_min: float
+    _dir: ArrayType(3, float)
+    t_max: float
+    @func
+    def get_origin(self):
+        return float3(self._origin[0], self._origin[1], self._origin[2])
+    @func
+    def get_dir(self):
+        return float3(self._dir[0], self._dir[1], self._dir[2])
+
+    @func
+    def set_origin(self, val: float3):
+        self._origin[0] = val.x
+        self._origin[1] = val.y
+        self._origin[2] = val.z
+
+    @func
+    def set_dir(self, val: float3):
+        self._dir[0] = val.x
+        self._dir[1] = val.y
+        self._dir[2] = val.z
+
 
 @func
-def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
+def make_ray(origin: float3, direction: float3, t_min: float, t_max: float):
     r = Ray()
     r._origin[0] = origin[0]
     r._origin[1] = origin[1]
@@ -54,57 +79,37 @@ def offset_ray_origin(p: float3, n: float3):
     p_i.z = _bitwise_cast(float, p_i_tmp.z)
     return select(p_i, p + float_scale * n, abs(p) < origin)
 
-@func
-def get_origin(self):
-    return float3(self._origin[0], self._origin[1], self._origin[2])
-Ray.add_method(get_origin)
 
-@func
-def get_dir(self):
-    return float3(self._dir[0], self._dir[1], self._dir[2])
-Ray.add_method(get_dir)
+@make_struct
+class Hit:
+    alignment = 16
+    inst: int
+    prim: int
+    bary: float2
 
-@func
-def set_origin(self, val: float3):
-    self._origin[0] = val.x
-    self._origin[1] = val.y
-    self._origin[2] = val.z
-Ray.add_method(set_origin)
+    @func
+    def miss(self):
+        return self.inst == -1
 
-@func
-def set_dir(self, val: float3):
-    self._dir[0] = val.x
-    self._dir[1] = val.y
-    self._dir[2] = val.z
-Ray.add_method(set_dir)
+    @func
+    def interpolate(self, a, b, c):
+        return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
 
 
+@make_struct
+class UHit:
+    alignment = 16
+    inst: uint
+    prim: uint
+    bary: float2
 
-# Hit
-Hit = StructType(16, inst=int, prim=int, bary=float2)
-UHit = StructType(16, inst=uint, prim=uint, bary=float2)
+    @func
+    def miss(self):
+        return self.inst == -1
 
-@func
-def miss(self):
-    return self.inst == -1
-Hit.add_method(miss)
-
-@func
-def interpolate(self, a, b, c):
-    return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
-Hit.add_method(interpolate)
-
-# Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
-#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
-# }
-
-# Var<float2> interpolate(Expr<Hit> hit, Expr<float2> a, Expr<float2> b, Expr<float2> c) noexcept {
-#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
-# }
-
-# Var<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept {
-#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
-# }
+    @func
+    def interpolate(self, a, b, c):
+        return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
 
 
 class Accel:

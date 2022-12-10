@@ -40,7 +40,7 @@ LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***uni
 - A unified runtime with resource wrappers for cross-platform resource management and command scheduling; and
 - Multiple optimized backends, including CUDA, DirectX, Metal, LLVM, and ISPC.
 
-To demonstrate the practicality of the system, we build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is 5–11× faster than [PBRT-v4](https://github.com/mmp/pbrt-v4) and 4–16× faster than [Mitsuba 3](https://github.com/mitsuba-renderer/mitsuba3) on modern GPUs.
+To demonstrate the practicality of the system, we also build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is faster than the state-of-the-art rendering frameworks on modern GPUs.
 
 ### Embedded Domain-Specific Language
 
@@ -70,7 +70,7 @@ Kernel2D fill = [&](ImageFloat image) {
 
 ### Unified Runtime with Resource Wrappers
 
-Likewise the RHIs in game engines, we introduce an abstract runtime layer to re-unify the fragmented graphics APIs across platforms. It extracts the common concepts and constructs shared by the backend APIs and plays the bridging role between the high-level frontend interfaces and the low-level backend implementations.
+Like the RHIs in game engines, we introduce an abstract runtime layer to re-unify the fragmented graphics APIs across platforms. It extracts the common concepts and constructs shared by the backend APIs and plays the bridging role between the high-level frontend interfaces and the low-level backend implementations.
 
 On the programming interfaces for users, we provide high-level resource wrappers to ease programming and eliminate boilerplate code. They are strongly and statically typed modern C++ objects, which not only simplify the generation of commands via convenient member methods but also support close interaction with the DSL. Moreover, with the resource usage information in kernels and commands, the runtime automatically probes the dependencies between commands and re-schedules them to improve hardware utilization.
 
@@ -122,14 +122,13 @@ LuisaCompute follows the standard CMake build process. Basically these steps:
 
 - Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and ISPC and LLVM on all the major platforms. For CUDA and DirectX, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required.
 
-- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+. Note that if you would like to enable the CUDA backend, [OptiX](https://developer.nvidia.com/designworks/optix/download) is required. For some tests like the toy path tracer, [OpenCV](opencv.org) is also required.
+- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+. For some tests like the toy path tracer, [OpenCV](opencv.org) is also required.
 
 - Clone the repo with the `--recursive` option:
     ```bash
     git clone --recursive https://github.com/LuisaGroup/LuisaCompute.git
     ```
   Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required.
-  > ⚠️ Note: as we are not allowed to provide the OptiX headers in tree, you have to either specify `-D OptiX_DIR=<optix-installation>` during CMake configuration or manually copy the headers from `<optix-installation>/include` to `src/backends/cuda/optix`, so that the latter folder *directly* contains `optix.h`. On Windows, please remember to replace the backslashes `\\` in the path with `/` when passing arguments to CMake.
 
 - Configure the project using CMake. E.g., for command line, `cd` into the project folder and type `cmake -S . -B <build-folder>`. You might also want to specify your favorite generators and build types using options like `-G Ninja` and `-D CMAKE_BUILD_TYPE=Release`. A typical, full command sequence for this would be like
     ```bash
@@ -155,7 +154,7 @@ Using LuisaCompute to construct a graphics application basically involves the fo
 4. Generate `Command`s via each resource's interface (e.g., `Buffer<T>::copy_to`), or `Shader`'s `operator()` and `dispatch`, and submit them to the stream;
 5. Wait for the results by inserting a `synchronize` phoney command to the `Stream`.
 
-Putting the above together, a miminal example program that write gradient color to an image would look like
+Putting the above together, a minimal example program that write gradient color to an image would look like
 ```cpp
 
 #include <luisa-compute.h>
@@ -612,21 +611,22 @@ See [ROADMAP.md](ROADMAP.md).
 
 ```bibtex
 @article{Zheng2022LuisaRender,
-    title = {LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures},
     author = {Zheng, Shaokun and Zhou, Zhiqian and Chen, Xin and Yan, Difei and Zhang, Chuyan and Geng, Yuefeng and Gu, Yan and Xu, Kun},
-    journal = {ACM Trans. Graph.},
-    volume = {41},
-    number = {6},
+    title = {LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures},
     year = {2022},
     issue_date = {December 2022},
     publisher = {Association for Computing Machinery},
     address = {New York, NY, USA},
+    volume = {41},
+    number = {6},
     issn = {0730-0301},
     url = {https://doi.org/10.1145/3550454.3555463},
     doi = {10.1145/3550454.3555463},
-    month = {dec},
+    journal = {ACM Trans. Graph.},
+    month = {nov},
     articleno = {232},
-    numpages = {19}
+    numpages = {19},
+    keywords = {stream architecture, rendering framework, cross-platform renderer}
 }
 ```
 
