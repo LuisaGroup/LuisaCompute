@@ -14,7 +14,7 @@ function(luisa_compute_add_backend name)
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             DEBUG_POSTFIX "")
     install(TARGETS luisa-compute-backend-${name}
-            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endfunction()
@@ -39,4 +39,5 @@ if (LUISA_COMPUTE_ENABLE_LLVM)
     add_subdirectory(llvm)
 endif ()
 
-install(TARGETS luisa-compute-backends EXPORT LuisaComputeTargets)
+install(TARGETS luisa-compute-backends
+        EXPORT LuisaComputeTargets)
