@@ -12,20 +12,23 @@
 
 #include <core/logging.h>
 
-#define LUISA_CHECK_CUDA(...)                                  \
-    [&] {                                                      \
-        if (auto ec = __VA_ARGS__; ec != CUDA_SUCCESS) {       \
-            const char *err = nullptr;                         \
-            cuGetErrorString(ec, &err);                        \
-            LUISA_ERROR_WITH_LOCATION("CUDA error: {}.", err); \
-        }                                                      \
+#define LUISA_CHECK_CUDA(...)                            \
+    [&] {                                                \
+        if (auto ec = __VA_ARGS__; ec != CUDA_SUCCESS) { \
+            const char *err_name = nullptr;              \
+            const char *err_string = nullptr;            \
+            cuGetErrorName(ec, &err_name);               \
+            cuGetErrorString(ec, &err_string);           \
+            LUISA_ERROR_WITH_LOCATION(                   \
+                "{}: {}", err_name, err_string);         \
+        }                                                \
     }()
 
 #define LUISA_CHECK_NVRTC(...)                            \
     [&] {                                                 \
         if (auto ec = __VA_ARGS__; ec != NVRTC_SUCCESS) { \
             LUISA_ERROR_WITH_LOCATION(                    \
-                "NVRTC error: {}.",                       \
+                "NVRTC error: {}",                        \
                 nvrtcGetErrorString(ec));                 \
         }                                                 \
     }()
@@ -34,7 +37,7 @@
     [&] {                                            \
         if (auto error = __VA_ARGS__; error != 0u) { \
             LUISA_ERROR_WITH_LOCATION(               \
-                "{}: {}.",                           \
+                "{}: {}",                            \
                 optix::api().getErrorName(error),    \
                 optix::api().getErrorString(error)); \
         }                                            \

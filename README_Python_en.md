@@ -20,6 +20,17 @@ Note that you may switch `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|ISPC|DX|METAL}` to `ON
 different backends, But in order to produce a Python library, `LUISA_COMPUTE_ENABLE_PYTHON` must
 be turned `ON`.
 
+> If you build with `LUISA_COMPUTE_ENABLE_CUDA` on, you may face the following error:
+> 
+> ```
+> CMake Error at src/backends/cuda/CMakeLists.txt:15 (message):
+> OptiX_DIR is not defined and OptiX headers are not copied to
+> '[Project Directory]/src/backends/cuda/optix'
+> ```
+> 
+> In that case you may either specify the OptiX install directory, or
+> manully copy OptiX headers to the given directory.
+
 You can find the artifact at `build_release/bin/lcapi.cpython-<python version>-<platform triple>.so`. 
 
 ```bash

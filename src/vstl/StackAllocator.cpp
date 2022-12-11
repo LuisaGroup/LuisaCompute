@@ -1,92 +1,95 @@
-#pragma vengine_package vengine_dll
 #include <vstl/StackAllocator.h>
 namespace vstd {
 StackAllocator::StackAllocator(
     uint64 initCapacity,
     StackAllocatorVisitor *visitor)
-    : capacity(initCapacity),
-      visitor(visitor) {
+    : visitor(visitor),
+      capacity(initCapacity),
+      initCapacity(initCapacity) {
 }
 StackAllocator::Chunk StackAllocator::Allocate(uint64 targetSize) {
-    Buffer *bf = nullptr;
-    uint64 minSize = std::numeric_limits<uint64>::max();
     for (auto &&i : allocatedBuffers) {
-        if (i.leftSize >= targetSize && i.leftSize < minSize) {
-            minSize = i.leftSize;
-            bf = &i;
+        int64 leftSize = (i.fullSize - i.position);
+        if (leftSize >= targetSize) {
+            auto ofst = i.position;
+            i.position += targetSize;
+            return {i.handle, ofst};
         }
     }
-    if (bf) {
-        auto ofst = bf->fullSize - bf->leftSize;
-        bf->leftSize -= targetSize;
-        return {
-            bf->handle,
-            ofst};
-    }
-    while (capacity < targetSize) {
-        capacity = std::max<uint64>(capacity + 1, capacity * 1.5);
+    if (capacity < targetSize) {
+        capacity = std::max<uint64>(targetSize, capacity * 1.5);
     }
     auto newHandle = visitor->Allocate(capacity);
     allocatedBuffers.push_back(Buffer{
-        newHandle,
-        capacity,
-        capacity - targetSize});
-    return {
-        newHandle,
-        0};
-    //TODO: return
+        .handle = newHandle,
+        .fullSize = capacity,
+        .position = targetSize});
+    return {newHandle, 0};
 }
 StackAllocator::Chunk StackAllocator::Allocate(
     uint64 targetSize,
     uint64 align) {
     targetSize = std::max(targetSize, align);
-    Buffer *bf = nullptr;
-    uint64 offset = 0;
-    uint64 minLeftSize = std::numeric_limits<uint64>::max();
     auto CalcAlign = [](uint64 value, uint64 align) -> uint64 {
         return (value + (align - 1)) & ~(align - 1);
     };
-    struct Result {
-        uint64 offset;
-        uint64 leftSize;
-    };
-    auto GetLeftSize = [&](uint64 leftSize, uint64 size) -> vstd::optional<Result> {
-        uint64 offset = size - leftSize;
-        uint64 alignedOffset = CalcAlign(offset, align);
-        uint64 afterAllocSize = targetSize + alignedOffset;
-        if (afterAllocSize > size) return {};
-        return Result{alignedOffset, size - afterAllocSize};
-    };
     for (auto &&i : allocatedBuffers) {
-        auto result = GetLeftSize(i.leftSize, i.fullSize);
-        if (!result) continue;
-        if (result->leftSize < minLeftSize) {
-            minLeftSize = result->leftSize;
-            offset = result->offset;
-            bf = &i;
+        auto position = CalcAlign(i.position, align);
+        int64 leftSize = (i.fullSize - position);
+        if (leftSize >= targetSize) {
+            auto ofst = position;
+            i.position = position + targetSize;
+            return {i.handle, ofst};
         }
     }
-    if (bf) {
-        bf->leftSize = minLeftSize;
-        return {
-            bf->handle,
-            offset};
-    }
-    while (capacity < targetSize) {
-        capacity = std::max<uint64>(capacity + 1, capacity * 1.5);
+    if (capacity < targetSize) {
+        capacity = std::max<uint64>(targetSize, capacity * 1.5);
     }
     auto newHandle = visitor->Allocate(capacity);
     allocatedBuffers.push_back(Buffer{
-        newHandle,
-        capacity,
-        capacity - targetSize});
+        .handle = newHandle,
+        .fullSize = capacity,
+        .position = targetSize});
     return {
         newHandle,
         0};
 }
+void StackAllocator::Dispose() {
+    capacity = initCapacity;
+    if (allocatedBuffers.empty()) return;
+    if (allocatedBuffers.size() > 1) {
+        for (auto i : vstd::range(1, allocatedBuffers.size())) {
+            visitor->DeAllocate(allocatedBuffers[i].handle);
+        }
+        allocatedBuffers.resize(1);
+    }
+    auto &first = allocatedBuffers[0];
+    if (first.fullSize > capacity) {
+        visitor->DeAllocate(first.handle);
+        first.handle = visitor->Allocate(capacity);
+        first.fullSize = capacity;
+    }
+    first.position = 0;
+}
 void StackAllocator::Clear() {
-    for (auto &&i : allocatedBuffers) {
-        i.leftSize = i.fullSize;
+    switch (allocatedBuffers.size()) {
+        case 0: break;
+        case 1: {
+            auto &&i = allocatedBuffers[0];
+            i.position = 0;
+        } break;
+        default: {
+            size_t sumSize = 0;
+            for (auto &&i : allocatedBuffers) {
+                sumSize += i.fullSize;
+                visitor->DeAllocate(i.handle);
+            }
+            allocatedBuffers.clear();
+            allocatedBuffers.push_back(Buffer{
+                .handle = visitor->Allocate(sumSize),
+                .fullSize = sumSize,
+                .position = 0});
+        } break;
     }
 }
 StackAllocator::~StackAllocator() {
@@ -94,5 +97,16 @@ StackAllocator::~StackAllocator() {
         visitor->DeAllocate(i.handle);
     }
 }
-
+uint64 DefaultMallocVisitor::Allocate(uint64 size) {
+    return reinterpret_cast<uint64>(malloc(size));
+}
+void DefaultMallocVisitor::DeAllocate(uint64 handle) {
+    free(reinterpret_cast<void *>(handle));
+}
+uint64 VEngineMallocVisitor::Allocate(uint64 size) {
+    return reinterpret_cast<uint64>(vengine_malloc(size));
+}
+void VEngineMallocVisitor::DeAllocate(uint64 handle) {
+    vengine_free(reinterpret_cast<void *>(handle));
+}
 }// namespace vstd

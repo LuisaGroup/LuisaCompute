@@ -72,11 +72,6 @@ private:
 public:
     explicit GLTexture() noexcept {
         CHECK_GL(glGenTextures(1, &_handle));
-        CHECK_GL(glBindTexture(GL_TEXTURE_2D, _handle));
-        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
     }
 
     GLTexture(GLTexture &&) noexcept = delete;
@@ -89,22 +84,38 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
 
-    void load(const std::array<uint8_t, 4u> *pixels, uint2 size) noexcept {
+    void load(const std::array<uint8_t, 4u> *pixels, uint2 size, bool filter) noexcept {
         CHECK_GL(glBindTexture(GL_TEXTURE_2D, _handle));
         if (any(_size != size) || _is_float4) {
             _size = size;
             _is_float4 = false;
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size.x, size.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         }
+        if (filter) {
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+        } else {
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
+        }
+        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
         CHECK_GL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _size.x, _size.y, GL_RGBA, GL_UNSIGNED_BYTE, pixels));
     }
 
-    void load(const float4 *pixels, uint2 size) noexcept {
+    void load(const float4 *pixels, uint2 size, bool filter) noexcept {
         CHECK_GL(glBindTexture(GL_TEXTURE_2D, _handle));
         if (any(_size != size) || !_is_float4) {
             _size = size;
             _is_float4 = true;
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, size.x, size.y, 0, GL_RGBA, GL_FLOAT, nullptr);
+        }
+        if (filter) {
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+        } else {
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST));
+            CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST));
         }
         CHECK_GL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _size.x, _size.y, GL_RGBA, GL_FLOAT, pixels));
     }
@@ -144,7 +155,7 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
 
     glfwSetWindowUserPointer(_handle, this);
     glfwSetMouseButtonCallback(_handle, [](GLFWwindow *window, int button, int action, int mods) noexcept {
-        if (ImGui::GetIO().WantCaptureMouse) {  // ImGui is handling the mouse
+        if (ImGui::GetIO().WantCaptureMouse) {// ImGui is handling the mouse
             ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
         } else {
             auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
@@ -165,7 +176,7 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
         if (auto &&cb = self->_window_size_callback) { cb(make_uint2(width, height)); }
     });
     glfwSetKeyCallback(_handle, [](GLFWwindow *window, int key, int scancode, int action, int mods) noexcept {
-        if (ImGui::GetIO().WantCaptureKeyboard) {  // ImGui is handling the keyboard
+        if (ImGui::GetIO().WantCaptureKeyboard) {// ImGui is handling the keyboard
             ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
         } else {
             auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
@@ -173,7 +184,7 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
         }
     });
     glfwSetScrollCallback(_handle, [](GLFWwindow *window, double dx, double dy) noexcept {
-        if (ImGui::GetIO().WantCaptureMouse) {  // ImGui is handling the mouse
+        if (ImGui::GetIO().WantCaptureMouse) {// ImGui is handling the mouse
             ImGui_ImplGlfw_ScrollCallback(window, dx, dy);
         } else {
             auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
@@ -232,14 +243,14 @@ Window &Window::set_scroll_callback(Window::ScrollCallback cb) noexcept {
     return *this;
 }
 
-void Window::set_background(const std::array<uint8_t, 4u> *pixels, uint2 size) noexcept {
+void Window::set_background(const std::array<uint8_t, 4u> *pixels, uint2 size, bool bilerp) noexcept {
     if (_texture == nullptr) { _texture = luisa::make_unique<GLTexture>(); }
-    _texture->load(pixels, size);
+    _texture->load(pixels, size, bilerp);
 }
 
-void Window::set_background(const float4 *pixels, uint2 size) noexcept {
+void Window::set_background(const float4 *pixels, uint2 size, bool bilerp) noexcept {
     if (_texture == nullptr) { _texture = luisa::make_unique<GLTexture>(); }
-    _texture->load(pixels, size);
+    _texture->load(pixels, size, bilerp);
 }
 
 void Window::set_should_close() noexcept {
@@ -260,18 +271,21 @@ void Window::_end_frame() noexcept {
     if (!should_close()) {
         // background
         if (_texture != nullptr) {
-            ImVec2 background_size{
-                static_cast<float>(_texture->size().x),
-                static_cast<float>(_texture->size().y)};
+            auto s = make_float2(size());
+            auto t = make_float2(_texture->size());
+            // aspect fit
+            auto scale = std::min(s.x / t.x, s.y / t.y);
+            auto tl = (s - t * scale) * 0.5f;
+            auto br = tl + t * scale;
             ImGui::GetBackgroundDrawList()->AddImage(
-                _texture->handle(), {}, background_size);
+                _texture->handle(), {tl.x, tl.y}, {br.x, br.y});
         }
         // rendering
         ImGui::Render();
         int display_w, display_h;
         glfwGetFramebufferSize(_handle, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
-        glClearColor(0.3f, 0.5f, 0.7f, 1.0f);
+        glClearColor(.15f, .15f, .15f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(_handle);

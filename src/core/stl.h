@@ -32,6 +32,7 @@
 #include <EASTL/vector_map.h>
 #include <EASTL/vector_set.h>
 #include <EASTL/shared_array.h>
+#include <EASTL/fixed_vector.h>
 #include <EASTL/fixed_hash_map.h>
 #include <EASTL/fixed_hash_set.h>
 #include <EASTL/vector_multimap.h>
@@ -126,20 +127,21 @@ using eastl::static_pointer_cast;
 using eastl::unique_ptr;
 using eastl::weak_ptr;
 
-template<typename T, typename Alloc = allocator<T>>
-using shared_array = eastl::shared_array<T, Alloc>;
+// FIXME: eastl is not compatible with std-style allocators
+template<typename T>
+using shared_array = eastl::shared_array<T>;
 
-template<typename T, typename Alloc = allocator<T>>
-using vector = eastl::vector<T, Alloc>;
+template<typename T>
+using vector = eastl::vector<T>;
 
-template<typename T, typename Alloc = allocator<T>>
-using deque = eastl::deque<T, Alloc>;
+template<typename T>
+using deque = eastl::deque<T>;
 
 template<typename T, typename Container = luisa::deque<T>>
 using queue = eastl::queue<T, Container>;
 
-template<typename T, typename Alloc = allocator<T>>
-using forward_list = eastl::slist<T, Alloc>;
+template<typename T>
+using forward_list = eastl::slist<T>;
 
 using eastl::bitvector;
 using eastl::fixed_hash_map;
@@ -149,6 +151,9 @@ using eastl::fixed_multimap;
 using eastl::fixed_multiset;
 using eastl::fixed_set;
 using eastl::ring_buffer;
+
+template<typename T, size_t n, bool allow_overflow = true>
+using fixed_vector = eastl::fixed_vector<T, n, allow_overflow, eastl::allocator>;
 
 using eastl::lru_cache;
 

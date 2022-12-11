@@ -572,6 +572,7 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
     LUISA_ERROR_WITH_LOCATION("Invalid built-in call.");
 }
 
+// TODO: optimize memory allocation for coroutine frames
 void LLVMCodegen::_builtin_synchronize_block() noexcept {
     auto ctx = _current_context();
     auto b = ctx->builder.get();

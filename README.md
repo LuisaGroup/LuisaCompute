@@ -40,7 +40,7 @@ LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***uni
 - A unified runtime with resource wrappers for cross-platform resource management and command scheduling; and
 - Multiple optimized backends, including CUDA, DirectX, Metal, LLVM, and ISPC.
 
-To demonstrate the practicality of the system, we build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is 5–11× faster than [PBRT-v4](https://github.com/mmp/pbrt-v4) and 4–16× faster than [Mitsuba 3](https://github.com/mitsuba-renderer/mitsuba3) on modern GPUs.
+To demonstrate the practicality of the system, we also build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is faster than the state-of-the-art rendering frameworks on modern GPUs.
 
 ### Embedded Domain-Specific Language
 
@@ -611,21 +611,22 @@ See [ROADMAP.md](ROADMAP.md).
 
 ```bibtex
 @article{Zheng2022LuisaRender,
-    title = {LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures},
     author = {Zheng, Shaokun and Zhou, Zhiqian and Chen, Xin and Yan, Difei and Zhang, Chuyan and Geng, Yuefeng and Gu, Yan and Xu, Kun},
-    journal = {ACM Trans. Graph.},
-    volume = {41},
-    number = {6},
+    title = {LuisaRender: A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures},
     year = {2022},
     issue_date = {December 2022},
     publisher = {Association for Computing Machinery},
     address = {New York, NY, USA},
+    volume = {41},
+    number = {6},
     issn = {0730-0301},
     url = {https://doi.org/10.1145/3550454.3555463},
     doi = {10.1145/3550454.3555463},
-    month = {dec},
+    journal = {ACM Trans. Graph.},
+    month = {nov},
     articleno = {232},
-    numpages = {19}
+    numpages = {19},
+    keywords = {stream architecture, rendering framework, cross-platform renderer}
 }
 ```
 

@@ -313,6 +313,8 @@ void CUDADevice::destroy_accel(uint64_t handle) noexcept {
 CUDADevice::CUDADevice(const Context &ctx, uint device_id) noexcept
     : Device::Interface{ctx}, _handle{device_id} {
     with_handle([this] {
+        LUISA_CHECK_CUDA(cuCtxResetPersistingL2Cache());
+        LUISA_CHECK_CUDA(cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_L1));
         LUISA_CHECK_CUDA(cuModuleLoadData(
             &_accel_update_module, cuda_accel_update_source));
         LUISA_CHECK_CUDA(cuModuleGetFunction(

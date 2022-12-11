@@ -56,6 +56,9 @@ LC_CORE_API void log_level_warning() noexcept;
 /// Set log level as error
 LC_CORE_API void log_level_error() noexcept;
 
+/// flush the logs
+LC_CORE_API void log_flush() noexcept;
+
 }// namespace luisa
 
 /**

@@ -32,6 +32,8 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
             /wd4068 # Maxwell loves custom pragmas
             /wd5105 # winbase.h: macro expansion producing 'defined' has undefined behavior
             /Zc:preprocessor)
+elseif(MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(luisa-compute-include INTERFACE /EHsc)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(luisa-compute-include INTERFACE
             -Wno-invalid-offsetof

@@ -4,34 +4,70 @@ on: [ push, pull_request ]
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-20.04, ubuntu-22.04 ]
+        gcc: [ 11, 12 ]
+        llvm: [ 14, 15, 16 ]
+        compiler: [ gcc, clang ]
+        config: [ Release, Debug ]
+        exclude:
+          - os: ubuntu-20.04
+            gcc: 12
+          - os: ubuntu-22.04
+            gcc: 11
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }} / llvm-${{ matrix.llvm }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          sudo apt-get purge --auto-remove cmake
-          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null
-          sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'
           sudo add-apt-repository ppa:ubuntu-toolchain-r/test
           sudo apt-get update
           sudo apt-get -y install cmake
-          sudo apt-get -y install gcc-11 g++-11 build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get -y install build-essential ninja-build git file libopencv-dev uuid-dev libglfw3-dev libxinerama-dev libxcursor-dev libxi-dev
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 14
+          sudo ./llvm.sh ${{ matrix.llvm }}
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }}
+          else
+            sudo apt-get -y install libc++-${{ matrix.llvm }}-dev libc++abi-${{ matrix.llvm }}-dev
+          fi
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
         with:
           linux-local-args: '["--toolkit"]'
       - name: "Configure and Build"
         run: |
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=gcc-11 -D CMAKE_CXX_COMPILER=g++-11 -D LLVM_ROOT=/usr/lib/llvm-14
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            export LUISA_CC=gcc-${{ matrix.gcc }}
+            export LUISA_CXX=g++-${{ matrix.gcc }}
+            export LUISA_FLAGS=""
+          else
+            export LUISA_CC=clang-${{ matrix.llvm }}
+            export LUISA_CXX=clang++-${{ matrix.llvm }}
+            export LUISA_FLAGS="-stdlib=libc++"
+          fi
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
 
   build-macos:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-11, macos-12 ]
+        compiler: [ homebrew-clang, system-clang ]
+        config: [ Release, Debug ]
+        exclude:
+          - os: macos-11
+            compiler: system-clang
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -41,12 +77,21 @@ jobs:
           brew install cmake ninja opencv llvm sccache glfw
       - name: "Configure and Build"
         run: |
-          export PATH=$PATH:/usr/local/opt/llvm/bin
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D LUISA_COMPUTE_ENABLE_METAL=OFF -D CMAKE_C_COMPILER=/usr/local/opt/llvm/bin/clang -D CMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++
+          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
+            export PATH=/usr/local/opt/llvm/bin:$PATH
+          fi
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
           cmake --build build
 
   build-windows:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ 2019, 2022 ]
+        config: [ Release, Debug ]
+        compiler: [ cl, clang, clang-cl ]
+    name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
+    runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -60,6 +105,10 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER:FILEPATH=cl.exe -D CMAKE_CXX_COMPILER:FILEPATH=cl.exe
+          if "${{ matrix.os }}" == "2019" (
+            call "C:\Program Files (x86)\Microsoft Visual Studio\${{ matrix.os }}\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          ) else (
+            call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          )
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
           cmake --build build
