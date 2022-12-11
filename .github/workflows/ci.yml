@@ -120,4 +120,4 @@ jobs:
           cmake --build build
       - name: "Install"
         run: |
-          sudo cmake --install build --prefix dist -v
+          cmake --install build --prefix dist -v
