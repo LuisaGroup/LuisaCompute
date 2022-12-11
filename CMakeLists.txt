@@ -79,23 +79,3 @@ set(CMAKE_FIND_PACKAGE_SORT_ORDER NATURAL)
 set(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
 
 add_subdirectory(src)
-
-file(GLOB ARTIFACTS "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/*.so"
-    LIST_DIRECTORIES false)
-
-install(
-    FILES ${ARTIFACTS}
-    DESTINATION ${LUISA_PROJECT_DYLIB_PATH}
-)
-
-install(
-    TARGETS lcapi
-    LIBRARY DESTINATION "luisa/dylibs"
-    RUNTIME DESTINATION ${LUISA_PROJECT_DYLIB_PATH}
-)
-
-# add_custom_target(packaging)
-
-# add_custom_command(
-
-# )

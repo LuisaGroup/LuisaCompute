@@ -13,7 +13,6 @@
 #include <core/concepts.h>
 #include <core/thread_pool.h>
 #include <ast/function.h>
-#include <meta/property.h>
 #include <runtime/context.h>
 #include <runtime/pixel.h>
 #include <runtime/sampler.h>

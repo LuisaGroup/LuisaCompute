@@ -21,6 +21,19 @@ option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
 
+include(GNUInstallDirs)
+function(luisa_compute_install target)
+    cmake_parse_arguments(INSTALL "" "" "SOURCES" ${ARGN})
+    set(INSTALL_HEADERS ${INSTALL_SOURCES})
+    list(FILTER INSTALL_HEADERS INCLUDE REGEX "^.*\\.h$")
+    set_target_properties(luisa-compute-${target} PROPERTIES PUBLIC_HEADER "${INSTALL_HEADERS}")
+    install(TARGETS luisa-compute-${target}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/${target})
+endfunction()
+
 add_subdirectory(ext)
 
 add_library(luisa-compute-include INTERFACE)
@@ -32,7 +45,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
             /wd4068 # Maxwell loves custom pragmas
             /wd5105 # winbase.h: macro expansion producing 'defined' has undefined behavior
             /Zc:preprocessor)
-elseif(MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+elseif (MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(luisa-compute-include INTERFACE /EHsc)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(luisa-compute-include INTERFACE
@@ -42,7 +55,6 @@ endif ()
 
 add_subdirectory(core)
 add_subdirectory(vstl)
-add_subdirectory(meta)
 add_subdirectory(ast)
 add_subdirectory(runtime)
 add_subdirectory(compile)
@@ -52,10 +64,10 @@ add_subdirectory(gui)
 add_subdirectory(backends)
 
 add_library(luisa-compute INTERFACE luisa-compute.h)
+set_target_properties(luisa-compute PROPERTIES PUBLIC_HEADER "luisa-compute.h")
 target_link_libraries(luisa-compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl
-        luisa-compute-meta
         luisa-compute-ast
         luisa-compute-compile
         luisa-compute-runtime
@@ -72,3 +84,9 @@ endif ()
 if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(tests)
 endif ()
+
+install(TARGETS luisa-compute
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute)
