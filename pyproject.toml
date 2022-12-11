@@ -7,6 +7,4 @@ requires = [
     "pybind11",
     "scikit-build"
 ]
-
-[tool.pytest.ini_options]
-norecursedirs = [ "ext" ]
+build-backend = "setuptools.build_meta"
