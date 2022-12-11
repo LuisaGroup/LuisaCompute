@@ -48,6 +48,8 @@ if (ISPC_FOUND)
             "${CMAKE_ISPC_COMPILER}"
             "$<TARGET_FILE_DIR:luisa-compute-core>/"
             DEPENDS "${CMAKE_ISPC_COMPILER}")
+    install(FILES "${CMAKE_ISPC_COMPILER}" DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(DIRECTORY ispc_support DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     option(LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT "Enable LLVM JIT for ISPC kernels" ON)
     if (LUISA_COMPUTE_ENABLE_ISPC_LLVM_JIT)
@@ -67,7 +69,7 @@ if (ISPC_FOUND)
             target_compile_options(luisa-compute-backend-ispc PRIVATE /wd4624 /wd4996) # do not complain about LLVM
         endif ()
     else () # fallback to DLL
-         message(STATUS "Use runtime DLL loading for ISPC kernels. You may need to manually copy linker stuff to ispc_support and re-run build.")
-         target_sources(luisa-compute-backend-ispc PRIVATE ispc_dll_module.cpp ispc_dll_module.h)
+        message(STATUS "Use runtime DLL loading for ISPC kernels. You may need to manually copy linker stuff to ispc_support and re-run build.")
+        target_sources(luisa-compute-backend-ispc PRIVATE ispc_dll_module.cpp ispc_dll_module.h)
     endif ()
 endif ()

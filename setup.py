@@ -28,6 +28,7 @@ setup(
     cmake_args=[
         '-DLUISA_PROJECT_ROOT=luisa',
         '-DLUISA_PROJECT_DYLIB_PATH=luisa/dylibs',
+        '-DCMAKE_INSTALL_PREFIX=dist',
         '-DCMAKE_INSTALL_LIBDIR=luisa',
         '-DCMAKE_INSTALL_BINDIR=luisa',
         "-DCMAKE_BUILD_TYPE=Release",

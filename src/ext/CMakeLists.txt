@@ -6,6 +6,19 @@ add_custom_target(luisa-compute-ext-copy ALL
         COMMENT "Copy necessary files for third-party libraries")
 add_dependencies(luisa-compute-ext-copy luisa-compute-ext)
 
+function(luisa_compute_install_extension target)
+    cmake_parse_arguments("EXT" "" "INCLUDE" "" ${ARGN})
+    install(TARGETS ${target}
+            EXPORT LuisaComputeTargets
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    if (EXT_INCLUDE)
+        install(DIRECTORY ${EXT_INCLUDE}
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/ext/
+                FILES_MATCHING PATTERN "*.h")
+    endif ()
+endfunction()
 
 set(SPDLOG_ENABLE_PCH OFF CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE)
@@ -26,17 +39,18 @@ target_compile_definitions(spdlog PUBLIC
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
 target_link_libraries(luisa-compute-ext PUBLIC spdlog::spdlog_header_only)
-
+luisa_compute_install_extension(spdlog_header_only INCLUDE spdlog/include)
 
 add_library(xxhash INTERFACE)
-target_include_directories(xxhash INTERFACE xxHash)
+target_include_directories(xxhash INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>)
 target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 set_target_properties(xxhash PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 target_link_libraries(luisa-compute-ext PUBLIC xxhash)
+luisa_compute_install_extension(xxhash INCLUDE xxHash)
 
 add_library(asio INTERFACE dummy.cpp)
-target_include_directories(asio INTERFACE asio/asio/include)
+target_include_directories(asio INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/asio/asio/include>)
 target_compile_definitions(asio INTERFACE
         ASIO_STANDALONE=1
         ASIO_HAS_STD_INVOKE_RESULT=1
@@ -46,19 +60,22 @@ if (WIN32)
     target_link_libraries(asio INTERFACE ws2_32 wsock32 bcrypt)
 endif ()
 target_link_libraries(luisa-compute-ext PUBLIC asio)
+luisa_compute_install_extension(asio INCLUDE asio/asio/include)
 
 add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext PUBLIC stb)
+luisa_compute_install_extension(stb INCLUDE stb)
 
 set(JSON_MultipleHeaders ON CACHE BOOL "" FORCE)
 set(JSON_SystemInclude ON CACHE BOOL "" FORCE)
 add_subdirectory(json)
 target_link_libraries(luisa-compute-ext PUBLIC nlohmann_json::nlohmann_json)
+luisa_compute_install_extension(nlohmann_json INCLUDE json/include)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(glad)
     target_link_libraries(luisa-compute-ext PUBLIC glad)
-
+    luisa_compute_install_extension(glad INCLUDE glad)
     find_package(GLFW3 CONFIG QUIET)
     if (NOT GLFW3_FOUND)
         set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -69,15 +86,19 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         add_subdirectory(glfw)
         set_target_properties(glfw PROPERTIES
                 UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+        luisa_compute_install_extension(glfw INCLUDE glfw/include)
     endif ()
     target_link_libraries(luisa-compute-ext PUBLIC glfw)
 
     add_subdirectory(imgui)
     target_link_libraries(luisa-compute-ext PUBLIC imgui)
+    luisa_compute_install_extension(imgui INCLUDE imgui)
 endif ()
 
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext PUBLIC EASTL)
+luisa_compute_install_extension(EASTL INCLUDE EASTL/include)
+luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(pybind11)
@@ -118,6 +139,7 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
                 DEPENDS "$<TARGET_LINKER_FILE:TBB::tbb>"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_LINKER_FILE:TBB::tbb>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+        install(FILES "$<TARGET_FILE:TBB::tbb>" "$<TARGET_LINKER_FILE:TBB::tbb>" TYPE LIB)
         # embree
         set(LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION "3.13.5")
         message(STATUS "Downloading embree ${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}...")
@@ -145,6 +167,7 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
             DEPENDS "$<TARGET_LINKER_FILE:embree>"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+    install(FILES "$<TARGET_FILE:embree>" "$<TARGET_LINKER_FILE:embree>" TYPE LIB)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_VULKAN)
@@ -182,5 +205,9 @@ if (WIN32 AND NOT MINGW AND NOT MSYS)
 endif ()
 
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+set(ABSL_ENABLE_INSTALL ON CACHE BOOL "" FORCE)
+set(CMAKE_INSTALL_INCLUDEDIR include/LuisaCompute/ext)
 add_subdirectory(abseil-cpp)
 target_link_libraries(luisa-compute-ext PUBLIC absl::base absl::flat_hash_map)
+
+install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)

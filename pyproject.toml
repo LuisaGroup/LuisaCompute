@@ -2,10 +2,10 @@
 requires = [
     "setuptools",
     "wheel",
-    "scikit-build",
     "cmake",
     "ninja",
-    "pybind11"
+    "pybind11",
+    "scikit-build"
 ]
 
 [tool.pytest.ini_options]

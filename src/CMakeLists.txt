@@ -27,7 +27,7 @@ function(luisa_compute_install target)
     set(INSTALL_HEADERS ${INSTALL_SOURCES})
     list(FILTER INSTALL_HEADERS INCLUDE REGEX "^.*\\.h$")
     set_target_properties(luisa-compute-${target} PROPERTIES PUBLIC_HEADER "${INSTALL_HEADERS}")
-    install(TARGETS luisa-compute-${target}
+    install(TARGETS luisa-compute-${target} EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -37,7 +37,7 @@ endfunction()
 add_subdirectory(ext)
 
 add_library(luisa-compute-include INTERFACE)
-target_include_directories(luisa-compute-include INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(luisa-compute-include INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
@@ -52,6 +52,9 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
             -Wno-invalid-offsetof
             -Wno-pragmas)
 endif ()
+
+install(TARGETS luisa-compute-include
+        EXPORT LuisaComputeTargets)
 
 add_subdirectory(core)
 add_subdirectory(vstl)
@@ -85,8 +88,9 @@ if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(tests)
 endif ()
 
-install(TARGETS luisa-compute
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute)
+install(TARGETS luisa-compute EXPORT LuisaComputeTargets)
+
+install(EXPORT LuisaComputeTargets
+        FILE LuisaComputeTargets.cmake
+        NAMESPACE luisa::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute)
