@@ -84,15 +84,43 @@ if (LUISA_COMPUTE_ENABLE_PYTHON)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
-    set(EMBREE_TASKING_SYSTEM "INTERNAL" CACHE STRING "" FORCE)
-    find_package(embree 3 CONFIG QUIET)
+    if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+        find_package(embree 3 CONFIG QUIET)
+    else ()
+        find_package(embree 3 CONFIG QUIET REQUIRED)
+    endif ()
     if (embree_FOUND)
         message(STATUS "Found embree: ${embree_VERSION}")
     else ()
-        set(LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION "3.13.5")
-        file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/embree)
-        message(STATUS "Downloading embree ${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}...")
         include(FetchContent)
+        # tbb (required by embree)
+        set(LUISA_COMPUTE_TBB_DOWNLOAD_VERSION "2021.7.0")
+        message(STATUS "Downloading TBB ${LUISA_COMPUTE_TBB_DOWNLOAD_VERSION}...")
+        if (WIN32)
+            FetchContent_Declare(tbb_binary
+                    URL "https://github.com/oneapi-src/oneTBB/releases/download/v${LUISA_COMPUTE_TBB_DOWNLOAD_VERSION}/oneapi-tbb-${LUISA_COMPUTE_TBB_DOWNLOAD_VERSION}-win.zip")
+        elseif (APPLE)
+            FetchContent_Declare(tbb_binary
+                    URL "https://github.com/oneapi-src/oneTBB/releases/download/v${LUISA_COMPUTE_TBB_DOWNLOAD_VERSION}/oneapi-tbb-${LUISA_COMPUTE_TBB_DOWNLOAD_VERSION}-mac.tgz")
+        else ()# Linux
+            FetchContent_Declare(tbb_binary
+                    URL "https://github.com/oneapi-src/oneTBB/releases/download/v${LUISA_COMPUTE_TBB_DOWNLOAD_VERSION}/oneapi-tbb-${LUISA_COMPUTE_TBB_DOWNLOAD_VERSION}-lin.tgz")
+        endif ()
+        FetchContent_MakeAvailable(tbb_binary)
+        FetchContent_GetProperties(tbb_binary)
+        set(TBB_ROOT ${tbb_binary_SOURCE_DIR})
+        find_package(TBB CONFIG REQUIRED)
+        add_custom_command(TARGET luisa-compute-ext-copy
+                DEPENDS "$<TARGET_FILE:TBB::tbb>"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:TBB::tbb>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+        add_custom_command(TARGET luisa-compute-ext-copy
+                DEPENDS "$<TARGET_LINKER_FILE:TBB::tbb>"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_LINKER_FILE:TBB::tbb>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
+        # embree
+        set(LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION "3.13.5")
+        message(STATUS "Downloading embree ${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}...")
         if (WIN32)
             FetchContent_Declare(embree_binary
                     URL "https://github.com/embree/embree/releases/download/v${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}.x64.vc14.windows.zip")
@@ -105,12 +133,6 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
         endif ()
         FetchContent_MakeAvailable(embree_binary)
         FetchContent_GetProperties(embree_binary)
-        # patch embree
-        message(STATUS "Patching embree-config.cmake...")
-        file(READ "${embree_binary_SOURCE_DIR}/lib/cmake/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-config.cmake" EMBREE_CONFIG)
-        string(REPLACE "FIND_PACKAGE(TBB REQUIRED \${EMBREE_TBB_COMPONENT})" "" EMBREE_CONFIG "${EMBREE_CONFIG}")
-        file(WRITE "${embree_binary_SOURCE_DIR}/lib/cmake/embree-${LUISA_COMPUTE_EMBREE_DOWNLOAD_VERSION}/embree-config.cmake" "${EMBREE_CONFIG}")
-        message(STATUS "Downloaded embree: ${embree_binary_SOURCE_DIR}")
         set(embree_ROOT ${embree_binary_SOURCE_DIR})
         find_package(embree 3 CONFIG REQUIRED)
     endif ()
