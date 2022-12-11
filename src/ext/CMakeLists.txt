@@ -12,11 +12,12 @@ function(luisa_compute_install_extension target)
             EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/ext)
     if (EXT_INCLUDE)
         install(DIRECTORY ${EXT_INCLUDE}
-                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/ext/
-                FILES_MATCHING PATTERN "*.h")
+                DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/ext
+                FILES_MATCHING REGEX ".*\\.(h|hpp|hxx|hxx|inl)$")
     endif ()
 endfunction()
 
@@ -39,7 +40,7 @@ target_compile_definitions(spdlog PUBLIC
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
 target_link_libraries(luisa-compute-ext PUBLIC spdlog::spdlog_header_only)
-luisa_compute_install_extension(spdlog_header_only INCLUDE spdlog/include)
+luisa_compute_install_extension(spdlog_header_only INCLUDE spdlog/include/spdlog)
 
 add_library(xxhash INTERFACE)
 target_include_directories(xxhash INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>)
@@ -60,7 +61,7 @@ if (WIN32)
     target_link_libraries(asio INTERFACE ws2_32 wsock32 bcrypt)
 endif ()
 target_link_libraries(luisa-compute-ext PUBLIC asio)
-luisa_compute_install_extension(asio INCLUDE asio/asio/include)
+luisa_compute_install_extension(asio INCLUDE asio/asio/include/asio)
 
 add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext PUBLIC stb)
@@ -70,7 +71,7 @@ set(JSON_MultipleHeaders ON CACHE BOOL "" FORCE)
 set(JSON_SystemInclude ON CACHE BOOL "" FORCE)
 add_subdirectory(json)
 target_link_libraries(luisa-compute-ext PUBLIC nlohmann_json::nlohmann_json)
-luisa_compute_install_extension(nlohmann_json INCLUDE json/include)
+luisa_compute_install_extension(nlohmann_json INCLUDE json/include/nlohmann)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(glad)
@@ -97,7 +98,7 @@ endif ()
 
 add_subdirectory(EASTL)
 target_link_libraries(luisa-compute-ext PUBLIC EASTL)
-luisa_compute_install_extension(EASTL INCLUDE EASTL/include)
+luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)

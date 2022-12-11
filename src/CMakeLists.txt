@@ -66,9 +66,9 @@ add_subdirectory(rtx)
 add_subdirectory(gui)
 add_subdirectory(backends)
 
-add_library(luisa-compute INTERFACE luisa-compute.h)
-set_target_properties(luisa-compute PROPERTIES PUBLIC_HEADER "luisa-compute.h")
-target_link_libraries(luisa-compute INTERFACE
+add_library(compute INTERFACE luisa-compute.h)
+set_target_properties(compute PROPERTIES PUBLIC_HEADER "luisa-compute.h")
+target_link_libraries(compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl
         luisa-compute-ast
@@ -78,7 +78,7 @@ target_link_libraries(luisa-compute INTERFACE
         luisa-compute-rtx
         luisa-compute-gui
         luisa-compute-backends)
-add_library(luisa::compute ALIAS luisa-compute)
+add_library(luisa::compute ALIAS compute)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(py)
@@ -88,7 +88,9 @@ if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(tests)
 endif ()
 
-install(TARGETS luisa-compute EXPORT LuisaComputeTargets)
+install(TARGETS compute
+        EXPORT LuisaComputeTargets
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute)
 
 install(EXPORT LuisaComputeTargets
         FILE LuisaComputeTargets.cmake
