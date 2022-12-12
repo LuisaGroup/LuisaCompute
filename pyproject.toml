@@ -1,0 +1,44 @@
+[build-system]
+requires = ["pybind11", "scikit-build-core"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "luisa"
+version = "0.1.0"
+description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
+readme = "README_Python_en.md"
+authors = [
+    { name = "LuisaGroup" },
+]
+homepage = "luisa-render.com"
+repository = "https://github.com/LuisaGroup/LuisaCompute"
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "dearpygui",
+    "sourceinspect",
+    "numpy",
+    "pillow",
+    "astpretty"
+]
+license = { file = "LICENSE" }
+
+[tool.scikit-build]
+cmake.minimum-version = "3.20"
+ninja.minimum-version = "1.10"
+cmake.args = [
+    "-DCMAKE_INSTALL_BINDIR=.",
+    "-DCMAKE_INSTALL_LIBDIR=.",
+    "-DLUISA_COMPUTE_ENABLE_LLVM=OFF",
+    "-DLUISA_COMPUTE_ENABLE_ISPC=OFF",
+    "-DLUISA_COMPUTE_BUILD_TESTS=OFF"
+]
+wheel.expand-macos-universal-tags = true
+wheel.install-dir = "luisa"

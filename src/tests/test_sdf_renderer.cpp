@@ -11,7 +11,6 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
-#include <meta/property.h>
 #include <dsl/sugar.h>
 
 using namespace luisa;

@@ -55,6 +55,9 @@ jobs:
           fi
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
           cmake --build build
+      - name: "Install"
+        run: |
+          sudo cmake --install build --prefix dist -v
 
   build-macos:
     strategy:
@@ -82,6 +85,9 @@ jobs:
           fi
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++
           cmake --build build
+      - name: "Install"
+        run: |
+          sudo cmake --install build --prefix dist -v
 
   build-windows:
     strategy:
@@ -112,3 +118,6 @@ jobs:
           )
           cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
           cmake --build build
+      - name: "Install"
+        run: |
+          cmake --install build --prefix dist -v

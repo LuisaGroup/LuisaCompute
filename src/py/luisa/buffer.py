@@ -1,4 +1,4 @@
-import lcapi
+from . import lcapi
 from . import globalvars
 from .globalvars import get_global_device
 from .types import to_lctype, basic_dtypes, dtype_of

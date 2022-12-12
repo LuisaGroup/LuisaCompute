@@ -1,4 +1,4 @@
-import lcapi
+from . import lcapi
 from .types import dtype_of, to_lctype, nameof
 
 class Array:

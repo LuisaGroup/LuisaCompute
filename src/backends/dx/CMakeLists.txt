@@ -102,5 +102,6 @@ if (WIN32)
                 "$<TARGET_FILE_DIR:luisa-compute-core>/")
         add_dependencies(luisa-compute-backend-dx lc-dx-copy-support)
     endif ()
-
+    install(DIRECTORY ${DX_SUPPORT_DIR}
+            DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif ()

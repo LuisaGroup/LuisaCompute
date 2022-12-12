@@ -8,3 +8,5 @@ target_link_libraries(luisa-compute-compile PUBLIC luisa-compute-ast)
 set_target_properties(luisa-compute-compile PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+
+luisa_compute_install(compile SOURCES ${LUISA_COMPUTE_COMPILE_SOURCES})

@@ -1,28 +1,32 @@
 set(LUISA_COMPUTE_CORE_SOURCES
-        logging.cpp
-        logging.h
-        concepts.h
-        hash.h
-        macro.h
-        spin_mutex.h
-        platform.cpp platform.h
-        mathematics.h
         basic_traits.h
         basic_types.cpp basic_types.h
-        dynamic_module.cpp dynamic_module.h
-        intrin.h
+        binary_buffer.h
         clock.h
-        stl.h stl.cpp
-        pool.h
+        concepts.h
         constants.h
-        lru_cache.h
         dirty_range.cpp dirty_range.h
+        dll_export.h
+        dynamic_module.cpp dynamic_module.h
         first_fit.cpp first_fit.h
+        hash.h
+        intrin.h
+        json.h
+        json_fwd.h
+        logging.cpp logging.h
+        lru_cache.h
+        macro.h
+        mathematics.h
         observer.cpp observer.h
+        platform.cpp platform.h
+        pool.h
+        spin_mutex.h
+        stl.cpp stl.h
+        swizzle_2.inl.h
+        swizzle_3.inl.h
+        swizzle_4.inl.h
         thread_pool.cpp thread_pool.h
-        thread_safety.h
-        json_fwd.h json.h
-        binary_buffer.h)
+        thread_safety.h)
 
 find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
@@ -43,3 +47,5 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(luisa-compute-core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
     target_link_options(luisa-compute-core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
 endif ()
+
+luisa_compute_install(core SOURCES ${LUISA_COMPUTE_CORE_SOURCES})

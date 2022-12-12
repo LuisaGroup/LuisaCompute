@@ -1,6 +1,6 @@
-set(LUISA_COMPUTE_UTIL_SOURCES
+set(LUISA_COMPUTE_VSTL_SOURCES
         AllocateType.h
-        BinaryReader.h
+        BinaryReader.cpp BinaryReader.h
         Common.h
         CommonIterator.h
         Compare.h
@@ -11,40 +11,30 @@ set(LUISA_COMPUTE_UTIL_SOURCES
         HashMap.h
         LockFreeArrayQueue.h
         LockFreeStepQueue.h
-        Log.h
-        MD5.h
+        Log.cpp Log.h
+        MD5.cpp MD5.h
         Memory.h
         MetaLib.h
         Pool.h
-        PoolAllocator.h
+        PoolAllocator.cpp PoolAllocator.h
         Serializer.h
         span.h
         spin_mutex.h
-        StackAllocator.h
-        StringUtility.h
+        StackAllocator.cpp StackAllocator.h
         string_hash.h
-        ThreadPool.h
-        ThreadTaskHandle.h
+        StringUtility.cpp StringUtility.h
+        ThreadPool.cpp ThreadPool.h
+        ThreadTaskHandle.cpp ThreadTaskHandle.h
         TreeMap.h
         TreeMapBase.h
         unique_ptr.h
         VAllocator.h
         variant_util.h
         vector.h
-        VGuid.h
-        vstring.h
-        StringUtility.cpp
-        Log.cpp
-        MD5.cpp
-        VGuid.cpp
-        ThreadPool.cpp
-        ThreadTaskHandle.cpp
-        StackAllocator.cpp
-        BinaryReader.cpp
-        PoolAllocator.cpp
-        vstl.cpp)
+        VGuid.cpp VGuid.h
+        vstl.cpp vstring.h)
 
-add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_UTIL_SOURCES})
+add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_VSTL_SOURCES})
 target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core)
 target_compile_definitions(luisa-compute-vstl PRIVATE LC_VSTL_EXPORT_DLL=1)
 set_target_properties(luisa-compute-vstl PROPERTIES
@@ -61,3 +51,5 @@ else ()
     target_include_directories(luisa-compute-vstl PUBLIC "${LibUUID_INCLUDE_DIR}")
     target_link_libraries(luisa-compute-vstl PUBLIC "${LibUUID_LIBRARY}")
 endif ()
+
+luisa_compute_install(vstl SOURCES ${LUISA_COMPUTE_VSTL_SOURCES})
