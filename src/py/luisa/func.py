@@ -8,7 +8,7 @@ import inspect
 import ast
 import astpretty
 
-import lcapi
+from . import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
 from .types import dtype_of, to_lctype, CallableType

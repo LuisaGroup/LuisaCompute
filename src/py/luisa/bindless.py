@@ -1,5 +1,5 @@
-import lcapi
-from lcapi import uint2
+from . import lcapi
+from .lcapi import uint2
 from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *

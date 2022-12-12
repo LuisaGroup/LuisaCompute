@@ -21,8 +21,6 @@ option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
 
-include(GNUInstallDirs)
-
 if (APPLE)
     set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../bin;@loader_path/../lib")
 elseif (UNIX)

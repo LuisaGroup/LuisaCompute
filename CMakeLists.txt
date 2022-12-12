@@ -82,4 +82,9 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_FIND_PACKAGE_SORT_ORDER NATURAL)
 set(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
 
+include(GNUInstallDirs)
+
+install(FILES README.md README_Python_en.md README_Python_zh.md LICENSE
+        TYPE DATA)
+
 add_subdirectory(src)

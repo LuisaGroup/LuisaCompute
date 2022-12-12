@@ -1,5 +1,5 @@
 import ast
-import lcapi
+from . import lcapi
 import sourceinspect
 from .types import dtype_of, to_lctype, nameof
 from collections import OrderedDict

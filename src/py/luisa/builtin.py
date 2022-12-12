@@ -1,4 +1,4 @@
-import lcapi
+from . import lcapi
 from .mathtypes import *
 from .types import uint, to_lctype, coerce_map, dtype_of, BuiltinFuncBuilder, \
     scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of, nameof

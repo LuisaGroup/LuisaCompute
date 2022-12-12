@@ -1,5 +1,5 @@
 import ast
-import lcapi
+from . import lcapi
 import numpy
 from types import SimpleNamespace
 from .astbuilder import build

@@ -1,4 +1,4 @@
-import lcapi
+from . import lcapi
 from . import globalvars
 from .globalvars import get_global_device
 from .types import dtype_of, length_of, element_of, vector

@@ -5,7 +5,7 @@ import sys
 from types import SimpleNamespace, ModuleType
 from .types import length_of, element_of, vector
 from . import globalvars
-import lcapi
+from . import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call, wrap_with_tmp_var
 from .types import dtype_of, to_lctype, CallableType, vector_dtypes, matrix_dtypes
@@ -408,7 +408,7 @@ class ASTVisitor:
         build(node.body)
         build(node.test)
         build(node.orelse)
-        from lcapi import bool2, bool3, bool4
+        from .lcapi import bool2, bool3, bool4
         if node.test.dtype not in {bool, bool2, bool3, bool4}:
             raise TypeError(f"IfExp condition must be bool or bool vector, got {node.test.dtype}")
         if node.body.dtype != node.orelse.dtype:
