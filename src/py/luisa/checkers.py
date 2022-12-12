@@ -1,4 +1,4 @@
-from .types import element_of, length_of, scalar_dtypes
+from .types import element_of, scalar_dtypes, vector_dtypes, matrix_dtypes
 from .builtin_type_check import TC
 from functools import reduce
 
@@ -88,7 +88,14 @@ def inner_type(dtype):
 
 
 def length(dtype):
+    if hasattr(dtype, 'size'):
+        return dtype.size
     if dtype in scalar_dtypes:
         return 1
+    assert dtype in vector_dtypes or dtype in matrix_dtypes
+    if dtype in vector_dtypes:
+        return int(dtype.__name__[-1])
+    elif dtype in matrix_dtypes:
+        return int(dtype.__name__[-1]) ** 2
     else:
-        return length_of(dtype)
+        raise TypeError(f"length_of {dtype} is invalid.")

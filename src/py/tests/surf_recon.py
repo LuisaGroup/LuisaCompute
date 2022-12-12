@@ -23,4 +23,4 @@ def reconstruct(file):
 
 
 if __name__ == "__main__":
-    reconstruct("mpm3d_outputs/127.txt")
+    reconstruct("mpm3d_outputs/00127.txt")

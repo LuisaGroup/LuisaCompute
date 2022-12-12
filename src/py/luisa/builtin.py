@@ -275,7 +275,7 @@ def with_signature(*signatures):
             except KeyError:
                 return src_dtype == tgt_dtype
 
-        def match(func_name, signature, *args) -> (bool, str):
+        def match(func_name, signature, *args) -> tuple[bool, str]:
             signature_printed = ', '.join([nameof(x) for x in signature])
             if len(args) != len(signature):
                 return False, f"{nameof(func_name)} takes {len(signature)} arguments ({signature_printed}), {len(args)} given."
@@ -409,6 +409,27 @@ class BuiltinFunctionCall:
         return BuiltinFunctionCall._invoke_make_vector_n(float, 4, *args, **kwargs)
 
     @staticmethod
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 4]))
+    def invoke_make_float2x2(name, *args, **kwargs):
+        op = getattr(lcapi.CallOp, "MAKE_FLOAT2X2")
+        dtype = lcapi.float2x2
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 9]))
+    def invoke_make_float3x3(name, *args, **kwargs):
+        op = getattr(lcapi.CallOp, "MAKE_FLOAT3X3")
+        dtype = lcapi.float3x3
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
+    @with_checker(multi_param, all_arithmetic, length_eq([1, 16]))
+    def invoke_make_float4x4(name, *args, **kwargs):
+        op = getattr(lcapi.CallOp, "MAKE_FLOAT4X4")
+        dtype = lcapi.float4x4
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+
+    @staticmethod
     @with_checker(multi_param, all_arithmetic, length_eq([1, 2]))
     def invoke_make_uint2(name, *args, **kwargs):
         return BuiltinFunctionCall._invoke_make_vector_n(uint, 2, *args, **kwargs)
@@ -477,8 +498,15 @@ class BuiltinFunctionCall:
     @with_checker(binary, all_arithmetic, broadcast)
     def invoke_copysign(name, *args, **kwargs):
         op = lcapi.CallOp.COPYSIGN
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+        dtype = deduce_broadcast(args[0].dtype, args[1].dtype)
+        exprs = [x.expr for x in args]
+        if args[0].dtype != dtype:
+            transform_op = getattr(lcapi.CallOp, f"make_{dtype.__name__}".upper())
+            exprs[0] = lcapi.builder().call(to_lctype(dtype), transform_op, [exprs[0]])
+        elif args[1].dtype != dtype:
+            transform_op = getattr(lcapi.CallOp, f"make_{dtype.__name__}".upper())
+            exprs[1] = lcapi.builder().call(to_lctype(dtype), transform_op, [exprs[1]])
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, exprs)
 
     @staticmethod
     @with_checker(binary, all_arithmetic, broadcast)
