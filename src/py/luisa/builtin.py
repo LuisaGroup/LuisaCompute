@@ -409,21 +409,21 @@ class BuiltinFunctionCall:
         return BuiltinFunctionCall._invoke_make_vector_n(float, 4, *args, **kwargs)
 
     @staticmethod
-    @with_checker(multi_param, all_arithmetic, length_eq([1, 4]))
+    @with_signature((float,), (float2x2,), (float3x3,), (float4x4,), (float2, float2), (float,) * 4)
     def invoke_make_float2x2(name, *args, **kwargs):
         op = getattr(lcapi.CallOp, "MAKE_FLOAT2X2")
         dtype = lcapi.float2x2
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
-    @with_checker(multi_param, all_arithmetic, length_eq([1, 9]))
+    @with_signature((float,), (float2x2,), (float3x3,), (float4x4,), (float3, float3, float3), (float,) * 9)
     def invoke_make_float3x3(name, *args, **kwargs):
         op = getattr(lcapi.CallOp, "MAKE_FLOAT3X3")
         dtype = lcapi.float3x3
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
     @staticmethod
-    @with_checker(multi_param, all_arithmetic, length_eq([1, 16]))
+    @with_signature((float,), (float2x2,), (float3x3,), (float4x4,), (float4, float4, float4, float4), (float,) * 16)
     def invoke_make_float4x4(name, *args, **kwargs):
         op = getattr(lcapi.CallOp, "MAKE_FLOAT4X4")
         dtype = lcapi.float4x4
