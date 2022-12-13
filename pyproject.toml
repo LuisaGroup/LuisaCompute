@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "luisa"
-version = "0.1.0"
+version = "0.1.1"
 description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
 readme = "README_Python_en.md"
 authors = [
