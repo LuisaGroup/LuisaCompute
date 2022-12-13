@@ -7,7 +7,7 @@ if (WIN32)
             WIN32_LEAN_AND_MEAN=1)
     set(CMAKE_SHARED_MODULE_PREFIX "") # for MinGW/Cygwin etc.
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        add_compile_options(/MP /wd4005)
+        add_compile_options(/wd4005)
     endif ()
 endif ()
 

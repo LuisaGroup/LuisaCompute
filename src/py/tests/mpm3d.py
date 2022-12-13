@@ -188,16 +188,16 @@ def draw_particle():
 
 init(dispatch_size=n_particles)
 points = np.zeros(shape=[n_particles, 4], dtype=np.float32)
-out_folder = "mpm3d_outputs"
-makedirs(out_folder, exist_ok=True)
+# out_folder = "mpm3d_outputs"
+# makedirs(out_folder, exist_ok=True)
 gui = lc.GUI('MPM88', (res, res))
 frame_id = 0
 while gui.running():
     for s in range(steps):
         substep()
-    print(f"Saving Frame #{frame_id}")
+    # print(f"Saving Frame #{frame_id}")
     x.copy_to(points)
-    np.savetxt(f"{out_folder}/{frame_id:05}.txt", points[:, :3])
+    # np.savetxt(f"{out_folder}/{frame_id:05}.txt", points[:, :3])
     frame_id += 1
     clear_display(dispatch_size=(res, res))
     draw_particle(dispatch_size=n_particles)
