@@ -395,28 +395,24 @@ luisa.log_level_info()
 accum_image = luisa.Texture2D.zeros(*resolution, 4, float)
 ldr_image = luisa.Texture2D.empty(*resolution, 4, float)
 
+# t0 = perf_counter()
+# for i in range(1024):
+#     path_tracer(accum_image, accel, make_int2(*resolution), i, dispatch_size=resolution)
+# luisa.synchronize()
+# t1 = perf_counter()
+#
+# hdr2ldr_kernel(accum_image, ldr_image, 1 / 1025, dispatch_size=[*resolution, 1])
+# # save image when window is closed
+# Image.fromarray(ldr_image.to('byte').numpy()).save(outfile + str(max_depth) + "_" + "{:.2f}".format(t1 - t0) + ".png")
+# print("1024 spp time:", t1 - t0)
+
 # compute & display the progressively converging image in a window
-
-path_tracer(accum_image, accel, make_int2(*resolution), 1234567, dispatch_size=resolution)
-luisa.synchronize()
-
-t0 = perf_counter()
-for i in range(1024):
-    path_tracer(accum_image, accel, make_int2(*resolution), i, dispatch_size=resolution)
-luisa.synchronize()
-t1 = perf_counter()
-
-hdr2ldr_kernel(accum_image, ldr_image, 1 / 1025, dispatch_size=[*resolution, 1])
-# save image when window is closed
-Image.fromarray(ldr_image.to('byte').numpy()).save(outfile + str(max_depth) + "_" + "{:.2f}".format(t1 - t0) + ".png")
-print("1024 spp time:", t1 - t0)
-
-# gui = luisa.GUI("Cornell Box", resolution=resolution)
-# frame_id = 0
-# while gui.running():
-#     path_tracer(accum_image, accel, make_int2(*resolution), frame_id, dispatch_size=resolution)
-#     frame_id += 1
-#     if frame_id % 1 == 0:
-#         hdr2ldr_kernel(accum_image, ldr_image, 1/frame_id, dispatch_size=[*resolution, 1])
-#         gui.set_image(ldr_image)
-#         gui.show()
+gui = luisa.GUI("Cornell Box", resolution=resolution)
+frame_id = 0
+while gui.running():
+    path_tracer(accum_image, accel, make_int2(*resolution), frame_id, dispatch_size=resolution)
+    frame_id += 1
+    if frame_id % 1 == 0:
+        hdr2ldr_kernel(accum_image, ldr_image, 1 / frame_id, dispatch_size=[*resolution, 1])
+        gui.set_image(ldr_image)
+        gui.show()
