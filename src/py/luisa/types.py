@@ -1,6 +1,6 @@
-import lcapi
-from lcapi import int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4
-from lcapi import float2x2, float3x3, float4x4
+from . import lcapi
+from .lcapi import int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4
+from .lcapi import float2x2, float3x3, float4x4
 
 class uint:
     pass

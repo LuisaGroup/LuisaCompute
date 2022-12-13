@@ -13,30 +13,29 @@ if len(argv) > 1:
 else:
     luisa.init()
 luisa.log_level_verbose()
-from water import models, resolution, max_depth, rr_depth, \
-                   const_env_light, camera_pos, camera_dir, camera_up, camera_fov, __name__ as outfile
+from spaceship import models, resolution, max_depth, rr_depth, \
+    const_env_light, camera_pos, camera_dir, camera_up, camera_fov, __name__ as outfile
+
 # max_depth, rr_depth = 8, 2
 max_depth, rr_depth = 16, 5
 # models: (filename, mat, [emission], [transform])
 from parseobj import parseobj
 
-if camera_fov > pi: # likely to be in degrees; convert to radian
+if camera_fov > pi:  # likely to be in degrees; convert to radian
     camera_fov *= pi / 180
 camera_right = luisa.lcapi.normalize(luisa.lcapi.cross(camera_dir, camera_up))
 camera_up = luisa.lcapi.normalize(luisa.lcapi.cross(camera_right, camera_dir))
 
-
-
-
 # load scene
 
-meshes = [] # each mesh
-heapindex = {} # idx -> buffer
-emission = [] # emission of each mesh
-light_meshid = [] # list of emissive meshes
+meshes = []  # each mesh
+heapindex = {}  # idx -> buffer
+emission = []  # emission of each mesh
+light_meshid = []  # list of emissive meshes
 materials = []
-tricount = [] # number of triangles in each mesh
+tricount = []  # number of triangles in each mesh
 has_texture_list = []
+
 
 def flatten_list(a):
     s = []
@@ -44,13 +43,20 @@ def flatten_list(a):
         s += x
     return s
 
+
 VertInfo = luisa.ArrayType(dtype=float, size=8)
+
+
 @luisa.func
 def vert_v(info: VertInfo):
     return float3(info[0], info[1], info[2])
+
+
 @luisa.func
 def vert_vt(info: VertInfo):
     return float2(info[3], info[4])
+
+
 @luisa.func
 def vert_vn(info: VertInfo):
     return float3(info[5], info[6], info[7])
@@ -65,36 +71,36 @@ for idx, model in enumerate(models):
             material = material[0]
         elif len(material) == 2:
             texture, material = material
-            heapindex[idx+4096] = texture
+            heapindex[idx + 4096] = texture
             has_texture = 1
             material.base_color = float3(0.5)
     has_texture_list.append(has_texture)
     materials.append(material)
     # load mesh
     print("loading", filename)
-    v,vt,vn,f = parseobj(open(filename))
+    v, vt, vn, f = parseobj(open(filename))
     assert len(v) == len(vn) > 0
     if len(vt) == 0:
-        vt = [[0,0]]*len(v)
+        vt = [[0, 0]] * len(v)
     else:
-        assert len(vt)==len(v)
+        assert len(vt) == len(v)
     # add mesh
     vertex_buffer = luisa.buffer([VertInfo([*v[i], *vt[i], *vn[i]]) for i in range(len(v))])
     tricount.append(len(f))
     triangle_buffer = luisa.buffer(flatten_list(f))
     mesh = luisa.Mesh(vertex_buffer, triangle_buffer)
     meshes.append(mesh)
-    heapindex[idx*2+1] = vertex_buffer
-    heapindex[idx*2+0] = triangle_buffer
+    heapindex[idx * 2 + 1] = vertex_buffer
+    heapindex[idx * 2 + 0] = triangle_buffer
     # emission
-    if len(model)>2 and model[2] is not None and model[2] != float3(0):
+    if len(model) > 2 and model[2] is not None and model[2] != float3(0):
         assert type(model[2]) is float3
         emission.append(model[2])
         light_meshid.append(idx)
     else:
         emission.append(float3(0))
     # transform
-    if len(model)>3:
+    if len(model) > 3:
         transform = model[3]
         assert type(transform) is float4x4
         meshes[-1] = (mesh, transform)
@@ -110,13 +116,13 @@ light_array = luisa.array(light_meshid)
 light_count = len(light_meshid)
 
 
-
 @luisa.func
 def sample_uniform_triangle(u: float2):
     uv = make_float2(0.5 * u.x, -0.5 * u.x + u.y) \
-         if u.x < u.y else \
-         make_float2(-0.5 * u.y + u.x, 0.5 * u.y)
+        if u.x < u.y else \
+        make_float2(-0.5 * u.y + u.x, 0.5 * u.y)
     return make_float3(uv, 1.0 - uv.x - uv.y)
+
 
 @luisa.func
 def sample_uniform_sphere(u: float2):
@@ -125,7 +131,9 @@ def sample_uniform_sphere(u: float2):
     phi = 2.0 * pi * u.y
     return make_float3(r * cos(phi), r * sin(phi), z)
 
+
 env_prob = 0.3
+
 
 @luisa.func
 def mesh_light_sampled_pdf(p, origin, inst, p0, p1, p2):
@@ -140,9 +148,11 @@ def mesh_light_sampled_pdf(p, origin, inst, p0, p1, p2):
     pdf = (1.0 - env_prob) * sqr_dist / (n * n1 * area * abs(cos_light))
     return pdf
 
+
 @luisa.func
 def env_light_sampled_pdf(wi):
     return env_prob / (4 * pi)
+
 
 # returns: (wi, dist, pdf, eval)
 @luisa.func
@@ -156,9 +166,9 @@ def sample_light(origin, sampler):
     else:
         u_remapped = (u - env_prob) / (1.0 - env_prob)
         n = light_count
-        inst = light_array[clamp(int(u_remapped * n), 0, n-1)]
+        inst = light_array[clamp(int(u_remapped * n), 0, n - 1)]
         n1 = tricount_buffer.read(inst)
-        prim = clamp(int(sampler.next() * n1), 0, n1-1)
+        prim = clamp(int(sampler.next() * n1), 0, n1 - 1)
         i0 = heap.buffer_read(int, inst * 2, prim * 3 + 0)
         i1 = heap.buffer_read(int, inst * 2, prim * 3 + 1)
         i2 = heap.buffer_read(int, inst * 2, prim * 3 + 2)
@@ -171,7 +181,7 @@ def sample_light(origin, sampler):
         p1 = (transform * float4(p1, 1.0)).xyz
         p2 = (transform * float4(p2, 1.0)).xyz
         abc = sample_uniform_triangle(sampler.next2f())
-        p = abc.x * p0 + abc.y * p1 + abc.z * p2 # point on light
+        p = abc.x * p0 + abc.y * p1 + abc.z * p2  # point on light
         emission = emission_buffer.read(inst)
         # calculating pdf (avoid calling mesh_light_sampled_pdf to save some redundant computation)
         wi_light = normalize(p - origin)
@@ -182,21 +192,26 @@ def sample_light(origin, sampler):
         sqr_dist = length_squared(p - origin)
         area = length(c) / 2
         pdf = (1.0 - env_prob) * sqr_dist / (n * n1 * area * cos_light)
-        return struct(wi=wi_light, dist=0.9999*sqrt(sqr_dist), pdf=pdf, eval=emission)
+        return struct(wi=wi_light, dist=0.9999 * sqrt(sqr_dist), pdf=pdf, eval=emission)
 
 
 Onb = luisa.StructType(tangent=float3, binormal=float3, normal=float3)
+
+
 @luisa.func
 def to_world(self, v: float3):
     return v.x * self.tangent + v.y * self.binormal + v.z * self.normal
+
+
 Onb.add_method(to_world, "to_world")
+
 
 @luisa.func
 def make_onb(normal: float3):
     binormal = normalize(select(
-            make_float3(0.0, -normal.z, normal.y),
-            make_float3(-normal.y, normal.x, 0.0),
-            abs(normal.x) > abs(normal.z)))
+        make_float3(0.0, -normal.z, normal.y),
+        make_float3(-normal.y, normal.x, 0.0),
+        abs(normal.x) > abs(normal.z)))
     tangent = normalize(cross(binormal, normal))
     result = Onb()
     result.tangent = tangent
@@ -209,10 +224,10 @@ def make_onb(normal: float3):
 def generate_camera_ray(sampler, resolution):
     coord = dispatch_id().xy
     frame_size = float(min(resolution.x, resolution.y))
-    pixel = ((make_float2(coord) + sampler.next2f()) * 2.0 - float2(resolution)) / frame_size # remapped to [-1,1] in shorter axis
+    pixel = ((make_float2(coord) + sampler.next2f()) * 2.0 - float2(resolution)) / frame_size  # remapped to [-1,1] in shorter axis
     d = make_float3(pixel * make_float2(1.0, -1.0) * tan(0.5 * camera_fov), 1.0)
     direction = normalize(camera_right * d.x + camera_up * d.y + camera_dir * d.z)
-    return make_ray(camera_pos, direction, 0.0, 1e30) # TODO
+    return make_ray(camera_pos, direction, 0.0, 1e30)  # TODO
 
 
 @luisa.func
@@ -226,11 +241,12 @@ def cosine_sample_hemisphere(u: float2):
 def balanced_heuristic(pdf_a, pdf_b):
     return pdf_a / max(pdf_a + pdf_b, 1e-4)
 
+
 @luisa.func
 def srgb_to_linear(x: float3):
     return select(pow((x + 0.055) * (1.0 / 1.055), 2.4),
-               x * (1. / 12.92),
-                x <= 0.04045)
+                  x * (1. / 12.92),
+                  x <= 0.04045)
 
 
 @luisa.func
@@ -309,7 +325,7 @@ def path_tracer(accum_image, accel, resolution, frame_index):
             break
 
         # sample light
-        light = sample_light(p, sampler) # (wi, dist, pdf, eval)
+        light = sample_light(p, sampler)  # (wi, dist, pdf, eval)
         shadow_ray = make_ray(p, light.wi, 1e-4, light.dist)
         occluded = accel.trace_any(shadow_ray)
         cos_wi_light = dot(light.wi, n)
@@ -358,13 +374,13 @@ def path_tracer(accum_image, accel, resolution, frame_index):
     accum_image.write(coord, make_float4(accum + clamp(radiance, 0.0, 30.0), 1.0))
 
 
-
 @luisa.func
 def linear_to_srgb(x: float3):
     return clamp(select(1.055 * x ** (1.0 / 2.4) - 0.055,
-                12.92 * x,
-                x <= 0.00031308),
-                0.0, 1.0)
+                        12.92 * x,
+                        x <= 0.00031308),
+                 0.0, 1.0)
+
 
 @luisa.func
 def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
@@ -374,35 +390,29 @@ def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
     ldr_image.write(coord, make_float4(ldr, 1.0))
 
 
-
 luisa.log_level_info()
 
 accum_image = luisa.Texture2D.zeros(*resolution, 4, float)
 ldr_image = luisa.Texture2D.empty(*resolution, 4, float)
 
+# t0 = perf_counter()
+# for i in range(1024):
+#     path_tracer(accum_image, accel, make_int2(*resolution), i, dispatch_size=resolution)
+# luisa.synchronize()
+# t1 = perf_counter()
+#
+# hdr2ldr_kernel(accum_image, ldr_image, 1 / 1025, dispatch_size=[*resolution, 1])
+# # save image when window is closed
+# Image.fromarray(ldr_image.to('byte').numpy()).save(outfile + str(max_depth) + "_" + "{:.2f}".format(t1 - t0) + ".png")
+# print("1024 spp time:", t1 - t0)
+
 # compute & display the progressively converging image in a window
-
-path_tracer(accum_image, accel, make_int2(*resolution), 1234567, dispatch_size=resolution)
-luisa.synchronize()
-
-t0 = perf_counter()
-for i in range(1024):
-    path_tracer(accum_image, accel, make_int2(*resolution), i, dispatch_size=resolution)
-luisa.synchronize()
-t1 = perf_counter()
-
-hdr2ldr_kernel(accum_image, ldr_image, 1/1025, dispatch_size=[*resolution, 1])
-# save image when window is closed
-Image.fromarray(ldr_image.to('byte').numpy()).save(outfile + str(max_depth) + "_" + "{:.2f}".format(t1 - t0) + ".png")
-print("1024 spp time:", t1-t0)
-
-
-# gui = luisa.GUI("Cornell Box", resolution=resolution)
-# frame_id = 0
-# while gui.running():
-#     path_tracer(accum_image, accel, make_int2(*resolution), frame_id, dispatch_size=resolution)
-#     frame_id += 1
-#     if frame_id % 1 == 0:
-#         hdr2ldr_kernel(accum_image, ldr_image, 1/frame_id, dispatch_size=[*resolution, 1])
-#         gui.set_image(ldr_image)
-#         gui.show()
+gui = luisa.GUI("Cornell Box", resolution=resolution)
+frame_id = 0
+while gui.running():
+    path_tracer(accum_image, accel, make_int2(*resolution), frame_id, dispatch_size=resolution)
+    frame_id += 1
+    if frame_id % 1 == 0:
+        hdr2ldr_kernel(accum_image, ldr_image, 1 / frame_id, dispatch_size=[*resolution, 1])
+        gui.set_image(ldr_image)
+        gui.show()

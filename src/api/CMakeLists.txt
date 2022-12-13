@@ -21,6 +21,8 @@ target_link_libraries(luisa-compute-api INTERFACE
         )
 set_target_properties(luisa-compute-api PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+
+luisa_compute_install(api SOURCES ${LUISA_COMPUTE_API_SOURCES})
        
 # find_package(Python3 COMPONENTS Interpreter)
 # if (Python3_Interpreter_FOUND AND Python3_VERSION VERSION_GREATER_EQUAL 3.6)

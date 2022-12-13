@@ -1,107 +1,46 @@
-add_executable(test_type test_type.cpp)
-target_link_libraries(test_type PRIVATE luisa::compute)
+function(luisa_compute_add_executable name)
+    add_executable(${name} ${ARGN})
+    target_link_libraries(${name} PRIVATE luisa::compute)
+    install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endfunction()
 
-add_executable(test_ast test_ast.cpp)
-target_link_libraries(test_ast PRIVATE luisa::compute)
 
-add_executable(test_ast2ir test_ast2ir.cpp)
-target_link_libraries(test_ast2ir PRIVATE luisa::compute)
-
-add_executable(test_dsl test_dsl.cpp)
-target_link_libraries(test_dsl PRIVATE luisa::compute)
-
-add_executable(test_dsl_multithread test_dsl_multithread.cpp)
-target_link_libraries(test_dsl_multithread PRIVATE luisa::compute)
-
-add_executable(test_dsl_sugar test_dsl_sugar.cpp)
-target_link_libraries(test_dsl_sugar PRIVATE luisa::compute)
-
-add_executable(test_runtime test_runtime.cpp)
-target_link_libraries(test_runtime PRIVATE luisa::compute)
-
-add_executable(test_printer test_printer.cpp)
-target_link_libraries(test_printer PRIVATE luisa::compute)
-
-add_executable(test_simple test_simple.cpp)
-target_link_libraries(test_simple PRIVATE luisa::compute)
-
-add_executable(test_texture_io test_texture_io.cpp)
-target_link_libraries(test_texture_io PRIVATE luisa::compute)
-
-add_executable(test_texture test_texture.cpp)
-target_link_libraries(test_texture PRIVATE luisa::compute)
-
-add_executable(test_builtin test_builtin.cpp)
-target_link_libraries(test_builtin PRIVATE luisa::compute)
-
-add_executable(test_atomic test_atomic.cpp)
-target_link_libraries(test_atomic PRIVATE luisa::compute)
-
-add_executable(test_bindless test_bindless.cpp)
-target_link_libraries(test_bindless PRIVATE luisa::compute)
-
-add_executable(test_sampler test_sampler.cpp)
-target_link_libraries(test_sampler PRIVATE luisa::compute)
-
-add_executable(test_bindless_buffer test_bindless_buffer.cpp)
-target_link_libraries(test_bindless_buffer PRIVATE luisa::compute)
-
-add_executable(test_rtx test_rtx.cpp)
-target_link_libraries(test_rtx PRIVATE luisa::compute)
-
-add_executable(test_ispc_101 test_ispc_101.cpp)
-target_link_libraries(test_ispc_101 PRIVATE luisa::compute)
-
-add_executable(test_command_reorder test_command_reorder.cpp)
-target_link_libraries(test_command_reorder PRIVATE luisa::compute)
-
-add_executable(test_thread_pool test_thread_pool.cpp)
-target_link_libraries(test_thread_pool PRIVATE luisa::compute)
-
-add_executable(test_sdf_renderer test_sdf_renderer.cpp)
-target_link_libraries(test_sdf_renderer PRIVATE luisa::compute)
+luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)
+luisa_compute_add_executable(test_type test_type.cpp)
+luisa_compute_add_executable(test_ast test_ast.cpp)
+luisa_compute_add_executable(test_dsl test_dsl.cpp)
+luisa_compute_add_executable(test_dsl_multithread test_dsl_multithread.cpp)
+luisa_compute_add_executable(test_dsl_sugar test_dsl_sugar.cpp)
+luisa_compute_add_executable(test_runtime test_runtime.cpp)
+luisa_compute_add_executable(test_printer test_printer.cpp)
+luisa_compute_add_executable(test_simple test_simple.cpp)
+luisa_compute_add_executable(test_texture_io test_texture_io.cpp)
+luisa_compute_add_executable(test_texture test_texture.cpp)
+luisa_compute_add_executable(test_builtin test_builtin.cpp)
+luisa_compute_add_executable(test_atomic test_atomic.cpp)
+luisa_compute_add_executable(test_bindless test_bindless.cpp)
+luisa_compute_add_executable(test_sampler test_sampler.cpp)
+luisa_compute_add_executable(test_bindless_buffer test_bindless_buffer.cpp)
+luisa_compute_add_executable(test_rtx test_rtx.cpp)
+luisa_compute_add_executable(test_ispc_101 test_ispc_101.cpp)
+luisa_compute_add_executable(test_command_reorder test_command_reorder.cpp)
+luisa_compute_add_executable(test_thread_pool test_thread_pool.cpp)
+luisa_compute_add_executable(test_sdf_renderer test_sdf_renderer.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
-
-    add_executable(test_game_of_life test_game_of_life.cpp)
-    target_link_libraries(test_game_of_life PRIVATE luisa::compute ${OpenCV_LIBS})
-
-    add_executable(test_photon_mapping test_photon_mapping.cpp)
-    target_link_libraries(test_photon_mapping PRIVATE luisa::compute)
-
-    add_executable(test_shader_toy test_shader_toy.cpp)
-    target_link_libraries(test_shader_toy PRIVATE luisa::compute)
-
-    add_executable(test_path_tracing test_path_tracing.cpp)
-    target_link_libraries(test_path_tracing PRIVATE luisa::compute)
-
-    add_executable(test_path_tracing_buffer test_path_tracing_buffer.cpp)
-    target_link_libraries(test_path_tracing_buffer PRIVATE luisa::compute)
-
-    add_executable(test_normal_encoding test_normal_encoding.cpp)
-    target_link_libraries(test_normal_encoding PRIVATE luisa::compute)
-
-    add_executable(test_mpm88 test_mpm88.cpp)
-    target_link_libraries(test_mpm88 PRIVATE luisa::compute)
-
-    add_executable(test_mpm3d test_mpm3d.cpp)
-    target_link_libraries(test_mpm3d PRIVATE luisa::compute)
-
-    add_executable(test_radiative_bp test_radiative_bp.cpp)
-    target_link_libraries(test_radiative_bp PRIVATE luisa::compute)
-
-    add_executable(test_image_byte4 test_image_byte4.cpp)
-    target_link_libraries(test_image_byte4 PRIVATE luisa::compute)
-
+    luisa_compute_add_executable(test_game_of_life test_game_of_life.cpp)
+    luisa_compute_add_executable(test_photon_mapping test_photon_mapping.cpp)
+    luisa_compute_add_executable(test_shader_toy test_shader_toy.cpp)
+    luisa_compute_add_executable(test_path_tracing test_path_tracing.cpp)
+    luisa_compute_add_executable(test_path_tracing_buffer test_path_tracing_buffer.cpp)
+    luisa_compute_add_executable(test_normal_encoding test_normal_encoding.cpp)
+    luisa_compute_add_executable(test_mpm88 test_mpm88.cpp)
+    luisa_compute_add_executable(test_mpm3d test_mpm3d.cpp)
+    luisa_compute_add_executable(test_radiative_bp test_radiative_bp.cpp)
+    luisa_compute_add_executable(test_image_byte4 test_image_byte4.cpp)
     if (APPLE)
-        add_executable(test_shader_toy_present test_shader_toy_present.cpp)
-        target_link_libraries(test_shader_toy_present PRIVATE luisa::compute)
-
-        add_executable(test_shader_visuals_present test_shader_visuals_present.cpp)
-        target_link_libraries(test_shader_visuals_present PRIVATE luisa::compute)
-
-        add_executable(test_path_tracing_present test_path_tracing_present.cpp)
-        target_link_libraries(test_path_tracing_present PRIVATE luisa::compute)
+        luisa_compute_add_executable(test_shader_toy_present test_shader_toy_present.cpp)
+        luisa_compute_add_executable(test_shader_visuals_present test_shader_visuals_present.cpp)
+        luisa_compute_add_executable(test_path_tracing_present test_path_tracing_present.cpp)
     endif ()
-
 endif ()

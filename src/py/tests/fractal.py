@@ -2,6 +2,7 @@
 
 from sys import argv
 import luisa
+from time import time
 from luisa.mathtypes import *
 
 if len(argv) > 1:
@@ -12,9 +13,11 @@ else:
 n = 320
 pixels = luisa.Texture2D.empty(n * 2, n, 4, dtype=float)
 
+
 @luisa.func
 def complex_sqr(z):
-    return float2(z[0]**2 - z[1]**2, z[1] * z[0] * 2)
+    return float2(z[0] ** 2 - z[1] ** 2, z[1] * z[0] * 2)
+
 
 @luisa.func
 def paint(t):
@@ -28,11 +31,15 @@ def paint(t):
     color = float3(1 - iterations * 0.02)
     pixels.write(coord, float4(color, 1))
 
+
 gui = luisa.GUI("Julia Set", resolution=(n * 2, n))
 
-i = 0
+frames = 0
+t0 = time()
 while gui.running():
-    paint(i * 0.03, dispatch_size=(n * 2, n, 1))
+    frames += 1
+    dt = time() - t0
+    print(f"frames = {frames}, dt = {dt:.2f}s")
+    paint(dt, dispatch_size=(n * 2, n, 1))
     gui.set_image(pixels)
     gui.show()
-    i = i + 1

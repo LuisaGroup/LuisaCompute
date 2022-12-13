@@ -14,7 +14,7 @@ from sys import argv
 if len(argv) > 1:
     luisa.init(argv[1])
 else:
-    luisa.init("cuda")
+    luisa.init()
 
 @luisa.func
 def palette(d: float):
