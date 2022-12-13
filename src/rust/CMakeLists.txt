@@ -14,6 +14,9 @@ function(luisa_compute_install_rust target)
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
             PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY luisa_compute_${target}
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LuisaCompute/rust
+            FILES_MATCHING REGEX ".*\\.(h|hpp)$")
 endfunction()
 
 luisa_compute_install_rust(ir)

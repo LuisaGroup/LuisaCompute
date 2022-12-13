@@ -14,7 +14,7 @@ target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-runtime
         luisa-compute-compile
         luisa-compute-backends
-        luisa-compute-ir-api
+        luisa-compute-ir
         )
 target_link_libraries(luisa-compute-api INTERFACE
         luisa-compute-rust-meta
