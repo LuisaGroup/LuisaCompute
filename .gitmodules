@@ -22,4 +22,7 @@
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/pybind/pybind11
-	branch = stable
+	branch = master
+[submodule "src/ext/robin-map"]
+	path = src/ext/robin-map
+	url = https://github.com/LuisaGroup/robin-map.git
