@@ -50,19 +50,6 @@ set_target_properties(xxhash PROPERTIES
 target_link_libraries(luisa-compute-ext PUBLIC xxhash)
 luisa_compute_install_extension(xxhash INCLUDE xxHash)
 
-add_library(asio INTERFACE dummy.cpp)
-target_include_directories(asio INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/asio/asio/include>)
-target_compile_definitions(asio INTERFACE
-        ASIO_STANDALONE=1
-        ASIO_HAS_STD_INVOKE_RESULT=1
-        ASIO_NO_EXCEPTIONS=1)
-if (WIN32)
-    target_compile_definitions(asio INTERFACE _WIN32_WINNT=0x0A00)
-    target_link_libraries(asio INTERFACE ws2_32 wsock32 bcrypt)
-endif ()
-target_link_libraries(luisa-compute-ext PUBLIC asio)
-luisa_compute_install_extension(asio INCLUDE asio/asio/include/asio)
-
 add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext PUBLIC stb)
 luisa_compute_install_extension(stb INCLUDE stb)
@@ -170,44 +157,8 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
     install(FILES "$<TARGET_FILE:embree>" "$<TARGET_LINKER_FILE:embree>" TYPE LIB)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_VULKAN)
-    find_package(Vulkan)
-    if (NOT Vulkan_FOUND)
-        message(WARNING "Vulkan is not found. Vulkan backend will be disabled.")
-        set(LUISA_COMPUTE_ENABLE_VULKAN OFF CACHE BOOL "" FORCE)
-    else ()
-        set(ENABLE_PCH OFF CACHE BOOL "" FORCE) # CMake generates -Xarch_* flags that leads to build errors on macOS
-        set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
-        set(SPIRV_HEADERS_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
-        set(SPIRV_HEADERS_SKIP_INSTALL ON CACHE BOOL "" FORCE)
-        set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
-        add_subdirectory(SPIRV-Headers)
-        add_subdirectory(SPIRV-Tools)
-        add_subdirectory(glslang)
-        set(SHADERC_SKIP_TESTS ON CACHE BOOL "" FORCE)
-        set(SHADERC_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
-        set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
-        set(SHADERC_ENABLE_SHARED_CRT ON CACHE BOOL "" FORCE)
-        add_subdirectory(shaderc)
-        set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
-        set_target_properties(glslc PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on Windows
-        target_link_libraries(luisa-compute-ext PUBLIC Vulkan::Vulkan SPIRV SPIRV-Tools-shared)
-        if (BUILD_SHARED_LIBS)
-            target_link_libraries(luisa-compute-ext PUBLIC shaderc_shared)
-        else ()
-            target_link_libraries(luisa-compute-ext PUBLIC shaderc)
-        endif ()
-    endif ()
-endif ()
-
 if (WIN32 AND NOT MINGW AND NOT MSYS)
     set(BUILD_SHARED_LIBS OFF)
 endif ()
-
-set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
-set(ABSL_ENABLE_INSTALL ON CACHE BOOL "" FORCE)
-set(CMAKE_INSTALL_INCLUDEDIR include/LuisaCompute/ext)
-add_subdirectory(abseil-cpp)
-target_link_libraries(luisa-compute-ext PUBLIC absl::base absl::flat_hash_map)
 
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
