@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
            << change_color(device_image.view(0)).dispatch(512u, 512u)
            << device_image.copy_to(download_image.data())
            << synchronize();
-        stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
+    stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);
 
     auto volume = device.create_volume<float>(PixelStorage::FLOAT4, 64u, 64u, 64u);
 }
