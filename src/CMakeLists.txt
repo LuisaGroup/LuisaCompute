@@ -11,22 +11,6 @@ if (WIN32)
     endif ()
 endif ()
 
-option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
-option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
-option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
-option(LUISA_COMPUTE_ENABLE_ISPC "Enable ISPC backend" OFF)
-option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
-option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
-
-option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
-option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
-
-if (APPLE)
-    set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../bin;@loader_path/../lib")
-elseif (UNIX)
-    set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../bin;$ORIGIN/../lib")
-endif ()
-
 function(luisa_compute_install target)
     cmake_parse_arguments(INSTALL "" "" "SOURCES" ${ARGN})
     set(INSTALL_HEADERS ${INSTALL_SOURCES})

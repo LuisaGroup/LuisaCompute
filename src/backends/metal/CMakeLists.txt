@@ -2,13 +2,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
     message(STATUS "Build with Metal backend")
 
-    enable_language(OBJC)
-    enable_language(OBJCXX)
-    set(CMAKE_OBJC_STANDARD 11)
-    set(CMAKE_OBJCXX_STANDARD 20)
-    set(CMAKE_OBJC_STANDARD_REQUIRED ON)
-    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
-
     set(METAL_SOURCES
             metal_device.mm metal_device.h
             metal_command_encoder.mm metal_command_encoder.h
