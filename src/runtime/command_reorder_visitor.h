@@ -41,7 +41,8 @@ public:
     };
     struct RangeHash {
         uint64_t operator()(Range const &r) const {
-            return absl::container_internal::hash_default_hash<int64_t>()(r.min ^ r.max);
+            auto x = std::make_pair(r.min, r.max);
+            return luisa::detail::murmur2_hash64(&x, sizeof(x), Hash64::default_seed);
         }
     };
     struct ResourceView {

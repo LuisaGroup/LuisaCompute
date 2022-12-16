@@ -87,6 +87,10 @@ target_link_libraries(luisa-compute-ext PUBLIC EASTL)
 luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
 
+add_subdirectory(robin-map)
+target_link_libraries(luisa-compute-ext PUBLIC robin_map)
+luisa_compute_install_extension(robin_map INCLUDE robin-map/include)
+
 if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(pybind11)
 endif ()
@@ -155,10 +159,6 @@ if (LUISA_COMPUTE_ENABLE_ISPC OR LUISA_COMPUTE_ENABLE_LLVM)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_LINKER_FILE:embree>" "$<TARGET_FILE_DIR:luisa-compute-ext>")
     install(FILES "$<TARGET_FILE:embree>" "$<TARGET_LINKER_FILE:embree>" TYPE LIB)
-endif ()
-
-if (WIN32 AND NOT MINGW AND NOT MSYS)
-    set(BUILD_SHARED_LIBS OFF)
 endif ()
 
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)

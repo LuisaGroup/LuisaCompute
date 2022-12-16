@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstdlib>
 #include <cmath>
 #include <memory>
@@ -14,6 +15,8 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <EASTL/bit.h>
+#include <EASTL/map.h>
+#include <EASTL/set.h>
 #include <EASTL/span.h>
 #include <EASTL/list.h>
 #include <EASTL/slist.h>
@@ -40,12 +43,8 @@
 #include <EASTL/bonus/lru_cache.h>
 #include <EASTL/bonus/ring_buffer.h>
 
-#include <absl/container/flat_hash_map.h>
-#include <absl/container/flat_hash_set.h>
-#include <absl/container/btree_map.h>
-#include <absl/container/btree_set.h>
-#include <absl/container/node_hash_map.h>
-#include <absl/container/node_hash_set.h>
+#include <tsl/robin_map.h>
+#include <tsl/robin_set.h>
 
 #include <core/dll_export.h>
 #include <core/hash.h>
@@ -150,7 +149,11 @@ using eastl::fixed_map;
 using eastl::fixed_multimap;
 using eastl::fixed_multiset;
 using eastl::fixed_set;
+using eastl::map;
+using eastl::multimap;
+using eastl::multiset;
 using eastl::ring_buffer;
+using eastl::set;
 
 template<typename T, size_t n, bool allow_overflow = true>
 using fixed_vector = eastl::fixed_vector<T, n, allow_overflow, eastl::allocator>;
@@ -185,43 +188,24 @@ struct equal_to<void> {
     }
 };
 
-#define LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
+#define LUISA_COMPUTE_USE_ROBIN_MAP
 
-#ifdef LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
+#ifdef LUISA_COMPUTE_USE_ROBIN_MAP
 template<typename K, typename V,
          typename Hash = hash<K>,
          typename Eq = equal_to<>,
          typename Allocator = luisa::allocator<std::pair<const K, V>>>
-using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
+using unordered_map = tsl::robin_map<K, V, Hash, Eq, Allocator, std::vector>;
+
 template<typename K,
          typename Hash = hash<K>,
          typename Eq = equal_to<>,
          typename Allocator = luisa::allocator<const K>>
-using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
+using unordered_set = tsl::robin_set<K, Hash, Eq, Allocator, std::vector>;
 #else
 using std::unordered_map;
 using std::unordered_set;
 #endif
-
-template<typename K, typename V,
-         typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<std::pair<const K, V>>>
-using map = absl::btree_map<K, V, Compare, Alloc>;
-
-template<typename K, typename V,
-         typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<std::pair<const K, V>>>
-using multimap = absl::btree_multimap<K, V, Compare, Alloc>;
-
-template<typename K,
-         typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<K>>
-using set = absl::btree_set<K, Compare, Alloc>;
-
-template<typename K,
-         typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<K>>
-using multiset = absl::btree_multiset<K, Compare, Alloc>;
 
 using eastl::bit_cast;
 using eastl::get;
