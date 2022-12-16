@@ -34,7 +34,6 @@
 #include <ast/expression.h>
 #include <ast/function.h>
 #include <ast/function_builder.h>
-#include <ast/function_serializer.h>
 #include <ast/interface.h>
 #include <ast/op.h>
 #include <ast/statement.h>
