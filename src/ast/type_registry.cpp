@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/12/31.
 //
 
+#include <bit>
 #include <charconv>
 
 #include <core/logging.h>

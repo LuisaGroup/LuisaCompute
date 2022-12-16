@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <algorithm>
