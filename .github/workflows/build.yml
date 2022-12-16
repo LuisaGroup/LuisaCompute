@@ -58,6 +58,9 @@ jobs:
       - name: "Install"
         run: |
           sudo cmake --install build --prefix dist -v
+      - name: "Test LLVM"
+        run: |
+          ./build/bin/test_texture_io llvm
 
   build-macos:
     strategy:
@@ -88,6 +91,9 @@ jobs:
       - name: "Install"
         run: |
           sudo cmake --install build --prefix dist -v
+      - name: "Test LLVM"
+        run: |
+          ./build/bin/test_texture_io llvm
 
   build-windows:
     strategy:
