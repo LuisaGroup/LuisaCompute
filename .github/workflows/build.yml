@@ -60,7 +60,7 @@ jobs:
           sudo cmake --install build --prefix dist -v
       - name: "Test LLVM"
         run: |
-          ./build/bin/test_texture_io llvm
+          ./build/bin/test_rtx llvm
 
   build-macos:
     strategy:
@@ -93,7 +93,7 @@ jobs:
           sudo cmake --install build --prefix dist -v
       - name: "Test LLVM"
         run: |
-          ./build/bin/test_texture_io llvm
+          ./build/bin/test_rtx llvm
 
   build-windows:
     strategy:
