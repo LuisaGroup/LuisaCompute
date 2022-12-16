@@ -203,8 +203,17 @@ template<typename K,
          typename Allocator = luisa::allocator<const K>>
 using unordered_set = tsl::robin_set<K, Hash, Eq, Allocator>;
 #else
-using std::unordered_map;
-using std::unordered_set;
+template<typename K, typename V,
+         typename Hash = hash<K>,
+         typename Eq = equal_to<>,
+         typename Allocator = luisa::allocator<std::pair<const K, V>>>
+using unordered_map = std::unordered_map<K, V, Hash, Eq, Allocator>;
+
+template<typename K,
+         typename Hash = hash<K>,
+         typename Eq = equal_to<>,
+         typename Allocator = luisa::allocator<K>>
+using unordered_set = std::unordered_set<K, Hash, Eq, Allocator>;
 #endif
 
 using eastl::bit_cast;

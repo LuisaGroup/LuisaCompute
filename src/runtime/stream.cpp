@@ -16,8 +16,8 @@ Stream Device::create_stream(bool for_present) noexcept {
 }
 
 void Stream::_dispatch(CommandList list) noexcept {
-    if (auto size = list.size();
-        size > 1u && device()->requires_command_reordering()) {
+    if (list.empty()) { return; }
+    if (device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
         Clock clock;
         for (auto command : commands) {
@@ -66,7 +66,9 @@ Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 void Stream::Delegate::_commit() noexcept {
     if (!_command_list.empty()) [[likely]] {
-        _stream->_dispatch(std::move(_command_list));
+        CommandList list;
+        std::swap(list, _command_list);
+        _stream->_dispatch(std::move(list));
     }
 }
 
