@@ -2,26 +2,12 @@
 // Created by frvdec99 on 2022/9/3.
 //
 
-#include "core/basic_traits.h"
-#include "core/clock.h"
-#include "core/constants.h"
-#include "core/logging.h"
-#include "core/mathematics.h"
-#include "core/stl.h"
-#include "dsl/builtin.h"
-#include "dsl/func.h"
-#include "dsl/struct.h"
-#include "dsl/var.h"
-#include "rtx/mesh.h"
-#include "rtx/ray.h"
-#include "runtime/command_buffer.h"
 #include <cstdint>
 #include <iostream>
 
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
-#include <runtime/event.h>
 #include <dsl/sugar.h>
 #include <dsl/printer.h>
 #include <rtx/accel.h>

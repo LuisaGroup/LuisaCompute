@@ -9,14 +9,14 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
 #include <spdlog/fmt/fmt.h>
 
 #include <EASTL/bit.h>
-#include <EASTL/map.h>
-#include <EASTL/set.h>
 #include <EASTL/span.h>
 #include <EASTL/list.h>
 #include <EASTL/slist.h>
@@ -149,11 +149,7 @@ using eastl::fixed_map;
 using eastl::fixed_multimap;
 using eastl::fixed_multiset;
 using eastl::fixed_set;
-using eastl::map;
-using eastl::multimap;
-using eastl::multiset;
 using eastl::ring_buffer;
-using eastl::set;
 
 template<typename T, size_t n, bool allow_overflow = true>
 using fixed_vector = eastl::fixed_vector<T, n, allow_overflow, eastl::allocator>;
@@ -215,6 +211,29 @@ template<typename K,
          typename Allocator = luisa::allocator<K>>
 using unordered_set = std::unordered_set<K, Hash, Eq, Allocator>;
 #endif
+
+// FIXME: EASTL does not support `contains()` and
+//  does not implement `try_emplace()` correctly.
+//  So we use the std ones to work around.
+template<typename Key,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<Key>>
+using set = std::set<Key, Compare, Allocator>;
+
+template<typename Key, typename Value,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<std::pair<const Key, Value>>>
+using map = std::map<Key, Value, Compare, Allocator>;
+
+template<typename Key,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<Key>>
+using multiset = std::multiset<Key, Compare, Allocator>;
+
+template<typename Key, typename Value,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<std::pair<const Key, Value>>>
+using multimap = std::multimap<Key, Value, Compare, Allocator>;
 
 using eastl::bit_cast;
 using eastl::get;
