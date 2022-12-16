@@ -196,7 +196,7 @@ using unordered_map = tsl::robin_map<K, V, Hash, Eq, Allocator>;
 template<typename K,
          typename Hash = hash<K>,
          typename Eq = equal_to<>,
-         typename Allocator = luisa::allocator<const K>>
+         typename Allocator = luisa::allocator<K>>
 using unordered_set = tsl::robin_set<K, Hash, Eq, Allocator>;
 #else
 template<typename K, typename V,
