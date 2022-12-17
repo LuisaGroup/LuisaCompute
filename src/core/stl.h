@@ -14,14 +14,14 @@
 #include <string>
 
 #ifdef LUISA_COMPUTE_USE_ROBIN_MAP
-#include <tsl/robin_map.h>
-#include <tsl/robin_set.h>
+#include <ankerl/unordered_dense.h>
 #else
 #include <unordered_map>
 #include <unordered_set>
 #endif
 
 #ifdef LUISA_COMPUTE_USE_BTREE_MAP
+#include <parallel_hashmap/phmap.h>
 #include <parallel_hashmap/btree.h>
 #else
 #include <map>
@@ -199,24 +199,26 @@ struct equal_to<void> {
 template<typename K, typename V,
          typename Hash = hash<K>,
          typename Eq = equal_to<>,
-         template<typename> class Container = vector>
-using unordered_map = tsl::robin_map<K, V, Hash, Eq, Container>;
+         typename Alloc = allocator<std::pair<K, V>>>
+using unordered_map = ankerl::unordered_dense::map<K, V, Hash, Eq, Alloc>;
 
 template<typename K,
          typename Hash = hash<K>,
          typename Eq = equal_to<>,
-         template<typename> class Container = vector>
-using unordered_set = tsl::robin_set<K, Hash, Eq, Container>;
+         typename Alloc = allocator<K>>
+using unordered_set = ankerl::unordered_dense::set<K, Hash, Eq, Alloc>;
 #else
 template<typename K, typename V,
          typename Hash = hash<K>,
-         typename Eq = equal_to<>>
-using unordered_map = std::unordered_map<K, V, Hash, Eq, luisa::allocator<std::pair<const K, V>>>;
+         typename Eq = equal_to<>,
+         typename Alloc = allocator<std::pair<const K, V>>>
+using unordered_map = std::unordered_map<K, V, Hash, Eq, Alloc>;
 
 template<typename K,
          typename Hash = hash<K>,
-         typename Eq = equal_to<>>
-using unordered_set = std::unordered_set<K, Hash, Eq, luisa::allocator<K>>;
+         typename Eq = equal_to<>,
+         typename Alloc = allocator<K>>
+using unordered_set = std::unordered_set<K, Hash, Eq, Alloc>;
 #endif
 
 #ifdef LUISA_COMPUTE_USE_BTREE_MAP
@@ -240,9 +242,6 @@ template<typename Key, typename Value,
          typename Allocator = luisa::allocator<std::pair<const Key, Value>>>
 using multimap = phmap::btree_multimap<Key, Value, Compare, Allocator>;
 #else
-// FIXME: EASTL does not support `contains()` and
-//  does not implement `try_emplace()` correctly.
-//  So we use the std ones to work around.
 template<typename Key,
          typename Compare = std::less<>,
          typename Allocator = luisa::allocator<Key>>

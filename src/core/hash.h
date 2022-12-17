@@ -109,10 +109,12 @@ public:
 
 template<typename T>
 struct hash {
+    using is_avalanching = void;
     [[nodiscard]] uint64_t operator()(const T &t) const noexcept { return Hash64{}(t); }
 };
 
 struct pointer_hash {
+    using is_avalanching = void;
     [[nodiscard]] uint64_t operator()(const void *p) const noexcept {
         auto x = reinterpret_cast<uint64_t>(p);
         return detail::murmur2_hash64(&x, sizeof(x), Hash64::default_seed);
@@ -124,6 +126,7 @@ struct pointer_hash {
 };
 
 struct string_hash {
+    using is_avalanching = void;
     using is_transparent = void;// to enable heterogeneous lookup
     template<typename C, typename CT, typename Alloc>
     [[nodiscard]] uint64_t operator()(const std::basic_string<C, CT, Alloc> &s) const noexcept { return Hash64{}(s); }
