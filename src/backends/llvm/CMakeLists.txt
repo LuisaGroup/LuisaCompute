@@ -1,8 +1,25 @@
-if (LUISA_COMPUTE_ENABLE_LLVM)
-    find_package(LLVM CONFIG)
+if (LUISA_COMPUTE_PYTHON_PACKAGING)# install LLVM with conan
+    list(APPEND CMAKE_MODULE_PATH ${CMAKE_BINARY_DIR})
+    list(APPEND CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
+    if (NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
+        message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
+        file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/0.18.1/conan.cmake"
+                "${CMAKE_BINARY_DIR}/conan.cmake"
+                TLS_VERIFY ON)
+    endif ()
+    include(${CMAKE_BINARY_DIR}/conan.cmake)
+    conan_cmake_configure(REQUIRES llvm-core/13.0.0
+            GENERATORS cmake_find_package)
+    conan_cmake_autodetect(settings)
+    conan_cmake_install(PATH_OR_REFERENCE .
+            BUILD missing
+            REMOTE conancenter
+            SETTINGS ${settings})
 endif ()
 
+find_package(LLVM)
 if (LLVM_FOUND) # link with llvm for jit
+    message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
     set(LC_BACKEND_LLVM_SRC
             llvm_abi.h
             llvm_device.cpp llvm_device.h
