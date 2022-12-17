@@ -158,4 +158,9 @@ template<typename T>
     return Hash64{}(std::forward<T>(v), seed);
 }
 
+[[nodiscard]] inline uint64_t hash64(const void *data, size_t size,
+                                     uint64_t seed = Hash64::default_seed) noexcept {
+    return detail::murmur2_hash64(data, size, seed);
+}
+
 }// namespace luisa

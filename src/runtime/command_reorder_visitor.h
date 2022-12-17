@@ -42,7 +42,7 @@ public:
     struct RangeHash {
         uint64_t operator()(Range const &r) const {
             auto x = std::make_pair(r.min, r.max);
-            return luisa::detail::murmur2_hash64(&x, sizeof(x), Hash64::default_seed);
+            return luisa::hash64(&x, sizeof(x), Hash64::default_seed);
         }
     };
     struct ResourceView {
