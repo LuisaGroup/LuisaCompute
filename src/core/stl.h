@@ -4,12 +4,29 @@
 
 #pragma once
 
+#define LUISA_COMPUTE_USE_ROBIN_MAP
+#define LUISA_COMPUTE_USE_BTREE_MAP
+
+#include <cassert>
 #include <cstdlib>
 #include <cmath>
 #include <memory>
 #include <string>
+
+#ifdef LUISA_COMPUTE_USE_ROBIN_MAP
+#include <ankerl/unordered_dense.h>
+#else
 #include <unordered_map>
 #include <unordered_set>
+#endif
+
+#ifdef LUISA_COMPUTE_USE_BTREE_MAP
+#include <parallel_hashmap/phmap.h>
+#include <parallel_hashmap/btree.h>
+#else
+#include <map>
+#include <set>
+#endif
 
 #include <spdlog/fmt/fmt.h>
 
@@ -39,13 +56,6 @@
 #include <EASTL/vector_multiset.h>
 #include <EASTL/bonus/lru_cache.h>
 #include <EASTL/bonus/ring_buffer.h>
-
-#include <absl/container/flat_hash_map.h>
-#include <absl/container/flat_hash_set.h>
-#include <absl/container/btree_map.h>
-#include <absl/container/btree_set.h>
-#include <absl/container/node_hash_map.h>
-#include <absl/container/node_hash_set.h>
 
 #include <core/dll_export.h>
 #include <core/hash.h>
@@ -185,43 +195,73 @@ struct equal_to<void> {
     }
 };
 
-#define LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
-
-#ifdef LUISA_COMPUTE_USE_ABSEIL_HASH_TABLES
+#ifdef LUISA_COMPUTE_USE_ROBIN_MAP
 template<typename K, typename V,
          typename Hash = hash<K>,
          typename Eq = equal_to<>,
-         typename Allocator = luisa::allocator<std::pair<const K, V>>>
-using unordered_map = absl::flat_hash_map<K, V, Hash, Eq, Allocator>;
+         typename Alloc = allocator<std::pair<K, V>>>
+using unordered_map = ankerl::unordered_dense::map<K, V, Hash, Eq, Alloc>;
+
 template<typename K,
          typename Hash = hash<K>,
          typename Eq = equal_to<>,
-         typename Allocator = luisa::allocator<const K>>
-using unordered_set = absl::flat_hash_set<K, Hash, Eq, Allocator>;
+         typename Alloc = allocator<K>>
+using unordered_set = ankerl::unordered_dense::set<K, Hash, Eq, Alloc>;
 #else
-using std::unordered_map;
-using std::unordered_set;
+template<typename K, typename V,
+         typename Hash = hash<K>,
+         typename Eq = equal_to<>,
+         typename Alloc = allocator<std::pair<const K, V>>>
+using unordered_map = std::unordered_map<K, V, Hash, Eq, Alloc>;
+
+template<typename K,
+         typename Hash = hash<K>,
+         typename Eq = equal_to<>,
+         typename Alloc = allocator<K>>
+using unordered_set = std::unordered_set<K, Hash, Eq, Alloc>;
 #endif
 
-template<typename K, typename V,
+#ifdef LUISA_COMPUTE_USE_BTREE_MAP
+template<typename Key,
          typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<std::pair<const K, V>>>
-using map = absl::btree_map<K, V, Compare, Alloc>;
+         typename Allocator = luisa::allocator<Key>>
+using set = phmap::btree_set<Key, Compare, Allocator>;
 
-template<typename K, typename V,
+template<typename Key, typename Value,
          typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<std::pair<const K, V>>>
-using multimap = absl::btree_multimap<K, V, Compare, Alloc>;
+         typename Allocator = luisa::allocator<std::pair<const Key, Value>>>
+using map = phmap::btree_map<Key, Value, Compare, Allocator>;
 
-template<typename K,
+template<typename Key,
          typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<K>>
-using set = absl::btree_set<K, Compare, Alloc>;
+         typename Allocator = luisa::allocator<Key>>
+using multiset = phmap::btree_multiset<Key, Compare, Allocator>;
 
-template<typename K,
+template<typename Key, typename Value,
          typename Compare = std::less<>,
-         typename Alloc = luisa::allocator<K>>
-using multiset = absl::btree_multiset<K, Compare, Alloc>;
+         typename Allocator = luisa::allocator<std::pair<const Key, Value>>>
+using multimap = phmap::btree_multimap<Key, Value, Compare, Allocator>;
+#else
+template<typename Key,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<Key>>
+using set = std::set<Key, Compare, Allocator>;
+
+template<typename Key, typename Value,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<std::pair<const Key, Value>>>
+using map = std::map<Key, Value, Compare, Allocator>;
+
+template<typename Key,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<Key>>
+using multiset = std::multiset<Key, Compare, Allocator>;
+
+template<typename Key, typename Value,
+         typename Compare = std::less<>,
+         typename Allocator = luisa::allocator<std::pair<const Key, Value>>>
+using multimap = std::multimap<Key, Value, Compare, Allocator>;
+#endif
 
 using eastl::bit_cast;
 using eastl::get;

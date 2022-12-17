@@ -1,6 +1,4 @@
-if (LUISA_COMPUTE_ENABLE_LLVM)
-    find_package(LLVM CONFIG)
-endif ()
+find_package(LLVM CONFIG)
 
 if (LLVM_FOUND) # link with llvm for jit
     set(LC_BACKEND_LLVM_SRC

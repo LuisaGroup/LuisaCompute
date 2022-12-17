@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/12/31.
 //
 
+#include <bit>
 #include <charconv>
 
 #include <core/logging.h>
@@ -21,7 +22,7 @@ const Type *TypeRegistry::_decode(std::string_view desc) noexcept {
     // ARRAY := array<BASIC,N>
     // VECTOR := vector<BASIC,2> | vector<BASIC,3> | vector<BASIC,4>
     // MATRIX := matrix<2> | matrix<3> | matrix<4>
-    // STRUCT := struct<4,TYPE...> | struct<8,TYPE...> | struct<16,TYPE...>
+    // STRUCT := struct<4,TYPE+> | struct<8,TYPE+> | struct<16,TYPE+>
 
     // buffer<Type>
     // texture<n,int|uint|float>

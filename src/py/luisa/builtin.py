@@ -96,7 +96,6 @@ def builtin_bin_op(op, lhs, rhs):
     }.get(op)
     if lc_op is None:
         raise TypeError(f'Unsupported binary operation: {op}')
-    return_dtype = binary_type_infer(lhs.dtype, rhs.dtype, op)
     # power operation: a**b
     if op is ast.Pow:
         if type(rhs).__name__ == "Constant":
@@ -111,10 +110,12 @@ def builtin_bin_op(op, lhs, rhs):
                                           builtin_bin_op(ast.Mult, lhs, lhs))
         return builtin_func("pow", lhs, rhs)
     elif op is ast.Div:
-        _, lhs_expr = builtin_type_cast(to_float(lhs.dtype), lhs)
-        _, rhs_expr = builtin_type_cast(to_float(rhs.dtype), rhs)
+        lhs_dtype, lhs_expr = builtin_type_cast(to_float(lhs.dtype), lhs)
+        rhs_dtype, rhs_expr = builtin_type_cast(to_float(rhs.dtype), rhs)
+        return_dtype = binary_type_infer(lhs_dtype, rhs_dtype, op)
         return return_dtype, lcapi.builder().binary(to_lctype(return_dtype), lc_op, lhs_expr, rhs_expr)
     else:
+        return_dtype = binary_type_infer(lhs.dtype, rhs.dtype, op)
         return return_dtype, lcapi.builder().binary(to_lctype(return_dtype), lc_op, lhs.expr, rhs.expr)
 
 

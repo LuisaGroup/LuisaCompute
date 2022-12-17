@@ -44,11 +44,11 @@ int main(int argc, char *argv[]) {
     //   auto rg = float2(coord) / float2(dis_size.xy());
     //   image[coord.x + coord.y  * dis_size.x] = value;
     // }
-    Kernel2D fill_image_kernel = [&](BufferUInt image) noexcept {
+    auto fill_image = device.compile<2u>([&](BufferUInt image) noexcept {
         auto coord = dispatch_id().xy();
         auto rg = make_float2(coord) / make_float2(dispatch_size().xy());
         image.write(coord.x + coord.y * dispatch_size_x(), linear_to_srgb(make_float3(rg, .5f)));
-    };
+    });
 
     std::vector<std::byte> download_image(1024u * 1024u * 4u);
 
@@ -59,7 +59,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream();
 
     // dispatch
-    stream << fill_image_kernel(device, buffer).dispatch(1024u, 1024u)
+    stream << fill_image(buffer).dispatch(1024u, 1024u)
            << buffer.copy_to(download_image.data())
            << synchronize();
     stbi_write_png("result.png", 1024u, 1024u, 4u, download_image.data(), 0u);

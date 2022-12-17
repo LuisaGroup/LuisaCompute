@@ -205,7 +205,6 @@ private:
     using SharedFunctionBuilder = luisa::shared_ptr<const detail::FunctionBuilder>;
     SharedFunctionBuilder _builder{nullptr};
     explicit Kernel(SharedFunctionBuilder builder) noexcept : _builder{std::move(builder)} {}
-    mutable luisa::map<const Device::Interface *, luisa::shared_ptr<Shader<N, Args...>>> _compiled_shaders;
 
 public:
     /**
@@ -237,21 +236,6 @@ public:
         });
     }
     [[nodiscard]] const auto &function() const noexcept { return _builder; }
-
-    /**
-     * @brief Convenient interface that compiles the kernel and then launches it
-     * @param device the device to run on
-     * @param args kernel arguments
-     * @return shader dispatch delegate
-     */
-    [[nodiscard]] decltype(auto) operator()(Device &device, detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        auto impl = device.impl();
-        auto [iter, _] = _compiled_shaders.try_emplace(impl, nullptr);
-        if (iter->second == nullptr) {
-            iter->second = luisa::make_shared<Shader<N, Args...>>(device.compile(*this));
-        }
-        return (*iter->second)(args...);
-    }
 };
 
 #define LUISA_KERNEL_BASE(N)                                     \
