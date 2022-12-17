@@ -116,7 +116,7 @@ jobs:
           ) else (
             call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           )
-          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_MARCH=broadwell -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
           cmake --build build
       - name: "Install"
         run: |

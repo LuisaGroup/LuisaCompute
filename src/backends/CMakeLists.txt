@@ -31,10 +31,6 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     add_subdirectory(cuda)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_ISPC)
-    add_subdirectory(ispc)
-endif ()
-
 if (LUISA_COMPUTE_ENABLE_LLVM)
     add_subdirectory(llvm)
 endif ()

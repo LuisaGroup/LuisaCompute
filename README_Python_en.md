@@ -3,7 +3,7 @@
 Luisa is a Domain-Specific Language(DSL) embedded in Python 
 oriented to high performance graphics programming, supporting
 Windows, Linux and macOS, with multiple backends supported
-including CUDA, DirectX, Metal, LLVM and ISPC.
+including CUDA, DirectX, Metal, and LLVM.
 
 **This project is still under development. Please [submit an issue](https://github.com/LuisaGroup/LuisaCompute/issues) if you have any problems or suggestions.**
 
@@ -16,7 +16,7 @@ cmake --build build_release -j
 
 This will produce `luisa` library for Python to include under directory `build_release`.
 
-Note that you may switch `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|ISPC|DX|METAL}` to `ON|OFF` for
+Note that you may switch `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|DX|METAL}` to `ON|OFF` for
 different backends, But in order to produce a Python library, `LUISA_COMPUTE_ENABLE_PYTHON` must
 be turned `ON`.
 

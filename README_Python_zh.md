@@ -1,5 +1,5 @@
 # Python-Luisa 用户文档
-Luisa 是一个嵌入Python的领域专用语言（DSL），面向高性能图形渲染编程，支持 Windows、Linux、MacOS 操作系统，支持多种计算后端，包括 CUDA、DirectX、Metal、ISPC。
+Luisa 是一个嵌入Python的领域专用语言（DSL），面向高性能图形渲染编程，支持 Windows、Linux、MacOS 操作系统，支持多种计算后端，包括 CUDA、DirectX、Metal、LLVM。
 
 **本项目尚在开发中，如遇问题或功能建议请[提交issue](https://github.com/LuisaGroup/LuisaCompute/issues)。**
 
@@ -12,7 +12,7 @@ cmake --build build_release -j
 
 此编译命令会在`build_release`下生成可被python引入的luisa库。
 
-用户可以修改 `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|ISPC|DX|METAL}` 为 `ON|OFF` 来开启或关闭不同后端的 feature，但想得到 Python 库
+用户可以修改 `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|DX|METAL}` 为 `ON|OFF` 来开启或关闭不同后端的 feature，但想得到 Python 库
 则必须将 `LUISA_COMPUTE_ENABLE_PYTHON` 设置为 `ON`。
 
 > 如果在开启 `CUDA` 后端后编译，你可能会遇到以下报错：

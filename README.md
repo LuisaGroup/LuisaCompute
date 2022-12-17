@@ -38,7 +38,7 @@ See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rende
 LuisaCompute seeks to balance the seemingly ever-conflicting pursuits for ***unification***, ***programmability***, and ***performance***. To achieve this goal, we design three major components:
 - A domain-specific language (DSL) embedded inside modern C++ for kernel programming exploiting JIT code generation and compilation;
 - A unified runtime with resource wrappers for cross-platform resource management and command scheduling; and
-- Multiple optimized backends, including CUDA, DirectX, Metal, LLVM, and ISPC.
+- Multiple optimized backends, including CUDA, DirectX, Metal, and LLVM.
 
 To demonstrate the practicality of the system, we also build a Monte Carlo renderer, [LuisaRender](https://github.com/LuisaGroup/LuisaRender), atop the framework, which is faster than the state-of-the-art rendering frameworks on modern GPUs.
 
@@ -78,7 +78,7 @@ On the programming interfaces for users, we provide high-level resource wrappers
 
 The backends are the final realizers of computation. They generate concrete shader sources from the ASTs and compile them into native shaders. They implement the virtual device interfaces with low-level platform-dependent API calls and translate the intermediate command representations into native kernel launches and command dispatches.
 
-Currently, we have 5 backends, including 3 GPU backends based on CUDA, Metal, and DirectX, respectively, a scalar CPU backend on LLVM, and a vectorized CPU backend on ISPC.
+Currently, we have 4 backends, including 3 GPU backends based on CUDA, Metal, and DirectX, respectively, and a scalar CPU backend on LLVM.
 
 ### Python Frontend
 
@@ -120,7 +120,7 @@ We are also making a C API for creating other language bindings and frontends (e
 
 LuisaCompute follows the standard CMake build process. Basically these steps:
 
-- Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and ISPC and LLVM on all the major platforms. For CUDA and DirectX, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required.
+- Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and LLVM on all the major platforms. For CUDA and DirectX, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required.
 
 - Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+. For some tests like the toy path tracer, [OpenCV](opencv.org) is also required.
 
@@ -412,11 +412,10 @@ Most backends supports caching the compiled shaders to accelerate future compila
 
 ### Backends, Context, Devices and Resources<a name="devices-and-resources"/>
 
-LuisaCompute currently supports 5 backends:
+LuisaCompute currently supports 4 backends:
 - CUDA
 - DirectX
 - Metal
-- ISPC
 - LLVM
 
 More backends might be added in the future. A device backend is implemented as a plug-in, which follows the `luisa-compute-backend-<name>` naming convention and is placed under `<build-folder>/bin`.
