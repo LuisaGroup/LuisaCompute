@@ -189,27 +189,23 @@ struct equal_to<void> {
 #ifdef LUISA_COMPUTE_USE_ROBIN_MAP
 template<typename K, typename V,
          typename Hash = hash<K>,
-         typename Eq = equal_to<>,
-         typename Allocator = luisa::allocator<std::pair<const K, V>>>
-using unordered_map = tsl::robin_map<K, V, Hash, Eq, Allocator>;
+         typename Eq = equal_to<>>
+using unordered_map = tsl::robin_map<K, V, Hash, Eq, vector>;
 
 template<typename K,
          typename Hash = hash<K>,
-         typename Eq = equal_to<>,
-         typename Allocator = luisa::allocator<K>>
-using unordered_set = tsl::robin_set<K, Hash, Eq, Allocator>;
+         typename Eq = equal_to<>>
+using unordered_set = tsl::robin_set<K, Hash, Eq, vector>;
 #else
 template<typename K, typename V,
          typename Hash = hash<K>,
-         typename Eq = equal_to<>,
-         typename Allocator = luisa::allocator<std::pair<const K, V>>>
-using unordered_map = std::unordered_map<K, V, Hash, Eq, Allocator>;
+         typename Eq = equal_to<>>
+using unordered_map = std::unordered_map<K, V, Hash, Eq, luisa::allocator<std::pair<const K, V>>>;
 
 template<typename K,
          typename Hash = hash<K>,
-         typename Eq = equal_to<>,
-         typename Allocator = luisa::allocator<K>>
-using unordered_set = std::unordered_set<K, Hash, Eq, Allocator>;
+         typename Eq = equal_to<>>
+using unordered_set = std::unordered_set<K, Hash, Eq, luisa::allocator<K>>;
 #endif
 
 // FIXME: EASTL does not support `contains()` and
