@@ -21,7 +21,6 @@ option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
 
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
-option(LUISA_COMPUTE_DOWNLOAD_PREBUILT_EMBREE "Download pre-built Embree if available" ON)
 
 if (APPLE AND LUISA_COMPUTE_ENABLE_METAL)
     enable_language(OBJC)
