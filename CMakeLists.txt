@@ -13,6 +13,30 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(LuisaCompute LANGUAGES C CXX VERSION 0.3.1)
 
+option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
+option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
+option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
+option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
+option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
+
+option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
+option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
+
+if (APPLE AND LUISA_COMPUTE_ENABLE_METAL)
+    enable_language(OBJC)
+    enable_language(OBJCXX)
+    set(CMAKE_OBJC_STANDARD 11)
+    set(CMAKE_OBJCXX_STANDARD 20)
+    set(CMAKE_OBJC_STANDARD_REQUIRED ON)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+endif ()
+
+if (APPLE)
+    set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../bin;@loader_path/../lib")
+elseif (UNIX)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../bin;$ORIGIN/../lib")
+endif ()
+
 if (NOT CMAKE_INSTALL_PREFIX)
     set(CMAKE_INSTALL_PREFIX "dist")
 endif ()
@@ -31,7 +55,6 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_OSX_DEPLOYMENT_TARGET 12)
 set(BUILD_SHARED_LIBS ON)
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR

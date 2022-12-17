@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "luisa"
-version = "0.1.2"
+version = "0.1.4"
 description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
 readme = "README_Python_en.md"
 authors = [
@@ -36,8 +36,6 @@ ninja.minimum-version = "1.10"
 cmake.args = [
     "-DCMAKE_INSTALL_BINDIR=.",
     "-DCMAKE_INSTALL_LIBDIR=.",
-    "-DLUISA_COMPUTE_ENABLE_LLVM=OFF",
-    "-DLUISA_COMPUTE_ENABLE_ISPC=OFF",
     "-DLUISA_COMPUTE_BUILD_TESTS=OFF"
 ]
 wheel.expand-macos-universal-tags = true

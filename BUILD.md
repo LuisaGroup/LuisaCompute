@@ -26,9 +26,6 @@
 - DirectX
     - DirectX 12 with ray tracing support
     - RTX-compatible graphics card with appropriate drivers
-- ISPC
-    - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
-    - (Optional) LLVM 12+ with the corresponding targets and features enabled (for JIT executing the IR emitted by ISPC)
 - Metal
     - macOS 12 or higher
     - Apple M1 chips are recommended (older GPUs are probably supported but not tested)
@@ -45,23 +42,15 @@
 
 ## CMake Flags
 
-The ISPC backend is disabled by default. Other backends will automatically be enabled if the corresponding
-APIs/frameworks are detected. You can override the default settings by specifying CMake flags manually, in
-form of `-D FLAG=value` behind the first cmake command.
+All backends are enabled by default if the corresponding required
+APIs/frameworks are detected available. You can override the default
+settings by specifying CMake flags manually, in form of `-D FLAG=value`
+behind the first cmake command.
 
 Note: On Windows, please remember to replace the backslashes `\\` in the paths with `/` when passing arguments to CMake.
 
-In case you need to run the ISPC backend, download the [ISPC compiler executable](https://ispc.github.io/downloads.html)
-of your platform and copy the executable (e.g., `ispc` or `ispc.exe`) to `src/backends/ispc/ispc_support/` before
-compiling. On Windows, if you wish to use the system compiler instead of LLVM-JIT with the ISPC backend, you have to
-copy the `Hostx64/x64` version tools and libraries, `link.exe`, `msvcrt.lib`, and `mspdbcore.dll`,
-to `src/backends/ispc/ispc_support/`, which come along with the Visual Studio installation and are used for dynamically
-links the object files into shared libraries; on Linux/macOS, simply make sure `cc` is on your command-line and capable
-of linking object files into shared libraries.
-
 - `LUISA_COMPUTE_ENABLE_CUDA`: Enable CUDA backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_DX`: Enable DirectX backend (Default: `ON`)
-- `LUISA_COMPUTE_ENABLE_ISPC`: Enable ISPC backend (Default: `OFF`)
 - `LUISA_COMPUTE_ENABLE_METAL`: Enable Metal backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_LLVM`: Enable LLVM backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
@@ -84,5 +73,5 @@ cmake --build <build-dir> # when building on Windows using Visual Studio Generat
    commands if you prefer) to set the `PYTHONPATH` environment variable to `<build-dir>/bin` before running any python
    test, otherwise Python will fail to find and load the bindings exported from C++. To run `lrenderer.py`, copy files
    in `pyscenes` to the same directory of `lrenderer.py`.
-4. All tests accept a command-line argument specifying backend, which can be chosen from `cuda`, `dx`, `ispc`, `metal`,
+4. All tests accept a command-line argument specifying backend, which can be chosen from `cuda`, `dx`, `metal`,
    and `llvm` (all in the lower case).
