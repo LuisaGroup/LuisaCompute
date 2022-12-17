@@ -4,9 +4,6 @@
 [submodule "src/ext/spdlog"]
 	path = src/ext/spdlog
 	url = https://github.com/gabime/spdlog.git
-[submodule "src/ext/asio"]
-	path = src/ext/asio
-	url = https://github.com/chriskohlhoff/asio.git
 [submodule "src/ext/stb/stb"]
 	path = src/ext/stb/stb
 	url = https://github.com/nothings/stb.git
@@ -22,28 +19,18 @@
 [submodule "src/ext/EASTL"]
 	path = src/ext/EASTL
 	url = https://github.com/LuisaGroup/EASTL.git
-[submodule "src/ext/doxygen-awesome-css"]
-	path = src/ext/doxygen-awesome-css
-	url = https://github.com/jothepro/doxygen-awesome-css.git
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/pybind/pybind11
-	branch = stable
-[submodule "src/ext/abseil-cpp"]
-	path = src/ext/abseil-cpp
-	url = https://github.com/abseil/abseil-cpp.git
-[submodule "src/ext/SPIRV-Headers"]
-	path = src/ext/SPIRV-Headers
-	url = https://github.com/KhronosGroup/SPIRV-Headers
-[submodule "src/ext/SPIRV-Tools"]
-	path = src/ext/SPIRV-Tools
-	url = https://github.com/KhronosGroup/SPIRV-Tools.git
-[submodule "src/ext/glslang"]
-	path = src/ext/glslang
-	url = https://github.com/KhronosGroup/glslang.git
-[submodule "src/ext/shaderc"]
-	path = src/ext/shaderc
-	url = https://github.com/google/shaderc.git
+[submodule "src/ext/embree"]
+	path = src/ext/embree
+	url = https://github.com/embree/embree.git
+[submodule "src/ext/parallel-hashmap"]
+	path = src/ext/parallel-hashmap
+	url = https://github.com/greg7mdp/parallel-hashmap.git
+[submodule "src/ext/unordered_dense"]
+	path = src/ext/unordered_dense
+	url = https://github.com/martinus/unordered_dense.git
 [submodule "src/ext/corrosion"]
 	path = src/ext/corrosion
 	url = git@github.com:corrosion-rs/corrosion.git
