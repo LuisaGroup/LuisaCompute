@@ -58,19 +58,15 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(BUILD_SHARED_LIBS ON)
 
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
+        CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     # enable AVX2 for embree on x64
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /arch:AVX2")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
     else ()
-        if (UNIX)
-            set(LUISA_COMPUTE_MARCH "native" CACHE STRING "-march option for GCC-like compilers" "native")
-        else ()
-            set(LUISA_COMPUTE_MARCH "broadwell" CACHE STRING "-march option for GCC-like compilers")
-        endif ()
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=${LUISA_COMPUTE_MARCH} -mf16c")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${LUISA_COMPUTE_MARCH} -mf16c")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native -mf16c")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -mf16c")
     endif ()
 endif ()
 

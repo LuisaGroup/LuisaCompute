@@ -36,8 +36,6 @@ ninja.minimum-version = "1.10"
 cmake.args = [
     "-DCMAKE_INSTALL_BINDIR=.",
     "-DCMAKE_INSTALL_LIBDIR=.",
-    "-DLUISA_COMPUTE_ENABLE_LLVM=OFF",
-    "-DLUISA_COMPUTE_ENABLE_ISPC=OFF",
     "-DLUISA_COMPUTE_BUILD_TESTS=OFF"
 ]
 wheel.expand-macos-universal-tags = true
