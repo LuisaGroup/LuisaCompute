@@ -25,3 +25,6 @@
 [submodule "src/ext/robin-map"]
 	path = src/ext/robin-map
 	url = https://github.com/LuisaGroup/robin-map.git
+[submodule "src/ext/embree"]
+	path = src/ext/embree
+	url = https://github.com/embree/embree.git
