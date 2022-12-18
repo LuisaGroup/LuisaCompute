@@ -1,6 +1,6 @@
 if (WIN32)
     message(STATUS "Build with DirectX backend")
-    Set(VENGINE_SOURCE
+    set(VENGINE_SOURCE
             Api/LCCmdBuffer.cpp
             Api/LCDevice.cpp
             Api/LCEvent.cpp
