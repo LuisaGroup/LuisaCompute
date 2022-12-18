@@ -41,7 +41,7 @@ public:
     };
     struct RangeHash {
         uint64_t operator()(Range const &r) const {
-            return absl::container_internal::hash_default_hash<int64_t>()(r.min ^ r.max);
+            return hash64(&r, sizeof(Range), Hash64::default_seed);
         }
     };
     struct ResourceView {
