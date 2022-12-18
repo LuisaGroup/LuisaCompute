@@ -97,34 +97,38 @@ struct Converter {
                     auto v = convert(args[0]);
                     auto grad = convert(args[1]);
                 }
-                auto v = ([&] {switch (func) {
-                    case Func::Tag::Add:
-                        return builder->binary(ty, BinaryOp::ADD, convert(args[0]), convert(args[1]));
-                    case Func::Tag::Sub:
-                        return builder->binary(ty, BinaryOp::SUB, convert(args[0]), convert(args[1]));
-                    case Func::Tag::Mul:
-                        return builder->binary(ty, BinaryOp::MUL, convert(args[0]), convert(args[1]));
-                    case Func::Tag::Div:
-                        return builder->binary(ty, BinaryOp::DIV, convert(args[0]), convert(args[1]));
-                    case Func::Tag::Rem:
-                        // TODO: this is actually different
-                        return builder->binary(ty, BinaryOp::MOD, convert(args[0]), convert(args[1]));
-                    case Func::Tag::BitAnd:
-                        return builder->binary(ty, BinaryOp::BIT_AND, convert(args[0]), convert(args[1]));
-                    case Func::Tag::BitOr:
-                        return builder->binary(ty, BinaryOp::BIT_OR, convert(args[0]), convert(args[1]));
-                    case Func::Tag::BitXor:
-                        return builder->binary(ty, BinaryOp::BIT_XOR, convert(args[0]), convert(args[1]));
-                    case Func::Tag::Shl:
-                        return builder->binary(ty, BinaryOp::SHL, convert(args[0]), convert(args[1]));
-                    case Func::Tag::Shr:
-                        return builder->binary(ty, BinaryOp::SHR, convert(args[0]), convert(args[1]));
-                    case Func::Tag::RotLeft:
-                    case Func::Tag::RotRight:
-                        LUISA_ERROR_WITH_LOCATION("Ask the author to implement this.");
-                        break;
-                        // return builder->binary(ty, BinaryOp::ROT_LEFT, convert(args[0]), convert(args[1]));
-                } })();
+                auto v = [&] {
+                    switch (func) {
+                        case Func::Tag::Add:
+                            return builder->binary(ty, BinaryOp::ADD, convert(args[0]), convert(args[1]));
+                        case Func::Tag::Sub:
+                            return builder->binary(ty, BinaryOp::SUB, convert(args[0]), convert(args[1]));
+                        case Func::Tag::Mul:
+                            return builder->binary(ty, BinaryOp::MUL, convert(args[0]), convert(args[1]));
+                        case Func::Tag::Div:
+                            return builder->binary(ty, BinaryOp::DIV, convert(args[0]), convert(args[1]));
+                        case Func::Tag::Rem:
+                            // TODO: this is actually different
+                            return builder->binary(ty, BinaryOp::MOD, convert(args[0]), convert(args[1]));
+                        case Func::Tag::BitAnd:
+                            return builder->binary(ty, BinaryOp::BIT_AND, convert(args[0]), convert(args[1]));
+                        case Func::Tag::BitOr:
+                            return builder->binary(ty, BinaryOp::BIT_OR, convert(args[0]), convert(args[1]));
+                        case Func::Tag::BitXor:
+                            return builder->binary(ty, BinaryOp::BIT_XOR, convert(args[0]), convert(args[1]));
+                        case Func::Tag::Shl:
+                            return builder->binary(ty, BinaryOp::SHL, convert(args[0]), convert(args[1]));
+                        case Func::Tag::Shr:
+                            return builder->binary(ty, BinaryOp::SHR, convert(args[0]), convert(args[1]));
+                        case Func::Tag::RotLeft:
+                        case Func::Tag::RotRight:
+                            LUISA_ERROR_WITH_LOCATION("Ask the author to implement this.");
+                            // return builder->binary(ty, BinaryOp::ROT_LEFT, convert(args[0]), convert(args[1]));
+                        default:
+                            break;
+                    }
+                    LUISA_ERROR_WITH_LOCATION("Ask the author to implement this.");
+                }();
                 auto a = builder->local(ty);
                 builder->assign(a, v);
                 return a;
