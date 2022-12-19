@@ -24,15 +24,19 @@ pub enum Primitive {
 
 impl std::fmt::Display for Primitive {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Self::Bool => "bool",
-            Self::Int32 => "i32",
-            Self::Uint32 => "u32",
-            Self::Int64 => "i64",
-            Self::Uint64 => "u64",
-            Self::Float32 => "f32",
-            Self::Float64 => "f64",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Bool => "bool",
+                Self::Int32 => "i32",
+                Self::Uint32 => "u32",
+                Self::Int64 => "i64",
+                Self::Uint64 => "u64",
+                Self::Float32 => "f32",
+                Self::Float64 => "f64",
+            }
+        )
     }
 }
 
@@ -452,8 +456,8 @@ pub enum Func {
 
     /// When referencing a Local in Call, it is always interpreted as a load
     /// However, there are cases you want to do this explicitly
-    Load, 
-    
+    Load,
+
     Cast,
     Bitcast,
 
@@ -918,7 +922,7 @@ impl Serialize for BasicBlock {
 }
 
 impl BasicBlock {
-    pub(crate) fn nodes(&self) -> Vec<NodeRef> {
+    pub fn nodes(&self) -> Vec<NodeRef> {
         let mut vec = Vec::new();
         let mut cur = self.first.get().next;
 
@@ -928,7 +932,7 @@ impl BasicBlock {
         }
         vec
     }
-    pub(crate) fn into_vec(self) -> Vec<NodeRef> {
+    pub fn into_vec(self) -> Vec<NodeRef> {
         let mut vec = Vec::new();
         let mut cur = self.first.get().next;
         while cur != self.last {
@@ -941,14 +945,14 @@ impl BasicBlock {
         }
         vec
     }
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let first = new_node(Node::new(Gc::new(Instruction::Invalid), Type::void()));
         let last = new_node(Node::new(Gc::new(Instruction::Invalid), Type::void()));
         first.update(|node| node.next = last);
         last.update(|node| node.prev = first);
         Self { first, last }
     }
-    pub(crate) fn push(&mut self, node: NodeRef) {
+    pub fn push(&mut self, node: NodeRef) {
         if self.last.valid() {
             self.last.update(|last| {
                 last.next = node.clone();
@@ -962,10 +966,10 @@ impl BasicBlock {
         self.last = node;
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         !self.first.valid()
     }
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         let mut len = 0;
         let mut cur = self.first.get().next;
         while cur != self.last {
@@ -1502,8 +1506,8 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
 }
 
 pub mod debug {
-    use std::ffi::CString;
     use crate::display::DisplayIR;
+    use std::ffi::CString;
 
     use super::*;
 
