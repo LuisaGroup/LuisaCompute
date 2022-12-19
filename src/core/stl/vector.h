@@ -10,7 +10,7 @@ template<typename T>
 using vector = eastl::vector<T>;
 
 template<typename T, size_t node_count, bool allow_overflow = true>
-using fixed_vector = eastl::fixed_vector<T, node_count, allow_overflow, eastl::allocator>;
+using fixed_vector = eastl::fixed_vector<T, node_count, allow_overflow>;
 
 using bitvector = eastl::bitvector<>;
 

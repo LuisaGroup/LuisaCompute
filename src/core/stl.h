@@ -17,6 +17,8 @@
 #include <core/stl/optional.h>
 #include <core/stl/priority_queue.h>
 #include <core/stl/queue.h>
+#include <core/stl/ring_buffer.h>
+#include <core/stl/stack.h>
 #include <core/stl/string.h>
 #include <core/stl/unordered_map.h>
 #include <core/stl/variant.h>

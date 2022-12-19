@@ -16,6 +16,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         stl/optional.h
         stl/priority_queue.h
         stl/queue.h
+        stl/ring_buffer.h
+        stl/stack.h
         stl/string.h
         stl/unordered_map.h
         stl/variant.h

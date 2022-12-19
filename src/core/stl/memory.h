@@ -15,6 +15,7 @@
 #include <EASTL/unique_ptr.h>
 #include <EASTL/shared_ptr.h>
 #include <EASTL/span.h>
+#include <EASTL/bonus/compressed_pair.h>
 
 #include <core/dll_export.h>
 #include <core/stl/hash_fwd.h>
@@ -87,7 +88,9 @@ struct default_sentinel_t {};
 inline constexpr default_sentinel_t default_sentinel{};
 
 // smart pointers
+using eastl::compressed_pair;
 using eastl::const_pointer_cast;
+using eastl::dynamic_pointer_cast;
 using eastl::enable_shared_from_this;
 using eastl::make_shared;
 using eastl::make_unique;
