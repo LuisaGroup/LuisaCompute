@@ -16,7 +16,7 @@ MetalShader MetalCompiler::compile(
     Function kernel,
     std::string_view meta_options) noexcept {// TODO: meta-options
 
-    auto hash = hash64(meta_options, kernel.hash());
+    auto hash = hash64(meta_options.data(), meta_options.size(), kernel.hash());
     if (auto shader = _cache->fetch(hash)) { return *shader; }
 
     LUISA_INFO("Compiling kernel_{:016X}.", kernel.hash());

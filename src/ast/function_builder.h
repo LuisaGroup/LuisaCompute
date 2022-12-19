@@ -7,7 +7,6 @@
 #include <vector>
 
 #include <core/stl.h>
-#include <core/hash.h>
 #include <core/spin_mutex.h>
 
 #include <ast/statement.h>
@@ -66,10 +65,7 @@ public:
         BufferBinding() noexcept = default;
         BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
             : handle{handle}, offset_bytes{offset_bytes}, size_bytes{size_bytes} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(offset_bytes, hash64(handle, hash64("__hash_buffer_binding")));
-        }
+        [[nodiscard]] uint64_t hash() const noexcept;
     };
 
     /**
@@ -83,10 +79,7 @@ public:
         TextureBinding() noexcept = default;
         TextureBinding(uint64_t handle, uint32_t level) noexcept
             : handle{handle}, level{level} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(level, hash64(handle, hash64("__hash_texture_binding")));
-        }
+        [[nodiscard]] uint64_t hash() const noexcept;
     };
 
     /**
@@ -99,10 +92,7 @@ public:
         BindlessArrayBinding() noexcept = default;
         explicit BindlessArrayBinding(uint64_t handle) noexcept
             : handle{handle} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(handle, hash64("__hash_bindless_array_binding"));
-        }
+        [[nodiscard]] uint64_t hash() const noexcept;
     };
 
     /**
@@ -115,10 +105,7 @@ public:
         AccelBinding() noexcept = default;
         explicit AccelBinding(uint64_t handle) noexcept
             : handle{handle} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(handle, hash64("__hash_accel_binding"));
-        }
+        [[nodiscard]] uint64_t hash() const noexcept;
     };
 
     using Binding = luisa::variant<

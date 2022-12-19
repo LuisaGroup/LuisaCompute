@@ -10,9 +10,7 @@
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 
-#import <core/hash.h>
 #import <core/spin_mutex.h>
-#import <core/lru_cache.h>
 #import <backends/metal/metal_shader.h>
 
 namespace luisa::compute::metal {

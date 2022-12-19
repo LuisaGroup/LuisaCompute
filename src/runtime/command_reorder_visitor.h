@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-#include <core/hash.h>
 #include <core/stl.h>
 #include <runtime/command.h>
 #include <runtime/device.h>
@@ -42,7 +41,7 @@ public:
     struct RangeHash {
         uint64_t operator()(Range const &r) const {
             auto x = std::make_pair(r.min, r.max);
-            return luisa::hash64(&x, sizeof(x), Hash64::default_seed);
+            return luisa::hash64(&x, sizeof(x), hash64_default_seed);
         }
     };
     struct ResourceView {

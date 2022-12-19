@@ -25,11 +25,6 @@ class Expression;
 class LC_AST_API Function {
 
 public:
-    struct Hash {
-        [[nodiscard]] auto operator()(Function f) const noexcept { return f.hash(); }
-    };
-
-public:
     /// Function types
     enum struct Tag : uint {
         KERNEL,
@@ -40,10 +35,7 @@ public:
     struct Constant {
         const Type *type{nullptr};
         ConstantData data;
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(data.hash(), hash64(type->hash(), hash64("__hash_constant_binding")));
-        }
+        [[nodiscard]] uint64_t hash() const noexcept;
     };
 
 private:

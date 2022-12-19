@@ -122,11 +122,12 @@ void *LLVMDevice::native_handle() const noexcept {
 }
 
 uint64_t LLVMDevice::create_buffer(size_t size_bytes) noexcept {
-    return reinterpret_cast<uint64_t>(luisa::allocate<std::byte>(size_bytes));
+    return reinterpret_cast<uint64_t>(
+        luisa::allocate_with_allocator<std::byte>(size_bytes));
 }
 
 void LLVMDevice::destroy_buffer(uint64_t handle) noexcept {
-    luisa::deallocate(reinterpret_cast<std::byte *>(handle));
+    luisa::deallocate_with_allocator(reinterpret_cast<std::byte *>(handle));
 }
 
 void *LLVMDevice::buffer_native_handle(uint64_t handle) const noexcept {

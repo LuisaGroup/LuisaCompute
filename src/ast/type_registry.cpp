@@ -12,7 +12,8 @@ namespace luisa::compute::detail {
 
 inline uint64_t compute::detail::TypeRegistry::_hash(std::string_view desc) noexcept {
     using namespace std::string_view_literals;
-    return hash64(desc, hash64("__hash_type"sv));
+    static thread_local auto seed = hash_value("__hash_type"sv);
+    return hash64(desc.data(), desc.size(), seed);
 }
 
 const Type *TypeRegistry::_decode(std::string_view desc) noexcept {

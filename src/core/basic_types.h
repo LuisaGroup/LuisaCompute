@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/stl/hash_fwd.h>
 #include <core/basic_traits.h>
 
 namespace luisa {
@@ -43,7 +44,7 @@ struct alignas(sizeof(T) * 2) VectorStorage<T, 2> {
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
     template<typename S>
-    void serialize(S& s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y)); }
+    void serialize(S &s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y)); }
 #include <core/swizzle_2.inl.h>
 };
 
@@ -54,7 +55,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 3> {
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
     template<typename S>
-    void serialize(S& s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z)); }
+    void serialize(S &s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z)); }
 #include <core/swizzle_3.inl.h>
 };
 
@@ -65,7 +66,7 @@ struct alignas(sizeof(T) * 4) VectorStorage<T, 4> {
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
     template<typename S>
-    void serialize(S& s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z), MAKE_NAME_PAIR(w)); }
+    void serialize(S &s) { s.to_json(MAKE_NAME_PAIR(x), MAKE_NAME_PAIR(y), MAKE_NAME_PAIR(z), MAKE_NAME_PAIR(w)); }
 #include <core/swizzle_4.inl.h>
 };
 
@@ -85,17 +86,24 @@ struct Vector : public detail::VectorStorage<T, N> {
     static constexpr auto dimension = N;
     using value_type = T;
     using Storage = detail::VectorStorage<T, N>;
-    static_assert(std::disjunction_v<
-                      std::is_same<T, bool>,
-                      std::is_same<T, float>,
-                      std::is_same<T, int>,
-                      std::is_same<T, uint>>,
+    static_assert(std::disjunction_v<std::is_same<T, bool>,
+                                     std::is_same<T, float>,
+                                     std::is_same<T, int>,
+                                     std::is_same<T, uint>>,
                   "Invalid vector type");
     static_assert(N == 2 || N == 3 || N == 4, "Invalid vector dimension");
     using Storage::VectorStorage;
     [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
     [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
     using detail::VectorStorage<T, N>::serialize;
+};
+
+template<typename T, size_t N>
+struct hash<Vector<T, N>> {
+    using is_avalanching = void;
+    [[nodiscard]] uint64_t operator()(const Vector<T, N> &v) const noexcept {
+        return hash64(&v, sizeof(T) * N, hash64_default_seed);
+    }
 };
 
 /**
@@ -170,6 +178,20 @@ struct Matrix<4> {
 
     [[nodiscard]] constexpr float4 &operator[](size_t i) noexcept { return cols[i]; }
     [[nodiscard]] constexpr const float4 &operator[](size_t i) const noexcept { return cols[i]; }
+};
+
+template<size_t N>
+struct hash<Matrix<N>> {
+    using is_avalanching = void;
+    [[nodiscard]] uint64_t operator()(Matrix<N> m) const noexcept {
+        std::array<float, N * N> data{};
+        for (size_t i = 0u; i < N; i++) {
+            for (size_t j = 0u; j < N; j++) {
+                data[i * N + j] = m[i][j];
+            }
+        }
+        return hash64(data.data(), data.size() * sizeof(float), hash64_default_seed);
+    }
 };
 
 using float2x2 = Matrix<2>;

@@ -9,9 +9,32 @@
 
 namespace luisa::compute {
 
+void Expression::mark(Usage usage) const noexcept {
+    if (auto a = to_underlying(_usage), u = a | to_underlying(usage); a != u) {
+        _usage = static_cast<Usage>(u);
+        _mark(usage);
+    }
+}
+
+uint64_t Expression::hash() const noexcept {
+    if (!_hash_computed) {
+        using namespace std::string_view_literals;
+        static thread_local auto seed = hash_value("__hash_expression"sv);
+        std::array a{static_cast<uint64_t>(_tag), _compute_hash(), 0ull};
+        if (_type != nullptr) { a.back() = _type->hash(); }
+        _hash = hash64(&a, sizeof(a), seed);
+        _hash_computed = true;
+    }
+    return _hash;
+}
+
 void RefExpr::_mark(Usage usage) const noexcept {
     detail::FunctionBuilder::current()->mark_variable_usage(
         _variable.uid(), usage);
+}
+
+uint64_t RefExpr::_compute_hash() const noexcept {
+    return hash_value(_variable);
 }
 
 void CallExpr::_mark() const noexcept {
@@ -53,21 +76,52 @@ void CallExpr::_mark() const noexcept {
     }
 }
 
-void Expression::mark(Usage usage) const noexcept {
-    if (auto a = to_underlying(_usage), u = a | to_underlying(usage); a != u) {
-        _usage = static_cast<Usage>(u);
-        _mark(usage);
+uint64_t CallExpr::_compute_hash() const noexcept {
+    auto hash = hash64(&_op, sizeof(_op), hash64_default_seed);
+    for (auto &&a : _arguments) {
+        auto h = a->hash();
+        hash = hash64(&h, sizeof(h), hash);
     }
+    if (_op == CallOp::CUSTOM) {
+        auto h = _custom.hash();
+        hash = hash64(&h, sizeof(h), hash);
+    }
+    return hash;
 }
 
-uint64_t Expression::hash() const noexcept {
-    if (!_hash_computed) {
-        using namespace std::string_view_literals;
-        _hash = hash64(_tag, hash64(_compute_hash(), hash64("__hash_expression")));
-        if (_type != nullptr) { _hash = hash64(_type->hash(), _hash); }
-        _hash_computed = true;
-    }
-    return _hash;
+uint64_t UnaryExpr::_compute_hash() const noexcept {
+    std::array a{static_cast<uint64_t>(_op), _operand->hash()};
+    return hash64(&a, sizeof(a), hash64_default_seed);
+}
+
+uint64_t BinaryExpr::_compute_hash() const noexcept {
+    auto hl = _lhs->hash();
+    auto hr = _rhs->hash();
+    std::array a{static_cast<uint64_t>(_op), hl, hr};
+    return hash64(&a, sizeof(a), hash64_default_seed);
+}
+
+uint64_t AccessExpr::_compute_hash() const noexcept {
+    std::array a{_index->hash(), _range->hash()};
+    return hash64(&a, sizeof(a), hash64_default_seed);
+}
+
+uint64_t MemberExpr::_compute_hash() const noexcept {
+    std::array a{(static_cast<uint64_t>(_swizzle_size) << 32u) | _swizzle_code, _self->hash()};
+    return hash64(&a, sizeof(a), hash64_default_seed);
+}
+
+uint64_t CastExpr::_compute_hash() const noexcept {
+    std::array a{static_cast<uint64_t>(_op), _source->hash()};
+    return hash64(&a, sizeof(a), hash64_default_seed);
+}
+
+uint64_t LiteralExpr::_compute_hash() const noexcept {
+    return luisa::visit([](auto &&v) noexcept { return hash_value(v); }, _value);
+}
+
+uint64_t ConstantExpr::_compute_hash() const noexcept {
+    return hash_value(_data);
 }
 
 }// namespace luisa::compute

@@ -5,11 +5,14 @@
 #pragma once
 
 #include <mutex>
-#include <optional>
+#include <EASTL/bonus/lru_cache.h>
 
-#include <core/stl.h>
+#include "memory.h"
+#include "optional.h"
 
 namespace luisa {
+
+using eastl::lru_cache;
 
 // TODO: support allocator & comparator
 template<typename Key, typename Value>

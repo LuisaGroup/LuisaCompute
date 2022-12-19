@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "core/hash.h"
 #include <core/stl.h>
 #include <ast/interface.h>
 
@@ -13,14 +12,10 @@ namespace luisa::compute {
 class DefinitionAnalysis final : public StmtVisitor, public ExprVisitor {
 
 public:
-    struct VariableHash {
-        [[nodiscard]] uint64_t operator()(Variable v) const noexcept { return v.hash(); }
-    };
-
-    using VariableSet = luisa::unordered_set<Variable, VariableHash>;
-    using ScopeSet = luisa::unordered_set<const ScopeStmt *>;
-    using VariableScopeMap = luisa::unordered_map<Variable, ScopeSet, VariableHash>;
-    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet>;
+    using VariableSet = luisa::unordered_set<Variable>;
+    using ScopeSet = luisa::unordered_set<const ScopeStmt *, pointer_hash<ScopeStmt>>;
+    using VariableScopeMap = luisa::unordered_map<Variable, ScopeSet>;
+    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet, pointer_hash<ScopeStmt>>;
 
     class ScopeRecord {
 

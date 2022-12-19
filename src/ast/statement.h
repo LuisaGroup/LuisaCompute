@@ -92,9 +92,7 @@ struct StmtVisitor {
 class BreakStmt final : public Statement {
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return Hash64::default_seed;
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     BreakStmt() noexcept : Statement{Tag::BREAK} {}
@@ -105,9 +103,7 @@ public:
 class ContinueStmt : public Statement {
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return Hash64::default_seed;
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     ContinueStmt() noexcept : Statement{Tag::CONTINUE} {}
@@ -121,9 +117,7 @@ private:
     const Expression *_expr;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_expr == nullptr ? 0ull : _expr->hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -146,11 +140,7 @@ private:
     vector<const Statement *> _statements;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        auto h = Hash64::default_seed;
-        for (auto &&s : _statements) { h = hash64(s->hash(), h); }
-        return h;
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     ScopeStmt() noexcept : Statement{Tag::SCOPE} {}
@@ -167,11 +157,7 @@ private:
     const Expression *_rhs;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        auto hl = _lhs->hash();
-        auto hr = _rhs->hash();
-        return hash64(hl, hr);
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -200,12 +186,7 @@ private:
     ScopeStmt _false_branch;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(
-            _condition->hash(),
-            hash64(_true_branch.hash(),
-                   _false_branch.hash()));
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -233,9 +214,7 @@ private:
     ScopeStmt _body;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return _body.hash();
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     LoopStmt() noexcept : Statement{Tag::LOOP} {}
@@ -251,9 +230,7 @@ private:
     const Expression *_expr;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return _expr->hash();
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -277,9 +254,7 @@ private:
     ScopeStmt _body;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_body.hash(), _expr->hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -306,9 +281,7 @@ private:
     ScopeStmt _body;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_body.hash(), _expr->hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -334,9 +307,7 @@ private:
     ScopeStmt _body;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return _body.hash();
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     SwitchDefaultStmt() noexcept : Statement{Tag::SWITCH_DEFAULT} {}
@@ -355,9 +326,7 @@ private:
     ScopeStmt _body;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_body.hash(), hash64(_var->hash(), hash64(_cond->hash(), _step->hash())));
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -391,9 +360,7 @@ private:
     luisa::string _comment;
 
 private:
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_comment);
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**

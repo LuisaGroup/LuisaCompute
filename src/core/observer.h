@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <core/hash.h>
 #include <core/stl.h>
 #include <core/spin_mutex.h>
 
@@ -33,17 +32,9 @@ public:
 
 class Subject final : public luisa::enable_shared_from_this<Subject> {
 
-public:
-    struct ObserverHash {
-        using is_transparent = void;
-        [[nodiscard]] auto operator()(const Observer *p) const noexcept -> uint64_t {
-            return hash64(reinterpret_cast<uint64_t>(p));
-        }
-    };
-
 private:
     spin_mutex _mutex;
-    luisa::unordered_map<Observer *, size_t, ObserverHash> _observers;
+    luisa::unordered_map<Observer *, size_t, pointer_hash<Observer>> _observers;
 
 private:
     friend class Observer;

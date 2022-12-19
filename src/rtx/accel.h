@@ -13,7 +13,7 @@
 
 namespace luisa::compute {
 
-class LC_RTX_API Accel final : public Resource {
+class LC_RUNTIME_API Accel final : public Resource {
 
 public:
     using UsageHint = AccelUsageHint;

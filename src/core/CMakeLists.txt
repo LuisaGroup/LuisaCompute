@@ -1,4 +1,28 @@
 set(LUISA_COMPUTE_CORE_SOURCES
+
+        # STL alternatives
+        stl/deque.h
+        stl/filesystem.cpp stl/filesystem.h
+        stl/fixed_map.h
+        stl/format.h
+        stl/functional.h
+        stl/hash.cpp stl/hash.h
+        stl/hash_fwd.h
+        stl/list.h
+        stl/lru_cache.h
+        stl/map.h
+        stl/memory.cpp
+        stl/memory.h
+        stl/optional.h
+        stl/priority_queue.h
+        stl/queue.h
+        stl/string.h
+        stl/unordered_map.h
+        stl/variant.h
+        stl/vector.h
+        stl/vector_map.h
+
+        # other
         basic_traits.h
         basic_types.cpp basic_types.h
         binary_buffer.h
@@ -9,19 +33,17 @@ set(LUISA_COMPUTE_CORE_SOURCES
         dll_export.h
         dynamic_module.cpp dynamic_module.h
         first_fit.cpp first_fit.h
-        hash.h
         intrin.h
         json.h
         json_fwd.h
         logging.cpp logging.h
-        lru_cache.h
         macro.h
         mathematics.h
         observer.cpp observer.h
         platform.cpp platform.h
         pool.h
         spin_mutex.h
-        stl.cpp stl.h
+        stl.h
         swizzle_2.inl.h
         swizzle_3.inl.h
         swizzle_4.inl.h
