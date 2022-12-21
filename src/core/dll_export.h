@@ -77,7 +77,6 @@
 #define LC_REMOTE_API __declspec(dllimport)
 #endif
 
-
 #else
 #define LC_VSTL_API
 #define LC_AST_API

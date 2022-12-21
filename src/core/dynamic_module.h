@@ -1,10 +1,7 @@
 #pragma once
 
-#include <mutex>
-#include <functional>
-
+#include <core/stl/optional.h>
 #include <core/platform.h>
-#include <core/stl.h>
 #include <core/concepts.h>
 
 namespace luisa {
@@ -24,19 +21,6 @@ private:
     [[nodiscard]] static luisa::vector<std::pair<std::filesystem::path, size_t>> &_search_paths() noexcept;
 
 public:
-    /**
-     * @brief Construct a new Dynamic Module object
-     * 
-     * @param name name of dynamic module file
-     */
-    explicit DynamicModule(std::string_view name) noexcept;
-    /**
-     * @brief Construct a new Dynamic Module object
-     * 
-     * @param folder folder path
-     * @param name name of dynamic module file
-     */
-    DynamicModule(const std::filesystem::path &folder, std::string_view name) noexcept;
     DynamicModule(DynamicModule &&another) noexcept;
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;
     ~DynamicModule() noexcept;

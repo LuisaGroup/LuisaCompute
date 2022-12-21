@@ -3,7 +3,6 @@
 //
 
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <core/stl.h>
 #include <core/logging.h>
 
 namespace luisa {

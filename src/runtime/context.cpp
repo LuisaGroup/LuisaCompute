@@ -85,11 +85,10 @@ const std::filesystem::path &Context::cache_directory() const noexcept {
 Device Context::create_device(std::string_view backend_name_in, luisa::string_view property_json) noexcept {
     luisa::string backend_name{backend_name_in};
     for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
-    if (std::find(_impl->installed_backends.cbegin(),
-                  _impl->installed_backends.cend(),
-                  backend_name) == _impl->installed_backends.cend()) {
-        LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
-    }
+    LUISA_ASSERT(std::find(_impl->installed_backends.cbegin(),
+                           _impl->installed_backends.cend(),
+                           backend_name) != _impl->installed_backends.cend(),
+                 "Backend '{}' is not installed.", backend_name);
     auto [create, destroy] = [backend_name, this] {
         if (auto iter = std::find(_impl->device_identifiers.cbegin(),
                                   _impl->device_identifiers.cend(),
@@ -100,11 +99,13 @@ Device Context::create_device(std::string_view backend_name_in, luisa::string_vi
             auto d = _impl->device_deleters[i];
             return std::make_pair(c, d);
         }
-        auto &&m = _impl->loaded_modules.emplace_back(
+        auto m = DynamicModule::load(
             _impl->runtime_directory,
             fmt::format("luisa-compute-backend-{}", backend_name));
-        auto c = m.function<Device::Creator>("create");
-        auto d = m.function<Device::Deleter>("destroy");
+        LUISA_ASSERT(m.has_value(), "Failed to load backend module '{}'.", backend_name);
+        auto c = m->function<Device::Creator>("create");
+        auto d = m->function<Device::Deleter>("destroy");
+        _impl->loaded_modules.emplace_back(std::move(*m));
         _impl->device_identifiers.emplace_back(backend_name);
         _impl->device_creators.emplace_back(c);
         _impl->device_deleters.emplace_back(d);

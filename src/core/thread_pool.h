@@ -6,31 +6,23 @@
 
 #include <mutex>
 #include <future>
-#include <thread>
-#include <memory>
 #include <concepts>
-#include <functional>
-#include <condition_variable>
 
-#include <core/stl.h>
+#include <core/stl/functional.h>
+#include <core/stl/memory.h>
 #include <core/basic_types.h>
 
 namespace luisa {
 
-class Barrier;
-
 /// Thread pool class
 class LC_CORE_API ThreadPool {
 
+public:
+    class Impl;
+
 private:
-    luisa::vector<std::thread> _threads;
-    luisa::queue<luisa::function<void()>> _tasks;
-    std::mutex _mutex;
-    luisa::unique_ptr<Barrier> _synchronize_barrier;
-    luisa::unique_ptr<Barrier> _dispatch_barrier;
-    std::condition_variable _cv;
+    luisa::unique_ptr<Impl> _impl;
     std::atomic_uint _task_count;
-    bool _should_stop;
 
 private:
     void _dispatch(luisa::function<void()> task) noexcept;
@@ -54,9 +46,9 @@ public:
     /// Synchronize all threads
     void synchronize() noexcept;
     /// Return size of threads
-    [[nodiscard]] auto size() const noexcept { return _threads.size(); }
+    [[nodiscard]] uint size() const noexcept;
     /// Return count of tasks
-    [[nodiscard]] uint task_count() const noexcept;
+    [[nodiscard]] uint task_count() const noexcept { return _task_count.load(); }
 
     /// Run a function async and return future of return value
     template<typename F>
