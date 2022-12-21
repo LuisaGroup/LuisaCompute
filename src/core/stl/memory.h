@@ -22,6 +22,25 @@
 
 namespace luisa {
 
+inline namespace size_literals {
+
+/// Calculate size of KB
+[[nodiscard]] constexpr auto operator""_kb(unsigned long long size) noexcept {
+    return static_cast<size_t>(size * 1024u);
+}
+
+/// Calculate size of MB
+[[nodiscard]] constexpr auto operator""_mb(unsigned long long size) noexcept {
+    return static_cast<size_t>(size * 1024u * 1024u);
+}
+
+/// Calculate size of GB
+[[nodiscard]] constexpr auto operator""_gb(unsigned long long size) noexcept {
+    return static_cast<size_t>(size * 1024u * 1024u * 1024u);
+}
+
+}// namespace size_literals
+
 namespace detail {
 LUISA_EXPORT_API void *allocator_allocate(size_t size, size_t alignment) noexcept;
 LUISA_EXPORT_API void allocator_deallocate(void *p, size_t alignment) noexcept;

@@ -10,7 +10,6 @@
 #include <core/logging.h>
 #include <core/spin_mutex.h>
 #include <core/thread_safety.h>
-#include <core/stl.h>
 
 namespace luisa {
 
@@ -21,7 +20,7 @@ namespace luisa {
  * @tparam thread_safe whether the pool is thread-safe
  */
 template<typename T, bool thread_safe = true, bool check_recycle = true>
-class Pool : public thread_safety<conditional_mutex_t<true>> {
+class Pool : public thread_safety<conditional_mutex_t<true, luisa::spin_mutex>> {
 
 public:
     static constexpr auto block_size = 64u;

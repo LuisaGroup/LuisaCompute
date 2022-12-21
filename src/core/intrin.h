@@ -14,6 +14,7 @@
 
 #if defined(LUISA_ARCH_X86_64)
 #include <immintrin.h>
+#include <cstdint>
 #define LUISA_INTRIN_PAUSE() _mm_pause()
 namespace luisa {
 using float16_t = int16_t;

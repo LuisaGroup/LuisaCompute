@@ -1,6 +1,4 @@
-set(LUISA_COMPUTE_CORE_SOURCES
-
-        # STL alternatives
+set(LUISA_COMPUTE_CORE_STL_SOURCES
         stl/deque.h
         stl/filesystem.cpp stl/filesystem.h
         stl/fixed_map.h
@@ -22,12 +20,14 @@ set(LUISA_COMPUTE_CORE_SOURCES
         stl/unordered_map.h
         stl/variant.h
         stl/vector.h
-        stl/vector_map.h
+        stl/vector_map.h)
 
-        # other
+
+set(LUISA_COMPUTE_CORE_SOURCES
         basic_traits.h
         basic_types.cpp basic_types.h
-        binary_buffer.h
+        binary_buffer.cpp binary_buffer.h
+        binary_io.h
         clock.h
         concepts.h
         constants.h
@@ -53,7 +53,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         thread_safety.h)
 
 find_package(Threads REQUIRED)
-add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_SOURCES})
+add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_STL_SOURCES} ${LUISA_COMPUTE_CORE_SOURCES})
 target_compile_definitions(luisa-compute-core PRIVATE LC_CORE_EXPORT_DLL=1)
 
 target_link_libraries(luisa-compute-core PUBLIC
@@ -67,10 +67,5 @@ set_target_properties(luisa-compute-core PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 add_dependencies(luisa-compute-core luisa-compute-ext-copy)
-
-if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(luisa-compute-core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
-    target_link_options(luisa-compute-core INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
-endif ()
 
 luisa_compute_install(core SOURCES ${LUISA_COMPUTE_CORE_SOURCES})

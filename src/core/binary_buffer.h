@@ -5,7 +5,8 @@
 #pragma once
 
 #include <bit>
-#include <core/stl.h>
+#include <core/stl/vector.h>
+#include <core/stl/memory.h>
 
 namespace luisa {
 
@@ -15,15 +16,7 @@ private:
     luisa::vector<std::byte> _bytes;
 
 private:
-    void _write_bytes(const void *data, size_t size, size_t alignment) noexcept {
-        auto offset = align(_bytes.size(), alignment);
-        auto size_after_write = offset + size;
-        auto required_capacity = std::bit_ceil(size_after_write);
-        _bytes.reserve(required_capacity);
-        auto ptr = _bytes.data() + offset;
-        _bytes.resize(size_after_write);
-        std::memcpy(ptr, data, size);
-    }
+    void _write_bytes(const void *data, size_t size, size_t alignment) noexcept;
 
 public:
     explicit BinaryBuffer(size_t capacity = 1_mb) noexcept

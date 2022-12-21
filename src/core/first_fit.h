@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include <cstddef>
-#include <core/stl.h>
+#include <core/stl/string.h>
 
 namespace luisa {
 

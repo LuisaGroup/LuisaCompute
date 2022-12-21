@@ -4,7 +4,9 @@
 
 #pragma once
 
-#include <core/stl.h>
+#include <core/stl/vector.h>
+#include <core/stl/memory.h>
+#include <core/stl/unordered_map.h>
 #include <core/spin_mutex.h>
 
 namespace luisa {

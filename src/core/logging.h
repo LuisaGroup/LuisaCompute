@@ -5,11 +5,11 @@
 #pragma once
 
 #include <string_view>
-#include <iostream>
 
 #include <spdlog/spdlog.h>
+
+#include <core/stl/format.h>
 #include <core/platform.h>
-#include <core/stl.h>
 
 namespace luisa {
 
