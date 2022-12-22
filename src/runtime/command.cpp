@@ -167,18 +167,18 @@ inline void ShaderDispatchCommand::_encode_accel(uint64_t handle) noexcept {
 }
 
 inline void ShaderDispatchCommand::_encode_pending_bindings() noexcept {
-    auto bindings = _kernel.builder()->argument_bindings();
+    auto bindings = _kernel.argument_bindings();
     while (_argument_count < _kernel.arguments().size() &&
            !luisa::holds_alternative<luisa::monostate>(bindings[_argument_count])) {
         luisa::visit(
             [&, arg = _kernel.arguments()[_argument_count]]<typename T>(T binding) noexcept {
-                if constexpr (std::is_same_v<T, detail::FunctionBuilder::BufferBinding>) {
+                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
                     _encode_buffer(binding.handle, binding.offset_bytes, binding.size_bytes);
-                } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::TextureBinding>) {
+                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
                     _encode_texture(binding.handle, binding.level);
-                } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::BindlessArrayBinding>) {
+                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
                     _encode_bindless_array(binding.handle);
-                } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::AccelBinding>) {
+                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
                     _encode_accel(binding.handle);
                 } else {
                     LUISA_ERROR_WITH_LOCATION("Invalid argument binding type.");

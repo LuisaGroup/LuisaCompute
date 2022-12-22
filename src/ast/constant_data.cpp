@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/3/6.
 //
 
+#include <core/stl/hash.h>
 #include <core/spin_mutex.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>

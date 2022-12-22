@@ -359,6 +359,8 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
         case CallOp::CLAMP: return _builtin_clamp(
             args[0]->type(), _create_expr(args[0]),
             _create_expr(args[1]), _create_expr(args[2]));
+        case CallOp::SATURATE: return _builtin_saturate(
+            args[0]->type(), _create_expr(args[0]));
         case CallOp::LERP: return _builtin_lerp(
             args[0]->type(), _create_expr(args[0]),
             _create_expr(args[1]), _create_expr(args[2]));
@@ -553,19 +555,19 @@ void LLVMCodegen::_builtin_set_instance_visibility(::llvm::Value *accel, ::llvm:
         case CallOp::UNREACHABLE:
             _builtin_unreachable();
             return nullptr;
-        case CallOp::INSTANCE_TO_WORLD_MATRIX: return _builtin_instance_transform(
+        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: return _builtin_instance_transform(
             _create_expr(args[0]), _create_expr(args[1]));
-        case CallOp::SET_INSTANCE_TRANSFORM:
+        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
             _builtin_set_instance_transform(
                 _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
             return nullptr;
-        case CallOp::SET_INSTANCE_VISIBILITY:
+        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY:
             _builtin_set_instance_visibility(
                 _create_expr(args[0]), _create_expr(args[1]), _create_expr(args[2]));
             return nullptr;
-        case CallOp::TRACE_CLOSEST: return _builtin_trace_closest(
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: return _builtin_trace_closest(
             _create_expr(args[0]), _create_expr(args[1]));
-        case CallOp::TRACE_ANY: return _builtin_trace_any(
+        case CallOp::RAY_TRACING_TRACE_ANY: return _builtin_trace_any(
             _create_expr(args[0]), _create_expr(args[1]));
         default: break;
     }
@@ -649,6 +651,21 @@ void LLVMCodegen::_builtin_synchronize_block() noexcept {
     if (t->dimension() == 3u) { return _builtin_select(Type::of<bool3>(), t, _builtin_lt(t, x, edge), zero, one); }
     if (t->dimension() == 4u) { return _builtin_select(Type::of<bool4>(), t, _builtin_lt(t, x, edge), zero, one); }
     LUISA_ERROR_WITH_LOCATION("Invalid type '{}' for step.", t->description());
+}
+
+::llvm::Value *LLVMCodegen::_builtin_saturate(const Type *t, ::llvm::Value *x) noexcept {
+    LUISA_ASSERT(t->tag() == Type::Tag::FLOAT,
+                 "Invalid type '{}' for saturate",
+                 t->description());
+    static Callable saturate = [](Float x) noexcept {
+        return clamp(x, 0.f, 1.f);
+    };
+    auto func = _create_function(saturate.function());
+    auto b = _current_context()->builder.get();
+    auto ir_type = _create_type(t);
+    x = b->CreateLoad(ir_type, x, "saturate.x");
+    auto ret = b->CreateCall(func->getFunctionType(), func, x, "saturate.ret");
+    return _create_stack_variable(ret, "saturate.ret.addr");
 }
 
 ::llvm::Value *LLVMCodegen::_builtin_abs(const Type *t, ::llvm::Value *x) noexcept {

@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2022/3/4.
 //
 
+#include <core/logging.h>
 #include <compile/definition_analysis.h>
 
 namespace luisa::compute {

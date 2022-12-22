@@ -4,13 +4,8 @@
 
 #pragma once
 
-#include <variant>
-#include <memory>
-#include <span>
-#include <mutex>
-#include <vector>
-#include <array>
-
+#include <core/stl/variant.h>
+#include <core/stl/vector.h>
 #include <core/basic_types.h>
 #include <core/concepts.h>
 

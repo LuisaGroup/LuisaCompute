@@ -4,6 +4,7 @@
 
 #import <span>
 
+#import <core/logging.h>
 #import <ast/type_registry.h>
 #import <ast/function_builder.h>
 #import <ast/constant_data.h>
@@ -164,6 +165,7 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::ANY: _scratch << "any"; break;
         case CallOp::SELECT: _scratch << "select"; break;
         case CallOp::CLAMP: _scratch << "clamp"; break;
+        case CallOp::SATURATE: _scratch << "saturate"; break;
         case CallOp::LERP: _scratch << "mix"; break;
         case CallOp::STEP: _scratch << "step"; break;
         case CallOp::ABS: _scratch << "abs"; break;
@@ -290,11 +292,11 @@ void MetalCodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT4X4: _scratch << "make_float4x4"; break;
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
-        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "accel_instance_transform"; break;
-        case CallOp::TRACE_CLOSEST: _scratch << "trace_closest"; break;
-        case CallOp::TRACE_ANY: _scratch << "trace_any"; break;
-        case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
-        case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
+        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "accel_instance_transform"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "trace_closest"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "trace_any"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "accel_set_instance_transform"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "accel_set_instance_visibility"; break;
     }
 
     if (is_atomic_op) {
@@ -1399,4 +1401,4 @@ struct Accel {
 )";
 }
 
-}
+}// namespace luisa::compute::metal

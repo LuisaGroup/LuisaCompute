@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/stl/unordered_map.h>
 #include <ast/function.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 

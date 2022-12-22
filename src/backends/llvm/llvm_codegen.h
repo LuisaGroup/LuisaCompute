@@ -218,6 +218,7 @@ private:
     [[nodiscard]] ::llvm::Value *_builtin_select(const Type *t_pred, const Type *t_value, ::llvm::Value *pred,
                                                  ::llvm::Value *v_true, ::llvm::Value *v_false) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_clamp(const Type *t, ::llvm::Value *v, ::llvm::Value *lo, ::llvm::Value *hi) noexcept;
+    [[nodiscard]] ::llvm::Value *_builtin_saturate(const Type *t, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_lerp(const Type *t, ::llvm::Value *a, ::llvm::Value *b, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_step(const Type *t, ::llvm::Value *edge, ::llvm::Value *x) noexcept;
     [[nodiscard]] ::llvm::Value *_builtin_abs(const Type *t, ::llvm::Value *x) noexcept;

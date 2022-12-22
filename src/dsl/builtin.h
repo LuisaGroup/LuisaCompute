@@ -1098,7 +1098,8 @@ template<typename X, typename Y, typename Z>
 template<typename Tv>
     requires is_dsl_v<Tv> && is_float_or_vector_expr_v<Tv>
 [[nodiscard]] inline auto saturate(Tv &&v) noexcept {
-    return clamp(std::forward<Tv>(v), 0.0f, 1.0f);
+    return detail::make_vector_call<float>(
+        CallOp::SATURATE, std::forward<Tv>(v));
 }
 
 /// Step. x < step ? 0 : 1

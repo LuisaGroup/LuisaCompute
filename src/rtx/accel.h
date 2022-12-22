@@ -72,45 +72,45 @@ public:
     [[nodiscard]] auto trace_closest(Expr<Ray> ray) const noexcept {
         return def<Hit>(
             detail::FunctionBuilder::current()->call(
-                Type::of<Hit>(), CallOp::TRACE_CLOSEST,
+                Type::of<Hit>(), CallOp::RAY_TRACING_TRACE_CLOSEST,
                 {_expression, ray.expression()}));
     }
     [[nodiscard]] auto trace_any(Expr<Ray> ray) const noexcept {
         return def<bool>(
             detail::FunctionBuilder::current()->call(
-                Type::of<bool>(), CallOp::TRACE_ANY,
+                Type::of<bool>(), CallOp::RAY_TRACING_TRACE_ANY,
                 {_expression, ray.expression()}));
     }
     [[nodiscard]] auto instance_transform(Expr<uint> instance_id) const noexcept {
         return def<float4x4>(
             detail::FunctionBuilder::current()->call(
-                Type::of<float4x4>(), CallOp::INSTANCE_TO_WORLD_MATRIX,
+                Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_TRANSFORM,
                 {_expression, instance_id.expression()}));
     }
     [[nodiscard]] auto instance_transform(Expr<int> instance_id) const noexcept {
         return def<float4x4>(
             detail::FunctionBuilder::current()->call(
-                Type::of<float4x4>(), CallOp::INSTANCE_TO_WORLD_MATRIX,
+                Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_TRANSFORM,
                 {_expression, instance_id.expression()}));
     }
     void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_INSTANCE_TRANSFORM,
+            CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM,
             {_expression, instance_id.expression(), mat.expression()});
     }
     void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_INSTANCE_VISIBILITY,
+            CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY,
             {_expression, instance_id.expression(), vis.expression()});
     }
     void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_INSTANCE_TRANSFORM,
+            CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM,
             {_expression, instance_id.expression(), mat.expression()});
     }
     void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
         detail::FunctionBuilder::current()->call(
-            CallOp::SET_INSTANCE_VISIBILITY,
+            CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY,
             {_expression, instance_id.expression(), vis.expression()});
     }
 };

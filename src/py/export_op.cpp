@@ -166,8 +166,8 @@ void export_op(py::module &m) {
     	.value("ASSUME", CallOp::ASSUME)
     	.value("UNREACHABLE", CallOp::UNREACHABLE)
 
-    	.value("INSTANCE_TO_WORLD_MATRIX", CallOp::INSTANCE_TO_WORLD_MATRIX)
+    	.value("INSTANCE_TO_WORLD_MATRIX", CallOp::RAY_TRACING_INSTANCE_TRANSFORM)
 
-    	.value("TRACE_CLOSEST", CallOp::TRACE_CLOSEST)
-    	.value("TRACE_ANY", CallOp::TRACE_ANY);
+    	.value("TRACE_CLOSEST", CallOp::RAY_TRACING_TRACE_CLOSEST)
+    	.value("TRACE_ANY", CallOp::RAY_TRACING_TRACE_ANY);
 }

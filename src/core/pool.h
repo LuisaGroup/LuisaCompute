@@ -4,14 +4,16 @@
 
 #pragma once
 
-#include <array>
-#include <mutex>
-
-#include <core/logging.h>
+#include <core/stl/vector.h>
+#include <core/stl/memory.h>
 #include <core/spin_mutex.h>
 #include <core/thread_safety.h>
 
 namespace luisa {
+
+namespace detail {
+void memory_pool_check_memory_leak(size_t expected, size_t actual) noexcept;
+}
 
 /**
  * @brief Pool class
@@ -59,14 +61,9 @@ public:
     ~Pool() noexcept {
         if (!_blocks.empty()) {
             if constexpr (check_recycle) {
-                if (auto available = _available_objects.size(),
-                    expected = _blocks.size() * block_size;
-                    available != expected) {
-                    LUISA_WARNING_WITH_LOCATION(
-                        "Leaks detected in pool: "
-                        "expected {} objects but got {}.",
-                        expected, available);
-                }
+                detail::memory_pool_check_memory_leak(
+                    _blocks.size() * block_size,
+                    _available_objects.size());
             }
             for (auto b : _blocks) {
                 detail::allocator_deallocate(b, alignof(T));

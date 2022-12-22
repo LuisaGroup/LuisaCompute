@@ -5,11 +5,13 @@
 #pragma once
 
 #include <bitset>
-#include <iterator>
 
+#include <core/stl/memory.h>
 #include <core/basic_types.h>
 
 namespace luisa::compute {
+
+class AstSerializer;
 
 /**
  * @brief Enum of unary operations.
@@ -17,8 +19,8 @@ namespace luisa::compute {
  * Note: We deliberately support *NO* pre and postfix inc/dec operators to avoid possible abuse
  */
 enum struct UnaryOp : uint32_t {
-    PLUS,
-    MINUS,  // +x, -x
+    PLUS,   // +x
+    MINUS,  // -x
     NOT,    // !x
     BIT_NOT,// ~x
 };
@@ -65,6 +67,7 @@ enum struct CallOp : uint32_t {
 
     SELECT,
     CLAMP,
+    SATURATE,
     LERP,
     STEP,
 
@@ -181,14 +184,49 @@ enum struct CallOp : uint32_t {
     ASSUME,
     UNREACHABLE,
 
-    INSTANCE_TO_WORLD_MATRIX,
-    SET_INSTANCE_TRANSFORM,
-    SET_INSTANCE_VISIBILITY,
-    TRACE_CLOSEST,
-    TRACE_ANY
+    // ray tracing
+    RAY_TRACING_INSTANCE_AABB,
+    RAY_TRACING_INSTANCE_TRANSFORM,
+    RAY_TRACING_SET_INSTANCE_AABB,
+    RAY_TRACING_SET_INSTANCE_TRANSFORM,
+    RAY_TRACING_SET_INSTANCE_VISIBILITY,
+    RAY_TRACING_SET_INSTANCE_OPACITY,
+    RAY_TRACING_TRACE_CLOSEST,
+    RAY_TRACING_TRACE_ANY,
+    RAY_TRACING_TRACE_ALL,
+
+    // ray query
+    RAY_QUERY_PROCEED, //Proceed(query): bool return: is bvh completed?
+    RAY_QUERY_IS_CANDIDATE_TRIANGLE,
+    RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,
+    RAY_QUERY_TRIANGLE_CANDIDATE_HIT,
+    RAY_QUERY_COMMITTED_HIT,
+    RAY_QUERY_COMMIT_TRIANGLE,
+    RAY_QUERY_COMMIT_PROCEDURAL,
+
+
+    // rasterization
+    RASTER_DISCARD,
+
+    // indirect
+    INDIRECT_CLEAR_DISPATCH_BUFFER,
+    INDIRECT_EMPLACE_DISPATCH_KERNEL,
+
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::TRACE_ANY) + 1u;
+static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
+
+[[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
+    return op == CallOp::ATOMIC_EXCHANGE ||
+           op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
+           op == CallOp::ATOMIC_FETCH_ADD ||
+           op == CallOp::ATOMIC_FETCH_SUB ||
+           op == CallOp::ATOMIC_FETCH_AND ||
+           op == CallOp::ATOMIC_FETCH_OR ||
+           op == CallOp::ATOMIC_FETCH_XOR ||
+           op == CallOp::ATOMIC_FETCH_MIN ||
+           op == CallOp::ATOMIC_FETCH_MAX;
+}
 
 /**
  * @brief Set of call operations.
@@ -230,6 +268,22 @@ public:
     void propagate(CallOpSet other) noexcept { _bits |= other._bits; }
     [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
     [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
+    [[nodiscard]] auto uses_raytracing() const noexcept {
+        return test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
+               test(CallOp::RAY_TRACING_TRACE_ANY) ||
+               test(CallOp::RAY_TRACING_TRACE_ALL);
+    }
+    [[nodiscard]] auto uses_atomic() const noexcept {
+        return test(CallOp::ATOMIC_FETCH_ADD) ||
+               test(CallOp::ATOMIC_FETCH_SUB) ||
+               test(CallOp::ATOMIC_FETCH_MIN) ||
+               test(CallOp::ATOMIC_FETCH_AND) ||
+               test(CallOp::ATOMIC_FETCH_OR) ||
+               test(CallOp::ATOMIC_FETCH_XOR) ||
+               test(CallOp::ATOMIC_EXCHANGE) ||
+               test(CallOp::ATOMIC_EXCHANGE) ||
+               test(CallOp::ATOMIC_COMPARE_EXCHANGE);
+    }
 };
 
 }// namespace luisa::compute

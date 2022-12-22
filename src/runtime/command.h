@@ -19,7 +19,6 @@
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <runtime/pixel.h>
-#include <ast/function_builder.h>
 
 namespace luisa::compute {
 

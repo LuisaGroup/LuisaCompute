@@ -4,17 +4,14 @@
 
 #pragma once
 
-#include <cassert>
-#include <string>
-#include <vector>
-#include <string_view>
-#include <span>
-#include <memory>
-
+#include <core/stl/vector.h>
+#include <core/stl/string.h>
+#include <core/stl/functional.h>
 #include <core/concepts.h>
-#include <core/stl.h>
 
 namespace luisa::compute {
+
+class AstSerializer;
 
 template<typename T>
 struct array_dimension {
@@ -236,7 +233,7 @@ struct dimension_impl<std::tuple<T...>> {
     static constexpr auto value = sizeof...(T);
 };
 
-class TypeRegistry;
+class TypeRegistryImpl;
 
 }// namespace detail
 
@@ -255,9 +252,9 @@ struct TypeVisitor {
 /// Type class
 class LC_AST_API Type {
 
-public:
-        friend class detail::TypeRegistry;
+    friend class detail::TypeRegistryImpl;
 
+public:
     /// Type tags
     enum struct Tag : uint32_t {
 
@@ -275,20 +272,29 @@ public:
         BUFFER,
         TEXTURE,
         BINDLESS_ARRAY,
-        ACCEL
+        ACCEL,
+
+        CUSTOM
     };
 
 private:
-    uint64_t _hash;
-    size_t _size;
-    size_t _index;
-    size_t _alignment;
-    uint32_t _dimension;
-    Tag _tag;
+    uint64_t _hash{};
+    size_t _size{};
+    size_t _index{};
+    size_t _alignment{};
+    uint32_t _dimension{};
+    Tag _tag{};
     luisa::string _description;
     luisa::vector<const Type *> _members;
 
 public:
+    Type() noexcept = default;
+    // Disable copy and move
+    Type(Type &&) noexcept = delete;
+    Type(const Type &) noexcept = delete;
+    Type &operator=(Type &&) noexcept = delete;
+    Type &operator=(const Type &) noexcept = delete;
+
     /// Return Type object of type T
     template<typename T>
     [[nodiscard]] static const Type *of() noexcept;
@@ -308,47 +314,33 @@ public:
     static void traverse(const luisa::function<void(const Type *)> &visitor) noexcept;
 
     /// Compare by hash
-    [[nodiscard]] bool operator==(const Type &rhs) const noexcept { return _hash == rhs._hash; }
-    /// Compare by hash
-    [[nodiscard]] bool operator!=(const Type &rhs) const noexcept { return !(*this == rhs); }
+    [[nodiscard]] bool operator==(const Type &rhs) const noexcept;
     /// Compare by index
-    [[nodiscard]] bool operator<(const Type &rhs) const noexcept { return _index < rhs._index; }
-    [[nodiscard]] constexpr auto index() const noexcept { return _index; }
-    [[nodiscard]] constexpr auto hash() const noexcept { return _hash; }
-    [[nodiscard]] constexpr auto size() const noexcept { return _size; }
-    [[nodiscard]] constexpr auto alignment() const noexcept { return _alignment; }
-    [[nodiscard]] constexpr auto tag() const noexcept { return _tag; }
-    [[nodiscard]] auto description() const noexcept { return luisa::string_view{_description}; }
-    [[nodiscard]] constexpr size_t dimension() const noexcept {
-        assert(is_array() || is_vector() || is_matrix() || is_texture());
-        return _dimension;
-    }
-
+    [[nodiscard]] bool operator<(const Type &rhs) const noexcept;
+    [[nodiscard]] uint index() const noexcept;
+    [[nodiscard]] uint64_t hash() const noexcept;
+    [[nodiscard]] size_t size() const noexcept;
+    [[nodiscard]] size_t alignment() const noexcept;
+    [[nodiscard]] Tag tag() const noexcept;
+    [[nodiscard]] luisa::string_view description() const noexcept;
+    [[nodiscard]] uint dimension() const noexcept;
     [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
-    /// Return pointer to first element
     [[nodiscard]] const Type *element() const noexcept;
 
     /// Scalar = bool || float || int || uint
-    [[nodiscard]] constexpr bool is_scalar() const noexcept {
-        return _tag == Tag::BOOL
-               || _tag == Tag::FLOAT
-               || _tag == Tag::INT
-               || _tag == Tag::UINT;
-    }
+    [[nodiscard]] bool is_scalar() const noexcept;
 
     /// Basic = scalar || vector || matrix
-    [[nodiscard]] constexpr auto is_basic() const noexcept {
-        return is_scalar() || is_vector() || is_matrix();
-    }
-
-    [[nodiscard]] constexpr bool is_array() const noexcept { return _tag == Tag::ARRAY; }
-    [[nodiscard]] constexpr bool is_vector() const noexcept { return _tag == Tag::VECTOR; }
-    [[nodiscard]] constexpr bool is_matrix() const noexcept { return _tag == Tag::MATRIX; }
-    [[nodiscard]] constexpr bool is_structure() const noexcept { return _tag == Tag::STRUCTURE; }
-    [[nodiscard]] constexpr bool is_buffer() const noexcept { return _tag == Tag::BUFFER; }
-    [[nodiscard]] constexpr bool is_texture() const noexcept { return _tag == Tag::TEXTURE; }
-    [[nodiscard]] constexpr bool is_bindless_array() const noexcept { return _tag == Tag::BINDLESS_ARRAY; }
-    [[nodiscard]] constexpr bool is_accel() const noexcept { return _tag == Tag::ACCEL; }
+    [[nodiscard]] bool is_basic() const noexcept;
+    [[nodiscard]] bool is_array() const noexcept;
+    [[nodiscard]] bool is_vector() const noexcept;
+    [[nodiscard]] bool is_matrix() const noexcept;
+    [[nodiscard]] bool is_structure() const noexcept;
+    [[nodiscard]] bool is_buffer() const noexcept;
+    [[nodiscard]] bool is_texture() const noexcept;
+    [[nodiscard]] bool is_bindless_array() const noexcept;
+    [[nodiscard]] bool is_accel() const noexcept;
+    [[nodiscard]] bool is_custom() const noexcept;
 };
 
 }// namespace luisa::compute
