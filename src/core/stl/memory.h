@@ -103,9 +103,6 @@ inline void delete_with_allocator(T *p) noexcept {
 using eastl::bit_cast;
 using eastl::span;
 
-struct default_sentinel_t {};
-inline constexpr default_sentinel_t default_sentinel{};
-
 // smart pointers
 using eastl::compressed_pair;
 using eastl::const_pointer_cast;

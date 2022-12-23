@@ -78,7 +78,7 @@
 #define $default ::luisa::compute::detail::SwitchDefaultStmtBuilder{} % [&]() noexcept
 
 #define $for(x, ...)                                    \
-    for (auto x : ::luisa::compute::range(__VA_ARGS__)) \
+    for (auto x : ::luisa::compute::dynamic_range(__VA_ARGS__)) \
     ::luisa::compute::detail::ForStmtBodyInvoke{} % [&]() noexcept
 
 #define $comment(...) \

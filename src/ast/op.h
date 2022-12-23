@@ -6,7 +6,7 @@
 
 #include <bitset>
 
-#include <core/stl/memory.h>
+#include <core/stl/iterator.h>
 #include <core/basic_types.h>
 
 namespace luisa::compute {

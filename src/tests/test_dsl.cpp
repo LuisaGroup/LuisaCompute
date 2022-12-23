@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
             if_(true, break_);
         });
 
-        for (auto v : range(v_int)) {
+        for (auto v : dynamic_range(v_int)) {
             v_int += v;
         }
 

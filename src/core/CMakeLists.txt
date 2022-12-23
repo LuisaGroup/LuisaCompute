@@ -6,6 +6,7 @@ set(LUISA_COMPUTE_CORE_STL_SOURCES
         stl/functional.h
         stl/hash.cpp stl/hash.h
         stl/hash_fwd.h
+        stl/iterator.h
         stl/list.h
         stl/lru_cache.h
         stl/map.h

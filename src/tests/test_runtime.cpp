@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
         Var a_copy = am.get<0>();
         Var m_copy = am.get<1>();
 
-        for (auto v : range(v_int)) {
+        for (auto v : dynamic_range(v_int)) {
             v_int += v;
         }
 
