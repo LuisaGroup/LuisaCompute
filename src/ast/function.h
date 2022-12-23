@@ -5,8 +5,9 @@
 #include <numeric>
 
 #include <core/basic_types.h>
-#include <ast/variable.h>
 #include <ast/op.h>
+#include <ast/variable.h>
+#include <ast/expression.h>
 #include <ast/constant_data.h>
 
 namespace luisa::compute {
@@ -16,7 +17,6 @@ class FunctionBuilder;
 }
 
 class ScopeStmt;
-class Expression;
 class AstSerializer;
 
 /**
@@ -92,6 +92,16 @@ public:
         explicit AccelBinding(uint64_t handle) noexcept
             : handle{handle} {}
         [[nodiscard]] uint64_t hash() const noexcept;
+    };
+
+    /**
+     * @brief Binding.
+     *
+     * Extension callback for CPU backends.
+     */
+    struct CpuCallback {
+        CpuCustomOpExpr::Callback callback;
+        void * user_data;
     };
 
     using Binding = luisa::variant<

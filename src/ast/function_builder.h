@@ -65,11 +65,11 @@ private:
         ~FunctionStackGuard() noexcept { pop(_builder); }
     };
 
-
 public:
     using Tag = Function::Tag;
     using Constant = Function::Constant;
     using Binding = Function::Binding;
+    using CpuCallback = Function::CpuCallback;
 
 private:
     ScopeStmt _body;
@@ -95,8 +95,6 @@ private:
     bool _requires_atomic_float{false};
 
 protected:
-    
-
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
 
@@ -329,10 +327,9 @@ public:
     /// Add for statement
     [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
 
-
     // For autodiff use only
-    [[nodiscard]] const Statement * _pop_stmt() noexcept;
-    
+    [[nodiscard]] const Statement *pop_stmt() noexcept;
+
     /// Run body function in given scope s
     template<typename Body>
     decltype(auto) with(ScopeStmt *s, Body &&body) {
@@ -357,7 +354,6 @@ public:
     /// Pop a function builder in stack
     static void pop(FunctionBuilder *) noexcept;
 
-    
     /// Push a scope
     void push_scope(ScopeStmt *) noexcept;
     /// Pop a scope

@@ -11,6 +11,7 @@
 
 namespace luisa::compute {
 
+class Type;
 class AstSerializer;
 
 /**
@@ -236,18 +237,6 @@ enum struct CallOp : uint32_t {
 };
 
 static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
-
-[[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
-    return op == CallOp::ATOMIC_EXCHANGE ||
-           op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
-           op == CallOp::ATOMIC_FETCH_ADD ||
-           op == CallOp::ATOMIC_FETCH_SUB ||
-           op == CallOp::ATOMIC_FETCH_AND ||
-           op == CallOp::ATOMIC_FETCH_OR ||
-           op == CallOp::ATOMIC_FETCH_XOR ||
-           op == CallOp::ATOMIC_FETCH_MIN ||
-           op == CallOp::ATOMIC_FETCH_MAX;
-}
 
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
     return op == CallOp::ATOMIC_EXCHANGE ||

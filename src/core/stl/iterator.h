@@ -34,7 +34,9 @@ public:
         }
         [[nodiscard]] constexpr auto operator*() const noexcept { return _value; }
         [[nodiscard]] constexpr auto operator==(default_sentinel_t) const noexcept -> bool {
-            return _step > 0 ? _value >= _end : _value <= _end;
+            return _step > static_cast<T>(0) ?
+                       _value >= _end :
+                       _value <= _end;
         }
     };
 

@@ -9,12 +9,13 @@
 #include <core/concepts.h>
 #include <core/basic_types.h>
 #include <ast/variable.h>
-#include <ast/function.h>
 #include <ast/op.h>
 #include <ast/constant_data.h>
 
 namespace luisa::compute {
+
 class Statement;
+class Function;
 struct ExprVisitor;
 class AstSerializer;
 
@@ -94,8 +95,8 @@ struct ExprVisitor {
     virtual void visit(const ConstantExpr *) = 0;
     virtual void visit(const CallExpr *) = 0;
     virtual void visit(const CastExpr *) = 0;
-    virtual void visit(const CpuCustomOpExpr *) { LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend."); };
-    virtual void visit(const GpuCustomOpExpr *) { LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend."); };
+    virtual void visit(const CpuCustomOpExpr *);
+    virtual void visit(const GpuCustomOpExpr *);
 };
 
 #define LUISA_EXPRESSION_COMMON() \
@@ -351,7 +352,7 @@ public:
 
 private:
     ArgumentList _arguments;
-    Function _custom;
+    const detail::FunctionBuilder *_custom;
     CallOp _op;
 
 protected:
@@ -367,11 +368,7 @@ public:
      * @param callable function to call
      * @param args arguments of function
      */
-    CallExpr(const Type *type, Function callable, ArgumentList args) noexcept
-        : Expression{Tag::CALL, type},
-          _arguments{std::move(args)},
-          _custom{callable},
-          _op{CallOp::CUSTOM} { _mark(); }
+    CallExpr(const Type *type, Function callable, ArgumentList args) noexcept;
     /**
      * @brief Construct a new CallExpr object calling builtin function
      * 
@@ -379,15 +376,11 @@ public:
      * @param builtin builtin function tag
      * @param args arguments of function
      */
-    CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept
-        : Expression{Tag::CALL, type},
-          _arguments{std::move(args)},
-          _custom{},
-          _op{builtin} { _mark(); }
+    CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept;
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
-    [[nodiscard]] auto custom() const noexcept { return _custom; }
     [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
+    [[nodiscard]] Function custom() const noexcept;
     LUISA_EXPRESSION_COMMON()
 };
 
@@ -430,7 +423,7 @@ public:
         : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _user_data{user_data}, _arg(arg) {}
     [[nodiscard]] auto callback() const noexcept { return _callback; }
     [[nodiscard]] auto user_data() const noexcept { return _user_data; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 
 private:
     Callback _callback;
@@ -449,7 +442,7 @@ public:
     GpuCustomOpExpr(const Type *type, std::string source, const Expression *arg) noexcept
         : Expression{Tag::GPUCUSTOM, type}, _source{std::move(source)}, _arg(arg) {}
     [[nodiscard]] auto source() const noexcept { return _source; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 
 private:
     std::string _source;

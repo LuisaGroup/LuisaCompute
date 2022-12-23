@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-#include <core/hash.h>
-#include <core/stl.h>
+#include <core/stl/hash.h>
+
 #include <runtime/command.h>
 #include <runtime/device.h>
 
@@ -41,7 +41,7 @@ public:
     };
     struct RangeHash {
         uint64_t operator()(Range const &r) const {
-            return hash64(&r, sizeof(Range), Hash64::default_seed);
+            return hash64(&r, sizeof(Range), hash64_default_seed);
         }
     };
     struct ResourceView {

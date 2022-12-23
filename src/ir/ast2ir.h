@@ -31,12 +31,7 @@ private:
             : _self{self}, _builder{builder} {
             self->_builder_stack.emplace_back(builder);
         }
-        ~IrBuilderGuard() noexcept {
-            LUISA_ASSERT(!_self->_builder_stack.empty() &&
-                             _self->_builder_stack.back() == _builder,
-                         "Invalid IR builder stack.");
-            _self->_builder_stack.pop_back();
-        }
+        ~IrBuilderGuard() noexcept;
     };
 
 private:
@@ -54,9 +49,9 @@ private:
                     .len = 0u,
                     .destructor = [](T *, size_t) noexcept {}};
         }
-        return {.ptr = luisa::allocate<T>(n),
+        return {.ptr = luisa::allocate_with_allocator<T>(n),
                 .len = n,
-                .destructor = [](T *ptr, size_t) noexcept { luisa::deallocate(ptr); }};
+                .destructor = [](T *ptr, size_t) noexcept { luisa::deallocate_with_allocator(ptr); }};
     }
 
     template<typename Fn>

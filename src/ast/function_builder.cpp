@@ -301,9 +301,11 @@ const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData dat
     }
     return _create_expression<ConstantExpr>(type, data);
 }
-const Statement* FunctionBuilder::_pop_stmt() noexcept {
-    return _scope_stack.back()->_pop();
+
+const Statement* FunctionBuilder::pop_stmt() noexcept {
+    return _scope_stack.back()->pop();
 }
+
 void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {
     _scope_stack.emplace_back(s);
 }

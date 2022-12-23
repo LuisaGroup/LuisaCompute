@@ -2,8 +2,9 @@
 // Created by Mike Smith on 2022/10/17.
 //
 
-#include <ir/ast2ir.h>
+#include <core/logging.h>
 #include <ast/function_builder.h>
+#include <ir/ast2ir.h>
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "misc-no-recursion"
@@ -45,7 +46,6 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
         auto non_capture_index = 0u;
         // process arguments
         for (auto i = 0u; i < bindings.size(); i++) {
-            using FB = detail::FunctionBuilder;
             auto binding = bindings[i];
             auto node = _convert_argument(_function.arguments()[i]);
             luisa::visit(
@@ -53,7 +53,7 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
                     [&](luisa::monostate) noexcept {
                         non_captures.ptr[non_capture_index++] = node;
                     },
-                    [&](FB::BufferBinding b) noexcept {
+                    [&](Function::BufferBinding b) noexcept {
                         ir::Capture c{};
                         c.node = node;
                         c.binding.tag = ir::Binding::Tag::Buffer;
@@ -62,7 +62,7 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
                                              .size = b.size_bytes}};
                         captures.ptr[capture_index++] = c;
                     },
-                    [&](FB::TextureBinding b) noexcept {
+                    [&](Function::TextureBinding b) noexcept {
                         ir::Capture c{};
                         c.node = node;
                         c.binding.tag = ir::Binding::Tag::Texture;
@@ -70,14 +70,14 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
                                               .level = b.level}};
                         captures.ptr[capture_index++] = c;
                     },
-                    [&](FB::BindlessArrayBinding b) noexcept {
+                    [&](Function::BindlessArrayBinding b) noexcept {
                         ir::Capture c{};
                         c.node = node;
                         c.binding.tag = ir::Binding::Tag::BindlessArray;
                         c.binding.bindless_array = {b.handle};
                         captures.ptr[capture_index++] = c;
                     },
-                    [&](FB::AccelBinding b) noexcept {
+                    [&](Function::AccelBinding b) noexcept {
                         ir::Capture c{};
                         c.node = node;
                         c.binding.tag = ir::Binding::Tag::Accel;
@@ -317,8 +317,10 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                 auto b = _current_builder();
                 return ir::luisa_compute_ir_build_const(b, c);
             } else {
-                auto salt = luisa::hash64("__ast2ir_literal");
-                auto hash = luisa::hash64(x, luisa::hash64(expr->type()->hash(), salt));
+                using namespace std::string_view_literals;
+                auto salt = luisa::hash_value("__ast2ir_literal"sv);
+                std::array a{hash_value(x), expr->type()->hash()};
+                auto hash = luisa::hash64(&a, sizeof(a), salt);
                 if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
                 auto slice = _boxed_slice<uint8_t>(sizeof(T));
                 std::memcpy(slice.ptr, &x, sizeof(T));
@@ -568,11 +570,11 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::MAKE_FLOAT4X4: return ir::Func::Tag::Matrix4;
             case CallOp::ASSUME: return ir::Func::Tag::Assume;
             case CallOp::UNREACHABLE: return ir::Func::Tag::Unreachable;
-            case CallOp::INSTANCE_TO_WORLD_MATRIX: return ir::Func::Tag::InstanceToWorldMatrix;
-            case CallOp::SET_INSTANCE_TRANSFORM: return ir::Func::Tag::SetInstanceTransform;
-            case CallOp::SET_INSTANCE_VISIBILITY: return ir::Func::Tag::SetInstanceVisibility;
-            case CallOp::TRACE_CLOSEST: return ir::Func::Tag::TraceClosest;
-            case CallOp::TRACE_ANY: return ir::Func::Tag::TraceAny;
+            case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: return ir::Func::Tag::InstanceToWorldMatrix;
+            case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: return ir::Func::Tag::SetInstanceTransform;
+            case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: return ir::Func::Tag::SetInstanceVisibility;
+            case CallOp::RAY_TRACING_TRACE_CLOSEST: return ir::Func::Tag::TraceClosest;
+            case CallOp::RAY_TRACING_TRACE_ANY: return ir::Func::Tag::TraceAny;
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION(
@@ -1115,8 +1117,10 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
                 auto b = _current_builder();
                 return ir::luisa_compute_ir_build_const(b, c);
             } else {
-                auto salt = luisa::hash64("__ast2ir_literal");
-                auto hash = luisa::hash64(x, luisa::hash64(type->hash(), salt));
+                using namespace std::string_view_literals;
+                auto salt = luisa::hash_value("__ast2ir_literal"sv);
+                std::array a{hash_value(x), type->hash()};
+                auto hash = luisa::hash64(&a, sizeof(a), salt);
                 if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
                 auto slice = _boxed_slice<uint8_t>(sizeof(T));
                 std::memcpy(slice.ptr, &x, sizeof(T));
@@ -1129,6 +1133,13 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
             }
         },
         value);
+}
+
+AST2IR::IrBuilderGuard::~IrBuilderGuard() noexcept {
+    LUISA_ASSERT(!_self->_builder_stack.empty() &&
+                 _self->_builder_stack.back() == _builder,
+                 "Invalid IR builder stack.");
+    _self->_builder_stack.pop_back();
 }
 
 }// namespace luisa::compute

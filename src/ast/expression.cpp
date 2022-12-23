@@ -65,12 +65,12 @@ void CallExpr::_mark() const noexcept {
             }
         }
     } else {
-        auto args = _custom.arguments();
+        auto args = _custom->arguments();
         for (auto i = 0u; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
                 arg.is_reference() || arg.is_resource() ?
-                    _custom.variable_usage(arg.uid()) :
+                    _custom->variable_usage(arg.uid()) :
                     Usage::READ);
         }
     }
@@ -83,11 +83,25 @@ uint64_t CallExpr::_compute_hash() const noexcept {
         hash = hash64(&h, sizeof(h), hash);
     }
     if (_op == CallOp::CUSTOM) {
-        auto h = _custom.hash();
+        auto h = _custom->hash();
         hash = hash64(&h, sizeof(h), hash);
     }
     return hash;
 }
+
+CallExpr::CallExpr(const Type *type, Function callable, CallExpr::ArgumentList args) noexcept
+    : Expression{Tag::CALL, type},
+      _arguments{std::move(args)},
+      _custom{callable.builder()},
+      _op{CallOp::CUSTOM} { _mark(); }
+
+CallExpr::CallExpr(const Type *type, CallOp builtin, CallExpr::ArgumentList args) noexcept
+    : Expression{Tag::CALL, type},
+      _arguments{std::move(args)},
+      _custom{},
+      _op{builtin} { _mark(); }
+
+Function CallExpr::custom() const noexcept { return Function{_custom}; }
 
 uint64_t UnaryExpr::_compute_hash() const noexcept {
     std::array a{static_cast<uint64_t>(_op), _operand->hash()};
@@ -163,6 +177,14 @@ uint64_t LiteralExpr::_compute_hash() const noexcept {
 
 uint64_t ConstantExpr::_compute_hash() const noexcept {
     return hash_value(_data);
+}
+
+void ExprVisitor::visit(const CpuCustomOpExpr *) {
+    LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend.");
+}
+
+void ExprVisitor::visit(const GpuCustomOpExpr *) {
+    LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
 
 }// namespace luisa::compute
