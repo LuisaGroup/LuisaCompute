@@ -1,12 +1,14 @@
 #pragma once
-#include <vstl/meta_lib.h>
+#include <vstl/MetaLib.h>
 #include <tuple>
 #include <EASTL/variant.h>
 namespace vstd {
 namespace detail {
 template<typename Func, typename PtrType>
-constexpr static decltype(auto) NoArgs_FuncTable(Func *func) {
-    return func->template operator()<std::remove_reference_t<PtrType>>();
+constexpr static decltype(auto) NoArgs_FuncTable(GetVoidType_t<Func> *func) {
+    using PureFunc = std::remove_cvref_t<Func>;
+    PureFunc *realFunc = reinterpret_cast<PureFunc *>(func);
+    return (std::forward<Func>(*realFunc)).template operator()<std::remove_reference_t<PtrType>>();
 }
 template<typename Func, typename... Args>
 static decltype(auto) VisitVariant(
@@ -37,91 +39,58 @@ public:
         }
     }
     template<typename T>
-    static T const &get_or(luisa::variant<Args...> const &v, T &&def) {
+    static T get_or(eastl::variant<Args...> const &v, T &&def) {
         if (IndexOf<T> == v.index()) {
-            return luisa::get<T>(v);
+            return eastl::get<T>(v);
         }
         return std::forward<T>(def);
     }
     template<typename T>
-    static T &get_or(luisa::variant<Args...> &v, T &&def) {
+    static T get_or(eastl::variant<Args...> &v, T &&def) {
         if (IndexOf<T> == v.index()) {
-            return luisa::get<T>(v);
+            return eastl::get<T>(v);
         }
         return std::forward<T>(def);
     }
     template<typename T>
-    static T &&get_or(luisa::variant<Args...> &&v, T &&def) {
+    static T get_or(eastl::variant<Args...> &&v, T &&def) {
         if (IndexOf<T> == v.index()) {
-            return std::move(luisa::get<T>(v));
+            return std::move(eastl::get<T>(v));
         }
         return std::forward<T>(def);
     }
     template<typename T>
-    static T const *try_get(luisa::variant<Args...> const &v) {
+    static T const *try_get(eastl::variant<Args...> const &v) {
         if (IndexOf<T> == v.index()) {
-            return &luisa::get<T>(v);
+            return &eastl::get<T>(v);
         }
         return nullptr;
     }
     template<typename T>
-    static T *try_get(luisa::variant<Args...> &v) {
+    static T *try_get(eastl::variant<Args...> &v) {
         if (IndexOf<T> == v.index()) {
-            return &luisa::get<T>(v);
+            return &eastl::get<T>(v);
         }
         return nullptr;
     }
     template<typename T>
-    static vstd::optional<T> try_get(luisa::variant<Args...> &&v) {
+    static vstd::optional<T> try_get(eastl::variant<Args...> &&v) {
         if (IndexOf<T> == v.index()) {
-            return {std::move(luisa::get<T>(v))};
+            return {std::move(eastl::get<T>(v))};
         }
         return {};
     }
 };
 
 template<typename... Args>
-class VariantVisitor<luisa::variant<Args...>> {
+class VariantVisitor<eastl::variant<Args...>> {
 public:
     using Type = VariantVisitor<Args...>;
 };
 template<typename... Args>
 class VariantVisitor<vstd::variant<Args...>> {
 public:
-    using Type = VariantVisitor<vstd::variant<Args...>>;
-
-    template<typename T>
-    static constexpr size_t IndexOf = vstd::variant<Args...>::template IndexOf<T>;
-    template<typename Func>
-    void operator()(Func &&func, size_t idx) {
-        if (idx < sizeof...(Args)) {
-            detail::VisitVariant<Func, Args...>(std::forward<Func>(func), idx);
-        }
-    }
-    template<typename T>
-    static decltype(auto) get_or(vstd::variant<Args...> const &v, T &&def) {
-        return v.template get_or<T>(std::forward<T>(def));
-    }
-    template<typename T>
-    static decltype(auto) get_or(vstd::variant<Args...> &v, T &&def) {
-        return v.template get_or<T>(std::forward<T>(def));
-    }
-    template<typename T>
-    static decltype(auto) get_or(vstd::variant<Args...> &&v, T &&def) {
-        return std::move(v.template get_or<T>(std::forward<T>(def)));
-    }
-    template<typename T>
-    static decltype(auto) try_get(vstd::variant<Args...> const &v) {
-        return v.template try_get<T>();
-    }
-    template<typename T>
-    static decltype(auto) try_get(vstd::variant<Args...> &v) {
-        return v.template try_get<T>();
-    }
-    template<typename T>
-    static decltype(auto) try_get(vstd::variant<Args...> &&v) {
-        return std::move(v.template try_get<T>());
-    }
+    using Type = VariantVisitor<Args...>;
 };
 template<typename... Args>
 class VariantVisitor<std::tuple<Args...>> {

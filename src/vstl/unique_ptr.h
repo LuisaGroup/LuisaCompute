@@ -1,8 +1,7 @@
 #pragma once
-#include <vstl/meta_lib.h>
-#include <vstl/memory.h>
+#include <vstl/MetaLib.h>
+#include <vstl/Memory.h>
 #include <EASTL/unique_ptr.h>
-#include <EASTL/shared_ptr.h>
 namespace vstd {
 struct unique_ptr_deleter {
     template<typename T>
@@ -14,7 +13,7 @@ struct unique_ptr_deleter {
             ptr->~T();
             vengine_free(selfPtr);
         } else {
-            destruct(ptr);
+            ptr->~T();
             vengine_free(ptr);
         }
     }
@@ -22,20 +21,11 @@ struct unique_ptr_deleter {
 template<typename T>
 using unique_ptr = eastl::unique_ptr<T, unique_ptr_deleter>;
 template<typename T>
-unique_ptr<T> create_unique(T *ptr) {
+unique_ptr<T> make_unique(T *ptr) {
     return unique_ptr<T>(ptr);
 }
 template<typename T>
-using shared_ptr = eastl::shared_ptr<T>;
-template<typename T>
-unique_ptr<T> create_shared(T *ptr) {
-    return shared_ptr<T>(ptr);
-}
-
-using luisa::make_shared;
-template<typename T, typename... Args>
-    requires(std::is_constructible_v<T, Args &&...>)
-unique_ptr<T> make_unique(Args &&...args) {
-    return unique_ptr<T>(new (vengine_malloc(sizeof(T))) T(std::forward<Args>(args)...));
+unique_ptr<T> create_unique(T *ptr) {
+    return unique_ptr<T>(ptr);
 }
 }// namespace vstd

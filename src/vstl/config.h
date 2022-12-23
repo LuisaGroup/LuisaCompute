@@ -1,6 +1,7 @@
 #pragma once
-
-#define VSTL_ABORT() std::abort()
+#include <core/platform.h>
+#include <core/logging.h>
+#define VSTL_ABORT() LUISA_ERROR_WITH_LOCATION("vstl::abort()")
 
 #if defined(UNICODE) && !defined(VSTL_UNICODE)
 #define VSTL_UNICODE
@@ -27,3 +28,4 @@ using uint = uint32_t;
 using uint64 = uint64_t;
 using int64 = int64_t;
 using int32 = int32_t;
+using vbyte = uint8_t;

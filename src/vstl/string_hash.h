@@ -1,7 +1,8 @@
 #pragma once
 #include <vstl/config.h>
 #include <stdint.h>
-#include <vstl/meta_lib.h>
+#include <vstl/MetaLib.h>
+#include <iostream>
 #include <string_view>
 using namespace std::literals;
 
