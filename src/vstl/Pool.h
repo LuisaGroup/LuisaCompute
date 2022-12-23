@@ -1,15 +1,15 @@
 #pragma once
 #include <vstl/config.h>
 #include <type_traits>
-#include <cstdint>
+#include <stdint.h>
 
 #include <atomic>
 #include <type_traits>
 #include <mutex>
-#include <vstl/MetaLib.h>
-#include <vstl/Memory.h>
+#include <vstl/meta_lib.h>
+#include <vstl/memory.h>
 #include <vstl/spin_mutex.h>
-#include <EASTL/vector.h>
+#include <vstl/vector.h>
 
 namespace vstd {
 
@@ -20,8 +20,8 @@ template<typename T>
 class Pool<T, true> {
 
 private:
-    eastl::vector<T *> allPtrs;
-    eastl::vector<void *> allocatedPtrs;
+    vector<T *> allPtrs;
+    vector<void *> allocatedPtrs;
     size_t capacity;
     static void *PoolMalloc(size_t size) {
         return vengine_malloc(size);
@@ -36,10 +36,10 @@ private:
         allPtrs.reserve(capacity + allPtrs.capacity());
         push_back_func(
             allPtrs,
+            capacity,
             [&](size_t i) {
                 return (T *)(ptr + i);
-            },
-            capacity);
+            });
 
         allocatedPtrs.push_back(ptr);
         capacity = capacity * 2;
@@ -53,41 +53,45 @@ public:
     Pool(Pool &&o) = default;
     Pool(Pool const &o) = delete;
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *New(Args &&...args) {
         AllocateMemory();
-        T *value = erase_last(allPtrs);
+        T *value = allPtrs.back();
+        allPtrs.pop_back();
         new (value) T(std::forward<Args>(args)...);
         return value;
     }
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *PlaceNew(Args &&...args) {
         AllocateMemory();
-        T *value = erase_last(allPtrs);
+        T *value = allPtrs.back();
+        allPtrs.pop_back();
         new (value) T{std::forward<Args>(args)...};
         return value;
     }
     template<typename Mutex, typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *New_Lock(Mutex &mtx, Args &&...args) {
         T *value = nullptr;
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = erase_last(allPtrs);
+            value = allPtrs.back();
+            allPtrs.pop_back();
         }
         new (value) T(std::forward<Args>(args)...);
         return value;
     }
     template<typename Mutex, typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *PlaceNew_Lock(Mutex &mtx, Args &&...args) {
         T *value = nullptr;
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = erase_last(allPtrs);
+            value = allPtrs.back();
+            allPtrs.pop_back();
         }
         new (value) T{std::forward<Args>(args)...};
         return value;
@@ -125,9 +129,9 @@ private:
         Storage<T, 1> t;
         size_t index = std::numeric_limits<size_t>::max();
     };
-    eastl::vector<T *> allPtrs;
-    eastl::vector<void *> allocatedPtrs;
-    eastl::vector<TypeCollector *> allocatedObjects;
+    vector<T *> allPtrs;
+    vector<void *> allocatedPtrs;
+    vector<TypeCollector *> allocatedObjects;
     size_t capacity;
     static void *PoolMalloc(size_t size) {
         return vengine_malloc(size);
@@ -155,10 +159,11 @@ private:
         TypeCollector *col = reinterpret_cast<TypeCollector *>(obj);
         if (col->index != allocatedObjects.size() - 1) {
             auto &&v = allocatedObjects[col->index];
-            v = erase_last(allocatedObjects);
+            v = allocatedObjects.back();
+            allocatedObjects.pop_back();
             v->index = col->index;
         } else {
-            erase_last(allocatedObjects);
+            allocatedObjects.pop_back();
         }
     }
 
@@ -207,44 +212,48 @@ public:
     }
 
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *New(Args &&...args) {
         AllocateMemory();
-        T *value = erase_last(allPtrs);
+        T *value = allPtrs.back();
+        allPtrs.pop_back();
         new (value) T(std::forward<Args>(args)...);
         AddAllocatedObject(value);
         return value;
     }
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *PlaceNew(Args &&...args) {
         AllocateMemory();
-        T *value = erase_last(allPtrs);
+        T *value = allPtrs.back();
+        allPtrs.pop_back();
         new (value) T{std::forward<Args>(args)...};
         AddAllocatedObject(value);
         return value;
     }
     template<typename Mutex, typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *New_Lock(Mutex &mtx, Args &&...args) {
         T *value = nullptr;
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = erase_last(allPtrs);
+            value = allPtrs.back();
+            allPtrs.pop_back();
             AddAllocatedObject(value);
         }
         new (value) T(std::forward<Args>(args)...);
         return value;
     }
     template<typename Mutex, typename... Args>
-        requires(std::is_constructible_v<T, Args &&...>)
+        requires(std::is_constructible_v<T, Args && ...>)
     T *PlaceNew_Lock(Mutex &mtx, Args &&...args) {
         T *value = nullptr;
         {
             std::lock_guard lck(mtx);
             AllocateMemory();
-            value = erase_last(allPtrs);
+            value = allPtrs.back();
+            allPtrs.pop_back();
             AddAllocatedObject(value);
         }
         new (value) T{std::forward<Args>(args)...};
@@ -371,12 +380,12 @@ public:
 template<typename T>
 class JobPool {
 private:
-    eastl::vector<T *> allocatedPool;
-    eastl::vector<T *> list[2];
+    vector<T *> allocatedPool;
+    vector<T *> list[2];
     spin_mutex mtx;
     bool switcher = false;
     uint32_t capacity;
-    void ReserveList(eastl::vector<T *> &vec) {
+    void ReserveList(vector<T *> &vec) {
         T *t = new T[capacity];
         allocatedPool.push_back(t);
         vec.resize(capacity);
@@ -399,15 +408,16 @@ public:
     }
 
     T *New() {
-        eastl::vector<T *> &lst = list[switcher];
+        vector<T *> &lst = list[switcher];
         if (lst.empty()) ReserveList(lst);
-        T *value = erase_last(lst);
+        T *value = lst.back();
+        lst.pop_back();
         value->Reset();
         return value;
     }
 
     void Delete(T *value) {
-        eastl::vector<T *> &lst = list[!switcher];
+        vector<T *> &lst = list[!switcher];
         value->Dispose();
         std::lock_guard<spin_mutex> lck(mtx);
         lst.push_back(value);

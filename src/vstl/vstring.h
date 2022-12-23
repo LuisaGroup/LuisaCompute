@@ -1,14 +1,13 @@
 #pragma once
 #include <vstl/config.h>
 #include <stdint.h>
-#include <xxhash.h>
-#include <iostream>
 #include <string>
-#include <vstl/Hash.h>
-#include <vstl/Memory.h>
-#include <vstl/Compare.h>
+#include <vstl/hash.h>
+#include <vstl/memory.h>
+#include <vstl/compare.h>
 #include <vstl/string_hash.h>
 #include <vstl/vector.h>
+#include <vstl/ranges.h>
 namespace vstd {
 using string = std::basic_string<char, std::char_traits<char>, luisa::allocator<char>>;
 using wstring = std::basic_string<wchar_t, std::char_traits<wchar_t>, luisa::allocator<wchar_t>>;
@@ -45,30 +44,35 @@ inline string IntegerToString(const Ty Val) noexcept {// convert Val to string
     IntegerToString<Ty>(Val, s);
     return s;
 }
+inline void _float_str_resize(size_t lastSize, string &str) noexcept {
+    for (int64_t i = str.size() - 1; i >= lastSize; --i) {
+        if (str[i] == '.') [[unlikely]] {
+            auto end = i + 2;
+            int64_t j = str.size() - 1;
+            for (; j >= end; --j) {
+                if (str[j] != '0') {
+                    break;
+                }
+            }
+            str.resize(j + 1);
+            return;
+        }
+    }
+    str.append(".0"sv);
+}
 inline void to_string(double Val, string &str) noexcept {
-    int64 v = (int64)Val;
-    IntegerToString(v, str, Val < 0);
-    Val -= v;
-    Val = abs(Val);
-    char tempArr[12];
-    str.push_back('.');
-    for (auto i : range(12)) {
-        Val *= 10;
-        char x = (char)Val;
-        Val -= x;
-        tempArr[i] = (char)(x + 48);
-    }
-    size_t cullSize = 12;
-    for (auto &&i : ptr_range(tempArr + 11, tempArr - 1, -1)) {
-        if (i != '0') break;
-        cullSize--;
-    }
-    str.append(tempArr, cullSize);
+    const size_t len = snprintf(nullptr, 0, "%f", Val);
+    auto lastLen = str.size();
+    str.resize(lastLen + len);
+    snprintf(str.data() + lastLen, len + 1, "%f", Val);
+    _float_str_resize(lastLen, str);
 }
 
 inline string to_string(double Val) noexcept {
-    string str;
-    to_string(Val, str);
+    const size_t len = snprintf(nullptr, 0, "%f", Val);
+    string str(len, '\0');
+    snprintf(str.data(), len + 1, "%f", Val);
+    _float_str_resize(0, str);
     return str;
 }
 
@@ -110,7 +114,6 @@ template<typename T>
 
 inline void to_string(float Val, string &str) noexcept {
     to_string((double)Val, str);
-    str += 'f';
 }
 inline string to_string(float Val) noexcept {
     string str;
@@ -166,26 +169,26 @@ inline size_t wstrLen(wchar_t const *ptr) {
 }
 
 template<>
-struct hash<std::wstring> {
-    inline size_t operator()(const std::wstring &str) const noexcept {
+struct hash<vstd::wstring> {
+    inline size_t operator()(const vstd::wstring &str) const noexcept {
         return Hash::CharArrayHash((const char *)str.c_str(), str.size() * 2);
     }
 };
 template<>
-struct compare<std::wstring> {
-    int32 operator()(const std::wstring &a, const std::wstring &b) const noexcept {
+struct compare<vstd::wstring> {
+    int32 operator()(const vstd::wstring &a, const vstd::wstring &b) const noexcept {
         if (a.size() == b.size())
             return memcmp(a.data(), b.data(), a.size() * 2);
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(const std::wstring &a, const std::wstring_view &b) const noexcept {
+    int32 operator()(const vstd::wstring &a, const std::wstring_view &b) const noexcept {
         if (a.size() == b.size())
             return memcmp(a.data(), b.data(), a.size() * 2);
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
-    int32 operator()(const std::wstring &a, wchar_t const *ptr) const noexcept {
+    int32 operator()(const vstd::wstring &a, wchar_t const *ptr) const noexcept {
         size_t sz = wstrLen(ptr);
         if (a.size() == sz)
             return memcmp(a.data(), ptr, a.size() * 2);

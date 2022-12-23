@@ -1,6 +1,6 @@
 
 
-#include <vstl/MD5.h>
+#include <vstl/md5.h>
 namespace vstd {
 namespace detail {
 
