@@ -46,13 +46,8 @@ constexpr size_t TypeImportance() {
 }
 
 template<typename A, typename B>
-constexpr decltype(auto) TypeCast() {
-    if constexpr (TypeImportance<A>() >= TypeImportance<B>()) {
-        return std::type_identity<A>{};
-    } else {
-        return std::type_identity<B>{};
-    }
-}
+using TypeCast = std::conditional_t<
+    std::greater<>{}(TypeImportance<A>(), TypeImportance<B>()), A, B>;
 
 template<typename T>
 struct ScalarType {
@@ -126,7 +121,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
         return monostate{};
     auto rr = try_eval(expr->rhs());
     using namespace analyzer_detail;
-    if (rr.index() != 0) [[unlikely]] {
+    if (!holds_alternative<monostate>(rr)) [[unlikely]] {
         if (expr->op() == BinaryOp::MUL) {
             if (auto [lhs, rhs] = std::make_pair(get_if<float2x2>(&lr), get_if<float2>(&rr));
                 lhs != nullptr && rhs != nullptr) { return (*lhs) * (*rhs); }
@@ -136,8 +131,9 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                 lhs != nullptr && rhs != nullptr) { return (*lhs) * (*rhs); }
         }
         // Transform rr
-        bool trans_success = false;
         if (lr.index() != rr.index()) {
+            bool trans_success = false;
+            // FIXME: @MaxwellGeng please review this
             visit(
                 [&]<typename A, typename B>(A a, B b) {
                     if constexpr (!std::is_same_v<A, monostate> && !std::is_same_v<B, monostate>) {
@@ -145,7 +141,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                         using ScalarB = ScalarType_t<B>;
                         using TTA = ScalarType<A>;
                         using TTB = ScalarType<B>;
-                        using DstScalar = typename decltype(TypeCast<ScalarA, ScalarB>())::type;
+                        using DstScalar = TypeCast<ScalarA, ScalarB>;
                         // vec + scalar
                         if constexpr (TTA::is_vector && TTB::is_scalar) {
                             using VecType = Vector<DstScalar, TTA::size>;
@@ -202,8 +198,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                     }
                 },
                 lr, rr);
+            if (!trans_success) return monostate{};
         }
-        if (!trans_success) return monostate{};
         return visit(
             [&]<typename A>(A const &a) -> Result {
                 if constexpr (!std::is_same_v<A, monostate>) {

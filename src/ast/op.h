@@ -249,8 +249,6 @@ static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_D
            op == CallOp::ATOMIC_FETCH_MIN ||
            op == CallOp::ATOMIC_FETCH_MAX;
 }
-<<<<<<< HEAD
-=======
 
 [[nodiscard]] constexpr auto is_vector_maker(CallOp op) noexcept {
     return op == CallOp::MAKE_BOOL2 ||
@@ -272,7 +270,6 @@ static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_D
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
->>>>>>> @{-1}
 
 /**
  * @brief Set of call operations.

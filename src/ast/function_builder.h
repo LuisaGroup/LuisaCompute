@@ -86,10 +86,7 @@ private:
     luisa::vector<Variable> _shared_variables;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
-<<<<<<< HEAD
-=======
     luisa::vector<CpuCallback> _cpu_callbacks;
->>>>>>> @{-1}
     CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
