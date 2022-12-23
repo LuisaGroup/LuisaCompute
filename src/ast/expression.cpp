@@ -2,8 +2,8 @@
 // Created by Mike Smith on 2021/3/13.
 //
 
-#include <ast/variable.h>
 #include <core/logging.h>
+#include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
 #include <ast/function_builder.h>
@@ -42,8 +42,10 @@ void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         if (_op == CallOp::BUFFER_WRITE ||
             _op == CallOp::TEXTURE_WRITE ||
-            _op == CallOp::SET_INSTANCE_TRANSFORM ||
-            _op == CallOp::SET_INSTANCE_VISIBILITY ||
+            _op == CallOp::RAY_TRACING_SET_INSTANCE_AABB ||
+            _op == CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
+            _op == CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY ||
+            _op == CallOp::RAY_TRACING_SET_INSTANCE_OPACITY ||
             _op == CallOp::ATOMIC_EXCHANGE ||
             _op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
             _op == CallOp::ATOMIC_FETCH_ADD ||
@@ -67,10 +69,7 @@ void CallExpr::_mark() const noexcept {
         for (auto i = 0u; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
-                arg.tag() == Variable::Tag::REFERENCE ||
-                        arg.tag() == Variable::Tag::BUFFER ||
-                        arg.tag() == Variable::Tag::ACCEL ||
-                        arg.tag() == Variable::Tag::TEXTURE ?
+                arg.is_reference() || arg.is_resource() ?
                     _custom.variable_usage(arg.uid()) :
                     Usage::READ);
         }
@@ -110,6 +109,47 @@ uint64_t AccessExpr::_compute_hash() const noexcept {
 uint64_t MemberExpr::_compute_hash() const noexcept {
     std::array a{(static_cast<uint64_t>(_swizzle_size) << 32u) | _swizzle_code, _self->hash()};
     return hash64(&a, sizeof(a), hash64_default_seed);
+}
+
+MemberExpr::MemberExpr(const Type *type,
+                       const Expression *self,
+                       uint member_index) noexcept
+    : Expression{Tag::MEMBER, type}, _self{self},
+      _swizzle_size{0u}, _swizzle_code{member_index} {}
+
+MemberExpr::MemberExpr(const Type *type,
+                       const Expression *self,
+                       uint swizzle_size,
+                       uint swizzle_code) noexcept
+    : Expression{Tag::MEMBER, type}, _self{self},
+      _swizzle_size{swizzle_size}, _swizzle_code{swizzle_code} {
+    LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
+                 "Swizzle size must be in [1, 4]");
+}
+
+uint MemberExpr::swizzle_size() const noexcept {
+    LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
+                 "Invalid swizzle size {}.", _swizzle_size);
+    return _swizzle_size;
+}
+
+uint MemberExpr::swizzle_code() const noexcept {
+    LUISA_ASSERT(is_swizzle(), "MemberExpr is not swizzled.");
+    return _swizzle_code;
+}
+
+uint MemberExpr::swizzle_index(uint index) const noexcept {
+    if (auto s = swizzle_size(); index >= s) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid swizzle index {} (count = {}).",
+            index, s);
+    }
+    return (_swizzle_code >> (index * 4u)) & 0x0fu;
+}
+
+uint MemberExpr::member_index() const noexcept {
+    LUISA_ASSERT(!is_swizzle(), "MemberExpr is not a member");
+    return _swizzle_code;
 }
 
 uint64_t CastExpr::_compute_hash() const noexcept {

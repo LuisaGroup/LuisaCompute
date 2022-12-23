@@ -4,15 +4,9 @@
 
 #pragma once
 
-#include <cstddef>
-#include <vector>
-#include <memory>
-#include <mutex>
-#include <tuple>
-#include <sstream>
-
+#include <core/stl/memory.h>
+#include <core/stl/format.h>
 #include <core/macro.h>
-#include <core/stl.h>
 #include <ast/type.h>
 
 namespace luisa::compute {
@@ -41,35 +35,7 @@ class Accel;
 namespace detail {
 
 /// Type registry class
-class LC_AST_API TypeRegistry {
-
-private:
-    /// Hash
-    struct TypePtrHash {
-        using is_transparent = void;
-        [[nodiscard]] uint64_t operator()(const Type *type) const noexcept { return type->hash(); }
-        [[nodiscard]] uint64_t operator()(uint64_t hash) const noexcept { return hash; }
-    };
-    /// Equal
-    struct TypePtrEqual {
-        using is_transparent = void;
-        template<typename Lhs, typename Rhs>
-        [[nodiscard]] bool operator()(Lhs &&lhs, Rhs &&rhs) const noexcept {
-            constexpr TypePtrHash hash;
-            return hash(std::forward<Lhs>(lhs)) == hash(std::forward<Rhs>(rhs));
-        }
-    };
-
-private:
-    luisa::vector<luisa::unique_ptr<Type>> _types;
-    luisa::unordered_set<Type *, TypePtrHash, TypePtrEqual> _type_set;
-    mutable std::recursive_mutex _mutex;
-
-private:
-    [[nodiscard]] static uint64_t _hash(luisa::string_view desc) noexcept;
-    [[nodiscard]] const Type *_decode(luisa::string_view desc) noexcept;
-
-public:
+struct LC_AST_API TypeRegistry {
     /// Get registry instance
     [[nodiscard]] static TypeRegistry &instance() noexcept;
     /// Construct Type object from description
@@ -133,8 +99,7 @@ struct TypeDesc<std::array<T, N>> {
     static_assert(alignof(T) >= 4u);
     static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
-            FMT_STRING("array<{},{}>"),
-            TypeDesc<T>::description(), N);
+            "array<{},{}>", TypeDesc<T>::description(), N);
         return s;
     }
 };
@@ -143,8 +108,7 @@ template<typename T, size_t N>
 struct TypeDesc<T[N]> {
     static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
-            FMT_STRING("array<{},{}>"),
-            TypeDesc<T>::description(), N);
+            "array<{},{}>", TypeDesc<T>::description(), N);
         return s;
     }
 };
@@ -153,8 +117,7 @@ template<typename T>
 struct TypeDesc<Buffer<T>> {
     static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
-            FMT_STRING("buffer<{}>"),
-            TypeDesc<T>::description());
+            "buffer<{}>", TypeDesc<T>::description());
         return s;
     }
 };
@@ -166,8 +129,7 @@ template<typename T>
 struct TypeDesc<Image<T>> {
     static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
-            FMT_STRING("texture<2,{}>"),
-            TypeDesc<T>::description());
+            "texture<2,{}>", TypeDesc<T>::description());
         return s;
     }
 };
@@ -179,8 +141,7 @@ template<typename T>
 struct TypeDesc<Volume<T>> {
     static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
-            FMT_STRING("texture<3,{}>"),
-            TypeDesc<T>::description());
+            "texture<3,{}>", TypeDesc<T>::description());
         return s;
     }
 };

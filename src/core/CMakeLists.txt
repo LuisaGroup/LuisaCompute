@@ -22,7 +22,6 @@ set(LUISA_COMPUTE_CORE_STL_SOURCES
         stl/vector.h
         stl/vector_map.h)
 
-
 set(LUISA_COMPUTE_CORE_SOURCES
         basic_traits.h
         basic_types.cpp basic_types.h
@@ -43,7 +42,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         mathematics.h
         observer.cpp observer.h
         platform.cpp platform.h
-        pool.h
+        pool.cpp pool.h
         spin_mutex.h
         stl.h
         swizzle_2.inl.h

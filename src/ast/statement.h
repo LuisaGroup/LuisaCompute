@@ -11,6 +11,7 @@
 
 namespace luisa::compute {
 
+class AstSerializer;
 struct StmtVisitor;
 
 /**
@@ -53,8 +54,8 @@ public:
     [[nodiscard]] uint64_t hash() const noexcept;
 };
 
-struct BreakStmt;
-struct ContinueStmt;
+class BreakStmt;
+class ContinueStmt;
 
 class ReturnStmt;
 
@@ -86,7 +87,8 @@ struct StmtVisitor {
     virtual void visit(const CommentStmt *) = 0;
 };
 
-#define LUISA_MAKE_STATEMENT_ACCEPT_VISITOR() \
+#define LUISA_STATEMENT_COMMON() \
+    friend class AstSerializer;  \
     void accept(StmtVisitor &visitor) const override { visitor.visit(this); }
 
 /// Break statement
@@ -97,7 +99,7 @@ private:
 
 public:
     BreakStmt() noexcept : Statement{Tag::BREAK} {}
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Continue statement
@@ -108,7 +110,7 @@ private:
 
 public:
     ContinueStmt() noexcept : Statement{Tag::CONTINUE} {}
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Return statement
@@ -131,7 +133,7 @@ public:
         if (_expr != nullptr) { _expr->mark(Usage::READ); }
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Scope statement
@@ -147,12 +149,8 @@ public:
     ScopeStmt() noexcept : Statement{Tag::SCOPE} {}
     [[nodiscard]] auto statements() const noexcept { return luisa::span{_statements}; }
     void append(const Statement *stmt) noexcept { _statements.emplace_back(stmt); }
-    const Statement * _pop() noexcept {
-        auto stmt = _statements.back();
-        _statements.pop_back();
-        return stmt;
-    }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    const Statement *pop() noexcept;
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Assign statement
@@ -180,7 +178,7 @@ public:
 
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
     [[nodiscard]] auto rhs() const noexcept { return _rhs; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// If statement
@@ -210,7 +208,7 @@ public:
     [[nodiscard]] auto false_branch() noexcept { return &_false_branch; }
     [[nodiscard]] auto true_branch() const noexcept { return &_true_branch; }
     [[nodiscard]] auto false_branch() const noexcept { return &_false_branch; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Loop statement
@@ -226,7 +224,7 @@ public:
     LoopStmt() noexcept : Statement{Tag::LOOP} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Expression statement
@@ -249,7 +247,7 @@ public:
         _expr->mark(Usage::READ);
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Switch statement
@@ -269,14 +267,13 @@ public:
      * @param expr expression, will be marked as Usage::READ
      */
     explicit SwitchStmt(const Expression *expr) noexcept
-        : Statement{Tag::SWITCH},
-          _expr{expr} {
+        : Statement{Tag::SWITCH}, _expr{expr} {
         _expr->mark(Usage::READ);
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Case statement of switch
@@ -296,14 +293,13 @@ public:
      * @param expr expression, will be marked as Usage::READ
      */
     explicit SwitchCaseStmt(const Expression *expr) noexcept
-        : Statement{Tag::SWITCH_CASE},
-          _expr{expr} {
+        : Statement{Tag::SWITCH_CASE}, _expr{expr} {
         _expr->mark(Usage::READ);
     }
     [[nodiscard]] auto expression() const noexcept { return _expr; }
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Default statement of switch
@@ -319,7 +315,7 @@ public:
     SwitchDefaultStmt() noexcept : Statement{Tag::SWITCH_DEFAULT} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// For statement
@@ -356,7 +352,7 @@ public:
     [[nodiscard]] auto step() const noexcept { return _step; }
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
 /// Comment statement
@@ -378,9 +374,9 @@ public:
         : Statement{Tag::COMMENT},
           _comment{std::move(comment)} {}
     [[nodiscard]] auto comment() const noexcept { return std::string_view{_comment}; }
-    LUISA_MAKE_STATEMENT_ACCEPT_VISITOR()
+    LUISA_STATEMENT_COMMON()
 };
 
-#undef LUISA_MAKE_STATEMENT_ACCEPT_VISITOR
+#undef LUISA_STATEMENT_COMMON
 
 }// namespace luisa::compute

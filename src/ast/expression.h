@@ -4,16 +4,10 @@
 
 #pragma once
 
-#include <utility>
-#include <variant>
-#include <charconv>
-#include <algorithm>
-#include <numeric>
-
+#include <core/stl/vector.h>
+#include <core/stl/memory.h>
 #include <core/concepts.h>
 #include <core/basic_types.h>
-#include <core/logging.h>
-#include <core/stl.h>
 #include <ast/variable.h>
 #include <ast/function.h>
 #include <ast/op.h>
@@ -22,6 +16,7 @@
 namespace luisa::compute {
 class Statement;
 struct ExprVisitor;
+class AstSerializer;
 
 namespace detail {
 class FunctionBuilder;
@@ -103,11 +98,12 @@ struct ExprVisitor {
     virtual void visit(const GpuCustomOpExpr *) { LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend."); };
 };
 
-#define LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR() \
+#define LUISA_EXPRESSION_COMMON() \
+    friend class AstSerializer;   \
     void accept(ExprVisitor &visitor) const override { visitor.visit(this); }
 
 /// Unary expression
-class UnaryExpr final : public Expression {
+class LC_AST_API UnaryExpr final : public Expression {
 
 private:
     const Expression *_operand;
@@ -131,11 +127,11 @@ public:
     [[nodiscard]] auto op() const noexcept { return _op; }
 
 public:
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 /// Binary expression
-class BinaryExpr final : public Expression {
+class LC_AST_API BinaryExpr final : public Expression {
 
 private:
     const Expression *_lhs;
@@ -155,7 +151,9 @@ public:
      * @param lhs lhs will be marked as Usage::READ
      * @param rhs rhs will be marked as Usage::READ
      */
-    BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
+    BinaryExpr(const Type *type, BinaryOp op,
+               const Expression *lhs,
+               const Expression *rhs) noexcept
         : Expression{Tag::BINARY, type}, _lhs{lhs}, _rhs{rhs}, _op{op} {
         _lhs->mark(Usage::READ);
         _rhs->mark(Usage::READ);
@@ -164,11 +162,11 @@ public:
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
     [[nodiscard]] auto rhs() const noexcept { return _rhs; }
     [[nodiscard]] auto op() const noexcept { return _op; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 /// Access expression
-class AccessExpr final : public Expression {
+class LC_AST_API AccessExpr final : public Expression {
 
 private:
     const Expression *_range;
@@ -194,11 +192,11 @@ public:
 
     [[nodiscard]] auto range() const noexcept { return _range; }
     [[nodiscard]] auto index() const noexcept { return _index; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 /// Member expression
-class MemberExpr final : public Expression {
+class LC_AST_API MemberExpr final : public Expression {
 
 public:
     static constexpr auto swizzle_mask = 0xff000000u;
@@ -221,9 +219,9 @@ public:
      * @param self where to get member
      * @param member_index index of member
      */
-    MemberExpr(const Type *type, const Expression *self, uint member_index) noexcept
-        : Expression{Tag::MEMBER, type}, _self{self},
-          _swizzle_size{0u}, _swizzle_code{member_index} {}
+    MemberExpr(const Type *type,
+               const Expression *self,
+               uint member_index) noexcept;
 
     /**
      * @brief Construct a new Member Expr object accessing by swizzling
@@ -241,43 +239,20 @@ public:
      * @param swizzle_size swizzle size
      * @param swizzle_code swizzle code
      */
-    MemberExpr(const Type *type, const Expression *self, uint swizzle_size, uint swizzle_code) noexcept
-        : Expression{Tag::MEMBER, type}, _self{self},
-          _swizzle_size{swizzle_size}, _swizzle_code{swizzle_code} {
-        LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
-                     "Swizzle size must be in [1, 4]");
-    }
+    MemberExpr(const Type *type,
+               const Expression *self,
+               uint swizzle_size,
+               uint swizzle_code) noexcept;
 
     [[nodiscard]] auto self() const noexcept { return _self; }
-
-    [[nodiscard]] auto swizzle_size() const noexcept {
-        LUISA_ASSERT(_swizzle_size != 0u && _swizzle_size <= 4u,
-                     "Invalid swizzle size {}.", _swizzle_size);
-        return _swizzle_size;
-    }
-
     [[nodiscard]] auto is_swizzle() const noexcept { return _swizzle_size != 0u; }
 
-    [[nodiscard]] auto swizzle_code() const noexcept {
-        LUISA_ASSERT(is_swizzle(), "MemberExpr is not swizzled.");
-        return _swizzle_code;
-    }
+    [[nodiscard]] uint swizzle_size() const noexcept;
+    [[nodiscard]] uint swizzle_code() const noexcept;
+    [[nodiscard]] uint swizzle_index(uint index) const noexcept;
+    [[nodiscard]] uint member_index() const noexcept;
 
-    [[nodiscard]] auto swizzle_index(uint index) const noexcept {
-        if (auto s = swizzle_size(); index >= s) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid swizzle index {} (count = {}).",
-                index, s);
-        }
-        return (_swizzle_code >> (index * 4u)) & 0x0fu;
-    }
-
-    [[nodiscard]] auto member_index() const noexcept {
-        LUISA_ASSERT(!is_swizzle(), "MemberExpr is not a member");
-        return _swizzle_code;
-    }
-
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 namespace detail {
@@ -298,7 +273,7 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 }// namespace detail
 
 /// TODO
-class LiteralExpr final : public Expression {
+class LC_AST_API LiteralExpr final : public Expression {
 
 public:
     using Value = detail::make_literal_value_t<basic_types>;
@@ -320,11 +295,11 @@ public:
     LiteralExpr(const Type *type, Value v) noexcept
         : Expression{Tag::LITERAL, type}, _value{v} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 /// Reference expression
-class RefExpr final : public Expression {
+class LC_AST_API RefExpr final : public Expression {
 
 private:
     Variable _variable;
@@ -342,11 +317,11 @@ public:
     explicit RefExpr(Variable v) noexcept
         : Expression{Tag::REF, v.type()}, _variable{v} {}
     [[nodiscard]] auto variable() const noexcept { return _variable; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 /// Constant expression
-class ConstantExpr final : public Expression {
+class LC_AST_API ConstantExpr final : public Expression {
 
 private:
     ConstantData _data;
@@ -365,11 +340,11 @@ public:
     explicit ConstantExpr(const Type *type, ConstantData data) noexcept
         : Expression{Tag::CONSTANT, type}, _data{data} {}
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 /// Call expression
-class CallExpr final : public Expression {
+class LC_AST_API CallExpr final : public Expression {
 
 public:
     using ArgumentList = luisa::vector<const Expression *>;
@@ -413,7 +388,7 @@ public:
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     [[nodiscard]] auto custom() const noexcept { return _custom; }
     [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 enum struct CastOp {
@@ -422,7 +397,7 @@ enum struct CastOp {
 };
 
 /// Cast expression
-class CastExpr final : public Expression {
+class LC_AST_API CastExpr final : public Expression {
 
 private:
     const Expression *_source;
@@ -444,7 +419,7 @@ public:
         : Expression{Tag::CAST, type}, _source{src}, _op{op} { _source->mark(Usage::READ); }
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto expression() const noexcept { return _source; }
-    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
+    LUISA_EXPRESSION_COMMON()
 };
 
 class CpuCustomOpExpr final : public Expression {
@@ -486,6 +461,6 @@ protected:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
 };
 
-#undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
+#undef LUISA_EXPRESSION_COMMON
 
 }// namespace luisa::compute

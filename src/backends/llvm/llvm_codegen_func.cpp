@@ -135,7 +135,7 @@ unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_context(Fun
     auto i1_type = ::llvm::Type::getInt1Ty(_context);
     auto i8_type = ::llvm::Type::getInt8Ty(_context);
     auto ptr_type = ::llvm::PointerType::get(i8_type, 0);
-    auto needs_coro = f.builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK);
+    auto needs_coro = f.propagated_builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK);
     auto thread_count = f.block_size().x * f.block_size().y * f.block_size().z;
     ::llvm::AllocaInst *p_coro_states = nullptr;
     ::llvm::AllocaInst *p_coro_all_done = nullptr;
@@ -265,7 +265,7 @@ luisa::unique_ptr<LLVMCodegen::FunctionContext> LLVMCodegen::_create_kernel_prog
     }
     // shared memory
     arg_types.emplace_back(::llvm::PointerType::get(::llvm::Type::getInt8Ty(_context), 0u));
-    auto needs_coroutine = f.builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK);
+    auto needs_coroutine = f.propagated_builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK);
     auto return_type = needs_coroutine ? ::llvm::Type::getInt8PtrTy(_context) : ::llvm::Type::getVoidTy(_context);
     ::llvm::ArrayRef<::llvm::Type *> arg_types_ref{arg_types.data(), arg_types.size()};
     auto function_type = ::llvm::FunctionType::get(return_type, arg_types_ref, false);

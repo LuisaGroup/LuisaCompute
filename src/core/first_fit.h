@@ -52,4 +52,4 @@ public:
     [[nodiscard]] luisa::string dump_free_list() const noexcept;
 };
 
-}
+}// namespace luisa

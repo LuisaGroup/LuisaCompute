@@ -4,9 +4,7 @@
 
 #pragma once
 
-#include <vector>
-
-#include <core/stl.h>
+#include <core/stl/vector.h>
 #include <core/spin_mutex.h>
 
 #include <ast/statement.h>
@@ -19,7 +17,7 @@
 namespace luisa::compute {
 class Statement;
 class Expression;
-class FunctionSerializer;
+class AstSerializer;
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
@@ -31,11 +29,13 @@ namespace luisa::compute::detail {
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
 
+    friend class AstSerializer;
+
 private:
     /**
-     * @brief Scope guard.
+     * @brief RAII-style scope guard.
      * 
-     * Push scope on build, pop scope on destroy.
+     * Push scope on construction, pop scope on destruction.
      */
     class ScopeGuard {
 
@@ -49,78 +49,27 @@ private:
         ~ScopeGuard() noexcept { _builder->pop_scope(_scope); }
     };
 
+    /**
+     * @brief RAII-style function guard.
+     *
+     * Push function builder on construction, pop function builder on destruction.
+     */
+    class FunctionStackGuard {
+
+    private:
+        FunctionBuilder *_builder;
+
+    public:
+        explicit FunctionStackGuard(FunctionBuilder *builder) noexcept
+            : _builder{builder} { push(builder); }
+        ~FunctionStackGuard() noexcept { pop(_builder); }
+    };
+
+
 public:
     using Tag = Function::Tag;
     using Constant = Function::Constant;
-
-    /**
-     * @brief %Buffer binding.
-     * 
-     * Bind buffer handle and offset.
-     */
-    struct BufferBinding {
-        uint64_t handle;
-        size_t offset_bytes;
-        size_t size_bytes;
-        BufferBinding() noexcept = default;
-        BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
-            : handle{handle}, offset_bytes{offset_bytes}, size_bytes{size_bytes} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
-    };
-
-    /**
-     * @brief Texture binding.
-     * 
-     * Bind texture handle and level.
-     */
-    struct TextureBinding {
-        uint64_t handle;
-        uint32_t level;
-        TextureBinding() noexcept = default;
-        TextureBinding(uint64_t handle, uint32_t level) noexcept
-            : handle{handle}, level{level} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
-    };
-
-    /**
-     * @brief Bindless array binding.
-     * 
-     * Bind array handle.
-     */
-    struct BindlessArrayBinding {
-        uint64_t handle;
-        BindlessArrayBinding() noexcept = default;
-        explicit BindlessArrayBinding(uint64_t handle) noexcept
-            : handle{handle} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
-    };
-
-    /**
-     * @brief Acceleration structure binding.
-     * 
-     * Bind accel handle.
-     */
-    struct AccelBinding {
-        uint64_t handle;
-        AccelBinding() noexcept = default;
-        explicit AccelBinding(uint64_t handle) noexcept
-            : handle{handle} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
-    };
-
-    struct CpuCallback {
-        CpuCustomOpExpr::Callback callback;
-        void * user_data;
-    };
-
-    using Binding = luisa::variant<
-        luisa::monostate,// not bound
-        BufferBinding,
-        TextureBinding,
-        BindlessArrayBinding,
-        AccelBinding>;
-
-    friend FunctionSerializer;
+    using Binding = Function::Binding;
 
 private:
     ScopeStmt _body;
@@ -138,11 +87,13 @@ private:
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
     luisa::vector<CpuCallback> _cpu_callbacks;
-    CallOpSet _used_builtin_callables;
+    CallOpSet _direct_builtin_callables;
+    CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
-    
+    bool _requires_atomic_float{false};
+
 protected:
     
 
@@ -234,8 +185,10 @@ public:
     [[nodiscard]] auto cpu_callbacks() const noexcept { return luisa::span{_cpu_callbacks}; }
     /// Return a span of custom callables.
     [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables}; }
-    /// Return a CallOpSet of builtin callables.
-    [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
+    /// Return a CallOpSet of builtin callables that are directly called.
+    [[nodiscard]] auto direct_builtin_callables() const noexcept { return _direct_builtin_callables; }
+    /// Return a CallOpSet of builtin callables that are directly called.
+    [[nodiscard]] auto propagated_builtin_callables() const noexcept { return _propagated_builtin_callables; }
     /// Return tag(KERNEL, CALLABLE).
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     /// Return pointer to body.
@@ -251,7 +204,11 @@ public:
     /// Return hash.
     [[nodiscard]] auto hash() const noexcept { return _hash; }
     /// Return if is raytracing.
-    [[nodiscard]] bool raytracing() const noexcept;
+    [[nodiscard]] bool requires_raytracing() const noexcept;
+    /// Return if uses atomic operations
+    [[nodiscard]] bool requires_atomic() const noexcept;
+    /// Return if uses atomic floats.
+    [[nodiscard]] bool requires_atomic_float() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition
@@ -275,10 +232,14 @@ public:
     [[nodiscard]] const RefExpr *thread_id() noexcept;
     /// Return block id.
     [[nodiscard]] const RefExpr *block_id() noexcept;
-    /// Return dispatch id.
+    /// Return dispatch id (equal to block_id * block_size + thread_id).
     [[nodiscard]] const RefExpr *dispatch_id() noexcept;
-    /// Return dispatch size.
+    /// Return dispatch size (the exact value; not rounded up to block_size).
     [[nodiscard]] const RefExpr *dispatch_size() noexcept;
+    /// Return kernel id (for indirect kernels only).
+    [[nodiscard]] const RefExpr *kernel_id() noexcept;
+    /// Return object id (for rasterization only).
+    [[nodiscard]] const RefExpr *object_id() noexcept;
 
     // variables
     /// Add local variable of type

@@ -432,7 +432,7 @@ void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 uint64_t MetalDevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-    if (kernel.raytracing()) { check_raytracing_supported(); }
+    if (kernel.requires_raytracing()) { check_raytracing_supported(); }
     Clock clock;
     auto shader = _compiler->compile(kernel, meta_options);
     LUISA_VERBOSE_WITH_LOCATION("Compiled shader in {} ms.", clock.toc());

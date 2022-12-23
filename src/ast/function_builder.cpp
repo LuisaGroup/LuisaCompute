@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2020/12/2.
 //
 
+#include <core/logging.h>
 #include <ast/function_builder.h>
 
 namespace luisa::compute::detail {
@@ -12,9 +13,6 @@ luisa::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
 }
 
 void FunctionBuilder::push(FunctionBuilder *func) noexcept {
-    if (func->tag() == Function::Tag::KERNEL && !_function_stack().empty()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Kernel definitions cannot be nested.");
-    }
     _function_stack().emplace_back(func);
 }
 
@@ -31,9 +29,15 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
         f->_return_type.value_or(nullptr) != nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Kernels cannot have non-void return types.");
     }
-    if (f->raytracing() &&
+    if (f->tag() != Tag::KERNEL &&
+        (!f->shared_variables().empty() ||
+         f->propagated_builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK))) {
+        LUISA_ERROR_WITH_LOCATION("Shared variables and block synchronization "
+                                  "are only allowed in kernels.");
+    }
+    if (f->requires_raytracing() &&
         (!f->_shared_variables.empty() ||
-         f->_used_builtin_callables.test(
+         f->_propagated_builtin_callables.test(
              CallOp::SYNCHRONIZE_BLOCK))) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Raytracing functions are not allowed to "
@@ -155,8 +159,10 @@ const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Variable:
 const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
 const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
 const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Variable::Tag::DISPATCH_SIZE); }
+const RefExpr *FunctionBuilder::kernel_id() noexcept { return _builtin(Variable::Tag::KERNEL_ID); }
+const RefExpr *FunctionBuilder::object_id() noexcept { return _builtin(Variable::Tag::OBJECT_ID); }
 
-const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
+inline const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
             _builtin_variables.cbegin(), _builtin_variables.cend(),
             [tag](auto &&v) noexcept { return v.tag() == tag; });
@@ -192,7 +198,7 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, BufferBinding>) {
+                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
                         return *_arguments[i].type() == *type &&
                                binding.handle == handle &&
                                binding.offset_bytes == offset_bytes;
@@ -201,14 +207,14 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
                     }
                 },
                 _argument_bindings[i])) {
-            auto &binding = luisa::get<BufferBinding>(_argument_bindings[i]);
+            auto &binding = luisa::get<Function::BufferBinding>(_argument_bindings[i]);
             binding.size_bytes = std::max(binding.size_bytes, size_bytes);
             return _ref(_arguments[i]);
         }
     }
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(BufferBinding{handle, offset_bytes, size_bytes});
+    _argument_bindings.emplace_back(Function::BufferBinding{handle, offset_bytes, size_bytes});
     return _ref(v);
 }
 
@@ -253,9 +259,8 @@ const Expression *FunctionBuilder::swizzle(const Type *type, const Expression *s
                         auto l = (swizzle_code >> 12u) & 0b11u;
                         return literal(Type::of<TVec>(),
                                        Vector<TElem, 4u>{v[i], v[j], v[k], v[l]});
-                    } else {
-                        LUISA_ERROR_WITH_LOCATION("Invalid swizzle size.");
                     }
+                    LUISA_ERROR_WITH_LOCATION("Invalid swizzle size.");
                 } else {
                     LUISA_ERROR_WITH_LOCATION("Swizzle must be a vector but got '{}'.",
                                               self->type()->description());
@@ -285,8 +290,15 @@ const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
 }
 
 const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData data) noexcept {
-    if (!type->is_array()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
-    _captured_constants.emplace_back(Constant{type, data});
+    LUISA_ASSERT(type->is_array(),
+                 "Constant must be array but got '{}'.",
+                 type->description());
+    if (auto iter = std::find_if(
+            _captured_constants.begin(), _captured_constants.end(),
+            [data](auto &&c) noexcept { return c.data.hash() == data.hash(); });
+        iter == _captured_constants.end()) {
+        _captured_constants.emplace_back(Constant{type, data});
+    }
     return _create_expression<ConstantExpr>(type, data);
 }
 const Statement* FunctionBuilder::_pop_stmt() noexcept {
@@ -333,7 +345,7 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, TextureBinding>) {
+                    if constexpr (std::is_same_v<T, Function::TextureBinding>) {
                         return *_arguments[i].type() == *type &&
                                binding.handle == handle &&
                                binding.level == level;
@@ -347,7 +359,7 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
     }
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(TextureBinding{handle, level});
+    _argument_bindings.emplace_back(Function::TextureBinding{handle, level});
     return _ref(v);
 }
 
@@ -390,7 +402,7 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
+                    if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
                         return binding.handle == handle;
                     } else {
                         return false;
@@ -402,7 +414,7 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
     }
     Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(BindlessArrayBinding{handle});
+    _argument_bindings.emplace_back(Function::BindlessArrayBinding{handle});
     return _ref(v);
 }
 
@@ -417,7 +429,7 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, AccelBinding>) {
+                    if constexpr (std::is_same_v<T, Function::AccelBinding>) {
                         return binding.handle == handle;
                     } else {
                         return false;
@@ -429,7 +441,7 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
     }
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(AccelBinding{handle});
+    _argument_bindings.emplace_back(Function::AccelBinding{handle});
     return _ref(v);
 }
 
@@ -447,7 +459,12 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
     }
-    _used_builtin_callables.mark(call_op);
+    _direct_builtin_callables.mark(call_op);
+    _propagated_builtin_callables.mark(call_op);
+    if (is_atomic_operation(call_op) &&
+        args.front()->type()->tag() == Type::Tag::FLOAT) {
+        _requires_atomic_float = true;
+    }
     auto expr = _create_expression<CallExpr>(
         type, call_op, CallExpr::ArgumentList{args.begin(), args.end()});
     if (type == nullptr) {
@@ -467,22 +484,18 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
-        if (auto v_tag = f->_arguments[i].tag();
-            v_tag == Variable::Tag::THREAD_ID ||
-            v_tag == Variable::Tag::BLOCK_ID ||
-            v_tag == Variable::Tag::DISPATCH_ID ||
-            v_tag == Variable::Tag::DISPATCH_SIZE) {
-            call_args[i] = _builtin(v_tag);
+        if (auto arg = f->_arguments[i]; arg.is_builtin()) {
+            call_args[i] = _builtin(arg.tag());
         } else {
             call_args[i] = luisa::visit(
                 [&]<typename T>(T binding) noexcept -> const Expression * {
-                    if constexpr (std::is_same_v<T, BufferBinding>) {
+                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
                         return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes, binding.size_bytes);
-                    } else if constexpr (std::is_same_v<T, TextureBinding>) {
+                    } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
                         return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
-                    } else if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
+                    } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
                         return bindless_array_binding(binding.handle);
-                    } else if constexpr (std::is_same_v<T, AccelBinding>) {
+                    } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
                         return accel_binding(binding.handle);
                     } else {
                         return *(in_iter++);
@@ -503,23 +516,8 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom.shared_builder());
         // propagate used builtin/custom callables and constants
-        _used_builtin_callables.propagate(f->_used_builtin_callables);
-        for (auto c : f->_captured_constants) {
-            if (auto it = std::find_if(
-                    _captured_constants.begin(), _captured_constants.end(),
-                    [&](auto &&cc) { return c.hash() == cc.hash(); });
-                it == _captured_constants.end()) {
-                _captured_constants.push_back(c);
-            }
-        }
-        for (auto &&c : f->_used_custom_callables) {
-            if (auto it = std::find_if(
-                    _used_custom_callables.begin(), _used_custom_callables.end(),
-                    [&](auto &&f) { return f->hash() == c->hash(); });
-                it == _used_custom_callables.end()) {
-                _used_custom_callables.push_back(c);
-            }
-        }
+        _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
+        _requires_atomic_float |= f->_requires_atomic_float;
     }
     if (type == nullptr) {
         _void_expr(expr);
@@ -558,35 +556,16 @@ void FunctionBuilder::set_block_size(uint3 size) noexcept {
     }
 }
 
-bool FunctionBuilder::raytracing() const noexcept {
-    return _used_builtin_callables.test(CallOp::TRACE_CLOSEST) ||
-           _used_builtin_callables.test(CallOp::TRACE_ANY);
+bool FunctionBuilder::requires_raytracing() const noexcept {
+    return _propagated_builtin_callables.uses_raytracing();
 }
 
-uint64_t FunctionBuilder::BufferBinding::hash() const noexcept {
-    using namespace std::string_view_literals;
-    static thread_local auto seed = hash_value("__hash_buffer_binding"sv);
-    std::array a{handle, static_cast<uint64_t>(offset_bytes)};
-    return hash64(&a, sizeof(a), seed);
+bool FunctionBuilder::requires_atomic() const noexcept {
+    return _propagated_builtin_callables.uses_atomic();
 }
 
-uint64_t FunctionBuilder::TextureBinding::hash() const noexcept {
-    using namespace std::string_view_literals;
-    static thread_local auto seed = hash_value("__hash_texture_binding"sv);
-    std::array a{handle, static_cast<uint64_t>(level)};
-    return hash64(&a, sizeof(a), seed);
-}
-
-uint64_t FunctionBuilder::AccelBinding::hash() const noexcept {
-    using namespace std::string_view_literals;
-    static thread_local auto seed = hash_value("__hash_accel_binding"sv);
-    return hash64(&handle, sizeof(handle), seed);
-}
-
-uint64_t FunctionBuilder::BindlessArrayBinding::hash() const noexcept {
-    using namespace std::string_view_literals;
-    static thread_local auto seed = hash_value("__hash_bindless_array_binding"sv);
-    return hash64(&handle, sizeof(handle), seed);
+bool FunctionBuilder::requires_atomic_float() const noexcept {
+    return _requires_atomic_float;
 }
 
 }// namespace luisa::compute::detail
