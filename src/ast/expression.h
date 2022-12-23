@@ -4,20 +4,24 @@
 
 #pragma once
 
-#include <core/stl/vector.h>
-#include <core/stl/memory.h>
+#include <utility>
+#include <variant>
+#include <charconv>
+#include <algorithm>
+#include <numeric>
+
 #include <core/concepts.h>
 #include <core/basic_types.h>
+#include <core/stl/memory.h>
 #include <ast/variable.h>
+#include <ast/function.h>
 #include <ast/op.h>
 #include <ast/constant_data.h>
 
 namespace luisa::compute {
-
-class Statement;
-class Function;
-struct ExprVisitor;
 class AstSerializer;
+
+struct ExprVisitor;
 
 namespace detail {
 class FunctionBuilder;
@@ -28,10 +32,11 @@ class FunctionBuilder;
  * 
  */
 class LC_AST_API Expression : public concepts::Noncopyable {
+    friend class AstSerializer;
 
 public:
     /// Expression type
-    enum struct Tag : uint32_t {
+    enum struct Tag : uint8_t {
         UNARY,
         BINARY,
         MEMBER,
@@ -40,9 +45,7 @@ public:
         REF,
         CONSTANT,
         CALL,
-        CAST,
-        CPUCUSTOM,
-        GPUCUSTOM
+        CAST
     };
 
 private:
@@ -82,8 +85,6 @@ class RefExpr;
 class ConstantExpr;
 class CallExpr;
 class CastExpr;
-class CpuCustomOpExpr;
-class GpuCustomOpExpr;
 
 struct ExprVisitor {
     virtual void visit(const UnaryExpr *) = 0;
@@ -95,16 +96,14 @@ struct ExprVisitor {
     virtual void visit(const ConstantExpr *) = 0;
     virtual void visit(const CallExpr *) = 0;
     virtual void visit(const CastExpr *) = 0;
-    virtual void visit(const CpuCustomOpExpr *);
-    virtual void visit(const GpuCustomOpExpr *);
 };
 
-#define LUISA_EXPRESSION_COMMON() \
-    friend class AstSerializer;   \
+#define LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR() \
+    friend class AstSerializer;                \
     void accept(ExprVisitor &visitor) const override { visitor.visit(this); }
 
 /// Unary expression
-class LC_AST_API UnaryExpr final : public Expression {
+class UnaryExpr final : public Expression {
 
 private:
     const Expression *_operand;
@@ -112,7 +111,9 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_op, _operand->hash());
+    }
 
 public:
     /**
@@ -128,11 +129,11 @@ public:
     [[nodiscard]] auto op() const noexcept { return _op; }
 
 public:
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 /// Binary expression
-class LC_AST_API BinaryExpr final : public Expression {
+class BinaryExpr final : public Expression {
 
 private:
     const Expression *_lhs;
@@ -141,7 +142,11 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        auto hl = _lhs->hash();
+        auto hr = _rhs->hash();
+        return hash64(_op, hash64(hl, hr));
+    }
 
 public:
     /**
@@ -152,9 +157,7 @@ public:
      * @param lhs lhs will be marked as Usage::READ
      * @param rhs rhs will be marked as Usage::READ
      */
-    BinaryExpr(const Type *type, BinaryOp op,
-               const Expression *lhs,
-               const Expression *rhs) noexcept
+    BinaryExpr(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept
         : Expression{Tag::BINARY, type}, _lhs{lhs}, _rhs{rhs}, _op{op} {
         _lhs->mark(Usage::READ);
         _rhs->mark(Usage::READ);
@@ -163,11 +166,11 @@ public:
     [[nodiscard]] auto lhs() const noexcept { return _lhs; }
     [[nodiscard]] auto rhs() const noexcept { return _rhs; }
     [[nodiscard]] auto op() const noexcept { return _op; }
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 /// Access expression
-class LC_AST_API AccessExpr final : public Expression {
+class AccessExpr final : public Expression {
 
 private:
     const Expression *_range;
@@ -175,7 +178,9 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override { _range->mark(usage); }
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_index->hash(), _range->hash());
+    }
 
 public:
     /**
@@ -193,7 +198,7 @@ public:
 
     [[nodiscard]] auto range() const noexcept { return _range; }
     [[nodiscard]] auto index() const noexcept { return _index; }
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 /// Member expression
@@ -210,7 +215,9 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override { _self->mark(usage); }
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(make_uint2(_swizzle_size, _swizzle_code), _self->hash());
+    }
 
 public:
     /**
@@ -220,9 +227,9 @@ public:
      * @param self where to get member
      * @param member_index index of member
      */
-    MemberExpr(const Type *type,
-               const Expression *self,
-               uint member_index) noexcept;
+    MemberExpr(const Type *type, const Expression *self, uint member_index) noexcept
+        : Expression{Tag::MEMBER, type}, _self{self},
+          _swizzle_size{0u}, _swizzle_code{member_index} {}
 
     /**
      * @brief Construct a new Member Expr object accessing by swizzling
@@ -240,20 +247,18 @@ public:
      * @param swizzle_size swizzle size
      * @param swizzle_code swizzle code
      */
-    MemberExpr(const Type *type,
-               const Expression *self,
-               uint swizzle_size,
-               uint swizzle_code) noexcept;
-
+    MemberExpr(const Type *type, const Expression *self, uint swizzle_size, uint swizzle_code) noexcept;
     [[nodiscard]] auto self() const noexcept { return _self; }
+
+    [[nodiscard]] uint32_t swizzle_size() const noexcept;
+
     [[nodiscard]] auto is_swizzle() const noexcept { return _swizzle_size != 0u; }
 
-    [[nodiscard]] uint swizzle_size() const noexcept;
-    [[nodiscard]] uint swizzle_code() const noexcept;
-    [[nodiscard]] uint swizzle_index(uint index) const noexcept;
-    [[nodiscard]] uint member_index() const noexcept;
+    [[nodiscard]] uint32_t swizzle_code() const noexcept;
+    [[nodiscard]] uint32_t swizzle_index(uint index) const noexcept;
 
-    LUISA_EXPRESSION_COMMON()
+    [[nodiscard]] uint32_t member_index() const noexcept;
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 namespace detail {
@@ -262,19 +267,34 @@ template<typename T>
 struct make_literal_value {
     static_assert(always_false_v<T>);
 };
+template<size_t i, typename Dst, typename T, typename... Args>
+constexpr size_t literal_type_idx() {
+    if constexpr (std::is_same_v<Dst, T>) {
+        return i;
+    } else if constexpr (sizeof...(Args) == 0) {
+        return std::numeric_limits<size_t>::max();
+    } else {
+        return literal_type_idx<i + 1, Dst, Args...>();
+    }
+}
 
 template<typename... T>
 struct make_literal_value<std::tuple<T...>> {
     using type = luisa::variant<T...>;
+    using optional_type = luisa::variant<luisa::monostate, T...>;
+    template <typename Dst>
+    static constexpr size_t index_of = literal_type_idx<0ull, Dst, T...>();
 };
 
 template<typename T>
 using make_literal_value_t = typename make_literal_value<T>::type;
+template<typename T>
+constexpr size_t index_of_literal = make_literal_value<basic_types>::index_of<T>;
 
 }// namespace detail
 
 /// TODO
-class LC_AST_API LiteralExpr final : public Expression {
+class LiteralExpr final : public Expression {
 
 public:
     using Value = detail::make_literal_value_t<basic_types>;
@@ -284,7 +304,9 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return luisa::visit([](auto &&v) noexcept { return hash64(v); }, _value);
+    }
 
 public:
     /**
@@ -296,7 +318,7 @@ public:
     LiteralExpr(const Type *type, Value v) noexcept
         : Expression{Tag::LITERAL, type}, _value{v} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 /// Reference expression
@@ -307,7 +329,9 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override;
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_variable.hash());
+    }
 
 public:
     /**
@@ -318,18 +342,20 @@ public:
     explicit RefExpr(Variable v) noexcept
         : Expression{Tag::REF, v.type()}, _variable{v} {}
     [[nodiscard]] auto variable() const noexcept { return _variable; }
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 /// Constant expression
-class LC_AST_API ConstantExpr final : public Expression {
+class ConstantExpr final : public Expression {
 
 private:
     ConstantData _data;
 
 protected:
     void _mark(Usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_data.hash());
+    }
 
 public:
     /**
@@ -341,7 +367,7 @@ public:
     explicit ConstantExpr(const Type *type, ConstantData data) noexcept
         : Expression{Tag::CONSTANT, type}, _data{data} {}
     [[nodiscard]] auto data() const noexcept { return _data; }
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 /// Call expression
@@ -352,13 +378,18 @@ public:
 
 private:
     ArgumentList _arguments;
-    const detail::FunctionBuilder *_custom;
+    Function _custom;
     CallOp _op;
 
 protected:
     void _mark(Usage) const noexcept override {}
     void _mark() const noexcept;
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        auto hash = hash64(_op);
+        for (auto &&a : _arguments) { hash = hash64(a->hash(), hash); }
+        if (_op == CallOp::CUSTOM) { hash = hash64(_custom.hash(), hash); }
+        return hash;
+    }
 
 public:
     /**
@@ -368,7 +399,11 @@ public:
      * @param callable function to call
      * @param args arguments of function
      */
-    CallExpr(const Type *type, Function callable, ArgumentList args) noexcept;
+    CallExpr(const Type *type, Function callable, ArgumentList args) noexcept
+        : Expression{Tag::CALL, type},
+          _arguments{std::move(args)},
+          _custom{callable},
+          _op{CallOp::CUSTOM} { _mark(); }
     /**
      * @brief Construct a new CallExpr object calling builtin function
      * 
@@ -376,12 +411,16 @@ public:
      * @param builtin builtin function tag
      * @param args arguments of function
      */
-    CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept;
+    CallExpr(const Type *type, CallOp builtin, ArgumentList args) noexcept
+        : Expression{Tag::CALL, type},
+          _arguments{std::move(args)},
+          _custom{},
+          _op{builtin} { _mark(); }
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
+    [[nodiscard]] auto custom() const noexcept { return _custom; }
     [[nodiscard]] auto is_builtin() const noexcept { return _op != CallOp::CUSTOM; }
-    [[nodiscard]] Function custom() const noexcept;
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
 enum struct CastOp {
@@ -398,7 +437,9 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+    uint64_t _compute_hash() const noexcept override {
+        return hash64(_op, _source->hash());
+    }
 
 public:
     /**
@@ -412,48 +453,9 @@ public:
         : Expression{Tag::CAST, type}, _source{src}, _op{op} { _source->mark(Usage::READ); }
     [[nodiscard]] auto op() const noexcept { return _op; }
     [[nodiscard]] auto expression() const noexcept { return _source; }
-    LUISA_EXPRESSION_COMMON()
+    LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR()
 };
 
-class CpuCustomOpExpr final : public Expression {
-
-public:
-    using Callback = void (*)(void *arg, void *user_data);
-    CpuCustomOpExpr(const Type *type, Callback callback, void *user_data, const Expression *arg) noexcept
-        : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _user_data{user_data}, _arg(arg) {}
-    [[nodiscard]] auto callback() const noexcept { return _callback; }
-    [[nodiscard]] auto user_data() const noexcept { return _user_data; }
-    LUISA_EXPRESSION_COMMON()
-
-private:
-    Callback _callback;
-    const Expression *_arg;
-    void *_user_data;
-
-protected:
-    // TODO
-    void _mark(Usage usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
-};
-
-class GpuCustomOpExpr final : public Expression {
-
-public:
-    GpuCustomOpExpr(const Type *type, std::string source, const Expression *arg) noexcept
-        : Expression{Tag::GPUCUSTOM, type}, _source{std::move(source)}, _arg(arg) {}
-    [[nodiscard]] auto source() const noexcept { return _source; }
-    LUISA_EXPRESSION_COMMON()
-
-private:
-    std::string _source;
-    const Expression *_arg;
-
-protected:
-    // TODO
-    void _mark(Usage usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
-};
-
-#undef LUISA_EXPRESSION_COMMON
+#undef LUISA_MAKE_EXPRESSION_ACCEPT_VISITOR
 
 }// namespace luisa::compute

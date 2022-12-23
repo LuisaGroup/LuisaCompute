@@ -2,9 +2,8 @@
 // Created by Mike Smith on 2020/12/2.
 //
 
-#include <core/logging.h>
 #include <ast/function_builder.h>
-
+#include <core/logging.h>
 namespace luisa::compute::detail {
 
 luisa::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
@@ -13,9 +12,22 @@ luisa::vector<FunctionBuilder *> &FunctionBuilder::_function_stack() noexcept {
 }
 
 void FunctionBuilder::push(FunctionBuilder *func) noexcept {
+    if (func->tag() == Function::Tag::KERNEL && !_function_stack().empty()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Kernel definitions cannot be nested.");
+    }
     _function_stack().emplace_back(func);
 }
-
+bool FunctionBuilder::is_variable_uninitialized(Variable var) {
+    return !var.is_arg() &&
+           var.tag() == Variable::Tag::LOCAL &&
+           (to_underlying(variable_usage(var.uid())) & to_underlying(Usage::WRITE)) == 0;
+}
+void FunctionBuilder::_check_expr_uninited(Expression const *expr) {
+    if (expr->tag() != Expression::Tag::REF) return;
+    if (is_variable_uninitialized(static_cast<RefExpr const *>(expr)->variable())) {
+        LUISA_ERROR_WITH_LOCATION("Using un-initialized variable is undefined behavior.");
+    }
+}
 void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
     if (_function_stack().empty()) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Invalid pop on empty function stack.");
@@ -29,16 +41,9 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
         f->_return_type.value_or(nullptr) != nullptr) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION("Kernels cannot have non-void return types.");
     }
-    if (f->tag() != Tag::KERNEL &&
-        (!f->shared_variables().empty() ||
-         f->propagated_builtin_callables().test(CallOp::SYNCHRONIZE_BLOCK))) {
-        LUISA_ERROR_WITH_LOCATION("Shared variables and block synchronization "
-                                  "are only allowed in kernels.");
-    }
     if (f->requires_raytracing() &&
         (!f->_shared_variables.empty() ||
-         f->_propagated_builtin_callables.test(
-             CallOp::SYNCHRONIZE_BLOCK))) [[unlikely]] {
+         f->_used_builtin_callables.test(CallOp::SYNCHRONIZE_BLOCK))) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Raytracing functions are not allowed to "
             "use shared storage or call synchronize_block().");
@@ -90,7 +95,7 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
                          "Mismatched return types: {} and previously void.",
                          expr->type()->description());
         } else {
-            LUISA_ASSERT(expr != nullptr && *_return_type.value() == *expr->type(),
+            LUISA_ASSERT(expr != nullptr && _return_type.value() == expr->type(),
                          "Mismatched return types: {} and previously {}.",
                          expr == nullptr ? "void" : expr->type()->description(),
                          _return_type.value()->description());
@@ -130,6 +135,10 @@ SwitchDefaultStmt *FunctionBuilder::default_() noexcept {
 }
 
 void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexcept {
+    if (rhs->tag() == Expression::Tag::REF &&
+        is_variable_uninitialized(static_cast<RefExpr const *>(rhs)->variable())) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION("Illegal assignment: right variable is un-initialized");
+    }
     _create_and_append_statement<AssignStmt>(lhs, rhs);
 }
 
@@ -138,13 +147,13 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
 }
 
 const RefExpr *FunctionBuilder::local(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
+    Variable v{type, Variable::Tag::LOCAL, _next_variable_uid(), false};
     _local_variables.emplace_back(v);
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
-    Variable sv{type, Variable::Tag::SHARED, _next_variable_uid()};
+    Variable sv{type, Variable::Tag::SHARED, _next_variable_uid(), false};
     _shared_variables.emplace_back(sv);
     return _ref(sv);
 }
@@ -158,21 +167,23 @@ uint32_t FunctionBuilder::_next_variable_uid() noexcept {
 const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Variable::Tag::THREAD_ID); }
 const RefExpr *FunctionBuilder::block_id() noexcept { return _builtin(Variable::Tag::BLOCK_ID); }
 const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Variable::Tag::DISPATCH_ID); }
-const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Variable::Tag::DISPATCH_SIZE); }
 const RefExpr *FunctionBuilder::kernel_id() noexcept { return _builtin(Variable::Tag::KERNEL_ID); }
+const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Variable::Tag::DISPATCH_SIZE); }
 const RefExpr *FunctionBuilder::object_id() noexcept { return _builtin(Variable::Tag::OBJECT_ID); }
 
-inline const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
+const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
             _builtin_variables.cbegin(), _builtin_variables.cend(),
             [tag](auto &&v) noexcept { return v.tag() == tag; });
         iter != _builtin_variables.cend()) {
         return _ref(*iter);
     }
-    Variable v{Type::of<uint3>(), tag, _next_variable_uid()};
+    Variable v{Type::of<uint3>(), tag, _next_variable_uid(), true};
     _builtin_variables.emplace_back(v);
     // for callables, builtin variables are treated like arguments
-    if (_tag != Function::Tag::KERNEL) [[unlikely]] {
+    if (_tag != Function::Tag::KERNEL &&
+        v.tag() >= Variable::Tag::THREAD_ID &&
+        v.tag() <= Variable::Tag::DISPATCH_SIZE) [[unlikely]] {
         _arguments.emplace_back(v);
         _argument_bindings.emplace_back();
     }
@@ -180,14 +191,14 @@ inline const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
 }
 
 const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
+    Variable v{type, Variable::Tag::LOCAL, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::buffer(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
+    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -198,8 +209,8 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                        return *_arguments[i].type() == *type &&
+                    if constexpr (std::is_same_v<T, BufferBinding>) {
+                        return _arguments[i].type() == type &&
                                binding.handle == handle &&
                                binding.offset_bytes == offset_bytes;
                     } else {
@@ -207,22 +218,25 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
                     }
                 },
                 _argument_bindings[i])) {
-            auto &binding = luisa::get<Function::BufferBinding>(_argument_bindings[i]);
+            auto &binding = luisa::get<BufferBinding>(_argument_bindings[i]);
             binding.size_bytes = std::max(binding.size_bytes, size_bytes);
             return _ref(_arguments[i]);
         }
     }
-    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
+    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid(), true};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::BufferBinding{handle, offset_bytes, size_bytes});
+    _argument_bindings.emplace_back(BufferBinding{handle, offset_bytes, size_bytes});
     return _ref(v);
 }
 
 const UnaryExpr *FunctionBuilder::unary(const Type *type, UnaryOp op, const Expression *expr) noexcept {
+    _check_expr_uninited(expr);
     return _create_expression<UnaryExpr>(type, op, expr);
 }
 
 const BinaryExpr *FunctionBuilder::binary(const Type *type, BinaryOp op, const Expression *lhs, const Expression *rhs) noexcept {
+    _check_expr_uninited(lhs);
+    _check_expr_uninited(rhs);
     return _create_expression<BinaryExpr>(type, op, lhs, rhs);
 }
 
@@ -238,29 +252,36 @@ const Expression *FunctionBuilder::swizzle(const Type *type, const Expression *s
                 using TVec = std::decay_t<decltype(v)>;
                 if constexpr (is_vector_v<TVec>) {
                     using TElem = vector_element_t<TVec>;
-                    if (swizzle_size == 1u) {
-                        auto i = swizzle_code & 0b11u;
-                        return literal(Type::of<TElem>(), v[i]);
-                    } else if (swizzle_size == 2u) {
-                        auto i = (swizzle_code >> 0u) & 0b11u;
-                        auto j = (swizzle_code >> 4u) & 0b11u;
-                        return literal(Type::of<TVec>(),
-                                       Vector<TElem, 2u>{v[i], v[j]});
-                    } else if (swizzle_size == 3u) {
-                        auto i = (swizzle_code >> 0u) & 0b11u;
-                        auto j = (swizzle_code >> 4u) & 0b11u;
-                        auto k = (swizzle_code >> 8u) & 0b11u;
-                        return literal(Type::of<TVec>(),
-                                       Vector<TElem, 3u>{v[i], v[j], v[k]});
-                    } else if (swizzle_size == 4u) {
-                        auto i = (swizzle_code >> 0u) & 0b11u;
-                        auto j = (swizzle_code >> 4u) & 0b11u;
-                        auto k = (swizzle_code >> 8u) & 0b11u;
-                        auto l = (swizzle_code >> 12u) & 0b11u;
-                        return literal(Type::of<TVec>(),
-                                       Vector<TElem, 4u>{v[i], v[j], v[k], v[l]});
+                    switch (swizzle_size) {
+                        case 1u: {
+                            auto i = swizzle_code & 0b11u;
+                            return literal(Type::of<TElem>(), v[i]);
+                        }
+                        case 2u: {
+                            auto i = (swizzle_code >> 0u) & 0b11u;
+                            auto j = (swizzle_code >> 4u) & 0b11u;
+                            return literal(Type::of<TVec>(),
+                                           Vector<TElem, 2u>{v[i], v[j]});
+                        }
+                        case 3u: {
+                            auto i = (swizzle_code >> 0u) & 0b11u;
+                            auto j = (swizzle_code >> 4u) & 0b11u;
+                            auto k = (swizzle_code >> 8u) & 0b11u;
+                            return literal(Type::of<TVec>(),
+                                           Vector<TElem, 3u>{v[i], v[j], v[k]});
+                        }
+                        case 4u: {
+                            auto i = (swizzle_code >> 0u) & 0b11u;
+                            auto j = (swizzle_code >> 4u) & 0b11u;
+                            auto k = (swizzle_code >> 8u) & 0b11u;
+                            auto l = (swizzle_code >> 12u) & 0b11u;
+                            return literal(Type::of<TVec>(),
+                                           Vector<TElem, 4u>{v[i], v[j], v[k], v[l]});
+                        }
+                        default:
+                            LUISA_ERROR_WITH_LOCATION("Invalid swizzle size.");
+                            break;
                     }
-                    LUISA_ERROR_WITH_LOCATION("Invalid swizzle size.");
                 } else {
                     LUISA_ERROR_WITH_LOCATION("Swizzle must be a vector but got '{}'.",
                                               self->type()->description());
@@ -282,6 +303,7 @@ const AccessExpr *FunctionBuilder::access(const Type *type, const Expression *ra
 }
 
 const CastExpr *FunctionBuilder::cast(const Type *type, CastOp op, const Expression *expr) noexcept {
+    _check_expr_uninited(expr);
     return _create_expression<CastExpr>(type, op, expr);
 }
 
@@ -290,9 +312,7 @@ const RefExpr *FunctionBuilder::_ref(Variable v) noexcept {
 }
 
 const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData data) noexcept {
-    LUISA_ASSERT(type->is_array(),
-                 "Constant must be array but got '{}'.",
-                 type->description());
+    if (!type->is_array()) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Constant data must be array."); }
     if (auto iter = std::find_if(
             _captured_constants.begin(), _captured_constants.end(),
             [data](auto &&c) noexcept { return c.data.hash() == data.hash(); });
@@ -300,10 +320,6 @@ const ConstantExpr *FunctionBuilder::constant(const Type *type, ConstantData dat
         _captured_constants.emplace_back(Constant{type, data});
     }
     return _create_expression<ConstantExpr>(type, data);
-}
-
-const Statement* FunctionBuilder::pop_stmt() noexcept {
-    return _scope_stack.back()->pop();
 }
 
 void FunctionBuilder::push_scope(ScopeStmt *s) noexcept {
@@ -337,7 +353,7 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
 }
 
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
+    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -347,8 +363,8 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                        return *_arguments[i].type() == *type &&
+                    if constexpr (std::is_same_v<T, TextureBinding>) {
+                        return _arguments[i].type() == type &&
                                binding.handle == handle &&
                                binding.level == level;
                     } else {
@@ -359,9 +375,9 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
             return _ref(_arguments[i]);
         }
     }
-    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
+    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid(), true};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::TextureBinding{handle, level});
+    _argument_bindings.emplace_back(TextureBinding{handle, level});
     return _ref(v);
 }
 
@@ -384,27 +400,18 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
 }
 
 void FunctionBuilder::_compute_hash() noexcept {
-    using namespace std::string_view_literals;
-    static thread_local auto seed = hash_value("__hash_function"sv);
-    luisa::vector<uint64_t> hashes;
-    hashes.reserve(2u /* body and tag */ +
-                   1u /* return type */ +
-                   _arguments.size() +
-                   _captured_constants.size() +
-                   1u /* block size */);
-    hashes.emplace_back(hash_value(_tag));
-    hashes.emplace_back(_return_type ? hash_value(*_return_type.value()) : hash_value("void"sv));
-    for (auto &&arg : _arguments) { hashes.emplace_back(hash_value(arg)); }
-    for (auto &&c : _captured_constants) { hashes.emplace_back(hash_value(c)); }
-    hashes.emplace_back(hash_value(_block_size));
-    _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), seed);
+    _hash = hash64(_body.hash(), hash64(_tag, hash64("__hash_function")));
+    _hash = hash64(_return_type ? _return_type.value()->description() : "void", _hash);
+    for (auto &&arg : _arguments) { _hash = hash64(arg.hash(), _hash); }
+    for (auto &&c : _captured_constants) { _hash = hash64(c.hash(), _hash); }
+    _hash = hash64(_block_size, _hash);
 }
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                    if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
                         return binding.handle == handle;
                     } else {
                         return false;
@@ -414,14 +421,14 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
             return _ref(_arguments[i]);
         }
     }
-    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid(), true};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::BindlessArrayBinding{handle});
+    _argument_bindings.emplace_back(BindlessArrayBinding{handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::bindless_array() noexcept {
-    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -431,7 +438,7 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
     for (auto i = 0u; i < _arguments.size(); i++) {
         if (luisa::visit(
                 [&]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                    if constexpr (std::is_same_v<T, AccelBinding>) {
                         return binding.handle == handle;
                     } else {
                         return false;
@@ -441,14 +448,14 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
             return _ref(_arguments[i]);
         }
     }
-    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid(), true};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::AccelBinding{handle});
+    _argument_bindings.emplace_back(AccelBinding{handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::accel() noexcept {
-    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -461,7 +468,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
             "Custom functions are not allowed to "
             "be called with enum CallOp.");
     }
-    _direct_builtin_callables.mark(call_op);
+    _used_builtin_callables.mark(call_op);
     _propagated_builtin_callables.mark(call_op);
     if (is_atomic_operation(call_op) &&
         args.front()->type()->tag() == Type::Tag::FLOAT) {
@@ -486,18 +493,20 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);
     auto in_iter = args.begin();
     for (auto i = 0u; i < f->_arguments.size(); i++) {
-        if (auto arg = f->_arguments[i]; arg.is_builtin()) {
-            call_args[i] = _builtin(arg.tag());
+        if (auto v_tag = f->_arguments[i].tag();
+            v_tag >= Variable::Tag::THREAD_ID &&
+            v_tag <= Variable::Tag::DISPATCH_SIZE) {
+            call_args[i] = _builtin(v_tag);
         } else {
             call_args[i] = luisa::visit(
                 [&]<typename T>(T binding) noexcept -> const Expression * {
-                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                    if constexpr (std::is_same_v<T, BufferBinding>) {
                         return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes, binding.size_bytes);
-                    } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                    } else if constexpr (std::is_same_v<T, TextureBinding>) {
                         return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
-                    } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                    } else if constexpr (std::is_same_v<T, BindlessArrayBinding>) {
                         return bindless_array_binding(binding.handle);
-                    } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                    } else if constexpr (std::is_same_v<T, AccelBinding>) {
                         return accel_binding(binding.handle);
                     } else {
                         return *(in_iter++);
@@ -517,8 +526,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
             [&](auto &&p) noexcept { return f->hash() == p->hash(); });
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom.shared_builder());
-        // propagate used builtin/custom callables and constants
-        _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
+        _propagated_builtin_callables.propagate(f->_used_builtin_callables);
         _requires_atomic_float |= f->_requires_atomic_float;
     }
     if (type == nullptr) {
@@ -537,7 +545,7 @@ void FunctionBuilder::call(Function custom, luisa::span<const Expression *const>
 }
 
 const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::REFERENCE, _next_variable_uid()};
+    Variable v{type, Variable::Tag::REFERENCE, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);

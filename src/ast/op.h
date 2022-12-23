@@ -5,23 +5,21 @@
 #pragma once
 
 #include <bitset>
+#include <iterator>
 
-#include <core/stl/iterator.h>
 #include <core/basic_types.h>
+#include <core/stl/memory.h>
 
 namespace luisa::compute {
-
-class Type;
 class AstSerializer;
-
 /**
  * @brief Enum of unary operations.
  * 
  * Note: We deliberately support *NO* pre and postfix inc/dec operators to avoid possible abuse
  */
-enum struct UnaryOp : uint32_t {
-    PLUS,   // +x
-    MINUS,  // -x
+enum struct UnaryOp : uint8_t {
+    PLUS,
+    MINUS,  // +x, -x
     NOT,    // !x
     BIT_NOT,// ~x
 };
@@ -30,7 +28,7 @@ enum struct UnaryOp : uint32_t {
  * @brief Enum of binary operations
  * 
  */
-enum struct BinaryOp : uint32_t {
+enum struct BinaryOp : uint8_t {
 
     // arithmetic
     ADD,
@@ -54,27 +52,6 @@ enum struct BinaryOp : uint32_t {
     EQUAL,
     NOT_EQUAL
 };
-
-struct TypePromotion {
-    const Type *lhs{nullptr};
-    const Type *rhs{nullptr};
-    const Type *result{nullptr};
-};
-
-[[nodiscard]] TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexcept;
-
-[[nodiscard]] constexpr auto is_relational(BinaryOp op) noexcept {
-    return op == BinaryOp::LESS ||
-           op == BinaryOp::GREATER ||
-           op == BinaryOp::LESS_EQUAL ||
-           op == BinaryOp::GREATER_EQUAL ||
-           op == BinaryOp::EQUAL ||
-           op == BinaryOp::NOT_EQUAL;
-}
-
-[[nodiscard]] constexpr auto is_logical(BinaryOp op) noexcept {
-    return op == BinaryOp::AND || op == BinaryOp::OR;
-}
 
 /**
  * @brief Enum of call operations.
@@ -205,39 +182,33 @@ enum struct CallOp : uint32_t {
     // optimization hints
     ASSUME,
     UNREACHABLE,
-
-    // ray tracing
-    RAY_TRACING_INSTANCE_AABB,
-    RAY_TRACING_INSTANCE_TRANSFORM,
-    RAY_TRACING_SET_INSTANCE_AABB,
-    RAY_TRACING_SET_INSTANCE_TRANSFORM,
-    RAY_TRACING_SET_INSTANCE_VISIBILITY,
-    RAY_TRACING_SET_INSTANCE_OPACITY,
-    RAY_TRACING_TRACE_CLOSEST,
-    RAY_TRACING_TRACE_ANY,
-    RAY_TRACING_TRACE_ALL,
-
-    // ray query
-    RAY_QUERY_PROCEED, //Proceed(query): bool return: is bvh completed?
-    RAY_QUERY_IS_CANDIDATE_TRIANGLE,
-    RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,
-    RAY_QUERY_TRIANGLE_CANDIDATE_HIT,
-    RAY_QUERY_COMMITTED_HIT,
-    RAY_QUERY_COMMIT_TRIANGLE,
-    RAY_QUERY_COMMIT_PROCEDURAL,
-
-
-    // rasterization
-    RASTER_DISCARD,
-
+    // raster
+    // discard current pixel shader
+    DISCARD,
     // indirect
-    INDIRECT_CLEAR_DISPATCH_BUFFER,
-    INDIRECT_EMPLACE_DISPATCH_KERNEL,
-
+    CLEAR_DISPATCH_INDIRECT_BUFFER,
+    EMPLACE_DISPATCH_INDIRECT_KERNEL,
+    // ray query
+    QUERY_PROCEED, //Proceed(query): bool return: is bvh completed?
+    IS_QUERY_CANDIDATE_TRIANGLE,
+    GET_PROCEDURAL_CANDIDATE_HIT,
+    GET_TRIANGLE_CANDIDATE_HIT,
+    GET_COMMITED_HIT,
+    COMMIT_TRIANGLE,
+    COMMIT_PROCEDURAL,
+    // rt
+    INSTANCE_TO_WORLD_MATRIX,
+    SET_INSTANCE_TRANSFORM,
+    SET_INSTANCE_VISIBILITY,
+    SET_INSTANCE_OPAQUE,
+    SET_AABB,
+    GET_AABB,
+    TRACE_CLOSEST,
+    TRACE_ANY,
+    TRACE_ALL,
 };
 
-static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL) + 1u;
-
+static constexpr size_t call_op_count = to_underlying(CallOp::TRACE_ALL) + 1u;
 [[nodiscard]] constexpr auto is_atomic_operation(CallOp op) noexcept {
     return op == CallOp::ATOMIC_EXCHANGE ||
            op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
@@ -250,32 +221,12 @@ static constexpr size_t call_op_count = to_underlying(CallOp::INDIRECT_EMPLACE_D
            op == CallOp::ATOMIC_FETCH_MAX;
 }
 
-[[nodiscard]] constexpr auto is_vector_maker(CallOp op) noexcept {
-    return op == CallOp::MAKE_BOOL2 ||
-           op == CallOp::MAKE_BOOL3 ||
-           op == CallOp::MAKE_BOOL4 ||
-           op == CallOp::MAKE_INT2 ||
-           op == CallOp::MAKE_INT3 ||
-           op == CallOp::MAKE_INT4 ||
-           op == CallOp::MAKE_UINT2 ||
-           op == CallOp::MAKE_UINT3 ||
-           op == CallOp::MAKE_UINT4 ||
-           op == CallOp::MAKE_FLOAT2 ||
-           op == CallOp::MAKE_FLOAT3 ||
-           op == CallOp::MAKE_FLOAT4;
-}
-
-[[nodiscard]] constexpr auto is_matrix_maker(CallOp op) noexcept {
-    return op == CallOp::MAKE_FLOAT2X2 ||
-           op == CallOp::MAKE_FLOAT3X3 ||
-           op == CallOp::MAKE_FLOAT4X4;
-}
-
 /**
  * @brief Set of call operations.
  * 
  */
 class LC_AST_API CallOpSet {
+    friend class AstSerializer;
 
 public:
     using Bitset = std::bitset<call_op_count>;
@@ -312,9 +263,7 @@ public:
     [[nodiscard]] auto begin() const noexcept { return Iterator{*this}; }
     [[nodiscard]] auto end() const noexcept { return luisa::default_sentinel; }
     [[nodiscard]] auto uses_raytracing() const noexcept {
-        return test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
-               test(CallOp::RAY_TRACING_TRACE_ANY) ||
-               test(CallOp::RAY_TRACING_TRACE_ALL);
+        return test(CallOp::TRACE_CLOSEST) || test(CallOp::TRACE_ANY) || test(CallOp::TRACE_ALL);
     }
     [[nodiscard]] auto uses_atomic() const noexcept {
         return test(CallOp::ATOMIC_FETCH_ADD) ||
