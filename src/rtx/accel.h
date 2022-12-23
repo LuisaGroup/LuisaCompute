@@ -4,12 +4,15 @@
 
 #pragma once
 
+#include <core/dll_export.h>
 #include <core/basic_types.h>
-#include <core/stl.h>
+#ifndef LC_DISABLE_DSL
 #include <dsl/expr.h>
+#endif
 #include <rtx/ray.h>
-#include <rtx/hit.h>
+#include <rtx/ray_query.h>
 #include <rtx/mesh.h>
+#include <rtx/procedural_primitive.h>
 
 namespace luisa::compute {
 
@@ -23,12 +26,12 @@ public:
 private:
     luisa::unordered_map<size_t, Modification> _modifications;
     luisa::vector<uint64_t> _mesh_handles;
-    luisa::unique_ptr<std::mutex> _mutex;
 
 private:
     friend class Device;
     friend class Mesh;
-    explicit Accel(Device::Interface *device, UsageHint hint = UsageHint::FAST_TRACE) noexcept;
+    explicit Accel(DeviceInterface *device, AccelBuildOption const &option) noexcept;
+    luisa::unique_ptr<Command> update(bool build_accel, Accel::BuildRequest request) noexcept;
 
 public:
     Accel() noexcept = default;
@@ -36,17 +39,35 @@ public:
     [[nodiscard]] auto size() const noexcept { return _mesh_handles.size(); }
 
     // host interfaces
-    void emplace_back_mesh_with_handle(uint64_t mesh_handle, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
-    void emplace_back(Mesh const &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
-    void set_mesh_with_handle(size_t index, uint64_t mesh_handle, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
-    void set(size_t index, const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true) noexcept;
+    void emplace_back(const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true, bool opaque = true) noexcept {
+        emplace_back_handle(mesh.handle(), transform, visible, opaque);
+    }
+    void emplace_back(const ProceduralPrimitive &prim, float4x4 transform = make_float4x4(1.f), bool visible = true, bool opaque = true) noexcept {
+        emplace_back_handle(prim.handle(), transform, visible, opaque);
+    }
+    void emplace_back_handle(uint64_t mesh_handle, float4x4 const &transform, bool visible, bool opaque) noexcept;
+    void set(size_t index, const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true, bool opaque = true) noexcept {
+        set_handle(index, mesh.handle(), transform, visible, opaque);
+    }
+    void set(size_t index, const ProceduralPrimitive &prim, float4x4 transform = make_float4x4(1.f), bool visible = true, bool opaque = true) noexcept {
+        set_handle(index, prim.handle(), transform, visible, opaque);
+    }
+    void set_handle(size_t index, uint64_t mesh_handle, float4x4 const &transform, bool visible, bool opaque) noexcept;
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, bool visible) noexcept;
-    [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
-
+    void set_opaque_on_update(size_t index, bool opaque) noexcept;
+    // update top-level accel, build or only update instance data
+    [[nodiscard]] luisa::unique_ptr<Command> update_instance() noexcept {
+        return update(false, Accel::BuildRequest::PREFER_UPDATE);
+    }
+    [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept {
+        return update(true, request);
+    }
+#ifndef LC_DISABLE_DSL
     // shader functions
     [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] RayQuery trace_all(Expr<Ray> ray) const noexcept;
     [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
@@ -54,65 +75,32 @@ public:
     void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
     void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept;
     void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_opaque(Expr<int> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_opaque(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
+#endif
 };
-
+#ifndef LC_DISABLE_DSL
 template<>
-struct Expr<Accel> {
+struct LC_RUNTIME_API Expr<Accel> {
 
 private:
     const RefExpr *_expression{nullptr};
 
 public:
-    explicit Expr(const RefExpr *expr) noexcept
-        : _expression{expr} {}
-    Expr(const Accel &accel) noexcept
-        : _expression{detail::FunctionBuilder::current()->accel_binding(
-              accel.handle())} {}
+    explicit Expr(const RefExpr *expr) noexcept;
+    Expr(const Accel &accel) noexcept;
     [[nodiscard]] auto expression() const noexcept { return _expression; }
-    [[nodiscard]] auto trace_closest(Expr<Ray> ray) const noexcept {
-        return def<Hit>(
-            detail::FunctionBuilder::current()->call(
-                Type::of<Hit>(), CallOp::RAY_TRACING_TRACE_CLOSEST,
-                {_expression, ray.expression()}));
-    }
-    [[nodiscard]] auto trace_any(Expr<Ray> ray) const noexcept {
-        return def<bool>(
-            detail::FunctionBuilder::current()->call(
-                Type::of<bool>(), CallOp::RAY_TRACING_TRACE_ANY,
-                {_expression, ray.expression()}));
-    }
-    [[nodiscard]] auto instance_transform(Expr<uint> instance_id) const noexcept {
-        return def<float4x4>(
-            detail::FunctionBuilder::current()->call(
-                Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_TRANSFORM,
-                {_expression, instance_id.expression()}));
-    }
-    [[nodiscard]] auto instance_transform(Expr<int> instance_id) const noexcept {
-        return def<float4x4>(
-            detail::FunctionBuilder::current()->call(
-                Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_TRANSFORM,
-                {_expression, instance_id.expression()}));
-    }
-    void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM,
-            {_expression, instance_id.expression(), mat.expression()});
-    }
-    void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY,
-            {_expression, instance_id.expression(), vis.expression()});
-    }
-    void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM,
-            {_expression, instance_id.expression(), mat.expression()});
-    }
-    void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY,
-            {_expression, instance_id.expression(), vis.expression()});
-    }
+    [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] RayQuery trace_all(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
+    [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
+    void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
+    void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_opaque(Expr<int> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
+    void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_opaque(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
 };
 
 template<>
@@ -126,5 +114,5 @@ struct Var<Accel> : public Expr<Accel> {
 };
 
 using AccelVar = Var<Accel>;
-
+#endif
 }// namespace luisa::compute
