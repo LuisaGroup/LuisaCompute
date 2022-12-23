@@ -35,7 +35,7 @@ CallOpSet::Iterator CallOpSet::Iterator::operator++(int) noexcept {
     return self;
 }
 
-bool CallOpSet::Iterator::operator==(luisa::default_sentinel_t) const noexcept {
+bool CallOpSet::Iterator::operator==(std::default_sentinel_t) const noexcept {
     return _index == call_op_count;
 }
 

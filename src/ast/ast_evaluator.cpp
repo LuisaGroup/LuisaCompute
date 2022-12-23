@@ -3,6 +3,8 @@
 #include <core/logging.h>
 #include <algorithm>
 #include <core/mathematics.h>
+#include <vstl/common.h>
+
 
 namespace luisa::compute {
 
@@ -146,7 +148,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                         if constexpr (TTA::is_vector && TTB::is_scalar) {
                             using VecType = Vector<DstScalar, TTA::size>;
                             VecType a_result, b_result;
-                            for (auto &&i : range(TTA::size)) {
+                            for (auto &&i : vstd::range(TTA::size)) {
                                 a_result[i] = static_cast<DstScalar>(a[i]);
                                 b_result[i] = static_cast<DstScalar>(b);
                             }
@@ -158,7 +160,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                         else if constexpr (TTA::is_scalar && TTB::is_vector) {
                             using VecType = Vector<DstScalar, TTB::size>;
                             VecType a_result, b_result;
-                            for (auto &&i : range(TTB::size)) {
+                            for (auto &&i : vstd::range(TTB::size)) {
                                 a_result[i] = static_cast<DstScalar>(a);
                                 b_result[i] = static_cast<DstScalar>(b[i]);
                             }
@@ -177,8 +179,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                         } else if constexpr (TTA::is_matrix && TTB::is_scalar) {
                             using VecType = Matrix<TTA::size>;
                             VecType b_result;
-                            for (auto x : range(TTA::size))
-                                for (auto y : range(TTA::size)) {
+                            for (auto x : vstd::range(TTA::size))
+                                for (auto y : vstd::range(TTA::size)) {
                                     b_result[x][y] = static_cast<float>(b);
                                 }
                             rr = b_result;
@@ -188,8 +190,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                         else if constexpr (TTA::is_scalar && TTB::is_matrix) {
                             using VecType = Matrix<TTB::size>;
                             VecType a_result;
-                            for (auto x : range(TTA::size))
-                                for (auto y : range(TTA::size)) {
+                            for (auto x : vstd::range(TTA::size))
+                                for (auto y : vstd::range(TTA::size)) {
                                     a_result[x][y] = static_cast<float>(a);
                                 }
                             lr = a_result;
@@ -327,7 +329,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(MemberExpr const *expr) {
             [&]<typename T>(T const &t) -> Result {
                 if constexpr (ScalarType<T>::is_vector) {
                     T newT;
-                    for (auto i : range(expr->swizzle_size())) {
+                    for (auto i : vstd::range(expr->swizzle_size())) {
                         newT[i] = t[expr->swizzle_index(i)];
                     }
                     return Result{newT};
@@ -481,7 +483,7 @@ void ASTEvaluator::end_branch_scope() {
 
 void ASTEvaluator::check_call_ref(Function func, luisa::span<Expression const *const> args_var) {
     auto argTypes = func.arguments();
-    for (auto i : range(args_var.size())) {
+    for (auto i : vstd::range(args_var.size())) {
         if (args_var[i]->tag() == Expression::Tag::REF && argTypes[i].tag() == Variable::Tag::REFERENCE) {
             ref_var(static_cast<RefExpr const *>(args_var[i])->variable());
         }
@@ -505,7 +507,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return t;
                         } else {
                             bool result = true;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result &= t[i];
                             }
                             return result;
@@ -526,7 +528,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return t;
                         } else {
                             bool result = false;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result |= t[i];
                             }
                             return result;
@@ -594,7 +596,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::clamp(t, static_cast<T>(0), static_cast<T>(1));
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::clamp(t[i], static_cast<ScalarType_t<T>>(0), static_cast<ScalarType_t<T>>(1));
                             }
                             return result;
@@ -640,7 +642,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return (x_value >= t) ? static_cast<T>(1) : static_cast<T>(0);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = (x_value[i] >= t[i]) ? static_cast<ScalarType_t<T>>(0) : static_cast<ScalarType_t<T>>(1);
                             }
                             return result;
@@ -704,7 +706,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             if (holds_alternative<monostate>(a)) [[likely]] { return monostate{}; }
             auto clz = [](uint32_t v) -> uint32_t {
                 constexpr uint32_t mask = 1u << 31u;
-                for (auto i : range(32)) {
+                for (auto i : vstd::range(32)) {
                     if (v & mask) return i;
                     v <<= 1;
                 }
@@ -717,7 +719,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return clz(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = clz(t[i]);
                             }
                             return result;
@@ -733,7 +735,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             if (holds_alternative<monostate>(a)) [[likely]] { return monostate{}; }
             auto ctz = [](uint32_t v) -> uint32_t {
                 constexpr uint32_t mask = 1u;
-                for (auto i : range(32)) {
+                for (auto i : vstd::range(32)) {
                     if (v & mask) return i;
                     v >>= 1;
                 }
@@ -746,7 +748,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return ctz(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = ctz(t[i]);
                             }
                             return result;
@@ -763,7 +765,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             auto popcount = [](uint32_t v) -> uint32_t {
                 constexpr uint32_t mask = 1u;
                 uint32_t r = 0;
-                for (auto i : range(32)) {
+                for (auto i : vstd::range(32)) {
                     if (v & mask) r += 1;
                     v >>= 1;
                 }
@@ -776,7 +778,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return popcount(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = popcount(t[i]);
                             }
                             return result;
@@ -793,7 +795,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             auto reverse = [](uint32_t v) -> uint32_t {
                 uint32_t result = 0;
                 constexpr uint32_t mask = 1u;
-                for (auto i : range(32)) {
+                for (auto i : vstd::range(32)) {
                     result <<= 1;
                     result |= (v & mask);
                     v >>= 1;
@@ -807,7 +809,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return reverse(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = reverse(t[i]);
                             }
                             return result;
@@ -867,7 +869,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::acosh(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::acosh(t[i]);
                             }
                             return result;
@@ -901,7 +903,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::asinh(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::asinh(t[i]);
                             }
                             return result;
@@ -935,7 +937,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::atanh(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::atanh(t[i]);
                             }
                             return result;
@@ -986,7 +988,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::cosh(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::cosh(t[i]);
                             }
                             return result;
@@ -1020,7 +1022,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::sinh(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::sinh(t[i]);
                             }
                             return result;
@@ -1054,7 +1056,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::tanh(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::tanh(t[i]);
                             }
                             return result;
@@ -1088,7 +1090,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::exp2(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::exp2(t[i]);
                             }
                             return result;
@@ -1109,7 +1111,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return std::pow(10.0f, t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = std::pow(10.0f, t[i]);
                             }
                             return result;
@@ -1184,7 +1186,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return 1.0f / std::sqrt(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = 1.0f / std::sqrt(t[i]);
                             }
                             return result;
@@ -1247,7 +1249,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return trunc(t);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = trunc(t[i]);
                             }
                             return result;
@@ -1288,7 +1290,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return a * b + c;
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = a[i] * b[i] + c[i];
                             }
                             return result;
@@ -1317,7 +1319,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                             return copysign(t, b_v);
                         } else {
                             T result;
-                            for (auto i : range(ScalarType<T>::size)) {
+                            for (auto i : vstd::range(ScalarType<T>::size)) {
                                 result[i] = copysign(t[i], b_v[i]);
                             }
                             return result;
@@ -1485,7 +1487,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
             if (expr->op() == CastOp::STATIC) {
                 auto temp_func = [&]<size_t dim, typename Dst>() -> Result {
                     Vector<Dst, dim> vec;
-                    for (auto idx : range(dim)) {
+                    for (auto idx : vstd::range(dim)) {
                         vec[idx] = static_cast<Dst>(t);
                     }
                     return vec;
@@ -1523,7 +1525,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
         if (expr->op() == CastOp::STATIC) {
             auto cast_func = [&]<size_t dim, typename Dst>() -> Result {
                 Vector<Dst, dim> vec;
-                for (auto idx : range(dim)) {
+                for (auto idx : vstd::range(dim)) {
                     vec[idx] = static_cast<Dst>(t[idx]);
                 }
                 return vec;
@@ -1553,7 +1555,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
             auto cast_func = [&]<size_t dim, typename Dst>() -> Result {
                 if constexpr (sizeof(Dst) == sizeof(T)) {
                     Vector<Dst, dim> vec;
-                    for (auto idx : range(dim)) {
+                    for (auto idx : vstd::range(dim)) {
                         vec[idx] = reinterpret_cast<Dst const &>(t[idx]);
                     }
                     return vec;
