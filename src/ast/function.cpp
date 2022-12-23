@@ -68,4 +68,11 @@ luisa::span<const Variable> Function::shared_variables() const noexcept {
     return _builder->shared_variables();
 }
 
+uint64_t Function::Constant::hash() const noexcept {
+    using namespace std::string_view_literals;
+    static thread_local auto seed = hash_value("__hash_constant_binding"sv);
+    std::array a{type->hash(), data.hash()};
+    return hash64(&a, sizeof(a), seed);
+}
+
 }// namespace luisa::compute

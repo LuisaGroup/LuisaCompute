@@ -13,7 +13,6 @@
 #include <core/concepts.h>
 #include <core/basic_types.h>
 #include <core/logging.h>
-#include <core/hash.h>
 #include <core/stl.h>
 #include <ast/variable.h>
 #include <ast/function.h>
@@ -116,9 +115,7 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_op, _operand->hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -147,11 +144,7 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    uint64_t _compute_hash() const noexcept override {
-        auto hl = _lhs->hash();
-        auto hr = _rhs->hash();
-        return hash64(_op, hash64(hl, hr));
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -183,9 +176,7 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override { _range->mark(usage); }
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_index->hash(), _range->hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -220,9 +211,7 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override { _self->mark(usage); }
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(make_uint2(_swizzle_size, _swizzle_code), _self->hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -319,9 +308,7 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    uint64_t _compute_hash() const noexcept override {
-        return luisa::visit([](auto &&v) noexcept { return hash64(v); }, _value);
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -344,9 +331,7 @@ private:
 
 protected:
     void _mark(Usage usage) const noexcept override;
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_variable.hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -368,9 +353,7 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_data.hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -399,13 +382,7 @@ private:
 protected:
     void _mark(Usage) const noexcept override {}
     void _mark() const noexcept;
-    uint64_t _compute_hash() const noexcept override {
-        auto hash = hash64(_op);
-        hash = hash64(_arguments.size(), hash);
-        for (auto &&a : _arguments) { hash = hash64(a->hash(), hash); }
-        if (_op == CallOp::CUSTOM) { hash = hash64(_custom.hash(), hash); }
-        return hash;
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**
@@ -453,9 +430,7 @@ private:
 
 protected:
     void _mark(Usage) const noexcept override {}
-    uint64_t _compute_hash() const noexcept override {
-        return hash64(_op, _source->hash());
-    }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
     /**

@@ -7,7 +7,6 @@
 
 #include <cuda.h>
 
-#include <core/hash.h>
 #include <core/spin_mutex.h>
 #include <ast/function.h>
 #include <runtime/command.h>

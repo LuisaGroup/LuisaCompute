@@ -5,7 +5,6 @@
 #pragma once
 
 #include <core/stl.h>
-#include <core/hash.h>
 
 namespace luisa::compute {
 

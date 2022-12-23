@@ -19,7 +19,7 @@ struct Triangle {
 
 class Accel;
 
-class LC_RTX_API Mesh final : public Resource {
+class LC_RUNTIME_API Mesh final : public Resource {
 
 public:
     using BuildRequest = AccelBuildRequest;

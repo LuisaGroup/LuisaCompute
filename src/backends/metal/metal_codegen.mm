@@ -4,7 +4,6 @@
 
 #import <span>
 
-#import <core/hash.h>
 #import <ast/type_registry.h>
 #import <ast/function_builder.h>
 #import <ast/constant_data.h>

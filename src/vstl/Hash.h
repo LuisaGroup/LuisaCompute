@@ -5,8 +5,6 @@
 #include <utility>
 #include <tuple>
 
-#include <core/hash.h>
-
 [[nodiscard]] inline uint64_t vstd_gethash(const void *data, size_t size, uint64_t seed = 19980810u) noexcept {
     return luisa::hash64(data, size, seed);
 }

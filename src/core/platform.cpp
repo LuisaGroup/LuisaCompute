@@ -2,13 +2,7 @@
 // Created by Mike Smith on 2021/3/15.
 //
 
-#include <chrono>
-#include <cstdlib>
-#include <string>
-#include <type_traits>
-#include <filesystem>
 #include <sstream>
-#include <iostream>
 
 #include <core/clock.h>
 #include <core/platform.h>
@@ -58,7 +52,7 @@ size_t pagesize() noexcept {
     return page_size;
 }
 
-void *dynamic_module_load(const std::filesystem::path &path) noexcept {
+void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     auto path_string = path.string();
     auto module = LoadLibraryA(path_string.c_str());
     if (module == nullptr) [[unlikely]] {
@@ -73,7 +67,7 @@ void dynamic_module_destroy(void *handle) noexcept {
     if (handle != nullptr) { FreeLibrary(reinterpret_cast<HMODULE>(handle)); }
 }
 
-void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
+void *dynamic_module_find_symbol(void *handle, luisa::string_view name_view) noexcept {
     static thread_local luisa::string name;
     name = name_view;
     LUISA_VERBOSE_WITH_LOCATION("Loading dynamic symbol: {}.", name);
@@ -85,7 +79,7 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     return reinterpret_cast<void *>(symbol);
 }
 
-luisa::string dynamic_module_name(std::string_view name) noexcept {
+luisa::string dynamic_module_name(luisa::string_view name) noexcept {
     luisa::string s{name};
     s.append(".dll");
     return s;
@@ -155,7 +149,7 @@ size_t pagesize() noexcept {
     return page_size;
 }
 
-void *dynamic_module_load(const std::filesystem::path &path) noexcept {
+void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     auto p = path;
     for (auto ext : {".so", ".dylib"}) {
         p.replace_extension(ext);
@@ -173,7 +167,7 @@ void dynamic_module_destroy(void *handle) noexcept {
     if (handle != nullptr) { dlclose(handle); }
 }
 
-void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexcept {
+void *dynamic_module_find_symbol(void *handle, luisa::string_view name_view) noexcept {
     static thread_local luisa::string name;
     name = name_view;
     Clock clock;
@@ -188,7 +182,7 @@ void *dynamic_module_find_symbol(void *handle, std::string_view name_view) noexc
     return symbol;
 }
 
-luisa::string dynamic_module_name(std::string_view name) noexcept {
+luisa::string dynamic_module_name(luisa::string_view name) noexcept {
     luisa::string s{"lib"};
     s.append(name).append(".so");
     return s;

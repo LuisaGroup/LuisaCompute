@@ -2,7 +2,6 @@
 // Created by Mike Smith on 2021/3/6.
 //
 
-#include <core/hash.h>
 #include <core/spin_mutex.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
@@ -29,7 +28,9 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
             using T = std::remove_const_t<typename decltype(view)::value_type>;
             auto type = Type::of<T>();
             using namespace std::string_view_literals;
-            auto hash = hash64(type->hash(), hash64("__hash_constant_data"sv));
+            static thread_local auto seed = hash_value("__hash_constant_data"sv);
+            auto type_hash = type->hash();
+            auto hash = hash64(&type_hash, sizeof(type_hash), seed);
             hash = luisa::hash64(view.data(), view.size_bytes(), hash);
             std::scoped_lock lock{detail::constant_registry_mutex()};
             if (auto iter = std::find_if(

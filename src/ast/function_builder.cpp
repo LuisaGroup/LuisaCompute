@@ -370,11 +370,20 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
 }
 
 void FunctionBuilder::_compute_hash() noexcept {
-    _hash = hash64(_body.hash(), hash64(_tag, hash64("__hash_function")));
-    _hash = hash64(_return_type ? _return_type.value()->description() : "void", _hash);
-    for (auto &&arg : _arguments) { _hash = hash64(arg.hash(), _hash); }
-    for (auto &&c : _captured_constants) { _hash = hash64(c.hash(), _hash); }
-    _hash = hash64(_block_size, _hash);
+    using namespace std::string_view_literals;
+    static thread_local auto seed = hash_value("__hash_function"sv);
+    luisa::vector<uint64_t> hashes;
+    hashes.reserve(2u /* body and tag */ +
+                   1u /* return type */ +
+                   _arguments.size() +
+                   _captured_constants.size() +
+                   1u /* block size */);
+    hashes.emplace_back(hash_value(_tag));
+    hashes.emplace_back(_return_type ? hash_value(*_return_type.value()) : hash_value("void"sv));
+    for (auto &&arg : _arguments) { hashes.emplace_back(hash_value(arg)); }
+    for (auto &&c : _captured_constants) { hashes.emplace_back(hash_value(c)); }
+    hashes.emplace_back(hash_value(_block_size));
+    _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), seed);
 }
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {
@@ -552,6 +561,32 @@ void FunctionBuilder::set_block_size(uint3 size) noexcept {
 bool FunctionBuilder::raytracing() const noexcept {
     return _used_builtin_callables.test(CallOp::TRACE_CLOSEST) ||
            _used_builtin_callables.test(CallOp::TRACE_ANY);
+}
+
+uint64_t FunctionBuilder::BufferBinding::hash() const noexcept {
+    using namespace std::string_view_literals;
+    static thread_local auto seed = hash_value("__hash_buffer_binding"sv);
+    std::array a{handle, static_cast<uint64_t>(offset_bytes)};
+    return hash64(&a, sizeof(a), seed);
+}
+
+uint64_t FunctionBuilder::TextureBinding::hash() const noexcept {
+    using namespace std::string_view_literals;
+    static thread_local auto seed = hash_value("__hash_texture_binding"sv);
+    std::array a{handle, static_cast<uint64_t>(level)};
+    return hash64(&a, sizeof(a), seed);
+}
+
+uint64_t FunctionBuilder::AccelBinding::hash() const noexcept {
+    using namespace std::string_view_literals;
+    static thread_local auto seed = hash_value("__hash_accel_binding"sv);
+    return hash64(&handle, sizeof(handle), seed);
+}
+
+uint64_t FunctionBuilder::BindlessArrayBinding::hash() const noexcept {
+    using namespace std::string_view_literals;
+    static thread_local auto seed = hash_value("__hash_bindless_array_binding"sv);
+    return hash64(&handle, sizeof(handle), seed);
 }
 
 }// namespace luisa::compute::detail

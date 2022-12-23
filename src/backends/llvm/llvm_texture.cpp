@@ -224,7 +224,7 @@ LLVMTexture::LLVMTexture(PixelStorage storage, uint dim, uint3 size, uint levels
         }
         auto s = (sz + block_size - 1u) / block_size * block_size;
         auto size_pixels = _mip_offsets[levels - 1u] + s.x * s.y;
-        _data = luisa::allocate<std::byte>(static_cast<size_t>(size_pixels) << _pixel_stride_shift);
+        _data = luisa::allocate_with_allocator<std::byte>(static_cast<size_t>(size_pixels) << _pixel_stride_shift);
     } else {
         _size[0] = size.x;
         _size[1] = size.y;
@@ -237,11 +237,11 @@ LLVMTexture::LLVMTexture(PixelStorage storage, uint dim, uint3 size, uint levels
         }
         auto s = (size + block_size - 1u) / block_size * block_size;
         auto size_pixels = _mip_offsets[levels - 1u] + s.x * s.y * s.z;
-        _data = luisa::allocate<std::byte>(static_cast<size_t>(size_pixels) << _pixel_stride_shift);
+        _data = luisa::allocate_with_allocator<std::byte>(static_cast<size_t>(size_pixels) << _pixel_stride_shift);
     }
 }
 
-LLVMTexture::~LLVMTexture() noexcept { luisa::deallocate(_data); }
+LLVMTexture::~LLVMTexture() noexcept { luisa::deallocate_with_allocator(_data); }
 
 LLVMTextureView LLVMTexture::view(uint level) const noexcept {
     auto size = luisa::max(make_uint3(_size[0], _size[1], _size[2]) >> level, 1u);

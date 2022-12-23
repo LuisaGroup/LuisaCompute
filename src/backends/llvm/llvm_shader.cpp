@@ -89,7 +89,7 @@ LLVMShader::LLVMShader(LLVMDevice *device, Function func) noexcept
     });
     auto file_path = device->context().cache_directory() /
                      luisa::format("kernel.llvm.{:016x}.opt.{:016x}.ll",
-                                   func.hash(), hash64(LLVM_VERSION_STRING LC_LLVM_CODEGEN_MAGIC));
+                                   func.hash(), hash_value(LLVM_VERSION_STRING LC_LLVM_CODEGEN_MAGIC));
     ::llvm::SMDiagnostic diagnostic;
     auto module = ::llvm::parseIRFile(file_path.string(), diagnostic, *context);
     Clock clk;

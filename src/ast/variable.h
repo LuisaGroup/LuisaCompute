@@ -58,12 +58,7 @@ public:
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
-    [[nodiscard]] auto hash() const noexcept {
-        auto u0 = static_cast<uint64_t>(_uid);
-        auto u1 = static_cast<uint64_t>(_tag);
-        using namespace std::string_view_literals;
-        return hash64(u0 | (u1 << 32u), hash64(_type->hash(), hash64("__hash_variable"sv)));
-    }
+    [[nodiscard]] uint64_t hash() const noexcept;
     [[nodiscard]] auto operator==(Variable rhs) const noexcept { return _uid == rhs._uid; }
 };
 

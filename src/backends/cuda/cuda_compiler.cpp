@@ -45,7 +45,7 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
         "-dw",
         "-w"};
 
-    auto opt_hash = Hash64::default_seed;
+    auto opt_hash = hash64_default_seed;
     for (auto o : options) { opt_hash = hash64(o, opt_hash); }
 
     auto file_name = fmt::format(

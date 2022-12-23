@@ -11,7 +11,6 @@
 #include <span>
 #include <memory>
 
-#include <core/hash.h>
 #include <core/concepts.h>
 #include <core/stl.h>
 
