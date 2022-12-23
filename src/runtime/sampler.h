@@ -12,14 +12,14 @@ namespace luisa::compute {
 class Sampler {
 
 public:
-    enum struct Filter : uint32_t {
+    enum struct Filter : uint8_t {
         POINT,
         LINEAR_POINT,
         LINEAR_LINEAR,
         ANISOTROPIC
     };
 
-    enum struct Address : uint32_t {
+    enum struct Address : uint8_t {
         EDGE,
         REPEAT,
         MIRROR,

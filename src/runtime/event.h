@@ -9,9 +9,9 @@
 
 namespace luisa::compute {
 
-class LC_RUNTIME_API Device;
+class Device;
 
-class Event final : public Resource {
+class LC_RUNTIME_API Event final : public Resource {
 
 public:
     struct Signal { uint64_t handle; };
@@ -19,7 +19,7 @@ public:
     
 private:
     friend class Device;
-    explicit Event(Device::Interface *device) noexcept;
+    explicit Event(DeviceInterface *device) noexcept;
 
 public:
     Event() noexcept = default;

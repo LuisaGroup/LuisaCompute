@@ -3,8 +3,9 @@
 //
 
 #pragma once
-
-#include <core/stl.h>
+#include <core/stl/hash.h>
+#include <core/stl/unordered_map.h>
+#include <core/stl/vector.h>
 
 namespace luisa::compute {
 
@@ -28,4 +29,4 @@ public:
     }
 };
 
-}
+}// namespace luisa::compute

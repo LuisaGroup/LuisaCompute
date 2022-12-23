@@ -4,34 +4,48 @@
 
 #pragma once
 
-#include <vector>
-#include <filesystem>
-#include <unordered_map>
-
-#include <core/dynamic_module.h>
-
-namespace luisa::compute {
-
+#include <core/stl/memory.h>
+#include <core/stl/string.h>
+#include <core/hash_128.h>
+namespace luisa {
+class DynamicModule;
+namespace compute {
 class Device;
-
+class BinaryIO;
+class ContextPaths;
+struct DeviceConfig {
+    Hash128 hash;
+    size_t device_index{0ull};
+    bool inqueue_buffer_limit{true};
+    bool headless{false};
+};
 class LC_RUNTIME_API Context {
-
+    friend class ContextPaths;
 private:
     struct Impl;
     luisa::shared_ptr<Impl> _impl;
+    size_t _index = ~0ull;
+    Context(
+        luisa::shared_ptr<Impl> const &impl,
+        size_t index);
 
 public:
-    explicit Context(const std::filesystem::path &program) noexcept;
+    explicit Context(string_view program_path) noexcept;
+    explicit Context(const char *program_path) noexcept
+        : Context(string_view{program_path}) {}
     Context(Context &&) noexcept = default;
     Context(const Context &) noexcept = default;
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
     ~Context() noexcept;
-    [[nodiscard]] const std::filesystem::path &runtime_directory() const noexcept;
-    [[nodiscard]] const std::filesystem::path &cache_directory() const noexcept;
-    [[nodiscard]] Device create_device(luisa::string_view backend_name, luisa::string_view property_json = "{}") noexcept;
+    ContextPaths paths() const noexcept;
+    [[nodiscard]] auto index() const noexcept { return _index; }
+    [[nodiscard]] Device create_device(luisa::string_view backend_name, DeviceConfig const *settings = nullptr) noexcept;
     [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;
+    [[nodiscard]] luisa::span<const DynamicModule> loaded_modules() const noexcept;
     [[nodiscard]] Device create_default_device() noexcept;
+    [[nodiscard]] BinaryIO *get_fileio_visitor() const noexcept;
+    void set_fileio_visitor(BinaryIO *file_io) noexcept;
 };
-
-}// namespace luisa::compute
+}// namespace compute
+}// namespace luisa

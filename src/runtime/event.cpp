@@ -11,7 +11,7 @@ Event Device::create_event() noexcept {
     return _create<Event>();
 }
 
-Event::Event(Device::Interface *device) noexcept
+Event::Event(DeviceInterface *device) noexcept
     : Resource{
         device,
         Tag::EVENT,

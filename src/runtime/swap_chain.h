@@ -6,7 +6,6 @@
 #include <runtime/resource.h>
 #include <runtime/event.h>
 #include <runtime/command_list.h>
-#include <runtime/command_scheduler.h>
 #include <runtime/image.h>
 
 namespace luisa::compute {
@@ -21,9 +20,9 @@ public:
 
 private:
     friend class Device;
-    SwapChain(Device::Interface *device, uint64_t window_handle,
+    SwapChain(DeviceInterface *device, uint64_t window_handle,
               uint64_t stream_handle, uint width, uint height,
-              bool allow_hdr, uint back_buffer_size) noexcept;
+              bool allow_hdr, bool vsync, uint back_buffer_size) noexcept;
 
 public:
     SwapChain() noexcept = default;

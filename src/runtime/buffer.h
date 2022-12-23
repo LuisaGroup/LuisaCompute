@@ -8,9 +8,15 @@
 #include <core/mathematics.h>
 #include <runtime/command.h>
 #include <runtime/resource.h>
-
+#include <runtime/device.h>
 namespace luisa::compute {
-
+namespace detail {
+LC_RUNTIME_API void log_diff_elements(size_t src, size_t dst);
+LC_RUNTIME_API void log_unable_hold(size_t size, size_t dst);
+LC_RUNTIME_API void log_subview_overflow(size_t offset, size_t ele_size, size_t size);
+LC_RUNTIME_API void log_invalid_align(size_t offset, size_t dst);
+}// namespace detail
+class DynamicStruct;
 template<typename T>
 struct Expr;
 
@@ -37,16 +43,22 @@ private:
 
 private:
     friend class Device;
-    Buffer(Device::Interface *device, size_t size) noexcept
+    Buffer(DeviceInterface *device, size_t size) noexcept
         : Resource{
               device, Tag::BUFFER,
               device->create_buffer(size * sizeof(T))},
+          _size{size} {}
+    Buffer(DeviceInterface *device, void *ptr, size_t size) noexcept
+        : Resource{
+              device, Tag::BUFFER,
+              device->create_buffer(ptr)},
           _size{size} {}
 
 public:
     Buffer() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] constexpr auto stride() const noexcept { return sizeof(T); }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
     [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), 0u, _size, _size}; }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
@@ -86,9 +98,7 @@ private:
     BufferView(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept
         : _handle{handle}, _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid buffer view offset {} for elements with alignment {}.",
-                _offset_bytes, alignof(T));
+            detail::log_invalid_align(_offset_bytes, alignof(T));
         }
     }
 
@@ -96,6 +106,7 @@ public:
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] constexpr auto stride() const noexcept { return sizeof(T); }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto offset() const noexcept { return _offset_bytes / sizeof(T); }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
@@ -106,10 +117,7 @@ public:
     }
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
         if (size_elements + offset_elements > _size) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Subview (with offset_elements = {}, size_elements = {}) "
-                "overflows buffer view (with size_elements = {}).",
-                offset_elements, size_elements, _size);
+            detail::log_subview_overflow(offset_elements, size_elements, _size);
         }
         return BufferView{_handle, _offset_bytes + offset_elements * sizeof(T), size_elements, _total_size};
     }
@@ -117,9 +125,7 @@ public:
     template<typename U>
     [[nodiscard]] auto as() const noexcept {
         if (this->size_bytes() < sizeof(U)) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Unable to hold any element (with size = {}) in buffer view (with size = {}).",
-                sizeof(U), this->size_bytes());
+            detail::log_unable_hold(sizeof(U), this->size_bytes());
         }
         return BufferView<U>{_handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
     }
@@ -134,9 +140,7 @@ public:
 
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         if (source.size() != this->size()) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Incompatible buffer views with different element counts (src = {}, dst = {}).",
-                source.size(), this->size());
+            detail::log_diff_elements(source.size(), this->size());
         }
         return BufferCopyCommand::create(
             source.handle(), this->handle(),
@@ -158,6 +162,7 @@ public:
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return Expr<Buffer<T>>{*this}.atomic(std::forward<I>(i));
     }
+    [[nodiscard]] BufferView<DynamicStruct> as(const Type *type) const noexcept;
 };
 
 template<typename T>
@@ -165,7 +170,6 @@ BufferView(const Buffer<T> &) -> BufferView<T>;
 
 template<typename T>
 BufferView(BufferView<T>) -> BufferView<T>;
-
 namespace detail {
 
 template<typename T>

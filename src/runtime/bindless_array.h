@@ -23,14 +23,14 @@ class BindlessBuffer;
 template<typename T>
 struct Expr;
 
-class BindlessArray final : public Resource {
+class LC_RUNTIME_API BindlessArray final : public Resource {
 
 private:
     size_t _size{0u};
 
 private:
     friend class Device;
-    BindlessArray(Device::Interface *device, size_t size) noexcept;
+    BindlessArray(DeviceInterface *device, size_t size) noexcept;
 
     void _emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
     void _emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept;
@@ -47,9 +47,8 @@ public:
 
     template<typename T>
         requires is_buffer_or_view_v<std::remove_cvref_t<T>>
-    auto &emplace(size_t index, T &&buffer) noexcept {
-        BufferView view{std::forward<T>(buffer)};
-        _emplace_buffer(index, view.handle(), view.offset_bytes());
+    auto &emplace(size_t index, T &&buffer, size_t offset = 0) noexcept {
+        _emplace_buffer(index, buffer.handle(), offset * buffer.stride());
         return *this;
     }
 

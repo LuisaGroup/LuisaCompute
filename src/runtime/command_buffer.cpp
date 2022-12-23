@@ -4,6 +4,7 @@
 
 #include <runtime/command_buffer.h>
 #include <runtime/stream.h>
+#include <core/logging.h>
 
 namespace luisa::compute {
 
@@ -22,7 +23,7 @@ CommandBuffer::~CommandBuffer() noexcept {
     }
 }
 
-CommandBuffer &CommandBuffer::operator<<(luisa::unique_ptr<Command> cmd) &noexcept {
+CommandBuffer &CommandBuffer::operator<<(luisa::unique_ptr<Command> &&cmd) &noexcept {
     _command_list.append(std::move(cmd));
     return *this;
 }
@@ -67,7 +68,6 @@ void CommandBuffer::synchronize() &noexcept {
 }
 
 CommandBuffer &CommandBuffer::operator<<(luisa::move_only_function<void()> &&f) &noexcept {
-    _commit();
     *_stream << std::move(f);
     return *this;
 }

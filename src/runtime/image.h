@@ -8,9 +8,12 @@
 #include <runtime/resource.h>
 #include <runtime/mipmap.h>
 #include <runtime/sampler.h>
+#include <runtime/device.h>
 
 namespace luisa::compute {
-
+namespace detail {
+LC_RUNTIME_API void log_invalid_mip(size_t level, size_t mip);
+}
 template<typename T>
 class ImageView;
 
@@ -23,13 +26,15 @@ struct Expr;
 class BindlessArray;
 
 // Images are textures without sampling, i.e., surfaces.
+
+template<typename T>
+constexpr bool is_legal_image_element = std::disjunction_v<
+    std::is_same<T, int32_t>,
+    std::is_same<T, uint>,
+    std::is_same<T, float>>;
 template<typename T>
 class Image final : public Resource {
-
-    static_assert(std::disjunction_v<
-                  std::is_same<T, int>,
-                  std::is_same<T, uint>,
-                  std::is_same<T, float>>);
+    static_assert(is_legal_image_element<T>);
 
 private:
     uint2 _size{};
@@ -38,7 +43,7 @@ private:
 
 private:
     friend class Device;
-    Image(Device::Interface *device, PixelStorage storage, uint2 size, uint mip_levels = 1u) noexcept
+    Image(DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels = 1u) noexcept
         : Resource{
               device,
               Tag::TEXTURE,
@@ -52,15 +57,22 @@ public:
     Image() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto byte_size() const noexcept {
+        size_t byte_size = 0;
+        auto size = _size;
+        for (size_t i = 0; i < _mip_levels; ++i) {
+            byte_size += pixel_storage_size(_storage, size.x, size.y, 1);
+            size >>= uint2(1);
+        }
+        return byte_size;
+    }
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
 
     [[nodiscard]] auto view(uint32_t level = 0u) const noexcept {
         if (level >= _mip_levels) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid mipmap level {} for image with {} levels.",
-                level, _mip_levels);
+            detail::log_invalid_mip(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
         return ImageView<T>{handle(), _storage, level, mip_size};
@@ -100,6 +112,7 @@ private:
 private:
     friend class Image<T>;
     friend class detail::MipmapView;
+    friend class DepthBuffer;
 
     constexpr ImageView(
         uint64_t handle,
@@ -119,6 +132,9 @@ public:
     ImageView(const Image<T> &image) noexcept : ImageView{image.view(0u)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto byte_size() const noexcept {
+        return pixel_storage_size(_storage, _size.x, _size.y, 1);
+    }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
     [[nodiscard]] auto level() const noexcept { return _level; }

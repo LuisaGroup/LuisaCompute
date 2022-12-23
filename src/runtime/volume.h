@@ -8,9 +8,11 @@
 #include <runtime/resource.h>
 #include <runtime/mipmap.h>
 #include <runtime/sampler.h>
-
+#include <runtime/device.h>
 namespace luisa::compute {
-
+namespace detail {
+LC_RUNTIME_API void log_invalid_mip(size_t level, size_t mip);
+}
 template<typename T>
 class VolumeView;
 
@@ -33,7 +35,7 @@ private:
 
 private:
     friend class Device;
-    Volume(Device::Interface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u, Sampler sampler = {}) noexcept
+    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u, Sampler sampler = {}) noexcept
         : Resource{
               device, Tag::TEXTURE,
               device->create_texture(
@@ -47,14 +49,21 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto byte_size() const noexcept {
+        size_t byte_size = 0;
+        auto size = _size;
+        for (size_t i = 0; i < _mip_levels; ++i) {
+            byte_size += pixel_storage_size(_storage, size.x, size.y, size.z);
+            size >>= uint3(1);
+        }
+        return byte_size;
+    }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
 
     [[nodiscard]] auto view(uint32_t level) const noexcept {
         if (level >= _mip_levels) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Invalid mipmap level {} for volume with {} levels.",
-                level, _mip_levels);
+            detail::log_invalid_mip(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
         return VolumeView<T>{handle(), _storage, level, mip_size};
@@ -109,6 +118,9 @@ public:
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto byte_size() const noexcept {
+        return pixel_storage_size(_storage, _size.x, _size.y, _size.z);
+    }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
