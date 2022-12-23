@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
         Var t = 0.0f;
         Var col = make_float3(0.0f);
         Var d = 0.0f;
-        for (auto i : range(64)) {
+        for (auto i : dynamic_range(64)) {
             Var p = ro + rd * t;
             d = map(p, time) * 0.5f;
             if_(d<0.02f | d> 100.0f, [] { break_(); });

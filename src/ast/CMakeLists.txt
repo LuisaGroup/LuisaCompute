@@ -1,4 +1,5 @@
 set(LUISA_COMPUTE_AST_SOURCES
+        ast_evaluator.cpp ast_evaluator.h
         constant_data.cpp constant_data.h
         expression.cpp expression.h
         function.cpp function.h

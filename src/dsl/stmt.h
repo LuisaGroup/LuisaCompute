@@ -305,7 +305,7 @@ inline auto switch_(T &&expr) noexcept {
 /// range from 0 to end, step = 1
 template<typename Te>
     requires is_integral_expr_v<Te>
-[[nodiscard]] inline auto range(Te &&end) noexcept {
+[[nodiscard]] inline auto dynamic_range(Te &&end) noexcept {
     using T = expr_value_t<Te>;
     Var e{std::forward<Te>(end)};
     return detail::ForRange<T, false>{static_cast<T>(0), e, static_cast<T>(1)};
@@ -314,7 +314,7 @@ template<typename Te>
 /// range from begin to end, step = 1
 template<typename Tb, typename Te>
     requires is_same_expr_v<Tb, Te> && is_integral_expr_v<Tb>
-[[nodiscard]] inline auto range(Tb &&begin, Te &&end) noexcept {
+[[nodiscard]] inline auto dynamic_range(Tb &&begin, Te &&end) noexcept {
     using T = expr_value_t<Tb>;
     Var e{std::forward<Te>(end)};
     return detail::ForRange<T, false>{std::forward<Tb>(begin), e, static_cast<T>(1)};
@@ -323,33 +323,33 @@ template<typename Tb, typename Te>
 /// range from 0 to end, step = step
 template<typename Tb, typename Te, typename Ts>
     requires is_same_expr_v<Tb, Te, Ts> && is_integral_expr_v<Tb>
-[[nodiscard]] inline auto range(Tb &&begin, Te &&end, Ts &&step) noexcept {
+[[nodiscard]] inline auto dynamic_range(Tb &&begin, Te &&end, Ts &&step) noexcept {
     using T = expr_value_t<Tb>;
     Var e{std::forward<Te>(end)};
     Var s{std::forward<Ts>(step)};
     return detail::ForRange<T, true>{std::forward<Tb>(begin), e, s};
 }
 
-/// for(auto i: range(n)) body(i);
+/// for(auto i: dynamic_range(n)) body(i);
 template<typename N, typename Body>
 inline void loop(N &&n, Body &&body) noexcept {
-    for (auto i : range(std::forward<N>(n))) {
+    for (auto i : dynamic_range(std::forward<N>(n))) {
         std::invoke(std::forward<Body>(body), std::move(i));
     }
 }
 
-/// for(auto i: range(begin, end)) body(i);
+/// for(auto i: dynamic_range(begin, end)) body(i);
 template<typename Begin, typename End, typename Body>
 inline void loop(Begin &&begin, End &&end, Body &&body) noexcept {
-    for (auto i : range(std::forward<Begin>(begin), std::forward<End>(end))) {
+    for (auto i : dynamic_range(std::forward<Begin>(begin), std::forward<End>(end))) {
         std::invoke(std::forward<Body>(body), std::move(i));
     }
 }
 
-/// for(auto i: range(begin, end, step)) body(i);
+/// for(auto i: dynamic_range(begin, end, step)) body(i);
 template<typename Begin, typename End, typename Step, typename Body>
 inline void loop(Begin &&begin, End &&end, Step &&step, Body &&body) noexcept {
-    for (auto i : range(std::forward<Begin>(begin), std::forward<End>(end), std::forward<Step>(step))) {
+    for (auto i : dynamic_range(std::forward<Begin>(begin), std::forward<End>(end), std::forward<Step>(step))) {
         std::invoke(std::forward<Body>(body), std::move(i));
     }
 }

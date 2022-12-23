@@ -10,6 +10,7 @@
 #include <core/stl/format.h>
 #include <core/stl/functional.h>
 #include <core/stl/hash.h>
+#include <core/stl/iterator.h>
 #include <core/stl/list.h>
 #include <core/stl/lru_cache.h>
 #include <core/stl/map.h>
