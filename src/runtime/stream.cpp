@@ -19,8 +19,9 @@ void Stream::_dispatch(CommandList list) noexcept {
     if (device()->requires_command_reordering()) {
         auto commands = list.steal_commands();
         Clock clock;
-        for (auto command : commands) {
-            command->accept(*reorder_visitor);
+        for (auto &&command : commands) {
+            // takes ownership of the command
+            command.release()->accept(*reorder_visitor);
         }
         auto lists = reorder_visitor->command_lists();
         LUISA_VERBOSE_WITH_LOCATION(
@@ -28,14 +29,13 @@ void Stream::_dispatch(CommandList list) noexcept {
             commands.size(), lists.size(), clock.toc());
         device()->dispatch(handle(), lists);
         reorder_visitor->clear();
-        for (auto cmd : commands) { cmd->recycle(); }
     } else {
         device()->dispatch(handle(), list);
     }
 }
 
-Stream::Delegate Stream::operator<<(Command *cmd) noexcept {
-    return Delegate{this} << cmd;
+Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> cmd) noexcept {
+    return Delegate{this} << std::move(cmd);
 }
 
 void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }
@@ -57,8 +57,7 @@ Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
 
 Stream::Stream(Device::Interface *device, bool for_present) noexcept
     : Resource{device, Tag::STREAM, device->create_stream(for_present)},
-      _scheduler{luisa::make_unique<CommandScheduler>(device)},
-      reorder_visitor{luisa::make_unique<CommandReorderVisitor>(device)} {}
+      reorder_visitor{luisa::make_unique<CommandScheduler>(device)} {}
 
 Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
 Stream::Delegate::~Delegate() noexcept { _commit(); }
@@ -75,8 +74,8 @@ Stream::Delegate::Delegate(Stream::Delegate &&s) noexcept
     : _stream{s._stream},
       _command_list{std::move(s._command_list)} { s._stream = nullptr; }
 
-Stream::Delegate &&Stream::Delegate::operator<<(Command *cmd) &&noexcept {
-    _command_list.append(cmd);
+Stream::Delegate &&Stream::Delegate::operator<<(luisa::unique_ptr<Command> cmd) &&noexcept {
+    _command_list.append(std::move(cmd));
     return std::move(*this);
 }
 

@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "luisa_compute_ir",
+    "luisa_compute_api_types"
+]

@@ -180,3 +180,6 @@ if (LUISA_COMPUTE_ENABLE_LLVM)
 endif ()
 
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
+
+# for rust bindings
+add_subdirectory(corrosion)

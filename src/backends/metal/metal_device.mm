@@ -342,7 +342,7 @@ void MetalDevice::dispatch(uint64_t stream_handle, const CommandList &list) noex
     @autoreleasepool {
         auto s = reinterpret_cast<MetalStream *>(stream_handle);
         MetalCommandEncoder encoder{this, s};
-        for (auto command : list) { command->accept(encoder); }
+        for (auto &&command : list) { command->accept(encoder); }
         s->dispatch(encoder.command_buffer());
     }
 }

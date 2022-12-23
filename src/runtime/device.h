@@ -77,6 +77,23 @@ struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 class LC_RUNTIME_API Device {
 
 public:
+    class Extension {};
+
+    class CpuExtension : public Extension {
+    public:
+        struct KernelClosure {
+            void (*kernel)(const ShaderDispatchCommand &cmd, void *data);
+            void *data;
+        };
+        // invoke the kernel at current thread
+        // Useful for invoking the kernel with small dispatch size
+        virtual KernelClosure kernel_closure(uint64_t shader, const ShaderDispatchCommand &cmd) noexcept = 0;
+
+        // For cpu backend, async is not always necessary
+        // this functions makes stream operatiions synchronous to minize overhead
+        virtual void stream_no_async(uint64_t stream, bool no_async) noexcept = 0;
+    };
+
     class Interface : public luisa::enable_shared_from_this<Interface> {
 
     private:
@@ -154,6 +171,15 @@ public:
         // query
         [[nodiscard]] virtual luisa::string query(std::string_view meta_expr) noexcept { return {}; }
         [[nodiscard]] virtual bool requires_command_reordering() const noexcept { return true; }
+        [[nodiscard]] virtual Extension *extension() noexcept { return nullptr; }
+
+        // _ex are experiemental apis
+        [[nodiscard]] virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept {
+            LUISA_ERROR_WITH_LOCATION("Should not be called.");
+        }
+
+        // if the interface uses C API device interface, command list is handled slightly differently
+        [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
     };
 
     using Deleter = void(Interface *);

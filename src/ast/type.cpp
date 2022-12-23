@@ -16,6 +16,7 @@ luisa::span<const Type *const> Type::members() const noexcept {
 }
 
 const Type *Type::element() const noexcept {
+    if (is_scalar()) { return this; }
     assert(is_array() || is_vector() || is_matrix() || is_buffer() || is_texture());
     return _members.front();
 }

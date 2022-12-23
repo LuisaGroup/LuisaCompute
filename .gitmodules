@@ -31,3 +31,6 @@
 [submodule "src/ext/unordered_dense"]
 	path = src/ext/unordered_dense
 	url = https://github.com/martinus/unordered_dense.git
+[submodule "src/ext/corrosion"]
+	path = src/ext/corrosion
+	url = git@github.com:corrosion-rs/corrosion.git

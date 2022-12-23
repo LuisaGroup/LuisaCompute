@@ -4,12 +4,10 @@
 
 #include <core/logging.h>
 #include <runtime/command.h>
+#include <ast/variable.h>
+#include <ast/function_builder.h>
 
 namespace luisa::compute {
-
-void Command::recycle() {
-    _recycle();
-}
 
 inline void ShaderDispatchCommand::_encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
     if (_argument_count >= _kernel.arguments().size()) [[unlikely]] {
@@ -211,18 +209,6 @@ void ShaderDispatchCommand::encode_bindless_array(uint64_t handle) noexcept {
 void ShaderDispatchCommand::encode_accel(uint64_t handle) noexcept {
     _encode_accel(handle);
     _encode_pending_bindings();
-}
-
-namespace detail {
-
-#define LUISA_MAKE_COMMAND_POOL_IMPL(Cmd) \
-    Pool<Cmd> &pool_##Cmd() noexcept {    \
-        static Pool<Cmd> pool;            \
-        return pool;                      \
-    }
-LUISA_MAP(LUISA_MAKE_COMMAND_POOL_IMPL, LUISA_COMPUTE_RUNTIME_COMMANDS)
-#undef LUISA_MAKE_COMMAND_POOL_IMPL
-
 }// namespace detail
 
 void AccelBuildCommand::Modification::set_transform(float4x4 m) noexcept {

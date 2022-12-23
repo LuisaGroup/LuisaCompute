@@ -211,7 +211,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, move_only_function<void()> &&f
 void CUDADevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), &list] {
         CUDACommandEncoder encoder{this, stream};
-        for (auto cmd : list) { cmd->accept(encoder); }
+        for (auto &&cmd : list) { cmd->accept(encoder); }
         stream->barrier();
         stream->dispatch_callbacks();
     });
@@ -221,7 +221,7 @@ void CUDADevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList>
     with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), lists] {
         for (auto &&list : lists) {
             CUDACommandEncoder encoder{this, stream};
-            for (auto cmd : list) { cmd->accept(encoder); }
+            for (auto &&cmd : list) { cmd->accept(encoder); }
             stream->barrier();
         }
         stream->dispatch_callbacks();

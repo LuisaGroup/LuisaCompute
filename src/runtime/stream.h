@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "core/stl.h"
 #include <utility>
 
 #include <core/spin_mutex.h>
@@ -12,10 +11,9 @@
 #include <runtime/event.h>
 #include <runtime/command_list.h>
 #include <runtime/command_buffer.h>
-#include <runtime/command_reorder_visitor.h>
+#include <runtime/command_scheduler.h>
 #include <runtime/image.h>
 #include <runtime/swap_chain.h>
-#include <runtime/command_scheduler.h>
 
 namespace luisa::compute {
 
@@ -40,7 +38,7 @@ public:
         Delegate(const Delegate &) noexcept = delete;
         Delegate &&operator=(Delegate &&) noexcept = delete;
         Delegate &&operator=(const Delegate &) noexcept = delete;
-        Delegate &&operator<<(Command *cmd) &&noexcept;
+        Delegate &&operator<<(luisa::unique_ptr<Command> cmd) &&noexcept;
         Delegate &&operator<<(Event::Signal signal) &&noexcept;
         Delegate &&operator<<(Event::Wait wait) &&noexcept;
         Delegate &&operator<<(luisa::move_only_function<void()> &&f) &&noexcept;
@@ -59,12 +57,11 @@ public:
     };
 
 private:
-    luisa::unique_ptr<CommandScheduler> _scheduler;
     friend class Device;
     void _dispatch(CommandList command_buffer) noexcept;
     explicit Stream(Device::Interface *device, bool for_present = false) noexcept;
     void _synchronize() noexcept;
-    luisa::unique_ptr<CommandReorderVisitor> reorder_visitor;
+    luisa::unique_ptr<CommandScheduler> reorder_visitor;
 
 public:
     Stream() noexcept = default;
@@ -74,7 +71,7 @@ public:
     Stream &operator<<(CommandBuffer::Synchronize) noexcept;
     Stream &operator<<(CommandBuffer::Commit) noexcept { return *this; }
     Stream &operator<<(luisa::move_only_function<void()> &&f) noexcept;
-    Delegate operator<<(Command *cmd) noexcept;
+    Delegate operator<<(luisa::unique_ptr<Command> cmd) noexcept;
     [[nodiscard]] auto command_buffer() noexcept { return CommandBuffer{this}; }
     void synchronize() noexcept { _synchronize(); }
     Stream &operator<<(SwapChain::Present p) noexcept;

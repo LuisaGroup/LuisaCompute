@@ -1,3 +1,4 @@
+#include <ast/function.h>
 #include <ast/ast_evaluator.h>
 #include <core/logging.h>
 #include <algorithm>

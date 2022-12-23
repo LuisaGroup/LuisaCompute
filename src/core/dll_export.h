@@ -15,14 +15,14 @@
 #define LUISA_EXPORT_API LUISA_EXTERN_C __declspec(dllexport)
 #define LUISA_IMPORT_API LUISA_EXTERN_C __declspec(dllimport)
 #else
-#define LUISA_FORCE_INLINE [[gnu::always_inline, gnu::hot]] inline
-#define LUISA_NEVER_INLINE [[gnu::noinline]]
+#define LUISA_FORCE_INLINE __attribute__((always_inline, hot)) inline
+#define LUISA_NEVER_INLINE __attribute__((noinline))
 #define LUISA_DLL
-#define LUISA_EXPORT_API LUISA_EXTERN_C [[gnu::visibility("default")]]
+#define LUISA_EXPORT_API LUISA_EXTERN_C __attribute__((visibility("default")))
 #define LUISA_IMPORT_API LUISA_EXTERN_C
 #endif
 
-#if defined(_MSC_VER)
+#ifdef _MSC_VER
 
 #ifdef LC_CORE_EXPORT_DLL
 #define LC_CORE_API __declspec(dllexport)
@@ -59,6 +59,12 @@
 #define LC_DSL_API __declspec(dllimport)
 #endif
 
+#ifdef LC_IR_EXPORT_DLL
+#define LC_IR_API __declspec(dllexport)
+#else
+#define LC_IR_API __declspec(dllimport)
+#endif
+
 #ifdef LC_SERDE_LIB_EXPORT_DLL
 #define LC_SERDE_LIB_API __declspec(dllexport)
 #else
@@ -78,10 +84,13 @@
 #endif
 
 #else
+#define LC_CORE_API
 #define LC_VSTL_API
 #define LC_AST_API
 #define LC_RUNTIME_API
-#define LC_CORE_API
 #define LC_DSL_API
+#define LC_IR_API
+#define LC_SERDE_LIB_API
+#define LC_SHADER_GRAPH_LIB_API
 #define LC_REMOTE_API
 #endif

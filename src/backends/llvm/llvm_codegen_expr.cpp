@@ -336,4 +336,8 @@ namespace luisa::compute::llvm {
         _create_expr(expr->expression()));
 }
 
+::llvm::Value *LLVMCodegen::_create_custom_op_expr(const CpuCustomOpExpr * expr) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
 }// namespace luisa::compute::llvm

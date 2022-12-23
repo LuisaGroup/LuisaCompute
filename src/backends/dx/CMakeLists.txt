@@ -1,6 +1,6 @@
 if (WIN32)
     message(STATUS "Build with DirectX backend")
-    Set(VENGINE_SOURCE
+    set(VENGINE_SOURCE
             Api/LCCmdBuffer.cpp
             Api/LCDevice.cpp
             Api/LCEvent.cpp
@@ -104,4 +104,8 @@ if (WIN32)
     endif ()
     install(DIRECTORY ${DX_SUPPORT_DIR}
             DESTINATION ${CMAKE_INSTALL_BINDIR})
+elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
+    message(FATAL_ERROR "The DirectX backend will not be built on non-Windows platforms.")
+else ()
+    message(WARNING "The DirectX backend will not be built on non-Windows platforms.")
 endif ()

@@ -7,7 +7,6 @@
 #import <vector>
 #import <thread>
 #import <future>
-#import <unordered_map>
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>

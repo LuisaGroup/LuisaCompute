@@ -65,11 +65,11 @@ private:
         ~FunctionStackGuard() noexcept { pop(_builder); }
     };
 
-
 public:
     using Tag = Function::Tag;
     using Constant = Function::Constant;
     using Binding = Function::Binding;
+    using CpuCallback = Function::CpuCallback;
 
 private:
     ScopeStmt _body;
@@ -86,6 +86,10 @@ private:
     luisa::vector<Variable> _shared_variables;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
+<<<<<<< HEAD
+=======
+    luisa::vector<CpuCallback> _cpu_callbacks;
+>>>>>>> @{-1}
     CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
@@ -178,6 +182,8 @@ public:
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     /// Return a span of argument bindings.
     [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings}; }
+    /// Return a span of cpu callbacks
+    [[nodiscard]] auto cpu_callbacks() const noexcept { return luisa::span{_cpu_callbacks}; }
     /// Return a span of custom callables.
     [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables}; }
     /// Return a CallOpSet of builtin callables that are directly called.
@@ -323,6 +329,9 @@ public:
     [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
     /// Add for statement
     [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
+
+    // For autodiff use only
+    [[nodiscard]] const Statement *pop_stmt() noexcept;
 
     /// Run body function in given scope s
     template<typename Body>

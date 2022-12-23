@@ -4,6 +4,8 @@ function(luisa_compute_add_executable name)
     install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endfunction()
 
+
+luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)
 luisa_compute_add_executable(test_type test_type.cpp)
 luisa_compute_add_executable(test_ast test_ast.cpp)
 luisa_compute_add_executable(test_dsl test_dsl.cpp)
@@ -22,7 +24,6 @@ luisa_compute_add_executable(test_bindless_buffer test_bindless_buffer.cpp)
 luisa_compute_add_executable(test_rtx test_rtx.cpp)
 luisa_compute_add_executable(test_ispc_101 test_ispc_101.cpp)
 luisa_compute_add_executable(test_command_reorder test_command_reorder.cpp)
-luisa_compute_add_executable(test_command_schedule test_command_schedule.cpp)
 luisa_compute_add_executable(test_thread_pool test_thread_pool.cpp)
 luisa_compute_add_executable(test_sdf_renderer test_sdf_renderer.cpp)
 

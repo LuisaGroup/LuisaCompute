@@ -15,3 +15,4 @@
 #include <dsl/var.h>
 #include <dsl/builtin.h>
 #include <dsl/polymorphic.h>
+#include <dsl/autodiff.h>

@@ -38,6 +38,12 @@ uint64_t ScopeStmt::_compute_hash() const noexcept {
     return h;
 }
 
+const Statement *ScopeStmt::pop() noexcept {
+    auto stmt = _statements.back();
+    _statements.pop_back();
+    return stmt;
+}
+
 uint64_t AssignStmt::_compute_hash() const noexcept {
     auto hl = _lhs->hash();
     auto hr = _rhs->hash();

@@ -65,11 +65,11 @@ public:
     /// Create printer object on device. Will create a buffer in it.
     explicit Printer(Device &device, luisa::string_view name = "device", size_t capacity = 16_mb) noexcept;
     /// Reset the printer. Must be called before any shader dispatch that uses this printer.
-    [[nodiscard]] Command *reset() noexcept;
+    [[nodiscard]] luisa::unique_ptr<Command> reset() noexcept;
     /// Retrieve and print the logs. Will automatically reset the printer for future use.
-    [[nodiscard]] std::tuple<Command * /* download */,
+    [[nodiscard]] std::tuple<luisa::unique_ptr<Command> /* download */,
                              luisa::move_only_function<void()> /* print */,
-                             Command * /* reset */>
+                             luisa::unique_ptr<Command> /* reset */>
     retrieve() noexcept;
 
     /// Log in kernel at debug level.

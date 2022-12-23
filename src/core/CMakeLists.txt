@@ -62,6 +62,7 @@ target_link_libraries(luisa-compute-core PUBLIC
         Threads::Threads
         ${CMAKE_DL_LIBS}
         $<$<PLATFORM_ID:Windows>:dbghelp>)
+
 set_target_properties(luisa-compute-core PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})

@@ -16,9 +16,8 @@
 #include <core/logging.h>
 #include <core/basic_types.h>
 #include <core/pool.h>
-#include <ast/variable.h>
-#include <ast/function.h>
 #include <runtime/pixel.h>
+#include <ast/function.h>
 
 namespace luisa::compute {
 
@@ -57,36 +56,20 @@ struct MutableCommandVisitor {
 class Command;
 class CommandList;
 
-namespace detail {
-
-#define LUISA_MAKE_COMMAND_POOL_DECL(Cmd) \
-    [[nodiscard]] Pool<Cmd> &pool_##Cmd() noexcept;
-LUISA_MAP(LUISA_MAKE_COMMAND_POOL_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
-#undef LUISA_MAKE_COMMAND_POOL_DECL
-
-}// namespace detail
-
-#define LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)                                    \
-    template<typename... Args>                                                   \
-    [[nodiscard]] static auto create(Args &&...args) noexcept {                  \
-        Clock clock;                                                             \
-        auto command = detail::pool_##Cmd().create(std::forward<Args>(args)...); \
-        LUISA_VERBOSE_WITH_LOCATION(                                             \
-            "Created {} in {} ms.", #Cmd, clock.toc());                          \
-        return command;                                                          \
+#define LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd)                        \
+    template<typename... Args>                                       \
+    [[nodiscard]] static auto create(Args &&...args) noexcept        \
+        -> luisa::unique_ptr<Command> {                              \
+        return luisa::make_unique<Cmd>(std::forward<Args>(args)...); \
     }
 
 #define LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)                                             \
     void accept(CommandVisitor &visitor) const noexcept override { visitor.visit(this); } \
     void accept(MutableCommandVisitor &visitor) noexcept override { visitor.visit(this); }
 
-#define LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd) \
-    void _recycle() noexcept override { detail::pool_##Cmd().recycle(this); }
-
 #define LUISA_MAKE_COMMAND_COMMON(Cmd)    \
     LUISA_MAKE_COMMAND_COMMON_CREATE(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd) \
-    LUISA_MAKE_COMMAND_COMMON_RECYCLE(Cmd)
+    LUISA_MAKE_COMMAND_COMMON_ACCEPT(Cmd)
 
 class LC_RUNTIME_API Command {
 
@@ -100,15 +83,11 @@ public:
 private:
     Tag _tag;
 
-protected:
-    virtual void _recycle() noexcept = 0;
-
 public:
     explicit Command(Tag tag) noexcept : _tag(tag) {}
     virtual ~Command() noexcept = default;
     virtual void accept(CommandVisitor &visitor) const noexcept = 0;
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
-    void recycle();
     [[nodiscard]] auto tag() const noexcept { return _tag; }
 };
 

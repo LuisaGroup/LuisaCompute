@@ -5,8 +5,9 @@
 #include <numeric>
 
 #include <core/basic_types.h>
-#include <ast/variable.h>
 #include <ast/op.h>
+#include <ast/variable.h>
+#include <ast/expression.h>
 #include <ast/constant_data.h>
 
 namespace luisa::compute {
@@ -94,6 +95,16 @@ public:
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
+    /**
+     * @brief CPU extension callback.
+     *
+     * Extension callback for CPU backends.
+     */
+    struct CpuCallback {
+        CpuCustomOpExpr::Callback callback;
+        void * user_data;
+    };
+
     using Binding = luisa::variant<
         luisa::monostate,// not bound
         BufferBinding,
@@ -156,5 +167,6 @@ public:
     /// Cast to bool, true if builder is not nullptr
     [[nodiscard]] explicit operator bool() const noexcept { return _builder != nullptr; }
 };
+
 
 }// namespace luisa::compute

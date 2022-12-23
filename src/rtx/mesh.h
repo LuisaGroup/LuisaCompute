@@ -74,7 +74,7 @@ private:
 public:
     Mesh() noexcept = default;
     using Resource::operator bool;
-    [[nodiscard]] Command *build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
+    [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
     [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
 };
 

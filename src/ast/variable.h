@@ -7,11 +7,13 @@
 #include <ast/type.h>
 #include <ast/usage.h>
 
-namespace luisa::compute {
+namespace luisa {
 
+namespace compute {
 namespace detail {
 class FunctionBuilder;
-}
+class SSABuilder;
+}// namespace detail
 
 /// Variable class
 class Variable {
@@ -49,6 +51,7 @@ private:
 
 private:
     friend class detail::FunctionBuilder;
+    friend class detail::SSABuilder;
     constexpr Variable(const Type *type, Tag tag, uint32_t uid) noexcept
         : _type{type}, _uid{uid}, _tag{tag} {}
 
@@ -78,4 +81,12 @@ public:
     }
 };
 
-}// namespace luisa::compute
+}// namespace compute
+
+template<>
+struct hash<compute::Variable> {
+    using is_avalanching = void;
+    [[nodiscard]] auto operator()(compute::Variable v) const noexcept { return v.hash(); }
+};
+
+}// namespace luisa

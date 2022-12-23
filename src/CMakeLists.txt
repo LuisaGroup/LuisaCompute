@@ -13,9 +13,11 @@ endif ()
 
 function(luisa_compute_install target)
     cmake_parse_arguments(INSTALL "" "" "SOURCES" ${ARGN})
-    set(INSTALL_HEADERS ${INSTALL_SOURCES})
-    list(FILTER INSTALL_HEADERS INCLUDE REGEX "^.*\\.h$")
-    set_target_properties(luisa-compute-${target} PROPERTIES PUBLIC_HEADER "${INSTALL_HEADERS}")
+    if (INSTALL_SOURCES)
+        set(INSTALL_HEADERS ${INSTALL_SOURCES})
+        list(FILTER INSTALL_HEADERS INCLUDE REGEX "^.*\\.h$")
+        set_target_properties(luisa-compute-${target} PROPERTIES PUBLIC_HEADER "${INSTALL_HEADERS}")
+    endif ()
     install(TARGETS luisa-compute-${target} EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -45,9 +47,12 @@ endif ()
 install(TARGETS luisa-compute-include
         EXPORT LuisaComputeTargets)
 
+add_subdirectory(api)
 add_subdirectory(core)
 add_subdirectory(vstl)
 add_subdirectory(ast)
+add_subdirectory(rust)
+add_subdirectory(ir)
 add_subdirectory(runtime)
 add_subdirectory(compile)
 add_subdirectory(dsl)
@@ -66,7 +71,9 @@ target_link_libraries(compute INTERFACE
         luisa-compute-dsl
         luisa-compute-rtx
         luisa-compute-gui
-        luisa-compute-backends)
+        luisa-compute-api
+        luisa-compute-backends
+        luisa-compute-ir)
 add_library(luisa::compute ALIAS compute)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)
