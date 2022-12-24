@@ -1,11 +1,11 @@
 #pragma once
 #include <DXRuntime/Device.h>
-#include <vstl/LockFreeArrayQueue.h>
+#include <vstl/lockfree_array_queue.h>
 namespace toolhub::directx {
 class CommandBuffer;
 class CommandAllocator;
 class CommandAllocatorBase;
-class IGpuAllocator;
+class GpuAllocator;
 class LCEvent;
 class CommandQueue : vstd::IOperatorNewBase {
 public:
@@ -14,43 +14,50 @@ public:
 private:
     using CallbackEvent = vstd::variant<
         std::pair<AllocatorPtr, uint64>,
-        vstd::move_only_func<void()>,
+        std::pair<vstd::function<void()>, uint64>,
+        std::pair<vstd::fixed_vector<vstd::function<void()>, 1>, uint64>,
         std::pair<LCEvent const *, uint64>>;
     Device *device;
-    IGpuAllocator *resourceAllocator;
+    GpuAllocator *resourceAllocator;
     D3D12_COMMAND_LIST_TYPE type;
     std::mutex mtx;
     std::thread thd;
     std::condition_variable waitCv;
     std::condition_variable mainCv;
     uint64 executedFrame = 0;
-    uint64 lastFrame = 0;
+    std::atomic_uint64_t lastFrame = 0;
     bool enabled = true;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
     Microsoft::WRL::ComPtr<ID3D12Fence> cmdFence;
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
+	template <typename Func>
+    uint64 _Execute(AllocatorPtr &&alloc, Func &&callback);
+
 
 public:
-    void ExecuteDuringWaiting();
+    void WaitFrame(uint64 lastFrame);
     uint64 LastFrame() const { return lastFrame; }
     ID3D12CommandQueue *Queue() const { return queue.Get(); }
     CommandQueue(
         Device *device,
-        IGpuAllocator *resourceAllocator,
+        GpuAllocator *resourceAllocator,
         D3D12_COMMAND_LIST_TYPE type);
     ~CommandQueue();
     AllocatorPtr CreateAllocator(size_t maxAllocCount);
-    void Callback(vstd::move_only_func<void()> &&f);
+    void Callback(vstd::function<void()> &&f);
     void AddEvent(LCEvent const *evt);
     uint64 Execute(AllocatorPtr &&alloc);
-    void ExecuteEmpty(AllocatorPtr &&alloc);
-    uint64 ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain);
+    uint64 ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback);
+    uint64 ExecuteCallbacks(AllocatorPtr &&alloc, vstd::fixed_vector<vstd::function<void()>, 1> &&callbacks);
+	void ExecuteEmpty(AllocatorPtr &&alloc);
+    void ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::fixed_vector<vstd::function<void()>, 1> &&callbacks);
+    uint64 ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain, bool vsync);
     void Complete(uint64 fence);
     void Complete();
     void ForceSync(
-        AllocatorPtr  &alloc,
+        AllocatorPtr &alloc,
         CommandBuffer &cb);
     KILL_MOVE_CONSTRUCT(CommandQueue)
     KILL_COPY_CONSTRUCT(CommandQueue)

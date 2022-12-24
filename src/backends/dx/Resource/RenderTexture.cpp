@@ -1,6 +1,7 @@
 
 #include <Resource/RenderTexture.h>
 #include <Resource/DescriptorHeap.h>
+#include <Resource/BufferView.h>
 namespace toolhub::directx {
 GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
     switch (format) {
@@ -64,6 +65,14 @@ GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
             return GFXFormat_R32G32_Float;
         case PixelFormat::RGBA32F:
             return GFXFormat_R32G32B32A32_Float;
+        case PixelFormat::BC6HUF16:
+            return GFXFormat_BC6H_UF16;
+        case PixelFormat::BC7UNorm:
+            return GFXFormat_BC7_UNorm;
+        case PixelFormat::BC5UNorm:
+            return GFXFormat_BC5_UNorm;
+        case PixelFormat::BC4UNorm:
+            return GFXFormat_BC4_UNorm;
     }
 }
 
@@ -76,12 +85,11 @@ RenderTexture::RenderTexture(
     uint depth,
     uint mip,
     bool allowUav,
-    IGpuAllocator *allocator)
+    GpuAllocator *allocator)
     : TextureBase(device, width, height, format, dimension, depth, mip),
       allocHandle(allocator),
       allowUav(allowUav) {
-    D3D12_RESOURCE_DESC texDesc;
-    memset(&texDesc, 0, sizeof(D3D12_RESOURCE_DESC));
+    D3D12_RESOURCE_DESC texDesc{};
     switch (dimension) {
         case TextureDimension::Cubemap:
         case TextureDimension::Tex2DArray:
@@ -94,6 +102,7 @@ RenderTexture::RenderTexture(
         case TextureDimension::Tex1D:
             texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
             break;
+        default: assert(false); break;
     }
     texDesc.Alignment = 0;
     texDesc.Width = this->width;
@@ -104,7 +113,7 @@ RenderTexture::RenderTexture(
     texDesc.SampleDesc.Count = 1;
     texDesc.SampleDesc.Quality = 0;
     texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags = allowUav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+    texDesc.Flags = allowUav ? (D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) : D3D12_RESOURCE_FLAG_NONE;
 
     if (!allocator) {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
@@ -119,14 +128,12 @@ RenderTexture::RenderTexture(
     } else {
         ID3D12Heap *heap;
         uint64 offset;
+        auto allocateInfo = device->device->GetResourceAllocationInfo(
+            0, 1, &texDesc);
+        auto byteSize = allocateInfo.SizeInBytes;
         allocHandle.allocateHandle = allocator->AllocateTextureHeap(
             device,
-            format,
-            width,
-            height,
-            depth,
-            dimension,
-            mip,
+            byteSize,
             &heap,
             &offset,
             true);
@@ -145,40 +152,32 @@ D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc(uint mipOffset) c
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     auto format = allocHandle.resource->GetDesc();
-    switch (format.Format) {
-        case GFXFormat_D16_UNorm:
-            srvDesc.Format = (DXGI_FORMAT)GFXFormat_R16_UNorm;
-            break;
-        case GFXFormat_D32_Float:
-            srvDesc.Format = (DXGI_FORMAT)GFXFormat_R32_Float;
-            break;
-        default:
-            srvDesc.Format = format.Format;
-    }
+    srvDesc.Format = format.Format;
+    auto mipSize = std::max<int>(0, (int32)format.MipLevels - (int32)mipOffset);
     switch (dimension) {
         case TextureDimension::Cubemap:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
             srvDesc.TextureCube.MostDetailedMip = mipOffset;
-            srvDesc.TextureCube.MipLevels = format.MipLevels;
+            srvDesc.TextureCube.MipLevels = mipSize;
             srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
             break;
         case TextureDimension::Tex2D:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srvDesc.Texture2D.MostDetailedMip = mipOffset;
-            srvDesc.Texture2D.MipLevels = format.MipLevels;
+            srvDesc.Texture2D.MipLevels = mipSize;
             srvDesc.Texture2D.PlaneSlice = 0;
             srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
             break;
         case TextureDimension::Tex1D:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
-            srvDesc.Texture1D.MipLevels = format.MipLevels;
+            srvDesc.Texture1D.MipLevels = mipSize;
             srvDesc.Texture1D.MostDetailedMip = mipOffset;
             srvDesc.Texture1D.ResourceMinLODClamp = 0.0f;
             break;
         case TextureDimension::Tex2DArray:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
             srvDesc.Texture2DArray.MostDetailedMip = mipOffset;
-            srvDesc.Texture2DArray.MipLevels = format.MipLevels;
+            srvDesc.Texture2DArray.MipLevels = mipSize;
             srvDesc.Texture2DArray.PlaneSlice = 0;
             srvDesc.Texture2DArray.ResourceMinLODClamp = 0.0f;
             srvDesc.Texture2DArray.ArraySize = depth;
@@ -186,10 +185,11 @@ D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc(uint mipOffset) c
             break;
         case TextureDimension::Tex3D:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
-            srvDesc.Texture3D.MipLevels = format.MipLevels;
+            srvDesc.Texture3D.MipLevels = mipSize;
             srvDesc.Texture3D.MostDetailedMip = mipOffset;
             srvDesc.Texture3D.ResourceMinLODClamp = 0.0f;
             break;
+        default: assert(false); break;
     }
     return srvDesc;
 }
@@ -225,12 +225,21 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetColorUavDesc(uint targetMipLe
     }
     return uavDesc;
 }
+D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRenderTargetDesc(uint mipOffset) const {
+    D3D12_RENDER_TARGET_VIEW_DESC rtv;
+    rtv.Format = static_cast<DXGI_FORMAT>(format);
+    assert(dimension == TextureDimension::Tex2D);
+    rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+    rtv.Texture2D.MipSlice = mipOffset;
+    rtv.Texture2D.PlaneSlice = 0;
+    return rtv;
+}
 uint RenderTexture::GetGlobalSRVIndex(uint mipOffset) const {
     std::lock_guard lck(allocMtx);
     srvIdcs.New();
     auto ite = srvIdcs->Emplace(
         mipOffset,
-        vstd::MakeLazyEval([&]() -> uint {
+        vstd::LazyEval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
             device->globalHeap->CreateSRV(
                 GetResource(),
@@ -242,11 +251,12 @@ uint RenderTexture::GetGlobalSRVIndex(uint mipOffset) const {
 }
 uint RenderTexture::GetGlobalUAVIndex(uint mipLevel) const {
     if (!allowUav) return std::numeric_limits<uint>::max();
+    mipLevel = std::min<uint>(mipLevel, mip - 1);
     std::lock_guard lck(allocMtx);
     uavIdcs.New();
     auto ite = uavIdcs->Emplace(
         mipLevel,
-        vstd::MakeLazyEval([&]() -> uint {
+        vstd::LazyEval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
             device->globalHeap->CreateUAV(
                 GetResource(),
@@ -256,7 +266,7 @@ uint RenderTexture::GetGlobalUAVIndex(uint mipLevel) const {
         }));
     return ite.Value();
 }
-RenderTexture ::~RenderTexture() {
+RenderTexture::~RenderTexture() {
     auto &globalHeap = *device->globalHeap.get();
     if (uavIdcs) {
         for (auto &&i : *uavIdcs) {
@@ -268,5 +278,20 @@ RenderTexture ::~RenderTexture() {
             globalHeap.ReturnIndex(i.second);
         }
     }
+}
+TexView::TexView(
+    TextureBase const *tex,
+    uint64 mipStart,
+    uint64 mipCount)
+    : tex(tex),
+      mipStart(mipStart),
+      mipCount(mipCount) {
+}
+TexView::TexView(
+    TextureBase const *tex,
+    uint64 mipStart)
+    : tex(tex),
+      mipStart(mipStart) {
+    mipCount = tex->Mip() - mipStart;
 }
 }// namespace toolhub::directx

@@ -1,34 +1,24 @@
 
 #include <DXRuntime/GlobalSamplers.h>
-namespace vstd {
-template<>
-struct compare<Sampler> {
-    int32 operator()(Sampler const &a, Sampler const &b) const {
-        if ((uint)a.filter() > (uint)b.filter())
-            return 1;
-        if ((uint)a.filter() < (uint)b.filter())
-            return -1;
-        if ((uint)a.address() > (uint)b.address())
-            return 1;
-        if ((uint)a.address() < (uint)b.address())
-            return -1;
-        return 0;
+namespace toolhub::directx {
+struct SamplerHash{
+    size_t operator()(Sampler const& s) const {
+        return luisa::hash64(&s, sizeof(Sampler), luisa::Hash64::default_seed);
     }
 };
-}// namespace vstd
-namespace toolhub::directx {
 struct GlobalSampleData {
     std::array<D3D12_SAMPLER_DESC, 16> arr;
-    vstd::HashMap<
+    vstd::unordered_map<
         Sampler,
-        size_t>
+        size_t,
+        SamplerHash>
         searchMap;
     GlobalSampleData() {
         memset(arr.data(), 0, sizeof(D3D12_SAMPLER_DESC) * arr.size());
         size_t idx = 0;
         for (auto x : vstd::range(4))
             for (auto y : vstd::range(4)) {
-                auto d = vstd::create_disposer([&] { ++idx; });
+                auto d = vstd::scope_exit([&] { ++idx; });
                 auto &&v = arr[idx];
                 switch ((Sampler::Filter)y) {
                     case Sampler::Filter::POINT:
@@ -43,6 +33,7 @@ struct GlobalSampleData {
                     case Sampler::Filter::ANISOTROPIC:
                         v.Filter = D3D12_FILTER_ANISOTROPIC;
                         break;
+                    default: assert(false); break;
                 }
                 D3D12_TEXTURE_ADDRESS_MODE address = [&] {
                     switch ((Sampler::Address)x) {
@@ -64,7 +55,7 @@ struct GlobalSampleData {
                 v.MaxAnisotropy = 16;
                 v.MinLOD = 0;
                 v.MaxLOD = 16;
-                searchMap.Emplace(
+                searchMap.try_emplace(
                     Sampler(
                         (Sampler::Filter)y,
                         (Sampler::Address)x),
@@ -79,9 +70,9 @@ vstd::span<D3D12_SAMPLER_DESC> GlobalSamplers::GetSamplers() {
 }
 size_t GlobalSamplers::GetIndex(
     Sampler const &sampler) {
-    auto ite = sampleData.searchMap.Find(sampler);
-    if (!ite)
+    auto ite = sampleData.searchMap.find(sampler);
+    if (ite == sampleData.searchMap.end())
         return std::numeric_limits<size_t>::max();
-    return ite.Value();
+    return ite->second;
 }
 }// namespace toolhub::directx

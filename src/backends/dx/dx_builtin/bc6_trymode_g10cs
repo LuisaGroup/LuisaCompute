@@ -1,0 +1,199 @@
+[numthreads( THREAD_GROUP_SIZE, 1, 1 )]
+void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
+{
+ const uint MAX_USED_THREAD = 16;
+ uint BLOCK_IN_GROUP = THREAD_GROUP_SIZE / MAX_USED_THREAD;
+ uint blockInGroup = GI / MAX_USED_THREAD;
+ uint blockID = g_start_block_id + groupID.x * BLOCK_IN_GROUP + blockInGroup;
+ uint threadBase = blockInGroup * MAX_USED_THREAD;
+ uint threadInBlock = GI - threadBase;
+
+ #ifndef REF_DEVICE
+ if (blockID >= g_num_total_blocks)
+ {
+ return;
+ }
+ #endif
+ 
+ uint block_y = blockID / g_num_block_x;
+ uint block_x = blockID - block_y * g_num_block_x;
+ uint base_x = block_x * BLOCK_SIZE_X;
+ uint base_y = block_y * BLOCK_SIZE_Y;
+ 
+ if (threadInBlock < 16)
+ {
+ shared_temp[GI].pixel = g_Input.Load( uint3( base_x + threadInBlock % 4, base_y + threadInBlock / 4, 0 ) ).rgb;
+ uint3 pixel_h = float2half( shared_temp[GI].pixel );
+ shared_temp[GI].pixel_hr = half2float(pixel_h);
+ shared_temp[GI].pixel_lum = dot(shared_temp[GI].pixel_hr, RGB2LUM);
+ shared_temp[GI].pixel_ph = start_quantize( pixel_h );
+ 
+ shared_temp[GI].endPoint_low = shared_temp[GI].pixel_ph;
+ shared_temp[GI].endPoint_high = shared_temp[GI].pixel_ph;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI].pixel_lum;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI].pixel_lum;
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ 
+ if (threadInBlock < 8)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 8].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 8].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 8].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 8].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 8].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 8].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 4)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 4].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 4].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 4].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 4].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 4].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 4].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 2)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 2].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 2].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 2].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 2].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 2].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 2].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 1)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 1].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 1].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 1].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 1].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 1].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 1].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ //ergod mode_type 11:14
+ if ( threadInBlock == 0 )
+ {
+ int2x3 endPoint;
+ // find_axis
+ endPoint[0] = shared_temp[threadBase + 0].endPoint_low;
+ endPoint[1] = shared_temp[threadBase + 0].endPoint_high;
+ 
+ //compute_index
+ float3 span = endPoint[1] - endPoint[0];// fixed a bug in v0.2
+ float span_norm_sqr = dot( span, span );// fixed a bug in v0.2
+ float dotProduct = dot( span, shared_temp[threadBase + 0].pixel_ph - endPoint[0] );// fixed a bug in v0.2
+ if ( span_norm_sqr > 0 && dotProduct >= 0 && uint( dotProduct * 63.49999 / span_norm_sqr ) > 32 )
+ {
+ swap(endPoint[0], endPoint[1]);
+
+ shared_temp[GI].endPoint_low = endPoint[0];
+ shared_temp[GI].endPoint_high = endPoint[1];
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ if (threadInBlock < 4)
+ {
+ int2x3 endPoint;
+ endPoint[0] = shared_temp[threadBase + 0].endPoint_low;
+ endPoint[1] = shared_temp[threadBase + 0].endPoint_high;
+ 
+ float3 span = endPoint[1] - endPoint[0];
+ float span_norm_sqr = dot( span, span );
+ 
+ uint4 prec = candidateModePrec[threadInBlock + 10];
+ int2x3 endPoint_q = endPoint;
+ quantize( endPoint_q, prec.x );
+
+ bool transformed = candidateModeTransformed[threadInBlock + 10];
+ if (transformed)
+ {
+ endPoint_q[1] -= endPoint_q[0];
+ }
+ 
+ bool bBadQuantize;
+ finish_quantize( bBadQuantize, endPoint_q, prec, transformed );
+ 
+ start_unquantize( endPoint_q, prec, transformed );
+ 
+ unquantize( endPoint_q, prec.x );
+ 
+ float error = 0;
+ [loop]for ( uint j = 0; j < 16; j ++ )
+ {
+ float dotProduct = dot( span, shared_temp[threadBase + j].pixel_ph - endPoint[0] );// fixed a bug in v0.2
+ uint index = ( span_norm_sqr <= 0 || dotProduct <= 0 ) ? 0
+ : ( ( dotProduct < span_norm_sqr ) ? aStep2[ uint( dotProduct * 63.49999 / span_norm_sqr ) ] : aStep2[63] );
+ 
+ uint3 pixel_rh;
+ generate_palette_unquantized16( pixel_rh, endPoint_q[0], endPoint_q[1], index );
+ float3 pixel_r = half2float( pixel_rh );
+ pixel_r -= shared_temp[threadBase + j].pixel_hr;
+ error += dot(pixel_r, pixel_r);
+ }
+ if ( bBadQuantize )
+ error = 1e20f;
+
+ shared_temp[GI].error = error;
+ shared_temp[GI].best_mode = candidateModeFlag[threadInBlock + 10];
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ 
+ if (threadInBlock < 2)
+ {
+ if ( shared_temp[GI].error > shared_temp[GI + 2].error )
+ {
+ shared_temp[GI].error = shared_temp[GI + 2].error;
+ shared_temp[GI].best_mode = shared_temp[GI + 2].best_mode;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 1)
+ {
+ if ( shared_temp[GI].error > shared_temp[GI + 1].error )
+ {
+ shared_temp[GI].error = shared_temp[GI + 1].error;
+ shared_temp[GI].best_mode = shared_temp[GI + 1].best_mode;
+ }
+ 
+ g_OutBuff[blockID] = uint4(asuint(shared_temp[GI].error), shared_temp[GI].best_mode, 0, 0);
+ }
+}

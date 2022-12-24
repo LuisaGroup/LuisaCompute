@@ -10,14 +10,16 @@ public:
     vstd::vector<SwapChain> m_renderTargets;
     ComPtr<IDXGISwapChain3> swapChain;
     uint64 frameIndex = 0;
+    bool vsync;
     LCSwapChain(
         Device *device,
         CommandQueue *queue,
-        IGpuAllocator *resourceAllocator,
+        GpuAllocator *resourceAllocator,
         HWND windowHandle,
         uint width,
         uint height,
         bool allowHDR,
+        bool vsync,
         uint backBufferCount);
 };
 }// namespace toolhub::directx

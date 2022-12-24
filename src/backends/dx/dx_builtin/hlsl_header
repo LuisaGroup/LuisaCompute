@@ -1,0 +1,391 @@
+#pragma pack_matrix(row_major)
+#define INFINITY_f 3.40282347e+37
+#define DispatchArgs1D uint
+#define DispatchArgs2D uint
+#define DispatchArgs3D uint
+SamplerState samplers[16]:register(s0,space1);
+float determinant(const float2x2 m){
+return m[0][0]*m[1][1]-m[1][0]*m[0][1];
+}
+float determinant(const float3x4 m){
+return m[0].x*(m[1].y*m[2].z-m[2].y*m[1].z)-m[1].x*(m[0].y*m[2].z-m[2].y*m[0].z)+m[2].x*(m[0].y*m[1].z-m[1].y*m[0].z);
+}
+float determinant(const float4x4 m){
+const float coef00=m[2].z*m[3].w-m[3].z*m[2].w;
+const float coef02=m[1].z*m[3].w-m[3].z*m[1].w;
+const float coef03=m[1].z*m[2].w-m[2].z*m[1].w;
+const float coef04=m[2].y*m[3].w-m[3].y*m[2].w;
+const float coef06=m[1].y*m[3].w-m[3].y*m[1].w;
+const float coef07=m[1].y*m[2].w-m[2].y*m[1].w;
+const float coef08=m[2].y*m[3].z-m[3].y*m[2].z;
+const float coef10=m[1].y*m[3].z-m[3].y*m[1].z;
+const float coef11=m[1].y*m[2].z-m[2].y*m[1].z;
+const float coef12=m[2].x*m[3].w-m[3].x*m[2].w;
+const float coef14=m[1].x*m[3].w-m[3].x*m[1].w;
+const float coef15=m[1].x*m[2].w-m[2].x*m[1].w;
+const float coef16=m[2].x*m[3].z-m[3].x*m[2].z;
+const float coef18=m[1].x*m[3].z-m[3].x*m[1].z;
+const float coef19=m[1].x*m[2].z-m[2].x*m[1].z;
+const float coef20=m[2].x*m[3].y-m[3].x*m[2].y;
+const float coef22=m[1].x*m[3].y-m[3].x*m[1].y;
+const float coef23=m[1].x*m[2].y-m[2].x*m[1].y;
+const float4 fac0=float4(coef00,coef00,coef02,coef03);
+const float4 fac1=float4(coef04,coef04,coef06,coef07);
+const float4 fac2=float4(coef08,coef08,coef10,coef11);
+const float4 fac3=float4(coef12,coef12,coef14,coef15);
+const float4 fac4=float4(coef16,coef16,coef18,coef19);
+const float4 fac5=float4(coef20,coef20,coef22,coef23);
+const float4 Vec0=float4(m[1].x,m[0].x,m[0].x,m[0].x);
+const float4 Vec1=float4(m[1].y,m[0].y,m[0].y,m[0].y);
+const float4 Vec2=float4(m[1].z,m[0].z,m[0].z,m[0].z);
+const float4 Vec3=float4(m[1].w,m[0].w,m[0].w,m[0].w);
+const float4 inv0=Vec1*fac0-Vec2*fac1+Vec3*fac2;
+const float4 inv1=Vec0*fac0-Vec2*fac3+Vec3*fac4;
+const float4 inv2=Vec0*fac1-Vec1*fac3+Vec3*fac5;
+const float4 inv3=Vec0*fac2-Vec1*fac4+Vec2*fac5;
+const float4 sign_a=float4(+1.0f,-1.0f,+1.0f,-1.0f);
+const float4 sign_b=float4(-1.0f,+1.0f,-1.0f,+1.0f);
+const float4 inv_0=inv0*sign_a;
+const float4 inv_1=inv1*sign_b;
+const float4 inv_2=inv2*sign_a;
+const float4 inv_3=inv3*sign_b;
+const float4 dot0=m[0]*float4(inv_0.x,inv_1.x,inv_2.x,inv_3.x);
+return dot0.x+dot0.y+dot0.z+dot0.w;
+}
+float2x2 inverse(const float2x2 m){
+const float one_over_determinant=1.0f/(m[0][0]*m[1][1]-m[1][0]*m[0][1]);
+return float2x2(m[1][1]*one_over_determinant,
+-m[0][1]*one_over_determinant,
+-m[1][0]*one_over_determinant,
++m[0][0]*one_over_determinant);
+}
+float3x4 inverse(const float3x4 m){
+const float one_over_determinant=1.0f /
+(m[0].x*(m[1].y*m[2].z-m[2].y*m[1].z) -
+m[1].x*(m[0].y*m[2].z-m[2].y*m[0].z) +
+m[2].x*(m[0].y*m[1].z-m[1].y*m[0].z));
+return float3x4(
+(m[1].y*m[2].z-m[2].y*m[1].z)*one_over_determinant,
+(m[2].y*m[0].z-m[0].y*m[2].z)*one_over_determinant,
+(m[0].y*m[1].z-m[1].y*m[0].z)*one_over_determinant,
+0.0,
+(m[2].x*m[1].z-m[1].x*m[2].z)*one_over_determinant,
+(m[0].x*m[2].z-m[2].x*m[0].z)*one_over_determinant,
+(m[1].x*m[0].z-m[0].x*m[1].z)*one_over_determinant,
+0.0,
+(m[1].x*m[2].y-m[2].x*m[1].y)*one_over_determinant,
+(m[2].x*m[0].y-m[0].x*m[2].y)*one_over_determinant,
+(m[0].x*m[1].y-m[1].x*m[0].y)*one_over_determinant,
+0.0);
+}
+float4x4 inverse(const float4x4 m){
+const float coef00=m[2].z*m[3].w-m[3].z*m[2].w;
+const float coef02=m[1].z*m[3].w-m[3].z*m[1].w;
+const float coef03=m[1].z*m[2].w-m[2].z*m[1].w;
+const float coef04=m[2].y*m[3].w-m[3].y*m[2].w;
+const float coef06=m[1].y*m[3].w-m[3].y*m[1].w;
+const float coef07=m[1].y*m[2].w-m[2].y*m[1].w;
+const float coef08=m[2].y*m[3].z-m[3].y*m[2].z;
+const float coef10=m[1].y*m[3].z-m[3].y*m[1].z;
+const float coef11=m[1].y*m[2].z-m[2].y*m[1].z;
+const float coef12=m[2].x*m[3].w-m[3].x*m[2].w;
+const float coef14=m[1].x*m[3].w-m[3].x*m[1].w;
+const float coef15=m[1].x*m[2].w-m[2].x*m[1].w;
+const float coef16=m[2].x*m[3].z-m[3].x*m[2].z;
+const float coef18=m[1].x*m[3].z-m[3].x*m[1].z;
+const float coef19=m[1].x*m[2].z-m[2].x*m[1].z;
+const float coef20=m[2].x*m[3].y-m[3].x*m[2].y;
+const float coef22=m[1].x*m[3].y-m[3].x*m[1].y;
+const float coef23=m[1].x*m[2].y-m[2].x*m[1].y;
+const float4 fac0=float4(coef00,coef00,coef02,coef03);
+const float4 fac1=float4(coef04,coef04,coef06,coef07);
+const float4 fac2=float4(coef08,coef08,coef10,coef11);
+const float4 fac3=float4(coef12,coef12,coef14,coef15);
+const float4 fac4=float4(coef16,coef16,coef18,coef19);
+const float4 fac5=float4(coef20,coef20,coef22,coef23);
+const float4 Vec0=float4(m[1].x,m[0].x,m[0].x,m[0].x);
+const float4 Vec1=float4(m[1].y,m[0].y,m[0].y,m[0].y);
+const float4 Vec2=float4(m[1].z,m[0].z,m[0].z,m[0].z);
+const float4 Vec3=float4(m[1].w,m[0].w,m[0].w,m[0].w);
+const float4 inv0=Vec1*fac0-Vec2*fac1+Vec3*fac2;
+const float4 inv1=Vec0*fac0-Vec2*fac3+Vec3*fac4;
+const float4 inv2=Vec0*fac1-Vec1*fac3+Vec3*fac5;
+const float4 inv3=Vec0*fac2-Vec1*fac4+Vec2*fac5;
+const float4 sign_a=float4(+1.0f,-1.0f,+1.0f,-1.0f);
+const float4 sign_b=float4(-1.0f,+1.0f,-1.0f,+1.0f);
+const float4 inv_0=inv0*sign_a;
+const float4 inv_1=inv1*sign_b;
+const float4 inv_2=inv2*sign_a;
+const float4 inv_3=inv3*sign_b;
+const float4 dot0=m[0]*float4(inv_0.x,inv_1.x,inv_2.x,inv_3.x);
+const float dot1=dot0.x+dot0.y+dot0.z+dot0.w;
+const float one_over_determinant=1.0f/dot1;
+return float4x4(inv_0*one_over_determinant,
+inv_1*one_over_determinant,
+inv_2*one_over_determinant,
+inv_3*one_over_determinant);
+}
+template<typename T>
+T _acosh(const T v){return log(v+sqrt(v*v-1.0));}
+template<typename T>
+T _asinh(const T v){return log(v+sqrt(v*v+1.0));}
+template<typename T>
+T _atanh(const T v){return 0.5*log((1.0+v)/(1.0-v));}
+template<typename T>
+T _exp10(const T v){return pow(10.0,v);};
+template<typename T>
+float _length_sqr(const T x){return dot(x,x);}
+bool _isnan(const float x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
+bool2 _isnan(const float2 x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
+bool3 _isnan(const float3 x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
+bool4 _isnan(const float4 x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
+bool _isinf(const float x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
+bool2 _isinf(const float2 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
+bool3 _isinf(const float3 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
+bool4 _isinf(const float4 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
+template<typename T,typename V>
+T _select(const T a,const T b,const V c){return select(c,b,a);}
+template<typename T>
+T copysign(const T a,const T b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+template<typename T>
+T _fma(const T a,const T b,const T c){return a*b+c;}
+float2x2 make_float2x2(const float m){return (float2x2)m;}
+float3x4 make_float3x3(const float m){return (float3x4)m;}
+float4x4 make_float4x4(const float m){return (float4x4)m;}
+float2x2 make_float2x2(const float m00,const float m01,const float m10,const float m11){return float2x2(m00,m01,m10,m11);}
+float3x4 make_float3x3(const float m00,const float m01,const float m02,const float m10,const float m11,const float m12,const float m20,const float m21,const float m22){return float3x4(m00,m01,m02,0.0,m10,m11,m12,0.0,m20,m21,m22,0.0);}
+float4x4 make_float4x4(const float m00,const float m01,const float m02,const float m03,const float m10,const float m11,const float m12,const float m13,const float m20,const float m21,const float m22,const float m23,const float m30,const float m31,const float m32,const float m33){return float4x4(m00,m01,m02,m03,m10,m11,m12,m13,m20,m21,m22,m23,m30,m31,m32,m33);}
+float2x2 make_float2x2(const float2 c0,const float2 c1){return float2x2(c0,c1);}
+float3x4 make_float3x3(const float3 c0,const float3 c1,const float3 c2){return float3x4(float4(c0,0.0),float4(c1,0.0),float4(c2,0.0));}
+float4x4 make_float4x4(const float4 c0,const float4 c1,const float4 c2,const float4 c3){return float4x4(c0,c1,c2,c3);}
+float2x2 my_transpose(const float2x2 m){return transpose(m);}
+float3x4 my_transpose(const float3x4 m){
+const float4x3 mm=transpose(m);
+return make_float3x3(mm[0],mm[1],mm[2]);
+}
+float4x4 my_transpose(const float4x4 m){return transpose(m);}
+float4x4 Mul(const float4x4 a,const float4x4 b){return mul(a,b);}
+float3x4 Mul(const float3x4 a,const float3x4 b){return mul(a,float4x4(b,0.0,0.0,0.0,0.0));}
+float2x2 Mul(const float2x2 a,const float2x2 b){return mul(a,b);}
+float4 Mul(const float4x4 b,const float4 a){return mul(a,b);}
+float3 Mul(const float3x4 b,const float3 a){return mul(a,b).xyz;}
+float2 Mul(const float2x2 b,const float2 a){return mul(a,b);}
+struct WrappedFloat2x2 {row_major float2x2 m;};
+struct WrappedFloat3x3 {
+row_major float3x4 m;
+};
+struct WrappedFloat4x4 {
+row_major float4x4 m;
+};
+#define bfread(bf,idx) bf[idx]
+#define bfread_float(bf,idx) asfloat(bf[idx])
+#define bfreadVec3(bf,idx) bf[idx].xyz
+#define bfreadMat(bf,idx) bf[idx].m
+#define bfwrite(bf,idx,value) bf[idx]=value
+#define bfwrite_float(bf,idx,value) bf[idx]=asuint(value)
+#define bfwriteVec3(bf,idx,value) bf[idx]=float4(value,0)
+#define bfwriteMat(bf,idx,value) bf[idx].m=value
+struct BdlsStruct {
+uint buffer;
+uint tex2D;
+uint tex3D;
+uint tex2DX:16;
+uint tex2DY:16;
+uint tex3DX:16;
+uint tex3DY:16;
+uint tex3DZ:16;
+uint samp2D:8;
+uint samp3D:8;
+};
+#define Smptx(tex,uv) tex[uv]
+#define Writetx(tex,uv,value) tex[uv]=value
+#define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
+Texture2D<float4> _BindlessTex[]:register(t0,space1);
+Texture3D<float4> _BindlessTex3D[]:register(t0,space2);
+template<typename T>
+T fract(const T x){return x-floor(x);}
+template<typename Idx>
+float4 SampleTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[s.tex2D].SampleLevel(samp,uv,level);}
+template<typename Idx>
+float4 SampleTex2D(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){return SampleTex2DLevel(arr,index,uv,0);}
+template<typename Idx>
+float4 SampleTex2DGrad(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float2 ddx,const float2 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[s.tex2D].SampleGrad(samp,uv,ddx,ddy);}
+#ifdef PS
+template<typename Idx>
+float4 SampleTex2DPixel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[s.tex2D].Sample(samp,uv);}
+#endif
+template<typename Idx>
+float4 SampleTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp3D];return _BindlessTex3D[s.tex3D].SampleLevel(samp,uv,level);}
+template<typename Idx>
+float4 SampleTex3D(const BINDLESS_ARRAY arr,const Idx index,const float3 uv){return SampleTex3DLevel(arr,index,uv,0);}
+template<typename Idx>
+float4 SampleTex3DGrad(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float3 ddx,const float3 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp3D];return _BindlessTex3D[s.tex3D].SampleGrad(samp,uv,ddx,ddy);}
+template<typename Idx,typename Lvl,typename Coord>
+float4 ReadTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex[s.tex2D].Load(uint3(coord,level));}
+template<typename Idx,typename Lvl,typename Coord>
+float4 ReadTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex3D[s.tex3D].Load(uint4(coord,level));}
+template<typename Idx,typename Coord>
+float4 ReadTex2D(const BINDLESS_ARRAY arr,const Idx index,const Coord coord){return ReadTex2DLevel(arr,index,coord,0);}
+template<typename Idx,typename Coord>
+float4 ReadTex3D(const BINDLESS_ARRAY arr,const Idx index,const Coord coord){return ReadTex3DLevel(arr,index,coord,0);}
+template<typename Idx>
+uint2 Tex2DSize(const BINDLESS_ARRAY arr,const Idx index){BdlsStruct s=arr[index];return uint2(s.tex2DX,s.tex2DY);}
+template<typename Idx>
+uint3 Tex3DSize(const BINDLESS_ARRAY arr,const Idx index){BdlsStruct s=arr[index];return uint3(s.tex3DX,s.tex3DY,s.tex3DZ);}
+template<typename Idx,typename Lvl>
+uint2 Tex2DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex2DSize(arr,index)>>level,1u);}
+template<typename Idx,typename Lvl>
+uint3 Tex3DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex3DSize(arr,index)>>level,1u);}
+#define READ_BUFFER_FLOAT(arr,arrIdx,idx,bf) asfloat(bf[arr[arrIdx].buffer][idx])
+#define READ_BUFFER(arr,arrIdx,idx,bf) bf[arr[arrIdx].buffer][idx]
+#define READ_BUFFERVec3(arr,arrIdx,idx,bf) bf[arr[arrIdx].buffer][idx].xyz
+struct MeshInst {
+float4 p0;
+float4 p1;
+float4 p2;
+uint InstanceID:24;
+uint InstanceMask:8;
+uint InstanceContributionToHitGroupIndex:24;
+uint Flags:8;
+uint2 accelStructPtr;
+};
+template<typename T,typename Idx>
+float4x4 InstMatrix(const T instBuffer,const Idx index){
+MeshInst v=instBuffer[index];
+return float4x4(
+float4(v.p0.x,v.p1.x,v.p2.x,0),
+float4(v.p0.y,v.p1.y,v.p2.y,0),
+float4(v.p0.z,v.p1.z,v.p2.z,0),
+float4(v.p0.w,v.p1.w,v.p2.w,1));
+}
+void SetInstTransform(inout MeshInst i,const float4x4 mat){
+i.p0=float4(mat[0].x,mat[1].x,mat[2].x,mat[3].x);
+i.p1=float4(mat[0].y,mat[1].y,mat[2].y,mat[3].y);
+i.p2=float4(mat[0].z,mat[1].z,mat[2].z,mat[3].z);
+}
+template<typename Idx>
+void SetAccelTransform(RWStructuredBuffer<MeshInst> buffer,const Idx index,const float4x4 mat){
+SetInstTransform(buffer[index],mat);
+}
+template<typename Idx>
+void SetAccelVis(RWStructuredBuffer<MeshInst> buffer,const Idx index,const bool vis){
+buffer[index].InstanceMask=select(vis,255,0);
+}
+template<typename Idx>
+void SetAccelOpaque(RWStructuredBuffer<MeshInst> buffer,const Idx index,const bool opaque){
+buffer[index].Flags=select(opaque,4,8);
+}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_exchange(Buffer a,const Idx idx,const T b){
+T r;
+InterlockedExchange(a[idx],b,r);
+return r;
+}
+template <typename Buffer,typename Idx>
+float _atomic_exchange_float(Buffer a,const Idx idx,const float b){
+int r;
+InterlockedExchange(a[idx],asint(b),r);
+return asfloat(r);
+}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_compare_exchange(Buffer a,const Idx idx,const T b,const T c){
+T r;
+InterlockedCompareExchange(a[idx],b,c,r);
+return r;
+}
+template<typename Buffer,typename Idx>
+float _atomic_compare_exchange_float(Buffer a,const Idx idx,const float b,const float c){
+int r;
+InterlockedCompareExchange(a[idx],asint(b),asint(c),r);
+return asfloat(r);
+}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_add(Buffer a,const Idx idx,const T b){
+T r;
+InterlockedAdd(a[idx],b,r);
+return r;
+}
+template<typename Buffer,typename Idx>
+float _atomic_add_float(Buffer a,const Idx idx,const float b){
+while(true){
+int old=a[idx];
+int result;
+InterlockedCompareExchange(a[idx],old,asint(asfloat(old)+b),result);
+if(old==result)return asfloat(old);
+}
+}
+template<typename Buffer,typename Idx>
+float _atomic_sub_float(Buffer a,const Idx idx,const float b){
+while(true){
+int old=a[idx];
+int result;
+InterlockedCompareExchange(a[idx],old,asint(asfloat(old)-b),result);
+if(old==result)return asfloat(old);
+}
+}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_sub(Buffer a,const Idx idx,const T b){T r;InterlockedAdd(a[idx],-b,r);return r;}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_and(Buffer a,const Idx idx,const T b){T r;InterlockedAnd(a[idx],b,r);return r;}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_or(Buffer a,const Idx idx,const T b){T r;InterlockedOr(a[idx],b,r);return r;}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_xor(Buffer a,const Idx idx,const T b){T r;InterlockedXor(a[idx],b,r);return r;}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_min(Buffer a,const Idx idx,const T b){T r;InterlockedMin(a[idx],b,r);return r;}
+template<typename Buffer,typename Idx>
+float _atomic_min_float(Buffer a,const Idx idx,const float b){int r;InterlockedMin(a[idx],asint(b),r);return asfloat(r);}
+template<typename Buffer,typename Idx,typename T>
+T _atomic_max(Buffer a,const Idx idx,const T b){T r;InterlockedMax(a[idx],b,r);return r;}
+template<typename Buffer,typename Idx>
+float _atomic_max_float(Buffer a,const Idx idx,const float b){int r;InterlockedMax(a[idx],asint(b),r);return asfloat(r);}
+struct RayPayload {uint v0;uint v1;float2 v2;uint v3;float v4;};
+void ClearDispInd(RWStructuredBuffer<uint> buffer){buffer[0]=0;}
+void EmplaceDispInd3D(RWStructuredBuffer<uint> buffer,const uint3 blk,const uint3 size,const uint ker){
+uint idx;
+uint3 dispSize=(size+blk-1)/blk;
+InterlockedAdd(buffer[0],1,idx);
+idx=idx*7+1;
+buffer[idx]=size.x;
+buffer[idx+1]=size.y;
+buffer[idx+2]=size.z;
+buffer[idx+3]=ker;
+buffer[idx+4]=dispSize.x;
+buffer[idx+5]=dispSize.y;
+buffer[idx+6]=dispSize.z;
+}
+void EmplaceDispInd2D(RWStructuredBuffer<uint> buffer,const uint2 blk,const uint2 size,const uint ker){
+uint idx;
+uint2 dispSize=(size+blk-1)/blk;
+InterlockedAdd(buffer[0],1,idx);
+idx=idx*7+1;
+buffer[idx]=size.x;
+buffer[idx+1]=size.y;
+buffer[idx+2]=1;
+buffer[idx+3]=ker;
+buffer[idx+4]=dispSize.x;
+buffer[idx+5]=dispSize.y;
+buffer[idx+6]=1;
+}
+void EmplaceDispInd1D(RWStructuredBuffer<uint> buffer,const uint blk,const uint size,const uint ker){
+uint idx;
+uint dispSize=(size+blk-1)/blk;
+InterlockedAdd(buffer[0],1,idx);
+idx=idx*7+1;
+buffer[idx]=size;
+buffer[idx+1]=1;
+buffer[idx+2]=1;
+buffer[idx+3]=ker;
+buffer[idx+4]=dispSize;
+buffer[idx+5]=1;
+buffer[idx+6]=1;
+}
+struct AABB{float3 bmin;float3 bmax;float2 _align;};
+template<typename Idx>
+void SetAABB(RWStructuredBuffer<AABB> buffer,const Idx idx,const float3 bmin,const float3 bmax){
+AABB b;
+b.bmin=bmin;
+b.bmax=bmax;
+b._align=0;
+buffer[idx]=b;
+}

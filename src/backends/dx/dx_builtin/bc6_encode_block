@@ -1,0 +1,400 @@
+[numthreads( THREAD_GROUP_SIZE, 1, 1 )]
+void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
+{
+ const uint MAX_USED_THREAD = 32;
+ uint BLOCK_IN_GROUP = THREAD_GROUP_SIZE / MAX_USED_THREAD;
+ uint blockInGroup = GI / MAX_USED_THREAD;
+ uint blockID = g_start_block_id + groupID.x * BLOCK_IN_GROUP + blockInGroup;
+ uint threadBase = blockInGroup * MAX_USED_THREAD;
+ uint threadInBlock = GI - threadBase;
+
+ #ifndef REF_DEVICE
+ if (blockID >= g_num_total_blocks)
+ {
+ return;
+ }
+ #endif
+
+ uint block_y = blockID / g_num_block_x;
+ uint block_x = blockID - block_y * g_num_block_x;
+ uint base_x = block_x * BLOCK_SIZE_X;
+ uint base_y = block_y * BLOCK_SIZE_Y;
+ 
+ if (threadInBlock < 16)
+ {
+ shared_temp[GI].pixel = g_Input.Load( uint3( base_x + threadInBlock % 4, base_y + threadInBlock / 4, 0 ) ).rgb;
+ shared_temp[GI].pixel_lum = dot(shared_temp[GI].pixel, RGB2LUM);
+ uint3 pixel_h = float2half( shared_temp[GI].pixel );
+ shared_temp[GI].pixel_ph = start_quantize( pixel_h );
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ 
+ uint best_mode = g_InBuff[blockID].y;
+ uint best_partition = g_InBuff[blockID].z;
+ 
+ uint4 block = 0;
+
+ if (threadInBlock < 32)
+ {
+ int2x3 endPoint;
+ endPoint[0] = MAX_INT;
+ endPoint[1] = MIN_INT;
+
+ float2 endPoint_lum;
+ endPoint_lum[0] = MAX_FLOAT;
+ endPoint_lum[1] = MIN_FLOAT;
+ 
+ int2 endPoint_lum_index;
+ endPoint_lum_index[0] = -1;
+ endPoint_lum_index[1] = -1;
+
+ int3 pixel_ph = shared_temp[threadBase + (threadInBlock & 0xF)].pixel_ph;
+ float pixel_lum = shared_temp[threadBase + (threadInBlock & 0xF)].pixel_lum;
+ if (threadInBlock < 16)
+ {
+ if (best_mode > 10)
+ {
+ endPoint[0] = endPoint[1] = pixel_ph;
+ endPoint_lum[0] = endPoint_lum[1] = pixel_lum;
+ }
+ else
+ {
+ uint bits = candidateSectionBit[best_partition];
+ if (0 == ((bits >> threadInBlock) & 1))
+ {
+ endPoint[0] = endPoint[1] = pixel_ph;
+ endPoint_lum[0] = endPoint_lum[1] = pixel_lum;
+ }
+ }
+ }
+ else
+ {
+ if (best_mode <= 10)
+ {
+ uint bits = candidateSectionBit[best_partition];
+ if (1 == ((bits >> (threadInBlock & 0xF)) & 1))
+ {
+ endPoint[0] = endPoint[1] = pixel_ph;
+ endPoint_lum[0] = endPoint_lum[1] = pixel_lum;
+ }
+ }
+ }
+
+ shared_temp[GI].endPoint_low = endPoint[0];
+ shared_temp[GI].endPoint_high = endPoint[1];
+ 
+ shared_temp[GI].endPoint_lum_low = endPoint_lum[0];
+ shared_temp[GI].endPoint_lum_high = endPoint_lum[1];
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if ((threadInBlock & 0xF) < 8)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 8].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 8].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 8].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 8].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 8].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 8].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if ((threadInBlock & 0xF) < 4)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 4].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 4].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 4].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 4].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 4].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 4].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if ((threadInBlock & 0xF) < 2)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 2].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 2].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 2].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 2].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 2].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 2].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if ((threadInBlock & 0xF) < 1)
+ {
+ if (shared_temp[GI].endPoint_lum_low > shared_temp[GI + 1].endPoint_lum_low)
+ {
+ shared_temp[GI].endPoint_low = shared_temp[GI + 1].endPoint_low;
+ shared_temp[GI].endPoint_lum_low = shared_temp[GI + 1].endPoint_lum_low;
+ }
+ if (shared_temp[GI].endPoint_lum_high < shared_temp[GI + 1].endPoint_lum_high)
+ {
+ shared_temp[GI].endPoint_high = shared_temp[GI + 1].endPoint_high;
+ shared_temp[GI].endPoint_lum_high = shared_temp[GI + 1].endPoint_lum_high;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ if (threadInBlock < 2)
+ {
+ // find_axis
+ int2x3 endPoint;
+ endPoint[0] = shared_temp[threadBase + threadInBlock * 16].endPoint_low;
+ endPoint[1] = shared_temp[threadBase + threadInBlock * 16].endPoint_high;
+
+ uint fixup = 0;
+ if ((1 == threadInBlock) && (best_mode <= 10))
+ {
+ fixup = candidateFixUpIndex1D[best_partition];
+ }
+ 
+ float3 span = endPoint[1] - endPoint[0];
+ float span_norm_sqr = dot( span, span );
+ float dotProduct = dot( span, shared_temp[threadBase + fixup].pixel_ph - endPoint[0] );
+ if ( span_norm_sqr > 0 && dotProduct >= 0 && uint( dotProduct * 63.49999 / span_norm_sqr ) > 32 )
+ {
+ swap(endPoint[0], endPoint[1]);
+ }
+
+ shared_temp[GI].endPoint_low = endPoint[0];
+ shared_temp[GI].endPoint_high = endPoint[1];
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ 
+ if (threadInBlock < 16)
+ {
+ uint bits;
+ if (best_mode > 10)
+ {
+ bits = 0;
+ }
+ else
+ {
+ bits = candidateSectionBit[best_partition];
+ }
+
+ float3 span;
+ float dotProduct;
+ if ((bits >> threadInBlock) & 1)
+ {
+ span = shared_temp[threadBase + 1].endPoint_high - shared_temp[threadBase + 1].endPoint_low;
+ dotProduct = dot( span, shared_temp[threadBase + threadInBlock].pixel_ph - shared_temp[threadBase + 1].endPoint_low );
+ }
+ else
+ {
+ span = shared_temp[threadBase + 0].endPoint_high - shared_temp[threadBase + 0].endPoint_low;
+ dotProduct = dot( span, shared_temp[threadBase + threadInBlock].pixel_ph - shared_temp[threadBase + 0].endPoint_low );
+ }
+ float span_norm_sqr = dot( span, span );
+
+ if (best_mode > 10)
+ {
+ uint index = ( span_norm_sqr <= 0 || dotProduct <= 0 ) ? 0
+ : ( ( dotProduct < span_norm_sqr ) ? aStep2[ uint( dotProduct * 63.49999 / span_norm_sqr ) ] : aStep2[63] );
+ if (threadInBlock == 0)
+ {
+ block.z |= index << 1;
+ }
+ else if (threadInBlock < 8)
+ {
+ block.z |= index << (threadInBlock * 4);
+ }
+ else
+ {
+ block.w |= index << ((threadInBlock - 8) * 4);
+ }
+ }
+ else
+ {
+ uint index = ( span_norm_sqr <= 0 || dotProduct <= 0 ) ? 0
+ : ( ( dotProduct < span_norm_sqr ) ? aStep1[ uint( dotProduct * 63.49999 / span_norm_sqr ) ] : aStep1[63] );
+
+ uint fixup = candidateFixUpIndex1D[best_partition];
+ int2 offset = int2((fixup != 2), (fixup == 15));
+
+ if (threadInBlock == 0)
+ {
+ block.z |= index << 18;
+ }
+ else if (threadInBlock < 3)
+ {
+ block.z |= index << (20 + (threadInBlock - 1) * 3);
+ }
+ else if (threadInBlock < 5)
+ {
+ block.z |= index << (25 + (threadInBlock - 3) * 3 + offset.x);
+ }
+ else if (threadInBlock == 5)
+ {
+ block.w |= index >> !offset.x;
+ if (!offset.x)
+ {
+ block.z |= index << 31;
+ }
+ }
+ else if (threadInBlock < 9)
+ {
+ block.w |= index << (2 + (threadInBlock - 6) * 3 + offset.x);
+ }
+ else
+ {
+ block.w |= index << (11 + (threadInBlock - 9) * 3 + offset.y);
+ }
+ }
+ 
+ shared_temp[GI].pixel_hr.xy = asfloat(block.zw);
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 8)
+ {
+ shared_temp[GI].pixel_hr.xy = asfloat(asuint(shared_temp[GI].pixel_hr.xy) | asuint(shared_temp[GI + 8].pixel_hr.xy));
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 4)
+ {
+ shared_temp[GI].pixel_hr.xy = asfloat(asuint(shared_temp[GI].pixel_hr.xy) | asuint(shared_temp[GI + 4].pixel_hr.xy));
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 2)
+ {
+ shared_temp[GI].pixel_hr.xy = asfloat(asuint(shared_temp[GI].pixel_hr.xy) | asuint(shared_temp[GI + 2].pixel_hr.xy));
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 1)
+ {
+ shared_temp[GI].pixel_hr.xy = asfloat(asuint(shared_temp[GI].pixel_hr.xy) | asuint(shared_temp[GI + 1].pixel_hr.xy));
+ 
+ block.zw = asuint(shared_temp[GI].pixel_hr.xy);
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ bool transformed = candidateModeTransformed[best_mode - 1];
+ uint4 prec = candidateModePrec[best_mode - 1];
+ if (threadInBlock == 2)
+ {
+ int2x3 endPoint_q;
+ endPoint_q[0] = shared_temp[threadBase + 0].endPoint_low;
+ endPoint_q[1] = shared_temp[threadBase + 0].endPoint_high;
+
+ quantize( endPoint_q, prec.x );
+ if (transformed)
+ {
+ endPoint_q[1] -= endPoint_q[0];
+ }
+
+ shared_temp[GI].endPoint_low = endPoint_q[0];
+ shared_temp[GI].endPoint_high = endPoint_q[1];
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock == 3)
+ {
+ int3 ep0 = shared_temp[threadBase + 2].endPoint_low;
+ int2x3 endPoint_q;
+ endPoint_q[0] = shared_temp[threadBase + 1].endPoint_low;
+ endPoint_q[1] = shared_temp[threadBase + 1].endPoint_high;
+
+ if (best_mode <= 10)
+ {
+ quantize( endPoint_q, prec.x );
+ if (transformed)
+ {
+ endPoint_q[0] -= ep0;
+ endPoint_q[1] -= ep0;
+ }
+
+ shared_temp[GI].endPoint_low = endPoint_q[0];
+ shared_temp[GI].endPoint_high = endPoint_q[1];
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ if (threadInBlock < 2)
+ {
+ int2x3 endPoint_q;
+ endPoint_q[0] = shared_temp[threadBase + threadInBlock + 2].endPoint_low;
+ endPoint_q[1] = shared_temp[threadBase + threadInBlock + 2].endPoint_high;
+
+ int bBadQuantize = 0;
+ if (threadInBlock == 0)
+ {
+ if (best_mode > 10)
+ {
+ finish_quantize( bBadQuantize, endPoint_q, prec, transformed );
+ }
+ else
+ {
+ finish_quantize_0( bBadQuantize, endPoint_q, prec, transformed );
+ }
+ }
+ else // if (threadInBlock == 1)
+ {
+ if (best_mode <= 10)
+ {
+ finish_quantize_1( bBadQuantize, endPoint_q, prec, transformed );
+ }
+ }
+
+ shared_temp[GI].endPoint_low = endPoint_q[0];
+ shared_temp[GI].endPoint_high = endPoint_q[1];
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ 
+ if ( threadInBlock == 0 )
+ {
+ int2x3 endPoint_q[2];
+ endPoint_q[0][0] = shared_temp[threadBase + 0].endPoint_low;
+ endPoint_q[0][1] = shared_temp[threadBase + 0].endPoint_high;
+ endPoint_q[1][0] = shared_temp[threadBase + 1].endPoint_low;
+ endPoint_q[1][1] = shared_temp[threadBase + 1].endPoint_high;
+
+ if ( best_mode > 10 )
+ {
+ block_package( block, endPoint_q[0], best_mode );
+ }
+ else
+ {
+ block_package( block, endPoint_q, best_mode, best_partition );
+ }
+ 
+ g_OutBuff[blockID] = block;
+ }
+}

@@ -13,10 +13,9 @@ LCEvent::~LCEvent() {
 }
 
 void LCEvent::Sync() const {
-    std::unique_lock lck(globalMtx);
+    std::unique_lock lck(eventMtx);
     while (finishedEvent < fenceIndex) {
-        queue->ExecuteDuringWaiting();
-        cv.wait_for(lck, std::chrono::milliseconds(1));
+        cv.wait(lck);
     }
 }
 void LCEvent::Signal(CommandQueue *queue) const {

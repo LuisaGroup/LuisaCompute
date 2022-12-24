@@ -8,11 +8,12 @@ class LCEvent : public vstd::IOperatorNewBase {
     ComPtr<ID3D12Fence> fence;
     mutable uint64 fenceIndex = 1;
     Device *device;
-    mutable std::mutex globalMtx;
+    mutable std::mutex eventMtx;
     mutable std::condition_variable cv;
     mutable uint64 finishedEvent = 1;
 
 public:
+    ID3D12Fence *Fence() const { return fence.Get(); }
     LCEvent(Device *device);
     ~LCEvent();
     void Sync() const;

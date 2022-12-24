@@ -1,0 +1,354 @@
+[numthreads( THREAD_GROUP_SIZE, 1, 1 )]
+void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 4 5 6 all have 1 subset per block, and fix-up index is always index 0
+{
+ // we process 4 BC blocks per thread group
+ const uint MAX_USED_THREAD = 16; // pixels in a BC (block compressed) block
+ uint BLOCK_IN_GROUP = THREAD_GROUP_SIZE / MAX_USED_THREAD; // the number of BC blocks a thread group processes = 64 / 16 = 4
+ uint blockInGroup = GI / MAX_USED_THREAD; // what BC block this thread is on within this thread group
+ uint blockID = g_start_block_id + groupID.x * BLOCK_IN_GROUP + blockInGroup; // what global BC block this thread is on
+ uint threadBase = blockInGroup * MAX_USED_THREAD; // the first id of the pixel in this BC block in this thread group
+ uint threadInBlock = GI - threadBase; // id of the pixel in this BC block
+
+ #ifndef REF_DEVICE
+ if (blockID >= g_num_total_blocks)
+ {
+ return;
+ }
+ #endif
+
+ uint block_y = blockID / g_num_block_x;
+ uint block_x = blockID - block_y * g_num_block_x;
+ uint base_x = block_x * BLOCK_SIZE_X;
+ uint base_y = block_y * BLOCK_SIZE_Y;
+ 
+ if (threadInBlock < 16)
+ {
+ shared_temp[GI].pixel = clamp(uint4(g_Input.Load( uint3( base_x + threadInBlock % 4, base_y + threadInBlock / 4, 0 ) ) * 255), 0, 255);
+
+ shared_temp[GI].endPoint_low = shared_temp[GI].pixel;
+ shared_temp[GI].endPoint_high = shared_temp[GI].pixel;
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ if (threadInBlock < 8)
+ {
+ shared_temp[GI].endPoint_low = min(shared_temp[GI].endPoint_low, shared_temp[GI + 8].endPoint_low);
+ shared_temp[GI].endPoint_high = max(shared_temp[GI].endPoint_high, shared_temp[GI + 8].endPoint_high);
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 4)
+ {
+ shared_temp[GI].endPoint_low = min(shared_temp[GI].endPoint_low, shared_temp[GI + 4].endPoint_low);
+ shared_temp[GI].endPoint_high = max(shared_temp[GI].endPoint_high, shared_temp[GI + 4].endPoint_high);
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 2)
+ {
+ shared_temp[GI].endPoint_low = min(shared_temp[GI].endPoint_low, shared_temp[GI + 2].endPoint_low);
+ shared_temp[GI].endPoint_high = max(shared_temp[GI].endPoint_high, shared_temp[GI + 2].endPoint_high);
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 1)
+ {
+ shared_temp[GI].endPoint_low = min(shared_temp[GI].endPoint_low, shared_temp[GI + 1].endPoint_low);
+ shared_temp[GI].endPoint_high = max(shared_temp[GI].endPoint_high, shared_temp[GI + 1].endPoint_high);
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ uint2x4 endPoint;
+ endPoint[0] = shared_temp[threadBase].endPoint_low;
+ endPoint[1] = shared_temp[threadBase].endPoint_high;
+
+ uint error = 0xFFFFFFFF;
+ uint mode = 0;
+ uint index_selector = 0;
+ uint rotation = 0;
+
+ uint2 indexPrec;
+ if (threadInBlock < 8) // all threads of threadInBlock < 8 will be working on trying out mode 4, since only mode 4 has index selector bit
+ {
+ if (0 == (threadInBlock & 1)) // thread 0, 2, 4, 6
+ {
+ //2 represents 2bit index precision; 1 represents 3bit index precision
+ index_selector = 0;
+ indexPrec = uint2( 2, 1 );
+ }
+ else // thread 1, 3, 5, 7
+ {
+ //2 represents 2bit index precision; 1 represents 3bit index precision
+ index_selector = 1;
+ indexPrec = uint2( 1, 2 );
+ }
+ }
+ else
+ {
+ //2 represents 2bit index precision
+ indexPrec = uint2( 2, 2 );
+ }
+
+ uint4 pixel_r;
+ uint color_index;
+ uint alpha_index;
+ int4 span;
+ int2 span_norm_sqr;
+ int2 dotProduct;
+ if (threadInBlock < 12) // Try mode 4 5 in threads 0..11
+ {
+ // mode 4 5 have component rotation
+ if ((threadInBlock < 2) || (8 == threadInBlock)) // rotation = 0 in thread 0, 1
+ {
+ rotation = 0;
+ }
+ else if ((threadInBlock < 4) || (9 == threadInBlock)) // rotation = 1 in thread 2, 3
+ {
+ endPoint[0].ra = endPoint[0].ar;
+ endPoint[1].ra = endPoint[1].ar;
+
+ rotation = 1;
+ }
+ else if ((threadInBlock < 6) || (10 == threadInBlock)) // rotation = 2 in thread 4, 5
+ {
+ endPoint[0].ga = endPoint[0].ag;
+ endPoint[1].ga = endPoint[1].ag;
+
+ rotation = 2;
+ }
+ else if ((threadInBlock < 8) || (11 == threadInBlock)) // rotation = 3 in thread 6, 7
+ {
+ endPoint[0].ba = endPoint[0].ab;
+ endPoint[1].ba = endPoint[1].ab;
+
+ rotation = 3;
+ }
+
+ if (threadInBlock < 8) // try mode 4 in threads 0..7
+ {
+ // mode 4 thread distribution
+ // Thread 0 1 2 3 4 5 6 7
+ // Rotation 0 0 1 1 2 2 3 3
+ // Index selector 0 1 0 1 0 1 0 1
+
+ mode = 4;
+ compress_endpoints4( endPoint );
+ }
+ else // try mode 5 in threads 8..11
+ {
+ // mode 5 thread distribution
+ // Thread 8 9 10 11
+ // Rotation 0 1 2 3
+
+ mode = 5;
+ compress_endpoints5( endPoint );
+ }
+
+ uint4 pixel = shared_temp[threadBase + 0].pixel;
+ if (1 == rotation)
+ {
+ pixel.ra = pixel.ar;
+ }
+ else if (2 == rotation)
+ {
+ pixel.ga = pixel.ag;
+ }
+ else if (3 == rotation)
+ {
+ pixel.ba = pixel.ab;
+ }
+
+ span = endPoint[1] - endPoint[0];
+ span_norm_sqr = uint2( dot( span.rgb, span.rgb ), span.a * span.a );
+ 
+ // in mode 4 5 6, end point 0 must be closer to pixel 0 than end point 1, because of the fix-up index is always index 0
+ // TODO: this shouldn't be necessary here in error calculation
+ /*
+ dotProduct = int2( dot( span.rgb, pixel.rgb - endPoint[0].rgb ), span.a * ( pixel.a - endPoint[0].a ) );
+ if ( span_norm_sqr.x > 0 && dotProduct.x > 0 && uint( dotProduct.x * 63.49999 ) > uint( 32 * span_norm_sqr.x ) )
+ {
+ span.rgb = -span.rgb;
+ swap(endPoint[0].rgb, endPoint[1].rgb);
+ }
+ if ( span_norm_sqr.y > 0 && dotProduct.y > 0 && uint( dotProduct.y * 63.49999 ) > uint( 32 * span_norm_sqr.y ) )
+ {
+ span.a = -span.a;
+ swap(endPoint[0].a, endPoint[1].a);
+ }
+ */
+ 
+ // should be the same as above
+ dotProduct = int2( dot( pixel.rgb - endPoint[0].rgb, pixel.rgb - endPoint[0].rgb ), dot( pixel.rgb - endPoint[1].rgb, pixel.rgb - endPoint[1].rgb ) );
+ if ( dotProduct.x > dotProduct.y )
+ {
+ span.rgb = -span.rgb;
+ swap(endPoint[0].rgb, endPoint[1].rgb);
+ }
+ dotProduct = int2( dot( pixel.a - endPoint[0].a, pixel.a - endPoint[0].a ), dot( pixel.a - endPoint[1].a, pixel.a - endPoint[1].a ) );
+ if ( dotProduct.x > dotProduct.y )
+ {
+ span.a = -span.a;
+ swap(endPoint[0].a, endPoint[1].a);
+ }
+
+ error = 0;
+ for ( uint i = 0; i < 16; i ++ )
+ {
+ pixel = shared_temp[threadBase + i].pixel;
+ if (1 == rotation)
+ {
+ pixel.ra = pixel.ar;
+ }
+ else if (2 == rotation)
+ {
+ pixel.ga = pixel.ag;
+ }
+ else if (3 == rotation)
+ {
+ pixel.ba = pixel.ab;
+ }
+
+ dotProduct.x = dot( span.rgb, pixel.rgb - endPoint[0].rgb );
+ color_index = ( span_norm_sqr.x <= 0 /*endPoint[0] == endPoint[1]*/ || dotProduct.x <= 0 /*pixel == endPoint[0]*/ ) ? 0
+ : ( ( dotProduct.x < span_norm_sqr.x ) ? aStep[indexPrec.x][ uint( dotProduct.x * 63.49999 / span_norm_sqr.x ) ] : aStep[indexPrec.x][63] );
+ dotProduct.y = dot( span.a, pixel.a - endPoint[0].a );
+ alpha_index = ( span_norm_sqr.y <= 0 || dotProduct.y <= 0 ) ? 0
+ : ( ( dotProduct.y < span_norm_sqr.y ) ? aStep[indexPrec.y][ uint( dotProduct.y * 63.49999 / span_norm_sqr.y ) ] : aStep[indexPrec.y][63] );
+
+ // the same color_index and alpha_index should be used for reconstruction, so this should be left commented out
+ /*if (index_selector)
+ {
+ swap(color_index, alpha_index);
+ }*/
+
+ pixel_r.rgb = ( ( 64 - aWeight[indexPrec.x][color_index] ) * endPoint[0].rgb +
+ aWeight[indexPrec.x][color_index] * endPoint[1].rgb + 
+ 32 ) >> 6;
+ pixel_r.a = ( ( 64 - aWeight[indexPrec.y][alpha_index] ) * endPoint[0].a + 
+ aWeight[indexPrec.y][alpha_index] * endPoint[1].a + 
+ 32 ) >> 6;
+
+ Ensure_A_Is_Larger( pixel_r, pixel );
+ pixel_r -= pixel;
+ if (1 == rotation)
+ {
+ pixel_r.ra = pixel_r.ar;
+ }
+ else if (2 == rotation)
+ {
+ pixel_r.ga = pixel_r.ag;
+ }
+ else if (3 == rotation)
+ {
+ pixel_r.ba = pixel_r.ab;
+ }
+ error += ComputeError(pixel_r, pixel_r);
+ }
+ }
+ else if (threadInBlock < 16) // Try mode 6 in threads 12..15, since in mode 4 5 6, only mode 6 has p bit
+ {
+ uint p = threadInBlock - 12;
+
+ compress_endpoints6( endPoint, uint2(p >> 0, p >> 1) & 1 );
+
+ uint4 pixel = shared_temp[threadBase + 0].pixel;
+
+ span = endPoint[1] - endPoint[0];
+ span_norm_sqr = dot( span, span );
+ dotProduct = dot( span, pixel - endPoint[0] );
+ if ( span_norm_sqr.x > 0 && dotProduct.x >= 0 && uint( dotProduct.x * 63.49999 ) > uint( 32 * span_norm_sqr.x ) )
+ {
+ span = -span;
+ swap(endPoint[0], endPoint[1]);
+ }
+ 
+ error = 0;
+ for ( uint i = 0; i < 16; i ++ )
+ {
+ pixel = shared_temp[threadBase + i].pixel;
+ 
+ dotProduct.x = dot( span, pixel - endPoint[0] );
+ color_index = ( span_norm_sqr.x <= 0 || dotProduct.x <= 0 ) ? 0
+ : ( ( dotProduct.x < span_norm_sqr.x ) ? aStep[0][ uint( dotProduct.x * 63.49999 / span_norm_sqr.x ) ] : aStep[0][63] );
+ 
+ pixel_r = ( ( 64 - aWeight[0][color_index] ) * endPoint[0]
+ + aWeight[0][color_index] * endPoint[1] + 32 ) >> 6;
+ 
+ Ensure_A_Is_Larger( pixel_r, pixel );
+ pixel_r -= pixel;
+ error += ComputeError(pixel_r, pixel_r);
+ }
+
+ mode = 6;
+ rotation = p; // Borrow rotation for p
+ }
+
+ shared_temp[GI].error = error;
+ shared_temp[GI].mode = mode;
+ shared_temp[GI].index_selector = index_selector;
+ shared_temp[GI].rotation = rotation;
+
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+
+ if (threadInBlock < 8)
+ {
+ if ( shared_temp[GI].error > shared_temp[GI + 8].error )
+ {
+ shared_temp[GI].error = shared_temp[GI + 8].error;
+ shared_temp[GI].mode = shared_temp[GI + 8].mode;
+ shared_temp[GI].index_selector = shared_temp[GI + 8].index_selector;
+ shared_temp[GI].rotation = shared_temp[GI + 8].rotation;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 4)
+ {
+ if ( shared_temp[GI].error > shared_temp[GI + 4].error )
+ {
+ shared_temp[GI].error = shared_temp[GI + 4].error;
+ shared_temp[GI].mode = shared_temp[GI + 4].mode;
+ shared_temp[GI].index_selector = shared_temp[GI + 4].index_selector;
+ shared_temp[GI].rotation = shared_temp[GI + 4].rotation;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 2)
+ {
+ if ( shared_temp[GI].error > shared_temp[GI + 2].error )
+ {
+ shared_temp[GI].error = shared_temp[GI + 2].error;
+ shared_temp[GI].mode = shared_temp[GI + 2].mode;
+ shared_temp[GI].index_selector = shared_temp[GI + 2].index_selector;
+ shared_temp[GI].rotation = shared_temp[GI + 2].rotation;
+ }
+ }
+ #ifdef REF_DEVICE
+ GroupMemoryBarrierWithGroupSync();
+ #endif
+ if (threadInBlock < 1)
+ {
+ if ( shared_temp[GI].error > shared_temp[GI + 1].error )
+ {
+ shared_temp[GI].error = shared_temp[GI + 1].error;
+ shared_temp[GI].mode = shared_temp[GI + 1].mode;
+ shared_temp[GI].index_selector = shared_temp[GI + 1].index_selector;
+ shared_temp[GI].rotation = shared_temp[GI + 1].rotation;
+ }
+
+ g_OutBuff[blockID] = uint4(shared_temp[GI].error, (shared_temp[GI].index_selector << 31) | shared_temp[GI].mode,
+ 0, shared_temp[GI].rotation); // rotation is indeed rotation for mode 4 5. for mode 6, rotation is p bit
+ }
+}

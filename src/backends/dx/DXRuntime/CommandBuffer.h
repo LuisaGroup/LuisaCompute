@@ -9,6 +9,7 @@ class ComputeShader;
 class DescriptorHeap;
 class Shader;
 class RTShader;
+class RasterShader;
 class CommandBuffer;
 class CommandQueue;
 class CommandBufferBuilder {
@@ -19,7 +20,10 @@ private:
     CommandBufferBuilder(CommandBuffer const *cb);
     CommandBufferBuilder(CommandBufferBuilder const &) = delete;
     CommandBufferBuilder(CommandBufferBuilder &&);
-    void SetResources(
+    void SetComputeResources(
+        Shader const *s,
+        vstd::span<const BindProperty> resources);
+    void SetRasterResources(
         Shader const *s,
         vstd::span<const BindProperty> resources);
     DescriptorHeap const *currentDesc = nullptr;
@@ -32,16 +36,14 @@ public:
         ComputeShader const *cs,
         uint3 dispatchId,
         vstd::span<const BindProperty> resources);
-    void DispatchCompute(
+    void SetRasterShader(
+        RasterShader const *s,
+        vstd::span<const BindProperty> resources);
+    void DispatchComputeIndirect(
         ComputeShader const *cs,
-        uint3 dispatchId,
-        std::initializer_list<BindProperty> resources) {
-        DispatchCompute(
-            cs,
-            dispatchId,
-            vstd::span<const BindProperty>{resources.begin(), resources.size()});
-    }
-    void DispatchRT(
+        Buffer const& indirectBuffer,
+        vstd::span<const BindProperty> resources);
+    /*void DispatchRT(
         RTShader const *rt,
         uint3 dispatchId,
         vstd::span<const BindProperty> resources);
@@ -53,7 +55,7 @@ public:
             rt,
             dispatchId,
             vstd::span<const BindProperty>{resources.begin(), resources.size()});
-    }
+    }*/
     void CopyBuffer(
         Buffer const *src,
         Buffer const *dst,

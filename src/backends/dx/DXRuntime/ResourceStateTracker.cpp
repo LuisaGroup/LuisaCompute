@@ -1,7 +1,6 @@
-
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandBuffer.h>
-#include <Resource/Resource.h>
+#include <Resource/TextureBase.h>
 namespace toolhub::directx {
 namespace detail {
 static bool IsWriteState(D3D12_RESOURCE_STATES state) {
@@ -14,8 +13,7 @@ static bool IsWriteState(D3D12_RESOURCE_STATES state) {
     }
 }
 }// namespace detail
-ResourceStateTracker::ResourceStateTracker() {
-}
+ResourceStateTracker::ResourceStateTracker() {}
 ResourceStateTracker::~ResourceStateTracker() = default;
 void ResourceStateTracker::RecordState(
     Resource const *resource,
@@ -24,12 +22,12 @@ void ResourceStateTracker::RecordState(
     auto initState = resource->GetInitState();
     bool newAdd = false;
     bool isWrite = detail::IsWriteState(state);
-    auto ite = stateMap.Emplace(
+    auto ite = stateMap.try_emplace(
         resource,
-        vstd::MakeLazyEval([&] {
+        vstd::LazyEval([&] {
             newAdd = true;
             if (isWrite) {
-                writeStateMap.Emplace(resource);
+                writeStateMap.emplace(resource);
             }
             return State{
                 .fence = lock ? fenceCount : 0,
@@ -39,13 +37,13 @@ void ResourceStateTracker::RecordState(
                 .isWrite = isWrite};
         }));
     if (!newAdd) {
-        auto &&st = ite.Value();
+        auto &&st = ite.first->second;
         if (lock) {
             st.fence = fenceCount;
         } else if (st.fence >= fenceCount)
             return;
 
-        st.uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && ite.Value().lastState == state);
+        st.uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && ite.first->second.lastState == state);
         st.curState = state;
         if (isWrite != st.isWrite) {
             st.isWrite = isWrite;
@@ -104,7 +102,7 @@ void ResourceStateTracker::RestoreStateMap() {
             transBarrier.Transition.StateAfter = i.second.curState;
         }
     }
-    stateMap.Clear();
+    stateMap.clear();
 }
 
 void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
@@ -124,13 +122,43 @@ void ResourceStateTracker::RestoreState(CommandBufferBuilder const &cmdBuffer) {
             states.data());
         states.clear();
     }
+    writeStateMap.clear();
 }
 
 void ResourceStateTracker::MarkWritable(Resource const *res, bool writable) {
     if (writable) {
-        writeStateMap.Emplace(res);
+        writeStateMap.emplace(res);
     } else {
-        writeStateMap.Remove(res);
+        writeStateMap.erase(res);
+    }
+}
+D3D12_RESOURCE_STATES ResourceStateTracker::BufferReadState() const {
+    switch (listType) {
+        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER |
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                   D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT |
+                   D3D12_RESOURCE_STATE_COPY_SOURCE;
+        case D3D12_COMMAND_LIST_TYPE_COPY:
+            return D3D12_RESOURCE_STATE_COPY_SOURCE;
+        default:
+            return D3D12_RESOURCE_STATE_GENERIC_READ;
+    }
+}
+D3D12_RESOURCE_STATES ResourceStateTracker::TextureReadState(TextureBase const *tex) const {
+    if (tex->GetTag() == Resource::Tag::DepthBuffer) {
+        return D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_COPY_SOURCE;
+    } else {
+        switch (listType) {
+            case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+                return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE;
+            case D3D12_COMMAND_LIST_TYPE_COPY:
+                return D3D12_RESOURCE_STATE_COPY_SOURCE;
+            default:
+                return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
+                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+                       D3D12_RESOURCE_STATE_COPY_SOURCE;
+        }
     }
 }
 }// namespace toolhub::directx

@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <malloc.h> // for _aligned_malloc, _aligned_free
+#include <vstl/pdqsort.h>
 #ifndef _WIN32
     #include <shared_mutex>
 #endif
@@ -49,7 +50,7 @@
 #endif
 
 #ifndef D3D12MA_SORT
-    #define D3D12MA_SORT(beg, end, cmp)  std::sort(beg, end, cmp)
+    #define D3D12MA_SORT(beg, end, cmp)  pdqsort(beg, end, cmp)
 #endif
 
 #ifndef D3D12MA_D3D12_HEADERS_ALREADY_INCLUDED

@@ -1,15 +1,18 @@
-
 #include <Shader/ShaderCompiler.h>
 #include <core/dynamic_module.h>
-#include <Codegen/ShaderHeader.h>
+#include <vstl/string_utility.h>
+#ifndef NDEBUG
+#include <vstl/binary_reader.h>
+#endif
+#include <core/logging.h>
 namespace toolhub::directx {
 DXByteBlob::DXByteBlob(
     ComPtr<IDxcBlob> &&b,
     ComPtr<IDxcResult> &&rr)
     : blob(std::move(b)),
       comRes(std::move(rr)) {}
-vbyte *DXByteBlob::GetBufferPtr() const {
-    return reinterpret_cast<vbyte *>(blob->GetBufferPointer());
+std::byte *DXByteBlob::GetBufferPtr() const {
+    return reinterpret_cast<std::byte *>(blob->GetBufferPointer());
 }
 size_t DXByteBlob::GetBufferSize() const {
     return blob->GetBufferSize();
@@ -24,23 +27,34 @@ static vstd::wstring GetSM(uint shaderModel) {
     }
     return wstr;
 }
-DXShaderCompiler::~DXShaderCompiler() {
+IDxcCompiler3 *ShaderCompiler::Compiler() {
+    std::lock_guard lck{moduleInstantiateMtx};
+    if (module) return module->comp.Get();
+    module.New(path);
+    return module->comp.Get();
+}
+ShaderCompiler::~ShaderCompiler() {}
+ShaderCompilerModule::ShaderCompilerModule(std::filesystem::path const &path)
+    : dxil(luisa::DynamicModule::load(path, "dxil")),
+      dxcCompiler(luisa::DynamicModule::load(path, "dxcompiler")) {
+    if (!dxil) {
+        LUISA_ERROR("dxil.dll not found.");
+    }
+    if (!dxcCompiler) {
+        LUISA_ERROR("dxcompiler.dll not found.");
+    }
+    auto voidPtr = dxcCompiler.address("DxcCreateInstance"sv);
+    HRESULT(__stdcall * DxcCreateInstance)
+    (const IID &, const IID &, LPVOID *) =
+        reinterpret_cast<HRESULT(__stdcall *)(const IID &, const IID &, LPVOID *)>(voidPtr);
+    DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(comp.GetAddressOf()));
+}
+ShaderCompilerModule::~ShaderCompilerModule() {
     comp = nullptr;
 }
-DXShaderCompiler::DXShaderCompiler() {
-    dxcCompiler = luisa::DynamicModule::load("dxcompiler");
-    if (dxcCompiler.has_value()) {
-        luisa::DynamicModule &m = dxcCompiler.value();
-        auto voidPtr = m.address("DxcCreateInstance"sv);
-        HRESULT(__stdcall * DxcCreateInstance)
-        (const IID &, const IID &, LPVOID *) =
-            reinterpret_cast<HRESULT(__stdcall *)(const IID &, const IID &, LPVOID *)>(voidPtr);
-        DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(comp.GetAddressOf()));
-    } else {
-        comp = nullptr;
-    }
-}
-CompileResult DXShaderCompiler::Compile(
+ShaderCompiler::ShaderCompiler(std::filesystem::path const &path)
+    : path(path) {}
+CompileResult ShaderCompiler::Compile(
     vstd::string_view code,
     vstd::span<LPCWSTR> args) {
     DxcBuffer buffer{
@@ -49,7 +63,7 @@ CompileResult DXShaderCompiler::Compile(
         CP_UTF8};
     ComPtr<IDxcResult> compileResult;
 
-    ThrowIfFailed(comp->Compile(
+    ThrowIfFailed(Compiler()->Compile(
         &buffer,
         args.data(),
         args.size(),
@@ -60,7 +74,7 @@ CompileResult DXShaderCompiler::Compile(
     if (status == 0) {
         ComPtr<IDxcBlob> resultBlob;
         ThrowIfFailed(compileResult->GetResult(resultBlob.GetAddressOf()));
-        return vstd::unique_ptr<DXByteBlob>(new DXByteBlob(std::move(resultBlob), std::move(compileResult)));
+        return vstd::create_unique(new DXByteBlob(std::move(resultBlob), std::move(compileResult)));
     } else {
         ComPtr<IDxcBlobEncoding> errBuffer;
         ThrowIfFailed(compileResult->GetErrorBuffer(errBuffer.GetAddressOf()));
@@ -70,37 +84,109 @@ CompileResult DXShaderCompiler::Compile(
         return vstd::string(errStr);
     }
 }
-CompileResult DXShaderCompiler::CompileCompute(
+template<typename Vec>
+static void AddCompileFlags(Vec &args) {
+    vstd::push_back_all(
+        args,
+        {L"-Gfa",
+         L"-all-resources-bound",
+         L"-no-warnings",
+         L"-HV 2021",
+         L"-opt-enable",
+         L"-funsafe-math-optimizations",
+         L"-opt-enable",
+         L"-fassociative-math",
+         L"-opt-enable",
+         L"-freciprocal-math"});
+}
+CompileResult ShaderCompiler::CompileCompute(
     vstd::string_view code,
     bool optimize,
     uint shaderModel) {
+#ifndef NDEBUG
     if (shaderModel < 10) {
-        return "Illegal shader model!"_sv;
+        LUISA_ERROR("Illegal shader model!");
     }
-    vstd::vector<LPCWSTR, VEngine_AllocType::VEngine, 32> args;
+#endif
+    vstd::fixed_vector<LPCWSTR, 32> args;
     vstd::wstring smStr;
     smStr << L"cs_" << GetSM(shaderModel);
     args.push_back(L"/T");
     args.push_back(smStr.c_str());
-    args.push_back_all(
-        {L"-Qstrip_debug",
-         L"-Qstrip_reflect",
-         L"-all-resources-bound",
-         L"-Gfa",
-         L"-HV 2021"});
+    AddCompileFlags(args);
     if (optimize) {
-        args.push_back(L"/O3");
+        args.push_back(L"-O3");
     }
     return Compile(code, args);
 }
-CompileResult DXShaderCompiler::CompileRayTracing(
+RasterBin ShaderCompiler::CompileRaster(
+    vstd::string_view code,
+    bool optimize,
+    uint shaderModel) {
+#ifndef NDEBUG
+    if (shaderModel < 10) {
+        LUISA_ERROR("Illegal shader model!");
+    }
+#endif
+    vstd::fixed_vector<LPCWSTR, 32> args;
+    AddCompileFlags(args);
+    if (optimize) {
+        args.push_back(L"-O3");
+    }
+    args.push_back(L"/T");
+    auto size = args.size();
+    vstd::wstring smStr;
+    smStr << L"vs_" << GetSM(shaderModel);
+    args.push_back(smStr.c_str());
+    args.push_back(L"/DVS");
+    RasterBin bin;
+    bin.vertex = Compile(code, args);
+    args.resize_uninitialized(size);
+    smStr.clear();
+    smStr << L"ps_" << GetSM(shaderModel);
+    args.push_back(smStr.c_str());
+    args.push_back(L"/DPS");
+    bin.pixel = Compile(code, args);
+    return bin;
+}
+#ifdef SHADER_COMPILER_TEST
+
+CompileResult ShaderCompiler::CustomCompile(
+    vstd::string_view code,
+    vstd::span<vstd::string const> args) {
+    vstd::vector<vstd::wstring> wstrArgs;
+    vstd::push_back_func(
+        wstrArgs,
+        args.size(),
+        [&](size_t i) {
+            auto &&strv = args[i];
+            vstd::wstring wstr;
+            wstr.resize(strv.size());
+            for (auto ite : vstd::range(strv.size())) {
+                wstr[ite] = strv[ite];
+            }
+            return wstr;
+        });
+    vstd::vector<LPCWSTR> argPtr;
+    vstd::push_back_func(
+        argPtr,
+        args.size(),
+        [&](size_t i) {
+            return wstrArgs[i].data();
+        });
+
+    return Compile(code, argPtr);
+}
+#endif
+/*
+CompileResult ShaderCompiler::CompileRayTracing(
     vstd::string_view code,
     bool optimize,
     uint shaderModel) {
     if (shaderModel < 10) {
         return "Illegal shader model!"_sv;
     }
-    vstd::vector<LPCWSTR, VEngine_AllocType::VEngine, 32> args;
+    vstd::fixed_vector<LPCWSTR, 32> args;
     vstd::wstring smStr;
     smStr << L"lib_" << GetSM(shaderModel);
     args.push_back(L"/T");
@@ -108,16 +194,12 @@ CompileResult DXShaderCompiler::CompileRayTracing(
     args.push_back_all(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
-         L"-all-resources-bound",
-         L"-Gfa",
          L"/enable_unbounded_descriptor_tables",
-         L"-all-resources-bound",
-         L"-Gfa",
          L"-HV 2021"});
     if (optimize) {
-        args.push_back(L"/O3");
+        args.push_back(L"-O3");
     }
     return Compile(code, args);
-}
+}*/
 
 }// namespace toolhub::directx

@@ -3,7 +3,7 @@
 namespace toolhub::directx {
 class Resource : public vstd::ISelfPtr {
 public:
-	enum class Tag : vbyte {
+	enum class Tag : uint8_t {
 		None,
 		UploadBuffer,
 		ReadbackBuffer,
@@ -13,6 +13,8 @@ public:
 		BindlessArray,
 		Mesh,
 		SwapChain,
+		DepthBuffer,
+		ExternalBuffer
 	};
 
 protected:
@@ -29,6 +31,7 @@ public:
 		uint mipCount);
 	static uint64 GetTexturePixelSize(
 		GFXFormat format);
+    static bool IsBCtex(GFXFormat format);
 	Device* GetDevice() const { return device; }
 	Resource(Device* device)
 		: device(device) {}

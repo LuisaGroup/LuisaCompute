@@ -1,11 +1,10 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
-#include <Resource/Mesh.h>
 #include <runtime/command.h>
-
 namespace toolhub::directx {
-
+class CommandBufferBuilder;
+class ResourceStateTracker;
 class TopAccel;
 struct BottomAccelData {
     D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc;
@@ -15,38 +14,62 @@ struct BottomBuffer {
     DefaultBuffer defaultBuffer;
     uint64 compactSize;
     template<typename... Args>
-        requires(std::is_constructible_v<DefaultBuffer, Args &&...>)
+        requires(std::is_constructible_v<DefaultBuffer, Args && ...>)
     BottomBuffer(Args &&...args)
         : defaultBuffer(std::forward<Args>(args)...) {}
+};
+
+class BottomAccel;
+class MeshHandle {
+public:
+    BottomAccel *mesh;
+    TopAccel *accel;
+    size_t accelIndex;
+    size_t meshIndex;
+    static MeshHandle *AllocateHandle();
+    static void DestroyHandle(MeshHandle *handle);
 };
 class BottomAccel : public vstd::IOperatorNewBase {
     friend class TopAccel;
     vstd::unique_ptr<DefaultBuffer> accelBuffer;
     uint64 compactSize;
     Device *device;
-    Mesh mesh;
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS hint;
     bool update = false;
-    void SyncTopAccel() const;
+    vstd::fixed_vector<MeshHandle *, 2> handles;
+    vstd::spin_mutex handleMtx;
+    MeshHandle *AddAccelRef(TopAccel *accel, uint index);
+    void RemoveAccelRef(MeshHandle *handle);
+    void SyncTopAccel();
 
 public:
+    struct MeshOptions {
+        Buffer const *vHandle;
+        size_t vOffset;
+        size_t vStride;
+        size_t vSize;
+        Buffer const *iHandle;
+        size_t iOffset;
+        size_t iSize;
+    };
+    struct AABBOptions {
+        Buffer const *aabbBuffer;
+        size_t offset;
+        size_t count;
+    };
     bool RequireCompact() const;
-    Mesh const *GetMesh() const { return &mesh; }
     Buffer const *GetAccelBuffer() const {
         return accelBuffer.get();
     }
     BottomAccel(
         Device *device,
-        Buffer const *vHandle, size_t vOffset, size_t vStride, size_t vCount,
-        Buffer const *iHandle, size_t iOffset, size_t iCount,
         luisa::compute::AccelUsageHint hint,
         bool allow_compact, bool allow_update);
     size_t PreProcessStates(
         CommandBufferBuilder &builder,
         ResourceStateTracker &tracker,
         bool update,
-        Buffer const *vHandle,
-        Buffer const *iHandle, 
+        vstd::variant<MeshOptions, AABBOptions> const& options,
         BottomAccelData &bottomData);
     void UpdateStates(
         CommandBufferBuilder &builder,

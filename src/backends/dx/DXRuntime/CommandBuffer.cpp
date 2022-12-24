@@ -4,7 +4,7 @@
 #include <DXRuntime/Device.h>
 #include <Resource/Buffer.h>
 #include <Shader/ComputeShader.h>
-#include <Shader/RTShader.h>
+#include <Shader/RasterShader.h>
 namespace toolhub::directx {
 ID3D12GraphicsCommandList4 *CommandBufferBuilder::CmdList() const { return cb->cmdList.Get(); }
 CommandBuffer::CommandBuffer(CommandBuffer &&v)
@@ -27,24 +27,32 @@ CommandBuffer::CommandBuffer(
     ThrowIfFailed(cmdList->Close());
     isOpened = false;
 }
-void CommandBufferBuilder::SetResources(
+void CommandBufferBuilder::SetComputeResources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    for (auto &&r : resources) {
-        auto result = r.prop.visit_or(
-            false,
+    assert(resources.size() == s->Properties().size());
+    for (auto i : vstd::range(resources.size())) {
+        resources[i].visit(
             [&](auto &&b) {
-                return s->SetComputeResource(
-                    r.name,
+                s->SetComputeResource(
+                    i,
                     this,
                     b);
             });
-#ifdef _DEBUG
-        if (!result) {
-            VEngine_Log("Illegal resource setted"sv);
-            VSTL_ABORT();
-        }
-#endif
+    }
+}
+void CommandBufferBuilder::SetRasterResources(
+    Shader const *s,
+    vstd::span<const BindProperty> resources) {
+    assert(resources.size() == s->Properties().size());
+    for (auto i : vstd::range(resources.size())) {
+        resources[i].visit(
+            [&](auto &&b) {
+                s->SetRasterResource(
+                    i,
+                    this,
+                    b);
+            });
     }
 }
 void CommandBufferBuilder::DispatchCompute(
@@ -61,11 +69,39 @@ void CommandBufferBuilder::DispatchCompute(
         calc(dispatchId.z, blk.z)};
     auto c = cb->cmdList.Get();
     c->SetComputeRootSignature(cs->RootSig());
-    SetResources(cs, resources);
+    SetComputeResources(cs, resources);
     c->SetPipelineState(cs->Pso());
     c->Dispatch(dispId.x, dispId.y, dispId.z);
 }
-void CommandBufferBuilder::DispatchRT(
+void CommandBufferBuilder::SetRasterShader(
+    RasterShader const *s,
+    vstd::span<const BindProperty> resources) {
+    auto c = CmdList();
+    c->SetPipelineState(s->Pso());
+    c->SetGraphicsRootSignature(s->RootSig());
+    SetRasterResources(s, resources);
+}
+void CommandBufferBuilder::DispatchComputeIndirect(
+    ComputeShader const *cs,
+    Buffer const &indirectBuffer,
+    vstd::span<const BindProperty> resources) {
+    auto c = cb->cmdList.Get();
+    auto res = indirectBuffer.GetResource();
+    size_t byteSize = indirectBuffer.GetByteSize();
+    size_t cmdSize = (byteSize - 4) / 28;
+    assert(cmdSize >= 1);
+    c->SetComputeRootSignature(cs->RootSig());
+    SetComputeResources(cs, resources);
+    c->SetPipelineState(cs->Pso());
+    c->ExecuteIndirect(
+        cs->CmdSig(),
+        cmdSize,
+        res,
+        sizeof(uint),
+        res,
+        0);
+}
+/*void CommandBufferBuilder::DispatchRT(
     RTShader const *rt,
     uint3 dispatchId,
     vstd::span<const BindProperty> resources) {
@@ -77,7 +113,7 @@ void CommandBufferBuilder::DispatchRT(
         dispatchId.x,
         dispatchId.y,
         dispatchId.z);
-}
+}*/
 void CommandBufferBuilder::CopyBuffer(
     Buffer const *src,
     Buffer const *dst,
@@ -98,6 +134,10 @@ CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
     uint width = texture->Width();
     uint height = texture->Height();
     uint depth = texture->Depth();
+    if (Resource::IsBCtex(texture->Format())) {
+        width /= 4;
+        height /= 4;
+    }
     auto GetValue = [&](uint &v) {
         v = std::max<uint>(1, v >> targetMip);
     };
@@ -120,6 +160,7 @@ void CommandBufferBuilder::CopyBufferTexture(
     uint width = texture->Width();
     uint height = texture->Height();
     uint depth = texture->Depth();
+
     auto GetValue = [&](uint &v) {
         v = std::max<uint>(1, v >> targetMip);
     };
@@ -139,7 +180,7 @@ void CommandBufferBuilder::CopyBufferTexture(
             depth,                         //uint Depth;
             static_cast<uint>(
                 CalcConstantBufferByteSize(
-                    width * Resource::GetTexturePixelSize(texture->Format())))//uint RowPitch;
+                    width / (Resource::IsBCtex(texture->Format()) ? 4 : 1) * Resource::GetTexturePixelSize(texture->Format())))//uint RowPitch;
         };
     D3D12_TEXTURE_COPY_LOCATION destLocation;
     destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -164,7 +205,7 @@ void CommandBufferBuilder::Upload(BufferView const &buffer, void const *src) {
     static_cast<UploadBuffer const *>(uBuffer.buffer)
         ->CopyData(
             uBuffer.offset,
-            {reinterpret_cast<vbyte const *>(src), size_t(uBuffer.byteSize)});
+            {reinterpret_cast<uint8_t const *>(src), size_t(uBuffer.byteSize)});
     CopyBuffer(
         uBuffer.buffer,
         buffer.buffer,
@@ -207,7 +248,7 @@ void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
             static_cast<ReadbackBuffer const *>(rBuffer.buffer)
                 ->CopyData(
                     rBuffer.offset,
-                    {reinterpret_cast<vbyte *>(dst), size_t(rBuffer.byteSize)});
+                    {reinterpret_cast<uint8_t *>(dst), size_t(rBuffer.byteSize)});
         });
 }
 void CommandBuffer::Reset() const {

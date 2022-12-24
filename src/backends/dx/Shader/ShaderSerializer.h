@@ -1,52 +1,74 @@
 #pragma once
 #include <d3dx12.h>
 #include <Shader/Shader.h>
-#include <vstl/MD5.h>
+#include <core/binary_io.h>
+#include <raster/raster_state.h>
 namespace toolhub::directx {
 class ComputeShader;
+class RasterShader;
 class RTShader;
 struct ShaderBuildData {
-    vstd::vector<vbyte> binData;
+    vstd::vector<std::byte> binData;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSig;
 };
+
 class ShaderSerializer {
     static size_t SerializeRootSig(
-        vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
-        vstd::vector<vbyte> &result);
+        vstd::span<Property const> properties,
+        vstd::vector<std::byte> &result,
+        bool isRasterShader);
     static ComPtr<ID3D12RootSignature> DeSerializeRootSig(
         ID3D12Device *device,
-        vstd::span<vbyte const> bytes);
+        vstd::span<std::byte const> bytes);
 
 public:
-    static ComPtr<ID3DBlob> SerializeRootSig(
-        vstd::span<std::pair<vstd::string, Shader::Property> const> properties);
-    struct ReadResult {
-        vbyte const *fileData;
-        size_t fileSize;
-        vbyte const *psoData;
-        size_t psoSize;
-    };
-    class Visitor {
-    protected:
-        ~Visitor() = default;
-
-    public:
-        virtual vbyte const *ReadFile(size_t size) = 0;
-        virtual ReadResult ReadFileAndPSO(
-            size_t fileSize) = 0;
-        virtual void DeletePSOFile() = 0;
-    };
-    static vstd::vector<vbyte>
-    Serialize(
-        vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
-        vstd::span<vbyte> binByte,
-        vstd::MD5 md5,
+    static ComPtr<ID3DBlob> SerializeRootSig(vstd::span<Property const> properties, bool isRasterShader);
+    static vstd::vector<std::byte> Serialize(
+        vstd::span<Property const> properties,
+        vstd::span<SavedArgument const> kernelArgs,
+        vstd::span<std::byte const> binByte,
+        vstd::MD5 const &checkMD5,
+        vstd::MD5 const &typeMD5,
+        uint bindlessCount,
         uint3 blockSize);
+    static vstd::vector<std::byte> RasterSerialize(
+        vstd::span<Property const> properties,
+        vstd::span<SavedArgument const> kernelArgs,
+        vstd::span<std::byte const> vertBin,
+        vstd::span<std::byte const> pixelBin,
+        vstd::MD5 const &checkMD5,
+        vstd::MD5 const &typeMD5,
+        uint bindlessCount);
     static ComputeShader *DeSerialize(
-        vstd::span<std::pair<vstd::string, Shader::Property> const> properties,
+        luisa::string_view fileName,
+        luisa::string_view psoName,
+        FileType fileType,
         Device *device,
-        vstd::MD5 md5,
-        Visitor &streamFunc);
+        BinaryIO &streamFunc,
+        vstd::optional<vstd::MD5> const &checkMD5,
+        vstd::MD5 &typeMD5,
+        bool &clearCache);
+    static RasterShader *RasterDeSerialize(
+        luisa::string_view fileName,
+        luisa::string_view psoName,
+        FileType fileType,
+        Device *device,
+        BinaryIO &streamFunc,
+        vstd::optional<vstd::MD5> const &ilMd5,
+        vstd::optional<vstd::MD5> &psoMd5,
+        vstd::MD5 &typeMD5,
+        MeshFormat const &meshFormat,
+        RasterState const &state,
+        vstd::span<PixelFormat const> rtv,
+        DepthFormat dsv,
+        bool &clearCache);
+    static bool CheckMD5(
+        vstd::string_view fileName,
+        vstd::MD5 const &checkMD5,
+        BinaryIO &streamFunc);
+    static vstd::vector<SavedArgument> SerializeKernel(Function kernel);
+    static vstd::vector<SavedArgument> SerializeKernel(
+        vstd::IRange<std::pair<Variable, Usage>> &arguments);
     ShaderSerializer() = delete;
     ~ShaderSerializer() = delete;
 };

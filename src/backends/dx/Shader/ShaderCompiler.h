@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 #include <core/dynamic_module.h>
 #include <DXRuntime/Device.h>
 #include <dxc/dxcapi.h>
@@ -13,30 +14,54 @@ public:
     DXByteBlob(
         ComPtr<IDxcBlob> &&b,
         ComPtr<IDxcResult> &&rr);
-    vbyte *GetBufferPtr() const;
+    std::byte *GetBufferPtr() const;
     size_t GetBufferSize() const;
 };
+
 using CompileResult = vstd::variant<
     vstd::unique_ptr<DXByteBlob>,
     vstd::string>;
-class DXShaderCompiler final : public vstd::IOperatorNewBase {
-private:
+struct RasterBin {
+    CompileResult vertex;
+    CompileResult pixel;
+};
+class ShaderCompilerModule {
+public:
+    luisa::DynamicModule dxil;
+    luisa::DynamicModule dxcCompiler;
     ComPtr<IDxcCompiler3> comp;
-    luisa::optional<luisa::DynamicModule> dxcCompiler;
+    ShaderCompilerModule(std::filesystem::path const& path);
+    ~ShaderCompilerModule();
+};
+class ShaderCompiler final : public vstd::IOperatorNewBase {
+private:
+    vstd::optional<ShaderCompilerModule> module;
+    std::mutex moduleInstantiateMtx;
+    std::filesystem::path path;
     CompileResult Compile(
         vstd::string_view code,
         vstd::span<LPCWSTR> args);
 
 public:
-    DXShaderCompiler();
-    ~DXShaderCompiler();
+    IDxcCompiler3* Compiler();
+    ShaderCompiler(std::filesystem::path const &path);
+    ~ShaderCompiler();
     CompileResult CompileCompute(
         vstd::string_view code,
         bool optimize,
-        uint shaderModel = 63);
-    CompileResult CompileRayTracing(
+        uint shaderModel);
+    RasterBin CompileRaster(
         vstd::string_view code,
         bool optimize,
-        uint shaderModel = 63);
+        uint shaderModel);
+#ifdef SHADER_COMPILER_TEST
+    CompileResult CustomCompile(
+        vstd::string_view code,
+        vstd::span<vstd::string const> args);
+#endif
+    /*CompileResult CompileRayTracing(
+        vstd::string_view code,
+        bool optimize,
+        uint shaderModel = 63);*/
 };
 }// namespace toolhub::directx

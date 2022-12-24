@@ -3,6 +3,7 @@
 namespace toolhub::directx {
 class CommandBufferBuilder;
 class Resource;
+class TextureBase;
 class ResourceStateTracker : public vstd::IOperatorNewBase {
 private:
     struct State {
@@ -12,8 +13,8 @@ private:
         bool uavBarrier;
         bool isWrite;
     };
-    vstd::HashMap<Resource const *, State> stateMap;
-    vstd::HashMap<Resource const *> writeStateMap;
+    vstd::unordered_map<Resource const *, State> stateMap;
+    vstd::unordered_set<Resource const *> writeStateMap;
     vstd::vector<D3D12_RESOURCE_BARRIER> states;
     void ExecuteStateMap();
     void RestoreStateMap();
@@ -21,8 +22,11 @@ private:
     uint64 fenceCount = 1;
 
 public:
+    D3D12_COMMAND_LIST_TYPE listType = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    D3D12_RESOURCE_STATES BufferReadState() const ;
+    D3D12_RESOURCE_STATES TextureReadState(TextureBase const* tex) const;
     void ClearFence() { fenceCount++; }
-    vstd::HashMap<Resource const *> const &WriteStateMap() const { return writeStateMap; }
+    vstd::unordered_set<Resource const *> const &WriteStateMap() const { return writeStateMap; }
     ResourceStateTracker();
     ~ResourceStateTracker();
     void RecordState(

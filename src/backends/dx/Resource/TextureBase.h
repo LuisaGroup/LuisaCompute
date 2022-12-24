@@ -1,7 +1,8 @@
 #pragma once
 #include <Resource/Resource.h>
-#include <Resource/IGpuAllocator.h>
+#include <Resource/GpuAllocator.h>
 #include <runtime/pixel.h>
+#include <core/logging.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class TextureBase : public Resource {
@@ -12,8 +13,10 @@ protected:
     TextureDimension dimension;
     uint depth;
     uint mip;
+    //	vstd::unique_ptr<std::atomic<D3D12_BARRIER_LAYOUT>> layouts;
 
 public:
+    //	vstd::span<std::atomic<D3D12_BARRIER_LAYOUT>> Layouts() const;
     static GFXFormat ToGFXFormat(PixelFormat format);
     uint Width() const { return width; }
     uint Height() const { return height; }
@@ -24,7 +27,18 @@ public:
     virtual uint GetGlobalSRVIndex(uint mipOffset = 0) const = 0;
     virtual uint GetGlobalUAVIndex(uint mipLevel) const = 0;
     virtual D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDesc(uint mipOffset = 0) const = 0;
-    virtual D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const VENGINE_PURE_VIRTUAL_RET;
+    virtual D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const {
+        LUISA_ERROR("Texture type not support random write!");
+        return {};
+    }
+    virtual D3D12_DEPTH_STENCIL_VIEW_DESC GetDepthDesc() const {
+        LUISA_ERROR("Texture type not support depth!");
+        return {};
+    }
+    virtual D3D12_RENDER_TARGET_VIEW_DESC GetRenderTargetDesc(uint mipOffset = 0) const {
+        LUISA_ERROR("Texture type not support render target!");
+        return {};
+    }
     TextureBase(
         Device *device,
         uint width,

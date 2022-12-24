@@ -1,0 +1,89 @@
+#pragma once
+#include <d3dx12.h>
+#include <Resource/BufferView.h>
+#include <Resource/Resource.h>
+#include <vstl/small_vector.h>
+namespace toolhub::directx {
+class CommandBufferBuilder;
+class TopAccel;
+class EnhancedBarrierTracker : public vstd::IOperatorNewBase {
+public:
+	using ResourceView = vstd::variant<
+		BufferView,
+		TexView,
+		TopAccel const*>;
+	enum class Usage : uint {
+		ComputeRead,
+		ComputeAccelRead,
+		ComputeUAV,
+		CopySource,
+		CopyDest,
+		BuildAccel,
+		CopyAccelSrc,
+		CopyAccelDst,
+		GenericRead
+	};
+	static constexpr size_t USAGE_SIZE = static_cast<size_t>(Usage::GenericRead) + 1;
+
+private:
+	struct Range {
+		uint64 min;
+		uint64 max;
+		Range() {
+			min = std::numeric_limits<uint64>::min();
+			max = std::numeric_limits<uint64>::max();
+		}
+		Range(uint64 value) {
+			min = value;
+			max = value + 1;
+		}
+		uint64 size() const { return max - min; }
+		Range(uint64 min, uint64 size)
+			: min(min), max(size + min) {}
+		bool Collide(Range const& r) const {
+			return min < r.max && r.min < max;
+		}
+		void Combine(Range const& r) {
+			min = std::min(min, r.min);
+			max = std::max(max, r.max);
+		}
+		bool operator==(Range const& r) const {
+			return min == r.min && max == r.max;
+		}
+		bool operator!=(Range const& r) const { return !operator==(r); }
+	};
+	struct SubResourceState {
+		Range range;
+		Usage usage;
+	}; 
+	struct ResourceStates {
+		ID3D12Resource* res;
+		vstd::small_vector<SubResourceState> layerStates;
+		vstd::small_vector<SubResourceState> frameStates;
+		enum class Type : uint8_t {
+			Buffer,
+			Texture
+		};
+		Type type;
+		ResourceStates(Type type, ID3D12Resource* res) : type(type), res(res) {}
+	};
+	///////////////// State Tracker
+	vstd::HashMap<void const*, ResourceStates> frameStates;
+	vstd::vector<D3D12_BUFFER_BARRIER> bufferBarriers;
+	vstd::vector<D3D12_TEXTURE_BARRIER> texBarriers;
+
+	///////////////// Commands
+
+	void UpdateResourceState(void const* resPtr, ResourceStates& state);
+
+public:
+	EnhancedBarrierTracker();
+	~EnhancedBarrierTracker();
+	void Record(
+		ResourceView const& res,
+		Usage resUsage);
+
+	void UpdateState(CommandBufferBuilder const& cmdBuffer);
+	void RestoreState(CommandBufferBuilder const& cmdBuffer);
+};
+}// namespace toolhub::directx

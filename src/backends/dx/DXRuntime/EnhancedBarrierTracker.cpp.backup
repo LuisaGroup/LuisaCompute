@@ -1,0 +1,179 @@
+#include "EnhancedBarrierTracker.h"
+#include <Resource/DefaultBuffer.h>
+#include <Resource/TextureBase.h>
+#include <Resource/TopAccel.h>
+#include <DXRuntime/CommandBuffer.h>
+namespace toolhub::directx {
+namespace detail {
+static constexpr D3D12_BARRIER_SYNC BarrierSyncMap[] = {
+	D3D12_BARRIER_SYNC_COMPUTE_SHADING,							 // ComputeRead,
+	D3D12_BARRIER_SYNC_COMPUTE_SHADING,							 // ComputeAccelRead,
+	D3D12_BARRIER_SYNC_COMPUTE_SHADING,							 // ComputeUAV,
+	D3D12_BARRIER_SYNC_COPY,									 // CopySource,
+	D3D12_BARRIER_SYNC_COPY,									 // CopyDest,
+	D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE,	 // BuildAccel,
+	D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,	 // CopyAccelSrc
+	D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE,	 // CopyAccelDst
+	D3D12_BARRIER_SYNC_COMPUTE_SHADING | D3D12_BARRIER_SYNC_COPY,//GenericRead
+};
+static constexpr D3D12_BARRIER_ACCESS BarrierAccessMap[] = {
+	D3D12_BARRIER_ACCESS_SHADER_RESOURCE,									// ComputeRead,
+	D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ,			// ComputeAccelRead,
+	D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,									// ComputeUAV,
+	D3D12_BARRIER_ACCESS_COPY_SOURCE,										// CopySource,
+	D3D12_BARRIER_ACCESS_COPY_DEST,											// CopyDest,
+	D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE,			// BuildAccel,
+	D3D12_BARRIER_ACCESS_COPY_SOURCE,										// CopyAccelSrc
+	D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE,			// CopyAccelDst
+	D3D12_BARRIER_ACCESS_SHADER_RESOURCE | D3D12_BARRIER_ACCESS_COPY_SOURCE,//GenericRead
+};
+static constexpr D3D12_BARRIER_LAYOUT BarrierLayoutMap[] = {
+	D3D12_BARRIER_LAYOUT_SHADER_RESOURCE,			// ComputeRead,
+	D3D12_BARRIER_LAYOUT_UNDEFINED,					// ComputeAccelRead,
+	D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,			// ComputeUAV,
+	D3D12_BARRIER_LAYOUT_COPY_SOURCE,				// CopySource,
+	D3D12_BARRIER_LAYOUT_COPY_DEST,					// CopyDest,
+	D3D12_BARRIER_LAYOUT_UNDEFINED,					// BuildAccel,
+	D3D12_BARRIER_LAYOUT_UNDEFINED,					// CopyAccelSrc
+	D3D12_BARRIER_LAYOUT_UNDEFINED,					// CopyAccelDst
+	D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ,//GenericRead
+};
+}// namespace detail
+
+void EnhancedBarrierTracker::Record(
+	ResourceView const& res,
+	Usage resUsage) {
+	auto FilterUsage = [](Usage src, Usage dst) {
+		if ((src == Usage::ComputeRead && dst == Usage::CopySource) ||
+			(dst == Usage::ComputeRead && src == Usage::CopySource)) return Usage::GenericRead;
+		return dst;
+	};
+	using Pair = std::pair<void const*, Range>;
+	ResourceStates::Type type;
+	ID3D12Resource* d3d12Res;
+	auto resRange = res.multi_visit_or(
+		vstd::UndefEval<Pair>{},
+		[&](BufferView const& bufferView) -> Pair {
+			type = ResourceStates::Type::Buffer;
+			d3d12Res = bufferView.buffer->GetResource();
+			return {bufferView.buffer, Range{bufferView.offset, bufferView.byteSize}};
+		},
+		[&](TexView const& texView) -> Pair {
+			type = ResourceStates::Type::Texture;
+			d3d12Res = texView.tex->GetResource();
+			return {texView.tex, Range{texView.mipStart, texView.mipCount}};
+		},
+		[&](TopAccel const* accel) -> Pair {
+			type = ResourceStates::Type::Buffer;
+			auto buffer = static_cast<Buffer const*>(accel->GetAccelBuffer());
+			d3d12Res = buffer->GetResource();
+			return {buffer, Range{}};
+		});
+	auto ite = frameStates.Emplace(resRange.first, type, d3d12Res);
+	auto& vec = ite.Value().layerStates;
+	for (size_t i = 0; i < vec.size(); ++i) {
+		auto& localValue = vec[i];
+		if (!localValue.range.Collide(resRange.second)) continue;
+		resRange.second.Combine(localValue.range);
+		resUsage = FilterUsage(localValue.usage, resUsage);
+		if (i != vec.size() - 1) {
+			localValue = vec.pop_back();
+		} else {
+			vec.pop_back();
+		}
+		--i;
+	}
+	vec.push_back({resRange.second, resUsage});
+}
+void EnhancedBarrierTracker::UpdateResourceState(void const* resPtr, ResourceStates& state) {
+    ID3D12Resource* res = state.res;
+	auto CheckRange = [&](auto&& callback) {
+		for (auto&& dst : state.layerStates) {
+			for (size_t i = 0; i < state.frameStates.size(); ++i) {
+				auto& src = state.frameStates[i];
+				if (!dst.range.Collide(src.range)) continue;
+				if (dst.usage == src.usage) {
+					dst.range.Combine(src.range);
+				} else {
+					callback(src.range, src.usage, dst.usage);
+				}
+				if (i != state.frameStates.size() - 1) {
+					src = state.frameStates.pop_back();
+				} else {
+					state.frameStates.pop_back();
+				}
+				--i;
+			}
+		}
+		state.frameStates.push_back_all(state.layerStates.data(), state.layerStates.size());
+		state.layerStates.clear();
+	};
+	if (state.type == ResourceStates::Type::Buffer) {
+		auto AddBufferBairrer = [&](Range const& range, Usage src, Usage dst) {
+			auto&& bar = bufferBarriers.emplace_back();
+			bar.SyncBefore = detail::BarrierSyncMap[static_cast<uint>(src)];
+			bar.SyncAfter = detail::BarrierSyncMap[static_cast<uint>(dst)];
+			bar.AccessBefore = detail::BarrierAccessMap[static_cast<uint>(src)];
+			bar.AccessAfter = detail::BarrierAccessMap[static_cast<uint>(dst)];
+			bar.pResource = res;
+			bar.Offset = range.min;
+			bar.Size = range.size();
+		};
+		CheckRange(AddBufferBairrer);
+	} else {
+		TextureBase const* tex = static_cast<TextureBase const*>(resPtr);
+		auto AddTextureBarrier = [&](Range const& range, Usage src, Usage dst) {
+			auto&& bar = texBarriers.emplace_back();
+			bar.SyncBefore = detail::BarrierSyncMap[static_cast<uint>(src)];
+			bar.SyncAfter = detail::BarrierSyncMap[static_cast<uint>(dst)];
+			bar.AccessBefore = detail::BarrierAccessMap[static_cast<uint>(src)];
+			bar.AccessAfter = detail::BarrierAccessMap[static_cast<uint>(dst)];
+			auto dstLayout = detail::BarrierLayoutMap[static_cast<uint>(dst)];
+			auto layouts = tex->Layouts();
+			auto srcLayout = layouts[range.min].exchange(dstLayout, std::memory_order_relaxed);
+			for (auto&& i : vstd::range(range.min + 1, range.max)) {
+				layouts[i].store(dstLayout, std::memory_order_relaxed);
+			}
+			bar.LayoutAfter = dstLayout;
+			bar.LayoutBefore = srcLayout;
+			bar.pResource = res;
+			bar.Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE;
+			auto&& sub = bar.Subresources;
+			sub.IndexOrFirstMipLevel = range.min;
+			sub.NumMipLevels = range.size();
+			sub.FirstArraySlice = 0;
+			sub.NumArraySlices = 0;
+			sub.FirstPlane = 0;
+			sub.NumPlanes = 0;
+		};
+		CheckRange(AddTextureBarrier);
+	}
+}
+
+void EnhancedBarrierTracker::UpdateState(CommandBufferBuilder const& cmdBuffer) {
+    bufferBarriers.clear();
+    texBarriers.clear();
+	for (auto&& i : frameStates) {
+        UpdateResourceState(i.first, i.second);
+	}
+    vstd::fixed_vector<D3D12_BARRIER_GROUP, 2> barriers;
+    if(!texBarriers.empty()){
+        auto& v = barriers.emplace_back();
+        v.NumBarriers = texBarriers.size();
+        v.Type = D3D12_BARRIER_TYPE_TEXTURE;
+        v.pTextureBarriers = texBarriers.data();
+    }
+    if(!bufferBarriers.empty()){
+        auto& v = barriers.emplace_back();
+        v.NumBarriers = bufferBarriers.size();
+        v.Type = D3D12_BARRIER_TYPE_BUFFER;
+        v.pBufferBarriers = bufferBarriers.data();
+    }
+    if(!barriers.empty()){
+        cmdBuffer.CmdList()->Barrier(barriers.size(), barriers.data());
+    }
+}
+void EnhancedBarrierTracker::RestoreState(CommandBufferBuilder const& cmdBuffer) {
+    frameStates.Clear();
+}
+}// namespace toolhub::directx
