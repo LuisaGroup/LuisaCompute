@@ -21,6 +21,9 @@ private:
     [[nodiscard]] static luisa::vector<std::pair<std::filesystem::path, size_t>> &_search_paths() noexcept;
 
 public:
+    [[nodiscard]] operator bool() const noexcept {
+        return _handle != nullptr;
+    }
     DynamicModule(DynamicModule &&another) noexcept;
     DynamicModule &operator=(DynamicModule &&rhs) noexcept;
     ~DynamicModule() noexcept;
@@ -95,7 +98,7 @@ public:
      * @param name Name of the module
      * @return The module if successfully loaded, otherwise a nullopt
      */
-    [[nodiscard]] static luisa::optional<DynamicModule> load(
+    [[nodiscard]] static DynamicModule load(
         std::string_view name) noexcept;
 
     /**
@@ -104,7 +107,7 @@ public:
      * @param name Name of the module
      * @return The module if successfully loaded, otherwise a nullopt
      */
-    [[nodiscard]] static luisa::optional<DynamicModule> load(
+    [[nodiscard]] static DynamicModule load(
         const std::filesystem::path &folder, std::string_view name) noexcept;
 };
 

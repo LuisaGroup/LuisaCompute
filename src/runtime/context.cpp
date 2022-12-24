@@ -40,12 +40,12 @@ Context::Context(string_view program_path) noexcept
     : _impl{luisa::make_shared<Impl>()} {
     std::filesystem::path program{program_path};
     _impl->runtime_directory = detail::runtime_directory(program);
-    LUISA_INFO("Created context for program '{}'.", path_to_string(program.filename()));
-    LUISA_INFO("Runtime directory: {}.", path_to_string(_impl->runtime_directory));
+    LUISA_INFO("Created context for program '{}'.", to_string(program.filename()));
+    LUISA_INFO("Runtime directory: {}.", to_string(_impl->runtime_directory));
     _impl->cache_directory = _impl->runtime_directory / ".cache";
     _impl->data_directory = _impl->runtime_directory / ".data";
-    LUISA_INFO("Cache directory: {}.", path_to_string(_impl->cache_directory));
-    LUISA_INFO("Data directory: {}.", path_to_string(_impl->data_directory));
+    LUISA_INFO("Cache directory: {}.", to_string(_impl->cache_directory));
+    LUISA_INFO("Data directory: {}.", to_string(_impl->data_directory));
     if (!std::filesystem::exists(_impl->cache_directory)) {
         LUISA_INFO("Created cache directory.");
         std::filesystem::create_directories(_impl->cache_directory);
@@ -62,7 +62,7 @@ Context::Context(string_view program_path) noexcept
                 "lc-backend-"sv,
                 // Make Mingw happy
                 "liblc-backend-"sv};
-            auto filename = path_to_string(path.stem());
+            auto filename = to_string(path.stem());
             for (auto prefix : possible_prefixes) {
                 if (filename.starts_with(prefix)) {
                     auto name = filename.substr(prefix.size());
@@ -121,8 +121,9 @@ Device Context::create_device(std::string_view backend_name_in, DeviceConfig con
         SetDllDirectoryW(impl->runtime_directory.c_str());
 #endif
         auto &&m = impl->loaded_modules.emplace_back(
-            impl->runtime_directory,
-            fmt::format("lc-backend-{}", backend_name));
+            DynamicModule::load(
+                impl->runtime_directory,
+                fmt::format("lc-backend-{}", backend_name)));
 #ifdef LUISA_PLATFORM_WINDOWS
         SetDllDirectoryW(buffer);
 #endif
