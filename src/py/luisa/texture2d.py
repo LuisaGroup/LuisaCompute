@@ -1,4 +1,5 @@
-from . import lcapi
+from turtle import width
+import lcapi
 from . import globalvars
 from .globalvars import get_global_device
 from .types import dtype_of, length_of, element_of, vector
@@ -14,7 +15,7 @@ def _check_storage(storage_name, dtype):
         raise TypeError(f"{dtype} texture is only compatible with storage: {compatible[dtype]}")
 
 class Texture2D:
-    def __init__(self, width, height, channel, dtype, storage = None):
+    def __init__(self, width, height, channel, dtype, mip=1, storage = None):
         if not dtype in {int, float}:
             raise Exception('Texture2D only supports int / float')
         if not channel in (1,2,4):
@@ -23,6 +24,7 @@ class Texture2D:
         self.height = height
         self.channel = channel
         self.dtype = dtype
+        self.mip = mip
         self.vectype = dtype if channel == 1 else getattr(lcapi, dtype.__name__ + str(channel))
         # default storage type: max precision
         self.storage_name = storage.upper() if storage is not None else dtype.__name__.upper()
@@ -30,13 +32,17 @@ class Texture2D:
         self.storage = getattr(lcapi.PixelStorage, self.storage_name + str(channel))
         self.format = getattr(lcapi, "pixel_storage_to_format_" + dtype.__name__)(self.storage)
 
-        self.bytesize = lcapi.pixel_storage_size(self.storage) * width * height;
+        self.bytesize = lcapi.pixel_storage_size(self.storage) * width * height
         self.texture2DType = Texture2DType(dtype, channel)
         self.read = self.texture2DType.read
         self.write = self.texture2DType.write
         # instantiate texture on device
-        self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, 1)
-
+        self.handle = get_global_device().impl().create_texture(self.format, 2, width, height, 1, mip)
+    def __del__(self):
+        if self.handle != None:
+            device = get_global_device()
+            if device != None:
+                device.impl().destroy_texture(self.handle)    
     @staticmethod
     def texture2d(arr):
         if type(arr).__name__ == "ndarray":
@@ -46,36 +52,7 @@ class Texture2D:
 
     @staticmethod
     def empty(width, height, channel, dtype, storage = None):
-        return Texture2D(width, height, channel, dtype, storage)
-
-    @func
-    def fill_kernel(tex, value):
-        tex.write(dispatch_id().xy, value)
-
-    @staticmethod
-    def zeros(width, height, channel, dtype, storage = None):
-        tex = Texture2D.empty(width, height, channel, dtype, storage)
-        val = tex.vectype(0)
-        Texture2D.fill_kernel(tex, val, dispatch_size=(width,height,1))
-        return tex
-
-    @staticmethod
-    def ones(width, height, channel, dtype, storage = None):
-        tex = Texture2D.empty(width, height, channel, dtype, storage)
-        val = tex.vectype(1)
-        Texture2D.fill_kernel(tex, val, dispatch_size=(width,height,1))
-        return tex
-
-    @staticmethod
-    def filled(width, height, val, storage = None): # TODO deduce dtype
-        if type(val) not in {int, float, int2, float2, int4, float4}:
-            raise TypeError("Can only fill texture2d with int, float or their vectors of length 2 or 4")
-        dtype = element_of(type(val))
-        channel = length_of(type(val))
-        tex = Texture2D.empty(width, height, channel, dtype, storage)
-        assert dtype_of(val) == tex.vectype
-        Texture2D.fill_kernel(tex, val, dispatch_size=(width,height,1))
-        return tex
+        return Texture2D(width, height, channel, dtype, 1, storage)
 
     @staticmethod
     def from_array(arr): # arr: numpy array
@@ -85,23 +62,49 @@ class Texture2D:
         tex.copy_from_array(arr)
         return tex
 
+    # use manually load temporarily
+
     @staticmethod
-    def from_image(path):
-        # load 8-bit 4-channel image from file
-        from PIL import Image
+    def from_hdr_image(path:str):
+        # load 32-bit 4-channel image from file
         import numpy as np
-        arr = np.asarray(Image.open(path))
-        assert len(arr.shape) == 3 and arr.shape[2] in {3,4}
-        assert arr.dtype == np.uint8
-        if arr.shape[2] == 3:
-            arr = np.concatenate((arr, np.full((arr.shape[0], arr.shape[1], 1), 255, dtype=np.uint8)), axis=2)
+        arr = lcapi.load_hdr_image(path)
+        assert len(arr.shape) == 3 and arr.shape[2] == 4
+        assert arr.dtype == np.float32
         # save as SRGB 8-bit texture
-        tex = Texture2D.empty(arr.shape[1], arr.shape[0], 4, float, 'byte')
+        tex = Texture2D.empty(arr.shape[0], arr.shape[1], 4, float)
         tex.copy_from_array(arr)
         return tex
 
+    @staticmethod
+    def from_ldr_image(path:str):
+        # load 8-bit 4-channel image from file
+        import numpy as np
+        arr = lcapi.load_ldr_image(path)
+        assert len(arr.shape) == 3 and arr.shape[2] == 4
+        assert arr.dtype == np.ubyte
+        # save as SRGB 8-bit texture
+        tex = Texture2D.empty(arr.shape[0], arr.shape[1], 4, float, storage="byte")
+        tex.copy_from_array(arr)
+        return tex
+
+    def to_image(self, path:str):
+        import numpy as np
+        if self.format == lcapi.PixelFormat.RGBA32F:
+            arr = np.empty([self.width, self.height, 4], dtype=np.float32)
+            self.copy_to(arr)
+            lcapi.save_hdr_image(path, arr, self.width, self.height)
+            del arr
+        elif self.format == lcapi.PixelFormat.RGBA8UNorm:
+            arr = np.empty([self.width, self.height, 4], dtype=np.ubyte)
+            self.copy_to(arr)
+            lcapi.save_ldr_image(path, arr, self.width, self.height)
+            del(arr)
+        else:
+            raise "Illegal export image format!"
+
     def copy_from(self, arr, sync = False, stream = None):
-        return self.copy_from_array(self, arr, sync, stream)
+        return self.copy_from_array(arr, sync, stream)
 
     def copy_from_array(self, arr, sync = False, stream = None): # arr: numpy array
         if stream is None:
@@ -109,6 +112,7 @@ class Texture2D:
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width,self.height,1), arr)
         stream.add(ulcmd)
+        stream.add_upload_buffer(arr)
         if sync:
             stream.synchronize()
 
@@ -118,6 +122,7 @@ class Texture2D:
         assert arr.size * arr.itemsize == self.bytesize
         dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width,self.height,1), arr)
         stream.add(dlcmd)
+        stream.add_readback_buffer(arr)
         if sync:
             stream.synchronize()
 
@@ -130,16 +135,6 @@ class Texture2D:
         arr = np.empty((self.height, self.width, self.channel), dtype=npf)
         self.copy_to(arr, sync=True)
         return arr
-
-    @func
-    def copy_kernel(tex1, tex2):
-        tex2.write(dispatch_id().xy, tex1.read(dispatch_id().xy))
-
-    def to(self, storage):
-        tex = Texture2D.empty(self.width, self.height, self.channel, self.dtype, storage)
-        Texture2D.copy_kernel(self, tex, dispatch_size=(self.width, self.height, 1))
-        return tex
-
 
 texture2d = Texture2D.texture2d
 
@@ -166,28 +161,27 @@ class Texture2DType:
         if length_of(dtype) == 4:
             @func
             def read(self, coord: int2):
-                return _builtin_call(dtype, "TEXTURE_READ", self, make_uint2(coord))
+                return _builtin_call(dtype, "TEXTURE_READ", self, (coord))
             return read
         elif length_of(dtype) == 2:
             @func
             def read(self, coord: int2):
-                return _builtin_call(dtype4, "TEXTURE_READ", self, make_uint2(coord)).xy
+                return _builtin_call(dtype4, "TEXTURE_READ", self, (coord)).xy
             return read
         elif length_of(dtype) == 1:
             @func
             def read(self, coord: int2):
-                return _builtin_call(dtype4, "TEXTURE_READ", self, make_uint2(coord)).x
+                return _builtin_call(dtype4, "TEXTURE_READ", self, (coord)).x
             return read
         else:
             assert False
-    
     @staticmethod
     @cache
     def get_write_method(dtype):
         if length_of(dtype) == 4:
             @func
             def write(self, coord: int2, value: dtype):
-                _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), value)
+                _builtin_call("TEXTURE_WRITE", self, (coord), value)
             return write
         else:
             # convert to vector4
@@ -198,13 +192,13 @@ class Texture2DType:
                 @func
                 def write(self, coord: int2, value: dtype):
                     tmp = _builtin_call(dtype4, opstr, value, zero, zero)
-                    _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), tmp)
+                    _builtin_call("TEXTURE_WRITE", self, (coord), tmp)
                 return write
             if length_of(dtype) == 1:
                 @func
                 def write(self, coord: int2, value: dtype):
                     tmp = _builtin_call(dtype4, opstr, value, zero, zero, zero)
-                    _builtin_call("TEXTURE_WRITE", self, make_uint2(coord), tmp)
+                    _builtin_call("TEXTURE_WRITE", self, (coord), tmp)
                 return write
             assert False
 

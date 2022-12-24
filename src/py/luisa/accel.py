@@ -1,43 +1,19 @@
-from . import lcapi
+import lcapi
 from . import globalvars
 from .globalvars import get_global_device
-from .struct import make_struct
+from .struct import StructType
 from .array import ArrayType
 from .mathtypes import *
 from .func import func
 from .types import uint, to_lctype
 from .builtin import _builtin_call, _bitwise_cast
-
-
-@make_struct
-class Ray:
-    alignment = 16
-    _origin: ArrayType(3, float)
-    t_min: float
-    _dir: ArrayType(3, float)
-    t_max: float
-    @func
-    def get_origin(self):
-        return float3(self._origin[0], self._origin[1], self._origin[2])
-    @func
-    def get_dir(self):
-        return float3(self._dir[0], self._dir[1], self._dir[2])
-
-    @func
-    def set_origin(self, val: float3):
-        self._origin[0] = val.x
-        self._origin[1] = val.y
-        self._origin[2] = val.z
-
-    @func
-    def set_dir(self, val: float3):
-        self._dir[0] = val.x
-        self._dir[1] = val.y
-        self._dir[2] = val.z
-
+from .hit import Hit, UHit
+from .rayquery import rayQueryType, rayQuery
+# Ray
+Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
 
 @func
-def make_ray(origin: float3, direction: float3, t_min: float, t_max: float):
+def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
     r = Ray()
     r._origin[0] = origin[0]
     r._origin[1] = origin[1]
@@ -79,64 +55,56 @@ def offset_ray_origin(p: float3, n: float3):
     p_i.z = _bitwise_cast(float, p_i_tmp.z)
     return select(p_i, p + float_scale * n, abs(p) < origin)
 
+@func
+def get_origin(self):
+    return float3(self._origin[0], self._origin[1], self._origin[2])
+Ray.add_method(get_origin)
 
-@make_struct
-class Hit:
-    alignment = 16
-    inst: int
-    prim: int
-    bary: float2
+@func
+def get_dir(self):
+    return float3(self._dir[0], self._dir[1], self._dir[2])
+Ray.add_method(get_dir)
 
-    @func
-    def miss(self):
-        return self.inst == -1
+@func
+def set_origin(self, val: float3):
+    self._origin[0] = val.x
+    self._origin[1] = val.y
+    self._origin[2] = val.z
+Ray.add_method(set_origin)
 
-    @func
-    def interpolate(self, a, b, c):
-        return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
+@func
+def set_dir(self, val: float3):
+    self._dir[0] = val.x
+    self._dir[1] = val.y
+    self._dir[2] = val.z
+Ray.add_method(set_dir)
+# Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
+#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
+# }
 
+# Var<float2> interpolate(Expr<Hit> hit, Expr<float2> a, Expr<float2> b, Expr<float2> c) noexcept {
+#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
+# }
 
-@make_struct
-class UHit:
-    alignment = 16
-    inst: uint
-    prim: uint
-    bary: float2
-
-    @func
-    def miss(self):
-        return self.inst == -1
-
-    @func
-    def interpolate(self, a, b, c):
-        return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
+# Var<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept {
+#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
+# }
 
 
 class Accel:
-    def __init__(self):
-        self._accel = get_global_device().create_accel(lcapi.AccelUsageHint.FAST_TRACE)
-        self.handle = self._accel.handle()
-
-    @staticmethod
-    def accel(list):
-        acc = Accel.empty()
-        for mesh in list:
-            if type(mesh) is tuple:
-                acc.add(*mesh)
-            else:
-                acc.add(mesh)
-        acc.update()
-        return acc
+    def __init__(self,  hint:lcapi.AccelUsageHint = lcapi.AccelUsageHint.FAST_BUILD, allow_compact:bool = False, allow_update:bool = False):
+        self._accel = get_global_device().create_accel(hint, allow_compact, allow_update)
+        self.handle = self._accel.handle() 
 
     @staticmethod
     def empty():
         return Accel()
 
-    def add(self, mesh, transform = float4x4(1), visible = True):
-        self._accel.emplace_back(mesh.handle, transform, visible)
+    def add(self, vertex_buffer, triangle_buffer, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visible:bool = True, opaque:bool = True):
+        self._accel.emplace_back(vertex_buffer.handle, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(), triangle_buffer.handle, triangle_buffer.bytesize, transform, allow_compact, allow_update, visible, opaque)
 
-    def set(self, index, mesh, transform = float4x4(1), visible = True):
-        self._accel.set(index, mesh.handle, transform, visible)
+    def set(self, index, vertex_buffer, triangle_buffer, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visible = True, opaque:bool = True):
+        self._accel.set(index, vertex_buffer.handle, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(), triangle_buffer.handle, triangle_buffer.bytesize, transform, allow_compact, allow_update, visible, opaque)
 
     def pop(self):
         self._accel.pop_back()
@@ -153,7 +121,7 @@ class Accel:
     def update(self, sync = False, stream = None):
         if stream is None:
             stream = globalvars.stream
-        globalvars.stream.add(self._accel.build_command(lcapi.AccelBuildRequest.PREFER_UPDATE))
+        stream.update_accel(self._accel)
         if sync:
             stream.synchronize()
 
@@ -164,6 +132,8 @@ class Accel:
         hit.inst = _bitwise_cast(int, uhit.inst)
         hit.prim = _bitwise_cast(int, uhit.prim)
         hit.bary = uhit.bary
+        hit.hit_type=_bitwise_cast(int, uhit.hit_type)
+        hit.ray_t=uhit.ray_t
         return hit
 
     @func
@@ -181,33 +151,9 @@ class Accel:
     @func
     def set_instance_visibility(self, index: int, visible: bool):
         _builtin_call("SET_INSTANCE_VISIBILITY", self, index, visible)
-
-accel = Accel.accel
-
-
-class Mesh:
-    def __init__(self, vertices, triangles):
-        # assert vertices.dtype == float3 or type(vertices.dtype) == StructType and vertices.dtype.membertype[0] == float3
-        assert to_lctype(vertices.dtype).size() >= to_lctype(float3).size()
-        assert triangles.dtype == int and triangles.size%3==0 or triangles.dtype == ArrayType(dtype=int, size=3)
-        self.vertices = vertices
-        self.triangles = triangles
-        # TODO: support buffer of structs or arrays
-        self.handle = get_global_device().impl().create_mesh(
-            self.vertices.handle, 0, to_lctype(vertices.dtype).size(), self.vertices.size,
-            self.triangles.handle, 0, self.triangles.size//3,
-            lcapi.AccelUsageHint.FAST_TRACE)
-        self.update()
-
-    def update(self, sync = False, stream = None):
-        if stream is None:
-            stream = globalvars.stream
-        globalvars.stream.add(lcapi.MeshBuildCommand.create(
-            self.handle, lcapi.AccelBuildRequest.PREFER_UPDATE,
-            self.vertices.handle, 0, self.vertices.size,
-            self.triangles.handle, 0, self.triangles.size//3))
-        if sync:
-            stream.synchronize()
-
-def mesh(vertices, triangles):
-    return Mesh(vertices, triangles)
+    @func
+    def set_instance_visibility(self, index: int, opaque: bool):
+        _builtin_call("SET_INSTANCE_OPAQUE", self, index, opaque)
+    @func
+    def trace_all(self, ray: Ray):
+        return _builtin_call(rayQueryType, "TRACE_ALL", self, ray)

@@ -1,4 +1,4 @@
-from . import lcapi
+import lcapi
 from .types import to_lctype, from_lctype
 
 # Note: vector & matrix types are directly imported from lcapi

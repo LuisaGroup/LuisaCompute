@@ -1,6 +1,6 @@
-from . import lcapi
-from .lcapi import int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4
-from .lcapi import float2x2, float3x3, float4x4
+import lcapi
+from lcapi import int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4
+from lcapi import float2x2, float3x3, float4x4
 
 class uint:
     pass
@@ -8,6 +8,7 @@ class uint:
 scalar_dtypes = {int, float, bool, uint}
 vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4}
 matrix_dtypes = {float2x2, float3x3, float4x4}
+
 basic_dtypes = {*scalar_dtypes, *vector_dtypes, *matrix_dtypes}
 arithmetic_dtypes = {int, float, int2, float2, int3, float3, int4, float4}
 
@@ -101,8 +102,12 @@ def dtype_of(val):
         return val.structType
     if type(val).__name__ == "Buffer":
         return val.bufferType
+    if type(val).__name__ == "RayQuery":
+        return val.queryType
     if type(val).__name__ == "Texture2D":
         return val.texture2DType
+    if type(val).__name__ == "Texture3D":
+        return val.texture3DType
     if type(val).__name__ == "BindlessArray":
         return type(val)
     if type(val).__name__ == "Accel":
@@ -113,15 +118,16 @@ def dtype_of(val):
         return type(val)
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
-    if type(val).__name__ in {"ArrayType", "StructType", "BufferType"} or val in basic_dtypes:
+    if type(val).__name__ in {"ArrayType", "StructType", "BufferType", "IndirectBufferType", "RayQueryType", "SharedArrayType"} or val in basic_dtypes:
         return type
     if type(val).__name__ == "function":
         raise Exception(f"dtype_of ({val}): unrecognized type. Did you forget to decorate with luisa.func?")
-    raise Exception(f"dtype_of ({val}): unrecognized type")
+    if type(val).__name__ == "DispatchIndirectBuffer":
+        return val.bufferType
 
 
 def to_lctype(dtype):
-    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType"}:
+    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType", "Texture3DType", "CustomType", "IndirectBufferType", "RayQueryType", "SharedArrayType"}:
         return dtype.luisa_type
     if not hasattr(dtype, "__name__"):
         raise TypeError(f"{dtype} is not a valid data type")
@@ -138,22 +144,3 @@ def from_lctype(lctype):
         return basic_lctype_to_dtype_dict[lctype]
     raise Exception(f"from_lctype({lctype}:{lctype.description()}): unsupported")
 
-
-coerce_map = {
-    float: [int, uint, float],
-    int: [int, uint],
-    uint: [uint],
-    bool: [bool],
-    float2: [int2, uint2, float2],
-    int2: [int2, uint2],
-    uint2: [uint2],
-    bool2: [bool2],
-    float3: [int3, uint3, float3],
-    int3: [int3, uint3],
-    uint3: [uint3],
-    bool3: [bool3],
-    float4: [int4, uint4, float4],
-    int4: [int4, uint4],
-    uint4: [uint4],
-    bool4: [bool4],
-}

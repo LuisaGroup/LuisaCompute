@@ -1,8 +1,5 @@
-import ast
-from . import lcapi
-import sourceinspect
+import lcapi
 from .types import dtype_of, to_lctype, nameof
-from collections import OrderedDict
 
 class Struct:
     @staticmethod
@@ -60,51 +57,6 @@ class Struct:
         idd = self.structType.idx_dict
         return '{' + ', '.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
 
-
-class AttributeVisitor(ast.NodeVisitor):
-    def __init__(self):
-        self.attributes = None
-        self.methods = None
-
-    def visit_ClassDef(self, node):
-        self.attributes = list()
-        self.methods = list()
-        for statement in node.body:
-            if isinstance(statement, ast.AnnAssign):
-                if not isinstance(statement.target, ast.Name):
-                    raise TypeError("only name is allowed in make_struct.")
-                self.attributes.append(statement.target.id)
-            elif isinstance(statement, ast.FunctionDef):
-                self.methods.append(statement.name)
-
-
-attribute_visitor = AttributeVisitor()
-
-
-def make_struct(wrapped):
-    tree = ast.parse(sourceinspect.getsource(wrapped), '<string>')
-    attribute_visitor.visit(tree)
-    attributes = attribute_visitor.attributes
-    methods = attribute_visitor.methods
-    if hasattr(wrapped, 'alignment'):
-        alignment = getattr(wrapped, 'alignment')
-    else:
-        alignment = 1
-
-    annotations = OrderedDict()
-    for attribute in attributes:
-        annotations[attribute] = wrapped.__annotations__[attribute]
-        if attribute == 'copy_source':
-            raise AttributeError("copy_source is not allowed as an attribute.")
-    # [PEP 468](https://peps.python.org/pep-0468/) ensures that the order of kwargs will be preserved,
-    # but the order of `SomeClass.__annotations__` is not guaranteed. So we have to use a parser to manually collect
-    # the order in which all annotations are given, and construct an `OrderDict` to keep track of it.
-
-    real_struct = StructType(alignment, **annotations)
-    for method in methods:
-        real_struct.add_method(getattr(wrapped, method))
-    return real_struct
-
 def struct(alignment = 1, **kwargs):
     assert 'copy_source' not in kwargs
     return Struct(alignment=alignment, **kwargs)
@@ -153,3 +105,15 @@ class StructType:
             raise NameError("struct method can't have same name as its data members")
         # add method to structtype
         self.method_dict[name] = func
+
+class CustomType:
+    def __init__(self, name:str):
+        self.luisa_type = lcapi.Type.from_(name)
+        self.name = name
+    def __repr__(self):
+        return self.name
+    def __eq__(self, other):
+        return type(other) is CustomType and self.name == other.name
+
+    def __hash__(self):
+        return hash(self.luisa_type.description()) ^ 7178987438397

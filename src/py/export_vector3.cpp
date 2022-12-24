@@ -1,7 +1,18 @@
 #include <pybind11/pybind11.h>
-#include <luisa-compute.h>
+#include <ast/function.h>
+#include <core/logging.h>
+#include <runtime/device.h>
+#include <runtime/context.h>
+#include <runtime/stream.h>
+#include <runtime/command.h>
+#include <runtime/image.h>
+#include <rtx/accel.h>
+#include <rtx/mesh.h>
+#include <rtx/hit.h>
+#include <rtx/ray.h>
 
 namespace py = pybind11;
+using namespace luisa;
 using namespace luisa::compute;
 
 #define LUISA_EXPORT_ARITHMETIC_OP(T) \
@@ -18,8 +29,6 @@ using namespace luisa::compute;
         .def("__truediv__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a / b; }, py::is_operator()) \
         .def("__truediv__", [](const Vector<T,3>&a, const T&b) { return a / b; }, py::is_operator()) \
         .def("__rtruediv__", [](const Vector<T,3>&a, const T&b) { return b / a; }, py::is_operator()) \
-        .def("__floordiv__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a / b; }, py::is_operator())\
-        .def("__floordiv__", [](const Vector<T,3>&a, const T&b) { return a / b; }, py::is_operator())\
         .def("__gt__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a > b; }, py::is_operator()) \
         .def("__ge__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a >= b; }, py::is_operator()) \
         .def("__lt__", [](const Vector<T,3>&a, const Vector<T,3>&b) { return a < b; }, py::is_operator()) \

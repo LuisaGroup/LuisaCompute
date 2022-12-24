@@ -1,7 +1,17 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
-#include <luisa-compute.h>
+#include <ast/function.h>
+#include <core/logging.h>
+#include <runtime/device.h>
+#include <runtime/context.h>
+#include <runtime/stream.h>
+#include <runtime/command.h>
+#include <runtime/image.h>
+#include <rtx/accel.h>
+#include <rtx/mesh.h>
+#include <rtx/hit.h>
+#include <rtx/ray.h>
 
 namespace py = pybind11;
 using namespace luisa::compute;
@@ -40,134 +50,151 @@ void export_op(py::module &m) {
         .value("EQUAL", BinaryOp::EQUAL)
         .value("NOT_EQUAL", BinaryOp::NOT_EQUAL);
 
+    py::enum_<CallOp>(m, "CallOp")
 
-	py::enum_<CallOp>(m, "CallOp")
+        .value("CUSTOM", CallOp::CUSTOM)
 
-    	.value("CUSTOM", CallOp::CUSTOM)
+        .value("ALL", CallOp::ALL)
+        .value("ANY", CallOp::ANY)
 
-    	.value("ALL", CallOp::ALL)
-    	.value("ANY", CallOp::ANY)
+        .value("SELECT", CallOp::SELECT)
+        .value("CLAMP", CallOp::CLAMP)
+        .value("SATURATE", CallOp::SATURATE)
+        .value("LERP", CallOp::LERP)
+        .value("STEP", CallOp::STEP)
 
-    	.value("SELECT", CallOp::SELECT)
-    	.value("CLAMP", CallOp::CLAMP)
-    	.value("LERP", CallOp::LERP)
-    	.value("STEP", CallOp::STEP)
+        .value("ABS", CallOp::ABS)
+        .value("MIN", CallOp::MIN)
+        .value("MAX", CallOp::MAX)
 
-    	.value("ABS", CallOp::ABS)
-    	.value("MIN", CallOp::MIN)
-    	.value("MAX", CallOp::MAX)
+        .value("CLZ", CallOp::CLZ)
+        .value("CTZ", CallOp::CTZ)
+        .value("POPCOUNT", CallOp::POPCOUNT)
+        .value("REVERSE", CallOp::REVERSE)
 
-    	.value("CLZ", CallOp::CLZ)
-    	.value("CTZ", CallOp::CTZ)
-    	.value("POPCOUNT", CallOp::POPCOUNT)
-    	.value("REVERSE", CallOp::REVERSE)
+        .value("ISINF", CallOp::ISINF)
+        .value("ISNAN", CallOp::ISNAN)
 
-    	.value("ISINF", CallOp::ISINF)
-    	.value("ISNAN", CallOp::ISNAN)
+        .value("ACOS", CallOp::ACOS)
+        .value("ACOSH", CallOp::ACOSH)
+        .value("ASIN", CallOp::ASIN)
+        .value("ASINH", CallOp::ASINH)
+        .value("ATAN", CallOp::ATAN)
+        .value("ATAN2", CallOp::ATAN2)
+        .value("ATANH", CallOp::ATANH)
 
-    	.value("ACOS", CallOp::ACOS)
-    	.value("ACOSH", CallOp::ACOSH)
-    	.value("ASIN", CallOp::ASIN)
-    	.value("ASINH", CallOp::ASINH)
-    	.value("ATAN", CallOp::ATAN)
-    	.value("ATAN2", CallOp::ATAN2)
-    	.value("ATANH", CallOp::ATANH)
+        .value("COS", CallOp::COS)
+        .value("COSH", CallOp::COSH)
+        .value("SIN", CallOp::SIN)
+        .value("SINH", CallOp::SINH)
+        .value("TAN", CallOp::TAN)
+        .value("TANH", CallOp::TANH)
 
-    	.value("COS", CallOp::COS)
-    	.value("COSH", CallOp::COSH)
-    	.value("SIN", CallOp::SIN)
-    	.value("SINH", CallOp::SINH)
-    	.value("TAN", CallOp::TAN)
-    	.value("TANH", CallOp::TANH)
+        .value("EXP", CallOp::EXP)
+        .value("EXP2", CallOp::EXP2)
+        .value("EXP10", CallOp::EXP10)
+        .value("LOG", CallOp::LOG)
+        .value("LOG2", CallOp::LOG2)
+        .value("LOG10", CallOp::LOG10)
+        .value("POW", CallOp::POW)
 
-    	.value("EXP", CallOp::EXP)
-    	.value("EXP2", CallOp::EXP2)
-    	.value("EXP10", CallOp::EXP10)
-    	.value("LOG", CallOp::LOG)
-    	.value("LOG2", CallOp::LOG2)
-    	.value("LOG10", CallOp::LOG10)
-    	.value("POW", CallOp::POW)
+        .value("SQRT", CallOp::SQRT)
+        .value("RSQRT", CallOp::RSQRT)
 
-    	.value("SQRT", CallOp::SQRT)
-    	.value("RSQRT", CallOp::RSQRT)
+        .value("CEIL", CallOp::CEIL)
+        .value("FLOOR", CallOp::FLOOR)
+        .value("FRACT", CallOp::FRACT)
+        .value("TRUNC", CallOp::TRUNC)
+        .value("ROUND", CallOp::ROUND)
 
-    	.value("CEIL", CallOp::CEIL)
-    	.value("FLOOR", CallOp::FLOOR)
-    	.value("FRACT", CallOp::FRACT)
-    	.value("TRUNC", CallOp::TRUNC)
-    	.value("ROUND", CallOp::ROUND)
+        .value("FMA", CallOp::FMA)
+        .value("COPYSIGN", CallOp::COPYSIGN)
 
-    	.value("FMA", CallOp::FMA)
-    	.value("COPYSIGN", CallOp::COPYSIGN)
+        .value("CROSS", CallOp::CROSS)
+        .value("DOT", CallOp::DOT)
+        .value("LENGTH", CallOp::LENGTH)
+        .value("LENGTH_SQUARED", CallOp::LENGTH_SQUARED)
+        .value("NORMALIZE", CallOp::NORMALIZE)
+        .value("FACEFORWARD", CallOp::FACEFORWARD)
 
-    	.value("CROSS", CallOp::CROSS)
-    	.value("DOT", CallOp::DOT)
-    	.value("LENGTH", CallOp::LENGTH)
-    	.value("LENGTH_SQUARED", CallOp::LENGTH_SQUARED)
-    	.value("NORMALIZE", CallOp::NORMALIZE)
-    	.value("FACEFORWARD", CallOp::FACEFORWARD)
+        .value("DETERMINANT", CallOp::DETERMINANT)
+        .value("TRANSPOSE", CallOp::TRANSPOSE)
+        .value("INVERSE", CallOp::INVERSE)
 
-    	.value("DETERMINANT", CallOp::DETERMINANT)
-    	.value("TRANSPOSE", CallOp::TRANSPOSE)
-    	.value("INVERSE", CallOp::INVERSE)
+        .value("SYNCHRONIZE_BLOCK", CallOp::SYNCHRONIZE_BLOCK)
 
-    	.value("SYNCHRONIZE_BLOCK", CallOp::SYNCHRONIZE_BLOCK)
+        .value("ATOMIC_EXCHANGE", CallOp::ATOMIC_EXCHANGE)                /// [(atomic_ref, desired) -> old]: stores desired, returns old.
+        .value("ATOMIC_COMPARE_EXCHANGE", CallOp::ATOMIC_COMPARE_EXCHANGE)/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
+        .value("ATOMIC_FETCH_ADD", CallOp::ATOMIC_FETCH_ADD)              /// [(atomic_ref, val) -> old]: stores (old + val), returns old.
+        .value("ATOMIC_FETCH_SUB", CallOp::ATOMIC_FETCH_SUB)              /// [(atomic_ref, val) -> old]: stores (old - val), returns old.
+        .value("ATOMIC_FETCH_AND", CallOp::ATOMIC_FETCH_AND)              /// [(atomic_ref, val) -> old]: stores (old & val), returns old.
+        .value("ATOMIC_FETCH_OR", CallOp::ATOMIC_FETCH_OR)                /// [(atomic_ref, val) -> old]: stores (old | val), returns old.
+        .value("ATOMIC_FETCH_XOR", CallOp::ATOMIC_FETCH_XOR)              /// [(atomic_ref, val) -> old]: stores (old ^ val), returns old.
+        .value("ATOMIC_FETCH_MIN", CallOp::ATOMIC_FETCH_MIN)              /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
+        .value("ATOMIC_FETCH_MAX", CallOp::ATOMIC_FETCH_MAX)              /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    	.value("ATOMIC_EXCHANGE", CallOp::ATOMIC_EXCHANGE)        /// [(atomic_ref, desired) -> old]: stores desired, returns old.
-    	.value("ATOMIC_COMPARE_EXCHANGE", CallOp::ATOMIC_COMPARE_EXCHANGE)/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
-    	.value("ATOMIC_FETCH_ADD", CallOp::ATOMIC_FETCH_ADD)       /// [(atomic_ref, val) -> old]: stores (old + val), returns old.
-    	.value("ATOMIC_FETCH_SUB", CallOp::ATOMIC_FETCH_SUB)       /// [(atomic_ref, val) -> old]: stores (old - val), returns old.
-    	.value("ATOMIC_FETCH_AND", CallOp::ATOMIC_FETCH_AND)       /// [(atomic_ref, val) -> old]: stores (old & val), returns old.
-    	.value("ATOMIC_FETCH_OR", CallOp::ATOMIC_FETCH_OR)        /// [(atomic_ref, val) -> old]: stores (old | val), returns old.
-    	.value("ATOMIC_FETCH_XOR", CallOp::ATOMIC_FETCH_XOR)       /// [(atomic_ref, val) -> old]: stores (old ^ val), returns old.
-    	.value("ATOMIC_FETCH_MIN", CallOp::ATOMIC_FETCH_MIN)       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
-    	.value("ATOMIC_FETCH_MAX", CallOp::ATOMIC_FETCH_MAX)       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
+        .value("BUFFER_READ", CallOp::BUFFER_READ)    /// [(buffer, index) -> value]: reads the index-th element in buffer
+        .value("BUFFER_WRITE", CallOp::BUFFER_WRITE)  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+        .value("TEXTURE_READ", CallOp::TEXTURE_READ)  /// [(texture, coord) -> value]
+        .value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)/// [(texture, coord, value) -> void]
 
-    	.value("BUFFER_READ", CallOp::BUFFER_READ)  /// [(buffer, index) -> value]: reads the index-th element in buffer
-    	.value("BUFFER_WRITE", CallOp::BUFFER_WRITE) /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-    	.value("TEXTURE_READ", CallOp::TEXTURE_READ) /// [(texture, coord) -> value]
-    	.value("TEXTURE_WRITE", CallOp::TEXTURE_WRITE)/// [(texture, coord, value) -> void]
+        .value("BINDLESS_TEXTURE2D_SAMPLE", CallOp::BINDLESS_TEXTURE2D_SAMPLE)            //(bindless_array, index: uint, uv: float2): float4
+        .value("BINDLESS_TEXTURE2D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float2, level: float): float4
+        .value("BINDLESS_TEXTURE2D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD)  //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE", CallOp::BINDLESS_TEXTURE3D_SAMPLE)            //(bindless_array, index: uint, uv: float3): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float3, level: float): float4
+        .value("BINDLESS_TEXTURE3D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD)  //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+        .value("BINDLESS_TEXTURE2D_READ", CallOp::BINDLESS_TEXTURE2D_READ)                //(bindless_array, index: uint, coord: uint2): float4
+        .value("BINDLESS_TEXTURE3D_READ", CallOp::BINDLESS_TEXTURE3D_READ)                //(bindless_array, index: uint, coord: uint3): float4
+        .value("BINDLESS_TEXTURE2D_READ_LEVEL", CallOp::BINDLESS_TEXTURE2D_READ_LEVEL)    //(bindless_array, index: uint, coord: uint2, level: uint): float4
+        .value("BINDLESS_TEXTURE3D_READ_LEVEL", CallOp::BINDLESS_TEXTURE3D_READ_LEVEL)    //(bindless_array, index: uint, coord: uint3, level: uint): float4
+        .value("BINDLESS_TEXTURE2D_SIZE", CallOp::BINDLESS_TEXTURE2D_SIZE)                //(bindless_array, index: uint): uint2
+        .value("BINDLESS_TEXTURE3D_SIZE", CallOp::BINDLESS_TEXTURE3D_SIZE)                //(bindless_array, index: uint): uint3
+        .value("BINDLESS_TEXTURE2D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL)    //(bindless_array, index: uint, level: uint): uint2
+        .value("BINDLESS_TEXTURE3D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL)    //(bindless_array, index: uint, level: uint): uint3
 
-    	.value("BINDLESS_TEXTURE2D_SAMPLE", CallOp::BINDLESS_TEXTURE2D_SAMPLE)      //(bindless_array, index: uint, uv: float2): float4
-    	.value("BINDLESS_TEXTURE2D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float2, level: float): float4
-    	.value("BINDLESS_TEXTURE2D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD) //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
-    	.value("BINDLESS_TEXTURE3D_SAMPLE", CallOp::BINDLESS_TEXTURE3D_SAMPLE)      //(bindless_array, index: uint, uv: float3): float4
-    	.value("BINDLESS_TEXTURE3D_SAMPLE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL)//(bindless_array, index: uint, uv: float3, level: float): float4
-    	.value("BINDLESS_TEXTURE3D_SAMPLE_GRAD", CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD) //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
-    	.value("BINDLESS_TEXTURE2D_READ", CallOp::BINDLESS_TEXTURE2D_READ)        //(bindless_array, index: uint, coord: uint2): float4
-    	.value("BINDLESS_TEXTURE3D_READ", CallOp::BINDLESS_TEXTURE3D_READ)        //(bindless_array, index: uint, coord: uint3): float4
-    	.value("BINDLESS_TEXTURE2D_READ_LEVEL", CallOp::BINDLESS_TEXTURE2D_READ_LEVEL)  //(bindless_array, index: uint, coord: uint2, level: uint): float4
-    	.value("BINDLESS_TEXTURE3D_READ_LEVEL", CallOp::BINDLESS_TEXTURE3D_READ_LEVEL)  //(bindless_array, index: uint, coord: uint3, level: uint): float4
-    	.value("BINDLESS_TEXTURE2D_SIZE", CallOp::BINDLESS_TEXTURE2D_SIZE)        //(bindless_array, index: uint): uint2
-    	.value("BINDLESS_TEXTURE3D_SIZE", CallOp::BINDLESS_TEXTURE3D_SIZE)        //(bindless_array, index: uint): uint3
-    	.value("BINDLESS_TEXTURE2D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL)  //(bindless_array, index: uint, level: uint): uint2
-    	.value("BINDLESS_TEXTURE3D_SIZE_LEVEL", CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL)  //(bindless_array, index: uint, level: uint): uint3
+        .value("BINDLESS_BUFFER_READ", CallOp::BINDLESS_BUFFER_READ)//(bindless_array, index: uint): expr->type()
 
-    	.value("BINDLESS_BUFFER_READ", CallOp::BINDLESS_BUFFER_READ)//(bindless_array, index: uint): expr->type()
+        .value("MAKE_BOOL2", CallOp::MAKE_BOOL2)
+        .value("MAKE_BOOL3", CallOp::MAKE_BOOL3)
+        .value("MAKE_BOOL4", CallOp::MAKE_BOOL4)
+        .value("MAKE_INT2", CallOp::MAKE_INT2)
+        .value("MAKE_INT3", CallOp::MAKE_INT3)
+        .value("MAKE_INT4", CallOp::MAKE_INT4)
+        .value("MAKE_UINT2", CallOp::MAKE_UINT2)
+        .value("MAKE_UINT3", CallOp::MAKE_UINT3)
+        .value("MAKE_UINT4", CallOp::MAKE_UINT4)
+        .value("MAKE_FLOAT2", CallOp::MAKE_FLOAT2)
+        .value("MAKE_FLOAT3", CallOp::MAKE_FLOAT3)
+        .value("MAKE_FLOAT4", CallOp::MAKE_FLOAT4)
 
-    	.value("MAKE_BOOL2", CallOp::MAKE_BOOL2)
-    	.value("MAKE_BOOL3", CallOp::MAKE_BOOL3)
-    	.value("MAKE_BOOL4", CallOp::MAKE_BOOL4)
-    	.value("MAKE_INT2", CallOp::MAKE_INT2)
-    	.value("MAKE_INT3", CallOp::MAKE_INT3)
-    	.value("MAKE_INT4", CallOp::MAKE_INT4)
-    	.value("MAKE_UINT2", CallOp::MAKE_UINT2)
-    	.value("MAKE_UINT3", CallOp::MAKE_UINT3)
-    	.value("MAKE_UINT4", CallOp::MAKE_UINT4)
-    	.value("MAKE_FLOAT2", CallOp::MAKE_FLOAT2)
-    	.value("MAKE_FLOAT3", CallOp::MAKE_FLOAT3)
-    	.value("MAKE_FLOAT4", CallOp::MAKE_FLOAT4)
+        .value("MAKE_FLOAT2X2", CallOp::MAKE_FLOAT2X2)
+        .value("MAKE_FLOAT3X3", CallOp::MAKE_FLOAT3X3)
+        .value("MAKE_FLOAT4X4", CallOp::MAKE_FLOAT4X4)
 
-    	.value("MAKE_FLOAT2X2", CallOp::MAKE_FLOAT2X2)
-    	.value("MAKE_FLOAT3X3", CallOp::MAKE_FLOAT3X3)
-    	.value("MAKE_FLOAT4X4", CallOp::MAKE_FLOAT4X4)
+        // optimization hints
+        .value("ASSUME", CallOp::ASSUME)
+        .value("UNREACHABLE", CallOp::UNREACHABLE)
+        .value("DISCARD", CallOp::DISCARD)
+        .value("CLEAR_DISPATCH_INDIRECT_BUFFER", CallOp::CLEAR_DISPATCH_INDIRECT_BUFFER)
+        .value("EMPLACE_DISPATCH_INDIRECT_KERNEL", CallOp::EMPLACE_DISPATCH_INDIRECT_KERNEL)
+        .value("QUERY_PROCEED", CallOp::QUERY_PROCEED)
+        .value("IS_QUERY_CANDIDATE_TRIANGLE", CallOp::IS_QUERY_CANDIDATE_TRIANGLE)
+        .value("GET_PROCEDURAL_CANDIDATE_HIT", CallOp::GET_PROCEDURAL_CANDIDATE_HIT)
+        .value("GET_TRIANGLE_CANDIDATE_HIT", CallOp::GET_TRIANGLE_CANDIDATE_HIT)
+        .value("GET_COMMITED_HIT", CallOp::GET_COMMITED_HIT)
+        .value("COMMIT_TRIANGLE", CallOp::COMMIT_TRIANGLE)
+        .value("COMMIT_PROCEDURAL", CallOp::COMMIT_PROCEDURAL)
 
-    	// optimization hints
-    	.value("ASSUME", CallOp::ASSUME)
-    	.value("UNREACHABLE", CallOp::UNREACHABLE)
+        .value("INSTANCE_TO_WORLD_MATRIX", CallOp::INSTANCE_TO_WORLD_MATRIX)
+        .value("SET_INSTANCE_TRANSFORM", CallOp::SET_INSTANCE_TRANSFORM)
+        .value("SET_INSTANCE_VISIBILITY", CallOp::SET_INSTANCE_VISIBILITY)
+        .value("SET_INSTANCE_OPAQUE", CallOp::SET_INSTANCE_OPAQUE)
+        .value("SET_AABB", CallOp::SET_AABB)
+        .value("GET_AABB", CallOp::GET_AABB)
+        .value("TRACE_CLOSEST", CallOp::TRACE_CLOSEST)
+        .value("TRACE_ANY", CallOp::TRACE_ANY)
+        .value("TRACE_ALL", CallOp::TRACE_ALL)
 
-    	.value("INSTANCE_TO_WORLD_MATRIX", CallOp::RAY_TRACING_INSTANCE_TRANSFORM)
-
-    	.value("TRACE_CLOSEST", CallOp::RAY_TRACING_TRACE_CLOSEST)
-    	.value("TRACE_ANY", CallOp::RAY_TRACING_TRACE_ANY);
+        ;
 }

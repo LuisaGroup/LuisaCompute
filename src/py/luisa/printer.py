@@ -1,5 +1,5 @@
 import ast
-from . import lcapi
+import lcapi
 import numpy
 from types import SimpleNamespace
 from .astbuilder import build
@@ -101,6 +101,7 @@ class Printer:
 
     def buffer_write(self, offset, expr): # offset is also expr
         lcapi.builder().call(lcapi.CallOp.BUFFER_WRITE, [self.buffer_expr, offset, expr])
+
 
     @staticmethod
     def addint(expr, k):

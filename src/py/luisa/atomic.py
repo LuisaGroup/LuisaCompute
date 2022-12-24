@@ -1,4 +1,4 @@
-from . import lcapi
+import lcapi
 from .types import to_lctype
 from .types import BuiltinFuncBuilder
 from .func import func

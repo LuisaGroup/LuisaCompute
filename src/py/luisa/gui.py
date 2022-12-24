@@ -39,4 +39,3 @@ class GUI:
 
     def set_image(self, tex):
         tex.copy_to(self.texture_array, sync=True)
-

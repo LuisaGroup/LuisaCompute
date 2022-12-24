@@ -1,9 +1,10 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
-#include <dsl/builtin.h>
+#include <core/logging.h>
+#include <core/mathematics.h>
 
 namespace py = pybind11;
-using namespace luisa::compute;
+using namespace luisa;
 
 #define LUISA_EXPORT_ARITHMETIC_OP(T) \
     m##T \
@@ -18,8 +19,6 @@ using namespace luisa::compute;
         .def("__rmul__", [](const Vector<T,2>&a, const T&b) { return a * b; }, py::is_operator()) \
         .def("__truediv__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a / b; }, py::is_operator()) \
         .def("__truediv__", [](const Vector<T,2>&a, const T&b) { return a / b; }, py::is_operator()) \
-        .def("__floordiv__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a / b; }, py::is_operator())\
-        .def("__floordiv__", [](const Vector<T,2>&a, const T&b) { return a / b; }, py::is_operator())\
         .def("__rtruediv__", [](const Vector<T,2>&a, const T&b) { return b / a; }, py::is_operator()) \
         .def("__gt__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a > b; }, py::is_operator()) \
         .def("__ge__", [](const Vector<T,2>&a, const Vector<T,2>&b) { return a >= b; }, py::is_operator()) \

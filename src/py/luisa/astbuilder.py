@@ -5,14 +5,14 @@ import sys
 from types import SimpleNamespace, ModuleType
 from .types import length_of, element_of, vector
 from . import globalvars
-from . import lcapi
+import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
     builtin_unary_op, callable_call, wrap_with_tmp_var
 from .types import dtype_of, to_lctype, CallableType, vector_dtypes, matrix_dtypes
 from .types import BuiltinFuncType, BuiltinFuncBuilder
 from .vector import is_swizzle_name, get_swizzle_code, get_swizzle_resulttype
-from .array import ArrayType
-from .struct import StructType
+from .array import ArrayType, SharedArrayType
+from .struct import StructType, CustomType
 
 def ctx():
     return globalvars.current_context
@@ -193,6 +193,8 @@ class ASTVisitor:
         build(node.slice)
         if type(node.value.dtype) is ArrayType:
             node.dtype = node.value.dtype.dtype
+        elif type(node.value.dtype) is SharedArrayType:
+            node.dtype = node.value.dtype.dtype
         elif node.value.dtype in vector_dtypes:
             node.dtype = element_of(node.value.dtype)
         elif node.value.dtype in matrix_dtypes:
@@ -313,14 +315,24 @@ class ASTVisitor:
         # create local variable if it doesn't exist yet
         if lhs.dtype is None:
             dtype = rhs.dtype # craete variable with same type as rhs
-            lhs.expr = lcapi.builder().local(to_lctype(dtype))
             # store type & ptr info into name
-            ctx().local_variable[lhs.id] = VariableInfo(dtype, lhs.expr)
+            # ref type
+            if isinstance(rhs.dtype, SharedArrayType):
+                ctx().local_variable[lhs.id] = VariableInfo(dtype, rhs.expr)
+                lhs.expr = rhs.expr
+                lhs.dtype = dtype
+                return
+            else:
+                lhs.expr = lcapi.builder().local(to_lctype(dtype))
+                ctx().local_variable[lhs.id] = VariableInfo(dtype, lhs.expr)
             # Note: all local variables are function scope
         else:
             # must assign with same type; no implicit casting is allowed.
             if lhs.dtype != rhs.dtype:
-                raise TypeError(f"Can't assign to {lhs.dtype} with {rhs.dtype} ")
+                lhs_type = to_lctype(lhs.dtype)
+                rhs_type = to_lctype(rhs.dtype)
+                if (not (lhs_type.is_vector() or lhs_type.is_matrix())) or (lhs_type.element() != rhs_type):
+                    raise TypeError(f"Can't assign to {lhs.dtype} with {rhs.dtype} ")
             if lhs.lr == "r":
                 raise TypeError("Can't assign to read-only value")
         lcapi.builder().assign(lhs.expr, rhs.expr)
@@ -394,21 +406,31 @@ class ASTVisitor:
         build(node.test)
         if node.test.dtype != bool:
             raise TypeError(f"If condition must be bool, got {node.test.dtype}")
-        ifstmt = lcapi.builder().if_(node.test.expr)
-        # branches
-        with ifstmt.true_branch():
+        eval = lcapi.analyze_condition(node.test.expr)
+        if eval == 0:
             for x in node.body:
                 build(x)
-        with ifstmt.false_branch():
+        elif eval == 1:
             for x in node.orelse:
                 build(x)
+        else:
+            lcapi.begin_branch(False)
+            ifstmt = lcapi.builder().if_(node.test.expr)
+            # branches
+            with ifstmt.true_branch():
+                for x in node.body:
+                    build(x)
+            with ifstmt.false_branch():
+                for x in node.orelse:
+                    build(x)
+            lcapi.end_branch()
 
     @staticmethod
     def build_IfExp(node):
         build(node.body)
         build(node.test)
         build(node.orelse)
-        from .lcapi import bool2, bool3, bool4
+        from lcapi import bool2, bool3, bool4
         if node.test.dtype not in {bool, bool2, bool3, bool4}:
             raise TypeError(f"IfExp condition must be bool or bool vector, got {node.test.dtype}")
         if node.body.dtype != node.orelse.dtype:
@@ -441,10 +463,12 @@ class ASTVisitor:
         ctx().local_variable[node.target.id] = VariableInfo(int, varexpr)
         # build for statement
         condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, varexpr, range_stop)
+        lcapi.begin_branch(True)
         forstmt = lcapi.builder().for_(varexpr, condition, range_step)
         with forstmt.body():
             for x in node.body:
                 build(x)
+        lcapi.end_branch()
 
     @staticmethod
     def build_container_for(node):
@@ -459,35 +483,55 @@ class ASTVisitor:
         ctx().local_variable[node.target.id] = VariableInfo(eltype, varexpr)
         # build for statement
         condition = lcapi.builder().binary(to_lctype(bool), lcapi.BinaryOp.LESS, idxexpr, range_stop)
+        lcapi.begin_branch(True)
         forstmt = lcapi.builder().for_(idxexpr, condition, range_step)
         with forstmt.body():
             for x in node.body:
                 build(x)
+        lcapi.end_branch()
 
     @staticmethod
     def build_For(node):
         # currently only supports for x in range(...)
+        lcapi.begin_branch(True)
         assert type(node.target) is ast.Name
         if type(node.iter) is ast.Call and type(node.iter.func) is ast.Name and node.iter.func.id == "range":
-            return build.build_range_for(node)
+            v = build.build_range_for(node)
+            lcapi.end_branch()
+            return v
         build(node.iter)
         if type(node.iter.dtype) is ArrayType or node.iter.dtype in {*vector_dtypes, *matrix_dtypes}:
-            return build.build_container_for(node)
+            v = build.build_container_for(node)
+            lcapi.end_branch()
+            return v
         else:
+            lcapi.end_branch()
             raise TypeError(f"{node.iter.dtype} object is not iterable")
 
     @staticmethod
     def build_While(node):
         loopstmt = lcapi.builder().loop_()
+        lcapi.begin_branch(True)
         with loopstmt.body():
             # condition
             build(node.test)
-            ifstmt = lcapi.builder().if_(node.test.expr)
-            with ifstmt.false_branch():
+            if node.test.dtype != bool:
+                raise TypeError(f"While condition must be bool, got {node.test.dtype}")
+            eval = lcapi.analyze_condition(node.test.expr)
+            if eval == 0:
+                for x in node.body:
+                    build(x)
+            elif eval == 1:
                 lcapi.builder().break_()
-            # body
-            for x in node.body:
-                build(x)
+            else:
+                ifstmt = lcapi.builder().if_(node.test.expr)
+                with ifstmt.true_branch():
+                    for x in node.body:
+                        build(x)
+                with ifstmt.false_branch():
+                    lcapi.builder().break_()
+                # body
+        lcapi.end_branch()
 
     @staticmethod
     def build_Break(node):

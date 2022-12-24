@@ -1,4 +1,4 @@
-from . import lcapi
+import lcapi
 from .types import dtype_of, to_lctype, nameof
 
 class Array:
@@ -63,3 +63,19 @@ def deduce_array_type(arr):
         if dtype_of(x) != dtype:
             raise TypeError("all elements of array must be of same type")
     return ArrayType(dtype=dtype, size=len(arr))
+
+class SharedArrayType:
+    def __init__(self, size, dtype):
+        self.size = size
+        self.dtype = dtype
+        assert type(size) is int and size>0
+        self.luisa_type = lcapi.Type.from_(f'array<{to_lctype(dtype).description()},{self.size}>')
+
+    def __repr__(self):
+        return f'SharedArrayType({self.size},{nameof(self.dtype)})'
+
+    def __eq__(self, other):
+        return type(other) is SharedArrayType and self.dtype == other.dtype and self.size == other.size
+
+    def __hash__(self):
+        return hash(self.dtype) ^ hash(self.size) ^ 1058367271709454336
