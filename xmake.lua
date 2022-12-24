@@ -71,12 +71,12 @@ add_csnippets("legal_env", "return ((sizeof(void*)==8)&&(sizeof(int)==4)&&(sizeo
 })
 option_end()
 rule("check_env")
-	set_kind("project")
-	before_build(function()
-		if not has_config("legal_env") then
-			utils.error("Illegal environment! Please check your compiler, architecture or platform!")
-		end
-	end)
+set_kind("project")
+before_build(function()
+	if not has_config("legal_env") then
+		utils.error("Illegal environment! Please check your compiler, architecture or platform!")
+	end
+end)
 rule_end()
 add_rules("check_env")
 if has_config("legal_env") then
