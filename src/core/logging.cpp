@@ -8,7 +8,7 @@
 namespace luisa {
 
 namespace detail {
-[[nodiscard]] spdlog::logger &default_logger() noexcept {
+[[nodiscard]] LC_CORE_API spdlog::logger &default_logger() noexcept {
     static auto logger = [] {
         auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         spdlog::logger l{"console", sink};

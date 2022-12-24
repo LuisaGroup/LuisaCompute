@@ -14,7 +14,7 @@
 namespace luisa {
 
 namespace detail {
-[[nodiscard]] spdlog::logger &default_logger() noexcept;
+[[nodiscard]] LC_CORE_API spdlog::logger &default_logger() noexcept;
 }
 
 template<typename... Args>
