@@ -2,10 +2,10 @@
 #include <vstl/meta_lib.h>
 #include <core/stl/vector.h>
 namespace vstd {
-template<typename T, typename Alloc = eastl::allocator>
-using vector = luisa::vector<T, Alloc>;
-template<typename T, size_t node_count, typename Alloc = eastl::allocator>
-using fixed_vector = luisa::fixed_vector<T, node_count, Alloc>;
+template<typename T>
+using vector = luisa::vector<T>;
+template<typename T, size_t node_count>
+using fixed_vector = luisa::fixed_vector<T, node_count>;
 template<typename T>
 using span = luisa::span<T>;
 namespace detail {

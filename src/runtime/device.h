@@ -18,7 +18,7 @@
 #include <raster/depth_format.h>
 #include <runtime/custom_struct.h>
 #include <runtime/dynamic_struct.h>
-#include <core/hash_128.h>
+#include <core/stl/hash.h>
 
 namespace luisa::compute {
 class MeshFormat;

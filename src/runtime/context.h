@@ -6,7 +6,7 @@
 
 #include <core/stl/memory.h>
 #include <core/stl/string.h>
-#include <core/hash_128.h>
+#include <core/stl/hash.h>
 namespace luisa {
 class DynamicModule;
 namespace compute {
