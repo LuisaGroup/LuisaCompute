@@ -4,18 +4,23 @@
 
 #pragma once
 
-#include <core/stl.h>
+#include <core/stl/hash.h>
 #include <ast/interface.h>
+#include <core/stl/unordered_map.h>
 
 namespace luisa::compute {
 
 class DefinitionAnalysis final : public StmtVisitor, public ExprVisitor {
 
 public:
-    using VariableSet = luisa::unordered_set<Variable>;
-    using ScopeSet = luisa::unordered_set<const ScopeStmt *, pointer_hash<ScopeStmt>>;
-    using VariableScopeMap = luisa::unordered_map<Variable, ScopeSet>;
-    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet, pointer_hash<ScopeStmt>>;
+    struct VariableHash {
+        [[nodiscard]] uint64_t operator()(Variable v) const noexcept { return v.hash(); }
+    };
+
+    using VariableSet = luisa::unordered_set<Variable, VariableHash>;
+    using ScopeSet = luisa::unordered_set<const ScopeStmt *>;
+    using VariableScopeMap = luisa::unordered_map<Variable, ScopeSet, VariableHash>;
+    using ScopedVariableMap = luisa::unordered_map<const ScopeStmt *, VariableSet>;
 
     class ScopeRecord {
 
