@@ -101,6 +101,14 @@ struct Ref<std::array<T, N>>
     LUISA_REF_COMMON(std::array<T, N>)
 };
 
+/// Ref<std::array<T, N>>
+template<typename T, size_t N>
+struct Ref<T[N]>
+    : detail::RefEnableSubscriptAccess<Ref<T[N]>>,
+      detail::RefEnableGetMemberByIndex<Ref<T[N]>> {
+    LUISA_REF_COMMON(T[N])
+};
+
 /// Ref<Matrix<N>>
 template<size_t N>
 struct Ref<Matrix<N>>
