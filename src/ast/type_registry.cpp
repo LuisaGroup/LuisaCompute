@@ -56,7 +56,7 @@ struct TypeRegistryImpl {
 
         constexpr auto compute_hash = [](luisa::string_view desc) noexcept {
             using namespace std::string_view_literals;
-            static thread_local auto seed = hash_value("__hash_type"sv);
+            static auto seed = hash_value("__hash_type"sv);
             return hash64(desc.data(), desc.size(), seed);
         };
 

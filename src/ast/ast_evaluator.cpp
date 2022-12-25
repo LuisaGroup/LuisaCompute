@@ -30,24 +30,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(Expression const *expr) {
 
 namespace analyzer_detail {
 
-template<typename T>
-constexpr size_t TypeImportance() {
-    if constexpr (std::is_same_v<T, bool>) {
-        return 10;
-    } else if constexpr (std::is_same_v<T, int32_t>) {
-        return 20;
-    } else if constexpr (std::is_same_v<T, uint32_t>) {
-        return 20;
-    } else if constexpr (std::is_same_v<T, float>) {
-        return 30;
-    } else {
-        static_assert(luisa::always_false_v<T>, "illegal type");
-    }
-}
-
 template<typename A, typename B>
-using TypeCast = std::conditional_t<
-    std::greater<>{}(TypeImportance<A>(), TypeImportance<B>()), A, B>;
+using TypeCast = decltype(std::declval<A>() + std::declval<B>());
 
 template<typename T>
 struct ScalarType {

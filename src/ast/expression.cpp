@@ -20,7 +20,7 @@ void Expression::mark(Usage usage) const noexcept {
 uint64_t Expression::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
-        static thread_local auto seed = hash_value("__hash_expression"sv);
+        static auto seed = hash_value("__hash_expression"sv);
         std::array a{static_cast<uint64_t>(_tag), _compute_hash(), 0ull};
         if (_type != nullptr) { a.back() = _type->hash(); }
         _hash = hash64(&a, sizeof(a), seed);

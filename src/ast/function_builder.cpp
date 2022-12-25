@@ -385,7 +385,7 @@ void FunctionBuilder::call(Function custom, std::initializer_list<const Expressi
 
 void FunctionBuilder::_compute_hash() noexcept {
     using namespace std::string_view_literals;
-    static thread_local auto seed = hash_value("__hash_function"sv);
+    static auto seed = hash_value("__hash_function"sv);
     luisa::vector<uint64_t> hashes;
     hashes.reserve(2u /* body and tag */ +
                    1u /* return type */ +

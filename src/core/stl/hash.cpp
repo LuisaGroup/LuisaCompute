@@ -23,7 +23,7 @@ luisa::string Hash128::to_string() const noexcept {
 
 Hash128::Hash128(luisa::span<std::uint8_t> data) noexcept {
     assert(data.size() == 16u);
-    std::memcpy(_data.data(), data.data(), 16u);
+    memcpy(_data.data(), data.data(), 16u);
 }
 
 Hash128::Hash128(luisa::string_view s) noexcept {

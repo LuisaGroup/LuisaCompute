@@ -29,7 +29,7 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
             using T = std::remove_const_t<typename decltype(view)::value_type>;
             auto type = Type::of<T>();
             using namespace std::string_view_literals;
-            static thread_local auto seed = hash_value("__hash_constant_data"sv);
+            static auto seed = hash_value("__hash_constant_data"sv);
             auto hash = hash_value(type->hash(), seed);
             hash = luisa::hash64(view.data(), view.size_bytes(), hash);
             std::scoped_lock lock{detail::constant_registry_mutex()};
