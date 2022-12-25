@@ -194,7 +194,8 @@ public:
         DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        luisa::string_view serialization_path) noexcept { return ~0; }
+        luisa::string_view serialization_path) noexcept { return ~0ull; }
+
     [[nodiscard]] virtual uint64_t create_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -202,7 +203,7 @@ public:
         DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        bool use_cache) noexcept { return ~0; }
+        bool use_cache) noexcept { return ~0ull; }
 
     [[nodiscard]] virtual uint64_t load_raster_shader(
         const MeshFormat &mesh_format,
@@ -210,12 +211,14 @@ public:
         luisa::span<const PixelFormat> rtv_format,
         DepthFormat dsv_format,
         luisa::span<Type const *const> types,
-        luisa::string_view ser_path) noexcept { return ~0; }
+        luisa::string_view ser_path) noexcept { return ~0ull; }
+
     virtual void save_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         luisa::string_view serialization_path) noexcept {}
+
     virtual void destroy_raster_shader(uint64_t handle) noexcept {}
 
     // event
@@ -266,7 +269,12 @@ public:
     [[nodiscard]] decltype(auto) cache_name(luisa::string_view file_name) const noexcept { return _impl->cache_name(file_name); }
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
-    [[nodiscard]] auto extension(luisa::string_view name) const noexcept { return _impl->extension(name); }
+
+    template<typename Ext = DeviceExtension>
+        requires std::derived_from<Ext, DeviceExtension>
+    [[nodiscard]] auto extension(luisa::string_view name) const noexcept {
+        return dynamic_cast<Ext *>(_impl->extension(name));
+    }
 
     [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;// see definition in runtime/stream.cpp
     [[nodiscard]] Event create_event() noexcept;                                           // see definition in runtime/event.cpp

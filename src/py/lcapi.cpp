@@ -363,13 +363,24 @@ PYBIND11_MODULE(lcapi, m) {
         .def(
             "assign", [](FunctionBuilder &self, Expression const *l, Expression const *r) {
                 auto result = analyzer.back().assign(l, r);
+                // FIXME: the following checks are not reliable
+                auto is_initialized = [&self](const Expression *expr) noexcept {
+                    if (expr->tag() == Expression::Tag::REF) {
+                        auto v = static_cast<const RefExpr *>(expr)->variable();
+                        return v.externally_initialized() ||
+                               (to_underlying(self.variable_usage(v.uid())) &
+                                to_underlying(Usage::WRITE)) != 0u;
+                    }
+                    return true;// TODO
+                };
                 auto assign = [&](const Expression *lhs, const Expression *rhs) noexcept {
-                    // FIXME: this is not reliable
-                    if (lhs->tag() == Expression::Tag::REF &&
-                        rhs->tag() == Expression::Tag::REF &&
-                        !self.is_variable_initialized(static_cast<RefExpr const *>(lhs)->variable()) &&
-                        !self.is_variable_initialized(static_cast<RefExpr const *>(rhs)->variable())) {
-                        return;
+                    // FIXME: the following checks are not reliable
+                    if (!is_initialized(rhs)) [[unlikely]] {
+                        if (!is_initialized(lhs)) {
+                            return;// TODO: should this be reported?
+                        }
+                        LUISA_ERROR_WITH_LOCATION("Cannot assign the value of "
+                                                  "an uninitialized variable.");
                     }
                     self.assign(lhs, rhs);
                 };

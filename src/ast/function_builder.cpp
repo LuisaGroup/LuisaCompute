@@ -130,11 +130,6 @@ SwitchDefaultStmt *FunctionBuilder::default_() noexcept {
 }
 
 void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexcept {
-    // FIXME: this is not reliable
-    if (rhs->tag() == Expression::Tag::REF &&
-        !is_variable_initialized(static_cast<const RefExpr *>(rhs)->variable())) {
-        LUISA_ERROR_WITH_LOCATION("Cannot assign the value of an uninitialized variable.");
-    }
     _create_and_append_statement<AssignStmt>(lhs, rhs);
 }
 
@@ -403,13 +398,6 @@ void FunctionBuilder::_compute_hash() noexcept {
     for (auto &&c : _captured_constants) { hashes.emplace_back(hash_value(c)); }
     hashes.emplace_back(hash_value(_block_size));
     _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), seed);
-}
-
-bool FunctionBuilder::is_variable_initialized(Variable v) const noexcept {
-    // FIXME: this is not reliable
-    return v.externally_initialized() ||
-           (to_underlying(variable_usage(v.uid())) &
-            to_underlying(Usage::WRITE)) != 0u;
 }
 
 const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept {

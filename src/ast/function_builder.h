@@ -197,8 +197,6 @@ public:
     [[nodiscard]] auto return_type() const noexcept { return _return_type.value_or(nullptr); }
     /// Return variable usage of given uid.
     [[nodiscard]] auto variable_usage(uint uid) const noexcept { return _variable_usages[uid]; }
-    /// Return if the variable is initialized.
-    [[nodiscard]] bool is_variable_initialized(Variable v) const noexcept;
     /// Return block size in uint3.
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     /// Return hash.
