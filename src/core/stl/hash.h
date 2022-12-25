@@ -17,8 +17,8 @@ template<typename T>
                                 std::is_enum<T>>
 struct hash<T> {
     using is_avalaunching = void;
-    [[nodiscard]] constexpr uint64_t operator()(T value) const noexcept {
-        return hash64(&value, sizeof(T), hash64_default_seed);
+    [[nodiscard]] constexpr uint64_t operator()(T value, uint64_t seed = hash64_default_seed) const noexcept {
+        return hash64(&value, sizeof(T), seed);
     }
 };
 
@@ -34,6 +34,17 @@ struct hash<T> {
 template<typename T>
 [[nodiscard]] inline uint64_t hash_value(T &&value) noexcept {
     return hash<std::remove_cvref_t<T>>{}(std::forward<T>(value));
+}
+
+template<typename T>
+[[nodiscard]] inline uint64_t hash_value(T &&value, uint64_t seed) noexcept {
+    return hash<std::remove_cvref_t<T>>{}(std::forward<T>(value), seed);
+}
+
+template<size_t N>
+[[nodiscard]] inline uint64_t hash_combine(const std::array<uint64_t, N> &values,
+                                           uint64_t seed = hash64_default_seed) noexcept {
+    return luisa::hash64(&values, sizeof(values), seed);
 }
 
 class LC_CORE_API Hash128 {

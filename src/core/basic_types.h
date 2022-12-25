@@ -75,8 +75,9 @@ struct Vector : public detail::VectorStorage<T, N> {
 template<typename T, size_t N>
 struct hash<Vector<T, N>> {
     using is_avalanching = void;
-    [[nodiscard]] uint64_t operator()(const Vector<T, N> &v) const noexcept {
-        return hash64(&v, sizeof(T) * N, hash64_default_seed);
+    [[nodiscard]] uint64_t operator()(const Vector<T, N> &v,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return hash64(&v, sizeof(T) * N, seed);
     }
 };
 
@@ -157,14 +158,14 @@ struct Matrix<4> {
 template<size_t N>
 struct hash<Matrix<N>> {
     using is_avalanching = void;
-    [[nodiscard]] uint64_t operator()(Matrix<N> m) const noexcept {
+    [[nodiscard]] uint64_t operator()(Matrix<N> m, uint64_t seed = hash64_default_seed) const noexcept {
         std::array<float, N * N> data{};
         for (size_t i = 0u; i < N; i++) {
             for (size_t j = 0u; j < N; j++) {
                 data[i * N + j] = m[i][j];
             }
         }
-        return hash64(data.data(), data.size() * sizeof(float), hash64_default_seed);
+        return hash64(data.data(), data.size() * sizeof(float), seed);
     }
 };
 

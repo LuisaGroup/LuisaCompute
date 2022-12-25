@@ -122,27 +122,33 @@ template<typename T>
 struct pointer_hash {
     using is_transparent = void;
     using is_avalanching = void;
-    [[nodiscard]] uint64_t operator()(const T *p) const noexcept {
+    [[nodiscard]] uint64_t operator()(const T *p,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
         auto x = reinterpret_cast<uint64_t>(p);
-        return hash64(&x, sizeof(x), hash64_default_seed);
+        return hash64(&x, sizeof(x), seed);
     }
-    [[nodiscard]] uint64_t operator()(const volatile T *p) const noexcept {
+    [[nodiscard]] uint64_t operator()(const volatile T *p,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
         auto x = reinterpret_cast<uint64_t>(p);
-        return hash64(&x, sizeof(x), hash64_default_seed);
+        return hash64(&x, sizeof(x), seed);
     }
-    [[nodiscard]] uint64_t operator()(const shared_ptr<T> &ptr) const noexcept {
-        return (*this)(ptr.get());
+    [[nodiscard]] uint64_t operator()(const shared_ptr<T> &ptr,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return (*this)(ptr.get(), seed);
     }
     template<typename Deleter>
-    [[nodiscard]] uint64_t operator()(const unique_ptr<T, Deleter> &ptr) const noexcept {
-        return (*this)(ptr.get());
+    [[nodiscard]] uint64_t operator()(const unique_ptr<T, Deleter> &ptr,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return (*this)(ptr.get(), seed);
     }
-    [[nodiscard]] uint64_t operator()(const std::shared_ptr<T> &ptr) const noexcept {
-        return (*this)(ptr.get());
+    [[nodiscard]] uint64_t operator()(const std::shared_ptr<T> &ptr,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return (*this)(ptr.get(), seed);
     }
     template<typename Deleter>
-    [[nodiscard]] uint64_t operator()(const std::unique_ptr<T, Deleter> &ptr) const noexcept {
-        return (*this)(ptr.get());
+    [[nodiscard]] uint64_t operator()(const std::unique_ptr<T, Deleter> &ptr,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return (*this)(ptr.get(), seed);
     }
 };
 
@@ -150,13 +156,15 @@ template<>
 struct pointer_hash<void> {
     using is_transparent = void;
     using is_avalanching = void;
-    [[nodiscard]] uint64_t operator()(const void *p) const noexcept {
+    [[nodiscard]] uint64_t operator()(const void *p,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
         auto x = reinterpret_cast<uint64_t>(p);
-        return hash64(&x, sizeof(x), hash64_default_seed);
+        return hash64(&x, sizeof(x), seed);
     }
-    [[nodiscard]] uint64_t operator()(const volatile void *p) const noexcept {
+    [[nodiscard]] uint64_t operator()(const volatile void *p,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
         auto x = reinterpret_cast<uint64_t>(p);
-        return hash64(&x, sizeof(x), hash64_default_seed);
+        return hash64(&x, sizeof(x), seed);
     }
 };
 

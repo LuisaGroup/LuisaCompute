@@ -23,15 +23,18 @@ template<typename Char, typename CharTraits>
 struct basic_string_hash {
     using is_transparent = void;// to enable heterogeneous lookup
     using is_avalaunching = void;
-    [[nodiscard]] uint64_t operator()(std::basic_string_view<Char, CharTraits> s) const noexcept {
-        return hash64(s.data(), s.size() * sizeof(Char), hash64_default_seed);
+    [[nodiscard]] uint64_t operator()(std::basic_string_view<Char, CharTraits> s,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return hash64(s.data(), s.size() * sizeof(Char), seed);
     }
     template<typename Allocator>
-    [[nodiscard]] uint64_t operator()(const std::basic_string<Char, CharTraits, Allocator> &s) const noexcept {
-        return hash64(s.data(), s.size() * sizeof(Char), hash64_default_seed);
+    [[nodiscard]] uint64_t operator()(const std::basic_string<Char, CharTraits, Allocator> &s,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return hash64(s.data(), s.size() * sizeof(Char), seed);
     }
-    [[nodiscard]] uint64_t operator()(const Char *s) const noexcept {
-        return hash64(s, CharTraits::length(s) * sizeof(Char), hash64_default_seed);
+    [[nodiscard]] uint64_t operator()(const Char *s,
+                                      uint64_t seed = hash64_default_seed) const noexcept {
+        return hash64(s, CharTraits::length(s) * sizeof(Char), seed);
     }
 };
 
