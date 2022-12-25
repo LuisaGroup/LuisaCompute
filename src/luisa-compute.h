@@ -7,6 +7,7 @@
 #include <core/basic_traits.h>
 #include <core/basic_types.h>
 #include <core/binary_buffer.h>
+#include <core/binary_io.h>
 #include <core/clock.h>
 #include <core/concepts.h>
 #include <core/constants.h>
@@ -28,6 +29,7 @@
 #include <core/thread_pool.h>
 #include <core/thread_safety.h>
 
+#include <ast/ast_evaluator.h>
 #include <ast/constant_data.h>
 #include <ast/expression.h>
 #include <ast/function.h>
@@ -45,10 +47,13 @@
 #include <runtime/command.h>
 #include <runtime/command_buffer.h>
 #include <runtime/command_list.h>
-#include <runtime/command_scheduler.h>
-#include <runtime/command_scheduler.h>
 #include <runtime/context.h>
+#include <runtime/context_paths.h>
+#include <runtime/custom_pass.h>
+#include <runtime/custom_struct.h>
 #include <runtime/device.h>
+#include <runtime/dynamic_buffer.h>
+#include <runtime/dynamic_struct.h>
 #include <runtime/event.h>
 #include <runtime/image.h>
 #include <runtime/mipmap.h>
@@ -58,10 +63,13 @@
 #include <runtime/sampler.h>
 #include <runtime/shader.h>
 #include <runtime/stream.h>
+#include <runtime/stream_tag.h>
 #include <runtime/swap_chain.h>
+#include <runtime/util.h>
 #include <runtime/volume.h>
 
 #include <dsl/arg.h>
+#include <dsl/autodiff.h>
 #include <dsl/builtin.h>
 #include <dsl/constant.h>
 #include <dsl/expr.h>
@@ -82,7 +90,9 @@
 #include <rtx/accel.h>
 #include <rtx/hit.h>
 #include <rtx/mesh.h>
+#include <rtx/procedural_primitive.h>
 #include <rtx/ray.h>
+#include <rtx/ray_query.h>
 
 #ifdef LUISA_GUI_ENABLED
 #include <gui/framerate.h>

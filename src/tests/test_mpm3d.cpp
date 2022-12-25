@@ -5,6 +5,7 @@
 #include <random>
 #include <fstream>
 #include <chrono>
+
 #include <luisa-compute.h>
 
 int main(int argc, char *argv[]) {

@@ -4,6 +4,7 @@
 
 #include <iostream>
 
+#include <core/clock.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>

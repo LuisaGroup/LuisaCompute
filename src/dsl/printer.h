@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 
+#include <core/logging.h>
 #include <ast/function_builder.h>
 #include <runtime/buffer.h>
 #include <runtime/event.h>
@@ -35,7 +36,7 @@ private:
     Buffer<uint> _buffer;// count & records (desc_id, arg0, arg1, ...)
     luisa::vector<uint> _host_buffer;
     luisa::vector<Item> _items;
-    spdlog::logger _logger;
+    luisa::logger _logger;
     bool _reset_called{false};
 
 private:
@@ -59,7 +60,7 @@ private:
 
     /// Log in kernel
     template<typename... Args>
-    void _log(spdlog::level::level_enum level, luisa::string fmt, const Args &...args) noexcept;
+    void _log(luisa::log_level level, luisa::string fmt, const Args &...args) noexcept;
 
 public:
     /// Create printer object on device. Will create a buffer in it.
@@ -75,22 +76,22 @@ public:
     /// Log in kernel at debug level.
     template<typename... Args>
     void verbose(luisa::string fmt, Args &&...args) noexcept {
-        _log(spdlog::level::debug, std::move(fmt), std::forward<Args>(args)...);
+        _log(luisa::log_level::debug, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log in kernel at information level.
     template<typename... Args>
     void info(luisa::string fmt, Args &&...args) noexcept {
-        _log(spdlog::level::info, std::move(fmt), std::forward<Args>(args)...);
+        _log(luisa::log_level::info, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log in kernel at warning level.
     template<typename... Args>
     void warning(luisa::string fmt, Args &&...args) noexcept {
-        _log(spdlog::level::warn, std::move(fmt), std::forward<Args>(args)...);
+        _log(luisa::log_level::warn, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log in kernel at error level.
     template<typename... Args>
     void error(luisa::string fmt, Args &&...args) noexcept {
-        _log(spdlog::level::err, std::move(fmt), std::forward<Args>(args)...);
+        _log(luisa::log_level::err, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log in kernel at debug level with dispatch id.
     template<typename... Args>
@@ -123,7 +124,7 @@ public:
 };
 
 template<typename... Args>
-void Printer::_log(spdlog::level::level_enum level, luisa::string fmt, const Args &...args) noexcept {
+void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...args) noexcept {
     auto count = (1u /* desc_id */ + ... + static_cast<uint>(is_dsl_v<Args>));
     auto size = static_cast<uint>(_buffer.size() - 1u);
     auto offset = _buffer.atomic(size).fetch_add(count);

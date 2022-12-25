@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/stl/vector.h>
 #include <core/spin_mutex.h>
 
 #include <ast/statement.h>
@@ -12,13 +13,11 @@
 #include <ast/expression.h>
 #include <ast/constant_data.h>
 #include <ast/type_registry.h>
-#include <core/stl/optional.h>
 
 namespace luisa::compute {
-class AstSerializer;
 class Statement;
 class Expression;
-class FunctionSerializer;
+class AstSerializer;
 }// namespace luisa::compute
 
 namespace luisa::compute::detail {
@@ -29,13 +28,14 @@ namespace luisa::compute::detail {
  * Build kernel or callable function
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
-    friend class luisa::compute::AstSerializer;
+
+    friend class AstSerializer;
 
 private:
     /**
-     * @brief Scope guard.
+     * @brief RAII-style scope guard.
      * 
-     * Push scope on build, pop scope on destroy.
+     * Push scope on construction, pop scope on destruction.
      */
     class ScopeGuard {
 
@@ -49,6 +49,11 @@ private:
         ~ScopeGuard() noexcept { _builder->pop_scope(_scope); }
     };
 
+    /**
+     * @brief RAII-style function guard.
+     *
+     * Push function builder on construction, pop function builder on destruction.
+     */
     class FunctionStackGuard {
 
     private:
@@ -63,82 +68,8 @@ private:
 public:
     using Tag = Function::Tag;
     using Constant = Function::Constant;
-
-    /**
-     * @brief %Buffer binding.
-     * 
-     * Bind buffer handle and offset.
-     */
-    struct BufferBinding {
-        uint64_t handle;
-        size_t offset_bytes;
-        size_t size_bytes;
-        BufferBinding() noexcept = default;
-        BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
-            : handle{handle}, offset_bytes{offset_bytes}, size_bytes{size_bytes} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(offset_bytes, hash64(handle, hash64("__hash_buffer_binding")));
-        }
-    };
-
-    /**
-     * @brief Texture binding.
-     * 
-     * Bind texture handle and level.
-     */
-    struct TextureBinding {
-        uint64_t handle;
-        uint32_t level;
-        TextureBinding() noexcept = default;
-        TextureBinding(uint64_t handle, uint32_t level) noexcept
-            : handle{handle}, level{level} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(level, hash64(handle, hash64("__hash_texture_binding")));
-        }
-    };
-
-    /**
-     * @brief Bindless array binding.
-     * 
-     * Bind array handle.
-     */
-    struct BindlessArrayBinding {
-        uint64_t handle;
-        BindlessArrayBinding() noexcept = default;
-        explicit BindlessArrayBinding(uint64_t handle) noexcept
-            : handle{handle} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(handle, hash64("__hash_bindless_array_binding"));
-        }
-    };
-
-    /**
-     * @brief Acceleration structure binding.
-     * 
-     * Bind accel handle.
-     */
-    struct AccelBinding {
-        uint64_t handle;
-        AccelBinding() noexcept = default;
-        explicit AccelBinding(uint64_t handle) noexcept
-            : handle{handle} {}
-        [[nodiscard]] auto hash() const noexcept {
-            using namespace std::string_view_literals;
-            return hash64(handle, hash64("__hash_accel_binding"));
-        }
-    };
-
-    using Binding = luisa::variant<
-        luisa::monostate,// not bound
-        BufferBinding,
-        TextureBinding,
-        BindlessArrayBinding,
-        AccelBinding>;
-
-    friend FunctionSerializer;
+    using Binding = Function::Binding;
+    using CpuCallback = Function::CpuCallback;
 
 private:
     ScopeStmt _body;
@@ -155,9 +86,10 @@ private:
     luisa::vector<Variable> _shared_variables;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
+    luisa::vector<CpuCallback> _cpu_callbacks;
+    CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
-    CallOpSet _used_builtin_callables;
-    uint64_t _hash{};
+    uint64_t _hash;
     uint3 _block_size;
     Tag _tag;
     bool _requires_atomic_float{false};
@@ -189,7 +121,6 @@ protected:
         _all_expressions.emplace_back(std::move(expr));
         return p;
     }
-    void _check_expr_uninited(Expression const* expr);
 
 private:
     /**
@@ -203,16 +134,12 @@ private:
     static auto _define(Function::Tag tag, Def &&def) {
         auto f = make_shared<FunctionBuilder>(tag);
         push(f.get());
-#ifdef LC_AST_EXCEPTION
         try {
-#endif
             f->with(&f->_body, std::forward<Def>(def));
-#ifdef LC_AST_EXCEPTION
         } catch (...) {
             pop(f.get());
             throw;
         }
-#endif
         pop(f.get());
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
@@ -238,7 +165,6 @@ public:
      * @return FunctionBuilder* 
      */
     [[nodiscard]] static FunctionBuilder *current() noexcept;
-    [[nodiscard]] bool is_variable_uninitialized(Variable var);
 
     // interfaces for class Function
     /// Return a span of builtin variables.
@@ -253,11 +179,13 @@ public:
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     /// Return a span of argument bindings.
     [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings}; }
+    /// Return a span of cpu callbacks
+    [[nodiscard]] auto cpu_callbacks() const noexcept { return luisa::span{_cpu_callbacks}; }
     /// Return a span of custom callables.
     [[nodiscard]] auto custom_callables() const noexcept { return luisa::span{_used_custom_callables}; }
-    /// Return a CallOpSet of builtin callables that are directly used in this functions.
-    [[nodiscard]] auto builtin_callables() const noexcept { return _used_builtin_callables; }
-    /// Return a CallOpSet of builtin callables that are used in this functions and the functions that it calls.
+    /// Return a CallOpSet of builtin callables that are directly called.
+    [[nodiscard]] auto direct_builtin_callables() const noexcept { return _direct_builtin_callables; }
+    /// Return a CallOpSet of builtin callables that are directly called.
     [[nodiscard]] auto propagated_builtin_callables() const noexcept { return _propagated_builtin_callables; }
     /// Return tag(KERNEL, CALLABLE).
     [[nodiscard]] auto tag() const noexcept { return _tag; }
@@ -268,7 +196,9 @@ public:
     /// Return const pointer to return type.
     [[nodiscard]] auto return_type() const noexcept { return _return_type.value_or(nullptr); }
     /// Return variable usage of given uid.
-    [[nodiscard]] auto variable_usage(uint32_t uid) const noexcept { return _variable_usages[uid]; }
+    [[nodiscard]] auto variable_usage(uint uid) const noexcept { return _variable_usages[uid]; }
+    /// Return if the variable is initialized.
+    [[nodiscard]] bool is_variable_initialized(Variable v) const noexcept;
     /// Return block size in uint3.
     [[nodiscard]] auto block_size() const noexcept { return _block_size; }
     /// Return hash.
@@ -298,18 +228,19 @@ public:
     void set_block_size(uint3 size) noexcept;
 
     // built-in variables
-    // dispatch id = block id * block size + thread id
     /// Return thread id.
     [[nodiscard]] const RefExpr *thread_id() noexcept;
     /// Return block id.
     [[nodiscard]] const RefExpr *block_id() noexcept;
-    /// Return dispatch id.
+    /// Return dispatch id (equal to block_id * block_size + thread_id).
     [[nodiscard]] const RefExpr *dispatch_id() noexcept;
-    [[nodiscard]] const RefExpr *kernel_id() noexcept;
-    /// Return dispatch size.
+    /// Return dispatch size (the exact value; not rounded up to block_size).
     [[nodiscard]] const RefExpr *dispatch_size() noexcept;
-    /// Return raster object id
+    /// Return kernel id (for indirect kernels only).
+    [[nodiscard]] const RefExpr *kernel_id() noexcept;
+    /// Return object id (for rasterization only).
     [[nodiscard]] const RefExpr *object_id() noexcept;
+
     // variables
     /// Add local variable of type
     [[nodiscard]] const RefExpr *local(const Type *type) noexcept;
@@ -397,6 +328,9 @@ public:
     [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
     /// Add for statement
     [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
+
+    // For autodiff use only
+    [[nodiscard]] const Statement *pop_stmt() noexcept;
 
     /// Run body function in given scope s
     template<typename Body>

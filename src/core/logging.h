@@ -13,8 +13,11 @@
 
 namespace luisa {
 
+using spdlog::logger;
+using log_level = spdlog::level::level_enum;
+
 namespace detail {
-[[nodiscard]] LC_CORE_API spdlog::logger &default_logger() noexcept;
+[[nodiscard]] LC_CORE_API luisa::logger &default_logger() noexcept;
 }
 
 template<typename... Args>

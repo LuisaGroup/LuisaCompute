@@ -6,7 +6,7 @@
 # endif()
 set(LUISA_COMPUTE_API_SOURCES
         device.h
-        runtime.cpp runtime.h
+#        runtime.cpp runtime.h
         logging.cpp logging.h
         )
 add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})

@@ -7,29 +7,15 @@
 
 namespace luisa::compute {
 
-void CommandList::_recycle() noexcept {
-    _commands.clear();
-}
-
 void CommandList::append(luisa::unique_ptr<Command>&& cmd) noexcept {
     _commands.emplace_back(std::move(cmd));
 }
 
 luisa::vector<luisa::unique_ptr<Command>> CommandList::steal_commands() noexcept {
-    return std::move(_commands);
+    luisa::vector<luisa::unique_ptr<Command>> cmds;
+    cmds.swap(_commands);
+    return cmds;
 }
-
-CommandList::CommandList(CommandList &&another) noexcept = default;
-
-CommandList &CommandList::operator=(CommandList &&rhs) noexcept {
-    if (&rhs != this) [[likely]] {
-        _recycle();
-        _commands = std::move(rhs._commands);
-    }
-    return *this;
-}
-
-CommandList::~CommandList() noexcept { _recycle(); }
 
 //class CommandDumpVisitor : CommandVisitor {
 //

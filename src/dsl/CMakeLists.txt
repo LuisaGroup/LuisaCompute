@@ -5,10 +5,10 @@ set(LUISA_COMPUTE_DSL_SOURCES
         constant.h
         expr.cpp expr.h
         expr_traits.h
-        func.h
+        func.cpp func.h
         local.h
         operators.h
-        polymorphic.h
+        polymorphic.cpp polymorphic.h
         printer.cpp printer.h
         ref.h
         shared.h

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <unordered_set>
 
+#include <core/logging.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>

@@ -5,25 +5,35 @@
 #pragma once
 
 #include <runtime/command.h>
+#include <api/common.h>
 
 namespace luisa::compute {
+
 class CmdDeser;
 class CmdSer;
+
+namespace detail {
+class CommandListConverter;
+}
+
 class LC_RUNTIME_API CommandList : concepts::Noncopyable {
+
     friend class CmdDeser;
     friend class CmdSer;
+    friend class detail::CommandListConverter;
 
 private:
     luisa::vector<luisa::unique_ptr<Command>> _commands;
 
-private:
-    void _recycle() noexcept;
+    // For backends that use C API only
+    // DO NOT USE THIS FIELD OTHERWISE
+    luisa::optional<LCCommandList> _c_list;
 
 public:
     CommandList() noexcept = default;
-    ~CommandList() noexcept;
-    CommandList(CommandList &&) noexcept;
-    CommandList &operator=(CommandList &&rhs) noexcept;
+    ~CommandList() noexcept = default;
+    CommandList(CommandList &&) noexcept = default;
+    CommandList &operator=(CommandList &&rhs) noexcept = default;
     void reserve(size_t size) noexcept;
     void append(luisa::unique_ptr<Command> &&cmd) noexcept;
     void clear() noexcept { _commands.clear(); }
@@ -32,9 +42,6 @@ public:
     [[nodiscard]] auto end() const noexcept { return _commands.end(); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty(); }
     [[nodiscard]] auto size() const noexcept { return _commands.size(); }
-
-    // for debug
-    //    [[nodiscard]] nlohmann::json dump_json() const noexcept;
 };
 
 }// namespace luisa::compute

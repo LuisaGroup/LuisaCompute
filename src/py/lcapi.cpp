@@ -333,7 +333,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("accel", &FunctionBuilder::accel, pyref)
 
         .def(
-            "literal", [](FunctionBuilder &self, const Type *type, LiteralExpr::Value &&value) {
+            "literal", [](FunctionBuilder &self, const Type *type, LiteralExpr::Value value) {
                 return self.literal(type, std::move(value));
             },
             pyref)
@@ -345,13 +345,13 @@ PYBIND11_MODULE(lcapi, m) {
         .def("cast", &FunctionBuilder::cast, pyref)
 
         .def(
-            "call", [](FunctionBuilder &self, const Type *type, CallOp call_op, luisa::vector<const Expression *> &&args) { return self.call(type, call_op, std::move(args)); }, pyref)
+            "call", [](FunctionBuilder &self, const Type *type, CallOp call_op, const luisa::vector<const Expression *> &args) { return self.call(type, call_op, std::move(args)); }, pyref)
         .def(
-            "call", [](FunctionBuilder &self, const Type *type, Function custom, luisa::vector<const Expression *> &&args) {
+            "call", [](FunctionBuilder &self, const Type *type, Function custom, const luisa::vector<const Expression *> &args) {
                 analyzer.back().check_call_ref(custom, args);
                  return self.call(type, custom, std::move(args)); }, pyref)
-        .def("call", [](FunctionBuilder &self, CallOp call_op, luisa::vector<const Expression *> &&args) { self.call(call_op, std::move(args)); })
-        .def("call", [](FunctionBuilder &self, Function custom, luisa::vector<const Expression *> &&args) {
+        .def("call", [](FunctionBuilder &self, CallOp call_op, const luisa::vector<const Expression *> &args) { self.call(call_op, std::move(args)); })
+        .def("call", [](FunctionBuilder &self, Function custom, const luisa::vector<const Expression *> &args) {
             analyzer.back().check_call_ref(custom, args);
             self.call(custom, std::move(args));
         })
@@ -364,10 +364,11 @@ PYBIND11_MODULE(lcapi, m) {
             "assign", [](FunctionBuilder &self, Expression const *l, Expression const *r) {
                 auto result = analyzer.back().assign(l, r);
                 auto assign = [&](const Expression *lhs, const Expression *rhs) noexcept {
+                    // FIXME: this is not reliable
                     if (lhs->tag() == Expression::Tag::REF &&
                         rhs->tag() == Expression::Tag::REF &&
-                        self.is_variable_uninitialized(static_cast<RefExpr const *>(lhs)->variable()) &&
-                        self.is_variable_uninitialized(static_cast<RefExpr const *>(rhs)->variable())) {
+                        !self.is_variable_initialized(static_cast<RefExpr const *>(lhs)->variable()) &&
+                        !self.is_variable_initialized(static_cast<RefExpr const *>(rhs)->variable())) {
                         return;
                     }
                     self.assign(lhs, rhs);
@@ -549,7 +550,7 @@ PYBIND11_MODULE(lcapi, m) {
     export_matrix(m);
 
     // util function for uniform encoding
-    m.def("to_bytes", [](LiteralExpr::Value &&value) {
+    m.def("to_bytes", [](LiteralExpr::Value value) {
         return luisa::visit([](auto x) noexcept { return py::bytes(std::string(reinterpret_cast<char *>(&x), sizeof(x))); }, value);
     });
     //.def()

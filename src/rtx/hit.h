@@ -1,18 +1,22 @@
 //
 // Created by Mike Smith on 2021/6/24.
 //
+
 #pragma once
+
 #include <dsl/syntax.h>
 #include <dsl/struct.h>
 #include <core/mathematics.h>
 #include <core/stl/format.h>
 
 namespace luisa::compute {
+
 enum class HitType : uint8_t {
     Miss = 0,
     Triangle = 1,
     Procedural = 2
 };
+
 struct Hit {
     uint inst{0u};
     uint prim{0u};
@@ -27,6 +31,7 @@ struct Hit {
 [[nodiscard]] LC_RUNTIME_API Var<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept;
 [[nodiscard]] LC_RUNTIME_API Var<float4> interpolate(Expr<Hit> hit, Expr<float4> a, Expr<float4> b, Expr<float4> c) noexcept;
 #endif
+
 }// namespace luisa::compute
 
 // clang-format off

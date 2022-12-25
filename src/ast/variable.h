@@ -6,19 +6,17 @@
 
 #include <ast/type.h>
 #include <ast/usage.h>
-#include <core/stl/hash.h>
 
-namespace luisa::compute {
+namespace luisa {
 
-class AstSerializer;
-
+namespace compute {
 namespace detail {
 class FunctionBuilder;
-}
+class SSABuilder;
+}// namespace detail
 
 /// Variable class
 class Variable {
-    friend class AstSerializer;
 
 public:
     /// Variable tags
@@ -43,7 +41,6 @@ public:
         DISPATCH_ID,
         DISPATCH_SIZE,
         KERNEL_ID,
-        // raster builtins
         OBJECT_ID
     };
 
@@ -51,26 +48,52 @@ private:
     const Type *_type;
     uint32_t _uid;
     Tag _tag;
-    bool _is_arg;
+    bool _is_argument;
 
 private:
     friend class detail::FunctionBuilder;
-    constexpr Variable(const Type *type, Tag tag, uint32_t uid, bool is_arg) noexcept
-        : _type{type}, _uid{uid}, _tag{tag}, _is_arg{is_arg} {}
+    friend class detail::SSABuilder;
+    Variable(const Type *type, Tag tag, uint32_t uid, bool is_arg = false) noexcept
+        : _type{type}, _uid{uid}, _tag{tag}, _is_argument{is_arg} {}
 
 public:
     Variable() noexcept = default;
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
-    [[nodiscard]] auto is_arg() const noexcept { return _is_arg; }
-    [[nodiscard]] auto hash() const noexcept {
-        auto u0 = static_cast<uint64_t>(_uid);
-        auto u1 = static_cast<uint64_t>(_tag);
-        using namespace std::string_view_literals;
-        return hash64(u0 | (u1 << 32u), hash64(_type->hash(), hash64("__hash_variable"sv)));
-    }
+    [[nodiscard]] uint64_t hash() const noexcept;
     [[nodiscard]] auto operator==(Variable rhs) const noexcept { return _uid == rhs._uid; }
+    [[nodiscard]] auto is_local() const noexcept { return _tag == Tag::LOCAL; }
+    [[nodiscard]] auto is_shared() const noexcept { return _tag == Tag::SHARED; }
+    [[nodiscard]] auto is_reference() const noexcept { return _tag == Tag::REFERENCE; }
+    [[nodiscard]] auto is_resource() const noexcept {
+        return _tag == Tag::BUFFER ||
+               _tag == Tag::TEXTURE ||
+               _tag == Tag::BINDLESS_ARRAY ||
+               _tag == Tag::ACCEL;
+    }
+    [[nodiscard]] auto is_builtin() const noexcept {
+        return _tag == Tag::THREAD_ID ||
+               _tag == Tag::BLOCK_ID ||
+               _tag == Tag::DISPATCH_ID ||
+               _tag == Tag::DISPATCH_SIZE ||
+               _tag == Tag::KERNEL_ID ||
+               _tag == Tag::OBJECT_ID;
+    }
+    [[nodiscard]] auto externally_initialized() const noexcept {
+        return is_reference() ||
+               is_resource() ||
+               is_builtin() ||
+               _is_argument;
+    }
 };
 
-}// namespace luisa::compute
+}// namespace compute
+
+template<>
+struct hash<compute::Variable> {
+    using is_avalanching = void;
+    [[nodiscard]] auto operator()(compute::Variable v) const noexcept { return v.hash(); }
+};
+
+}// namespace luisa

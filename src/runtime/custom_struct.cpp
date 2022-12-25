@@ -1,6 +1,6 @@
-#include <dsl/dispatch_indirect.h>
 #include <runtime/device.h>
 #include <runtime/buffer.h>
+#include <runtime/custom_struct.h>
 
 namespace luisa::compute {
 template<size_t i, typename T>

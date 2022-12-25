@@ -1,5 +1,7 @@
 
 #include <algorithm>
+
+#include <core/logging.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>

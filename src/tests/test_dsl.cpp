@@ -8,6 +8,7 @@
 
 #include <core/clock.h>
 #include <core/dynamic_module.h>
+#include <core/logging.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <ast/interface.h>

@@ -6,6 +6,7 @@
 #include <stb/stb_image_write.h>
 #include <stb/stb_image_resize.h>
 
+#include <core/logging.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>

@@ -6,6 +6,7 @@
 #include <runtime/command.h>
 #include <raster/raster_scene.h>
 #include <runtime/custom_struct.h>
+
 namespace luisa::compute {
 
 std::byte *ShaderDispatchCommandBase::_make_space(size_t size) noexcept {
@@ -147,13 +148,13 @@ void ShaderDispatchCommandBase::_encode_pending_bindings(Function kernel) noexce
                !luisa::holds_alternative<luisa::monostate>(bindings[_argument_count])) {
             luisa::visit(
                 [&, arg = kernel.arguments()[_argument_count]]<typename T>(T binding) noexcept {
-                    if constexpr (std::is_same_v<T, detail::FunctionBuilder::BufferBinding>) {
+                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
                         _encode_buffer(kernel, binding.handle, binding.offset_bytes, binding.size_bytes);
-                    } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::TextureBinding>) {
+                    } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
                         _encode_texture(kernel, binding.handle, binding.level);
-                    } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::BindlessArrayBinding>) {
+                    } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
                         _encode_bindless_array(kernel, binding.handle);
-                    } else if constexpr (std::is_same_v<T, detail::FunctionBuilder::AccelBinding>) {
+                    } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
                         _encode_accel(kernel, binding.handle);
                     } else {
                         LUISA_ERROR_WITH_LOCATION("Invalid argument binding type.");

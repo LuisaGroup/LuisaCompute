@@ -556,11 +556,13 @@ struct AccelBuildOption {
     bool allow_compact{false};
     bool allow_update{true};
 };
+
 struct MeshBuildOption {
     AccelUsageHint hint{AccelUsageHint::FAST_TRACE};
     bool allow_compact{true};
     bool allow_update{false};
 };
+
 class MeshBuildCommand final : public Command {
 
 private:

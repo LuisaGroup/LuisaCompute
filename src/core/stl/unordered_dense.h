@@ -26,6 +26,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// LAST UPDATE IN LUISA COMPUTE: 2022-12-25
+
 #ifndef ANKERL_UNORDERED_DENSE_H
 #define ANKERL_UNORDERED_DENSE_H
 
@@ -69,9 +71,8 @@
 #include <tuple>           // for forward_as_tuple
 #include <type_traits>     // for enable_if_t, declval, conditional_t, ena...
 #include <utility>         // for forward, exchange, pair, as_const, piece...
-#include <core/stl/vector.h>
-#include <core/stl/hash.h>
-#include <assert.h>
+#include <vector>
+#include <cassert>
 
 #define ANKERL_UNORDERED_DENSE_PMR 0// NOLINT(cppcoreguidelines-macro-usage)
 #if defined(__has_include)
@@ -298,16 +299,16 @@ template<class Key,
          class T,// when void, treat it as a set.
          class Hash,
          class KeyEqual,
-         class AllocatorOrContainer,
+         class Allocator,
          class Bucket,
          class Vector>
 class table : public std::conditional_t<std::is_void_v<T>, base_table_type_set, base_table_type_map<T>> {
 public:
-    using value_container_type = typename Vector;
+    using value_container_type = Vector;
 
 private:
     using bucket_alloc =
-        typename std::allocator_traits<typename AllocatorOrContainer>::template rebind_alloc<Bucket>;
+        typename std::allocator_traits<Allocator>::template rebind_alloc<Bucket>;
     using bucket_alloc_traits = std::allocator_traits<bucket_alloc>;
 
     static constexpr uint8_t initial_shifts = 64 - 3;// 2^(64-m_shift) number of buckets
@@ -449,7 +450,7 @@ private:
     }
 
     void deallocate_buckets() {
-        auto ba = bucket_alloc(AllocatorOrContainer{});
+        auto ba = bucket_alloc(Allocator{});
         if (nullptr != m_buckets) {
             bucket_alloc_traits::deallocate(ba, m_buckets, bucket_count());
         }
@@ -459,7 +460,7 @@ private:
     }
 
     void allocate_buckets_from_shift() {
-        auto ba = bucket_alloc(AllocatorOrContainer{});
+        auto ba = bucket_alloc(Allocator{});
         m_num_buckets = calc_num_buckets(m_shifts);
         m_buckets = bucket_alloc_traits::allocate(ba, m_num_buckets);
         if (m_num_buckets == max_bucket_count()) {
@@ -723,7 +724,7 @@ public:
         : table(init, bucket_count, hash, KeyEqual(), alloc) {}
 
     ~table() {
-        auto ba = bucket_alloc(AllocatorOrContainer{});
+        auto ba = bucket_alloc(Allocator{});
         bucket_alloc_traits::deallocate(ba, m_buckets, bucket_count());
     }
 
@@ -765,7 +766,7 @@ public:
     }
 
     auto get_allocator() const noexcept -> allocator_type {
-        return AllocatorOrContainer{};
+        return Allocator{};
     }
 
     // iterators //////////////////////////////////////////////////////////////
@@ -870,7 +871,7 @@ public:
         assert(container.size() <= max_size());
 
         auto shifts = calc_shifts_for_size(container.size());
-        if (0 == m_num_buckets || shifts < m_shifts || container.get_allocator() != AllocatorOrContainer{}) {
+        if (0 == m_num_buckets || shifts < m_shifts || container.get_allocator() != Allocator{}) {
             m_shifts = shifts;
             deallocate_buckets();
             allocate_buckets_from_shift();
@@ -1377,20 +1378,20 @@ public:
 
 template<class Key,
          class T,
-         class Hash = luisa::hash<Key>,
-         class KeyEqual = std::equal_to<Key>,
-         class AllocatorOrContainer = std::allocator<std::pair<Key, T>>,
-         class Vector = luisa::vector<std::pair<Key, T>>,
+         class Hash = std::hash<Key>,
+         class KeyEqual = std::equal_to<>,
+         class Allocator = std::allocator<std::pair<Key, T>>,
+         class Vector = std::vector<std::pair<Key, T>>,
          class Bucket = bucket_type::standard>
-using map = detail::table<Key, T, Hash, KeyEqual, AllocatorOrContainer, Bucket, Vector>;
+using map = detail::table<Key, T, Hash, KeyEqual, Allocator, Bucket, Vector>;
 
 template<class Key,
-         class Hash = luisa::hash<Key>,
-         class KeyEqual = std::equal_to<Key>,
-         class AllocatorOrContainer = std::allocator<Key>,
-         class Vector = luisa::vector<Key>,
+         class Hash = std::hash<Key>,
+         class KeyEqual = std::equal_to<>,
+         class Allocator = std::allocator<Key>,
+         class Vector = std::vector<Key>,
          class Bucket = bucket_type::standard>
-using set = detail::table<Key, void, Hash, KeyEqual, AllocatorOrContainer, Bucket, Vector>;
+using set = detail::table<Key, void, Hash, KeyEqual, Allocator, Bucket, Vector>;
 
 #if ANKERL_UNORDERED_DENSE_PMR
 
@@ -1398,13 +1399,13 @@ namespace pmr {
 
 template<class Key,
          class T,
-         class Hash = luisa::hash<Key>,
-         class KeyEqual = std::equal_to<Key>,
-         class Vector = luisa::vector<std::pair<Key, T>>,
+         class Hash = std::hash<Key>,
+         class KeyEqual = std::equal_to<>,
+         class Vector = std::vector<std::pair<Key, T>>,
          class Bucket = bucket_type::standard>
 using map = detail::table<Key, T, Hash, KeyEqual, std::pmr::polymorphic_allocator<std::pair<Key, T>>, Bucket, Vector>;
 
-template<class Key, class Hash = luisa::hash<Key>, class KeyEqual = std::equal_to<Key>, class Bucket = bucket_type::standard, class Vector = luisa::vector<Key>>
+template<class Key, class Hash = std::hash<Key>, class KeyEqual = std::equal_to<>, class Bucket = bucket_type::standard, class Vector = std::vector<Key>>
 using set = detail::table<Key, void, Hash, KeyEqual, std::pmr::polymorphic_allocator<Key>, Bucket, Vector>;
 
 }// namespace pmr
@@ -1423,10 +1424,10 @@ using set = detail::table<Key, void, Hash, KeyEqual, std::pmr::polymorphic_alloc
 
 namespace std {// NOLINT(cert-dcl58-cpp)
 
-template<class Key, class T, class Hash, class KeyEqual, class AllocatorOrContainer, class Bucket, class Vector, class Pred>
-auto erase_if(ankerl::unordered_dense::detail::table<Key, T, Hash, KeyEqual, AllocatorOrContainer, Bucket, Vector> &map, Pred pred)
+template<class Key, class T, class Hash, class KeyEqual, class Allocator, class Bucket, class Vector, class Pred>
+auto erase_if(ankerl::unordered_dense::detail::table<Key, T, Hash, KeyEqual, Allocator, Bucket, Vector> &map, Pred pred)
     -> size_t {
-    using map_t = ankerl::unordered_dense::detail::table<Key, T, Hash, KeyEqual, AllocatorOrContainer, Bucket, Vector>;
+    using map_t = ankerl::unordered_dense::detail::table<Key, T, Hash, KeyEqual, Allocator, Bucket, Vector>;
 
     // going back to front because erase() invalidates the end iterator
     auto const old_size = map.size();

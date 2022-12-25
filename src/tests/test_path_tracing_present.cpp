@@ -6,11 +6,13 @@
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_COCOA
+
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>
 
-#include <runtime/context.h>
+#include <core/logging.h>
 #include <runtime/device.h>
+#include <runtime/context.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/sugar.h>

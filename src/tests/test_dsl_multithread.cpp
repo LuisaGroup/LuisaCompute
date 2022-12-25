@@ -8,6 +8,7 @@
 #include <thread>
 
 #include <core/clock.h>
+#include <core/logging.h>
 #include <runtime/device.h>
 #include <ast/interface.h>
 #include <dsl/syntax.h>

@@ -21,6 +21,7 @@
 #include <core/stl/hash.h>
 
 namespace luisa::compute {
+
 class MeshFormat;
 struct RasterState;
 class Context;
@@ -32,7 +33,6 @@ class Accel;
 class SwapChain;
 class BinaryIO;
 class BindlessArray;
-class IUtil;
 
 template<typename T>
 class Buffer;
@@ -70,8 +70,6 @@ class DepthBuffer;
 
 namespace detail {
 
-class FunctionBuilder;
-
 template<typename T>
 struct is_dsl_kernel : std::false_type {};
 
@@ -88,6 +86,24 @@ template<typename... Args>
 struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
 }// namespace detail
+
+class DeviceExtension {};
+
+class CPUDeviceExtension : public DeviceExtension {
+public:
+    struct KernelClosure {
+        void (*kernel)(const ShaderDispatchCommand &cmd, void *data);
+        void *data;
+    };
+    // invoke the kernel at current thread
+    // Useful for invoking the kernel with small dispatch size
+    virtual KernelClosure kernel_closure(uint64_t shader, const ShaderDispatchCommand &cmd) noexcept = 0;
+
+    // For cpu backend, async is not always necessary
+    // this functions makes stream operatiions synchronous to minize overhead
+    virtual void stream_no_async(uint64_t stream, bool no_async) noexcept = 0;
+};
+
 class DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {
 
 protected:
@@ -107,6 +123,7 @@ public:
 
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
+    [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
 
     // buffer
     [[nodiscard]] virtual uint64_t create_buffer(size_t size_bytes) noexcept = 0;
@@ -137,12 +154,10 @@ public:
     virtual void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept = 0;
     virtual void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
     virtual void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
-    virtual void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
-    virtual void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
-    virtual void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept = 0;
-    [[nodiscard]] virtual uint64_t create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
-        return ~0ull;
-    }
+    virtual void remove_buffer_from_bindless_array(uint64_t array, size_t index) noexcept = 0;
+    virtual void remove_tex2d_from_bindless_array(uint64_t array, size_t index) noexcept = 0;
+    virtual void remove_tex3d_from_bindless_array(uint64_t array, size_t index) noexcept = 0;
+    [[nodiscard]] virtual uint64_t create_depth_buffer(DepthFormat format, uint width, uint height) noexcept { return ~0ull; }
     virtual void destroy_depth_buffer(uint64_t handle) noexcept {}
 
     // stream
@@ -167,6 +182,9 @@ public:
     [[nodiscard]] virtual uint64_t load_shader(luisa::string_view ser_path, luisa::span<Type const *const> types) noexcept = 0;
     virtual void save_shader(Function kernel, luisa::string_view serialization_path) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
+
+    // _ex are experiemental apis
+    [[nodiscard]] virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept;
 
     // raster kernel  (may not supported by some backends)
     [[nodiscard]] virtual uint64_t create_raster_shader(
@@ -212,18 +230,19 @@ public:
     };
     // accel
     [[nodiscard]] virtual uint64_t create_mesh(
-        AccelUsageHint hint,
-        MeshType type,
+        AccelUsageHint hint, MeshType type,
         bool allow_compact, bool allow_update) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
     [[nodiscard]] virtual uint64_t create_accel(AccelUsageHint hint, bool allow_compact, bool allow_update) noexcept = 0;
     virtual void destroy_accel(uint64_t handle) noexcept = 0;
 
     // query
-    [[nodiscard]] virtual luisa::string query(std::string_view property) noexcept { return {}; }
-    [[nodiscard]] virtual IUtil *get_util() { return nullptr; }
+    [[nodiscard]] virtual luisa::string query(luisa::string_view property) noexcept { return {}; }
+    [[nodiscard]] virtual DeviceExtension *extension(luisa::string_view name) noexcept { return nullptr; }
 };
+
 class LC_RUNTIME_API Device {
+
 public:
     using Deleter = void(DeviceInterface *);
     using Creator = DeviceInterface *(Context && /* context */, DeviceConfig const * /* properties */);
@@ -236,10 +255,9 @@ private:
     [[nodiscard]] auto _create(Args &&...args) noexcept {
         return T{this->_impl.get(), std::forward<Args>(args)...};
     }
-    template<size_t i, typename T>
-    Buffer<T> create_dispatch_buffer(size_t capacity) noexcept;
+
 #ifndef NDEBUG
-    static void CheckNoBinding(detail::FunctionBuilder const *func, luisa::string_view shader_path);
+    static void _check_no_implicit_binding(Function func, luisa::string_view shader_path) noexcept;
 #endif
 
 public:
@@ -248,7 +266,7 @@ public:
     [[nodiscard]] decltype(auto) cache_name(luisa::string_view file_name) const noexcept { return _impl->cache_name(file_name); }
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
-    [[nodiscard]] IUtil *get_util() const noexcept { return _impl->get_util(); }
+    [[nodiscard]] auto extension(luisa::string_view name) const noexcept { return _impl->extension(name); }
 
     [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;// see definition in runtime/stream.cpp
     [[nodiscard]] Event create_event() noexcept;                                           // see definition in runtime/event.cpp
@@ -256,6 +274,9 @@ public:
     [[nodiscard]] SwapChain create_swapchain(
         uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
+
+    template<size_t i, typename T>
+    [[nodiscard]] Buffer<T> create_dispatch_buffer(size_t capacity) noexcept;
 
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(

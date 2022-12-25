@@ -2,10 +2,10 @@
 // Created by Mike Smith on 2021/3/6.
 //
 
+#include <core/stl/hash.h>
 #include <core/spin_mutex.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
-#include <core/stl/hash.h>
 
 namespace luisa::compute {
 
@@ -29,8 +29,9 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
             using T = std::remove_const_t<typename decltype(view)::value_type>;
             auto type = Type::of<T>();
             using namespace std::string_view_literals;
-            auto hash = hash64(type->hash(), hash64("__hash_constant_data"sv));
-            hash = hash64(view.data(), view.size_bytes(), hash);
+            static thread_local auto seed = hash_value("__hash_constant_data"sv);
+            auto hash = hash_value(type->hash(), seed);
+            hash = luisa::hash64(view.data(), view.size_bytes(), hash);
             std::scoped_lock lock{detail::constant_registry_mutex()};
             if (auto iter = std::find_if(
                     detail::constant_registry().cbegin(),

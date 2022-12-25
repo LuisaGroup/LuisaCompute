@@ -4,8 +4,9 @@
 
 #include <thread>
 #include <chrono>
-#include <core/thread_pool.h>
+
 #include <core/logging.h>
+#include <core/thread_pool.h>
 
 using namespace luisa;
 

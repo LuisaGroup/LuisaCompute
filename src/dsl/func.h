@@ -288,13 +288,16 @@ private:
     std::array<const Expression *, max_argument_count> _args{};
     size_t _arg_count{0u};
 
+private:
+    static void _error_too_many_arguments() noexcept;
+
 public:
     CallableInvoke() noexcept = default;
     /// Add an argument.
     template<typename T>
     CallableInvoke &operator<<(Expr<T> arg) noexcept {
         if (_arg_count == max_argument_count) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Too many arguments for callable.");
+            _error_too_many_arguments();
         }
         _args[_arg_count++] = arg.expression();
         return *this;

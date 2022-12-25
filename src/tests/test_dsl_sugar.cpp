@@ -4,6 +4,7 @@
 
 #include <iostream>
 
+#include <core/logging.h>
 #include <runtime/device.h>
 #include <dsl/sugar.h>
 

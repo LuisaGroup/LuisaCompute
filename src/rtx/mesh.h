@@ -3,6 +3,7 @@
 //
 
 #pragma once
+
 #include <runtime/device.h>
 #include <runtime/buffer.h>
 #include <dsl/syntax.h>
@@ -85,6 +86,7 @@ Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, MeshBuildOptio
 }
 
 }// namespace luisa::compute
+
 LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2)
 #ifndef LC_DISABLE_DSL
 {};

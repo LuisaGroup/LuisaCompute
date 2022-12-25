@@ -6,6 +6,7 @@
 #include <iostream>
 
 #include <core/clock.h>
+#include <core/logging.h>
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <runtime/image.h>

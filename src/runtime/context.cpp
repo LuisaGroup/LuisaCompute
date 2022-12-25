@@ -1,6 +1,7 @@
 //
 // Created by Mike Smith on 2021/2/2.
 //
+
 #include <core/dynamic_module.h>
 #include <core/logging.h>
 #include <core/platform.h>
@@ -10,11 +11,13 @@
 #include <core/binary_io.h>
 #include <vstl/pdqsort.h>
 #include <core/stl/filesystem.h>
+
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>
 #endif
 
 namespace luisa::compute {
+
 // Make context global, so dynamic modules cannot be over-loaded
 struct Context::Impl {
     std::filesystem::path runtime_directory;
@@ -111,7 +114,6 @@ Device Context::create_device(std::string_view backend_name_in, DeviceConfig con
                               impl->device_identifiers.cend(),
                               backend_name);
         iter != impl->device_identifiers.cend()) {
-        index = iter - impl->device_identifiers.cbegin();
         creator = impl->device_creators[index];
         deleter = impl->device_deleters[index];
     } else {
@@ -129,19 +131,14 @@ Device Context::create_device(std::string_view backend_name_in, DeviceConfig con
 #endif
         creator = m.function<Device::Creator>("create");
         deleter = m.function<Device::Deleter>("destroy");
-        index = impl->device_identifiers.size();
-        impl->device_identifiers.emplace_back(backend_name);
         impl->device_creators.emplace_back(creator);
         impl->device_deleters.emplace_back(deleter);
     }
-    return Device{Device::Handle{creator(Context(_impl, index), settings), deleter}};
+    return Device{Device::Handle{creator(Context{_impl}, settings), deleter}};
 }
 
-Context::Context(
-    luisa::shared_ptr<Impl> const &impl,
-    size_t index)
-    : _impl(impl),
-      _index(index) {}
+Context::Context(luisa::shared_ptr<Impl> impl) noexcept
+    : _impl{std::move(impl)} {}
 
 Context::~Context() noexcept {
     if (_impl != nullptr) {
@@ -169,15 +166,5 @@ BinaryIO *Context::get_fileio_visitor() const noexcept {
 void Context::set_fileio_visitor(BinaryIO *file_io) noexcept {
     _impl->file_io = file_io;
 }
-#ifndef NDEBUG
-void Device::CheckNoBinding(detail::FunctionBuilder const *func, luisa::string_view shader_path) {
-    for (auto &&bind : func->argument_bindings()) {
-        if (bind.index() != 0) {
-            luisa::string debugStr(shader_path);
-            LUISA_ERROR("Kernel {} with resource bindings cannot be saved!", debugStr.c_str());
-            return;
-        }
-    }
-}
-#endif
+
 }// namespace luisa::compute

@@ -79,6 +79,7 @@ public:
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
 #endif
 };
+
 #ifndef LC_DISABLE_DSL
 template<>
 struct LC_RUNTIME_API Expr<Accel> {
@@ -115,4 +116,5 @@ struct Var<Accel> : public Expr<Accel> {
 
 using AccelVar = Var<Accel>;
 #endif
+
 }// namespace luisa::compute

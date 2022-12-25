@@ -23,7 +23,7 @@ luisa_compute_add_executable(test_sampler test_sampler.cpp)
 luisa_compute_add_executable(test_bindless_buffer test_bindless_buffer.cpp)
 luisa_compute_add_executable(test_rtx test_rtx.cpp)
 luisa_compute_add_executable(test_ispc_101 test_ispc_101.cpp)
-luisa_compute_add_executable(test_command_reorder test_command_reorder.cpp)
+#luisa_compute_add_executable(test_command_reorder test_command_reorder.cpp)
 luisa_compute_add_executable(test_thread_pool test_thread_pool.cpp)
 luisa_compute_add_executable(test_sdf_renderer test_sdf_renderer.cpp)
 

@@ -1,7 +1,9 @@
 #pragma once
+
 #include <rtx/hit.h>
 #include <ast/function_builder.h>
 #include <core/stl/functional.h>
+
 namespace luisa::compute {
 class RayQuery;
 template<>
@@ -23,8 +25,10 @@ public:
     Var<Hit> proceed(const Callback &triangle_callback, const Callback &prim_callback) noexcept;
 #endif
 };
+
 #ifndef LC_DISABLE_DSL
 LC_RUNTIME_API void commit_triangle() noexcept;
 LC_RUNTIME_API void commit_primitive(Expr<float> distance) noexcept;
 #endif
+
 }// namespace luisa::compute

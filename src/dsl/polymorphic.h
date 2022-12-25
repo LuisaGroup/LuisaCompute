@@ -11,6 +11,14 @@
 
 namespace luisa::compute {
 
+namespace detail {
+void polymorphic_warning_no_implementation_registered() noexcept;
+void polymorphic_warning_empty_tag_range(uint lo, uint hi) noexcept;
+void polymorphic_warning_empty_tag_group() noexcept;
+void polymorphic_error_unordered_tag_range(uint lo, uint hi) noexcept;
+void polymorphic_error_overflowed_tag_range(uint lo, uint hi, uint tag_count) noexcept;
+}// namespace detail
+
 template<typename T>
 class Polymorphic {
 
@@ -39,7 +47,7 @@ public:
         requires is_integral_expr_v<Tag>
     void dispatch(Tag &&tag, const luisa::function<void(const T *)> &f) const noexcept {
         if (empty()) [[unlikely]] {
-            LUISA_WARNING_WITH_LOCATION("No implementations registered.");
+            detail::polymorphic_warning_no_implementation_registered();
         }
         if (_impl.size() == 1u) {
             f(impl(0u));
@@ -57,7 +65,7 @@ public:
         requires is_integral_expr_v<Tag>
     void dispatch_range(Tag &&tag, uint lo, uint hi,
                         const luisa::function<void(const T *)> &f) const noexcept {
-        LUISA_ASSERT(lo < hi, "Invalid polymorphic tag range [{}, {}).", lo, hi);
+        if (lo < hi) { detail::polymorphic_error_unordered_tag_range(lo, hi); }
         if (hi > _impl.size()) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Out-of-bound polymorphic tag range [{}, {}). "
@@ -66,7 +74,7 @@ public:
             hi = _impl.size();
         }
         if (hi == lo) [[unlikely]] {
-            LUISA_WARNING_WITH_LOCATION("No implementations registered.");
+            detail::polymorphic_warning_empty_tag_range(lo, hi);
         }
         if (hi == lo + 1u) {// only one implementation
             f(impl(lo));
@@ -99,7 +107,7 @@ public:
         std::sort(tags.begin(), tags.end());
         tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
         if (tags.empty()) [[unlikely]] {
-            LUISA_WARNING_WITH_LOCATION("No implementations registered.");
+            detail::polymorphic_warning_empty_tag_group();
         }
         LUISA_ASSERT(group.size() > 0, "Empty polymorphic tag group.");
         if (tags.size() == 1u) {

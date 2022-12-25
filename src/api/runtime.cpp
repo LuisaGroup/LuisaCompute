@@ -45,13 +45,13 @@ struct RC {
 namespace luisa::compute {
 
 struct BufferResource final : public Resource {
-    BufferResource(Device::Interface *device, size_t size_bytes) noexcept
+    BufferResource(DeviceInterface *device, size_t size_bytes) noexcept
         : Resource{device, Tag::BUFFER, device->create_buffer(size_bytes)} {}
 };
 
 struct TextureResource final : public Resource {
     TextureResource(
-        Device::Interface *device,
+        DeviceInterface *device,
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels) noexcept
@@ -59,7 +59,7 @@ struct TextureResource final : public Resource {
 };
 
 struct ShaderResource : public Resource {
-    ShaderResource(Device::Interface *device, Function f, luisa::string_view opts) noexcept
+    ShaderResource(DeviceInterface *device, Function f, luisa::string_view opts) noexcept
         : Resource{device, Tag::SHADER, device->create_shader(f, opts)} {}
 };
 
@@ -69,7 +69,9 @@ struct ShaderResource : public Resource {
 
 using namespace luisa;
 using namespace luisa::compute;
+
 namespace luisa::compute::detail {
+
 class CommandListConverter {
     LCCommandList _list;
     bool _is_c_api;
@@ -82,8 +84,8 @@ public:
         : _list(list), _is_c_api(is_c_api) {
         convert();
     }
-    const CommandList &converted() {
-        return _converted.value();
+    [[nodiscard]] CommandList converted() &&noexcept {
+        return std::move(_converted.value());
     }
     static const LCCommandList *get(const CommandList &list) {
         if (list._c_list.has_value()) {
@@ -92,6 +94,7 @@ public:
         return nullptr;
     }
 };
+
 }// namespace luisa::compute::detail
 
 template<class T>
@@ -100,8 +103,7 @@ T from_ptr(void *ptr) {
         ._0 = reinterpret_cast<uint64_t>(ptr)};
 }
 LUISA_EXPORT_API LCContext luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT {
-    return from_ptr<LCContext>(
-        new_with_allocator<Context>(std::filesystem::path{exe_path}));
+    return from_ptr<LCContext>(new_with_allocator<Context>(exe_path));
 }
 
 LUISA_EXPORT_API void luisa_compute_context_destroy(LCContext ctx) LUISA_NOEXCEPT {
@@ -118,15 +120,15 @@ inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT { free(cs); }
 
 LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(LCContext ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->runtime_directory());
+    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().runtime_directory());
 }
 
 LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUISA_NOEXCEPT {
-    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->cache_directory());
+    return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().cache_directory());
 }
 
 LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
-    auto device = new Device(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name, properties)));
+    auto device = new Device(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name)));
     return from_ptr<LCDevice>(new_with_allocator<RC<Device>>(
         device, [](Device *d) { delete d; }));
 }
@@ -170,7 +172,7 @@ LUISA_EXPORT_API void luisa_compute_texture_destroy(LCDevice device, LCTexture t
 
 LUISA_EXPORT_API LCStream luisa_compute_stream_create(LCDevice device) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return LCStream{d->retain()->object()->impl()->create_stream(false)};
+    return LCStream{d->retain()->object()->impl()->create_stream(StreamTag::COMPUTE)};
 }
 
 LUISA_EXPORT_API void luisa_compute_stream_destroy(LCDevice device, LCStream stream) LUISA_NOEXCEPT {
@@ -191,7 +193,7 @@ LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream st
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto converter = luisa::compute::detail::CommandListConverter(c_cmd_list, d->object()->impl()->is_c_api());
     auto &cmd_list = converter.converted();
-    d->object()->impl()->dispatch(handle, cmd_list);
+    d->object()->impl()->dispatch(handle, std::move(cmd_list));
 }
 
 LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, const LCKernelModule *function, const char *options) LUISA_NOEXCEPT {
@@ -345,17 +347,17 @@ LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex3d(LCDevice device
 LUISA_EXPORT_API void luisa_compute_bindless_array_remove_buffer(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->remove_buffer_in_bindless_array(handle, index);
+    d->object()->impl()->remove_buffer_from_bindless_array(handle, index);
 }
 LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex2d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->remove_tex2d_in_bindless_array(handle, index);
+    d->object()->impl()->remove_tex2d_from_bindless_array(handle, index);
 }
 LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex3d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->remove_tex3d_in_bindless_array(handle, index);
+    d->object()->impl()->remove_tex3d_from_bindless_array(handle, index);
 }
 
 LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT {
@@ -365,11 +367,12 @@ LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBi
     d->release();
 }
 
-class ExternDevice : public Device::Interface {
+class ExternDevice : public DeviceInterface {
+
     LCDeviceInterface *impl;
 
 public:
-    ExternDevice(LCContext ctx, LCDeviceInterface *impl) : Interface(Context(*(Context *)ctx._0)), impl{impl} {}
+    ExternDevice(LCContext ctx, LCDeviceInterface *impl) : DeviceInterface(Context(*(Context *)ctx._0)), impl{impl} {}
     ~ExternDevice() override {
         impl->dtor(impl);
     }
@@ -418,22 +421,19 @@ public:
     void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override {
         impl->emplace_tex3d_in_bindless_array(impl, array, index, handle, LCSampler{.filter = (LCSamplerFilter)sampler.filter(), .address = (LCSamplerAddress)sampler.address()});
     }
-    bool is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override {
-        return impl->is_resource_in_bindless_array(impl, array, handle);
+    void remove_buffer_from_bindless_array(uint64_t array, size_t index) noexcept override {
+        impl->remove_buffer_from_bindless_array(impl, array, index);
     }
-    void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override {
-        impl->remove_buffer_in_bindless_array(impl, array, index);
+    void remove_tex2d_from_bindless_array(uint64_t array, size_t index) noexcept override {
+        impl->remove_tex2d_from_bindless_array(impl, array, index);
     }
-    void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override {
-        impl->remove_tex2d_in_bindless_array(impl, array, index);
-    }
-    void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override {
-        impl->remove_tex3d_in_bindless_array(impl, array, index);
+    void remove_tex3d_from_bindless_array(uint64_t array, size_t index) noexcept override {
+        impl->remove_tex3d_from_bindless_array(impl, array, index);
     }
 
     // stream
-    [[nodiscard]] uint64_t create_stream(bool for_present) noexcept override {
-        return impl->create_stream(impl, for_present);
+    [[nodiscard]] uint64_t create_stream(StreamTag tag) noexcept override {
+        return impl->create_stream(impl, tag);
     }
     void destroy_stream(uint64_t handle) noexcept override {
         impl->destroy_stream(impl, handle);

@@ -55,17 +55,17 @@ void BindlessArray::_emplace_tex3d(size_t index, uint64_t handle, Sampler sample
 }
 
 BindlessArray &BindlessArray::remove_buffer(size_t index) noexcept {
-    device()->remove_buffer_in_bindless_array(handle(), index);
+    device()->remove_buffer_from_bindless_array(handle(), index);
     return *this;
 }
 
 BindlessArray &BindlessArray::remove_tex2d(size_t index) noexcept {
-    device()->remove_tex2d_in_bindless_array(handle(), index);
+    device()->remove_tex2d_from_bindless_array(handle(), index);
     return *this;
 }
 
 BindlessArray &BindlessArray::remove_tex3d(size_t index) noexcept {
-    device()->remove_tex3d_in_bindless_array(handle(), index);
+    device()->remove_tex3d_from_bindless_array(handle(), index);
     return *this;
 }
 

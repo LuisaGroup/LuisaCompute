@@ -9,6 +9,8 @@
 #import <GLFW/glfw3.h>
 #import <GLFW/glfw3native.h>
 
+#include <core/clock.h>
+#include <core/logging.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>

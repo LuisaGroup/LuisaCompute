@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <dsl/var.h>
 #include <dsl/operators.h>
 
@@ -199,10 +200,7 @@ public:
 
         /// Construct range and condition for for statement
         [[nodiscard]] auto operator*() noexcept {
-            if (_time != 0u) [[unlikely]] {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Invalid RangeForIter state (with _time = {}).", _time);
-            }
+            assert(_time == 0u && "Can only call operator* once");
             auto f = FunctionBuilder::current();
             Var var{_begin};
             _var = var.expression();
@@ -395,7 +393,7 @@ inline void match(std::initializer_list<T> tags, Tag &&tag, IndexedCase &&indexe
     match(tags, std::forward<Tag>(tag), std::forward<IndexedCase>(indexed_case), [] {});
 }
 
-/// Add comment 
+/// Add comment
 template<typename S>
 inline void comment(S &&s) noexcept {
     detail::FunctionBuilder::current()->comment_(luisa::string{std::forward<S>(s)});
