@@ -9,6 +9,22 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+template<typename T>
+void apply_default_initializer(Ref<T> var) noexcept {
+    if constexpr (luisa::is_basic_v<T>) {
+        dsl::assign(var, T{});
+    } else {
+        auto impl = [&var]<size_t... i>(std::index_sequence<i...>) noexcept {
+            (apply_default_initializer(detail::Ref{var.template get<i>()}), ...);
+        };
+        impl(std::make_index_sequence<std::tuple_size_v<struct_member_tuple_t<T>>>{});
+    }
+}
+
+}// namespace detail
+
 /// Class of variable
 template<typename T>
 struct Var : public detail::Ref<T> {
@@ -22,14 +38,15 @@ struct Var : public detail::Ref<T> {
     // for local variables of basic or array types
     /// Construct a local variable of basic or array types
     Var() noexcept
-        : detail::Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {}
+        : detail::Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {
+        detail::apply_default_initializer(detail::Ref{*this});
+    }
 
     /// Assign from arg.
     template<typename Arg>
         requires concepts::different<std::remove_cvref_t<Arg>, Var<T>> &&
-            std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>>
-            Var(Arg &&arg)
-    noexcept : Var{} {
+                 std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>>
+    Var(Arg &&arg) noexcept : Var{} {
         dsl::assign(*this, std::forward<Arg>(arg));
     }
 
