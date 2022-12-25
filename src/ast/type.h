@@ -301,6 +301,29 @@ public:
     /// Return Type object of type T
     template<typename T>
     [[nodiscard]] static auto of(T &&) noexcept { return of<std::remove_cvref_t<T>>(); }
+    /// Return array type of type T
+    [[nodiscard]] static const Type *array(const Type *elem, size_t n) noexcept;
+    /// Return vector type of type T
+    [[nodiscard]] static const Type *vector(const Type *elem, size_t n) noexcept;
+    /// Return matrix type of type T
+    [[nodiscard]] static const Type *matrix(size_t n) noexcept;
+    /// Return struct type of type T
+    [[nodiscard]] static const Type *structure(std::initializer_list<const Type *> members) noexcept;
+    /// Return struct type of type T
+    [[nodiscard]] static const Type *structure(size_t alignment, std::initializer_list<const Type *> members) noexcept;
+
+    template<typename... T>
+        requires std::conjunction_v<std::is_convertible<T, const Type *const>...>
+    [[nodiscard]] static const Type *structure(size_t alignment, T &&...members) noexcept {
+        return structure(alignment, {std::forward<T>(members)...});
+    }
+
+    template<typename... T>
+        requires std::conjunction_v<std::is_convertible<T, const Type *const>...>
+    [[nodiscard]] static const Type *structure(T &&...members) noexcept {
+        return structure({std::forward<T>(members)...});
+    }
+
     /// Construct Type object from description
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
     /// Construct Type object from hash

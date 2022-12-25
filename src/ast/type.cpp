@@ -2,9 +2,9 @@
 // Created by Mike Smith on 2021/2/6.
 //
 
-#include <bit>
 #include <utility>
 
+#include <core/logging.h>
 #include <ast/type.h>
 #include <ast/type_registry.h>
 
@@ -78,5 +78,38 @@ bool Type::is_texture() const noexcept { return _tag == Tag::TEXTURE; }
 bool Type::is_bindless_array() const noexcept { return _tag == Tag::BINDLESS_ARRAY; }
 bool Type::is_accel() const noexcept { return _tag == Tag::ACCEL; }
 bool Type::is_custom() const noexcept { return _tag == Tag::CUSTOM; }
+
+const Type *Type::array(const Type *elem, size_t n) noexcept {
+    return from(luisa::format("array<{},{}>", elem->description(), n));
+}
+
+const Type *Type::vector(const Type *elem, size_t n) noexcept {
+    LUISA_ASSERT(n >= 2 && n <= 4, "Invalid vector dimension.");
+    LUISA_ASSERT(elem->is_scalar(), "Vector element must be a scalar.");
+    return from(luisa::format("vector<{},{}>", elem->description(), n));
+}
+
+const Type *Type::matrix(size_t n) noexcept {
+    LUISA_ASSERT(n >= 2 && n <= 4, "Invalid matrix dimension.");
+    return from(luisa::format("matrix<{}>", n));
+}
+
+const Type *Type::structure(size_t alignment, std::initializer_list<const Type *> members) noexcept {
+    LUISA_ASSERT(alignment == 4u || alignment == 8u || alignment == 16u,
+                 "Invalid structure alignment {} (must be 4, 8, or 16).",
+                 alignment);
+    auto desc = luisa::format("struct<{}", alignment);
+    for (auto member : members) {
+        desc.append(",").append(member->description());
+    }
+    desc.append(">");
+    return from(desc);
+}
+
+const Type *Type::structure(std::initializer_list<const Type *> members) noexcept {
+    auto alignment = 4u;
+    for (auto m : members) { alignment = std::max<size_t>(m->alignment(), alignment); }
+    return structure(alignment, members);
+}
 
 }// namespace luisa::compute

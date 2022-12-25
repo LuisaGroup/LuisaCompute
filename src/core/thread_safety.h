@@ -5,6 +5,7 @@
 #pragma once
 
 #include <mutex>
+#include <functional>
 
 namespace luisa {
 

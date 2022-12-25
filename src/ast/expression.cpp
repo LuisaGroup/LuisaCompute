@@ -21,9 +21,11 @@ uint64_t Expression::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
         static auto seed = hash_value("__hash_expression"sv);
-        std::array a{static_cast<uint64_t>(_tag), _compute_hash(), 0ull};
-        if (_type != nullptr) { a.back() = _type->hash(); }
-        _hash = hash64(&a, sizeof(a), seed);
+        _hash = hash_combine(
+            {static_cast<uint64_t>(_tag),
+             _compute_hash(),
+             _type ? _type->hash() : 0ull},
+            seed);
         _hash_computed = true;
     }
     return _hash;
@@ -104,25 +106,23 @@ CallExpr::CallExpr(const Type *type, CallOp builtin, CallExpr::ArgumentList args
 Function CallExpr::custom() const noexcept { return Function{_custom}; }
 
 uint64_t UnaryExpr::_compute_hash() const noexcept {
-    std::array a{static_cast<uint64_t>(_op), _operand->hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({static_cast<uint64_t>(_op), _operand->hash()});
 }
 
 uint64_t BinaryExpr::_compute_hash() const noexcept {
-    auto hl = _lhs->hash();
-    auto hr = _rhs->hash();
-    std::array a{static_cast<uint64_t>(_op), hl, hr};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({static_cast<uint64_t>(_op),
+                         _lhs->hash(),
+                         _rhs->hash()});
 }
 
 uint64_t AccessExpr::_compute_hash() const noexcept {
-    std::array a{_index->hash(), _range->hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({_index->hash(), _range->hash()});
 }
 
 uint64_t MemberExpr::_compute_hash() const noexcept {
-    std::array a{(static_cast<uint64_t>(_swizzle_size) << 32u) | _swizzle_code, _self->hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({(static_cast<uint64_t>(_swizzle_size) << 32u) |
+                             _swizzle_code,
+                         _self->hash()});
 }
 
 MemberExpr::MemberExpr(const Type *type,
@@ -167,8 +167,8 @@ uint MemberExpr::member_index() const noexcept {
 }
 
 uint64_t CastExpr::_compute_hash() const noexcept {
-    std::array a{static_cast<uint64_t>(_op), _source->hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({static_cast<uint64_t>(_op),
+                         _source->hash()});
 }
 
 uint64_t LiteralExpr::_compute_hash() const noexcept {

@@ -13,7 +13,7 @@ void BinaryBuffer::_write_bytes(const void *data, size_t size, size_t alignment)
     _bytes.reserve(required_capacity);
     auto ptr = _bytes.data() + offset;
     _bytes.resize(size_after_write);
-    std::memcpy(ptr, data, size);
+    memcpy(ptr, data, size);
 }
 
 }// namespace luisa

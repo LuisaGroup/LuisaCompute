@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <core/stl/optional.h>
 #include <core/platform.h>
 #include <core/concepts.h>

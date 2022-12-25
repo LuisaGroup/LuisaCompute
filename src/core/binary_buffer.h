@@ -66,7 +66,7 @@ public:
         assert(_offset + size <= _size);
         auto ptr = _bytes + _offset;
         _offset += size;
-        std::memcpy(dst, ptr, size);
+        memcpy(dst, ptr, size);
     }
 };
 

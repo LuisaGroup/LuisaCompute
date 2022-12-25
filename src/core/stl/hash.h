@@ -41,10 +41,14 @@ template<typename T>
     return hash<std::remove_cvref_t<T>>{}(std::forward<T>(value), seed);
 }
 
-template<size_t N>
-[[nodiscard]] inline uint64_t hash_combine(const std::array<uint64_t, N> &values,
+[[nodiscard]] inline uint64_t hash_combine(std::initializer_list<uint64_t> values,
                                            uint64_t seed = hash64_default_seed) noexcept {
-    return luisa::hash64(&values, sizeof(values), seed);
+    return luisa::hash64(std::data(values), std::size(values) * sizeof(uint64_t), seed);
+}
+
+[[nodiscard]] inline uint64_t hash_combine(luisa::span<const uint64_t> values,
+                                           uint64_t seed = hash64_default_seed) noexcept {
+    return luisa::hash64(values.data(), values.size_bytes(), seed);
 }
 
 class LC_CORE_API Hash128 {

@@ -11,34 +11,31 @@ namespace luisa::compute {
 uint64_t Function::BufferBinding::hash() const noexcept {
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_buffer_binding"sv);
-    std::array a{handle, static_cast<uint64_t>(offset_bytes)};
-    return hash64(&a, sizeof(a), seed);
+    return hash_combine({handle, static_cast<uint64_t>(offset_bytes)}, seed);
 }
 
 uint64_t Function::TextureBinding::hash() const noexcept {
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_texture_binding"sv);
-    std::array a{handle, static_cast<uint64_t>(level)};
-    return hash64(&a, sizeof(a), seed);
+    return hash_combine({handle, static_cast<uint64_t>(level)}, seed);
 }
 
 uint64_t Function::AccelBinding::hash() const noexcept {
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_accel_binding"sv);
-    return hash64(&handle, sizeof(handle), seed);
+    return hash_value(handle, seed);
 }
 
 uint64_t Function::BindlessArrayBinding::hash() const noexcept {
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_bindless_array_binding"sv);
-    return hash64(&handle, sizeof(handle), seed);
+    return hash_value(handle, seed);
 }
 
 uint64_t Function::Constant::hash() const noexcept {
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_constant_binding"sv);
-    std::array a{type->hash(), data.hash()};
-    return hash64(&a, sizeof(a), seed);
+    return hash_combine({type->hash(), data.hash()}, seed);
 }
 
 luisa::span<const Variable> Function::builtin_variables() const noexcept {

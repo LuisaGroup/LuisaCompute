@@ -9,6 +9,10 @@
 
 namespace luisa::compute {
 
+namespace detail {
+void local_array_error_sizes_missmatch(size_t lhs, size_t rhs) noexcept;
+}
+
 template<typename T>
 class Local {
 
@@ -19,7 +23,7 @@ private:
 public:
     explicit Local(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->local(
-              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))},
+              Type::array(Type::of<T>(), n))},
           _size{n} {}
 
     template<typename U>
@@ -36,10 +40,9 @@ public:
     }
     Local &operator=(const Local &rhs) noexcept {
         if (&rhs != this) [[likely]] {
-            LUISA_ASSERT(
-                _size == rhs._size,
-                "Incompatible sizes ({} and {}).",
-                _size, rhs._size);
+            if (_size != rhs._size) [[unlikely]] {
+                detail::local_array_error_sizes_missmatch(_size, rhs._size);
+            }
             detail::FunctionBuilder::current()->assign(
                 _expression, rhs._expression);
         }
@@ -53,7 +56,9 @@ public:
     template<typename U>
     requires is_array_expr_v<U> Local &operator=(U &&rhs) noexcept {
         constexpr auto n = array_expr_dimension_v<U>;
-        LUISA_ASSERT(_size == n, "Incompatible sizes ({} and {}).", _size, n);
+        if (_size != n) [[unlikely]] {
+            detail::local_array_error_sizes_missmatch(_size, n);
+        }
         detail::FunctionBuilder::current()->assign(
             _expression, rhs._expression);
         return *this;

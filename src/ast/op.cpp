@@ -87,12 +87,9 @@ TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexc
                      lhs->description(), rhs->description());
         auto prom = promote_types(op, lhs->element(), rhs->element());
         auto dim = std::max(lhs->dimension(), rhs->dimension());
-        return {.lhs = Type::from(luisa::format(
-                    "vector<{},{}>", prom.lhs->description(), dim)),
-                .rhs = Type::from(luisa::format(
-                    "vector<{},{}>", prom.rhs->description(), dim)),
-                .result = Type::from(luisa::format(
-                    "vector<{},{}>", prom.result->description(), dim))};
+        return {.lhs = Type::vector(prom.lhs, dim),
+                .rhs = Type::vector(prom.rhs, dim),
+                .result = Type::vector(prom.result, dim)};
     }
     if ((lhs->is_matrix() && rhs->is_vector()) ||
         (lhs->is_vector() && rhs->is_matrix())) {

@@ -6,7 +6,7 @@ set(LUISA_COMPUTE_DSL_SOURCES
         expr.cpp expr.h
         expr_traits.h
         func.cpp func.h
-        local.h
+        local.cpp local.h
         operators.h
         polymorphic.cpp polymorphic.h
         printer.cpp printer.h

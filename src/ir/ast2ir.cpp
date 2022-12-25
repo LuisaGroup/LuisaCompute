@@ -274,8 +274,7 @@ ir::NodeRef AST2IR::_convert_constant(const ConstantData &data) noexcept {
         .generic = luisa::visit(
             [this](auto view) noexcept {
                 using T = typename decltype(view)::value_type;
-                auto type = _convert_type(Type::from(luisa::format(
-                    "array<{},{}>", Type::of<T>()->description(), view.size())));
+                auto type = _convert_type(Type::array(Type::of<T>(), view.size()));
                 auto slice = _boxed_slice<uint8_t>(view.size_bytes());
                 std::memcpy(slice.ptr, view.data(), view.size_bytes());
                 return ir::Const::Generic_Body{slice, type};

@@ -10,8 +10,7 @@ uint64_t Statement::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
         static auto seed = hash_value("__hash_statement"sv);
-        std::array a{static_cast<uint64_t>(_tag), _compute_hash()};
-        _hash = hash64(&a, sizeof(a), seed);
+        _hash = hash_combine({static_cast<uint64_t>(_tag), _compute_hash()}, seed);
         _hash_computed = true;
     }
     return _hash;
@@ -47,13 +46,13 @@ const Statement *ScopeStmt::pop() noexcept {
 uint64_t AssignStmt::_compute_hash() const noexcept {
     auto hl = _lhs->hash();
     auto hr = _rhs->hash();
-    std::array a{hl, hr};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({hl, hr});
 }
 
 uint64_t IfStmt::_compute_hash() const noexcept {
-    std::array a{_condition->hash(), _true_branch.hash(), _false_branch.hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({_condition->hash(),
+                         _true_branch.hash(),
+                         _false_branch.hash()});
 }
 
 uint64_t LoopStmt::_compute_hash() const noexcept {
@@ -65,13 +64,11 @@ uint64_t ExprStmt::_compute_hash() const noexcept {
 }
 
 uint64_t SwitchStmt::_compute_hash() const noexcept {
-    std::array a{_body.hash(), _expr->hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({_body.hash(), _expr->hash()});
 }
 
 uint64_t SwitchCaseStmt::_compute_hash() const noexcept {
-    std::array a{_body.hash(), _expr->hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({_body.hash(), _expr->hash()});
 }
 
 uint64_t SwitchDefaultStmt::_compute_hash() const noexcept {
@@ -79,8 +76,10 @@ uint64_t SwitchDefaultStmt::_compute_hash() const noexcept {
 }
 
 uint64_t ForStmt::_compute_hash() const noexcept {
-    std::array a{_body.hash(), _var->hash(), _cond->hash(), _step->hash()};
-    return hash64(&a, sizeof(a), hash64_default_seed);
+    return hash_combine({_body.hash(),
+                         _var->hash(),
+                         _cond->hash(),
+                         _step->hash()});
 }
 
 uint64_t CommentStmt::_compute_hash() const noexcept {

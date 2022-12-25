@@ -28,7 +28,7 @@ public:
     /// Create a shared array of size n
     explicit Shared(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->shared(
-              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))},
+              Type::array(Type::of<T>(), n))},
           _size{n} {}
 
     Shared(Shared &&) noexcept = default;
