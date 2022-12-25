@@ -13,11 +13,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(LuisaCompute LANGUAGES C CXX VERSION 0.3.1)
 
-option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
-option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
-option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
+option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" OFF)
+option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" OFF)
+option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" OFF)
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
-option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" ON)
+option(LUISA_COMPUTE_ENABLE_LLVM "Enable LLVM backend" OFF)
 
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
