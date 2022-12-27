@@ -126,15 +126,15 @@ void LCDevice::emplace_tex3d_in_bindless_array(uint64 array, size_t index, uint6
 bool LCDevice::is_resource_in_bindless_array(uint64 array, uint64 handle) const noexcept {
 
 }*/
-void LCDevice::remove_buffer_in_bindless_array(uint64 array, size_t index) noexcept {
+void LCDevice::remove_buffer_from_bindless_array(uint64 array, size_t index) noexcept {
     reinterpret_cast<BindlessArray *>(array)
         ->UnBind(BindlessArray::BindTag::Buffer, index);
 }
-void LCDevice::remove_tex2d_in_bindless_array(uint64 array, size_t index) noexcept {
+void LCDevice::remove_tex2d_from_bindless_array(uint64 array, size_t index) noexcept {
     reinterpret_cast<BindlessArray *>(array)
         ->UnBind(BindlessArray::BindTag::Tex2D, index);
 }
-void LCDevice::remove_tex3d_in_bindless_array(uint64 array, size_t index) noexcept {
+void LCDevice::remove_tex3d_from_bindless_array(uint64 array, size_t index) noexcept {
     reinterpret_cast<BindlessArray *>(array)
         ->UnBind(BindlessArray::BindTag::Tex3D, index);
 }

@@ -3,7 +3,7 @@
 namespace toolhub::directx {
 struct SamplerHash{
     size_t operator()(Sampler const& s) const {
-        return luisa::hash64(&s, sizeof(Sampler), luisa::Hash64::default_seed);
+        return luisa::hash64(&s, sizeof(Sampler), luisa::hash64_default_seed);
     }
 };
 struct GlobalSampleData {

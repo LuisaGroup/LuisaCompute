@@ -789,13 +789,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                 str << "Mat";
             }
         } break;
-        case CallOp::TRACE_CLOSEST:
+        case CallOp::RAY_TRACING_TRACE_CLOSEST:
             str << "TraceClosest"sv;
             break;
-        case CallOp::TRACE_ANY:
+        case CallOp::RAY_TRACING_TRACE_ANY:
             str << "TraceAny"sv;
             break;
-        case CallOp::TRACE_ALL:
+        case CallOp::RAY_TRACING_TRACE_ALL:
             str << "TraceAll"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
@@ -872,11 +872,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::SYNCHRONIZE_BLOCK:
             str << "GroupMemoryBarrierWithGroupSync()"sv;
             return;
-        case CallOp::DISCARD:
+        case CallOp::RASTER_DISCARD:
             assert(opt->funcType == CodegenStackData::FuncType::Pixel);
             str << "discard";
             return;
-        case CallOp::INSTANCE_TO_WORLD_MATRIX: {
+        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: {
             str << "InstMatrix("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
@@ -884,7 +884,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
-        case CallOp::SET_INSTANCE_TRANSFORM: {
+        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: {
             str << "SetAccelTransform("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
@@ -892,7 +892,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
-        case CallOp::SET_INSTANCE_VISIBILITY: {
+        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: {
             str << "SetAccelVis("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
@@ -900,7 +900,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
-        case CallOp::SET_INSTANCE_OPAQUE: {
+        case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
             str << "SetAccelOpaque("sv;
             args[0]->accept(vis);
             str << "Inst,"sv;
@@ -908,10 +908,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << ')';
             return;
         }
-        case CallOp::CLEAR_DISPATCH_INDIRECT_BUFFER:
+        case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER:
             str << "ClearDispInd"sv;
             break;
-        case CallOp::EMPLACE_DISPATCH_INDIRECT_KERNEL: {
+        case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: {
             assert(!opt->isRaster);
             auto tp = args[1]->type();
             if (tp->is_scalar()) {
@@ -922,34 +922,34 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
                 str << "EmplaceDispInd3D"sv;
             }
         } break;
-        case CallOp::QUERY_PROCEED:
+        case CallOp::RAY_QUERY_PROCEED:
             args[0]->accept(vis);
             str << ".Proceed()"sv;
             return;
-        case CallOp::IS_QUERY_CANDIDATE_TRIANGLE:
+        case CallOp::RAY_QUERY_IS_CANDIDATE_TRIANGLE:
             args[0]->accept(vis);
             str << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE"sv;
             return;
-        case CallOp::GET_TRIANGLE_CANDIDATE_HIT:
+        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
             str << "GetTriangleCandidateHit"sv;
             break;
-        case CallOp::GET_PROCEDURAL_CANDIDATE_HIT:
+        case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT:
             str << "GetProceduralCandidateHit"sv;
             break;
-        case CallOp::GET_COMMITED_HIT:
+        case CallOp::RAY_QUERY_COMMITTED_HIT:
             str << "GetCommitedHit"sv;
             break;
-        case CallOp::COMMIT_TRIANGLE:
+        case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
             args[0]->accept(vis);
             str << ".CommitNonOpaqueTriangleHit()"sv;
             return;
-        case CallOp::COMMIT_PROCEDURAL:
+        case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
             args[0]->accept(vis);
             str << ".CommitProceduralPrimitiveHit("sv;
             args[1]->accept(vis);
             str << ')';
             return;
-        case CallOp::SET_AABB:
+        case CallOp::RAY_TRACING_SET_INSTANCE_AABB:
             str << "SetAABB"sv;
             break;
         default: {

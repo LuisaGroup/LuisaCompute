@@ -5,12 +5,12 @@
 #include <Api/LCCmdBuffer.h>
 #include <runtime/stream.h>
 namespace toolhub::directx {
-IUtil *LCDevice::get_util() noexcept {
-    if (!util) {
-        util = vstd::create_unique(new LCUtil(&nativeDevice));
-    }
-    return util.get();
-}
+// IUtil *LCDevice::get_util() noexcept {
+//     if (!util) {
+//         util = vstd::create_unique(new LCUtil(&nativeDevice));
+//     }
+//     return util.get();
+// }
 LCUtil::LCUtil(Device *device)
     : device(device) {
 }
