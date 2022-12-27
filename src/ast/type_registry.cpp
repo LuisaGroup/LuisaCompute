@@ -5,6 +5,7 @@
 #include <bit>
 #include <charconv>
 
+#include <core/pool.h>
 #include <core/stl/format.h>
 #include <core/stl/hash.h>
 #include <core/stl/unordered_map.h>
@@ -20,6 +21,7 @@ LC_AST_API luisa::string make_array_description(luisa::string_view elem, size_t 
 LC_AST_API luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept {
     auto desc = luisa::format("struct<{}", alignment);
     for (auto m : members) { desc.append(",").append(m); }
+    desc.append(">");
     return desc;
 }
 
@@ -28,26 +30,40 @@ LC_AST_API luisa::string make_buffer_description(luisa::string_view elem) noexce
 }
 
 struct TypeRegistryImpl {
+    struct TypeDescription {
+        string_view desc;
+        uint64_t hash;
+    };
 
     struct TypePtrHash {
         using is_avalanching = void;
         using is_transparent = void;
         [[nodiscard]] uint64_t operator()(const Type *type) const noexcept { return type->hash(); }
-        [[nodiscard]] uint64_t operator()(uint64_t hash) const noexcept { return hash; }
+        [[nodiscard]] uint64_t operator()(TypeDescription const &desc) const noexcept { return desc.hash; }
     };
 
     struct TypePtrEqual {
         using is_avalanching = void;
         using is_transparent = void;
-        template<typename Lhs, typename Rhs>
-        [[nodiscard]] bool operator()(Lhs &&lhs, Rhs &&rhs) const noexcept {
-            constexpr TypePtrHash hash;
-            return hash(std::forward<Lhs>(lhs)) == hash(std::forward<Rhs>(rhs));
+        [[nodiscard]] bool operator()(Type const *lhs, Type const *rhs) const noexcept {
+            return lhs == rhs;
         }
+        [[nodiscard]] bool operator()(Type const *lhs, TypeDescription const &rhs) const noexcept {
+            return lhs->description() == rhs.desc;
+        };
+        [[nodiscard]] bool operator()(TypeDescription const &lhs, Type const *rhs) const noexcept {
+            return lhs.desc == rhs->description();
+        };
     };
 
-    luisa::vector<luisa::unique_ptr<Type>> types;
-    luisa::unordered_set<const Type *, TypePtrHash, TypePtrEqual> type_set;
+    luisa::Pool<std::aligned_storage_t<sizeof(Type), alignof(Type)>, false> type_pool;
+    luisa::vector<Type *> types;
+    ~TypeRegistryImpl() {
+        for (auto i : types) {
+            i->~Type();
+        }
+    }
+    luisa::unordered_set<Type *, TypePtrHash, TypePtrEqual> type_set;
     mutable std::recursive_mutex mutex;
 
     [[nodiscard]] static auto &instance() noexcept {
@@ -56,7 +72,6 @@ struct TypeRegistryImpl {
     }
 
     [[nodiscard]] const Type *decode(luisa::string_view desc) noexcept {
-
         // TYPE := BASIC | ARRAY | VECTOR | MATRIX | STRUCT
         // BASIC := int | uint | bool | float
         // ARRAY := array<BASIC,N>
@@ -76,14 +91,15 @@ struct TypeRegistryImpl {
         };
 
         auto hash = compute_hash(desc);
-        if (auto iter = type_set.find(hash); iter != type_set.cend()) {
+        TypeDescription type_desc{desc, hash};
+        if (auto iter = type_set.find(type_desc); iter != type_set.cend()) {
             return *iter;
         }
 
         using namespace std::string_view_literals;
         auto read_identifier = [&desc]() noexcept {
             auto i = 0u;
-            for (; i < desc.size() && (isalpha(desc[i]) || desc[i] == '_'); i++) {}
+            for (; i < desc.size() && (isalpha(desc[i]) || isdigit(desc[i]) || desc[i] == '_'); i++) {}
             auto t = desc.substr(0u, i);
             desc = desc.substr(i);
             return t;
@@ -137,7 +153,8 @@ struct TypeRegistryImpl {
             return t;
         };
 
-        auto info = luisa::make_unique<Type>();
+        auto info = reinterpret_cast<Type *>(type_pool.create());
+        new (info) Type{};
         info->_description = desc;
         info->_hash = hash;
 
@@ -180,7 +197,7 @@ struct TypeRegistryImpl {
             match('<');
             info->_dimension = read_number();
             match('>');
-            info->_members.emplace_back(Type::of<float>());
+            info->_members.emplace_back(decode("float"sv));
             if (info->_dimension == 2) {
                 info->_size = sizeof(float2x2);
                 info->_alignment = alignof(float2x2);
@@ -275,9 +292,13 @@ struct TypeRegistryImpl {
             info->_size = 8u;
             info->_alignment = 8u;
         } else [[unlikely]] {
+            info->_tag = Type::Tag::CUSTOM;
+            info->_size = custom_struct_size;
+            info->_alignment = custom_struct_align;
+            /*
             LUISA_ERROR_WITH_LOCATION(
                 "Unknown type identifier: {}.",
-                type_identifier);
+                type_identifier);*/
         }
         if (!desc.empty()) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
@@ -286,9 +307,8 @@ struct TypeRegistryImpl {
         }
 
         info->_index = static_cast<uint32_t>(types.size());
-        auto [iter, not_present_before] = type_set.emplace(info.get());
-        if (not_present_before) [[likely]] { types.emplace_back(std::move(info)); }
-        return *iter;
+        if (type_set.emplace(info).second) [[likely]] { types.emplace_back(std::move(info)); }
+        return info;
     }
 };
 
@@ -298,25 +318,17 @@ TypeRegistry &TypeRegistry::instance() noexcept {
 }
 
 const Type *TypeRegistry::type_from(luisa::string_view desc) noexcept {
+    using namespace std::literals;
+    if (desc == "void"sv) { return nullptr; }
     std::unique_lock lock{TypeRegistryImpl::instance().mutex};
-    if (desc == "void") { return nullptr; }
     return TypeRegistryImpl::instance().decode(desc);
-}
-
-const Type *TypeRegistry::type_from(uint64_t hash) noexcept {
-    std::unique_lock lock{TypeRegistryImpl::instance().mutex};
-    auto iter = TypeRegistryImpl::instance().type_set.find(hash);
-    if (iter == TypeRegistryImpl::instance().type_set.end()) {
-        LUISA_ERROR_WITH_LOCATION("Invalid type hash: {}.", hash);
-    }
-    return *iter;
 }
 
 const Type *TypeRegistry::type_at(size_t i) const noexcept {
     std::unique_lock lock{TypeRegistryImpl::instance().mutex};
     LUISA_ASSERT(i < TypeRegistryImpl::instance().types.size(),
                  "Invalid type index: {}.", i);
-    return TypeRegistryImpl::instance().types[i].get();
+    return TypeRegistryImpl::instance().types[i];
 }
 
 size_t TypeRegistry::type_count() const noexcept {
@@ -327,7 +339,7 @@ size_t TypeRegistry::type_count() const noexcept {
 void TypeRegistry::traverse(TypeVisitor &visitor) const noexcept {
     std::unique_lock lock{TypeRegistryImpl::instance().mutex};
     for (auto &&t : TypeRegistryImpl::instance().types) {
-        visitor.visit(t.get());
+        visitor.visit(t);
     }
 }
 

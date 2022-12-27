@@ -21,7 +21,7 @@ void LC_CORE_API memory_pool_check_memory_leak(size_t expected, size_t actual) n
  * @tparam T type
  * @tparam thread_safe whether the pool is thread-safe
  */
-template<typename T, bool thread_safe = true, bool check_recycle = true>
+template<typename T, bool thread_safe = true, bool check_recycle = !std::is_trivially_destructible_v<T>>
 class Pool : public thread_safety<conditional_mutex_t<true, luisa::spin_mutex>> {
 
 public:

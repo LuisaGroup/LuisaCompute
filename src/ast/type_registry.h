@@ -45,8 +45,6 @@ struct LC_AST_API TypeRegistry {
     [[nodiscard]] static TypeRegistry &instance() noexcept;
     /// Construct Type object from description
     [[nodiscard]] const Type *type_from(luisa::string_view desc) noexcept;
-    /// Construct Type object from hash
-    [[nodiscard]] const Type *type_from(uint64_t hash) noexcept;
     /// Get Type object at index i
     [[nodiscard]] const Type *type_at(size_t i) const noexcept;
     /// Return type count

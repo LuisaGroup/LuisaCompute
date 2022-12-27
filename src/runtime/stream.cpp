@@ -106,7 +106,6 @@ Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcep
 }
 
 Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) &&noexcept {
-    _commit();
     *_stream << std::move(f);
     return std::move(*this);
 }

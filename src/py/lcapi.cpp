@@ -274,8 +274,8 @@ PYBIND11_MODULE(lcapi, m) {
             "add", [](PyStream &self, Command *cmd) { self.add(cmd); }, pyref)
         .def(
             "add_upload_buffer", [](PyStream &self, py::buffer &&buf) { self.add_upload(std::move(buf)); }, pyref)
-        .def(
-            "add_readback_buffer", [](PyStream &self, py::buffer &&buf) { self.add_readback(std::move(buf)); }, pyref)
+        // .def(
+        //     "add_readback_buffer", [](PyStream &self, py::buffer &&buf) { self.add_readback(std::move(buf)); }, pyref)
         .def(
             "update_accel", [](PyStream &self, ManagedAccel &accel) {
                 accel.update(self);
@@ -500,13 +500,13 @@ PYBIND11_MODULE(lcapi, m) {
     // Pybind can't deduce argument list of the create function, so using lambda to inform it
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
         .def_static(
-            "create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer &&buf) {
+            "create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer const &buf) {
                 return BufferUploadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr).release();
             },
             pyref);
     py::class_<BufferDownloadCommand, Command>(m, "BufferDownloadCommand")
         .def_static(
-            "create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer &&buf) {
+            "create", [](uint64_t handle, size_t offset_bytes, size_t size_bytes, py::buffer const &buf) {
                 return BufferDownloadCommand::create(handle, offset_bytes, size_bytes, buf.request().ptr).release();
             },
             pyref);
@@ -519,13 +519,13 @@ PYBIND11_MODULE(lcapi, m) {
     // texture operation commands
     py::class_<TextureUploadCommand, Command>(m, "TextureUploadCommand")
         .def_static(
-            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer &&buf) {
+            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const&buf) {
                 return TextureUploadCommand::create(handle, storage, level, size, buf.request().ptr).release();
             },
             pyref);
     py::class_<TextureDownloadCommand, Command>(m, "TextureDownloadCommand")
         .def_static(
-            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer &&buf) {
+            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const&buf) {
                 return TextureDownloadCommand::create(handle, storage, level, size, buf.request().ptr).release();
             },
             pyref);

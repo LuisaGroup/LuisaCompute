@@ -286,8 +286,6 @@ private:
     Tag _tag{};
     luisa::string _description;
     luisa::vector<const Type *> _members;
-
-public:
     Type() noexcept = default;
     // Disable copy and move
     Type(Type &&) noexcept = delete;
@@ -295,6 +293,8 @@ public:
     Type &operator=(Type &&) noexcept = delete;
     Type &operator=(const Type &) noexcept = delete;
 
+public:
+    ~Type() = default;
     /// Return Type object of type T
     template<typename T>
     [[nodiscard]] static const Type *of() noexcept;
@@ -326,8 +326,6 @@ public:
 
     /// Construct Type object from description
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
-    /// Construct Type object from hash
-    [[nodiscard]] static const Type *find(uint64_t hash) noexcept;
     /// Construct Type object from uid
     [[nodiscard]] static const Type *at(uint32_t uid) noexcept;
     /// Return type count

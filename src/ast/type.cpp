@@ -22,7 +22,6 @@ const Type *Type::element() const noexcept {
 }
 
 const Type *Type::from(std::string_view description) noexcept { return detail::TypeRegistry::instance().type_from(description); }
-const Type *Type::find(uint64_t hash) noexcept { return detail::TypeRegistry::instance().type_from(hash); }
 const Type *Type::at(uint32_t uid) noexcept { return detail::TypeRegistry::instance().type_at(uid); }
 size_t Type::count() noexcept { return detail::TypeRegistry::instance().type_count(); }
 void Type::traverse(TypeVisitor &visitor) noexcept { detail::TypeRegistry::instance().traverse(visitor); }

@@ -26,7 +26,7 @@ class PyStream : public vstd::IOperatorNewBase {
         Stream stream;
         CommandBuffer buffer;
         vstd::vector<Disposer> uploadDisposer;
-        vstd::vector<Disposer> readbackDisposer;
+        // vstd::vector<Disposer> readbackDisposer;
         Data(Device &device) noexcept;
     };
     vstd::unique_ptr<Data> _data;
@@ -38,22 +38,26 @@ public:
     ~PyStream() noexcept;
     vstd::vector<vstd::function<void()>> delegates;
     void add(Command *cmd) noexcept;
-    void add(luisa::unique_ptr<Command>&& cmd) noexcept;
+    void add(luisa::unique_ptr<Command> &&cmd) noexcept;
     template<typename T>
         requires(!std::is_reference_v<T>)
     void add_upload(T t) noexcept {
         auto &disp = _data->uploadDisposer.emplace_back();
         disp.ptr = vengine_malloc(sizeof(T));
         new (disp.ptr) T(std::move(t));
-        disp.dtor = [](void *ptr) { reinterpret_cast<T *>(ptr)->~T(); };
+        disp.dtor = [](void *ptr) {
+            reinterpret_cast<T *>(ptr)->~T();
+        };
     }
     template<typename T>
         requires(!std::is_reference_v<T>)
     void add_readback(T t) noexcept {
-        auto &disp = _data->readbackDisposer.emplace_back();
-        disp.ptr = vengine_malloc(sizeof(T));
-        new (disp.ptr) T(std::move(t));
-        disp.dtor = [](void *ptr) { reinterpret_cast<T *>(ptr)->~T(); };
+        // auto &disp = _data->readbackDisposer.emplace_back();
+        // disp.ptr = vengine_malloc(sizeof(T));
+        // new (disp.ptr) T(std::move(t));
+        // disp.dtor = [](void *ptr) {
+        //     reinterpret_cast<T *>(ptr)->~T(); 
+        // };
     }
     void execute() noexcept;
     void sync() noexcept;
