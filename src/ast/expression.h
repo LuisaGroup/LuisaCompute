@@ -85,7 +85,7 @@ class CastExpr;
 class CpuCustomOpExpr;
 class GpuCustomOpExpr;
 
-struct ExprVisitor {
+struct LC_AST_API ExprVisitor {
     virtual void visit(const UnaryExpr *) = 0;
     virtual void visit(const BinaryExpr *) = 0;
     virtual void visit(const MemberExpr *) = 0;

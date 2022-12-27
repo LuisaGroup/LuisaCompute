@@ -5,6 +5,7 @@
 #include <core/logging.h>
 #include <ast/op.h>
 #include <ast/type_registry.h>
+#include <array>
 
 namespace luisa::compute {
 

@@ -207,6 +207,7 @@ enum struct CallOp : uint32_t {
     UNREACHABLE,
 
     // ray tracing
+    // FIXME: should rayquery support get_aabb?
     RAY_TRACING_INSTANCE_AABB,
     RAY_TRACING_INSTANCE_TRANSFORM,
     RAY_TRACING_SET_INSTANCE_AABB,

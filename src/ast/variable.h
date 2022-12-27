@@ -16,7 +16,7 @@ class SSABuilder;
 }// namespace detail
 
 /// Variable class
-class Variable {
+class LC_AST_API Variable {
 
 public:
     /// Variable tags

@@ -6,6 +6,7 @@
 
 #include <core/stl/variant.h>
 #include <core/stl/vector.h>
+#include <core/stl/memory.h>
 #include <core/basic_types.h>
 #include <core/concepts.h>
 

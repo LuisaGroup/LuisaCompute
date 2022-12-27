@@ -13,17 +13,17 @@
 
 namespace luisa::compute::detail {
 
-luisa::string make_array_description(luisa::string_view elem, size_t dim) noexcept {
+LC_AST_API luisa::string make_array_description(luisa::string_view elem, size_t dim) noexcept {
     return luisa::format("array<{},{}>", elem, dim);
 }
 
-luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept {
+LC_AST_API luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept {
     auto desc = luisa::format("struct<{}", alignment);
     for (auto m : members) { desc.append(",").append(m); }
     return desc;
 }
 
-luisa::string make_buffer_description(luisa::string_view elem) noexcept {
+LC_AST_API luisa::string make_buffer_description(luisa::string_view elem) noexcept {
     return luisa::format("buffer<{}>", elem);
 }
 

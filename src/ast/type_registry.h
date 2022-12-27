@@ -34,9 +34,9 @@ class Accel;
 namespace detail {
 
 // TODO: is it possible to make the following functions constexpr?
-[[nodiscard]] luisa::string make_array_description(luisa::string_view elem, size_t dim) noexcept;
-[[nodiscard]] luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept;
-[[nodiscard]] luisa::string make_buffer_description(luisa::string_view elem) noexcept;
+[[nodiscard]] LC_AST_API luisa::string make_array_description(luisa::string_view elem, size_t dim) noexcept;
+[[nodiscard]] LC_AST_API luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept;
+[[nodiscard]] LC_AST_API luisa::string make_buffer_description(luisa::string_view elem) noexcept;
 
 /// Type registry class
 struct LC_AST_API TypeRegistry {
