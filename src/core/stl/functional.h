@@ -35,7 +35,6 @@ template<typename F>
 }
 
 using eastl::make_finally;
-using eastl::reverse;
 
 // overloaded pattern
 template<typename... Ts>
