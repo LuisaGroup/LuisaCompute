@@ -1,15 +1,27 @@
 set(LUISA_COMPUTE_DSL_SOURCES
+        aabb.h
         arg.h
-        autodiff.cpp autodiff.h
+        autodiff.cpp
+        autodiff.h
         builtin.h
         constant.h
-        expr.cpp expr.h
+        dispatch_indirect.cpp
+        dispatch_indirect.h
+        draw_indirect.h
+        expr.cpp
+        expr.h
         expr_traits.h
-        func.cpp func.h
-        local.cpp local.h
+        func.cpp
+        func.h
+        generate_swizzles.py
+        local.cpp
+        local.h
         operators.h
-        polymorphic.cpp polymorphic.h
-        printer.cpp printer.h
+        polymorphic.cpp
+        polymorphic.h
+        printer.cpp
+        printer.h
+        ref.cpp
         ref.h
         shared.h
         stmt.h

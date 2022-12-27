@@ -92,6 +92,12 @@ struct Ref
         return *this;
     }
 };
+
+// error reporters for Ref<DynamicStruct>
+void ref_dynamic_struct_error_member_out_of_range(size_t member_count, size_t index) noexcept;
+void ref_dynamic_struct_error_member_type_mismatched(const Type *requested, const Type *actual) noexcept;
+void ref_dynamic_struct_error_member_not_found(luisa::string_view name) noexcept;
+
 template<>
 struct Ref<DynamicStruct> {
 private:
@@ -120,10 +126,10 @@ public:
         auto ele_type = Type::of<M>();
         auto members = struct_type->members();
         if (i >= members.size()) [[unlikely]] {
-            LUISA_ERROR("dynamic struct access member out of range!");
+            ref_dynamic_struct_error_member_out_of_range(members.size(), i);
         }
         if (*members[i] != *ele_type) [[unlikely]] {
-            LUISA_ERROR("dynamic struct access unmatched type!");
+            ref_dynamic_struct_error_member_type_mismatched(ele_type, members[i]);
         }
         return Ref<M>{detail::FunctionBuilder::current()->member(
             ele_type, this->expression(), i)};
@@ -132,7 +138,7 @@ public:
     [[nodiscard]] auto get(luisa::string_view name) const noexcept {
         auto idx = _type->member_index(name);
         if(idx == ~0ull) [[unlikely]]{
-            LUISA_ERROR("illegal struct name!");
+            ref_dynamic_struct_error_member_not_found(name);
         }
         return get<M>(idx);
     }

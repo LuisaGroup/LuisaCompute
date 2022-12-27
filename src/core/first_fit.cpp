@@ -82,7 +82,7 @@ void FirstFit::free(FirstFit::Node *node) noexcept {
         if (node_end == first->_offset) {// insert as first, merge
             first->_offset = node->_offset;
             first->_size += node->_size;
-            detail::first_fit_node_pool().recycle(node);
+            detail::first_fit_node_pool().destroy(node);
             return;
         }
         // should not be the first node
@@ -101,22 +101,22 @@ void FirstFit::free(FirstFit::Node *node) noexcept {
                 if (node_end == next->_offset) {
                     next->_offset = node->_offset;
                     next->_size += node->_size;
-                    detail::first_fit_node_pool().recycle(node);
+                    detail::first_fit_node_pool().destroy(node);
                     return;
                 }
             } else if (prev_end == node->_offset) {// merge with prev
                 // no merge with next
                 if (next == nullptr || node_end < next->_offset) {
                     p->_size += node->_size;
-                    detail::first_fit_node_pool().recycle(node);
+                    detail::first_fit_node_pool().destroy(node);
                     return;
                 }
                 // merge with prev & next
                 if (node_end == next->_offset) {
                     p->_size += node->_size + next->_size;
                     p->_next = next->_next;
-                    detail::first_fit_node_pool().recycle(node);
-                    detail::first_fit_node_pool().recycle(next);
+                    detail::first_fit_node_pool().destroy(node);
+                    detail::first_fit_node_pool().destroy(next);
                     return;
                 }
             }
@@ -140,7 +140,7 @@ inline void FirstFit::_destroy() noexcept {
         while (p != nullptr) {
             auto node = p;
             p = p->_next;
-            detail::first_fit_node_pool().recycle(node);
+            detail::first_fit_node_pool().destroy(node);
         }
     }
 }

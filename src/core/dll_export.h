@@ -35,6 +35,7 @@
 #else
 #define LC_VSTL_API __declspec(dllimport)
 #endif
+
 #ifdef LC_COMPILE_EXPORT_DLL
 #define LC_COMPILE_API __declspec(dllexport)
 #else

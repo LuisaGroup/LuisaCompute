@@ -71,6 +71,21 @@ public:
         }
     }
 
+    [[nodiscard]] auto allocate() noexcept {
+        return with_lock([this] {
+            if (_available_objects.empty()) { _enlarge(); }
+            auto p = _available_objects.back();
+            _available_objects.pop_back();
+            return p;
+        });
+    }
+
+    void deallocate(T *object) noexcept {
+        with_lock([this, object] {
+            _available_objects.emplace_back(object);
+        });
+    }
+
     /**
      * @brief Construct a T object in pool.
      * Thread safe. Construct using space in pool.
@@ -80,12 +95,7 @@ public:
      */
     template<typename... Args>
     [[nodiscard]] auto create(Args &&...args) noexcept {
-        auto p = with_lock([this] {
-            if (_available_objects.empty()) { _enlarge(); }
-            auto p = _available_objects.back();
-            _available_objects.pop_back();
-            return p;
-        });
+        auto p = allocate();
         return std::construct_at(p, std::forward<Args>(args)...);
     }
 
@@ -95,9 +105,9 @@ public:
      * If object is not construct by pool, may cause leak warning.
      * @param object object to be recycled
      */
-    void recycle(T *object) noexcept {
+    void destroy(T *object) noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>) { object->~T(); }
-        with_lock([this, object] { _available_objects.emplace_back(object); });
+        deallocate(object);
     }
 };
 

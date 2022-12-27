@@ -22,7 +22,6 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         ranges.h
         serializer.h
         small_vector.h
-        span.h
         spin_mutex.h
         stack_allocator.cpp stack_allocator.h
         string_builder.cpp string_builder.h

@@ -30,6 +30,7 @@ LC_AST_API luisa::string make_buffer_description(luisa::string_view elem) noexce
 }
 
 struct TypeRegistryImpl {
+
     struct TypeDescription {
         string_view desc;
         uint64_t hash;
@@ -43,7 +44,6 @@ struct TypeRegistryImpl {
     };
 
     struct TypePtrEqual {
-        using is_avalanching = void;
         using is_transparent = void;
         [[nodiscard]] bool operator()(Type const *lhs, Type const *rhs) const noexcept {
             return lhs == rhs;
@@ -56,15 +56,15 @@ struct TypeRegistryImpl {
         };
     };
 
-    luisa::Pool<std::aligned_storage_t<sizeof(Type), alignof(Type)>, false> type_pool;
+    luisa::Pool<Type, false> type_pool;
     luisa::vector<Type *> types;
-    ~TypeRegistryImpl() {
-        for (auto i : types) {
-            i->~Type();
-        }
+
+    ~TypeRegistryImpl() noexcept {
+        for (auto i : types) { i->~Type(); }
     }
+
     luisa::unordered_set<Type *, TypePtrHash, TypePtrEqual> type_set;
-    mutable std::recursive_mutex mutex;
+    std::recursive_mutex mutex;
 
     [[nodiscard]] static auto &instance() noexcept {
         static TypeRegistryImpl reg;
@@ -153,8 +153,7 @@ struct TypeRegistryImpl {
             return t;
         };
 
-        auto info = reinterpret_cast<Type *>(type_pool.create());
-        new (info) Type{};
+        auto info = new (type_pool.allocate()) Type{};
         info->_description = desc;
         info->_hash = hash;
 

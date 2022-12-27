@@ -3,6 +3,7 @@
 //
 
 #pragma once
+
 #include <array>
 #include <core/stl/memory.h>
 #include <core/macro.h>

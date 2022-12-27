@@ -1,7 +1,9 @@
 //
 // Created by Mike Smith on 2021/2/28.
 //
+
 #pragma once
+
 #ifndef LC_DISABLE_DSL
 
 #include <type_traits>
@@ -285,8 +287,10 @@ private:
     std::array<const Expression *, max_argument_count> _args{};
     size_t _arg_count{0u};
 
+private:
+    static LC_DSL_API void _error_too_many_arguments() noexcept;
+
 public:
-    static LC_DSL_API void _error_too_many_arguments();
     CallableInvoke() noexcept = default;
     /// Add an argument.
     template<typename T>
@@ -496,4 +500,5 @@ template<typename T>
 Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute
+
 #endif
