@@ -182,9 +182,11 @@ public:
     [[nodiscard]] virtual uint64_t load_shader(luisa::string_view ser_path, luisa::span<Type const *const> types) noexcept = 0;
     virtual void save_shader(Function kernel, luisa::string_view serialization_path) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
-
-    // _ex are experiemental apis
+// FIXME:
+// _ex are experiemental apis
+#ifdef LC_ENABLE_API
     [[nodiscard]] virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept;
+#endif
 
     // raster kernel  (may not supported by some backends)
     [[nodiscard]] virtual uint64_t create_raster_shader(
