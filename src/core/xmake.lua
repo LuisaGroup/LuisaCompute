@@ -8,7 +8,7 @@ if is_mode("debug") and is_plat("windows") then
     add_syslinks("Dbghelp")
 end
 add_deps("eastl", "spdlog")
-add_includedirs("../", "../ext/xxHash/", {
+add_includedirs("../", "../ext/xxHash/", "../ext/parallel-hashmap", {
     public = true
 })
 add_files("**.cpp")
