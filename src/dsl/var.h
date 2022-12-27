@@ -3,9 +3,11 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <dsl/ref.h>
 #include <dsl/arg.h>
+#include <runtime/dynamic_buffer.h>
+#include <runtime/dynamic_struct.h>
 
 namespace luisa::compute {
 
@@ -140,7 +142,51 @@ struct Var<BindlessArray> : public Expr<BindlessArray> {
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
+template<>
+struct Var<DynamicStruct> : public detail::Ref<DynamicStruct> {
+public:
+    Var(const DynamicStruct *type) noexcept
+        : detail::Ref<DynamicStruct>{type, detail::FunctionBuilder::current()->local(type->type())} {}
+    /// Assign from arg.
+    template<typename Arg>
+        requires concepts::different<std::remove_cvref_t<Arg>, Var<DynamicStruct>> &&
+            std::negation_v<std::is_pointer<std::remove_cvref_t<Arg>>>
+            Var(const DynamicStruct *type, Arg &&arg)
+    noexcept
+        : Var{type} {
+        detail::FunctionBuilder::current()->assign(
+            expression(),
+            detail::extract_expression(std::forward<Arg>(arg)));
+    }
+    /// Construct from expression
+    explicit Var(const DynamicStruct *type, const Expression *expr) noexcept
+        : Var(type) {
+        detail::FunctionBuilder::current()->assign(
+            expression(),
+            expr);
+    }
 
+    Var(Var &&) noexcept = default;
+    Var(const Var &another) noexcept : Var{another._type, Expr{another}} {}
+    void operator=(Var &&rhs) &noexcept { detail::Ref<DynamicStruct>::operator=(std::move(rhs)); }
+    void operator=(const Var &rhs) &noexcept { detail::Ref<DynamicStruct>::operator=(rhs); }
+};
+template<>
+struct Var<BufferView<DynamicStruct>> : public Expr<Buffer<DynamicStruct>> {
+    explicit Var(detail::ArgumentCreation, const Type *buffer_type) noexcept
+        : Expr<Buffer<DynamicStruct>>{
+              detail::FunctionBuilder::current()->buffer(buffer_type)} {}
+    Var(Var &&) noexcept = default;
+    Var(const Var &) noexcept = delete;
+};
+template<typename I>
+Var<DynamicStruct> BufferView<DynamicStruct>::read(I &&i) const noexcept {
+    return Expr<Buffer<DynamicStruct>>{*this}.read(std::forward<I>(i));
+}
+template<typename I, typename V>
+void BufferView<DynamicStruct>::write(I &&i, V &&v) const noexcept {
+    Expr<Buffer<DynamicStruct>>{*this}.write(std::forward<I>(i), std::forward<V>(v));
+}
 template<typename T>
 Var(T &&) -> Var<expr_value_t<T>>;
 
@@ -240,3 +286,4 @@ using VolumeUInt = VolumeVar<uint>;
 using VolumeFloat = VolumeVar<float>;
 
 }// namespace luisa::compute
+#endif

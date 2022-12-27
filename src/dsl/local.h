@@ -3,14 +3,14 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <dsl/expr.h>
 #include <core/stl.h>
 
 namespace luisa::compute {
 
 namespace detail {
-void local_array_error_sizes_missmatch(size_t lhs, size_t rhs) noexcept;
+LC_DSL_API void local_array_error_sizes_missmatch(size_t lhs, size_t rhs) noexcept;
 }
 
 template<typename T>
@@ -27,8 +27,8 @@ public:
           _size{n} {}
 
     template<typename U>
-        requires is_array_expr_v<U> Local(U &&array)
-    noexcept
+        requires is_array_expr_v<U>
+    Local(U &&array) noexcept
         : _expression{detail::extract_expression(def(std::forward<U>(array)))},
           _size{array_expr_dimension_v<U>} {}
 
@@ -54,7 +54,8 @@ public:
     }
 
     template<typename U>
-    requires is_array_expr_v<U> Local &operator=(U &&rhs) noexcept {
+        requires is_array_expr_v<U>
+    Local &operator=(U &&rhs) noexcept {
         constexpr auto n = array_expr_dimension_v<U>;
         if (_size != n) [[unlikely]] {
             detail::local_array_error_sizes_missmatch(_size, n);
@@ -85,3 +86,4 @@ public:
 };
 
 }// namespace luisa::compute
+#endif

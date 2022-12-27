@@ -1,12 +1,10 @@
 //
 // Created by Mike Smith on 2021/2/28.
 //
-
 #pragma once
+#ifndef LC_DISABLE_DSL
 
 #include <type_traits>
-
-#include <core/stl.h>
 #include <runtime/command.h>
 #include <runtime/device.h>
 #include <runtime/shader.h>
@@ -277,7 +275,6 @@ struct Kernel3D<void(Args...)> : LUISA_KERNEL_BASE(3);
 #undef LUISA_KERNEL_BASE
 
 namespace detail {
-
 /// Callable invoke
 class CallableInvoke {
 
@@ -288,10 +285,8 @@ private:
     std::array<const Expression *, max_argument_count> _args{};
     size_t _arg_count{0u};
 
-private:
-    static void _error_too_many_arguments() noexcept;
-
 public:
+    static LC_DSL_API void _error_too_many_arguments();
     CallableInvoke() noexcept = default;
     /// Add an argument.
     template<typename T>
@@ -372,6 +367,8 @@ public:
 
     /// Get the underlying AST
     [[nodiscard]] auto function() const noexcept { return Function{_builder.get()}; }
+    [[nodiscard]] auto const &function_builder() const &noexcept { return _builder; }
+    [[nodiscard]] auto &&function_builder() &&noexcept { return std::move(_builder); }
 
     /// Call the callable.
     auto operator()(detail::prototype_to_callable_invocation_t<Args>... args) const noexcept {
@@ -499,3 +496,4 @@ template<typename T>
 Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute
+#endif

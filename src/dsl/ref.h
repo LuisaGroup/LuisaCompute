@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <dsl/expr.h>
 
 namespace luisa::compute {
@@ -92,6 +92,51 @@ struct Ref
         return *this;
     }
 };
+template<>
+struct Ref<DynamicStruct> {
+private:
+    const Expression *_expression;
+
+protected:
+    const DynamicStruct *_type;
+
+public:
+    explicit Ref(const DynamicStruct *type, const Expression *e) noexcept : _expression{e}, _type(type) {}
+    [[nodiscard]] auto expression() const noexcept { return _expression; }
+    Ref(Ref &&) noexcept = default;
+    Ref(const Ref &) noexcept = default;
+    [[nodiscard]] operator Expr<DynamicStruct>() const noexcept {
+        return Expr<DynamicStruct>{this->expression()};
+    }
+    void operator=(Ref rhs) &noexcept {
+        _type = rhs._type;
+        detail::FunctionBuilder::current()->assign(
+            _expression,
+            detail::extract_expression(std::move(rhs)));
+    }
+    template<typename M>
+    [[nodiscard]] auto get(size_t i) const noexcept {
+        auto struct_type = _expression->type();
+        auto ele_type = Type::of<M>();
+        auto members = struct_type->members();
+        if (i >= members.size()) [[unlikely]] {
+            LUISA_ERROR("dynamic struct access member out of range!");
+        }
+        if (*members[i] != *ele_type) [[unlikely]] {
+            LUISA_ERROR("dynamic struct access unmatched type!");
+        }
+        return Ref<M>{detail::FunctionBuilder::current()->member(
+            ele_type, this->expression(), i)};
+    }
+    template<typename M>
+    [[nodiscard]] auto get(luisa::string_view name) const noexcept {
+        auto idx = _type->member_index(name);
+        if(idx == ~0ull) [[unlikely]]{
+            LUISA_ERROR("illegal struct name!");
+        }
+        return get<M>(idx);
+    }
+};
 
 /// Ref<std::array<T, N>>
 template<typename T, size_t N>
@@ -175,3 +220,4 @@ struct Ref<Vector<T, 4>>
 
 }// namespace detail
 }// namespace luisa::compute
+#endif

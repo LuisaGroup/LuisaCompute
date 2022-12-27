@@ -1,9 +1,8 @@
 //
 // Created by Mike Smith on 2021/3/2.
 //
-
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <ast/constant_data.h>
 #include <dsl/expr.h>
 
@@ -34,10 +33,12 @@ public:
 
     /// Construct constant from array-like data
     template<typename U>
-    Constant(U &&data) noexcept : Constant{luisa::span<const T>{std::forward<U>(data)}} {}
+    Constant(U &&data) noexcept
+        : Constant{luisa::span<const T>{std::forward<U>(data)}} {}
 
     /// Construct constant from initializer list
-    Constant(std::initializer_list<T> init) noexcept : Constant{luisa::vector<T>{init}} {}
+    Constant(std::initializer_list<T> init) noexcept
+        : Constant{luisa::span<const T>{init.begin(), init.end()}} {}
 
     Constant(Constant &&) noexcept = default;
     Constant(const Constant &) noexcept = delete;
@@ -74,3 +75,4 @@ template<concepts::container T>
 Constant(T &&) -> Constant<std::remove_const_t<typename std::remove_cvref_t<T>::value_type>>;
 
 }// namespace luisa::compute
+#endif

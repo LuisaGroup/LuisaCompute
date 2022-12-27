@@ -1,8 +1,9 @@
 //
 // Created by Mike Smith on 2021/8/9.
 //
-
 #pragma once
+#ifndef LC_DISABLE_DSL
+
 
 #include <type_traits>
 #include <concepts>
@@ -280,3 +281,4 @@ template<typename T>
 constexpr auto is_basic_expr_v = is_basic_expr<T>::value;
 
 }// namespace luisa::compute
+#endif

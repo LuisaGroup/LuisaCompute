@@ -1,8 +1,8 @@
 //
 // Created by Mike Smith on 2020/12/2.
 //
-
 #pragma once
+#ifndef LC_DISABLE_DSL
 
 #include <array>
 #include <string_view>
@@ -10,10 +10,12 @@
 #include <runtime/image.h>
 #include <runtime/volume.h>
 #include <runtime/buffer.h>
+#include <runtime/dynamic_buffer.h>
 #include <runtime/bindless_array.h>
 #include <ast/function_builder.h>
 #include <dsl/expr_traits.h>
 #include <dsl/arg.h>
+#include <runtime/dynamic_struct.h>
 
 namespace luisa::compute {
 
@@ -225,9 +227,9 @@ namespace detail {
 template<typename T>
 struct ExprEnableStaticCast {
     template<typename Dest>
-        requires concepts::static_convertible<expr_value_t<T>,
-                                              expr_value_t<Dest>> [[nodiscard]] auto
-        cast() const noexcept {
+        requires concepts::static_convertible<
+            expr_value_t<T>, expr_value_t<Dest>>
+    [[nodiscard]] auto cast() const noexcept {
         auto src = def(*static_cast<const T *>(this));
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
@@ -242,9 +244,9 @@ struct ExprEnableStaticCast {
 template<typename T>
 struct ExprEnableBitwiseCast {
     template<typename Dest>
-        requires concepts::bitwise_convertible<expr_value_t<T>,
-                                               expr_value_t<Dest>> [[nodiscard]] auto
-        as() const noexcept {
+        requires concepts::bitwise_convertible<
+            expr_value_t<T>, expr_value_t<Dest>>
+    [[nodiscard]] auto as() const noexcept {
         auto src = def(*static_cast<const T *>(this));
         using TrueDest = expr_value_t<Dest>;
         return def<TrueDest>(
@@ -259,8 +261,8 @@ struct ExprEnableBitwiseCast {
 template<typename T>
 struct ExprEnableSubscriptAccess {
     template<typename I>
-        requires is_integral_expr_v<I> [[nodiscard]] auto
-        operator[](I &&index) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto operator[](I &&index) const noexcept {
         auto self = def<T>(static_cast<const T *>(this)->expression());
         using Elem = std::remove_cvref_t<
             decltype(std::declval<expr_value_t<T>>()[0])>;
@@ -310,9 +312,8 @@ public:
 
     /// Read buffer at index
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
-        read(I &&index) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(I &&index) const noexcept {
         auto f = detail::FunctionBuilder::current();
         auto expr = f->call(
             Type::of<T>(), CallOp::BUFFER_READ,
@@ -388,7 +389,9 @@ public:
     };
 
     /// Atomic fetch and. Stores old & val, returns old. See also CallOp::ATOMIC_FETCH_AND.
-    auto fetch_and(Expr<T> val) &&noexcept requires std::integral<T> {
+    auto fetch_and(Expr<T> val) &&noexcept
+        requires std::integral<T>
+    {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_AND,
             {this->_expression, val.expression()});
@@ -396,7 +399,9 @@ public:
     };
 
     /// Atomic fetch or. Stores old | val, returns old. See also CallOp::ATOMIC_FETCH_OR.
-    auto fetch_or(Expr<T> val) &&noexcept requires std::integral<T>  {
+    auto fetch_or(Expr<T> val) &&noexcept
+        requires std::integral<T>
+    {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_OR,
             {this->_expression, val.expression()});
@@ -404,7 +409,9 @@ public:
     };
 
     /// Atomic fetch xor. Stores old ^ val, returns old. See also CallOp::ATOMIC_FETCH_XOR.
-    auto fetch_xor(Expr<T> val) &&noexcept requires std::integral<T>  {
+    auto fetch_xor(Expr<T> val) &&noexcept
+        requires std::integral<T>
+    {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_XOR,
             {this->_expression, val.expression()});
@@ -436,8 +443,7 @@ struct BufferExprAsAtomic<int> {
     /// Atomic access
     template<typename I>
         requires is_integral_expr_v<I>
-            [[nodiscard]] auto
-        atomic(I &&i) const noexcept {
+    [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         return AtomicRef<int>{FunctionBuilder::current()->access(
             Type::of<int>(),
@@ -452,8 +458,7 @@ struct BufferExprAsAtomic<uint> {
     /// Atomic access
     template<typename I>
         requires is_integral_expr_v<I>
-            [[nodiscard]] auto
-        atomic(I &&i) const noexcept {
+    [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         return AtomicRef<uint>{FunctionBuilder::current()->access(
             Type::of<uint>(),
@@ -468,8 +473,7 @@ struct BufferExprAsAtomic<float> {
     /// Atomic access
     template<typename I>
         requires is_integral_expr_v<I>
-            [[nodiscard]] auto
-        atomic(I &&i) const noexcept {
+    [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         return AtomicRef<float>{FunctionBuilder::current()->access(
             Type::of<float>(),
@@ -570,18 +574,40 @@ private:
 public:
     /// Construct from array RefExpr and index Expression
     BindlessBuffer(const RefExpr *array, const Expression *index) noexcept
-        : _array{array},
-          _index{index} {}
+        : _array{array}, _index{index} {}
 
     /// Read at index i
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
-        read(I &&i) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(I &&i) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<T>(
             f->call(
                 Type::of<T>(), CallOp::BINDLESS_BUFFER_READ,
+                {_array, _index, detail::extract_expression(std::forward<I>(i))}));
+    }
+};
+class BindlessDynamicBuffer {
+
+private:
+    const DynamicStruct *_type{nullptr};
+    const RefExpr *_array{nullptr};
+    const Expression *_index{nullptr};
+
+public:
+    /// Construct from array RefExpr and index Expression
+    BindlessDynamicBuffer(const DynamicStruct *type, const RefExpr *array, const Expression *index) noexcept
+        : _type(type), _array{array}, _index{index} {}
+
+    /// Read at index i
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(I &&i) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        return Var<DynamicStruct>(
+            _type,
+            f->call(
+                _type, CallOp::BINDLESS_BUFFER_READ,
                 {_array, _index, detail::extract_expression(std::forward<I>(i))}));
     }
 };
@@ -596,8 +622,7 @@ private:
 public:
     /// Construct from array RefExpr and index Expression
     BindlessTexture2D(const RefExpr *array, const Expression *index) noexcept
-        : _array{array},
-          _index{index} {}
+        : _array{array}, _index{index} {}
     /// Sample at (u, v)
     [[nodiscard]] Var<float4> sample(Expr<float2> uv) const noexcept;
     /// Sample at (u, v) at mip level
@@ -615,9 +640,8 @@ public:
 
     /// Read at coordinate and mipmap level
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
-        read(Expr<uint2> coord, I &&level) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(Expr<uint2> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<float4>(f->call(
             Type::of<float4>(), CallOp::BINDLESS_TEXTURE2D_READ_LEVEL,
@@ -636,8 +660,7 @@ private:
 public:
     /// Construct from array RefExpr and index Expression
     BindlessTexture3D(const RefExpr *array, const Expression *index) noexcept
-        : _array{array},
-          _index{index} {}
+        : _array{array}, _index{index} {}
     /// Sample at (u, v, w)
     [[nodiscard]] Var<float4> sample(Expr<float3> uvw) const noexcept;
     /// Sample at (u, v, w) at mip level
@@ -655,9 +678,8 @@ public:
 
     /// Read at coordinate and mipmap level
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
-        read(Expr<uint3> coord, I &&level) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(Expr<uint3> coord, I &&level) const noexcept {
         auto f = detail::FunctionBuilder::current();
         return def<float4>(f->call(
             Type::of<float4>(), CallOp::BINDLESS_TEXTURE3D_READ_LEVEL,
@@ -685,29 +707,32 @@ public:
 
     /// Get 2D texture at index
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
-        tex2d(I &&index) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto tex2d(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
         return BindlessTexture2D{_expression, i.expression()};
     }
 
     /// Get 3D texture at index
     template<typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
-        tex3d(I &&index) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto tex3d(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
         return BindlessTexture3D{_expression, i.expression()};
     }
 
     /// Get buffer at index
     template<typename T, typename I>
-        requires is_integral_expr_v<I> [
-            [nodiscard]] auto
-        buffer(I &&index) const noexcept {
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto buffer(I &&index) const noexcept {
         auto i = def(std::forward<I>(index));
         return BindlessBuffer<T>{_expression, i.expression()};
+    }
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto dynamic_buffer(const DynamicStruct &type, I &&index) const noexcept {
+        auto i = def(std::forward<I>(index));
+        return BindlessDynamicBuffer{&type, _expression, i.expression()};
     }
 };
 
@@ -742,7 +767,7 @@ Expr(const Volume<T> &) -> Expr<Volume<T>>;
 template<typename T>
 Expr(VolumeView<T>) -> Expr<Volume<T>>;
 
-Expr(const BindlessArray &) -> Expr<BindlessArray>;
+Expr(const BindlessArray &)->Expr<BindlessArray>;
 
 /// Get 2D texture at index
 template<typename I>
@@ -765,4 +790,81 @@ BindlessBuffer<T> BindlessArray::buffer(I &&index) const noexcept {
     return Expr<BindlessArray>{*this}.buffer<T>(i);
 }
 
+template<>
+struct Expr<DynamicStruct> {
+private:
+    const Expression *_expression;
+
+public:
+    explicit Expr(const Expression *e) noexcept
+        : _expression{e} {}
+    [[nodiscard]] auto expression() const noexcept { return this->_expression; }
+    Expr(Expr &&another) noexcept = default;
+    Expr(const Expr &another) noexcept = default;
+    Expr &operator=(Expr) noexcept = delete;
+    template<typename M>
+    [[nodiscard]] auto get(uint member_index) const noexcept {
+        auto type = _expression->type();
+        LUISA_ASSERT(*_expression->type()->members()[member_index] ==
+                         *Type::of<M>(),
+                     "Mismatched member type '{}' vs '{}' "
+                     "at index {} for struct '{}'.",
+                     Type::of<M>()->description(),
+                     type->members()[member_index]->description(),
+                     member_index, type->description());
+        return Expr<M>{detail::FunctionBuilder::current()->member(
+            Type::of<M>(), this->expression(), member_index)};
+    };
+};
+
+template<>
+struct Expr<Buffer<DynamicStruct>> {
+
+private:
+    const RefExpr *_expression{nullptr};
+
+public:
+    /// Construct from RefExpr
+    explicit Expr(const RefExpr *expr) noexcept
+        : _expression{expr} {}
+    /// Construct from BufferView. Will call buffer_binding() to bind buffer
+    Expr(BufferView<DynamicStruct> buffer) noexcept
+        : _expression{detail::FunctionBuilder::current()->buffer_binding(
+              buffer.type(), buffer.handle(),
+              buffer.offset_bytes(), buffer.size_bytes())} {}
+
+    /// Return RefExpr
+    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
+
+    /// Read buffer at index
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto read(I &&index) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        auto expr = f->call(
+            _expression->type()->element(), CallOp::BUFFER_READ,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index))});
+        return def<DynamicStruct>(expr);
+    }
+
+    /// Write buffer at index
+    template<typename I>
+        requires is_integral_expr_v<I>
+    void write(I &&index, Expr<DynamicStruct> value) const noexcept {
+        detail::FunctionBuilder::current()->call(
+            CallOp::BUFFER_WRITE,
+            {_expression,
+             detail::extract_expression(std::forward<I>(index)),
+             value.expression()});
+    }
+};
+
+/// Same as Expr<Buffer<T>>
+template<>
+struct Expr<BufferView<DynamicStruct>> : public Expr<Buffer<DynamicStruct>> {
+    using Expr<Buffer<DynamicStruct>>::Expr;
+};
+
 }// namespace luisa::compute
+#endif

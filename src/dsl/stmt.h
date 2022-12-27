@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <cassert>
 #include <dsl/var.h>
 #include <dsl/operators.h>
@@ -411,3 +411,4 @@ inline void return_() noexcept {
 
 }// namespace dsl
 }// namespace luisa::compute
+#endif

@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <dsl/expr.h>
 #include <core/stl.h>
 
@@ -90,3 +90,4 @@ struct SharedAsAtomic<uint> {
 }// namespace detail
 
 }// namespace luisa::compute
+#endif

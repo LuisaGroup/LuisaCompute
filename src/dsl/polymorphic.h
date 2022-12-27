@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <core/stl.h>
 #include <dsl/expr_traits.h>
 #include <dsl/builtin.h>
@@ -12,11 +12,11 @@
 namespace luisa::compute {
 
 namespace detail {
-void polymorphic_warning_no_implementation_registered() noexcept;
-void polymorphic_warning_empty_tag_range(uint lo, uint hi) noexcept;
-void polymorphic_warning_empty_tag_group() noexcept;
-void polymorphic_error_unordered_tag_range(uint lo, uint hi) noexcept;
-void polymorphic_error_overflowed_tag_range(uint lo, uint hi, uint tag_count) noexcept;
+LC_DSL_API void polymorphic_warning_no_implementation_registered() noexcept;
+LC_DSL_API void polymorphic_warning_empty_tag_range(uint lo, uint hi) noexcept;
+LC_DSL_API void polymorphic_warning_empty_tag_group() noexcept;
+LC_DSL_API void polymorphic_error_unordered_tag_range(uint lo, uint hi) noexcept;
+LC_DSL_API void polymorphic_error_overflowed_tag_range(uint lo, uint hi, uint tag_count) noexcept;
 }// namespace detail
 
 template<typename T>
@@ -124,3 +124,4 @@ public:
 };
 
 }// namespace luisa::compute
+#endif

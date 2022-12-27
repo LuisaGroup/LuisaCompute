@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/6/24.
 //
 #pragma once
+
 #include <dsl/struct.h>
 #include <dsl/syntax.h>
 #include <core/mathematics.h>
@@ -23,8 +24,8 @@ LUISA_STRUCT(
     compressed_direction,
     compressed_t_max)
 #ifndef LC_DISABLE_DSL
-    {
-        [[nodiscard]] auto origin() const noexcept {return luisa::compute::def<luisa::float3>(compressed_origin);
+{
+    [[nodiscard]] auto origin() const noexcept {return luisa::compute::def<luisa::float3>(compressed_origin);
 }
 [[nodiscard]] auto direction() const noexcept { return luisa::compute::def<luisa::float3>(compressed_direction); }
 [[nodiscard]] auto t_min() const noexcept { return compressed_t_min; }

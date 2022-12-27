@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <mutex>
 #include <thread>
 
@@ -167,3 +167,4 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
 }
 
 }// namespace luisa::compute
+#endif

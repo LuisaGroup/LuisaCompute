@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#ifndef LC_DISABLE_DSL
 #include <dsl/func.h>
 #include <dsl/constant.h>
 #include <dsl/local.h>
@@ -16,3 +16,4 @@
 #include <dsl/builtin.h>
 #include <dsl/polymorphic.h>
 #include <dsl/autodiff.h>
+#endif

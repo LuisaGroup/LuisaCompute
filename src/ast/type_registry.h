@@ -3,7 +3,7 @@
 //
 
 #pragma once
-
+#include <array>
 #include <core/stl/memory.h>
 #include <core/macro.h>
 #include <ast/type.h>
@@ -30,7 +30,8 @@ class VolumeView;
 
 class BindlessArray;
 class Accel;
-
+template<typename T>
+struct is_custom_struct : public std::false_type {};
 namespace detail {
 
 // TODO: is it possible to make the following functions constexpr?
