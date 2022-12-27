@@ -106,7 +106,7 @@ class Buffer:
         dlcmd = lcapi.BufferDownloadCommand.create(
             self.handle, 0, self.bytesize, arr)
         stream.add(dlcmd)
-        stream.add_readback_buffer(arr)
+        # stream.add_readback_buffer(arr)
         if sync:
             stream.synchronize()
 
@@ -124,7 +124,7 @@ class Buffer:
         if stream is None:
             stream = globalvars.stream
         stream.add(dlcmd)
-        stream.add_readback_buffer(packed_bytes)
+        # stream.add_readback_buffer(packed_bytes)
         stream.synchronize()
         elsize = to_lctype(self.dtype).size()
         return [from_bytes(self.dtype, packed_bytes[elsize*i: elsize*(i+1)]) for i in range(self.size)]
