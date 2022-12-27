@@ -33,7 +33,7 @@ LC_CORE_API void aligned_free(void *p) noexcept;
 LC_CORE_API void dynamic_module_destroy(void *handle) noexcept;
 [[nodiscard]] LC_CORE_API void *dynamic_module_find_symbol(void *handle, luisa::string_view name) noexcept;
 [[nodiscard]] LC_CORE_API luisa::string dynamic_module_name(luisa::string_view name) noexcept;
-[[nodiscard]] LC_CORE_API luisa::string demangle(const char *name) noexcept;
+// [[nodiscard]] LC_CORE_API luisa::string demangle(const char *name) noexcept;
 
 struct TraceItem {
     luisa::string module;

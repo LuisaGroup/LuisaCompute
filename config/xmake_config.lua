@@ -1,6 +1,4 @@
 function add_lc_includes(rootDir, isPublic)
--- tinyexr
-add_includedirs(rootDir.."/src/ext/tinyexr",{public=isPublic})
 -- mimalloc
 add_defines("MI_SHARED_LIB",{public=isPublic})
 add_includedirs(rootDir.."/src/ext/EASTL/packages/mimalloc/include",{public=isPublic})
@@ -12,5 +10,5 @@ add_defines("EA_PRAGMA_ONCE_SUPPORTED","EASTL_ASSERT_ENABLED=0","EA_HAVE_CPP11_C
 add_includedirs(rootDir.."/src/ext/EASTL/include",rootDir.."/src/ext/EASTL/packages/EABase/include/Common",{public=isPublic})
 -- lc-core
 add_defines("UNICODE=1","TSL_NO_EXCEPTIONS","NOMINMAX=1","_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS=1","_CRT_SECURE_NO_WARNINGS=1","_ENABLE_EXTENDED_ALIGNED_STORAGE=1","LC_DISABLE_DSL",{public=isPublic})
-add_includedirs(rootDir.."/src",rootDir.."/src/ext/xxHash",rootDir.."/src/ext/robin-map/include",{public=isPublic})
+add_includedirs(rootDir.."/src",rootDir.."/src/ext/xxHash",rootDir.."/src/ext/parallel-hashmap",{public=isPublic})
 end

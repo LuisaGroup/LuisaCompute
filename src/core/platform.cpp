@@ -84,7 +84,7 @@ luisa::string dynamic_module_name(luisa::string_view name) noexcept {
     s.append(".dll");
     return s;
 }
-
+#ifndef NDEBUG
 luisa::string demangle(const char *name) noexcept {
     char buffer[256u];
     auto length = UnDecorateSymbolName(name, buffer, 256, 0);
@@ -129,7 +129,9 @@ luisa::vector<TraceItem> backtrace() noexcept {
     }
     return trace;
 }
-
+#else
+luisa::vector<TraceItem> backtrace() noexcept { return {}; }
+#endif
 }// namespace luisa
 
 #elif defined(LUISA_PLATFORM_UNIX)
