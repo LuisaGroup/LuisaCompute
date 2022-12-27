@@ -21,15 +21,15 @@ void ManagedBindless::emplace_tex3d(size_t index, uint64 handle, Sampler sampler
 }
 void ManagedBindless::remove_buffer(size_t index) noexcept {
     collector.InRef(index, 0, 0);
-    device->remove_buffer_in_bindless_array(handle, index);
+    device->remove_buffer_from_bindless_array(handle, index);
 }
 void ManagedBindless::remove_tex2d(size_t index) noexcept {
     collector.InRef(index, 1, 0);
-    device->remove_tex2d_in_bindless_array(handle, index);
+    device->remove_tex2d_from_bindless_array(handle, index);
 }
 void ManagedBindless::remove_tex3d(size_t index) noexcept {
     collector.InRef(index, 2, 0);
-    device->remove_tex3d_in_bindless_array(handle, index);
+    device->remove_tex3d_from_bindless_array(handle, index);
 }
 void ManagedBindless::Update(PyStream &stream) noexcept {
     stream.add(BindlessArrayUpdateCommand::create(handle));

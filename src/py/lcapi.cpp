@@ -371,13 +371,13 @@ PYBIND11_MODULE(lcapi, m) {
                                (to_underlying(self.variable_usage(v.uid())) &
                                 to_underlying(Usage::WRITE)) != 0u;
                     }
-                    return true;// TODO
+                    return true;
                 };
                 auto assign = [&](const Expression *lhs, const Expression *rhs) noexcept {
                     // FIXME: the following checks are not reliable
                     if (!is_initialized(rhs)) [[unlikely]] {
                         if (!is_initialized(lhs)) {
-                            return;// TODO: should this be reported?
+                            return;
                         }
                         LUISA_ERROR_WITH_LOCATION("Cannot assign the value of "
                                                   "an uninitialized variable.");
