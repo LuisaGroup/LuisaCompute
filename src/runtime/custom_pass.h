@@ -1,19 +1,23 @@
 #pragma once
+
 #include <runtime/device.h>
 #include <runtime/buffer.h>
 #include <runtime/command.h>
 #include <runtime/buffer.h>
 #include <runtime/image.h>
 #include <runtime/bindless_array.h>
-#include <rtx/accel.h>
-#include <rtx/mesh.h>
+
 namespace luisa::compute {
+
 namespace custompass_detail {
+
 template<typename T>
 struct CustomResFilter {
     static constexpr bool LegalType = false;
 };
+
 }// namespace custompass_detail
+
 class LC_RUNTIME_API CustomPass {
 private:
     template<typename T>
@@ -34,7 +38,9 @@ public:
         requires(custompass_detail::CustomResFilter<T>::LegalType)
     void emplace(luisa::string &&name, Usage usage, T const &resource);
 };
+
 namespace custompass_detail {
+
 template<typename T>
 struct CustomResFilter<Buffer<T>> {
     static constexpr bool LegalType = true;
@@ -49,6 +55,7 @@ struct CustomResFilter<Buffer<T>> {
         cmd->_bindings.emplace_back(std::move(bindings));
     }
 };
+
 template<typename T>
 struct CustomResFilter<BufferView<T>> {
     static constexpr bool LegalType = true;
@@ -63,6 +70,7 @@ struct CustomResFilter<BufferView<T>> {
         cmd->_bindings.emplace_back(std::move(bindings));
     }
 };
+
 template<typename T>
 struct CustomResFilter<Image<T>> {
     static constexpr bool LegalType = true;
@@ -77,6 +85,7 @@ struct CustomResFilter<Image<T>> {
         cmd->_bindings.emplace_back(std::move(bindings));
     }
 };
+
 template<typename T>
 struct CustomResFilter<ImageView<T>> {
     static constexpr bool LegalType = true;
@@ -91,30 +100,7 @@ struct CustomResFilter<ImageView<T>> {
         cmd->_bindings.emplace_back(std::move(bindings));
     }
 };
-template<>
-struct CustomResFilter<Mesh> {
-    static constexpr bool LegalType = true;
-    static void emplace(luisa::string &&name, Usage usage, CustomPass *cmd, Mesh const &v) {
-        CustomCommand::ResourceBinding bindings;
-        bindings.name = std::move(name);
-        bindings.usage = usage;
-        bindings.resource_view = CustomCommand::MeshView{
-            .handle = v.handle()};
-        cmd->_bindings.emplace_back(std::move(bindings));
-    }
-};
-template<>
-struct CustomResFilter<Accel> {
-    static constexpr bool LegalType = true;
-    static void emplace(luisa::string &&name, Usage usage, CustomPass *cmd, Accel const &v) {
-        CustomCommand::ResourceBinding bindings;
-        bindings.name = std::move(name);
-        bindings.usage = usage;
-        bindings.resource_view = CustomCommand::AccelView{
-            .handle = v.handle()};
-        cmd->_bindings.emplace_back(std::move(bindings));
-    }
-};
+
 template<>
 struct CustomResFilter<BindlessArray> {
     static constexpr bool LegalType = true;
@@ -127,10 +113,13 @@ struct CustomResFilter<BindlessArray> {
         cmd->_bindings.emplace_back(std::move(bindings));
     }
 };
+
 }// namespace custompass_detail
+
 template<typename T>
     requires(custompass_detail::CustomResFilter<T>::LegalType)
 void CustomPass::emplace(luisa::string &&name, Usage usage, T const &resource) {
     custompass_detail::CustomResFilter<T>::emplace(std::move(name), usage, this, resource);
 }
+
 }// namespace luisa::compute
