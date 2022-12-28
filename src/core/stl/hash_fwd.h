@@ -10,7 +10,7 @@
 
 namespace luisa {
 
-static constexpr uint64_t hash64_default_seed = 0x19980810ull;
+static constexpr uint64_t hash64_default_seed = 1145141919810ull;
 
 [[nodiscard]] LC_CORE_API uint64_t hash64(const void *ptr, size_t size, uint64_t seed) noexcept;
 
