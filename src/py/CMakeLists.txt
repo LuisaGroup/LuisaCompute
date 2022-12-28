@@ -1,10 +1,17 @@
-SET(LUISA_PYTHON_SOURCES
-        lcapi.cpp
+set(LUISA_PYTHON_SOURCES
+        export_matrix.cpp
         export_op.cpp
         export_vector2.cpp
         export_vector3.cpp
         export_vector4.cpp
-        export_matrix.cpp)
+        image_util.cpp
+        lcapi.cpp
+        managed_accel.cpp managed_accel.h
+        managed_bindless.cpp managed_bindless.h
+        managed_collector.cpp managed_collector.h
+        py_stream.cpp py_stream.h
+        ref_counter.cpp ref_counter.h
+        stb.cpp)
 pybind11_add_module(lcapi ${LUISA_PYTHON_SOURCES})
 if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(lcapi PRIVATE -Wa,-mbig-obj)

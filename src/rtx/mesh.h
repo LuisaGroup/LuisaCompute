@@ -6,9 +6,9 @@
 
 #include <runtime/device.h>
 #include <runtime/buffer.h>
+#include <runtime/custom_pass.h>
 #include <dsl/syntax.h>
 #include <dsl/struct.h>
-#include <core/stl/format.h>
 
 namespace luisa::compute {
 
@@ -85,9 +85,26 @@ Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, MeshBuildOptio
     return this->_create<Mesh>(std::forward<VBuffer>(vertices), std::forward<TBuffer>(triangles), option);
 }
 
+namespace custompass_detail {
+
+template<>
+struct CustomResFilter<Mesh> {
+    static constexpr bool LegalType = true;
+    static void emplace(luisa::string &&name, Usage usage, CustomPass *cmd, Mesh const &v) {
+        CustomCommand::ResourceBinding bindings;
+        bindings.name = std::move(name);
+        bindings.usage = usage;
+        bindings.resource_view = CustomCommand::MeshView{
+            .handle = v.handle()};
+        cmd->_bindings.emplace_back(std::move(bindings));
+    }
+};
+
+}// namespace custompass_detail
+
 }// namespace luisa::compute
 
 LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2)
 #ifndef LC_DISABLE_DSL
-{};
+    {};
 #endif
