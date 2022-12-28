@@ -5,59 +5,73 @@ set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
+
 option("use_unity_build")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
+
 option("enable_simd")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
+
 option("dx_backend")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-option_end()
+
 option("cuda_backend")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-option_end()
+
 option("llvm_backend")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-option_end()
+
 option("metal_backend")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+
 option("export_config")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+
 option("enable_tools")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+
 option("enable_tests")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+
 option("enable_py")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+
+option("enable_rust")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
+
 option("disable_dsl")
 set_values(true, false)
 set_default(true)
@@ -75,6 +89,7 @@ set_kind("project")
 before_build(function()
 	if not has_config("legal_env") then
 		utils.error("Illegal environment! Please check your compiler, architecture or platform!")
+		return
 	end
 end)
 rule_end()
@@ -85,6 +100,7 @@ if has_config("legal_env") then
 	ExportConfig = (get_config("export_config"))
 	UseSIMD = get_config("enable_simd")
 	DisableDSL = get_config("disable_dsl")
+	EnableRust = get_config("enable_rust")
 	if is_mode("debug") then
 		set_targetdir("bin/debug")
 	else

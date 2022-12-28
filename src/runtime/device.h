@@ -185,7 +185,7 @@ public:
 // FIXME:
 // _ex are experiemental apis
 #ifdef LC_ENABLE_API
-    [[nodiscard]] virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept;
+    [[nodiscard]] LC_RUNTIME_API virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept;
 #endif
 
     // raster kernel  (may not supported by some backends)

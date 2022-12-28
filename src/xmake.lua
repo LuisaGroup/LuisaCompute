@@ -5,7 +5,6 @@ end
 includes("ext/EASTL")
 _configs.use_mimalloc = nil
 includes("ext/spdlog")
--- includes("ext/glfw")
 includes("core")
 includes("vstl")
 includes("ast")
@@ -14,11 +13,9 @@ includes("compile")
 if not DisableDSL then
 	includes("dsl")	
 end
--- includes("serde_lib")
 if get_config("enable_py") then
 	includes("py")
 end
--- includes("remote")
 if get_config("dx_backend") then
 	includes("backends/dx")
 end
@@ -34,9 +31,10 @@ end
 if get_config("enable_tests") then
 	includes("tests")
 end
--- if is_plat("windows") then
--- includes("shader_graph")
--- end
 if get_config("enable_tools") then
 	includes("tools")
+end
+if EnableRust then
+	includes("api")
+	includes("ir")
 end

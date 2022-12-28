@@ -61,12 +61,12 @@ struct TypePromotion {
     const Type *result{nullptr};
 };
 
-[[nodiscard]] TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexcept;
+[[nodiscard]] LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexcept;
 
 [[nodiscard]] constexpr auto is_relational(BinaryOp op) noexcept {
     return op == BinaryOp::LESS ||
            op == BinaryOp::GREATER ||
-           op == BinaryOp::LESS_EQUAL ||
+           op == BinaryOp::LESS_EQUAL ||    
            op == BinaryOp::GREATER_EQUAL ||
            op == BinaryOp::EQUAL ||
            op == BinaryOp::NOT_EQUAL;

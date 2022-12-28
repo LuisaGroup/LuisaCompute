@@ -41,7 +41,7 @@ bool CallOpSet::Iterator::operator==(luisa::default_sentinel_t) const noexcept {
     return _index == call_op_count;
 }
 
-TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexcept {
+LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type *rhs) noexcept {
     auto dimensions_compatible = [](auto a, auto b) noexcept {
         return a->dimension() == b->dimension() ||
                a->dimension() == 1u ||
