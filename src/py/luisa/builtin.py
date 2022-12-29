@@ -281,7 +281,7 @@ def make_vector_call(dtype, op, args):
 
 @BuiltinFuncBuilder
 def discard():
-    return None, lcapi.builder().call(lcapi.CallOp.DISCARD, [])
+    return None, lcapi.builder().call(lcapi.CallOp.RASTER_DISCARD, [])
 @BuiltinFuncBuilder
 def _bitwise_cast(*args):
     assert len(args)==2 and args[0].dtype == type

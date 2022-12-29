@@ -127,7 +127,7 @@ class Accel:
 
     @func
     def trace_closest(self, ray: Ray):
-        uhit = _builtin_call(UHit, "TRACE_CLOSEST", self, ray)
+        uhit = _builtin_call(UHit, "RAY_TRACING_TRACE_CLOSEST", self, ray)
         hit = Hit()
         hit.inst = _bitwise_cast(int, uhit.inst)
         hit.prim = _bitwise_cast(int, uhit.prim)
@@ -138,22 +138,22 @@ class Accel:
 
     @func
     def trace_any(self, ray: Ray):
-        return _builtin_call(bool, "TRACE_ANY", self, ray)
+        return _builtin_call(bool, "RAY_TRACING_TRACE_ANY", self, ray)
 
     @func
     def instance_transform(self, index: int):
-        return _builtin_call(float4x4, "INSTANCE_TO_WORLD_MATRIX", self, index)
+        return _builtin_call(float4x4, "RAY_TRACING_INSTANCE_TRANSFORM", self, index)
 
     @func
     def set_instance_transform(self, index: int, transform: float4x4):
-        _builtin_call("SET_INSTANCE_TRANSFORM", self, index, transform)
+        _builtin_call("RAY_TRACING_SET_INSTANCE_TRANSFORM", self, index, transform)
 
     @func
     def set_instance_visibility(self, index: int, visible: bool):
-        _builtin_call("SET_INSTANCE_VISIBILITY", self, index, visible)
+        _builtin_call("RAY_TRACING_SET_INSTANCE_VISIBILITY", self, index, visible)
     @func
     def set_instance_visibility(self, index: int, opaque: bool):
-        _builtin_call("SET_INSTANCE_OPAQUE", self, index, opaque)
+        _builtin_call("RAY_TRACING_SET_INSTANCE_OPACITY", self, index, opaque)
     @func
     def trace_all(self, ray: Ray):
-        return _builtin_call(rayQueryType, "TRACE_ALL", self, ray)
+        return _builtin_call(rayQueryType, "RAY_TRACING_TRACE_ALL", self, ray)

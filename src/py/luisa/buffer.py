@@ -187,7 +187,7 @@ class IndirectBufferType:
     def get_clear_func():
         @func
         def clear(self):
-            _builtin_call("CLEAR_DISPATCH_INDIRECT_BUFFER", self)
+            _builtin_call("INDIRECT_CLEAR_DISPATCH_BUFFER", self)
         return clear
 
     @staticmethod
@@ -195,7 +195,7 @@ class IndirectBufferType:
     def get_emplace_func():
         @func
         def emplace(self, block_size: int3, size: int3, id: int):
-            _builtin_call("EMPLACE_DISPATCH_INDIRECT_KERNEL", self, block_size, size, id)
+            _builtin_call("INDIRECT_EMPLACE_DISPATCH_KERNEL", self, block_size, size, id)
         return emplace
 
 

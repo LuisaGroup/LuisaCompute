@@ -22,13 +22,13 @@ class RayQueryType:
         return hash("LC_RayQuery") ^ 1641414112621983
     @func
     def proceed(self):
-        return _builtin_call(bool, "QUERY_PROCEED", self)
+        return _builtin_call(bool, "RAY_QUERY_PROCEED", self)
     @func
     def is_triangle(self):
-        return _builtin_call(bool, "IS_QUERY_CANDIDATE_TRIANGLE", self)
+        return _builtin_call(bool, "RAY_QUERY_IS_CANDIDATE_TRIANGLE", self)
     @func
     def procedural_candidate(self):
-        uhit = _builtin_call(UHit, "GET_PROCEDURAL_CANDIDATE_HIT", self)
+        uhit = _builtin_call(UHit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)
         hit = Hit()
         hit.inst = _bitwise_cast(int, uhit.inst)
         hit.prim = _bitwise_cast(int, uhit.prim)
@@ -38,7 +38,7 @@ class RayQueryType:
         return hit
     @func
     def triangle_candidate(self):
-        uhit = _builtin_call(UHit, "GET_TRIANGLE_CANDIDATE_HIT", self)
+        uhit = _builtin_call(UHit, "RAY_QUERY_TRIANGLE_CANDIDATE_HIT", self)
         hit = Hit()
         hit.inst = _bitwise_cast(int, uhit.inst)
         hit.prim = _bitwise_cast(int, uhit.prim)
@@ -48,7 +48,7 @@ class RayQueryType:
         return hit
     @func
     def get_commit_hit(self):
-        uhit = _builtin_call(UHit, "GET_COMMITED_HIT", self)
+        uhit = _builtin_call(UHit, "RAY_QUERY_COMMITTED_HIT", self)
         hit = Hit()
         hit.inst = _bitwise_cast(int, uhit.inst)
         hit.prim = _bitwise_cast(int, uhit.prim)
@@ -58,10 +58,10 @@ class RayQueryType:
         return hit
     @func
     def commit_triangle(self):
-        _builtin_call("COMMIT_TRIANGLE", self)
+        _builtin_call("RAY_QUERY_COMMIT_TRIANGLE", self)
     @func
     def commit_procedural(self, distance:float):
-        _builtin_call("COMMIT_PROCEDURAL", self, distance)
+        _builtin_call("RAY_QUERY_COMMIT_PROCEDURAL", self, distance)
 rayQueryType = RayQueryType()
 class RayQuery:
     def __init__(self):
