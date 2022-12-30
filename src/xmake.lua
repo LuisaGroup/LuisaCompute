@@ -35,6 +35,7 @@ if get_config("enable_tools") then
 	includes("tools")
 end
 if EnableRust then
-	includes("api")
+	-- includes("api")
 	includes("ir")
+	includes("rust")
 end

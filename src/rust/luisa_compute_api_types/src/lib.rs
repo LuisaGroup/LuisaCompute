@@ -52,8 +52,20 @@ pub struct NodeRef(pub u64);
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum AccelUsageHint {
     FastTrace,
-    FastUpdate,
-    FastBuild,
+    FastBuild
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub enum MeshType {
+    Mesh,
+    ProceduralPrimitive,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub enum StreamTag {
+    Graphics,
+    Compute,
+    Copy,
 }
 
 #[repr(C)]

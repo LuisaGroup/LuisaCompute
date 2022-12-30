@@ -309,7 +309,7 @@ doxygen_output
 # generated RUST bindings
 src/rust/luisa-compute-ir/target/**
 src/rust/luisa_compute_api_types/target/**
-src/rust/luisa_compute_api_types/bindings.*
+src/rust/target/**
 
 # XMake
 .xmake/**

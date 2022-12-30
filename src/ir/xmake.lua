@@ -4,7 +4,7 @@ _config_project({
 })
 local add_includedirs = _get_add_includedirs()
 add_defines("LC_IR_EXPORT_DLL")
-add_deps("lc-runtime")
+add_deps("lc-runtime", "lc-rust")
 add_files("**.cpp")
 add_includedirs("../rust", {
 	public = true
@@ -20,21 +20,3 @@ if is_mode("debug") then
 else
 	add_rs_link("release")
 end
-rule("cargo_toml")
-set_extensions(".toml")
-on_buildcmd_file(function (target, batchcmds, sourcefile, opt)
-	local cargo_cmd = "cargo build --manifest-path "
-	local sub_dir = sourcefile;
-	local mode = nil
-	if is_mode("debug") then
-		cargo_cmd = cargo_cmd .. sub_dir
-	else
-		cargo_cmd = cargo_cmd .. sub_dir .. " --release"
-	end
-	cargo_cmd = cargo_cmd .. " -q"
-	print("run: " .. cargo_cmd)
-	batchcmds:vrunv(cargo_cmd)
-end)
-rule_end()
-add_rules("cargo_toml")
-add_files("../rust/Cargo.toml")
