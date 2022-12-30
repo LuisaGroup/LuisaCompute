@@ -56,7 +56,7 @@ struct TypeRegistryImpl {
         };
     };
 
-    luisa::Pool<Type, false> type_pool;
+    luisa::Pool<Type, false, false> type_pool;
     luisa::vector<Type *> types;
 
     ~TypeRegistryImpl() noexcept {

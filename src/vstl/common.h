@@ -17,8 +17,8 @@
 #include <core/stl/unordered_dense.h>
 
 namespace vstd {
-using string_view = std::basic_string_view<char>;
-using wstring_view = std::basic_string_view<wchar_t>;
+using string_view = luisa::string_view;
+using wstring_view = luisa::wstring_view;
 template<typename K, typename V,
          typename Hash = luisa::hash<K>,
          typename Eq = std::equal_to<>,

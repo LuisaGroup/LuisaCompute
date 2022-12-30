@@ -16,7 +16,7 @@
 #include <Resource/TopAccel.h>
 #include <vstl/binary_reader.h>
 #include <Api/LCSwapChain.h>
-#include <Api/LCUtil.h>
+#include <Api/ext.h>
 #include "HLSL/dx_codegen.h"
 #include <ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
@@ -27,13 +27,16 @@ using namespace toolhub::directx;
 namespace toolhub::directx {
 static constexpr uint kShaderModel = 65u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
-    : LCDeviceInterface(std::move(ctx)),
+    : DeviceInterface(std::move(ctx)),
       shaderPaths{_ctx.paths().cache_directory(), _ctx.paths().data_directory() / "dx_builtin", _ctx.paths().runtime_directory()},
       nativeDevice(_ctx, shaderPaths, settings) {
+    exts.try_emplace("tex_compress"sv, [](LCDevice *device) -> DeviceExtension * {
+        return new DxTexCompressExt(&device->nativeDevice);
+    });
 }
 LCDevice::~LCDevice() {
 }
-luisa::Hash128 LCDevice::device_hash() const noexcept {
+Hash128 LCDevice::device_hash() const noexcept {
     vstd::MD5::MD5Data const &md5 = nativeDevice.adapterID.ToBinary();
     Hash128 r;
     static_assert(sizeof(Hash128) == sizeof(vstd::MD5::MD5Data));
@@ -93,7 +96,7 @@ uint64 LCDevice::create_texture(
                 allowUAV,
                 nativeDevice.defaultAllocator.get())));
 }
-luisa::string LCDevice::cache_name(luisa::string_view file_name) const noexcept {
+string LCDevice::cache_name(string_view file_name) const noexcept {
     return Shader::PSOName(&nativeDevice, file_name);
 }
 void LCDevice::destroy_texture(uint64 handle) noexcept {
@@ -145,11 +148,11 @@ uint64 LCDevice::create_stream(StreamTag type) noexcept {
             nativeDevice.defaultAllocator.get(),
             [&] {
                 switch (type) {
-                    case luisa::compute::StreamTag::COMPUTE:
+                    case compute::StreamTag::COMPUTE:
                         return D3D12_COMMAND_LIST_TYPE_COMPUTE;
-                    case luisa::compute::StreamTag::GRAPHICS:
+                    case compute::StreamTag::GRAPHICS:
                         return D3D12_COMMAND_LIST_TYPE_DIRECT;
-                    case luisa::compute::StreamTag::COPY:
+                    case compute::StreamTag::COPY:
                         return D3D12_COMMAND_LIST_TYPE_COPY;
                 }
             }()));
@@ -161,7 +164,7 @@ void LCDevice::destroy_stream(uint64 handle) noexcept {
 void LCDevice::synchronize_stream(uint64 stream_handle) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)->Sync();
 }
-void LCDevice::dispatch(uint64 stream_handle, CommandList &&list, luisa::fixed_vector<luisa::move_only_function<void()>, 1> &&func) noexcept {
+void LCDevice::dispatch(uint64 stream_handle, CommandList &&list, fixed_vector<move_only_function<void()>, 1> &&func) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
         ->Execute(std::move(list), nativeDevice.maxAllocatorCount, &func);
 }
@@ -227,9 +230,9 @@ uint64 LCDevice::load_shader(
     if (cs)
         return reinterpret_cast<uint64>(cs);
     else
-        return luisa::compute::Resource::invalid_handle;
+        return compute::Resource::invalid_handle;
 }
-void LCDevice::save_shader(Function kernel, luisa::string_view file_name) noexcept {
+void LCDevice::save_shader(Function kernel, string_view file_name) noexcept {
     auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);
     ComputeShader::SaveCompute(
         nativeDevice.fileIo,
@@ -322,11 +325,11 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
 uint64_t LCDevice::create_raster_shader(
     const MeshFormat &mesh_format,
     const RasterState &raster_state,
-    luisa::span<const PixelFormat> rtv_format,
+    span<const PixelFormat> rtv_format,
     DepthFormat dsv_format,
     Function vert,
     Function pixel,
-    luisa::string_view file_name) noexcept {
+    string_view file_name) noexcept {
     auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     auto shader = RasterShader::CompileRaster(
@@ -349,10 +352,10 @@ uint64_t LCDevice::create_raster_shader(
 uint64_t LCDevice::load_raster_shader(
     const MeshFormat &mesh_format,
     const RasterState &raster_state,
-    luisa::span<const PixelFormat> rtv_format,
+    span<const PixelFormat> rtv_format,
     DepthFormat dsv_format,
-    luisa::span<Type const *const> types,
-    luisa::string_view ser_path) noexcept {
+    span<Type const *const> types,
+    string_view ser_path) noexcept {
     auto ptr = RasterShader::LoadRaster(
         nativeDevice.fileIo,
         &nativeDevice,
@@ -363,13 +366,13 @@ uint64_t LCDevice::load_raster_shader(
         types,
         ser_path);
     if (ptr) return reinterpret_cast<uint64>(ptr);
-    return luisa::compute::Resource::invalid_handle;
+    return compute::Resource::invalid_handle;
 }
 void LCDevice::save_raster_shader(
     const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
-    luisa::string_view file_name) noexcept {
+    string_view file_name) noexcept {
     auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     RasterShader::SaveRaster(
@@ -386,7 +389,7 @@ void LCDevice::save_raster_shader(
 uint64_t LCDevice::create_raster_shader(
     const MeshFormat &mesh_format,
     const RasterState &raster_state,
-    luisa::span<const PixelFormat> rtv_format,
+    span<const PixelFormat> rtv_format,
     DepthFormat dsv_format,
     Function vert,
     Function pixel,
@@ -421,22 +424,31 @@ uint64_t LCDevice::create_depth_buffer(DepthFormat format, uint width, uint heig
                 width, height,
                 format, nativeDevice.defaultAllocator.get())));
 }
-LCDeviceInterface::BuiltinBuffer LCDevice::create_dispatch_buffer(uint32_t dimension, size_t capacity) noexcept {
+DeviceInterface::BuiltinBuffer LCDevice::create_dispatch_buffer(uint32_t dimension, size_t capacity) noexcept {
     auto size = 4 + 28 * capacity;
     return {reinterpret_cast<uint64>(static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, size, nativeDevice.defaultAllocator.get()))), size};
 }
-LCDeviceInterface::BuiltinBuffer LCDevice::create_aabb_buffer(size_t capacity) noexcept {
+DeviceInterface::BuiltinBuffer LCDevice::create_aabb_buffer(size_t capacity) noexcept {
     auto size = capacity * 32;
     return {reinterpret_cast<uint64>(static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, size, nativeDevice.defaultAllocator.get()))), size};
 }
 void LCDevice::destroy_depth_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<TextureBase *>(handle);
 }
+DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
+    auto ite = exts.find(name);
+    if (ite == exts.end()) return nullptr;
+    auto &v = ite->second;
+    if (v.ext == nullptr) {
+        v.ext = vstd::create_unique(v.get_ext(this));
+    }
+    return v.ext.get();
+}
 
-VSTL_EXPORT_C LCDeviceInterface *create(Context &&c, DeviceConfig const *settings) {
+VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);
 }
-VSTL_EXPORT_C void destroy(LCDeviceInterface *device) {
+VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<LCDevice *>(device);
 }
 }// namespace toolhub::directx

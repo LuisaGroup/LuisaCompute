@@ -87,21 +87,9 @@ struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
 }// namespace detail
 
-class DeviceExtension {};
-
-class CPUDeviceExtension : public DeviceExtension {
+class DeviceExtension {
 public:
-    struct KernelClosure {
-        void (*kernel)(const ShaderDispatchCommand &cmd, void *data);
-        void *data;
-    };
-    // invoke the kernel at current thread
-    // Useful for invoking the kernel with small dispatch size
-    virtual KernelClosure kernel_closure(uint64_t shader, const ShaderDispatchCommand &cmd) noexcept = 0;
-
-    // For cpu backend, async is not always necessary
-    // this functions makes stream operatiions synchronous to minize overhead
-    virtual void stream_no_async(uint64_t stream, bool no_async) noexcept = 0;
+    virtual ~DeviceExtension() = default;
 };
 
 class DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {

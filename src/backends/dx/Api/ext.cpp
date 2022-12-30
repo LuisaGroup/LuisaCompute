@@ -1,4 +1,4 @@
-#include <Api/LCUtil.h>
+#include <Api/ext.h>
 #include <Api/LCDevice.h>
 #include <DXRuntime/Device.h>
 #include <Resource/RenderTexture.h>
@@ -7,16 +7,16 @@
 namespace toolhub::directx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
-//         util = vstd::create_unique(new LCUtil(&nativeDevice));
+//         util = vstd::create_unique(new DxTexCompressExt(&nativeDevice));
 //     }
 //     return util.get();
 // }
-LCUtil::LCUtil(Device *device)
+DxTexCompressExt::DxTexCompressExt(Device *device)
     : device(device) {
 }
-LCUtil::~LCUtil() {
+DxTexCompressExt::~DxTexCompressExt() {
 }
-IUtil::Result LCUtil::compress_bc6h(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result) noexcept {
+TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
 
     RenderTexture *srcTex = reinterpret_cast<RenderTexture *>(src.handle());
@@ -27,10 +27,10 @@ IUtil::Result LCUtil::compress_bc6h(Stream &stream, Image<float> const &src, vst
         0,
         device->defaultAllocator.get(),
         device->maxAllocatorCount);
-    return IUtil::Result::Success;
+    return Result::Success;
 }
 
-IUtil::Result LCUtil::compress_bc7(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result, float alphaImportance) noexcept {
+TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result, float alphaImportance) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
     cmdBuffer->CompressBC(
         reinterpret_cast<RenderTexture *>(src.handle()),
@@ -39,9 +39,9 @@ IUtil::Result LCUtil::compress_bc7(Stream &stream, Image<float> const &src, vstd
         alphaImportance,
         device->defaultAllocator.get(),
         device->maxAllocatorCount);
-    return IUtil::Result::Success;
+    return Result::Success;
 }
-IUtil::Result LCUtil::check_builtin_shader() noexcept {
+TexCompressExt::Result DxTexCompressExt::check_builtin_shader() noexcept {
     LUISA_INFO("start try compile setAccelKernel");
     if (!device->setAccelKernel.Check(device)) return Result::Failed;
     LUISA_INFO("start try compile bc6TryModeG10");

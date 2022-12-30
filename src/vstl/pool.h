@@ -99,13 +99,13 @@ public:
 
     void Delete(T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            ptr->~T();
+            destruct(ptr);
         allPtrs.push_back(ptr);
     }
     template<typename Mutex>
     void Delete_Lock(Mutex &mtx, T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            ptr->~T();
+            destruct(ptr);
         std::lock_guard lck(mtx);
         allPtrs.push_back(ptr);
     }
@@ -262,7 +262,7 @@ public:
 
     void Delete(T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            ptr->~T();
+            destruct(ptr);
         RemoveAllocatedObject(ptr);
         allPtrs.push_back(ptr);
     }
@@ -275,7 +275,7 @@ public:
     template<typename Mutex>
     void Delete_Lock(Mutex &mtx, T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            ptr->~T();
+            destruct(ptr);
         std::lock_guard lck(mtx);
         RemoveAllocatedObject(ptr);
         allPtrs.push_back(ptr);
@@ -289,7 +289,7 @@ public:
 
     ~Pool() {
         for (auto &&i : allocatedObjects) {
-            (reinterpret_cast<T *>(i))->~T();
+            destruct(reinterpret_cast<T *>(i));
         }
         for (auto &&i : allocatedPtrs) {
             PoolFree(i);
@@ -319,7 +319,7 @@ public:
 
     inline void Delete(T *targetPtr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            targetPtr->~T();
+            destruct(targetPtr);
         Array *arr = unusedObjects + !objectSwitcher;
         int64_t currentCount = arr->count++;
         if (currentCount >= arr->capacity) {

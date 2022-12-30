@@ -91,7 +91,7 @@ public:
 			T* ptr = reinterpret_cast<T*>(&storage);
 			T* endPtr = ptr + mSize;
 			while (ptr != endPtr) {
-				ptr->~T();
+				destruct(ptr);
 				++ptr;
 			}
 		}

@@ -46,18 +46,8 @@ public:
         disp.ptr = vengine_malloc(sizeof(T));
         new (disp.ptr) T(std::move(t));
         disp.dtor = [](void *ptr) {
-            reinterpret_cast<T *>(ptr)->~T();
+            vstd::destruct(reinterpret_cast<T *>(ptr));
         };
-    }
-    template<typename T>
-        requires(!std::is_reference_v<T>)
-    void add_readback(T t) noexcept {
-        // auto &disp = _data->readbackDisposer.emplace_back();
-        // disp.ptr = vengine_malloc(sizeof(T));
-        // new (disp.ptr) T(std::move(t));
-        // disp.dtor = [](void *ptr) {
-        //     reinterpret_cast<T *>(ptr)->~T(); 
-        // };
     }
     void execute() noexcept;
     void sync() noexcept;

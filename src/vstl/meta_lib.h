@@ -33,7 +33,17 @@ LC_VSTL_API void VEngine_Log(char const *chunk);
 #define VE_SUB_TEMPLATE template<typename...> \
 class
 namespace vstd {
-
+template<typename T, typename... Args>
+    requires(!std::is_const_v<T> && std::is_constructible_v<T, Args && ...>)
+void reset(T &v, Args &&...args) {
+    v.~T();
+    new (&v) T(std::forward<Args>(args)...);
+}
+template<typename T>
+void destruct(T *ptr) {
+    if constexpr (std::is_void_v<T> && !std::is_trivially_destructible_v<T>)
+        ptr->~T();
+}
 template<typename T>
 struct TypeOf {
     using Type = T;
@@ -79,7 +89,7 @@ public:
     }
     inline void Delete() noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            (reinterpret_cast<T *>(storage))->~T();
+            vstd::destruct(reinterpret_cast<T *>(storage));
     }
     T &operator*() &noexcept {
         return *reinterpret_cast<T *>(storage);
@@ -828,7 +838,7 @@ private:
     void m_dispose() {
         if constexpr (detail::AnyMap<std::is_trivially_destructible, true>::template Run<AA...>()) {
             auto disposeFunc = [&]<typename T>(T &value) {
-                value.~T();
+                vstd::destruct(&value);
             };
             visit(disposeFunc);
         }
@@ -1301,17 +1311,6 @@ struct compare<variant<T...>> {
     bool operator<(T const &a) const {           \
         return memcmp(this, &a, sizeof(T)) < 0;  \
     }
-template<typename T, typename... Args>
-    requires(!std::is_const_v<T> && std::is_constructible_v<T, Args && ...>)
-void reset(T &v, Args &&...args) {
-    v.~T();
-    new (&v) T(std::forward<Args>(args)...);
-}
-template<typename T>
-void destruct(T *ptr) {
-    if constexpr (!std::is_void_v<T> && !std::is_trivially_destructible_v<T>)
-        ptr->~T();
-}
 class IOperatorNewBase {
 public:
     static void *operator new(
