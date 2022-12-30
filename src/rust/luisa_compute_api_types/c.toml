@@ -57,7 +57,7 @@ usize_is_size_t = true
 
 
 [export]
-include = [ "Buffer", "Context", "Device", "Event", "Stream", "Shader", "StreamTag",
+include = [ "Buffer", "Context", "Device", "Event", "Stream", "Shader", "Hash128", "StreamTag",
             "AccelUsageHint", "MeshType", "AccelBuildRequest", "AccelBuildModificationFlags", "AccelBuildModification", "PixelStorage",
             "PixelFormat", "SamplerFilter", "SamplerAddress", "Sampler", "CommandList", "AppContext", "KernelModule"]
 exclude = []

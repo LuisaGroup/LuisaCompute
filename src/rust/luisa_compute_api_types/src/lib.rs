@@ -50,6 +50,10 @@ pub struct NodeRef(pub u64);
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct Hash128(pub [u8; 16]);
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum AccelUsageHint {
     FastTrace,
     FastBuild

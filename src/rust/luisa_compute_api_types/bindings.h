@@ -114,6 +114,10 @@ typedef struct LCShader {
     uint64_t _0;
 } LCShader;
 
+typedef struct LCHash128 {
+    uint8_t _0[16];
+} LCHash128;
+
 typedef struct LCAccelBuildModificationFlags {
     uint32_t bits;
 } LCAccelBuildModificationFlags;
