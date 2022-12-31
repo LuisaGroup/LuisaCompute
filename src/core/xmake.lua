@@ -16,7 +16,7 @@ add_defines("UNICODE=1", "TSL_NO_EXCEPTIONS", "NOMINMAX=1", "_SILENCE_ALL_CXX17_
         "_CRT_SECURE_NO_WARNINGS=1", "_ENABLE_EXTENDED_ALIGNED_STORAGE=1", {
             public = true
         })
-if DisableDSL then
+if not EnableDSL then
     add_defines("LC_DISABLE_DSL", {
         public = true
     })

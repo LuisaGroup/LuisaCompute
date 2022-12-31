@@ -10,7 +10,7 @@ includes("vstl")
 includes("ast")
 includes("runtime")
 includes("compile")
-if not DisableDSL then
+if EnableDSL then
 	includes("dsl")	
 end
 if get_config("enable_py") then
@@ -35,7 +35,7 @@ if get_config("enable_tools") then
 	includes("tools")
 end
 if EnableRust then
-	-- includes("api")
+	includes("api")
 	includes("ir")
 	includes("rust")
 end

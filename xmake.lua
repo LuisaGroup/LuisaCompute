@@ -72,9 +72,9 @@ set_default(false)
 set_showmenu(true)
 option_end()
 
-option("disable_dsl")
+option("enable_dsl")
 set_values(true, false)
-set_default(true)
+set_default(false)
 set_showmenu(true)
 option_end()
 -- options
@@ -99,7 +99,7 @@ if has_config("legal_env") then
 	UseUnityBuild = get_config("use_unity_build")
 	ExportConfig = (get_config("export_config"))
 	UseSIMD = get_config("enable_simd")
-	DisableDSL = get_config("disable_dsl")
+	EnableDSL = get_config("enable_dsl")
 	EnableRust = get_config("enable_rust")
 	if is_mode("debug") then
 		set_targetdir("bin/debug")

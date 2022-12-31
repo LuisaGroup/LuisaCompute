@@ -13,9 +13,6 @@ function CompilePython(version)
 	add_includedirs("../ext/pybind11/include", "../ext/" .. pyName .. "/include", "../ext/stb/")
 	add_files("*.cpp")
 	add_deps("lc-runtime")
-	if not DisableDSL then
-		add_deps("lc-dsl")
-	end
 	add_defines("LC_AST_EXCEPTION")
 	set_values("projectName", projectName)
 	after_build(function(target)
