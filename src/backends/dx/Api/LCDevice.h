@@ -17,6 +17,7 @@ class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
 public:
     ShaderPaths shaderPaths;
     Device nativeDevice;
+    std::mutex extMtx;
     vstd::unordered_map<vstd::string, Ext> exts;
     //std::numeric_limits<size_t>::max();
     LCDevice(Context &&ctx, DeviceConfig const *settings);
@@ -49,8 +50,10 @@ public:
     void remove_buffer_from_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex2d_from_bindless_array(uint64_t array, size_t index) noexcept override;
     void remove_tex3d_from_bindless_array(uint64_t array, size_t index) noexcept override;
+    void *bindless_native_handle(uint64_t handle) const noexcept override;
     uint64_t create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
     void destroy_depth_buffer(uint64_t handle) noexcept override;
+    void *depth_native_handle(uint64_t handle) const noexcept override;
     // IUtil *get_util() noexcept override;
     // stream
     uint64_t create_stream(StreamTag stream_tag) noexcept override;
@@ -104,6 +107,7 @@ public:
     void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
     void synchronize_event(uint64_t handle) noexcept override;
+    void *event_native_handle(uint64_t handle) const noexcept override;
     // accel
     uint64_t create_mesh(
         AccelUsageHint hint,
@@ -115,6 +119,8 @@ public:
     uint64_t create_accel(AccelUsageHint hint, bool allow_compact, bool allow_update) noexcept override;
 
     void destroy_accel(uint64_t handle) noexcept override;
+    void *mesh_native_handle(uint64_t handle) const noexcept override;
+    void *accel_native_handle(uint64_t handle) const noexcept override;
     // swap chain
     uint64_t create_swap_chain(
         uint64 window_handle,
@@ -125,6 +131,7 @@ public:
         bool vsync,
         uint back_buffer_size) noexcept override;
     void destroy_swap_chain(uint64_t handle) noexcept override;
+    void *swapchain_native_handle(uint64_t handle) const noexcept override;
     PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override;
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
     DeviceExtension *extension(string_view name) noexcept override;

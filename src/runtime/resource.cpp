@@ -51,16 +51,16 @@ void *Resource::native_handle() const noexcept {
     switch (_tag) {
         case Tag::BUFFER: return _device->buffer_native_handle(_handle);
         case Tag::TEXTURE: return _device->texture_native_handle(_handle);
-        case Tag::BINDLESS_ARRAY: LUISA_ERROR_WITH_LOCATION("Native handles of bindless arrays are not obtainable yet.");
-        case Tag::MESH: LUISA_ERROR_WITH_LOCATION("Native handles of meshes are not obtainable yet.");
-        case Tag::PROCEDURAL_PRIMITIVE: LUISA_ERROR_WITH_LOCATION("Native handles of meshes are not obtainable yet.");
-        case Tag::ACCEL: LUISA_ERROR_WITH_LOCATION("Native handles of acceleration structures are not obtainable yet.");
+        case Tag::BINDLESS_ARRAY: return _device->bindless_native_handle(_handle);
+        case Tag::MESH: return _device->mesh_native_handle(_handle);
+        case Tag::PROCEDURAL_PRIMITIVE: return  _device->mesh_native_handle(_handle);
+        case Tag::ACCEL: return _device->accel_native_handle(_handle);
         case Tag::STREAM: return _device->stream_native_handle(_handle);
-        case Tag::EVENT: LUISA_ERROR_WITH_LOCATION("Native handles of events are not obtainable yet.");
+        case Tag::EVENT: return _device->event_native_handle(_handle);
         case Tag::SHADER: LUISA_ERROR_WITH_LOCATION("Native handles of shaders are not obtainable yet.");
         case Tag::RASTER_SHADER: LUISA_ERROR_WITH_LOCATION("Native handles of raster shaders are not obtainable yet.");
-        case Tag::SWAP_CHAIN: LUISA_ERROR_WITH_LOCATION("Native handles of swap chains are not obtainable yet.");
-        case Tag::DEPTH_BUFFER: LUISA_ERROR_WITH_LOCATION("Native handles of depth buffer are not obtainable yet.");
+        case Tag::SWAP_CHAIN: return _device->swapchain_native_handle(_handle);
+        case Tag::DEPTH_BUFFER: return _device->depth_native_handle(_handle);
     }
     LUISA_ERROR_WITH_LOCATION("Unknown resource tag.");
 }

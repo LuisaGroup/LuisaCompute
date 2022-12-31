@@ -439,10 +439,37 @@ DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
     auto ite = exts.find(name);
     if (ite == exts.end()) return nullptr;
     auto &v = ite->second;
-    if (v.ext == nullptr) {
-        v.ext = vstd::create_unique(v.get_ext(this));
+    {
+        std::lock_guard lck{extMtx};
+        if (v.ext == nullptr) {
+            v.ext = vstd::create_unique(v.get_ext(this));
+        }
     }
     return v.ext.get();
+}
+void *LCDevice::swapchain_native_handle(uint64_t handle) const noexcept {
+    auto swapchain = reinterpret_cast<LCSwapChain *>(handle);
+    return swapchain->swapChain.Get();
+}
+void *LCDevice::bindless_native_handle(uint64_t handle) const noexcept {
+    auto bindless = reinterpret_cast<BindlessArray *>(handle);
+    return bindless->Buffer()->GetResource();
+}
+void *LCDevice::depth_native_handle(uint64_t handle) const noexcept {
+    auto db = static_cast<DepthBuffer *>(reinterpret_cast<TextureBase *>(handle));
+    return db->GetResource();
+}
+void *LCDevice::event_native_handle(uint64_t handle) const noexcept {
+    auto evt = reinterpret_cast<LCEvent *>(handle);
+    return evt->Fence();
+}
+void *LCDevice::mesh_native_handle(uint64_t handle) const noexcept {
+    auto mesh = reinterpret_cast<BottomAccel *>(handle);
+    return mesh->GetAccelBuffer()->GetResource();
+}
+void *LCDevice::accel_native_handle(uint64_t handle) const noexcept {
+    auto accel = reinterpret_cast<TopAccel *>(handle);
+    return accel->GetAccelBuffer()->GetResource();
 }
 
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
