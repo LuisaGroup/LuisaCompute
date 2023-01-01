@@ -3,6 +3,7 @@
 // Class:
 //   FunctionBuilder
 //       define_kernel
+
 #include <filesystem>
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
@@ -26,6 +27,7 @@
 #include <py/managed_bindless.h>
 #include <ast/ast_evaluator.h>
 #include <dsl/struct.h>
+
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -38,11 +40,13 @@ void export_vector3(py::module &m);
 void export_vector4(py::module &m);
 void export_matrix(py::module &m);
 void export_img(py::module &m);
+
 class ManagedMeshFormat {
 public:
     MeshFormat format;
     luisa::vector<VertexAttribute> attributes;
 };
+
 struct VertexData {
     float3 position;
     float3 normal;
@@ -52,11 +56,29 @@ struct VertexData {
     uint vertex_id;
     uint instance_id;
 };
+
 LUISA_STRUCT(VertexData, position, normal, tangent, color, uv, vertex_id, instance_id)
 #ifndef LC_DISABLE_DSL
     {};
 #endif
-PYBIND11_DECLARE_HOLDER_TYPE(T, eastl::shared_ptr<T>);
+
+template<typename T>
+class raw_ptr {
+
+private:
+    T *_p;
+
+public:
+    [[nodiscard]] raw_ptr(T *p) noexcept : _p{p} {}
+    [[nodiscard]] T *get() const noexcept { return _p; }
+    [[nodiscard]] T *operator->() const noexcept { return _p; }
+    [[nodiscard]] T &operator*() const noexcept { return *_p; }
+    [[nodiscard]] explicit operator bool() const noexcept { return _p != nullptr; }
+};
+
+PYBIND11_DECLARE_HOLDER_TYPE(T, raw_ptr<T>, true)
+PYBIND11_DECLARE_HOLDER_TYPE(T, luisa::shared_ptr<T>)
+
 class ManagedDevice {
 public:
     Device device;
@@ -465,7 +487,7 @@ PYBIND11_MODULE(lcapi, m) {
     // OPs
     export_op(m);// UnaryOp, BinaryOp, CallOp. def at export_op.hpp
 
-    py::class_<Type>(m, "Type")
+    py::class_<Type, raw_ptr<Type>>(m, "Type")
         .def_static("from_", &Type::from, pyref)
         .def("size", &Type::size)
         .def("alignment", &Type::alignment)

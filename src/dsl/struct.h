@@ -160,8 +160,6 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     LUISA_CUSTOM_STRUCT_REFLECT(S, #S)                                                      \
     template<>                                                                              \
     struct luisa_compute_extension<luisa::compute::S>;                                      \
-    template<>                                                                              \
-    struct luisa::compute::is_custom_struct<luisa::compute::S> : public std::true_type {};  \
     namespace luisa::compute {                                                              \
     template<>                                                                              \
     struct Expr<luisa::compute::S> {                                                        \

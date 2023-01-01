@@ -233,8 +233,6 @@ struct dimension_impl<std::tuple<T...>> {
     static constexpr auto value = sizeof...(T);
 };
 
-class TypeRegistryImpl;
-
 }// namespace detail
 
 template<typename T>
@@ -252,12 +250,9 @@ struct TypeVisitor {
 /// Type class
 class LC_AST_API Type {
 
-    friend class detail::TypeRegistryImpl;
-
 public:
     /// Type tags
     enum struct Tag : uint32_t {
-
         BOOL,
         FLOAT,
         INT,
@@ -277,24 +272,22 @@ public:
         CUSTOM
     };
 
-private:
-    uint64_t _hash{};
-    size_t _size{};
-    size_t _index{};
-    size_t _alignment{};
-    uint32_t _dimension{};
-    Tag _tag{};
-    luisa::string _description;
-    luisa::vector<const Type *> _members;
+public:
+    static constexpr auto custom_struct_size = static_cast<size_t>(4u);
+    static constexpr auto custom_struct_alignment = static_cast<size_t>(4u);
+
+protected:
     Type() noexcept = default;
-    // Disable copy and move
+    ~Type() noexcept = default;
+
+public:
+    // disable copy & move
     Type(Type &&) noexcept = delete;
     Type(const Type &) noexcept = delete;
     Type &operator=(Type &&) noexcept = delete;
     Type &operator=(const Type &) noexcept = delete;
 
 public:
-    ~Type() = default;
     /// Return Type object of type T
     template<typename T>
     [[nodiscard]] static const Type *of() noexcept;
@@ -312,31 +305,57 @@ public:
     /// Return struct type of type T
     [[nodiscard]] static const Type *structure(size_t alignment, std::initializer_list<const Type *> members) noexcept;
 
+    /// Return struct type of type T
     template<typename... T>
         requires std::conjunction_v<std::is_convertible<T, const Type *const>...>
     [[nodiscard]] static const Type *structure(size_t alignment, T &&...members) noexcept {
         return structure(alignment, {std::forward<T>(members)...});
     }
 
+    /// Return struct type of type T
     template<typename... T>
         requires std::conjunction_v<std::is_convertible<T, const Type *const>...>
     [[nodiscard]] static const Type *structure(T &&...members) noexcept {
         return structure({std::forward<T>(members)...});
     }
 
+    /// Return custom type with the specified name
+    [[nodiscard]] static const Type *custom(luisa::string_view name) noexcept;
+
     /// Construct Type object from description
+    /// @param description Type description in the following syntax: \n
+    ///   TYPE := DATA | RESOURCE | CUSTOM \n
+    ///   DATA := BASIC | ARRAY | VECTOR | MATRIX | STRUCT \n
+    ///   BASIC := int | uint | bool | float \n
+    ///   ARRAY := array\<BASIC,N\> \n
+    ///   VECTOR := vector\<BASIC,VEC_MAT_DIM\> \n
+    ///   MATRIX := matrix\<VEC_MAT_DIM\> | matrix\<VEC_MAT_DIM\> | matrix\<VEC_MAT_DIM\> \n
+    ///   VEC_MAT_DIM := 2 | 3 | 4 \n
+    ///   STRUCT := struct\<STRUCT_ALIGNMENT,DATA+\> \n
+    ///   STRUCT_ALIGNMENT := 4 | 8 | 16 \n
+    ///   RESOURCE := BUFFER | TEXTURE | BINDLESS_ARRAY | ACCEL \n
+    ///   BUFFER := buffer\<DATA | CUSTOM\> \n
+    ///   TEXTURE := texture\<TEXTURE_DIM,TEXTURE_ELEM\> \n
+    ///   TEXTURE_DIM := 2 | 3 \n
+    ///   TEXTURE_ELEM := float | int | uint \n
+    ///   BINDLESS_ARRAY := bindless_array \n
+    ///   ACCEL := accel \n
+    ///   CUSTOM := [a-zA-Z_][a-zA-Z0-9_]* \n
+    /// @example Type::from("array\<struct\<16,float,int,int,uint\>,233\>")
+    /// @note Spaces are not allowed between tokens.
     [[nodiscard]] static const Type *from(std::string_view description) noexcept;
-    /// Construct Type object from uid
-    [[nodiscard]] static const Type *at(uint32_t uid) noexcept;
+
     /// Return type count
     [[nodiscard]] static size_t count() noexcept;
+
     /// Traverse TypeVisitor
     static void traverse(TypeVisitor &visitor) noexcept;
     static void traverse(const luisa::function<void(const Type *)> &visitor) noexcept;
 
-    /// Compare by hash
+    /// Compare by description
     [[nodiscard]] bool operator==(const Type &rhs) const noexcept;
     /// Compare by index
+    /// @note The indices ensure the topological order of types (e.g., `uint` always goes before `array<uint,n>`).
     [[nodiscard]] bool operator<(const Type &rhs) const noexcept;
     [[nodiscard]] uint index() const noexcept;
     [[nodiscard]] uint64_t hash() const noexcept;

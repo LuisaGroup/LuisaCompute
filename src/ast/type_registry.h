@@ -31,28 +31,16 @@ class VolumeView;
 
 class BindlessArray;
 class Accel;
+
 template<typename T>
 struct is_custom_struct : public std::false_type {};
+
 namespace detail {
 
 // TODO: is it possible to make the following functions constexpr?
 [[nodiscard]] LC_AST_API luisa::string make_array_description(luisa::string_view elem, size_t dim) noexcept;
 [[nodiscard]] LC_AST_API luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept;
 [[nodiscard]] LC_AST_API luisa::string make_buffer_description(luisa::string_view elem) noexcept;
-
-/// Type registry class
-struct LC_AST_API TypeRegistry {
-    /// Get registry instance
-    [[nodiscard]] static TypeRegistry &instance() noexcept;
-    /// Construct Type object from description
-    [[nodiscard]] const Type *type_from(luisa::string_view desc) noexcept;
-    /// Get Type object at index i
-    [[nodiscard]] const Type *type_at(size_t i) const noexcept;
-    /// Return type count
-    [[nodiscard]] size_t type_count() const noexcept;
-    /// Traverse all types using visitor
-    void traverse(TypeVisitor &visitor) const noexcept;
-};
 
 template<typename T>
 struct TypeDesc {
@@ -231,9 +219,14 @@ struct TypeDesc<std::tuple<T...>> {
 template<typename T>
 const Type *Type::of() noexcept {
     if constexpr (std::is_same_v<T, void>) { return nullptr; }
-    static thread_local auto info = Type::from(
-        detail::TypeDesc<std::remove_cvref_t<T>>::description());
-    return info;
+    auto desc = detail::TypeDesc<std::remove_cvref_t<T>>::description();
+    if constexpr (requires { typename T::is_struct; }) {
+        static thread_local auto t = Type::custom(desc);
+        return t;
+    } else {
+        static thread_local auto t = Type::from(desc);
+        return t;
+    }
 }
 
 namespace detail {
@@ -285,9 +278,6 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
 
 }// namespace detail
 
-static constexpr size_t custom_struct_size = 4;
-static constexpr size_t custom_struct_align = 4;
-
 }// namespace luisa::compute
 
 // struct
@@ -336,7 +326,7 @@ static constexpr size_t custom_struct_align = 4;
 #define LUISA_STRUCT_REFLECT(S, ...) \
     LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)
 
-#define LUISA_CUSTOM_STRUCT_REFLECT(S, desc)                                 \
+#define LUISA_CUSTOM_STRUCT_REFLECT(S, name)                                 \
     template<>                                                               \
     struct luisa::compute::is_struct<luisa::compute::S> : std::true_type {}; \
     template<>                                                               \
@@ -347,7 +337,8 @@ static constexpr size_t custom_struct_align = 4;
     template<>                                                               \
     struct luisa::compute::detail::TypeDesc<luisa::compute::S> {             \
         using this_type = luisa::compute::S;                                 \
-        static luisa::string_view description() noexcept {                   \
-            return desc;                                                     \
+        using is_custom = void;                                              \
+        static constexpr luisa::string_view description() noexcept {         \
+            return name;                                                     \
         }                                                                    \
     };
