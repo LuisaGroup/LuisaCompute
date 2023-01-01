@@ -65,13 +65,15 @@
 #include <runtime/stream.h>
 #include <runtime/stream_tag.h>
 #include <runtime/swap_chain.h>
-#include <runtime/util.h>
 #include <runtime/volume.h>
 
+#include <dsl/aabb.h>
 #include <dsl/arg.h>
 #include <dsl/autodiff.h>
 #include <dsl/builtin.h>
 #include <dsl/constant.h>
+#include <dsl/dispatch_indirect.h>
+#include <dsl/draw_indirect.h>
 #include <dsl/expr.h>
 #include <dsl/expr_traits.h>
 #include <dsl/func.h>

@@ -23,7 +23,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         stream.cpp stream.h
         stream_tag.h
         swap_chain.cpp swap_chain.h
-        util.h
         volume.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})

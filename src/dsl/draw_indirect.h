@@ -4,6 +4,14 @@
 #include <dsl/var.h>
 #include <dsl/struct.h>
 #include <runtime/command.h>
+
+namespace luisa::compute {
+struct DrawIndirectArgs {};
+struct DrawIndexedIndirectArgs {};
+struct VertexBufferAddress {};
+struct IndexBufferAddress {};
+}// namespace luisa::compute
+
 LUISA_CUSTOM_STRUCT(DrawIndirectArgs);
 LUISA_CUSTOM_STRUCT(DrawIndexedIndirectArgs);
 LUISA_CUSTOM_STRUCT(VertexBufferAddress);

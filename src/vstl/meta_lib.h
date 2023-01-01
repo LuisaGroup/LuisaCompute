@@ -41,7 +41,7 @@ void reset(T &v, Args &&...args) {
 }
 template<typename T>
 void destruct(T *ptr) {
-    if constexpr (std::is_void_v<T> && !std::is_trivially_destructible_v<T>)
+    if constexpr (!std::is_void_v<T> && !std::is_trivially_destructible_v<T>)
         ptr->~T();
 }
 template<typename T>
