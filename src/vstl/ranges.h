@@ -31,22 +31,22 @@ template<typename Ite>
 struct BuilderFlag : public IOperatorNewBase {
     static constexpr bool vstdRangeBuilder = true;
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto) operator|(Dst &&dst) &;
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+    operator|(Dst &&dst) &;
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto) operator|(Dst &&dst) &&;
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+    operator|(Dst &&dst) &&;
 };
 template<typename Ite>
 struct RangeFlag : public IOperatorNewBase {
     static constexpr bool vstdRange = true;
     IteEndTag end() const { return {}; }
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto) operator|(Dst &&dst) &;
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+    operator|(Dst &&dst) &;
     template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto) operator|(Dst &&dst) &&;
+        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder) decltype(auto)
+    operator|(Dst &&dst) &&;
 };
 
 template<typename Ite, typename Builder>
@@ -531,9 +531,14 @@ template<typename GetValue>
 v_TransformRange<GetValue> TransformRange(GetValue &&func) {
     return {std::forward<GetValue>(func)};
 }
-
-template<typename Map>
-    requires((AlwaysTrue<decltype(*(std::declval<Map>().begin()))>)&&(AlwaysTrue<decltype(++decl_lvalue(std::declval<Map>().begin()))>)&&std::is_same_v<bool, decltype((std::declval<Map>().begin()) == (std::declval<Map>().end()))>)
+// clang-format off
+template <typename T>
+concept RangeMap = requires(T rval){
+    ++decl_lvalue(rval.begin());
+    requires(std::is_same_v<bool, decltype(rval.begin() == rval.end())>);
+};
+// clang-format on
+template<RangeMap Map>
 v_CacheEndRange<Map> CacheEndRange(Map &&map) {
     return {std::forward<Map>(map)};
 }
@@ -550,8 +555,8 @@ v_RangeImpl<Map>
 }
 
 template<typename Dst, typename Func>
-auto IRangePipelineImpl(Func &&func) -> v_IRangePipelineImpl<Dst, Func&&> {
-    return {std::forward<Func&&>(func)};
+auto IRangePipelineImpl(Func &&func) -> v_IRangePipelineImpl<Dst, Func &&> {
+    return {std::forward<Func &&>(func)};
 }
 template<typename... Ts>
 v_TupleIterator<Ts...> TupleIterator(Ts &&...ts) {

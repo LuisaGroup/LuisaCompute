@@ -670,11 +670,11 @@ struct MapConstructible<void, Args...> {
 };
 template<typename T>
 static constexpr decltype(auto) GetVoidType() {
-	if constexpr (std::is_const_v<T>) {
-		return TypeOf<void const>{};
-	} else {
-		return TypeOf<void>{};
-	}
+    if constexpr (std::is_const_v<T>) {
+        return TypeOf<void const>{};
+    } else {
+        return TypeOf<void>{};
+    }
 }
 template<typename T>
 using GetVoidType_t = typename decltype(GetVoidType<std::remove_reference_t<T>>())::Type;
@@ -799,7 +799,7 @@ static constexpr bool AlwaysFalse = false;
 template<typename... Args>
 static constexpr bool AlwaysTrue = true;
 template<typename T>
-T &decl_lvalue(T &&) {}
+T &decl_lvalue(T &&t) { return t; }
 template<typename... AA>
 class variant {
 
