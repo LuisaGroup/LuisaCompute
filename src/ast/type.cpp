@@ -67,7 +67,7 @@ public:
     };
 
 private:
-    luisa::Pool<TypeImpl, false> _type_pool;
+    luisa::Pool<TypeImpl, false, false> _type_pool;
     luisa::vector<TypeImpl *> _types;
     luisa::unordered_set<const TypeImpl *, TypeHash> _type_set;
     mutable std::recursive_mutex _mutex;
@@ -93,7 +93,7 @@ private:
 public:
     ~TypeRegistry() noexcept {
         for (auto t : _types) {
-            t->~TypeImpl();
+            std::destroy_at(t);
         }
     }
     /// Get registry instance
