@@ -92,7 +92,9 @@ private:
 
 public:
     ~TypeRegistry() noexcept {
-        for (auto t : _types) { _type_pool.destroy(t); }
+        for (auto t : _types) {
+            t->~TypeImpl();
+        }
     }
     /// Get registry instance
     [[nodiscard]] static TypeRegistry &instance() noexcept {
@@ -516,4 +518,3 @@ const Type *Type::custom(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute
-̄
