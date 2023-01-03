@@ -67,7 +67,7 @@ public:
     };
 
 private:
-    luisa::Pool<TypeImpl, false, false> _type_pool;
+    luisa::Pool<TypeImpl, false> _type_pool;
     luisa::vector<TypeImpl *> _types;
     luisa::unordered_set<const TypeImpl *, TypeHash> _type_set;
     mutable std::recursive_mutex _mutex;
@@ -516,4 +516,4 @@ const Type *Type::custom(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute
-̄
+// ̄

@@ -184,8 +184,8 @@ PYBIND11_MODULE(lcapi, m) {
         });
 
     py::class_<DeviceInterface, eastl::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
-        .def("create_shader", [](DeviceInterface &self, Function kernel, std::string &&str) { return self.create_shader(kernel, str); })// TODO: support metaoptions
-        .def("save_shader", [](DeviceInterface &self, Function kernel, std::string &&str) {
+        .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) { return self.create_shader(kernel, str); })// TODO: support metaoptions
+        .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             self.save_shader(kernel, str);
         })
         /*
@@ -237,7 +237,7 @@ PYBIND11_MODULE(lcapi, m) {
             }
             return 0;
         })
-        .def("save_raster_shader", [](DeviceInterface &self, ManagedMeshFormat const &fmt, Function vertex, Function pixel, std::string &&str) {
+        .def("save_raster_shader", [](DeviceInterface &self, ManagedMeshFormat const &fmt, Function vertex, Function pixel, luisa::string_view str) {
             self.save_raster_shader(fmt.format, vertex, pixel, str);
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
@@ -504,7 +504,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("element", &Type::element, pyref)
         .def("description", &Type::description)
         .def("dimension", &Type::dimension)
-        .def_static("custom", [](std::string &&str) {
+        .def_static("custom", [](luisa::string_view str) {
             return Type::custom(str);
         });
 
