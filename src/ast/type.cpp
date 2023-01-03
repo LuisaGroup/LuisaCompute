@@ -116,19 +116,39 @@ const Type *TypeRegistry::decode_type(luisa::string_view desc) noexcept {
     return _decode(desc);
 }
 
-const Type *TypeRegistry::custom_type(luisa::string_view desc) noexcept {
+const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
+    // validate name
+    LUISA_ASSERT(!name.empty() &&
+                     name != "void" &&
+                     name != "int" &&
+                     name != "uint" &&
+                     name != "float" &&
+                     name != "bool" &&
+                     !name.starts_with("vector<") &&
+                     !name.starts_with("matrix<") &&
+                     !name.starts_with("array<") &&
+                     !name.starts_with("struct<") &&
+                     !name.starts_with("buffer<") &&
+                     !name.starts_with("texture<") &&
+                     name != "accel" &&
+                     name != "bindless_array" &&
+                     !isdigit(name.front() /* already checked not empty */),
+                 "Invalid custom type name: {}", name);
+    LUISA_ASSERT(std::all_of(name.cbegin(), name.cend(),
+                             [](char c) { return isalnum(c) || c == '_'; }),
+                 "Invalid custom type name: {}", name);
     std::scoped_lock lock{_mutex};
-    auto h = _compute_hash(desc);
-    if (auto iter = _type_set.find(TypeDescAndHash{desc, h});
+    auto h = _compute_hash(name);
+    if (auto iter = _type_set.find(TypeDescAndHash{name, h});
         iter != _type_set.end()) { return *iter; }
-    // TODO: validate desc
+
     auto t = _type_pool.create();
     t->hash = h;
     t->tag = Type::Tag::CUSTOM;
     t->size = Type::custom_struct_size;
     t->alignment = Type::custom_struct_alignment;
     t->dimension = 1u;
-    t->description = desc;
+    t->description = name;
     return _register(t);
 }
 
@@ -490,7 +510,10 @@ const Type *Type::structure(std::initializer_list<const Type *> members) noexcep
     for (auto m : members) { alignment = std::max<size_t>(m->alignment(), alignment); }
     return structure(alignment, members);
 }
-const Type * Type::custom(luisa::string_view name) noexcept{
+
+const Type *Type::custom(luisa::string_view name) noexcept {
     return detail::TypeRegistry::instance().custom_type(name);
 }
+
 }// namespace luisa::compute
+̄
