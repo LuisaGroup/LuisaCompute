@@ -49,7 +49,7 @@ class ASTVisitor:
         n = node.lineno-1
         if getattr(ctx(), "_last_comment_source_lineno", None) != n:
             ctx()._last_comment_source_lineno = n
-            lcapi.builder().comment_(str(n) + "  " + ctx().sourcelines[n].strip())
+            # lcapi.builder().comment_(str(n) + "  " + ctx().sourcelines[n].strip())
 
     @staticmethod
     def print_error(node, e):

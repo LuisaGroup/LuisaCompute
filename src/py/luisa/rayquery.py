@@ -13,7 +13,7 @@ from .struct import CustomType
 from .hit import Hit, UHit
 class RayQueryType:
     def __init__(self):
-        self.luisa_type = lcapi.Type.from_("LC_RayQuery")
+        self.luisa_type = lcapi.Type.custom("LC_RayQuery")
 
     def __eq__(self, other):
         return type(other) is RayQueryType and self.dtype == other.dtype

@@ -381,7 +381,6 @@ PYBIND11_MODULE(lcapi, m) {
         .def("break_", &FunctionBuilder::break_)
         .def("continue_", &FunctionBuilder::continue_)
         .def("return_", &FunctionBuilder::return_)
-        .def("comment_", [](FunctionBuilder &self, luisa::string s) { self.comment_(std::move(s)); })
         .def(
             "assign", [](FunctionBuilder &self, Expression const *l, Expression const *r) {
                 auto result = analyzer.back().assign(l, r);
@@ -504,7 +503,10 @@ PYBIND11_MODULE(lcapi, m) {
         .def("is_custom", &Type::is_custom)
         .def("element", &Type::element, pyref)
         .def("description", &Type::description)
-        .def("dimension", &Type::dimension);
+        .def("dimension", &Type::dimension)
+        .def_static("custom", [](std::string &&str) {
+            return Type::custom(str);
+        });
 
     // commands
     py::class_<Command>(m, "Command");
@@ -541,13 +543,13 @@ PYBIND11_MODULE(lcapi, m) {
     // texture operation commands
     py::class_<TextureUploadCommand, Command>(m, "TextureUploadCommand")
         .def_static(
-            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const&buf) {
+            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const &buf) {
                 return TextureUploadCommand::create(handle, storage, level, size, buf.request().ptr).release();
             },
             pyref);
     py::class_<TextureDownloadCommand, Command>(m, "TextureDownloadCommand")
         .def_static(
-            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const&buf) {
+            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const &buf) {
                 return TextureDownloadCommand::create(handle, storage, level, size, buf.request().ptr).release();
             },
             pyref);
