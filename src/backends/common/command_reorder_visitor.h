@@ -8,15 +8,22 @@
 #include <runtime/buffer.h>
 #include <raster/raster_scene.h>
 namespace luisa::compute {
+template <typename T>
 /*
-struct FuncTable{
-    bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept;
-    Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept;
-    size_t aabb_stride() const noexcept;
-    bool update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept;
+struct ReorderFuncTable{
+    bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept {}
+    Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {}
+    size_t aabb_stride() const noexcept {}
+    void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {}
 }
 */
-template<typename FuncTable, bool supportConcurrentCopy>
+concept ReorderFuncTable = requires(const T t, uint64_t uint64_v, size_t size_v, luisa::span<const BindlessArrayUpdateCommand::Modification> modification){
+    requires(std::is_same_v<bool, decltype(t.is_res_in_bindless(uint64_v, uint64_v))>);
+    requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
+    requires(std::is_same_v<size_t, decltype(t.aabb_stride())>);
+    t.update_bindless(uint64_v, modification);
+};
+template<ReorderFuncTable FuncTable, bool supportConcurrentCopy>
 class CommandReorderVisitor : public CommandVisitor {
 public:
     enum class ResourceRW : uint8_t {

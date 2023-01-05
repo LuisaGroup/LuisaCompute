@@ -33,7 +33,7 @@ struct ReorderFuncTable {
     size_t aabb_stride() const noexcept {
         return 32;
     }
-    bool update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {
+    void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {
         reinterpret_cast<BindlessArray *>(handle)->Bind(modifications);
     }
 };
