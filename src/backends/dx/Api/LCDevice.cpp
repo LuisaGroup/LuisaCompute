@@ -112,35 +112,6 @@ uint64 LCDevice::create_bindless_array(size_t size) noexcept {
 void LCDevice::destroy_bindless_array(uint64 handle) noexcept {
     delete reinterpret_cast<BindlessArray *>(handle);
 }
-void LCDevice::emplace_buffer_in_bindless_array(uint64 array, size_t index, uint64 handle, size_t offset_bytes) noexcept {
-    auto buffer = reinterpret_cast<Buffer *>(handle);
-    reinterpret_cast<BindlessArray *>(array)
-        ->Bind(handle, BufferView(buffer, offset_bytes), index);
-}
-void LCDevice::emplace_tex2d_in_bindless_array(uint64 array, size_t index, uint64 handle, Sampler sampler) noexcept {
-    auto tex = reinterpret_cast<TextureBase *>(handle);
-    reinterpret_cast<BindlessArray *>(array)
-        ->Bind(handle, std::pair<TextureBase const *, Sampler>(tex, sampler), index);
-}
-void LCDevice::emplace_tex3d_in_bindless_array(uint64 array, size_t index, uint64 handle, Sampler sampler) noexcept {
-    emplace_tex2d_in_bindless_array(array, index, handle, sampler);
-}
-/*
-bool LCDevice::is_resource_in_bindless_array(uint64 array, uint64 handle) const noexcept {
-
-}*/
-void LCDevice::remove_buffer_from_bindless_array(uint64 array, size_t index) noexcept {
-    reinterpret_cast<BindlessArray *>(array)
-        ->UnBind(BindlessArray::BindTag::Buffer, index);
-}
-void LCDevice::remove_tex2d_from_bindless_array(uint64 array, size_t index) noexcept {
-    reinterpret_cast<BindlessArray *>(array)
-        ->UnBind(BindlessArray::BindTag::Tex2D, index);
-}
-void LCDevice::remove_tex3d_from_bindless_array(uint64 array, size_t index) noexcept {
-    reinterpret_cast<BindlessArray *>(array)
-        ->UnBind(BindlessArray::BindTag::Tex3D, index);
-}
 uint64 LCDevice::create_stream(StreamTag type) noexcept {
     return reinterpret_cast<uint64>(
         new LCCmdBuffer(

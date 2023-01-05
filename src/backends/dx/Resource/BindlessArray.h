@@ -38,7 +38,6 @@ public:
 
 private:
     vstd::vector<std::pair<BindlessStruct, MapIndicies>> binded;
-    mutable vstd::HashMap<uint, BindlessStruct> updateMap;// Delete
     Map ptrMap;
     DefaultBuffer buffer;
     void TryReturnIndex(MapIndex &index, uint32_t &originValue);
@@ -52,8 +51,6 @@ public:
     using Property = vstd::variant<
         BufferView,
         std::pair<TextureBase const *, Sampler>>;
-    void Bind(size_t handle, Property const &prop, uint index);// Delete
-    void UnBind(BindTag type, uint index);                     // Delete
     void Bind(vstd::span<const BindlessArrayUpdateCommand::Modification> mods);
     void PreProcessStates(
         CommandBufferBuilder &builder,
@@ -65,12 +62,6 @@ public:
         vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const;
 
     DefaultBuffer const *BindlessBuffer() const { return &buffer; }
-    void PreProcessStates(
-        CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const;// Delete
-    void UpdateStates(
-        CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const;// Delete
     Tag GetTag() const override { return Tag::BindlessArray; }
     BindlessArray(
         Device *device,

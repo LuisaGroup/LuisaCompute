@@ -260,9 +260,6 @@ public:
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
         arr->PreProcessStates(
             *bd,
-            *stateTracker);// Delete
-        arr->PreProcessStates(
-            *bd,
             *stateTracker,
             cmd->modifications());
     };
@@ -629,11 +626,8 @@ public:
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
         arr->UpdateStates(
             *bd,
-            *stateTracker);
-        arr->UpdateStates(
-            *bd,
             *stateTracker,
-            cmd->modifications());// Delete
+            cmd->modifications());
     }
     void visit(const CustomCommand *cmd) noexcept override {
         //TODO

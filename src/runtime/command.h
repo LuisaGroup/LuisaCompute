@@ -514,10 +514,10 @@ public:
     explicit DrawRasterSceneCommand(uint64_t handle,
                                     Function vertex_func,
                                     Function pixel_func) noexcept;
-    ~DrawRasterSceneCommand() noexcept = default;
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
-    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept = default;
-    DrawRasterSceneCommand &operator=(DrawRasterSceneCommand &&) noexcept = default;
+    ~DrawRasterSceneCommand() noexcept;
+    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
+    DrawRasterSceneCommand &operator=(DrawRasterSceneCommand &&) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto vertex_func() const noexcept { return _vertex_func; }
     [[nodiscard]] auto pixel_func() const noexcept { return _pixel_func; }

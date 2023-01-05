@@ -44,12 +44,7 @@ public:
     // bindless array
     uint64_t create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
-    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept override;
-    void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
-    void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override;
-    void remove_buffer_from_bindless_array(uint64_t array, size_t index) noexcept override;
-    void remove_tex2d_from_bindless_array(uint64_t array, size_t index) noexcept override;
-    void remove_tex3d_from_bindless_array(uint64_t array, size_t index) noexcept override;
+    
     void *bindless_native_handle(uint64_t handle) const noexcept override;
     uint64_t create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
     void destroy_depth_buffer(uint64_t handle) noexcept override;

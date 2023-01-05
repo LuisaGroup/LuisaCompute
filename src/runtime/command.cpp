@@ -229,7 +229,9 @@ Function DrawRasterSceneCommand::arg_kernel() {
     }
     return _default_func;
 }
-
+DrawRasterSceneCommand::~DrawRasterSceneCommand() noexcept = default;
+DrawRasterSceneCommand::DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept = default;
+DrawRasterSceneCommand &DrawRasterSceneCommand::operator=(DrawRasterSceneCommand &&) noexcept = default;
 DrawRasterSceneCommand::DrawRasterSceneCommand(uint64_t handle,
                                                Function vertex_func,
                                                Function pixel_func) noexcept
