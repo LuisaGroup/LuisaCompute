@@ -1,9 +1,13 @@
 #pragma once
+
 #include <vstl/common.h>
 #include <rtx/accel.h>
 #include <rtx/mesh.h>
+
 namespace luisa::compute {
+
 class DeviceInterface;
+
 class RefCounter : public vstd::IOperatorNewBase {
 public:
     using Handle = uint64;
@@ -21,4 +25,5 @@ public:
     void InRef(Handle handle) noexcept;
     void DeRef(Handle handle) noexcept;
 };
+
 }// namespace luisa::compute

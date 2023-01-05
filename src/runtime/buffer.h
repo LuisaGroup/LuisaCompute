@@ -44,14 +44,12 @@ private:
 private:
     friend class Device;
     Buffer(DeviceInterface *device, size_t size) noexcept
-        : Resource{
-              device, Tag::BUFFER,
-              device->create_buffer(size * sizeof(T))},
+        : Resource{device, Tag::BUFFER,
+                   device->create_buffer(size * sizeof(T))},
           _size{size} {}
-    Buffer(DeviceInterface *device, void *ptr, size_t size) noexcept
-        : Resource{
-              device, Tag::BUFFER,
-              device->create_buffer(ptr)},
+    Buffer(DeviceInterface *device, void *native_handle, size_t size) noexcept
+        : Resource{device, Tag::BUFFER,
+                   device->create_buffer(native_handle)},
           _size{size} {}
 
 public:

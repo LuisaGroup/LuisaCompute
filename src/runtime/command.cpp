@@ -164,9 +164,7 @@ void ShaderDispatchCommandBase::_encode_pending_bindings(Function kernel) noexce
         }
     }
 }
-ShaderDispatchCommand::ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept = default;
-ShaderDispatchCommand &ShaderDispatchCommand::operator=(ShaderDispatchCommand &&) noexcept = default;
-ShaderDispatchCommand::~ShaderDispatchCommand() {}
+
 ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept
     : ShaderDispatchCommandBase{Command::Tag::EShaderDispatchCommand}, _handle{handle}, _kernel(kernel) {
     _argument_buffer.reserve(256u);
@@ -232,20 +230,17 @@ Function DrawRasterSceneCommand::arg_kernel() {
     return _default_func;
 }
 
-DrawRasterSceneCommand::DrawRasterSceneCommand(
-    uint64_t handle,
-    Function vertex_func,
-    Function pixel_func)
-    : ShaderDispatchCommandBase(Command::Tag::EDrawRasterSceneCommand),
-      _handle(handle),
-      _vertex_func(vertex_func),
-      _pixel_func(pixel_func) { _default_func = _vertex_func; }
-DrawRasterSceneCommand::~DrawRasterSceneCommand() {}
-DrawRasterSceneCommand::DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept = default;
-DrawRasterSceneCommand &DrawRasterSceneCommand::operator=(DrawRasterSceneCommand &&) noexcept = default;
-namespace detail{
-    void log_cmd_invalidargs(){
-        LUISA_ERROR_WITH_LOCATION("Invalid argument.");
-    }
+DrawRasterSceneCommand::DrawRasterSceneCommand(uint64_t handle,
+                                               Function vertex_func,
+                                               Function pixel_func) noexcept
+    : ShaderDispatchCommandBase{Command::Tag::EDrawRasterSceneCommand},
+      _handle{handle}, _vertex_func{vertex_func},
+      _pixel_func{pixel_func} { _default_func = _vertex_func; }
+
+namespace detail {
+void log_cmd_invalidargs() {
+    LUISA_ERROR_WITH_LOCATION("Invalid argument.");
 }
+}// namespace detail
+
 }// namespace luisa::compute

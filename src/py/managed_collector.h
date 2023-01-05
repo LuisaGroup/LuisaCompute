@@ -1,8 +1,12 @@
 #pragma once
+
 #include <vstl/common.h>
 #include <vstl/lockfree_array_queue.h>
+
 namespace luisa::compute {
+
 class PyStream;
+
 class ManagedCollector : public vstd::IOperatorNewBase{
     size_t objPerEle;
     vstd::vector<uint64> handles;
@@ -23,4 +27,5 @@ public:
     void DeRef(size_t element) noexcept;
     void AfterExecuteStream(PyStream &stream) noexcept;
 };
+
 }// namespace luisa::compute

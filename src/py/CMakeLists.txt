@@ -18,41 +18,7 @@ if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 endif ()
 target_link_libraries(lcapi PRIVATE luisa::compute)
 add_custom_target(lcapi-copy ALL)
-add_custom_command(TARGET lcapi-copy
-        DEPENDS test.py
-        COMMENT "Copying Python test"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/test.py"
-        "$<TARGET_FILE_DIR:luisa-compute-core>/test.py"
-        VERBATIM)
-add_custom_command(TARGET lcapi-copy
-        DEPENDS test_sdf_render.py
-        COMMENT "Copying Python test"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_sdf_render.py"
-        "$<TARGET_FILE_DIR:luisa-compute-core>/test_sdf_render.py"
-        VERBATIM)
-add_custom_command(TARGET lcapi-copy
-        DEPENDS test_sdf_render.py
-        COMMENT "Copying Python test"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_path_tracing.py"
-        "$<TARGET_FILE_DIR:luisa-compute-core>/test_path_tracing.py"
-        VERBATIM)
-add_custom_command(TARGET lcapi-copy
-        DEPENDS test_sdf_render.py
-        COMMENT "Copying Python test"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/test_rtx.py"
-        "$<TARGET_FILE_DIR:luisa-compute-core>/test_rtx.py"
-        VERBATIM)
-add_custom_command(TARGET lcapi-copy
-        DEPENDS test_sdf_render.py
-        COMMENT "Copying Python test"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/cornell_box.py"
-        "$<TARGET_FILE_DIR:luisa-compute-core>/cornell_box.py"
-        VERBATIM)
+
 add_custom_command(TARGET lcapi-copy
         DEPENDS luisa
         COMMENT "Copying Python package"

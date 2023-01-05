@@ -263,11 +263,10 @@ PYBIND11_MODULE(lcapi, m) {
             RefCounter::current->DeRef(handle);
         })
         .def("create_bindless_array", [](DeviceInterface &d, size_t slots) {
-            return reinterpret_cast<uint64>(
-                new ManagedBindless(&d, d.create_bindless_array(slots)));
+            return reinterpret_cast<uint64>(new_with_allocator<ManagedBindless>(&d, slots));
         })// size
         .def("destroy_bindless_array", [](DeviceInterface &d, uint64 handle) {
-            delete reinterpret_cast<ManagedBindless *>(handle);
+            delete_with_allocator(reinterpret_cast<ManagedBindless *>(handle));
         })
         .def("emplace_buffer_in_bindless_array", [](DeviceInterface &d, uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) {
             reinterpret_cast<ManagedBindless *>(array)->emplace_buffer(index, handle, offset_bytes);

@@ -113,6 +113,8 @@ public:
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
     [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
 
+    virtual void set_io_visitor(BinaryIO *visitor) noexcept = 0;
+
     // buffer
     [[nodiscard]] virtual uint64_t create_buffer(size_t size_bytes) noexcept = 0;
     [[nodiscard]] virtual uint64_t create_buffer(void *native_handle) noexcept { return ~0ull; }
@@ -137,14 +139,7 @@ public:
 
     // bindless array
     [[nodiscard]] virtual uint64_t create_bindless_array(size_t size) noexcept = 0;
-    virtual void set_io_visitor(BinaryIO *visitor) noexcept = 0;
     virtual void destroy_bindless_array(uint64_t handle) noexcept = 0;
-    virtual void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept = 0;
-    virtual void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
-    virtual void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept = 0;
-    virtual void remove_buffer_from_bindless_array(uint64_t array, size_t index) noexcept = 0;
-    virtual void remove_tex2d_from_bindless_array(uint64_t array, size_t index) noexcept = 0;
-    virtual void remove_tex3d_from_bindless_array(uint64_t array, size_t index) noexcept = 0;
     [[nodiscard]] virtual void *bindless_native_handle(uint64_t handle) const noexcept = 0;
 
     // depth buffer

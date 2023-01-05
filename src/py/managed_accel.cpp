@@ -1,6 +1,8 @@
 #include <py/managed_accel.h>
 #include <py/ref_counter.h>
+
 namespace luisa::compute {
+
 ManagedAccel::Data::Data(Accel &&accel)
     : collector(2), accel(std::move(accel)) {
 }
@@ -8,6 +10,7 @@ ManagedAccel::Data::Data(Accel &&accel)
 ManagedAccel::ManagedAccel(Accel &&accel) noexcept
     : data(vstd::create_unique(new Data(std::move(accel)))) {
 }
+
 ManagedAccel::~ManagedAccel() noexcept {
     if (!data) return;
     auto device = data->accel.device();
@@ -17,6 +20,7 @@ ManagedAccel::~ManagedAccel() noexcept {
         }
     }
 }
+
 void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
     auto device = data->accel.device();
     auto newMesh = device->create_mesh(mesh.request, DeviceInterface::MeshType::Mesh, mesh.allow_compact, mesh.allow_update);
@@ -27,6 +31,7 @@ void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform,
     uint64 handles[2] = {mesh.vertex_buffer, mesh.triangle_buffer};
     data->collector.InRef(lastSize, handles);
 }
+
 void ManagedAccel::pop_back() noexcept {
     data->accel.pop_back();
     auto lastMesh = std::move(data->meshes.back());
@@ -35,6 +40,7 @@ void ManagedAccel::pop_back() noexcept {
     data->meshDisposeList.emplace_back(lastMesh.first);
     data->collector.DeRef(data->meshes.size());
 }
+
 void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
     auto &lastMesh = data->meshes[idx];
     data->requireUpdateMesh.erase(lastMesh.first);
@@ -47,6 +53,7 @@ void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &tr
     uint64 handles[2] = {mesh.vertex_buffer, mesh.triangle_buffer};
     data->collector.InRef(idx, handles);
 }
+
 void ManagedAccel::update(PyStream &stream) noexcept {
     for (auto &&i : data->requireUpdateMesh) {
         auto &m = i.second;
@@ -69,4 +76,5 @@ void ManagedAccel::update(PyStream &stream) noexcept {
     data->collector.AfterExecuteStream(stream);
     // TODO: delete data->meshes, update mesh, deref
 }
+
 }// namespace luisa::compute

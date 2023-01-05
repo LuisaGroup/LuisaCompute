@@ -1,7 +1,9 @@
 #include <py/managed_collector.h>
 #include <py/ref_counter.h>
 #include <py/py_stream.h>
+
 namespace luisa::compute {
+
 uint64 ManagedCollector::Allocate() noexcept {
     if (!handlePool.empty()) {
         auto ite = handlePool.back();
@@ -20,7 +22,9 @@ uint64 ManagedCollector::Allocate() noexcept {
     handlePool.pop_back();
     return ite;
 }
+
 ManagedCollector::ManagedCollector(size_t objPerEle) noexcept : objPerEle(objPerEle) {}
+
 ManagedCollector::~ManagedCollector() noexcept {
     auto ref = RefCounter::current.get();
     for (auto &&i : handles) {
@@ -29,6 +33,7 @@ ManagedCollector::~ManagedCollector() noexcept {
         }
     }
 }
+
 void ManagedCollector::InRef(size_t element, vstd::span<uint64> handles) noexcept {
     auto ite = handleMap.try_emplace(element, vstd::LazyEval([this] { return Allocate(); }));
     auto eleArr = Sample(ite.first->second);
@@ -45,6 +50,7 @@ void ManagedCollector::InRef(size_t element, vstd::span<uint64> handles) noexcep
         }
     }
 }
+
 void ManagedCollector::InRef(size_t element, size_t subElement, uint64 handle) noexcept {
     auto ite = handleMap.try_emplace(element, vstd::LazyEval([this] { return Allocate(); }));
     auto eleArr = Sample(ite.first->second);
@@ -57,6 +63,7 @@ void ManagedCollector::InRef(size_t element, size_t subElement, uint64 handle) n
         RefCounter::current->InRef(handle);
     }
 }
+
 void ManagedCollector::DeRef(size_t element) noexcept {
     auto ite = handleMap.find(element);
     if (ite == handleMap.end()) return;
@@ -70,6 +77,7 @@ void ManagedCollector::DeRef(size_t element) noexcept {
     handlePool.emplace_back(ite->second);
     handleMap.erase(ite);
 }
+
 void ManagedCollector::AfterExecuteStream(PyStream &stream) noexcept {
     stream.delegates.emplace_back([lst = std::move(deferredDisposeList)] {
         for (auto &&i : lst) {
@@ -77,4 +85,5 @@ void ManagedCollector::AfterExecuteStream(PyStream &stream) noexcept {
         }
     });
 }
+
 }// namespace luisa::compute

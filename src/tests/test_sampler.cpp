@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
         Var uv = make_float2(coord) * 2.f / make_float2(dispatch_size().xy());
         Var r = length(uv - 0.5f);
         Var t = log(sin(sqrt(r) * 100.0f - constants::pi_over_two) + 2.0f);
-        image.write(coord, sample(heap, 2.0f*uv-make_float2(0.5f), t * 7.0f));
+        image.write(coord, sample(heap, 2.0f * uv - make_float2(0.5f), t * 7.0f));
     };
 
     auto fill_image = device.compile(fill_image_kernel);
@@ -58,8 +58,8 @@ int main(int argc, char *argv[]) {
     auto out_pixels = mipmaps.data();
 
     // generate mip-maps
-    stream << heap.emplace(0u, texture, Sampler::linear_linear_mirror()).update()
-        << texture.copy_from(image_pixels);
+    stream << heap.emplace_on_update(0u, texture, Sampler::linear_linear_mirror()).update()
+           << texture.copy_from(image_pixels);
 
     LUISA_INFO("Mip Level: {}", texture.mip_levels());
 

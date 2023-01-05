@@ -477,9 +477,9 @@ private:
 
 public:
     explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
-    ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept;
-    ShaderDispatchCommand &operator=(ShaderDispatchCommand &&) noexcept;
-    ~ShaderDispatchCommand();
+    ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept = default;
+    ShaderDispatchCommand &operator=(ShaderDispatchCommand &&) noexcept = default;
+    ~ShaderDispatchCommand() noexcept = default;
     void set_dispatch_size(uint3 launch_size) noexcept;
     void set_dispatch_size(IndirectArg indirect_arg) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -494,6 +494,7 @@ public:
 
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand, StreamTag::COMPUTE)
 };
+
 class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommandBase {
 private:
     uint64_t _handle{};
@@ -510,13 +511,13 @@ public:
     luisa::vector<RasterMesh> scene;
     Viewport viewport{};
 
-    explicit DrawRasterSceneCommand(
-        uint64_t handle,
-        Function vertex_func,
-        Function pixel_func);
+    explicit DrawRasterSceneCommand(uint64_t handle,
+                                    Function vertex_func,
+                                    Function pixel_func) noexcept;
+    ~DrawRasterSceneCommand() noexcept = default;
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
-    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
-    DrawRasterSceneCommand &operator=(DrawRasterSceneCommand &&) noexcept;
+    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept = default;
+    DrawRasterSceneCommand &operator=(DrawRasterSceneCommand &&) noexcept = default;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto vertex_func() const noexcept { return _vertex_func; }
     [[nodiscard]] auto pixel_func() const noexcept { return _pixel_func; }
@@ -536,7 +537,6 @@ public:
     void encode_uniform(const void *data, size_t size) noexcept;
     void encode_bindless_array(uint64_t handle) noexcept;
     void encode_accel(uint64_t handle) noexcept;
-    ~DrawRasterSceneCommand();
 
     LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)
 };
@@ -690,7 +690,10 @@ private:
     bool _build_accel;
 
 public:
-    AccelBuildCommand(uint64_t handle, uint32_t instance_count, AccelBuildRequest request, luisa::vector<Modification> modifications, bool build_accel) noexcept
+    AccelBuildCommand(uint64_t handle, uint32_t instance_count,
+                      AccelBuildRequest request,
+                      luisa::vector<Modification> modifications,
+                      bool build_accel) noexcept
         : Command{Command::Tag::EAccelBuildCommand},
           _handle{handle}, _instance_count{instance_count},
           _build_accel{build_accel}, _request{request}, _modifications{std::move(modifications)} {}
@@ -703,39 +706,68 @@ public:
 };
 
 class BindlessArrayUpdateCommand final : public Command {
+
 public:
-    struct EmplaceBuffer {
-        uint64_t handle;
-        size_t offset_bytes;
-    };
-    struct EmplaceImage {
-        uint64_t handle;
-        Sampler sampler;
-    };
-    enum class ModificationCmd : uint8_t {
-        EmplaceBuffer,
-        EmplaceTex2D,
-        EmplaceTex3D,
-        RemoveBuffer,
-        RemoveTex2D,
-        RemoveTex3D
-    };
     struct Modification {
-        size_t index;
-        union {
-            EmplaceBuffer buffer;
-            EmplaceImage image;
+
+        enum struct Operation : uint {
+            NONE,
+            EMPLACE,
+            REMOVE,
         };
-        ModificationCmd cmd;
+
+        struct Buffer {
+            uint64_t handle;
+            size_t offset_bytes;
+            Operation op;
+            Buffer() noexcept
+                : handle{0u}, offset_bytes{0u}, op{Operation::NONE} {}
+            Buffer(uint64_t handle, size_t offset_bytes, Operation op) noexcept
+                : handle{handle}, offset_bytes{offset_bytes}, op{op} {}
+            [[nodiscard]] static auto emplace(uint64_t handle, size_t offset_bytes) noexcept {
+                return Buffer{handle, offset_bytes, Operation::EMPLACE};
+            }
+            [[nodiscard]] static auto remove() noexcept {
+                return Buffer{0u, 0u, Operation::REMOVE};
+            }
+        };
+
+        struct Texture {
+            uint64_t handle;
+            Sampler sampler;
+            Operation op;
+            Texture() noexcept
+                : handle{0u}, sampler{}, op{Operation::NONE} {}
+            Texture(uint64_t handle, Sampler sampler, Operation op) noexcept
+                : handle{handle}, sampler{sampler}, op{op} {}
+            [[nodiscard]] static auto emplace(uint64_t handle, Sampler sampler) noexcept {
+                return Texture{handle, sampler, Operation::EMPLACE};
+            }
+            [[nodiscard]] static auto remove() noexcept {
+                return Texture{0u, Sampler{}, Operation::REMOVE};
+            }
+        };
+
+        size_t slot;
+        Buffer buffer;
+        Texture tex2d;
+        Texture tex3d;
+
+        explicit Modification(size_t slot) noexcept
+            : slot{slot}, buffer{}, tex2d{}, tex3d{} {}
     };
+
+    static_assert(sizeof(Modification) == 64u);
 
 private:
     uint64_t _handle;
     luisa::vector<Modification> _modifications;
 
 public:
-    explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept
-        : Command{Command::Tag::EBindlessArrayUpdateCommand}, _handle{handle} {}
+    BindlessArrayUpdateCommand(uint64_t handle,
+                               luisa::vector<Modification> mods) noexcept
+        : Command{Command::Tag::EBindlessArrayUpdateCommand},
+          _handle{handle}, _modifications{std::move(mods)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand, StreamTag::COPY)
@@ -752,7 +784,9 @@ public:
 
     LUISA_MAKE_COMMAND_COMMON(ClearDepthCommand, StreamTag::GRAPHICS)
 };
+
 class CustomCommand final : public Command {
+
 public:
     struct BufferView {
         uint64_t handle;

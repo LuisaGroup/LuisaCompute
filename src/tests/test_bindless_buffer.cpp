@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
 
     // generate mip-maps
     auto cmd = stream.command_buffer();
-    cmd << heap.emplace(0, texture).update()
+    cmd << heap.emplace_on_update(0, texture).update()
         << texture.copy_from(image_pixels);
     // for (auto i = 1u; i < texture.mip_levels(); i++) {
     //     auto half_w = std::max(image_width / 2, 1);

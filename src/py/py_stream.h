@@ -1,10 +1,13 @@
 #pragma once
+
 #include <vstl/common.h>
 #include <vstl/functional.h>
 #include <runtime/command_buffer.h>
 #include <runtime/stream.h>
 #include <runtime/device.h>
+
 namespace luisa::compute {
+
 class PyStream : public vstd::IOperatorNewBase {
     struct Disposer {
         void *ptr;
@@ -52,4 +55,5 @@ public:
     void execute() noexcept;
     void sync() noexcept;
 };
+
 }// namespace luisa::compute

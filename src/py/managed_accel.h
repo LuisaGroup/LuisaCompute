@@ -1,10 +1,13 @@
 #pragma once
+
 #include <rtx/accel.h>
 #include <rtx/mesh.h>
 #include <py/managed_collector.h>
 #include <py/py_stream.h>
 #include <core/stl/unordered_map.h>
+
 namespace luisa::compute {
+
 struct MeshUpdateCmd {
     AccelUsageHint request;
     uint64_t vertex_buffer;
@@ -15,6 +18,7 @@ struct MeshUpdateCmd {
     bool allow_compact;
     bool allow_update;
 };
+
 class ManagedAccel final {
     struct Data : public vstd::IOperatorNewBase {
         ManagedCollector collector;
@@ -40,4 +44,5 @@ public:
     void set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept;
     void update(PyStream &stream) noexcept;
 };
+
 }// namespace luisa::compute

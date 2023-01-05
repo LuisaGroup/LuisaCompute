@@ -27,50 +27,75 @@ BindlessArray::BindlessArray(DeviceInterface *device, size_t size) noexcept
     : Resource{device, Tag::BINDLESS_ARRAY, device->create_bindless_array(size)},
       _size{size} {}
 
-void BindlessArray::_emplace_buffer(size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+void BindlessArray::emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept {
     if (index >= _size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid buffer slot {} for bindless array of size {}.",
             index, _size);
     }
-    device()->emplace_buffer_in_bindless_array(this->handle(), index, handle, offset_bytes);
+    auto [iter, _] = _updates.emplace(Modification{index});
+    iter->buffer = Modification::Buffer::emplace(handle, offset_bytes);
 }
 
-void BindlessArray::_emplace_tex2d(size_t index, uint64_t handle, Sampler sampler) noexcept {
+void BindlessArray::emplace_tex2d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept {
     if (index >= _size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid texture2d slot {} for bindless array of size {}.",
             index, _size);
     }
-    device()->emplace_tex2d_in_bindless_array(this->handle(), index, handle, sampler);
+    auto [iter, _] = _updates.emplace(Modification{index});
+    iter->tex2d = Modification::Texture::emplace(handle, sampler);
 }
 
-void BindlessArray::_emplace_tex3d(size_t index, uint64_t handle, Sampler sampler) noexcept {
+void BindlessArray::emplace_tex3d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept {
     if (index >= _size) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid texture3d slot {} for bindless array of size {}.",
             index, _size);
     }
-    device()->emplace_tex3d_in_bindless_array(this->handle(), index, handle, sampler);
+    auto [iter, _] = _updates.emplace(Modification{index});
+    iter->tex3d = Modification::Texture::emplace(handle, sampler);
 }
 
-BindlessArray &BindlessArray::remove_buffer(size_t index) noexcept {
-    device()->remove_buffer_from_bindless_array(handle(), index);
+BindlessArray &BindlessArray::remove_buffer_on_update(size_t index) noexcept {
+    if (index >= _size) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid buffer slot {} for bindless array of size {}.",
+            index, _size);
+    }
+    auto [iter, _] = _updates.emplace(Modification{index});
+    iter->buffer = Modification::Buffer::remove();
     return *this;
 }
 
-BindlessArray &BindlessArray::remove_tex2d(size_t index) noexcept {
-    device()->remove_tex2d_from_bindless_array(handle(), index);
+BindlessArray &BindlessArray::remove_tex2d_on_update(size_t index) noexcept {
+    if (index >= _size) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid texture2d slot {} for bindless array of size {}.",
+            index, _size);
+    }
+    auto [iter, _] = _updates.emplace(Modification{index});
+    iter->tex2d = Modification::Texture::remove();
     return *this;
 }
 
-BindlessArray &BindlessArray::remove_tex3d(size_t index) noexcept {
-    device()->remove_tex3d_from_bindless_array(handle(), index);
+BindlessArray &BindlessArray::remove_tex3d_on_update(size_t index) noexcept {
+    if (index >= _size) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid texture3d slot {} for bindless array of size {}.",
+            index, _size);
+    }
+    auto [iter, _] = _updates.emplace(Modification{index});
+    iter->tex3d = Modification::Texture::remove();
     return *this;
 }
 
 luisa::unique_ptr<Command> BindlessArray::update() noexcept {
-    return BindlessArrayUpdateCommand::create(handle());
+    luisa::vector<Modification> mods;
+    mods.reserve(_updates.size());
+    for (auto m : _updates) { mods.emplace_back(m); }
+    _updates.clear();
+    return BindlessArrayUpdateCommand::create(handle(), std::move(mods));
 }
 
 }// namespace luisa::compute
