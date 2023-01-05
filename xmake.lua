@@ -30,12 +30,6 @@ set_default(false)
 set_showmenu(true)
 option_end()
 
-option("llvm_backend")
-set_values(true, false)
-set_default(false)
-set_showmenu(true)
-option_end()
-
 option("metal_backend")
 set_values(true, false)
 set_default(false)
