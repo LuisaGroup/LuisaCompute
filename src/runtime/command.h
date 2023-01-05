@@ -12,6 +12,7 @@
 #include <runtime/stream_tag.h>
 #include <raster/viewport.h>
 #include <runtime/custom_struct.h>
+#include <runtime/sampler.h>
 
 namespace luisa::compute {
 class CmdDeser;
@@ -702,14 +703,41 @@ public:
 };
 
 class BindlessArrayUpdateCommand final : public Command {
+public:
+    struct EmplaceBuffer {
+        uint64_t handle;
+        size_t offset_bytes;
+    };
+    struct EmplaceImage {
+        uint64_t handle;
+        Sampler sampler;
+    };
+    enum class ModificationCmd : uint8_t {
+        EmplaceBuffer,
+        EmplaceTex2D,
+        EmplaceTex3D,
+        RemoveBuffer,
+        RemoveTex2D,
+        RemoveTex3D
+    };
+    struct Modification {
+        size_t index;
+        union {
+            EmplaceBuffer buffer;
+            EmplaceImage image;
+        };
+        ModificationCmd cmd;
+    };
 
 private:
     uint64_t _handle;
+    luisa::vector<Modification> _modifications;
 
 public:
     explicit BindlessArrayUpdateCommand(uint64_t handle) noexcept
         : Command{Command::Tag::EBindlessArrayUpdateCommand}, _handle{handle} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand, StreamTag::COPY)
 };
 class ClearDepthCommand final : public Command {
