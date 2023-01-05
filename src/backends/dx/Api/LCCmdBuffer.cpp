@@ -260,7 +260,11 @@ public:
         auto arr = reinterpret_cast<BindlessArray *>(cmd->handle());
         arr->PreProcessStates(
             *bd,
-            *stateTracker);
+            *stateTracker);// Delete
+        arr->PreProcessStates(
+            *bd,
+            *stateTracker,
+            cmd->modifications());
     };
     void visit(const CustomCommand *cmd) noexcept override {
         //TODO
@@ -390,7 +394,7 @@ public:
         }
         void operator()(ShaderDispatchCommandBase::BindlessArrayArgument const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
-            auto res = arr->Buffer();
+            auto res = arr->BindlessBuffer();
             self->bindProps->emplace_back(
                 BufferView(res, 0));
             ++arg;
@@ -626,6 +630,10 @@ public:
         arr->UpdateStates(
             *bd,
             *stateTracker);
+        arr->UpdateStates(
+            *bd,
+            *stateTracker,
+            cmd->modifications());// Delete
     }
     void visit(const CustomCommand *cmd) noexcept override {
         //TODO

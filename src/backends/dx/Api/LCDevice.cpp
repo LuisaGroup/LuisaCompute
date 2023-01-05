@@ -453,7 +453,7 @@ void *LCDevice::swapchain_native_handle(uint64_t handle) const noexcept {
 }
 void *LCDevice::bindless_native_handle(uint64_t handle) const noexcept {
     auto bindless = reinterpret_cast<BindlessArray *>(handle);
-    return bindless->Buffer()->GetResource();
+    return bindless->BindlessBuffer()->GetResource();
 }
 void *LCDevice::depth_native_handle(uint64_t handle) const noexcept {
     auto db = static_cast<DepthBuffer *>(reinterpret_cast<TextureBase *>(handle));

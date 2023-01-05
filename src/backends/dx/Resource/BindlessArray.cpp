@@ -7,6 +7,7 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandAllocator.h>
+#include <Resource/Buffer.h>
 namespace toolhub::directx {
 
 BindlessArray::BindlessArray(
@@ -64,10 +65,9 @@ void BindlessArray::Bind(size_t handle, Property const &prop, uint index) {
             auto desc = v.buffer->GetColorSrvDesc(
                 v.offset,
                 v.byteSize);
-#ifdef _DEBUG
+#ifndef NDEBUG
             if (!desc) {
-                VEngine_Log("illagel buffer");
-                VENGINE_EXIT;
+                LUISA_ERROR("illagel buffer");
             }
 #endif
             device->globalHeap->CreateSRV(
@@ -83,7 +83,7 @@ void BindlessArray::Bind(size_t handle, Property const &prop, uint index) {
                 TryReturnIndex(indices.tex2D, bindGrp.tex2D);
             else
                 TryReturnIndex(indices.tex3D, bindGrp.tex3D);
-            auto texIdx =  device->globalHeap->AllocateIndex();
+            auto texIdx = device->globalHeap->AllocateIndex();
             device->globalHeap->CreateSRV(
                 v.first->GetResource(),
                 v.first->GetColorSrvDesc(),
@@ -134,6 +134,123 @@ void BindlessArray::PreProcessStates(
             D3D12_RESOURCE_STATE_COPY_DEST);
     }
 }
+void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modification> mods) {
+    if (mods.empty()) return;
+    auto EmplaceTex = [&]<bool isTex2D>(BindlessStruct &bindGrp, MapIndicies &indices, uint64_t handle, TextureBase const *tex, Sampler const &samp) {
+        if constexpr (isTex2D)
+            TryReturnIndex(indices.tex2D, bindGrp.tex2D);
+        else
+            TryReturnIndex(indices.tex3D, bindGrp.tex3D);
+        auto texIdx = device->globalHeap->AllocateIndex();
+        device->globalHeap->CreateSRV(
+            tex->GetResource(),
+            tex->GetColorSrvDesc(),
+            texIdx);
+        auto smpIdx = GlobalSamplers::GetIndex(samp);
+        if constexpr (isTex2D) {
+            indices.tex2D = AddIndex(handle);
+            bindGrp.tex2D = texIdx;
+            bindGrp.tex2DX = tex->Width();
+            bindGrp.tex2DY = tex->Height();
+            bindGrp.samp2D = smpIdx;
+        } else {
+            indices.tex3D = AddIndex(handle);
+            bindGrp.tex3D = texIdx;
+            bindGrp.tex3DX = tex->Width();
+            bindGrp.tex3DY = tex->Height();
+            bindGrp.tex3DZ = tex->Depth();
+            bindGrp.samp3D = smpIdx;
+        }
+    };
+    for (auto &&mod : mods) {
+        auto &bindGrp = binded[mod.index].first;
+        auto &indices = binded[mod.index].second;
+        using Cmd = BindlessArrayUpdateCommand::ModificationCmd;
+        switch (mod.cmd) {
+            case Cmd::EmplaceBuffer: {
+                TryReturnIndex(indices.buffer, bindGrp.buffer);
+                BufferView v{reinterpret_cast<Buffer *>(mod.buffer.handle), mod.buffer.offset_bytes};
+                auto newIdx = device->globalHeap->AllocateIndex();
+                auto desc = v.buffer->GetColorSrvDesc(
+                    v.offset,
+                    v.byteSize);
+#ifndef NDEBUG
+                if (!desc) {
+                    LUISA_ERROR("illagel buffer");
+                }
+#endif
+                device->globalHeap->CreateSRV(
+                    v.buffer->GetResource(),
+                    *desc,
+                    newIdx);
+                bindGrp.buffer = newIdx;
+                indices.buffer = AddIndex(mod.buffer.handle);
+            } break;
+            case Cmd::EmplaceTex2D: {
+                EmplaceTex.operator()<true>(
+                    bindGrp, indices,
+                    mod.image.handle,
+                    reinterpret_cast<TextureBase const *>(mod.image.handle),
+                    mod.image.sampler);
+            } break;
+            case Cmd::EmplaceTex3D: {
+                EmplaceTex.operator()<false>(
+                    bindGrp, indices,
+                    mod.image.handle,
+                    reinterpret_cast<TextureBase const *>(mod.image.handle),
+                    mod.image.sampler);
+            } break;
+            case Cmd::RemoveBuffer:
+                TryReturnIndex(indices.buffer, bindGrp.buffer);
+                break;
+            case Cmd::RemoveTex2D:
+                TryReturnIndex(indices.tex2D, bindGrp.tex2D);
+                break;
+            case Cmd::RemoveTex3D:
+                TryReturnIndex(indices.tex3D, bindGrp.tex3D);
+                break;
+        }
+    }
+}
+void BindlessArray::PreProcessStates(
+    CommandBufferBuilder &builder,
+    ResourceStateTracker &tracker,
+    vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const {
+    if (mods.empty()) return;
+    tracker.RecordState(
+        &buffer,
+        D3D12_RESOURCE_STATE_COPY_DEST);
+}
+void BindlessArray::UpdateStates(
+    CommandBufferBuilder &builder,
+    ResourceStateTracker &tracker,
+    vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const {
+    if (!mods.empty()) {
+        for (auto &&mod : mods) {
+            builder.Upload(
+                BufferView{
+                    &buffer,
+                    sizeof(BindlessStruct) * mod.index,
+                    sizeof(BindlessStruct)},
+                &binded[mod.index].first);
+        }
+        tracker.RecordState(
+            &buffer);
+    }
+    vstd::vector<uint> needReturnIdx;
+    while (auto i = freeQueue.Pop()) {
+        needReturnIdx.push_back(i);
+    }
+    if (!needReturnIdx.empty()) {
+        builder.GetCB()->GetAlloc()->ExecuteAfterComplete(
+            [vec = std::move(needReturnIdx),
+             device = device] {
+                for (auto &&i : vec) {
+                    device->globalHeap->ReturnIndex(i);
+                }
+            });
+    }
+}
 void BindlessArray::UpdateStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker) const {
@@ -141,10 +258,10 @@ void BindlessArray::UpdateStates(
     if (updateMap.size() > 0) {
         for (auto &&kv : updateMap) {
             builder.Upload(
-                BufferView(
+                BufferView{
                     &buffer,
                     sizeof(BindlessStruct) * kv.first,
-                    sizeof(BindlessStruct)),
+                    sizeof(BindlessStruct)},
                 &kv.second);
         }
         updateMap.Clear();

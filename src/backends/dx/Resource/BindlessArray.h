@@ -2,7 +2,7 @@
 #include <Resource/Resource.h>
 #include <Resource/DefaultBuffer.h>
 #include <vstl/lockfree_array_queue.h>
-#include <runtime/sampler.h>
+#include <runtime/command.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class TextureBase;
@@ -38,10 +38,10 @@ public:
 
 private:
     vstd::vector<std::pair<BindlessStruct, MapIndicies>> binded;
-    mutable vstd::HashMap<uint, BindlessStruct> updateMap;
+    mutable vstd::HashMap<uint, BindlessStruct> updateMap;// Delete
     Map ptrMap;
     DefaultBuffer buffer;
-    void TryReturnIndex(MapIndex& index, uint32_t& originValue);
+    void TryReturnIndex(MapIndex &index, uint32_t &originValue);
     MapIndex AddIndex(size_t ptr);
     mutable vstd::LockFreeArrayQueue<uint32_t> freeQueue;
 
@@ -52,15 +52,25 @@ public:
     using Property = vstd::variant<
         BufferView,
         std::pair<TextureBase const *, Sampler>>;
-    void Bind(size_t handle, Property const &prop, uint index);
-    void UnBind(BindTag type, uint index);
-    DefaultBuffer const *Buffer() const { return &buffer; }
+    void Bind(size_t handle, Property const &prop, uint index);// Delete
+    void UnBind(BindTag type, uint index);                     // Delete
+    void Bind(vstd::span<const BindlessArrayUpdateCommand::Modification> mods);
     void PreProcessStates(
         CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const;
+        ResourceStateTracker &tracker,
+        vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const;
     void UpdateStates(
         CommandBufferBuilder &builder,
-        ResourceStateTracker &tracker) const;
+        ResourceStateTracker &tracker,
+        vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const;
+
+    DefaultBuffer const *BindlessBuffer() const { return &buffer; }
+    void PreProcessStates(
+        CommandBufferBuilder &builder,
+        ResourceStateTracker &tracker) const;// Delete
+    void UpdateStates(
+        CommandBufferBuilder &builder,
+        ResourceStateTracker &tracker) const;// Delete
     Tag GetTag() const override { return Tag::BindlessArray; }
     BindlessArray(
         Device *device,

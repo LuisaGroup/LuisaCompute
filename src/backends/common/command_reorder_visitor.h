@@ -12,6 +12,8 @@ namespace luisa::compute {
 struct FuncTable{
     bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept;
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept;
+    size_t aabb_stride() const noexcept;
+    bool update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept;
 }
 */
 template<typename FuncTable, bool supportConcurrentCopy>
@@ -51,7 +53,7 @@ public:
     };
     struct RangeHash {
         size_t operator()(Range const &r) const {
-            return hash64(this, sizeof(Range), 9527ull);
+            return hash64(this, sizeof(Range), hash64_default_seed);
         }
     };
     struct ResourceView {
@@ -654,6 +656,7 @@ public:
 
     // BindlessArray : read multi resources
     void visit(const BindlessArrayUpdateCommand *command) noexcept override {
+        funcTable.update_bindless(command->handle(), command->modifications());
         AddCommand(command, SetWrite(command->handle(), Range(), ResourceType::Bindless));
     }
 
