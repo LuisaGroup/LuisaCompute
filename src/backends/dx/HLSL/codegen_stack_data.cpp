@@ -87,7 +87,7 @@ std::pair<uint64, bool> CodegenStackData::GetConstCount(uint64 data) {
     return {ite.first->second, newValue};
 }
 
-uint64 CodegenStackData::GetFuncCount(uint64 data) {
+uint64 CodegenStackData::GetFuncCount(void const* data) {
     auto ite = funcTypes.try_emplace(
         data,
         vstd::LazyEval(

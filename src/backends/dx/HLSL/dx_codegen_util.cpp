@@ -320,7 +320,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &funcDecl) {
     }
     {
         data += " custom_"sv;
-        vstd::to_string((opt->GetFuncCount(func.hash())), data);
+        vstd::to_string((opt->GetFuncCount(func.builder())), data);
         if (func.arguments().empty()) {
             data += "()"sv;
         } else {
@@ -371,7 +371,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &funcDecl) {
              << data;
 }
 void CodegenUtility::GetFunctionName(Function callable, vstd::string &result) {
-    result << "custom_"sv << vstd::to_string((opt->GetFuncCount(callable.hash())));
+    result << "custom_"sv << vstd::to_string((opt->GetFuncCount(callable.builder())));
 }
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, StringStateVisitor &vis) {
     auto args = expr->arguments();
@@ -417,7 +417,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
-            str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().hash())));
+            str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom().builder())));
             str << '(';
             {
                 uint64 sz = 0;

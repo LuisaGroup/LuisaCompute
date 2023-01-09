@@ -8,7 +8,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     luisa::compute::Function kernel;
     vstd::unordered_map<Type const *, uint64> structTypes;
     vstd::unordered_map<uint64, uint64> constTypes;
-    vstd::unordered_map<uint64, uint64> funcTypes;
+    vstd::unordered_map<void const*, uint64> funcTypes;
     vstd::unordered_map<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::unordered_map<Type const *, uint64> bindlessBufferTypes;
     vstd::unordered_map<uint, uint> arguments;
@@ -44,7 +44,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     uint AddBindlessType(Type const *type);
     StructGenerator *CreateStruct(Type const *t);
     std::pair<uint64, bool> GetConstCount(uint64 data);
-    uint64 GetFuncCount(uint64 data);
+    uint64 GetFuncCount(void const* data);
     uint64 GetTypeCount(Type const *t);
     ~CodegenStackData();
     static vstd::unique_ptr<CodegenStackData> Allocate();

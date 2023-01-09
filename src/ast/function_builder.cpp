@@ -515,7 +515,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     auto expr = _create_expression<CallExpr>(type, custom, std::move(call_args));
     if (auto iter = std::find_if(
             _used_custom_callables.cbegin(), _used_custom_callables.cend(),
-            [&](auto &&p) noexcept { return f->hash() == p->hash(); });
+            [&](auto &&p) noexcept { return f == p.get(); });
         iter == _used_custom_callables.cend()) {
         _used_custom_callables.emplace_back(custom.shared_builder());
         // propagate used builtin/custom callables and constants
