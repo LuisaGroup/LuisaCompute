@@ -12,7 +12,7 @@ add_includedirs("../", "../ext/xxHash/", "../ext/parallel-hashmap", {
     public = true
 })
 add_files("**.cpp")
-add_defines("UNICODE=1", "TSL_NO_EXCEPTIONS", "NOMINMAX=1", "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS=1",
+add_defines("UNICODE=1", "NOMINMAX=1", "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS=1",
         "_CRT_SECURE_NO_WARNINGS=1", "_ENABLE_EXTENDED_ALIGNED_STORAGE=1", {
             public = true
         })
