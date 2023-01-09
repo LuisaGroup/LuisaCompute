@@ -14,8 +14,8 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         dynamic_struct.h
         event.cpp event.h
         image.cpp image.h
-        mipmap.h
-        pixel.h
+        mipmap.cpp mipmap.h
+        pixel.cpp pixel.h
         resource.cpp resource.h
         resource_tracker.cpp resource_tracker.h
         sampler.h
@@ -23,7 +23,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         stream.cpp stream.h
         stream_tag.h
         swap_chain.cpp swap_chain.h
-        volume.h)
+        volume.cpp volume.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compute-ir)

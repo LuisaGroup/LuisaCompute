@@ -9,14 +9,18 @@
 #include <runtime/command.h>
 #include <runtime/resource.h>
 #include <runtime/device.h>
+
 namespace luisa::compute {
+
 namespace detail {
-LC_RUNTIME_API void log_diff_elements(size_t src, size_t dst);
-LC_RUNTIME_API void log_unable_hold(size_t size, size_t dst);
-LC_RUNTIME_API void log_subview_overflow(size_t offset, size_t ele_size, size_t size);
-LC_RUNTIME_API void log_invalid_align(size_t offset, size_t dst);
+LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst);
+LC_RUNTIME_API void error_buffer_reinterpret_size_too_small(size_t size, size_t dst);
+LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size, size_t size);
+LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst);
 }// namespace detail
+
 class DynamicStruct;
+
 template<typename T>
 struct Expr;
 
@@ -96,7 +100,7 @@ private:
     BufferView(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept
         : _handle{handle}, _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
-            detail::log_invalid_align(_offset_bytes, alignof(T));
+            detail::error_buffer_invalid_alignment(_offset_bytes, alignof(T));
         }
     }
 
@@ -113,9 +117,10 @@ public:
     [[nodiscard]] auto original() const noexcept {
         return BufferView{_handle, 0u, _total_size, _total_size};
     }
+
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
         if (size_elements + offset_elements > _size) [[unlikely]] {
-            detail::log_subview_overflow(offset_elements, size_elements, _size);
+            detail::error_buffer_subview_overflow(offset_elements, size_elements, _size);
         }
         return BufferView{_handle, _offset_bytes + offset_elements * sizeof(T), size_elements, _total_size};
     }
@@ -123,7 +128,7 @@ public:
     template<typename U>
     [[nodiscard]] auto as() const noexcept {
         if (this->size_bytes() < sizeof(U)) [[unlikely]] {
-            detail::log_unable_hold(sizeof(U), this->size_bytes());
+            detail::error_buffer_reinterpret_size_too_small(sizeof(U), this->size_bytes());
         }
         return BufferView<U>{_handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
     }
@@ -138,7 +143,7 @@ public:
 
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         if (source.size() != this->size()) [[unlikely]] {
-            detail::log_diff_elements(source.size(), this->size());
+            detail::error_buffer_copy_sizes_mismatch(source.size(), this->size());
         }
         return BufferCopyCommand::create(
             source.handle(), this->handle(),

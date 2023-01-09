@@ -1,11 +1,17 @@
 #pragma once
+
 #include <runtime/buffer.h>
+
 namespace luisa::compute {
+
 template<typename T>
 struct Expr;
+
 template<typename T>
 struct Var;
+
 class DynamicStruct;
+
 template<>
 class BufferView<DynamicStruct> {
     friend class Buffer<DynamicStruct>;
@@ -41,7 +47,7 @@ public:
 
     [[nodiscard]] auto copy_from(BufferView source) noexcept {
         if (source.size() != this->size()) [[unlikely]] {
-            detail::log_diff_elements(source.size(), this->size());
+            detail::error_buffer_copy_sizes_mismatch(source.size(), this->size());
         }
         return BufferCopyCommand::create(
             source.handle(), this->handle(),
@@ -53,14 +59,14 @@ public:
     template<typename U>
     [[nodiscard]] auto as() const noexcept {
         if (this->size_bytes() < sizeof(U)) [[unlikely]] {
-            detail::log_unable_hold(sizeof(U), this->size_bytes());
+            detail::error_buffer_reinterpret_size_too_small(sizeof(U), this->size_bytes());
         }
         return BufferView<U>{_handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
     }
     [[nodiscard]] auto as(const Type *type) const noexcept {
         auto stride = type->size();
         if (this->size_bytes() < stride) [[unlikely]] {
-            detail::log_unable_hold(stride, this->size_bytes());
+            detail::error_buffer_reinterpret_size_too_small(stride, this->size_bytes());
         }
         return BufferView<DynamicStruct>{_handle, _offset_bytes, type, this->size_bytes() / stride, _total_size};
     }
@@ -68,14 +74,16 @@ public:
     template<typename I, typename V>
     void write(I &&i, V &&v) const noexcept;
 };
+
 template<typename T>
 [[nodiscard]] BufferView<DynamicStruct> BufferView<T>::as(const Type *type) const noexcept {
     auto stride = type->size();
     if (this->size_bytes() < stride) [[unlikely]] {
-        detail::log_unable_hold(stride, this->size_bytes());
+        detail::error_buffer_reinterpret_size_too_small(stride, this->size_bytes());
     }
     return BufferView<DynamicStruct>{_handle, _offset_bytes, type, this->size_bytes() / stride, _total_size};
 }
+
 template<>
 class Buffer<DynamicStruct> : public Resource {
 private:
@@ -102,7 +110,8 @@ public:
     template<typename I, typename V>
     void write(I &&i, V &&v) const noexcept { this->view().write(std::forward<I>(i), std::forward<V>(v)); }
 };
+
 inline BufferView<DynamicStruct>::BufferView(const Buffer<DynamicStruct> &buffer) noexcept
-    : BufferView{buffer.view()} {
-}
+    : BufferView{buffer.view()} {}
+
 }// namespace luisa::compute

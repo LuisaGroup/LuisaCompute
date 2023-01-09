@@ -6,14 +6,6 @@
 
 #include <runtime/command.h>
 
-#ifdef min
-#undef min
-#endif
-
-#ifdef max
-#undef max
-#endif
-
 namespace luisa::compute {
 
 template<typename T>
@@ -32,6 +24,8 @@ template<typename T>
 class BufferView;
 
 namespace detail {
+
+LC_RUNTIME_API void error_mipmap_copy_buffer_size_mismatch(size_t mip_size, size_t buffer_size) noexcept;
 
 class LC_RUNTIME_API MipmapView {
 
@@ -76,9 +70,7 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
-            LUISA_ERROR_WITH_LOCATION(
-                "No enough data (required = {} bytes) in buffer (size = {} bytes).",
-                size, buffer.size_bytes());
+            error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
         }
         return BufferToTextureCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
@@ -88,9 +80,7 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
-            LUISA_ERROR_WITH_LOCATION(
-                "No enough data (required = {} bytes) in buffer (size = {} bytes).",
-                size, buffer.size_bytes());
+            error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
         }
         return TextureToBufferCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
@@ -120,4 +110,5 @@ public:
 }
 
 }// namespace detail
+
 }// namespace luisa::compute

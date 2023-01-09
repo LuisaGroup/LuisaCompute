@@ -32,7 +32,6 @@ class LC_RUNTIME_API Context {
 private:
     struct Impl;
     luisa::shared_ptr<Impl> _impl;
-    size_t _index = ~0ull;
     explicit Context(luisa::shared_ptr<Impl> impl) noexcept;
 
 public:
@@ -45,7 +44,6 @@ public:
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
     [[nodiscard]] ContextPaths paths() const noexcept;
-    [[nodiscard]] auto index() const noexcept { return _index; }
     [[nodiscard]] Device create_device(luisa::string_view backend_name, DeviceConfig const *settings = nullptr) noexcept;
     [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;
     [[nodiscard]] luisa::span<const DynamicModule> loaded_modules() const noexcept;

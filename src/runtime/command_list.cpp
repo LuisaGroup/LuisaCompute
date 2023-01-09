@@ -17,6 +17,10 @@ luisa::vector<luisa::unique_ptr<Command>> CommandList::steal_commands() noexcept
     return cmds;
 }
 
+void CommandList::reserve(size_t size) noexcept {
+    _commands.reserve(size);
+}
+
 //class CommandDumpVisitor : CommandVisitor {
 //
 //private:
