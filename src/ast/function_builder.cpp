@@ -393,6 +393,7 @@ void FunctionBuilder::_compute_hash() noexcept {
                    _captured_constants.size() +
                    1u /* block size */);
     hashes.emplace_back(hash_value(_tag));
+    hashes.emplace_back(_body.hash());
     hashes.emplace_back(_return_type ? hash_value(*_return_type.value()) : hash_value("void"sv));
     for (auto &&arg : _arguments) { hashes.emplace_back(hash_value(arg)); }
     for (auto &&c : _captured_constants) { hashes.emplace_back(hash_value(c)); }
