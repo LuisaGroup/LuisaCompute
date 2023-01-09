@@ -1,9 +1,13 @@
 #pragma once
-#include <stdint.h>
+
+#include <cstdint>
+
 namespace luisa::compute {
+
 enum class StreamTag : uint8_t {
-    GRAPHICS,
-    COMPUTE,
-    COPY
+    GRAPHICS,// capable of graphics, compute, and copy commands
+    COMPUTE, // capable of compute and copy commands
+    COPY     // only copy commands
 };
-};
+
+}

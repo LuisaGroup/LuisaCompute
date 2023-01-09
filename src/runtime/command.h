@@ -15,9 +15,11 @@
 #include <runtime/sampler.h>
 
 namespace luisa::compute {
+
 class CmdDeser;
 class CmdSer;
 class RasterMesh;
+
 #define LUISA_COMPUTE_RUNTIME_COMMANDS \
     BufferUploadCommand,               \
         BufferDownloadCommand,         \
@@ -827,10 +829,8 @@ private:
 public:
     explicit CustomCommand(luisa::vector<ResourceBinding> &&resources, luisa::string &&name, StreamTag stream_tag) noexcept
         : Command(Command::Tag::ECustomCommand), _resources(std::move(resources)), _name(std::move(name)), _stream_tag(stream_tag) {}
-    luisa::span<ResourceBinding const> resources() const noexcept {
-        return _resources;
-    }
-    luisa::string const &name() const noexcept { return _name; }
+    [[nodiscard]] auto resources() const noexcept { return luisa::span{_resources}; }
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
     LUISA_MAKE_COMMAND_COMMON(CustomCommand, _stream_tag)
 };
 

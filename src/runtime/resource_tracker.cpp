@@ -32,4 +32,4 @@ bool ResourceTracker::uses(uint64_t handle) const noexcept {
     return _ref_count.count(handle) != 0u;
 }
 
-}
+}// namespace luisa::compute

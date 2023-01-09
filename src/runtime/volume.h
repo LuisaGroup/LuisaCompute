@@ -9,10 +9,13 @@
 #include <runtime/mipmap.h>
 #include <runtime/sampler.h>
 #include <runtime/device.h>
+
 namespace luisa::compute {
+
 namespace detail {
-LC_RUNTIME_API void log_invalid_mip(size_t level, size_t mip);
+LC_RUNTIME_API void error_volume_invalid_mip_levels(size_t level, size_t mip) noexcept;
 }
+
 template<typename T>
 class VolumeView;
 
@@ -63,7 +66,7 @@ public:
 
     [[nodiscard]] auto view(uint32_t level) const noexcept {
         if (level >= _mip_levels) [[unlikely]] {
-            detail::log_invalid_mip(level, _mip_levels);
+            detail::error_volume_invalid_mip_levels(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
         return VolumeView<T>{handle(), _storage, level, mip_size};

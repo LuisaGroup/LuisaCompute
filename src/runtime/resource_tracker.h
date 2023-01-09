@@ -3,6 +3,7 @@
 //
 
 #pragma once
+
 #include <core/stl/hash.h>
 #include <core/stl/unordered_map.h>
 #include <core/stl/vector.h>
@@ -22,9 +23,9 @@ public:
     void commit() noexcept;
 
     template<typename F>
-    void traverse(F &&f) const noexcept {
+    void traverse(const F &f) const noexcept {
         for (auto [handle, _] : _ref_count) {
-            std::invoke(std::forward<F>(f), handle);
+            std::invoke(f, handle);
         }
     }
 };

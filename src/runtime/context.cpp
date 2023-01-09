@@ -32,11 +32,13 @@ struct Context::Impl {
 };
 
 namespace detail {
+
 auto runtime_directory(const std::filesystem::path &p) noexcept {
     auto cp = std::filesystem::canonical(p);
     if (std::filesystem::is_directory(cp)) { return cp; }
     return std::filesystem::canonical(cp.parent_path());
 }
+
 }// namespace detail
 
 Context::Context(string_view program_path) noexcept
@@ -94,6 +96,7 @@ const std::filesystem::path &ContextPaths::cache_directory() const noexcept {
 const std::filesystem::path &ContextPaths::data_directory() const noexcept {
     return reinterpret_cast<Context::Impl *>(_impl)->data_directory;
 }
+
 ContextPaths Context::paths() const noexcept {
     return ContextPaths{_impl.get()};
 }

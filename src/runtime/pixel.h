@@ -3,6 +3,7 @@
 //
 
 #pragma once
+
 #include <core/dll_export.h>
 #include <core/basic_types.h>
 
@@ -219,9 +220,11 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
     }
     return 0u;
 }
+
 namespace detail {
-LC_RUNTIME_API void log_invalid_pixel_format(const char *name);
+LC_RUNTIME_API void error_pixel_invalid_format(const char *name) noexcept;
 }
+
 template<typename T>
 [[nodiscard]] constexpr auto pixel_storage_to_format(PixelStorage storage) noexcept {
     if constexpr (std::is_same_v<T, float>) {
@@ -242,7 +245,7 @@ template<typename T>
             case PixelStorage::BC5: return PixelFormat ::BC5UNorm;
             case PixelStorage::BC6: return PixelFormat ::BC6HUF16;
             case PixelStorage::BC7: return PixelFormat ::BC7UNorm;
-            default: detail::log_invalid_pixel_format("float");
+            default: detail::error_pixel_invalid_format("float");
         }
     } else if constexpr (std::is_same_v<T, int>) {
         switch (storage) {
@@ -255,7 +258,7 @@ template<typename T>
             case PixelStorage::INT1: return PixelFormat::R32SInt;
             case PixelStorage::INT2: return PixelFormat::RG32SInt;
             case PixelStorage::INT4: return PixelFormat::RGBA32SInt;
-            default: detail::log_invalid_pixel_format("int");
+            default: detail::error_pixel_invalid_format("int");
         }
     } else if constexpr (std::is_same_v<T, uint>) {
         switch (storage) {
@@ -268,7 +271,7 @@ template<typename T>
             case PixelStorage::INT1: return PixelFormat::R32UInt;
             case PixelStorage::INT2: return PixelFormat::RG32UInt;
             case PixelStorage::INT4: return PixelFormat::RGBA32UInt;
-            default: detail::log_invalid_pixel_format("uint");
+            default: detail::error_pixel_invalid_format("uint");
         }
     } else {
         static_assert(always_false_v<T>);
