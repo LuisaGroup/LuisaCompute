@@ -555,7 +555,7 @@ enum struct AccelBuildRequest : uint8_t {
 struct AccelBuildOption {
     AccelUsageHint hint{AccelUsageHint::FAST_BUILD};
     bool allow_compact{false};
-    bool allow_update{true};
+    bool allow_update{false};
 };
 
 struct MeshBuildOption {
