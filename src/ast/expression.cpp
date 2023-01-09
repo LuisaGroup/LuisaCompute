@@ -79,14 +79,12 @@ void CallExpr::_mark() const noexcept {
 }
 
 uint64_t CallExpr::_compute_hash() const noexcept {
-    auto hash = hash64(&_op, sizeof(_op), hash64_default_seed);
+    auto hash = hash_value(_op);
     for (auto &&a : _arguments) {
-        auto h = a->hash();
-        hash = hash64(&h, sizeof(h), hash);
+        hash = hash_value(a->hash(), hash);
     }
     if (_op == CallOp::CUSTOM) {
-        auto h = _custom->hash();
-        hash = hash64(&h, sizeof(h), hash);
+        hash = hash_value(_custom->hash(), hash);
     }
     return hash;
 }
