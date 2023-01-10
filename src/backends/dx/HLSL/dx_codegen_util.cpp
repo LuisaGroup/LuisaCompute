@@ -343,7 +343,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &funcDecl) {
                 vstd::string varName;
                 CodegenUtility::GetVariableName(i, varName);
                 if (i.type()->is_accel()) {
-                    if (usage == Usage::READ) {
+                    if ((to_underlying(usage) & to_underlying(Usage::WRITE)) == 0) {
                         CodegenUtility::GetTypeName(*i.type(), data, usage);
                         data << ' ' << varName << ',';
                     }
