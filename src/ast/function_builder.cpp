@@ -35,14 +35,6 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
         LUISA_ERROR_WITH_LOCATION("Shared variables and block synchronization "
                                   "are only allowed in kernels.");
     }
-    if (f->requires_raytracing() &&
-        (!f->_shared_variables.empty() ||
-         f->_propagated_builtin_callables.test(
-             CallOp::SYNCHRONIZE_BLOCK))) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Raytracing functions are not allowed to "
-            "use shared storage or call synchronize_block().");
-    }
     if (f->_arguments.size() != f->_argument_bindings.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Arguments and their bindings have different sizes ({} and {}).",
