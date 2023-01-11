@@ -295,7 +295,7 @@ variant<int64, double> StringUtil::StringToNumber(std::string_view numStr) {
                 pin++;
                 if (!processFloat()) return false;
                 break;
-            } else if (*pin == 'e') {
+            } else if (*pin == 'e' || *pin == 'E') {
                 pin++;
                 if (!processRate()) return false;
                 break;
@@ -312,7 +312,7 @@ variant<int64, double> StringUtil::StringToNumber(std::string_view numStr) {
                 rate *= 0.1;
                 v += ((*pin) - 48) * rate;
                 pin++;
-            } else if (*pin == 'e') {
+            } else if (*pin == 'e' || *pin == 'E') {
                 pin++;
                 return processRate();
             } else {
