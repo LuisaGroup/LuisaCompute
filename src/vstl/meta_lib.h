@@ -89,31 +89,31 @@ public:
     }
     inline void Delete() noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            vstd::destruct(reinterpret_cast<T *>(storage));
+            vstd::destruct(std::launder(reinterpret_cast<T *>(storage)));
     }
     T &operator*() &noexcept {
-        return *reinterpret_cast<T *>(storage);
+        return *std::launder(reinterpret_cast<T *>(storage));
     }
     T &&operator*() &&noexcept {
-        return std::move(*reinterpret_cast<T *>(storage));
+        return std::move(*std::launder(reinterpret_cast<T *>(storage)));
     }
     T const &operator*() const &noexcept {
         return *reinterpret_cast<T const *>(storage);
     }
     T *operator->() noexcept {
-        return reinterpret_cast<T *>(storage);
+        return std::launder(reinterpret_cast<T *>(storage));
     }
     T const *operator->() const noexcept {
         return reinterpret_cast<T const *>(storage);
     }
     T *GetPtr() noexcept {
-        return reinterpret_cast<T *>(storage);
+        return std::launder(reinterpret_cast<T *>(storage));
     }
     T const *GetPtr() const noexcept {
         return reinterpret_cast<T const *>(storage);
     }
     operator T *() noexcept {
-        return reinterpret_cast<T *>(storage);
+        return std::launder(reinterpret_cast<T *>(storage));
     }
     operator T const *() const noexcept {
         return reinterpret_cast<T const *>(storage);
@@ -461,7 +461,7 @@ public:
             originPtr = &buffer;
         }
         func(originPtr);
-        ptr = reinterpret_cast<T *>(originPtr);
+        ptr = std::launder(reinterpret_cast<T *>(originPtr));
         class Inter : public detail::SBOInterface {
         public:
             void Copy(void *dstPtr, void *srcPtr) const override {
@@ -890,7 +890,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return *reinterpret_cast<TypeOf<i> *>(&placeHolder);
+        return *std::launder(reinterpret_cast<TypeOf<i> *>(&placeHolder));
     }
     template<size_t i>
         requires(i < argSize) decltype(auto)
@@ -901,7 +901,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return std::move(*reinterpret_cast<TypeOf<i> *>(&placeHolder));
+        return std::move(*std::launder(reinterpret_cast<TypeOf<i> *>(&placeHolder)));
     }
     template<size_t i>
         requires(i < argSize) decltype(auto)
@@ -912,7 +912,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return *reinterpret_cast<TypeOf<i> const *>(&placeHolder);
+        return *std::launder(reinterpret_cast<TypeOf<i> const *>(&placeHolder));
     }
 
     template<typename T>
@@ -922,7 +922,7 @@ public:
         if (tarIdx != switcher) {
             return nullptr;
         }
-        return reinterpret_cast<TypeOf<tarIdx> const *>(&placeHolder);
+        return std::launder(reinterpret_cast<TypeOf<tarIdx> const *>(&placeHolder));
     }
 
     template<typename T>
@@ -932,7 +932,7 @@ public:
         if (tarIdx != switcher) {
             return nullptr;
         }
-        return reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder);
+        return std::launder(reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder));
     }
     template<typename T>
         requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
@@ -941,7 +941,7 @@ public:
         if (tarIdx != switcher) {
             return {};
         }
-        return optional<T>(std::move(*reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder)));
+        return optional<T>(std::move(*std::launder(reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder))));
     }
     template<typename T>
         requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
@@ -951,7 +951,7 @@ public:
         if (tarIdx != switcher) {
             return std::forward<T>(value);
         }
-        return *reinterpret_cast<TypeOf<tarIdx> const *>(&placeHolder);
+        return *std::launder(reinterpret_cast<TypeOf<tarIdx> const *>(&placeHolder));
     }
     template<typename T>
         requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
@@ -960,7 +960,7 @@ public:
         if (tarIdx != switcher) {
             return std::forward<T>(value);
         }
-        return std::move(*reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder));
+        return std::move(*std::launder(reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder)));
     }
     template<typename T>
         requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
@@ -972,7 +972,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return *reinterpret_cast<TypeOf<tarIdx> const *>(&placeHolder);
+        return *std::launder(reinterpret_cast<TypeOf<tarIdx> const *>(&placeHolder));
     }
 
     template<typename T>
@@ -985,7 +985,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return *reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder);
+        return *std::launder(reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder));
     }
     template<typename T>
         requires(detail::AnyMap<std::is_same, false, T>::template Run<AA...>())
@@ -997,7 +997,7 @@ public:
             VENGINE_EXIT;
         }
 #endif
-        return std::move(*reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder));
+        return std::move(*std::launder(reinterpret_cast<TypeOf<tarIdx> *>(&placeHolder)));
     }
     template<typename Func>
     void visit(Func &&func) & {
@@ -1202,7 +1202,7 @@ public:
         constexpr size_t idxOfT = IndexOf<PureT>;
         if constexpr ((idxOfT) < argSize) {
             if (switcher == (idxOfT)) {
-                *reinterpret_cast<PureT *>(&placeHolder) = std::forward<T>(t);
+                *std::launder(reinterpret_cast<PureT *>(&placeHolder)) = std::forward<T>(t);
             } else {
                 m_dispose();
                 new (&placeHolder) PureT(std::forward<T>(t));
@@ -1213,7 +1213,7 @@ public:
             static_assert((asignOfT) < argSize, "illegal type");
             using CurT = TypeOf<(asignOfT)>;
             if (switcher == (asignOfT)) {
-                *reinterpret_cast<CurT *>(&placeHolder) = std::forward<T>(t);
+                *std::launder(reinterpret_cast<CurT *>(&placeHolder)) = std::forward<T>(t);
             } else {
                 m_dispose();
                 new (&placeHolder) CurT(std::forward<T>(t));
@@ -1229,7 +1229,7 @@ public:
         } else {
             auto assignFunc = [&]<typename T>(T const &v) {
                 if constexpr (std::is_copy_assignable_v<T>)
-                    *reinterpret_cast<T *>(&placeHolder) = v;
+                    *std::launder(reinterpret_cast<T *>(&placeHolder)) = v;
                 else {
                     assert(false);
                     VENGINE_EXIT;
@@ -1246,7 +1246,7 @@ public:
         } else {
             auto assignFunc = [&]<typename T>(T &v) {
                 if constexpr (std::is_move_assignable_v<T>)
-                    *reinterpret_cast<T *>(&placeHolder) = std::move(v);
+                    *std::launder(reinterpret_cast<T *>(&placeHolder)) = std::move(v);
                 else {
                     assert(false);
                     VENGINE_EXIT;
