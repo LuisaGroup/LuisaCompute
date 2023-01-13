@@ -206,7 +206,7 @@ public:
         invoke_type invoke{handle(), _kernel->function()};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
-    uint3 block_size() const noexcept {
+    [[nodiscard]] uint3 block_size() const noexcept {
         return device()->shader_block_size(handle());
     }
 };
