@@ -63,6 +63,7 @@ public:
     uint64_t create_shader(Function kernel, vstd::string_view file_name) noexcept override;
     uint64_t create_shader(Function kernel, bool is_cache) noexcept override;
     uint64_t load_shader(vstd::string_view file_name, vstd::span<Type const *const> types) noexcept override;
+    uint3 shader_block_size(uint64_t handle) const noexcept override;
     void save_shader(Function kernel, string_view serialization_path) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
 

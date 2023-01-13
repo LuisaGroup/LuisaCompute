@@ -168,6 +168,7 @@ public:
     [[nodiscard]] virtual uint64_t create_shader(Function kernel, luisa::string_view serialization_path) noexcept = 0;
     [[nodiscard]] virtual uint64_t create_shader(Function kernel, bool use_cache) noexcept = 0;
     [[nodiscard]] virtual uint64_t load_shader(luisa::string_view ser_path, luisa::span<Type const *const> types) noexcept = 0;
+    [[nodiscard]] virtual uint3 shader_block_size(uint64_t handle) const noexcept = 0;
     virtual void save_shader(Function kernel, luisa::string_view serialization_path) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
 // FIXME:

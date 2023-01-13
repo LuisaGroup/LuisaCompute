@@ -213,6 +213,9 @@ void LCDevice::save_shader(Function kernel, string_view file_name) noexcept {
         kShaderModel,
         file_name);
 }
+uint3 LCDevice::shader_block_size(uint64_t handle) const noexcept {
+    return reinterpret_cast<ComputeShader *>(handle)->BlockSize();
+}
 void LCDevice::destroy_shader(uint64 handle) noexcept {
     auto shader = reinterpret_cast<Shader *>(handle);
     delete shader;
