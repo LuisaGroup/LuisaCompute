@@ -139,7 +139,8 @@ CommandBufferBuilder::CopyInfo CommandBufferBuilder::GetCopyTextureBufferSize(
         height /= 4;
     }
     auto GetValue = [&](uint &v) {
-        v = std::max<uint>(1, v >> targetMip);
+        auto mip_v = v >> targetMip;
+        v = std::max<uint>(1, mip_v);
     };
     GetValue(width);
     GetValue(height);
