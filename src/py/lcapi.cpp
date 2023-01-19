@@ -203,9 +203,8 @@ PYBIND11_MODULE(lcapi, m) {
             self.save_shader(kernel, str);
         })
         .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
-            luisa::string path_str{str};
             thread_pool.New();
-            futures.emplace_back(thread_pool->async([str = std::move(path_str), builder, &self]() {
+            futures.emplace_back(thread_pool->async([str = luisa::string{str}, builder, &self]() {
                 self.save_shader(builder->function(), str);
             }));
         })
@@ -260,6 +259,12 @@ PYBIND11_MODULE(lcapi, m) {
         })
         .def("save_raster_shader", [](DeviceInterface &self, ManagedMeshFormat const &fmt, Function vertex, Function pixel, luisa::string_view str) {
             self.save_raster_shader(fmt.format, vertex, pixel, str);
+        })
+        .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, eastl::shared_ptr<FunctionBuilder> const &vertex, eastl::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
+            thread_pool.New();
+            futures.emplace_back(thread_pool->async([fmt, str = luisa::string{str}, vertex, pixel, &self]() {
+                self.save_raster_shader(fmt.format, vertex->function(), pixel->function(), str);
+            }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
         .def("create_buffer", [](DeviceInterface &d, size_t size_bytes) {

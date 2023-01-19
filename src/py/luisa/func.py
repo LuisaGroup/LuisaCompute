@@ -252,7 +252,7 @@ class func:
             globalvars.printer.reset()
 
 
-def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_argtypes, pixel_argtypes, name: str):
+def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_argtypes, pixel_argtypes, name: str, async_builder: bool=True):
     vert_f = vertex.get_compiled(False, False,(appdata,) + vert_argtypes)
     pixel_f = pixel.get_compiled(False, False, (vert_f.return_type, ) + pixel_argtypes)
     device = get_global_device().impl()
@@ -270,4 +270,7 @@ def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_
             raise TypeError("Vertex or pixel shader is not callable.")
         else:
             raise TypeError("Vertex shader's first argument must be appdata type.")
-    device.save_raster_shader(mesh_format.handle, vert_f.function, pixel_f.function, name)
+    if async_builder:
+        device.save_raster_shader_async(mesh_format.handle, vert_f.builder, pixel_f.builder, name)
+    else:
+        device.save_raster_shader(mesh_format.handle, vert_f.function, pixel_f.function, name)
