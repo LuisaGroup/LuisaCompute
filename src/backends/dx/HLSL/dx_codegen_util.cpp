@@ -594,6 +594,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
         case CallOp::FACEFORWARD:
             str << "faceforward"sv;
             break;
+        case CallOp::REFLECT:
+            str << "reflect"sv;
+            break;
         case CallOp::DETERMINANT:
             str << "determinant"sv;
             break;

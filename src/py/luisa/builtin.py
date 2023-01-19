@@ -185,7 +185,7 @@ builtin_func_names = {
     'all', 'any',
     'select', 'clamp', 'saturate', 'step', 'lerp',
     'clz', 'ctz', 'popcount', 'reverse',
-    'determinant', 'transpose', 'inverse',
+    'determinant', 'transpose', 'inverse', "faceforward", "reflect",
     'array', 'struct',
     'make_ray', 'inf_ray', 'offset_ray_origin',
     'print',
@@ -540,6 +540,13 @@ def builtin_func(name, *args, **kwargs):
         assert len(args) == 3
         assert args[0].dtype == float3 and args[1].dtype == float3 and args[2].dtype == float3, \
                "invalid parameter"
+        dtype = float3
+        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+
+    if name == 'reflect':
+        op = getattr(lcapi.CallOp, name.upper())
+        assert len(args) == 2
+        assert args[0].dtype == float3 and args[1].dtype == float3, "invalid parameter"
         dtype = float3
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
 

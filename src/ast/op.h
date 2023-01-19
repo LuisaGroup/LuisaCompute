@@ -146,6 +146,7 @@ enum struct CallOp : uint32_t {
     LENGTH_SQUARED,
     NORMALIZE,
     FACEFORWARD,
+    REFLECT,
 
     DETERMINANT,
     TRANSPOSE,

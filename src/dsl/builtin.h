@@ -5,7 +5,6 @@
 #pragma once
 #ifndef LC_DISABLE_DSL
 
-
 #include <core/constants.h>
 #include <dsl/var.h>
 #include <dsl/operators.h>
@@ -1542,6 +1541,12 @@ template<typename T>
     requires is_dsl_v<T> && is_float_vector_expr_v<T>
 [[nodiscard]] inline auto normalize(T &&x) noexcept {
     return detail::make_vector_call<float>(CallOp::NORMALIZE, std::forward<T>(x));
+}
+
+template<typename T>
+    requires is_dsl_v<T> && is_float_vector_expr_v<T>
+[[nodiscard]] inline auto reflect(T &&i, T &&n) noexcept {
+    return detail::make_vector_call<float>(CallOp::REFLECT, std::forward<T>(x), std::forward<T>(y));
 }
 
 /// Return face forward vector.

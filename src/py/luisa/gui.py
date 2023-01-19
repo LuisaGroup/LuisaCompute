@@ -6,8 +6,9 @@ class GUI:
     def __init__(self, title, resolution, resizable = False, show_FPS = True):
         dpg.create_context()
         dpg.create_viewport(title=title,
-                            width=resolution[0],
-                            height=resolution[1],
+                            # TODO: magic number
+                            width=resolution[0] + 16,
+                            height=resolution[1] + 39,
                             resizable=False)
         self.show_FPS = show_FPS
         if self.show_FPS:

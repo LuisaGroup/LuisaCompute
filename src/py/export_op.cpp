@@ -116,6 +116,7 @@ void export_op(py::module &m) {
         .value("LENGTH_SQUARED", CallOp::LENGTH_SQUARED)
         .value("NORMALIZE", CallOp::NORMALIZE)
         .value("FACEFORWARD", CallOp::FACEFORWARD)
+        .value("REFLECT", CallOp::REFLECT)
 
         .value("DETERMINANT", CallOp::DETERMINANT)
         .value("TRANSPOSE", CallOp::TRANSPOSE)
