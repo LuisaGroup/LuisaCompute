@@ -27,6 +27,7 @@
 #include <py/managed_bindless.h>
 #include <ast/ast_evaluator.h>
 #include <dsl/struct.h>
+#include <core/thread_pool.h>
 
 namespace py = pybind11;
 using namespace luisa;
@@ -78,21 +79,34 @@ public:
 
 PYBIND11_DECLARE_HOLDER_TYPE(T, raw_ptr<T>, true)
 PYBIND11_DECLARE_HOLDER_TYPE(T, luisa::shared_ptr<T>)
-
+static vstd::vector<std::shared_future<void>> futures;
+static vstd::optional<ThreadPool> thread_pool;
+static size_t device_count = 0;
 class ManagedDevice {
 public:
     Device device;
     bool valid;
     ManagedDevice(Device &&device) noexcept : device(std::move(device)) {
         valid = true;
-        if (!RefCounter::current)
-            RefCounter::current = vstd::create_unique(new RefCounter());
+        if (device_count == 0) {
+            if (!RefCounter::current)
+                RefCounter::current = vstd::create_unique(new RefCounter());
+        }
+        device_count++;
     }
     ManagedDevice(ManagedDevice &&v) noexcept : device(std::move(v.device)), valid(false) {
         std::swap(valid, v.valid);
     }
     ManagedDevice(ManagedDevice const &) = delete;
     ~ManagedDevice() noexcept {
+        device_count--;
+        for (auto &&i : futures) {
+            i.wait();
+        }
+        futures.clear();
+        if (device_count == 0) {
+            thread_pool.Delete();
+        }
     }
 };
 struct IntEval {
@@ -187,6 +201,13 @@ PYBIND11_MODULE(lcapi, m) {
         .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) { return self.create_shader(kernel, str); })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             self.save_shader(kernel, str);
+        })
+        .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
+            luisa::string path_str{str};
+            thread_pool.New();
+            futures.emplace_back(thread_pool->async([str = std::move(path_str), builder, &self]() {
+                self.save_shader(builder->function(), str);
+            }));
         })
         /*
         0: legal shader

@@ -116,7 +116,7 @@ class func:
         self.filename = frameinfo.filename
         self.lineno = frameinfo.lineno
         
-    def save(self, argtypes: tuple, name=None):
+    def save(self, argtypes: tuple, name=None, async_build: bool=True):
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
         self.tree = ast.parse(textwrap.dedent("\n".join(self.sourcelines)))
@@ -145,8 +145,10 @@ class func:
         # compile shader
         if name == None:
             name = self.__name__
-        f.shader_handle = get_global_device().impl().save_shader(f.function, name)
-        return f
+        if async_build:
+            get_global_device().impl().save_shader_async(f.builder, name)
+        else:
+            get_global_device().impl().save_shader(f.function, name)
     # compiles an argument-type-specialized callable/kernel
     # returns FuncInstanceInfo
     def compile(self, call_from_host: bool, allow_ref: bool, argtypes: tuple, arg_info=None):
