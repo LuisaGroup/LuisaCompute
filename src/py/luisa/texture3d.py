@@ -7,17 +7,17 @@ from functools import cache
 from .func import func
 from .builtin import _builtin_call
 from .mathtypes import *
-
+from .types import uint, uint3
 
 def _check_storage(storage_name, dtype):
-    compatible = { float: {'byte','short','half','float'}, int: {'byte','short','int'} }
+    compatible = { float: {'byte','short','half','float'}, int: {'byte','short','int','uint'}, uint: {'byte','short','int','uint'}}
     if storage_name.lower() not in compatible[dtype]:
         raise TypeError(f"{dtype} texture is only compatible with storage: {compatible[dtype]}")
 
 class Texture3D:
     def __init__(self, width, height, volume, channel, dtype, mip=1, storage = None):
-        if not dtype in {int, float}:
-            raise Exception('Texture3D only supports int / float')
+        if not dtype in {int, uint, float}:
+            raise Exception('Texture3D only supports int / uint / float')
         if not channel in (1,3,4):
             raise Exception('Texture3D can only have 1/2/4 channels')
         self.width = width
@@ -111,17 +111,17 @@ class Texture3DType:
         dtype4 = vector(element_of(dtype), 4)
         if length_of(dtype) == 4:
             @func
-            def read(self, coord: int3):
+            def read(self, coord: uint3):
                 return _builtin_call(dtype, "TEXTURE_READ", self, (coord))
             return read
         elif length_of(dtype) == 2:
             @func
-            def read(self, coord: int3):
+            def read(self, coord: uint3):
                 return _builtin_call(dtype4, "TEXTURE_READ", self, (coord)).xy
             return read
         elif length_of(dtype) == 1:
             @func
-            def read(self, coord: int3):
+            def read(self, coord: uint3):
                 return _builtin_call(dtype4, "TEXTURE_READ", self, (coord)).x
             return read
         else:
@@ -132,7 +132,7 @@ class Texture3DType:
     def get_write_method(dtype):
         if length_of(dtype) == 4:
             @func
-            def write(self, coord: int3, value: dtype):
+            def write(self, coord: uint3, value: dtype):
                 _builtin_call("TEXTURE_WRITE", self, (coord), value)
             return write
         else:
@@ -142,13 +142,13 @@ class Texture3DType:
             zero = element_of(dtype)(0)
             if length_of(dtype) == 2:
                 @func
-                def write(self, coord: int3, value: dtype):
+                def write(self, coord: uint3, value: dtype):
                     tmp = _builtin_call(dtype4, opstr, value, zero, zero)
                     _builtin_call("TEXTURE_WRITE", self, (coord), tmp)
                 return write
             if length_of(dtype) == 1:
                 @func
-                def write(self, coord: int3, value: dtype):
+                def write(self, coord: uint3, value: dtype):
                     tmp = _builtin_call(dtype4, opstr, value, zero, zero, zero)
                     _builtin_call("TEXTURE_WRITE", self, (coord), tmp)
                 return write

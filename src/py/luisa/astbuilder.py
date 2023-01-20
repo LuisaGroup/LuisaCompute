@@ -3,7 +3,7 @@ import astpretty
 import inspect
 import sys
 from types import SimpleNamespace, ModuleType
-from .types import length_of, element_of, vector
+from .types import length_of, element_of, vector, uint, implicit_covertable
 from . import globalvars
 import lcapi
 from .builtin import builtin_func_names, builtin_func, builtin_bin_op, builtin_type_cast, \
@@ -308,7 +308,7 @@ class ASTVisitor:
         if type(lhs) is ast.Name:
             build.build_Name(lhs, allow_none=True)
             if getattr(lhs, "is_arg", False): # is argument
-                if lhs.dtype not in (int, float, bool): # not scalar; therefore passed by reference
+                if lhs.dtype not in (uint, int, float, bool): # not scalar; therefore passed by reference
                     raise TypeError("Assignment to non-scalar argument is not allowed. Please create a local variable.")
         else:
             build(lhs)
@@ -328,10 +328,10 @@ class ASTVisitor:
             # Note: all local variables are function scope
         else:
             # must assign with same type; no implicit casting is allowed.
-            if lhs.dtype != rhs.dtype:
+            if not implicit_covertable(lhs.dtype, rhs.dtype):
                 lhs_type = to_lctype(lhs.dtype)
                 rhs_type = to_lctype(rhs.dtype)
-                if (not (lhs_type.is_vector() or lhs_type.is_matrix())) or (lhs_type.element() != rhs_type):
+                if (not (lhs_type.is_vector() or lhs_type.is_matrix())) or not implicit_covertable(lhs_type.element(), rhs_type):
                     raise TypeError(f"Can't assign to {lhs.dtype} with {rhs.dtype} ")
             if lhs.lr == "r":
                 raise TypeError("Can't assign to read-only value")
@@ -344,7 +344,7 @@ class ASTVisitor:
             raise TypeError("invalid assign annotation")
         build(node.value)
         build.build_assign_pair(node.target, node.value)
-        if node.target.dtype != node.annotation.expr:
+        if not implicit_covertable(node.target.dtype, node.annotation.expr):
             raise TypeError(f"assign annotation is {node.annotation.expr}, got {node.target.dtype}")
 
     @staticmethod
@@ -447,7 +447,7 @@ class ASTVisitor:
             raise TypeError(f"'range' expects 1/2/3 arguments, got {en(node.iter.args)}")
         for x in node.iter.args:
             build(x)
-            assert x.dtype is int
+            assert x.dtype in {int, uint}
         if len(node.iter.args) == 1:
             range_start = lcapi.builder().literal(to_lctype(int), 0)
             range_stop = node.iter.args[0].expr

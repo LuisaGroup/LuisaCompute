@@ -10,7 +10,7 @@ from .mathtypes import *
 from .builtin import check_exact_signature
 from .types import uint
 from .struct import CustomType
-from .hit import Hit, UHit
+from .hit import Hit
 class RayQueryType:
     def __init__(self):
         self.luisa_type = lcapi.Type.custom("LC_RayQuery")
@@ -28,34 +28,14 @@ class RayQueryType:
         return _builtin_call(bool, "RAY_QUERY_IS_CANDIDATE_TRIANGLE", self)
     @func
     def procedural_candidate(self):
-        uhit = _builtin_call(UHit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)
-        hit = Hit()
-        hit.inst = _bitwise_cast(int, uhit.inst)
-        hit.prim = _bitwise_cast(int, uhit.prim)
-        hit.bary = uhit.bary
-        hit.hit_type=_bitwise_cast(int, uhit.hit_type)
-        hit.ray_t=uhit.ray_t
-        return hit
+        return _builtin_call(Hit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)
+        
     @func
     def triangle_candidate(self):
-        uhit = _builtin_call(UHit, "RAY_QUERY_TRIANGLE_CANDIDATE_HIT", self)
-        hit = Hit()
-        hit.inst = _bitwise_cast(int, uhit.inst)
-        hit.prim = _bitwise_cast(int, uhit.prim)
-        hit.bary = uhit.bary
-        hit.hit_type=_bitwise_cast(int, uhit.hit_type)
-        hit.ray_t=uhit.ray_t
-        return hit
+        return _builtin_call(Hit, "RAY_QUERY_TRIANGLE_CANDIDATE_HIT", self)
     @func
     def get_commit_hit(self):
-        uhit = _builtin_call(UHit, "RAY_QUERY_COMMITTED_HIT", self)
-        hit = Hit()
-        hit.inst = _bitwise_cast(int, uhit.inst)
-        hit.prim = _bitwise_cast(int, uhit.prim)
-        hit.bary = uhit.bary
-        hit.hit_type=_bitwise_cast(int, uhit.hit_type)
-        hit.ray_t=uhit.ray_t
-        return hit
+        return _builtin_call(Hit, "RAY_QUERY_COMMITTED_HIT", self)
     @func
     def commit_triangle(self):
         _builtin_call("RAY_QUERY_COMMIT_TRIANGLE", self)

@@ -10,7 +10,7 @@ import ast
 import lcapi
 from . import globalvars, astbuilder
 from .globalvars import get_global_device
-from luisa.types import dtype_of, to_lctype
+from .types import dtype_of, to_lctype, implicit_covertable
 from .astbuilder import VariableInfo
 from. meshformat import MeshFormat
 import textwrap
@@ -54,7 +54,7 @@ def annotation_type_check(funcname, parameters, argtypes):
         if idx >= count:
             break
         anno = parameters[name].annotation
-        if anno != inspect._empty and anno != argtypes[idx]:
+        if anno != inspect._empty and not implicit_covertable(anno, argtypes[idx]):
             hint = funcname + '(' + ', '.join([n + anno_str(parameters[n].annotation) for n in parameters]) + ')'
             raise TypeError(f"argument '{name}' expects {anno}, got {argtypes[idx]}. calling {hint}")
 

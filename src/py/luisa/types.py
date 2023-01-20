@@ -144,3 +144,15 @@ def from_lctype(lctype):
         return basic_lctype_to_dtype_dict[lctype]
     raise Exception(f"from_lctype({lctype}:{lctype.description()}): unsupported")
 
+_implicit_map = {
+    int: uint,
+    int2: uint2,
+    int3: uint3,
+    int4: uint4,
+    uint: int,
+    uint2: int2,
+    uint3: int3,
+    uint4: int4
+}
+def implicit_covertable(src, dst):
+    return (src == dst) or (_implicit_map.get(src) == dst)

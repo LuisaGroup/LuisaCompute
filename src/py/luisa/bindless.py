@@ -4,7 +4,7 @@ from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
 from . import Buffer, Texture2D, Texture3D
-from .types import BuiltinFuncBuilder, to_lctype
+from .types import BuiltinFuncBuilder, to_lctype, uint
 from .builtin import check_exact_signature
 from .func import func
 from .builtin import _builtin_call
@@ -77,46 +77,46 @@ class BindlessArray:
 
     @BuiltinFuncBuilder
     def buffer_read(*argnodes): # (dtype, buffer_index, element_index)
-        check_exact_signature([type, int, int], argnodes[1:], "buffer_read")
+        check_exact_signature([type, int, uint], argnodes[1:], "buffer_read")
         dtype = argnodes[1].expr
         expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
         return dtype, expr
 
     @func
-    def texture2d_read(self, texture2d_index: int, coord: int2):
+    def texture2d_read(self, texture2d_index: uint, coord: uint2):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_READ", self, texture2d_index, coord)
 
     @func
-    def texture2d_sample(self, texture2d_index: int, uv: float2):
+    def texture2d_sample(self, texture2d_index: uint, uv: float2):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE", self, texture2d_index, uv)
     @func
-    def texture2d_sample_mip(self, texture2d_index: int, uv: float2, mip: int):
+    def texture2d_sample_mip(self, texture2d_index: uint, uv: float2, mip: uint):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE_LEVEL", self, texture2d_index, uv, mip)
 
     @func
-    def texture2d_sample_grad(self, texture2d_index: int, uv: float2, ddx: float2, ddy: float2):
+    def texture2d_sample_grad(self, texture2d_index: uint, uv: float2, ddx: float2, ddy: float2):
         return _builtin_call(float4, "BINDLESS_TEXTURE2D_SAMPLE_GRAD", self, texture2d_index, uv, ddx, ddy)
 
     @func
-    def texture2d_size(self, texture2d_index: int):
-        return int2(_builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index))
+    def texture2d_size(self, texture2d_index: uint):
+        return _builtin_call(uint2, "BINDLESS_TEXTURE2D_SIZE", self, texture2d_index)
     @func
-    def texture3d_read(self, texture3d_index: int, coord: int3):
+    def texture3d_read(self, texture3d_index: uint, coord: uint3):
         return _builtin_call(float4, "BINDLESS_TEXTURE3D_READ", self, texture3d_index, coord)
 
     @func
-    def texture3d_sample(self, texture3d_index: int, uv: float3):
+    def texture3d_sample(self, texture3d_index: uint, uv: float3):
         return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE", self, texture3d_index, uv)
     @func
-    def texture3d_sample_mip(self, texture3d_index: int, uv: float3, mip: int):
+    def texture3d_sample_mip(self, texture3d_index: uint, uv: float3, mip: uint):
         return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE_LEVEL", self, texture3d_index, uv, mip)
 
     @func
-    def texture3d_sample_grad(self, texture3d_index: int, uv: float3, ddx: float3, ddy: float3):
+    def texture3d_sample_grad(self, texture3d_index: uint, uv: float3, ddx: float3, ddy: float3):
         return _builtin_call(float4, "BINDLESS_TEXTURE3D_SAMPLE_GRAD", self, texture3d_index, uv, ddx, ddy)
 
     @func
-    def texture3d_size(self, texture3d_index: int):
-        return int3(_builtin_call(uint3, "BINDLESS_TEXTURE3D_SIZE", self, texture3d_index))
+    def texture3d_size(self, texture3d_index: uint):
+        return _builtin_call(uint3, "BINDLESS_TEXTURE3D_SIZE", self, texture3d_index)
 
 bindless_array = BindlessArray.bindless_array

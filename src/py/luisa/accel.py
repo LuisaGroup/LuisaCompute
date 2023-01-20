@@ -7,7 +7,7 @@ from .mathtypes import *
 from .func import func
 from .types import uint, to_lctype
 from .builtin import _builtin_call, _bitwise_cast
-from .hit import Hit, UHit
+from .hit import Hit
 from .rayquery import rayQueryType, rayQuery
 # Ray
 Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
@@ -127,14 +127,7 @@ class Accel:
 
     @func
     def trace_closest(self, ray: Ray):
-        uhit = _builtin_call(UHit, "RAY_TRACING_TRACE_CLOSEST", self, ray)
-        hit = Hit()
-        hit.inst = _bitwise_cast(int, uhit.inst)
-        hit.prim = _bitwise_cast(int, uhit.prim)
-        hit.bary = uhit.bary
-        hit.hit_type=_bitwise_cast(int, uhit.hit_type)
-        hit.ray_t=uhit.ray_t
-        return hit
+        return _builtin_call(Hit, "RAY_TRACING_TRACE_CLOSEST", self, ray)
 
     @func
     def trace_any(self, ray: Ray):

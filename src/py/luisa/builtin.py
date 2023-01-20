@@ -1,7 +1,7 @@
 import lcapi
 from .mathtypes import *
 from .types import uint, to_lctype, BuiltinFuncBuilder, \
-    scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of, nameof
+    scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of, nameof, implicit_covertable, uint, uint3
 import functools
 from . import globalvars
 from types import SimpleNamespace
@@ -23,13 +23,13 @@ def upper_scalar_dtype(dtype0, dtype1):
     elif int in [dtype0, dtype1]:
         return int
     else:
-        return int  # TODO: 怎么表示一个 uint？
+        return uint
 
 
 def deduce_broadcast(dtype0, dtype1):
-    if dtype0 in [float, int, int, bool]:  # TODO: 在 dtype 里添加 uint 的表示
+    if dtype0 in [float, int, uint, bool]:
         return dtype1  # Broadcast
-    elif dtype1 in [float, int, int, bool]:
+    elif dtype1 in [float, int, uint, bool]:
         return dtype0  # Broadcast
     else:
         return dtype1  # same size || Matrix * Vector -> Vector
@@ -217,7 +217,7 @@ def check_exact_signature(signature, args, name):
     if len(signature) != len(args):
         raise TypeError(f"{name} takes exactly {len(signature)} arguments ({signature_repr}), {len(args)} given.")
     for idx in range(len(args)):
-        if signature[idx] != args[idx].dtype:
+        if not implicit_covertable(signature[idx], args[idx].dtype):
             raise TypeError(f"{name} expects ({signature_repr}). Calling with ({giventype_repr})")
 
 
@@ -241,10 +241,10 @@ def builtin_type_cast(dtype, *args):
             return dtype, lcapi.builder().local(to_lctype(dtype))
     # type cast of basic types
     # TODO may need temporary variable?
-    if dtype in {int, float, bool}:
+    if dtype in {int, float, bool, uint}:
         if len(args) != 1:
             raise TypeError(f"Can't convert multiple values to {dtype.__name__}")
-        if args[0].dtype not in {int, float, bool}:
+        if args[0].dtype not in {int, float, bool, uint}:
             raise TypeError(f"Can't convert {args[0].dtype} to {dtype.__name__}")
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
     if dtype in vector_dtypes or dtype in matrix_dtypes:
@@ -257,7 +257,7 @@ def builtin_type_cast(dtype, *args):
 
 def make_vector_call(dtype, op, args):
     # type check: must be corresponding scalar or vector of same element type
-    assert dtype in {int, float, bool}
+    assert dtype in {int, float, uint, bool}
     dim = 1
     for arg in args:
         if not (arg.dtype == dtype or arg.dtype in vector_dtypes and element_of(arg.dtype) == dtype):
@@ -286,7 +286,7 @@ def discard():
 def _bitwise_cast(*args):
     assert len(args)==2 and args[0].dtype == type
     dtype = args[0].expr
-    assert dtype in (int, float)
+    assert dtype in (int, float, uint)
     op = lcapi.CastOp.BITWISE
     # create temporary variable
     if args[1].lr == 'r':
@@ -346,7 +346,7 @@ def builtin_func(name, *args, **kwargs):
             assert len(args) == 0
             # NOTE: cast to signed int by default
             expr = getattr(lcapi.builder(), func)()
-            dtype = int3
+            dtype = uint3
             expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
             tmp = lcapi.builder().local(to_lctype(dtype))
             lcapi.builder().assign(tmp, expr1)
@@ -357,7 +357,7 @@ def builtin_func(name, *args, **kwargs):
             assert len(args) == 0
             # NOTE: cast to signed int by default
             expr = getattr(lcapi.builder(), func)()
-            dtype = int
+            dtype = uint
             tmp = lcapi.builder().local(to_lctype(dtype))
             lcapi.builder().assign(tmp, expr)
             return dtype, tmp
@@ -384,13 +384,13 @@ def builtin_func(name, *args, **kwargs):
             #         raise TypeError(f"Can't make {T}{N}x{N} from {x.dtype} (must be of same element type)")
             try:
                 if len(args) == 1:
-                    assert args[0].dtype in {float, int, float2x2, float3x3, float4x4}
+                    assert args[0].dtype in {float, int, uint, float2x2, float3x3, float4x4}
                 elif len(args) == N:
                     for arg in args:
                         assert arg.dtype == vector(float,N)
                 elif len(args) == N*N:
                     for arg in args:
-                        assert arg.dtype in {float, int}
+                        assert arg.dtype in {float, int, uint}
             except AssertionError:
                 raise TypeError(f"Can't make {T}{N}x{N} from {[x.dtype for x in args]}")
             op = getattr(lcapi.CallOp, name.upper())
@@ -497,7 +497,7 @@ def builtin_func(name, *args, **kwargs):
     if name == 'saturate':
         assert len(args) == 1
         e = element_of(args[0].dtype)
-        assert e in {int, float}
+        assert e in {int, float, uint}
         op = getattr(lcapi.CallOp, name.upper())
         return make_vector_call(e, op, args)
 
@@ -506,7 +506,7 @@ def builtin_func(name, *args, **kwargs):
         assert len(args) == 3
         e = element_of(args[0].dtype)
         if name == 'clamp':
-            assert e in {int, float}
+            assert e in {int, float, uint}
         else:
             assert e == float
         return make_vector_call(e, op, args)
@@ -516,7 +516,7 @@ def builtin_func(name, *args, **kwargs):
         assert len(args) == 2
         assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes, \
                "invalid parameter"
-        if args[0].dtype in {int, float}:
+        if args[0].dtype in {int, float, uint}:
             # step(scalar, scalar) -> float
             dtype = float
         else:

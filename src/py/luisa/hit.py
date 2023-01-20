@@ -6,8 +6,7 @@ from .mathtypes import *
 
 # Hit
 # hit_type: 0: miss, 1: triangle, 2: procedural primitive
-Hit = StructType(inst=int, prim=int, bary=float2, hit_type=int, ray_t=float)
-UHit = StructType(inst=uint, prim=uint, bary=float2, hit_type=uint, ray_t=float)
+Hit = StructType(inst=uint, prim=uint, bary=float2, hit_type=uint, ray_t=float)
 
 @func
 def miss(self):
