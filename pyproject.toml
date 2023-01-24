@@ -1,10 +1,16 @@
 [build-system]
-requires = ["pybind11", "scikit-build-core"]
+requires = [
+    "pybind11",
+    "scikit-build-core",
+    "distlib",
+    "pyproject-metadata",
+    "pathspec"
+]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "luisa"
-version = "0.1.4"
+version = "0.1.5"
 description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
 readme = "README_Python_en.md"
 authors = [
@@ -22,6 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
+    "pybind11",
     "dearpygui",
     "sourceinspect",
     "numpy",
