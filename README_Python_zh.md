@@ -3,45 +3,24 @@ Luisa 是一个嵌入Python的领域专用语言（DSL），面向高性能图�
 
 **本项目尚在开发中，如遇问题或功能建议请[提交issue](https://github.com/LuisaGroup/LuisaCompute/issues)。**
 
-## 编译与运行
+## 安装
 
+LuisaCompute支持使用`pip`安装Python包。您可以使用以下命令安装克隆至本地的仓库：
 ```bash
-cmake -S . -B build_release -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_PYTHON=ON
-cmake --build build_release -j
+cd <repository-folder>
+python -m pip install .
+```
+或者，您可以使用以下命令从Git仓库直接下载、编译和安装最新版本：
+```bash
+python -m pip install git+https://github.com/LuisaGroup/LuisaCompute.git
 ```
 
-此编译命令会在`build_release`下生成可被python引入的luisa库。
-
-用户可以修改 `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|DX|METAL}` 为 `ON|OFF` 来开启或关闭不同后端的 feature，但想得到 Python 库
-则必须将 `LUISA_COMPUTE_ENABLE_PYTHON` 设置为 `ON`。
-
-> 如果在开启 `CUDA` 后端后编译，你可能会遇到以下报错：
-> 
-> ```
-> CMake Error at src/backends/cuda/CMakeLists.txt:15 (message):
-> OptiX_DIR is not defined and OptiX headers are not copied to
-> '[Project Directory]/src/backends/cuda/optix'
-> ```
->
-> 你既可以手动将 Optix 头文件拷贝到上述目录下，也可以在 CMake 中手动指定 OptiX 的路径。
-
-运行测试脚本：
-
+Luisa将被安装至系统或用户的Python包目录下，您可以使用以下命令验证安装是否成功：
 ```bash
-cd build_release/bin
-python3 test.py
-```
+python -c "import luisa"
+````
 
-你将在该目录下看到 `mandelbrot.png`。
-
-目前我们还没有提供 `.whl` 包，因此也无法通过 PyPI 分发 luisa。想要使用 luisa，最好的办法是设置 `PYTHONPATH` 环境变量。
-例如，在 UNIX 系统下你可以运行
-
-```bash
-source set_python_path.sh build_release
-```
-
-来将 `luisa` 所在目录添加到当前 shell 的 `PYTHONPATH` 中。
+[此处](https://github.com/LuisaGroup/python-examples)可以找到示例程序。
 
 ## 语言用例
 

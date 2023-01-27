@@ -7,47 +7,25 @@ including CUDA, DirectX, Metal, and LLVM.
 
 **This project is still under development. Please [submit an issue](https://github.com/LuisaGroup/LuisaCompute/issues) if you have any problems or suggestions.**
 
-## Compile and Run
+## Installation
 
+LuisaCompute supports installation via `pip`. You could either use the locally cloned repository by running
 ```bash
-cmake -S . -B build_release -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_PYTHON=ON
-cmake --build build_release -j
+cd <repository-folder>
+python -m pip install .
+```
+Or, use `pip` and `git` together to freshly fetch, compile, and install the latest package:
+```bash
+python -m pip install git+https://github.com/LuisaGroup/LuisaCompute.git
 ```
 
-This will produce `luisa` library for Python to include under directory `build_release`.
-
-Note that you may switch `LUISA_COMPUTE_ENABLE_{CUDA|LLVM|DX|METAL}` to `ON|OFF` for
-different backends, But in order to produce a Python library, `LUISA_COMPUTE_ENABLE_PYTHON` must
-be turned `ON`.
-
-> If you build with `LUISA_COMPUTE_ENABLE_CUDA` on, you may face the following error:
-> 
-> ```
-> CMake Error at src/backends/cuda/CMakeLists.txt:15 (message):
-> OptiX_DIR is not defined and OptiX headers are not copied to
-> '[Project Directory]/src/backends/cuda/optix'
-> ```
-> 
-> In that case you may either specify the OptiX install directory, or
-> manully copy OptiX headers to the given directory.
-
-You can find the artifact at `build_release/bin/lcapi.cpython-<python version>-<platform triple>.so`. 
-
+The package will be directly installed as a Python site-package. Use
 ```bash
-cd build_release/bin
-python3 test.py
-```
+python -c "import luisa"
+````
+to verify the installation. Sample programs can be found [here](https://github.com/LuisaGroup/python-examples).
 
-This will run the test script and output `mandelbrot.png`.
-
-Currently, we are not yet ready to provide `.whl` packages, so the best approach to use compiled `luisa`
-library is to set `PYTHONPATH` environment variable. For example, you may run
-
-```bash
-source set_python_path.sh build_release
-```
-
-to add `luisa` to `PYTHONPATH` for your current shell.
+Please file an issue if you have any problem.
 
 ## Quick Example
 
