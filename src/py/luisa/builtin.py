@@ -108,12 +108,12 @@ def builtin_bin_op(op, lhs, rhs):
     length0, length1 = length_of(dtype0), length_of(dtype1)
     lhs_expr, rhs_expr = lhs.expr, rhs.expr
     if op != ast.Mult:
-        assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)), \
+        assert implicit_covertable(dtype0, dtype1) or \
+               (length0 == 1 or length1 == 1 and implicit_covertable(element_of(dtype0), element_of(dtype1))), \
             f'Binary operation between ({dtype0} and {dtype1}) is not supported'
     else:
-        assert (dtype0 == dtype1) or \
-               (length0 == 1 or length1 == 1 and element_of(dtype0) == element_of(dtype1)) or \
+        assert implicit_covertable(dtype0, dtype1) or \
+               (length0 == 1 or length1 == 1 and implicit_covertable(element_of(dtype0), element_of(dtype1))) or \
                (dtype0 == float2x2 and dtype1 == float2) or \
                (dtype0 == float3x3 and dtype1 == float3) or \
                (dtype0 == float4x4 and dtype1 == float4), \
@@ -131,7 +131,7 @@ def builtin_bin_op(op, lhs, rhs):
                 f'operator `{op}` only supports `int` and `uint` types.'
             dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
-            assert element_of(rhs.dtype) == inner_type_0, \
+            assert implicit_covertable(element_of(rhs.dtype), inner_type_0), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
@@ -154,7 +154,7 @@ def builtin_bin_op(op, lhs, rhs):
         else:
             # forbid implicit type conversion
             # so check rhs's type, ensure it is the same with lhs
-            assert element_of(rhs.dtype) == inner_type_0, \
+            assert implicit_covertable(element_of(rhs.dtype), inner_type_0), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
@@ -260,7 +260,7 @@ def make_vector_call(dtype, op, args):
     assert dtype in {int, float, uint, bool}
     dim = 1
     for arg in args:
-        if not (arg.dtype == dtype or arg.dtype in vector_dtypes and element_of(arg.dtype) == dtype):
+        if not (implicit_covertable(arg.dtype, dtype) or arg.dtype in vector_dtypes and implicit_covertable(element_of(arg.dtype) , dtype)):
             print(arg.dtype, dtype)
             raise TypeError("arguments must be float or float vector")
         if arg.dtype in vector_dtypes:
@@ -272,7 +272,7 @@ def make_vector_call(dtype, op, args):
     convtype = vector(dtype,dim)
     exprlist = []
     for arg in args:
-        if arg.dtype == convtype:
+        if implicit_covertable(arg.dtype, convtype):
             exprlist.append(arg.expr)
         else:
             dtype1, expr1 = builtin_type_cast(convtype, arg)
@@ -472,7 +472,7 @@ def builtin_func(name, *args, **kwargs):
     if name in ('select'):
         assert len(args) == 3
         assert args[2].dtype in [bool, bool2, bool3, bool4]
-        assert args[0].dtype == args[1].dtype
+        assert implicit_covertable(args[0].dtype, args[1].dtype)
         assert args[2].dtype == bool or args[0].dtype in scalar_dtypes or \
             args[0].dtype in vector_dtypes and length_of(args[0].dtype) == length_of(args[2].dtype)
         return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
@@ -514,7 +514,7 @@ def builtin_func(name, *args, **kwargs):
     if name == 'step':
         op = lcapi.CallOp.STEP
         assert len(args) == 2
-        assert args[0].dtype == args[1].dtype and args[0].dtype in arithmetic_dtypes, \
+        assert implicit_covertable(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
                "invalid parameter"
         if args[0].dtype in {int, float, uint}:
             # step(scalar, scalar) -> float
