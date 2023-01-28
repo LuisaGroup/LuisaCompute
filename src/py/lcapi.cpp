@@ -81,6 +81,7 @@ PYBIND11_DECLARE_HOLDER_TYPE(T, raw_ptr<T>, true)
 PYBIND11_DECLARE_HOLDER_TYPE(T, luisa::shared_ptr<T>)
 static vstd::vector<std::shared_future<void>> futures;
 static vstd::optional<ThreadPool> thread_pool;
+static std::filesystem::path output_path;
 static size_t device_count = 0;
 class ManagedDevice {
 public:
@@ -133,6 +134,13 @@ PYBIND11_MODULE(lcapi, m) {
         .def("create_device", [](Context &self, luisa::string_view backend_name) {
             return ManagedDevice(self.create_device(backend_name));
         })// TODO: support properties
+        .def("set_shader_path", [](Context &self, std::string const &str) {
+            std::filesystem::path p{str};
+            auto cp = std::filesystem::canonical(p);
+            if (!std::filesystem::is_directory(cp))
+                cp = std::filesystem::canonical(cp.parent_path());
+            output_path = std::move(cp);
+        })
         .def("create_headless_device", [](Context &self, luisa::string_view backend_name) {
             DeviceConfig settings{
                 .headless = true};
@@ -200,12 +208,30 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<DeviceInterface, eastl::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
         .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) { return self.create_shader(kernel, str); })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
-            self.save_shader(kernel, str);
+            luisa::string_view str_view;
+            luisa::string dst_path_str;
+            if (!output_path.empty()) {
+                auto dst_path = output_path / std::filesystem::path{str};
+                dst_path_str = to_string(dst_path);
+                str_view = dst_path_str;
+            } else {
+                str_view = str;
+            }
+            self.save_shader(kernel, str_view);
         })
         .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
             thread_pool.New();
             futures.emplace_back(thread_pool->async([str = luisa::string{str}, builder, &self]() {
-                self.save_shader(builder->function(), str);
+                luisa::string_view str_view;
+                luisa::string dst_path_str;
+                if (!output_path.empty()) {
+                    auto dst_path = output_path / std::filesystem::path{str};
+                    dst_path_str = to_string(dst_path);
+                    str_view = dst_path_str;
+                } else {
+                    str_view = str;
+                }
+                self.save_shader(builder->function(), str_view);
             }));
         })
         /*
@@ -258,12 +284,30 @@ PYBIND11_MODULE(lcapi, m) {
             return 0;
         })
         .def("save_raster_shader", [](DeviceInterface &self, ManagedMeshFormat const &fmt, Function vertex, Function pixel, luisa::string_view str) {
-            self.save_raster_shader(fmt.format, vertex, pixel, str);
+            luisa::string_view str_view;
+            luisa::string dst_path_str;
+            if (!output_path.empty()) {
+                auto dst_path = output_path / std::filesystem::path{str};
+                dst_path_str = to_string(dst_path);
+                str_view = dst_path_str;
+            } else {
+                str_view = str;
+            }
+            self.save_raster_shader(fmt.format, vertex, pixel, str_view);
         })
         .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, eastl::shared_ptr<FunctionBuilder> const &vertex, eastl::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.New();
             futures.emplace_back(thread_pool->async([fmt, str = luisa::string{str}, vertex, pixel, &self]() {
-                self.save_raster_shader(fmt.format, vertex->function(), pixel->function(), str);
+                luisa::string_view str_view;
+                luisa::string dst_path_str;
+                if (!output_path.empty()) {
+                    auto dst_path = output_path / std::filesystem::path{str};
+                    dst_path_str = to_string(dst_path);
+                    str_view = dst_path_str;
+                } else {
+                    str_view = str;
+                }
+                self.save_raster_shader(fmt.format, vertex->function(), pixel->function(), str_view);
             }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
