@@ -204,7 +204,7 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
             new DescriptorHeap(
                 this,
                 D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                262144,
+                524288,
                 true));
         samplerHeap = vstd::create_unique(
             new DescriptorHeap(
