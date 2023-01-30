@@ -105,6 +105,8 @@ private:
     }
 
 public:
+    BufferView() noexcept : BufferView(Resource::invalid_handle, 0, 0, 0) {}
+    [[nodiscard]] explicit operator bool() const noexcept { return _handle != Resource::invalid_handle; }
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
