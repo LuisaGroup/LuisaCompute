@@ -23,15 +23,15 @@ private:
     mutable F _ctor;
 
 public:
-    explicit LazyConstructor(F _ctor) noexcept : _ctor{_ctor} {}
+    explicit LazyConstructor(F&& ctor) noexcept : _ctor{std::forward<F>(ctor)} {}
     [[nodiscard]] operator auto() const noexcept { return _ctor(); }
 };
 
 }// namespace detail
 
 template<typename F>
-[[nodiscard]] inline auto lazy_construct(F ctor) noexcept {
-    return detail::LazyConstructor<F>(ctor);
+[[nodiscard]] inline auto lazy_construct(F&& ctor) noexcept {
+    return detail::LazyConstructor<F>(std::forward<F>(ctor));
 }
 
 using eastl::make_finally;

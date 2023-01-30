@@ -354,18 +354,19 @@ public:
             return std::move((*ii)->data);
         }
     };
-    struct Index {
+
+public:
+    struct IndexBase {
         friend class HashMap;
 
     private:
         const HashMap *map;
         LinkNode *node;
-        Index(const HashMap *map, LinkNode *node) noexcept : map(map), node(node) {}
-        using ValueType = typename IfType<void, std::add_lvalue_reference_t<V>, std::is_same_v<V, void>>::Type;
+        IndexBase(const HashMap *map, LinkNode *node) noexcept : map(map), node(node) {}
 
     public:
-        Index() : map(nullptr), node(nullptr) {}
-        bool operator==(const Index &a) const noexcept {
+        IndexBase() : map(nullptr), node(nullptr) {}
+        bool operator==(const IndexBase &a) const noexcept {
             return node == a.node;
         }
         operator bool() const noexcept {
@@ -374,12 +375,53 @@ public:
         bool operator!() const noexcept {
             return !operator bool();
         }
-        bool operator!=(const Index &a) const noexcept {
+        bool operator!=(const IndexBase &a) const noexcept {
             return !operator==(a);
         }
-        inline K const &Key() const noexcept;
-        inline ValueType Value() const noexcept;
     };
+
+    static consteval decltype(auto) IndexType() {
+        if constexpr (std::is_same_v<V, void>) {
+            struct IndexKey : public IndexBase {
+                friend class HashMap;
+
+            private:
+                IndexKey(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
+
+            public:
+                IndexKey() {}
+                K const &Get() const noexcept {
+                    return this->node->data.first;
+                }
+                K const *operator->() const noexcept {
+                    return &this->node->data.first;
+                }
+                K &operator*() const noexcept {
+                    return this->node->data.first;
+                }
+            };
+            return TypeOf<IndexKey>{};
+        } else {
+            struct IndexKeyValue : public IndexBase {
+                friend class HashMap;
+
+            private:
+                IndexKeyValue(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
+
+            public:
+                IndexKeyValue() {}
+                K const &Key() const noexcept {
+                    return this->node->data.first;
+                }
+                inline V &Value() const noexcept {
+                    return this->node->data.second;
+                }
+            };
+            return TypeOf<IndexKeyValue>{};
+        }
+    }
+
+    using Index = typename decltype(IndexType())::Type;
     Index GetIndex(Iterator const &ite) {
         return Index(this, *ite.ii);
     }
@@ -608,15 +650,4 @@ public:
     [[nodiscard]] size_t size() const noexcept { return mSize; }
     [[nodiscard]] size_t GetCapacity() const noexcept { return mCapacity; }
 };
-
-template<typename K, typename V, typename Hash, typename Equal, VEngine_AllocType allocType>
-inline K const &HashMap<K, V, Hash, Equal, allocType>::Index::Key() const noexcept {
-    return node->data.first;
-}
-template<typename K, typename V, typename Hash, typename Equal, VEngine_AllocType allocType>
-inline typename HashMap<K, V, Hash, Equal, allocType>::Index::ValueType HashMap<K, V, Hash, Equal, allocType>::Index::Value() const noexcept {
-    if constexpr (!std::is_same_v<V, void>) {
-        return node->data.second;
-    }
-}
 }// namespace vstd
