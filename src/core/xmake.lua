@@ -1,6 +1,7 @@
 _config_project({
     project_name = "lc-core",
-    project_kind = "shared"
+    project_kind = "shared",
+    batch_size = 8
 })
 local add_includedirs = _get_add_includedirs()
 local add_defines = _get_add_defines()
