@@ -387,6 +387,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint sx, uint sy, uint sz) { self.set_block_size(uint3(sx, sy, sz)); })
         .def("try_eval_int", [](FunctionBuilder &self, Expression const *expr) {
+            auto eval = analyzer.back().try_eval(expr);
             return visit(
                 [&]<typename T>(T const &t) -> IntEval {
                     if constexpr (std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t>) {
@@ -397,7 +398,7 @@ PYBIND11_MODULE(lcapi, m) {
                         return {.value = 0, .exist = false};
                     }
                 },
-                analyzer.back().try_eval(expr));
+                eval);
         })
 
         .def("thread_id", &FunctionBuilder::thread_id, pyref)
@@ -487,10 +488,12 @@ PYBIND11_MODULE(lcapi, m) {
             pyref)
 
         .def("if_", &FunctionBuilder::if_, pyref)
+        .def("switch_", &FunctionBuilder::switch_, pyref)
+        .def("case_", &FunctionBuilder::case_, pyref)
         .def("loop_", &FunctionBuilder::loop_, pyref)
         // .def("switch_")
         // .def("case_")
-        // .def("default_")
+        .def("default_", &FunctionBuilder::default_, pyref)
         .def(
             "for_", [](FunctionBuilder &self, const Expression *var, const Expression *condition, const Expression *update) {
                 auto ptr = self.for_(var, condition, update);
@@ -513,6 +516,12 @@ PYBIND11_MODULE(lcapi, m) {
     });
     m.def("end_branch", []() {
         analyzer.back().end_branch_scope();
+    });
+    m.def("begin_switch", [](SwitchStmt const* stmt){
+        analyzer.back().begin_switch(stmt);
+    });
+    m.def("end_switch", [](){
+        analyzer.back().end_switch();
     });
     m.def("analyze_condition", [](Expression const *expr) -> int32_t {
         auto result = analyzer.back().try_eval(expr);
@@ -547,6 +556,12 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<IfStmt>(m, "IfStmt")
         .def("true_branch", py::overload_cast<>(&IfStmt::true_branch), pyref)// using overload_cast because there's also a const method variant
         .def("false_branch", py::overload_cast<>(&IfStmt::false_branch), pyref);
+    py::class_<SwitchStmt>(m, "SwitchStmt")
+        .def("body", py::overload_cast<>(&SwitchStmt::body), pyref);
+    py::class_<SwitchCaseStmt>(m, "SwitchCaseStmt")
+        .def("body", py::overload_cast<>(&SwitchCaseStmt::body), pyref);
+    py::class_<SwitchDefaultStmt>(m, "SwitchDefaultStmt")
+        .def("body", py::overload_cast<>(&SwitchDefaultStmt::body), pyref);
     py::class_<LoopStmt>(m, "LoopStmt")
         .def("body", py::overload_cast<>(&LoopStmt::body), pyref);
     py::class_<ForStmt>(m, "ForStmt")

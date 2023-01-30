@@ -414,16 +414,64 @@ class ASTVisitor:
             for x in node.orelse:
                 build(x)
         else:
-            lcapi.begin_branch(False)
             ifstmt = lcapi.builder().if_(node.test.expr)
             # branches
             with ifstmt.true_branch():
+                lcapi.begin_branch(False)
                 for x in node.body:
                     build(x)
+                lcapi.end_branch()
             with ifstmt.false_branch():
+                lcapi.begin_branch(False)
                 for x in node.orelse:
                     build(x)
-            lcapi.end_branch()
+                lcapi.end_branch()
+    @staticmethod
+    def build_Match(node):
+        # condition
+        build(node.subject)
+        if node.subject.dtype != int and node.subject.dtype != uint:
+            raise TypeError(f"Match condition must be int or uint, got {node.subject.dtype}")
+        eval_value = lcapi.builder().try_eval_int(node.subject.expr)
+        if eval_value.exist():
+            matched = False
+            default_value = None
+            for c in node.cases:
+                if type(c.pattern) == ast.MatchValue:
+                    # constant switch
+                    if eval_value.value() == c.pattern.value.value:
+                        matched = True
+                        for x in c.body:
+                            build(x)
+                        break
+                else:
+                    default_value = c
+            if not matched and default_value != None:
+                for x in default_value.body:
+                    build(x)
+            return
+        switch_stmt = lcapi.builder().switch_(node.subject.expr)
+        with switch_stmt.body():
+            for c in node.cases:
+                if type(c.pattern) == ast.MatchValue:
+                    if type(c.pattern.value.value) != int:
+                        raise TypeError(f"Match case condition must be int or uint, got {type(c.pattern.value.value)}")
+                    build(c.pattern.value)
+                    case_stmt = lcapi.builder().case_(c.pattern.value.expr)
+                    lcapi.begin_branch(False)
+                    with case_stmt.body():
+                        for x in c.body:
+                            build(x)
+                        lcapi.builder().break_()
+                    lcapi.end_branch()
+                else:
+                    default_stmt = lcapi.builder().default_()
+                    lcapi.begin_branch(False)
+                    with default_stmt.body():
+                        for x in c.body:
+                            build(x)
+                        lcapi.builder().break_()
+                    lcapi.end_branch()
 
     @staticmethod
     def build_IfExp(node):
