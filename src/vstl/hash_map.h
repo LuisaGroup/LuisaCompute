@@ -25,8 +25,8 @@ class SmallTreeMap {
     inline static const Compare comp;
 
 public:
-    using Element = TreeElement<K, V>;
-    using ConstElement = ConstTreeElement<K, V>;
+    using Element = typename decltype(TreeElementType<K, V>())::Type;
+    using ConstElement = typename decltype(ConstTreeElementType<K, V>())::Type;
     struct Node {
         size_t arrayIndex;
         size_t hashValue;

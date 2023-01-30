@@ -229,7 +229,6 @@ public:
     }
 };
 }// namespace detail
-
 template<typename K, typename V>
 struct TreeElement {
     K first;
@@ -250,20 +249,20 @@ struct ConstTreeElement {
           second(std::forward<B>(b)...) {
     }
 };
-template<typename K>
-struct TreeElement<K, void> {
-    K first;
-    template<typename A>
-    TreeElement(A &&a)
-        : first(std::forward<A>(a)) {
+template<typename K, typename V>
+static consteval decltype(auto) TreeElementType() {
+    if constexpr (std::is_same_v<V, void>) {
+        return TypeOf<K>{};
+    } else {
+        return TypeOf<TreeElement<K, V>>{};
     }
 };
-template<typename K>
-struct ConstTreeElement<K, void> {
-    const K first;
-    template<typename A>
-    ConstTreeElement(A &&a)
-        : first(std::forward<A>(a)) {
+template<typename K, typename V>
+static consteval decltype(auto) ConstTreeElementType() {
+    if constexpr (std::is_same_v<V, void>) {
+        return TypeOf<K>{};
+    } else {
+        return TypeOf<ConstTreeElement<K, V>>{};
     }
 };
 }// namespace vstd
