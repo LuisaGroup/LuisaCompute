@@ -136,7 +136,6 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
             UINT DeviceId;
             UINT SubSysId;
             UINT Revision;
-            LUID AdapterLuid;
         };
         AdapterInfo info;
         memcpy(info.Description, desc.Description, sizeof(WCHAR) * 128);
@@ -144,7 +143,6 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
         info.DeviceId = desc.DeviceId;
         info.SubSysId = desc.SubSysId;
         info.Revision = desc.Revision;
-        info.AdapterLuid = desc.AdapterLuid;
         return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
     };
     if (useRuntime) {

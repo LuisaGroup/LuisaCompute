@@ -1546,7 +1546,7 @@ template<typename T>
 template<typename T>
     requires is_dsl_v<T> && is_float_vector_expr_v<T>
 [[nodiscard]] inline auto reflect(T &&i, T &&n) noexcept {
-    return detail::make_vector_call<float>(CallOp::REFLECT, std::forward<T>(x), std::forward<T>(y));
+    return detail::make_vector_call<float>(CallOp::REFLECT, std::forward<T>(i), std::forward<T>(n));
 }
 
 /// Return face forward vector.

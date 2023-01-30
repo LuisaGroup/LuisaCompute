@@ -15,44 +15,44 @@ namespace luisa {
 
 #ifdef LUISA_COMPUTE_USE_BTREE_MAP
 template<typename Key,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<Key>>
 using set = phmap::btree_set<
-    Key, Compare, luisa::allocator<Key>>;
+    Key, Compare, allocator>;
 
 template<typename Key, typename Value,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<std::pair<const Key, Value>>>
 using map = phmap::btree_map<
-    Key, Value, Compare, luisa::allocator<std::pair<const Key, Value>>>;
+    Key, Value, Compare, allocator>;
 
 template<typename Key,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<Key>>
 using multiset = phmap::btree_multiset<
-    Key, Compare, luisa::allocator<Key>>;
+    Key, Compare, allocator>;
 
 template<typename Key, typename Value,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<std::pair<const Key, Value>>>
 using multimap = phmap::btree_multimap<
-    Key, Value, Compare, luisa::allocator<std::pair<const Key, Value>>>;
+    Key, Value, Compare, allocator>;
 #else
 template<typename Key,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<Key>>
 using set = std::set<
-    Key, Compare, luisa::allocator<Key>>;
+    Key, Compare, allocator>;
 
 template<typename Key, typename Value,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<std::pair<const Key, Value>>>
 using map = std::map<
-    Key, Value, Compare, luisa::allocator<std::pair<const Key, Value>>>;
+    Key, Value, Compare, allocator>;
 
 template<typename Key,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<Key>>
 using multiset = std::multiset<
-    Key, Compare, luisa::allocator<Key>>;
+    Key, Compare, allocator>;
 
 template<typename Key, typename Value,
-         typename Compare = std::less<>>
+         typename Compare = std::less<>, typename allocator = luisa::allocator<std::pair<const Key, Value>>>
 using multimap = std::multimap<
-    Key, Value, Compare, luisa::allocator<std::pair<const Key, Value>>>;
+    Key, Value, Compare, allocator>;
 #endif
 
 }// namespace luisa
