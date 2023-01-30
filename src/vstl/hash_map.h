@@ -27,6 +27,13 @@ class SmallTreeMap {
 public:
     using Element = typename decltype(TreeElementType<K, V>())::Type;
     using ConstElement = typename decltype(ConstTreeElementType<K, V>())::Type;
+    static decltype(auto) GetFirst(auto &&ele) {
+        if constexpr (std::is_same_v<V, void>) {
+            return ele;
+        } else {
+            return ele.first;
+        }
+    }
     struct Node {
         size_t arrayIndex;
         size_t hashValue;
@@ -51,7 +58,7 @@ private:
     Node *searchTreeHelper(Node *node, Key const &key) const {
         if (node == nullptr)
             return nullptr;
-        auto compResult = comp(node->data.first, key);
+        auto compResult = comp(GetFirst(node->data), key);
         static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
         if (compResult == 0) {
             return node;
@@ -68,7 +75,7 @@ private:
         if (node == nullptr) {
             return {lastNode, lastFlag};
         }
-        auto compResult = comp(node->data.first, key);
+        auto compResult = comp(GetFirst(node->data), key);
         static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
         if (compResult == 0) {
             return {node, 0};
@@ -90,7 +97,7 @@ private:
         // find the node containing key
         Node *z = nullptr;
         while (node != nullptr) {
-            auto compResult = comp(node->data.first, key);
+            auto compResult = comp(GetFirst(node->data), key);
             static_assert(std::is_same_v<decltype(compResult), int32_t>, "compare result must be int32");
             if (compResult == 0) {
                 z = node;
@@ -140,7 +147,7 @@ public:
         int compResult;
         while (x != nullptr) {
             y = x;
-            auto mCompResult = comp(x->data.first, key);
+            auto mCompResult = comp(GetFirst(x->data), key);
             static_assert(std::is_same_v<decltype(mCompResult), int32_t>, "compare result must be int32");
             compResult = mCompResult;
             if (compResult > 0) {
@@ -189,7 +196,7 @@ public:
         int compResult;
         while (x != nullptr) {
             y = x;
-            auto mCompResult = comp(x->data.first, key);
+            auto mCompResult = comp(GetFirst(x->data), key);
             static_assert(std::is_same_v<decltype(mCompResult), int32_t>, "compare result must be int32");
             compResult = mCompResult;
             if (compResult > 0) {
@@ -246,7 +253,7 @@ public:
         int compResult;
         while (x != nullptr) {
             y = x;
-            auto mCompResult = comp(x->data.first, node->data.first);
+            auto mCompResult = comp(GetFirst(x->data), GetFirst(node->data));
             static_assert(std::is_same_v<decltype(mCompResult), int32_t>, "compare result must be int32");
             compResult = mCompResult;
             if (compResult > 0) {
@@ -391,13 +398,13 @@ public:
             public:
                 IndexKey() {}
                 K const &Get() const noexcept {
-                    return this->node->data.first;
+                    return Map::GetFirst(this->node->data);
                 }
                 K const *operator->() const noexcept {
-                    return &this->node->data.first;
+                    return &Map::GetFirst(this->node->data);
                 }
                 K &operator*() const noexcept {
-                    return this->node->data.first;
+                    return Map::GetFirst(this->node->data);
                 }
             };
             return TypeOf<IndexKey>{};
@@ -411,7 +418,7 @@ public:
             public:
                 IndexKeyValue() {}
                 K const &Key() const noexcept {
-                    return this->node->data.first;
+                    return Map::GetFirst(this->node->data);
                 }
                 inline V &Value() const noexcept {
                     return this->node->data.second;
