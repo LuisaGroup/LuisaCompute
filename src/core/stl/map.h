@@ -2,7 +2,6 @@
 
 #define LUISA_COMPUTE_USE_BTREE_MAP
 #ifdef LUISA_COMPUTE_USE_BTREE_MAP
-#include <parallel_hashmap/phmap.h>
 #include <parallel_hashmap/btree.h>
 #else
 #include <map>
