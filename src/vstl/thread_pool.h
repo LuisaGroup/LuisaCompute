@@ -87,6 +87,7 @@ struct LC_VSTL_API WorkerThread {
     WorkerThread(ThreadPool *tp);
 };
 }// namespace tpool_detail
+using ThreadEvent = tpool_detail::Event;
 class LC_VSTL_API ThreadPool : public IOperatorNewBase {
     friend class ThreadBarrier;
     friend class DeferredThreadBarrier;
@@ -95,9 +96,8 @@ class LC_VSTL_API ThreadPool : public IOperatorNewBase {
     friend class tpool_detail::Node;
 
 public:
-    using Event = tpool_detail::Event;
     using Node = tpool_detail::Node;
-    static Event CurrentEvent();
+    static ThreadEvent CurrentEvent();
 
 private:
     tpool_detail::WorkerThread *threads;
@@ -133,17 +133,16 @@ class LC_VSTL_API ThreadBarrier : public IOperatorNewBase {
 
 public:
     ThreadPool *pool;
-    using Event = ThreadPool::Event;
     void Wait();
-    Event Execute(function<void()> &&func);
-    Event Execute(function<void()> &&func, span<Event const> depend);
-    Event Execute(function<void()> &&func, std::initializer_list<Event> depend) {
-        return Execute(std::move(func), span<Event const>(depend.begin(), depend.end()));
+    ThreadEvent Execute(function<void()> &&func);
+    ThreadEvent Execute(function<void()> &&func, span<ThreadEvent const> depend);
+    ThreadEvent Execute(function<void()> &&func, std::initializer_list<ThreadEvent> depend) {
+        return Execute(std::move(func), span<ThreadEvent const>(depend.begin(), depend.end()));
     }
-    Event Execute(function<void(size_t)> &&func, size_t threadCount);
-    Event Execute(function<void(size_t)> &&func, size_t threadCount, span<Event const> depend);
-    Event Execute(function<void(size_t)> &&func, size_t threadCount, std::initializer_list<Event> depend) {
-        return Execute(std::move(func), threadCount, span<Event const>(depend.begin(), depend.end()));
+    ThreadEvent Execute(function<void(size_t)> &&func, size_t threadCount);
+    ThreadEvent Execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend);
+    ThreadEvent Execute(function<void(size_t)> &&func, size_t threadCount, std::initializer_list<ThreadEvent> depend) {
+        return Execute(std::move(func), threadCount, span<ThreadEvent const>(depend.begin(), depend.end()));
     }
     ThreadBarrier(ThreadPool *pool)
         : pool(pool) {}
@@ -167,16 +166,15 @@ public:
     DeferredThreadBarrier(DeferredThreadBarrier &&) = delete;
     DeferredThreadBarrier(DeferredThreadBarrier const &) = delete;
     DeferredThreadBarrier(ThreadPool &pool) : DeferredThreadBarrier(&pool) {}
-    using Event = ThreadPool::Event;
-    Event Execute(function<void()> &&func);
-    Event Execute(function<void()> &&func, span<Event const> depend);
-    Event Execute(function<void()> &&func, std::initializer_list<Event> depend) {
-        return Execute(std::move(func), span<Event const>(depend.begin(), depend.end()));
+    ThreadEvent Execute(function<void()> &&func);
+    ThreadEvent Execute(function<void()> &&func, span<ThreadEvent const> depend);
+    ThreadEvent Execute(function<void()> &&func, std::initializer_list<ThreadEvent> depend) {
+        return Execute(std::move(func), span<ThreadEvent const>(depend.begin(), depend.end()));
     }
-    Event Execute(function<void(size_t)> &&func, size_t threadCount);
-    Event Execute(function<void(size_t)> &&func, size_t threadCount, span<Event const> depend);
-    Event Execute(function<void(size_t)> &&func, size_t threadCount, std::initializer_list<Event> depend) {
-        return Execute(std::move(func), threadCount, span<Event const>(depend.begin(), depend.end()));
+    ThreadEvent Execute(function<void(size_t)> &&func, size_t threadCount);
+    ThreadEvent Execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend);
+    ThreadEvent Execute(function<void(size_t)> &&func, size_t threadCount, std::initializer_list<ThreadEvent> depend) {
+        return Execute(std::move(func), threadCount, span<ThreadEvent const>(depend.begin(), depend.end()));
     }
     void Submit();
     void Wait();

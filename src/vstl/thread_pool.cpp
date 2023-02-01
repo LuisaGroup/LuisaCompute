@@ -189,7 +189,7 @@ void Node::RunAllAfter(Node *node) {
 
 }// namespace tpool_detail
 
-ThreadPool::Event ThreadBarrier::Execute(function<void()> &&func) {
+ThreadEvent ThreadBarrier::Execute(function<void()> &&func) {
     auto newNode = pool->AllocNode(this, 0, 2, std::move(func));
     pool->globalQueue.Push(newNode);
     pool->mtx.lock();
@@ -197,7 +197,7 @@ ThreadPool::Event ThreadBarrier::Execute(function<void()> &&func) {
     pool->NotifyWorker(1);
     return {newNode};
 }
-ThreadPool::Event ThreadBarrier::Execute(function<void()> &&func, span<Event const> depend) {
+ThreadEvent ThreadBarrier::Execute(function<void()> &&func, span<ThreadEvent const> depend) {
     if (depend.empty()) {
         return Execute(std::move(func));
     }
@@ -208,7 +208,7 @@ ThreadPool::Event ThreadBarrier::Execute(function<void()> &&func, span<Event con
     return {newNode};
 }
 
-ThreadPool::Event ThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount) {
+ThreadEvent ThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount) {
     threadCount = std::max<size_t>(1, threadCount);
     auto queueCount = std::min<size_t>(threadCount, pool->threadCount);
     auto newNode = pool->AllocNode(this, 0, queueCount + 1, std::move(func), threadCount, queueCount);
@@ -220,7 +220,7 @@ ThreadPool::Event ThreadBarrier::Execute(function<void(size_t)> &&func, size_t t
     pool->NotifyWorker(queueCount);
     return {newNode};
 }
-ThreadPool::Event ThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount, span<Event const> depend) {
+ThreadEvent ThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend) {
     if (depend.empty()) {
         return Execute(std::move(func), threadCount);
     }
@@ -302,8 +302,8 @@ void ThreadPool::ThreadRun() {
     }
 }
 
-ThreadPool::Event ThreadPool::CurrentEvent() {
-    return Event{tpool_detail::tlocalNode};
+ThreadEvent ThreadPool::CurrentEvent() {
+    return ThreadEvent{tpool_detail::tlocalNode};
 }
 void ThreadBarrier::Notify() {
     if (--barrierCount == 0) {
@@ -331,13 +331,13 @@ DeferredThreadBarrier::~DeferredThreadBarrier() {
     Submit();
     Wait();
 }
-DeferredThreadBarrier::Event DeferredThreadBarrier::Execute(function<void()> &&func) {
+ThreadEvent DeferredThreadBarrier::Execute(function<void()> &&func) {
     auto pool = barrier.pool;
     auto newNode = pool->AllocNode(&barrier, 0, 2, std::move(func));
     nodes.Push(newNode);
     return {newNode};
 }
-DeferredThreadBarrier::Event DeferredThreadBarrier::Execute(function<void()> &&func, span<Event const> depend) {
+ThreadEvent DeferredThreadBarrier::Execute(function<void()> &&func, span<ThreadEvent const> depend) {
     if (depend.empty()) {
         return Execute(std::move(func));
     }
@@ -348,7 +348,7 @@ DeferredThreadBarrier::Event DeferredThreadBarrier::Execute(function<void()> &&f
     }
     return {newNode};
 }
-DeferredThreadBarrier::Event DeferredThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount) {
+ThreadEvent DeferredThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount) {
     auto pool = barrier.pool;
     threadCount = std::max<size_t>(1, threadCount);
     auto queueCount = std::min<size_t>(threadCount, pool->threadCount);
@@ -358,7 +358,7 @@ DeferredThreadBarrier::Event DeferredThreadBarrier::Execute(function<void(size_t
 	}*/
     return {newNode};
 }
-DeferredThreadBarrier::Event DeferredThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount, span<Event const> depend) {
+ThreadEvent DeferredThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend) {
     if (depend.empty()) {
         return Execute(std::move(func), threadCount);
     }
