@@ -7,9 +7,7 @@
 #include <numeric>
 #include <fstream>
 
-#include <core/json.h>
 #include <core/clock.h>
-#include <core/json.h>
 #include <core/dynamic_module.h>
 #include <core/logging.h>
 #include <runtime/device.h>
@@ -169,19 +167,24 @@ int main(int argc, char *argv[]) {
     clock.tic();
     auto ir = AST2IR{}.convert_kernel(kernel_def.function()->function());
     LUISA_INFO("AST2IR done in {} ms.", clock.toc());
-    clock.tic();
-    auto dump = ir::luisa_compute_ir_dump_json(&ir->get()->module);
-    LUISA_INFO("IR json dump done in {} ms.", clock.toc());
-    auto json = luisa::json::parse(luisa::string_view{
-        reinterpret_cast<const char *>(dump.ptr), dump.len});
-    std::ofstream out{"test_ast2ir.json"};
-    out << json.dump(4);
 
-    clock.tic();
-    auto binary = ir::luisa_compute_ir_dump_binary(&ir->get()->module);
-    LUISA_INFO("IR binary dump done in {} ms.", clock.toc());
+    // dump json
+    {
+        clock.tic();
+        auto dump = ir::luisa_compute_ir_dump_json(&ir->get()->module);
+        LUISA_INFO("IR json dump done in {} ms.", clock.toc());
+        std::ofstream out{"test_ast2ir.json"};
+        out << luisa::string_view{reinterpret_cast<const char *>(dump.ptr), dump.len};
+    }
 
-    std::ofstream bin_out{"test_ast2ir.bin", std::ios::binary};
-    bin_out.write(reinterpret_cast<const char *>(binary.ptr),
-                  static_cast<std::streamsize>(binary.len));
+    // dump binary
+    {
+        clock.tic();
+        auto binary = ir::luisa_compute_ir_dump_binary(&ir->get()->module);
+        LUISA_INFO("IR binary dump done in {} ms.", clock.toc());
+
+        std::ofstream bin_out{"test_ast2ir.bin", std::ios::binary};
+        bin_out.write(reinterpret_cast<const char *>(binary.ptr),
+                      static_cast<std::streamsize>(binary.len));
+    }
 }
