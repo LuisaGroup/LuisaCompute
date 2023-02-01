@@ -36,8 +36,6 @@ set(LUISA_COMPUTE_CORE_SOURCES
         dynamic_module.cpp dynamic_module.h
         first_fit.cpp first_fit.h
         intrin.h
-        json.h
-        json_fwd.h
         logging.cpp logging.h
         macro.h
         mathematics.h
