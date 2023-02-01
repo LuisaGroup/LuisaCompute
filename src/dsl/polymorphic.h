@@ -3,7 +3,9 @@
 //
 
 #pragma once
+
 #ifndef LC_DISABLE_DSL
+
 #include <core/stl.h>
 #include <dsl/expr_traits.h>
 #include <dsl/builtin.h>
@@ -124,4 +126,5 @@ public:
 };
 
 }// namespace luisa::compute
+
 #endif

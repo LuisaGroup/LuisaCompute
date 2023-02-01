@@ -105,6 +105,3 @@ struct CustomResFilter<Mesh> {
 }// namespace luisa::compute
 
 LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2)
-#ifndef LC_DISABLE_DSL
-    {};
-#endif

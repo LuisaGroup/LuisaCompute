@@ -89,7 +89,7 @@ struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
 class DeviceExtension {
 public:
-    virtual ~DeviceExtension() = default;
+    virtual ~DeviceExtension() noexcept = default;
 };
 
 class DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {
@@ -113,7 +113,7 @@ public:
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
     [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
 
-    virtual void set_io_visitor(BinaryIO *visitor) noexcept = 0;
+    virtual void set_io(BinaryIO *visitor) noexcept = 0;
 
     // buffer
     [[nodiscard]] virtual uint64_t create_buffer(size_t size_bytes) noexcept = 0;
@@ -177,7 +177,7 @@ public:
     [[nodiscard]] LC_RUNTIME_API virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept;
 #endif
 
-    // raster kernel  (may not supported by some backends)
+    // raster kernel  (may not be supported by some backends)
     [[nodiscard]] virtual uint64_t create_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -329,13 +329,13 @@ public:
     // [[nodiscard]] Buffer<DrawIndirectArgs> create_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;
     // [[nodiscard]] Buffer<DrawIndexedIndirectArgs> create_indexed_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;
 
-    void set_io_visitor(BinaryIO *visitor) noexcept {
-        _impl->set_io_visitor(visitor);
+    void set_io(BinaryIO *visitor) noexcept {
+        _impl->set_io(visitor);
     }
     template<size_t N, typename... Args>
     [[nodiscard]] auto compile_to(const Kernel<N, Args...> &kernel, luisa::string_view shader_path) noexcept {
 #ifndef NDEBUG
-        CheckNoBinding(kernel.function().get(), shader_path);
+        _check_no_implicit_binding(kernel.function().get(), shader_path);
 #endif
         return _create<Shader<N, Args...>>(kernel.function(), shader_path);
     }
@@ -352,8 +352,8 @@ public:
         DepthFormat dsv_format,
         luisa::string_view shader_path) noexcept {
 #ifndef NDEBUG
-        CheckNoBinding(kernel.vert().get(), shader_path);
-        CheckNoBinding(kernel.pixel().get(), shader_path);
+        _check_no_implicit_binding(kernel.vert().get(), shader_path);
+        _check_no_implicit_binding(kernel.pixel().get(), shader_path);
 #endif
         return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), shader_path);
     }
@@ -370,15 +370,15 @@ public:
     template<size_t N, typename... Args>
     void save(const Kernel<N, Args...> &kernel, luisa::string_view shader_path) noexcept {
 #ifndef NDEBUG
-        CheckNoBinding(kernel.function().get(), shader_path);
+        _check_no_implicit_binding(kernel.function().get(), shader_path);
 #endif
         _impl->save_shader(Function(kernel.function().get()), shader_path);
     }
     template<typename V, typename P>
     void save_raster_shader(const RasterKernel<V, P> &kernel, const MeshFormat &format, luisa::string_view serialization_path) {
 #ifndef NDEBUG
-        CheckNoBinding(kernel.vert().get(), serialization_path);
-        CheckNoBinding(kernel.pixel().get(), serialization_path);
+        _check_no_implicit_binding(kernel.vert().get(), serialization_path);
+        _check_no_implicit_binding(kernel.pixel().get(), serialization_path);
 #endif
         _impl->save_raster_shader(format, Function(kernel.vert().get()), Function(kernel.pixel().get()), serialization_path);
     }

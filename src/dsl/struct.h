@@ -14,9 +14,10 @@
 #include <runtime/shader.h>
 
 template<typename T>
-struct luisa_compute_extension {
-    static_assert(luisa::always_false_v<T>);
-};
+struct luisa_compute_extension {};
+
+template<typename T, typename U>
+struct luisa_compute_dummy_extension {};
 
 namespace luisa::compute::detail {
 
@@ -154,9 +155,7 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         }                                                                                     \
     };                                                                                        \
     }                                                                                         \
-    }                                                                                         \
-    template<>                                                                                \
-    struct luisa_compute_extension<S> final : luisa::compute::detail::Ref<S>
+    }
 
 #define LUISA_CUSTOM_STRUCT(S)                                                              \
     LUISA_CUSTOM_STRUCT_REFLECT(S, #S)                                                      \
@@ -204,9 +203,11 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         }                                                                                   \
     };                                                                                      \
     }                                                                                       \
-    }                                                                                       \
-    template<>                                                                              \
-    struct luisa_compute_extension<luisa::compute::S> final : luisa::compute::detail::Ref<luisa::compute::S> {}
+    }
+
+#define LUISA_STRUCT_EXT(S) \
+    template<>              \
+    struct luisa_compute_extension<S> final : luisa::compute::detail::Ref<S>
 
 #define LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_DECL(m) \
     Var<member_type_##m> m;
@@ -262,5 +263,8 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 #else
 #include <ast/type_registry.h>
 #define LUISA_STRUCT(S, ...) \
-    LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)
+    LUISA_STRUCT_REFLECT(S, __VA_ARGS__)
+#define LUISA_STRUCT_EXT(S) \
+    template<U>             \
+    struct luisa_compute_dummy_extension<S, U> : public U
 #endif

@@ -37,8 +37,9 @@ struct Onb {
 };
 
 // clang-format off
-LUISA_STRUCT(Material, albedo, emission) {};
-LUISA_STRUCT(Onb, tangent, binormal, normal) {
+LUISA_STRUCT(Material, albedo, emission)
+LUISA_STRUCT(Onb, tangent, binormal, normal)
+LUISA_STRUCT_EXT(Onb) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
     }

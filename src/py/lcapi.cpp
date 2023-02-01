@@ -59,9 +59,6 @@ struct VertexData {
 };
 
 LUISA_STRUCT(VertexData, position, normal, tangent, color, uv, vertex_id, instance_id)
-#ifndef LC_DISABLE_DSL
-    {};
-#endif
 
 template<typename T>
 class raw_ptr {
