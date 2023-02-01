@@ -285,8 +285,6 @@ CMakeSettings.json
 
 **/__pycache__/**
 
-.vscode/
-
 # white list
 !src/backends/dx/dx_support/dxcompiler.dll
 !src/backends/dx/dx_support/dxil.dll
@@ -313,3 +311,4 @@ src/rust/target/**
 
 # XMake
 .xmake/**
+src/ext/python311/**

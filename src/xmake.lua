@@ -16,19 +16,16 @@ end
 if get_config("enable_py") then
 	includes("py")
 end
-if get_config("dx_backend") then
+if DxBackend then
 	includes("backends/dx")
 end
-if get_config("cuda_backend") then
+if CudaBackend then
 	includes("backends/cuda")
 end
-if get_config("llvm_backend") then
-	includes("backends/llvm")
-end
-if get_config("metal_backend") then
+if MetalBackend then
 	includes("backends/metal")
 end
-if get_config("enable_tests") then
+if EnableTest then
 	includes("tests")
 end
 if get_config("enable_tools") then

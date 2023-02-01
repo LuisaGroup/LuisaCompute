@@ -1,0 +1,25 @@
+{
+  "xmake.additionalConfigArguments": [
+    "--toolchain=clang-cl",
+    "--enable_py=true"
+  ],
+  "C_Cpp.codeAnalysis.runAutomatically": false,
+  "C_Cpp.intelliSenseEngine": "Disabled",
+  "C_Cpp.formatting": "Disabled",
+  "C_Cpp.autoAddFileAssociations": false,
+  "C_Cpp.autocompleteAddParentheses": false,
+  "C_Cpp.autocomplete": "Disabled",
+  "C_Cpp.errorSquiggles": "Disabled",
+  "clangd.arguments": [
+    "--compile-commands-dir=.vscode",
+    "-j=24",
+    "--log=error",
+    "--completion-style=bundled",
+    "--background-index", 
+    "--background-index-priority=normal",
+    "--header-insertion=never",
+    "--pch-storage=memory",
+    "--offset-encoding=utf-8"
+  ],
+  "files.eol":"\n"
+}
