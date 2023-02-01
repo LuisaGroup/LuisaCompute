@@ -9,7 +9,6 @@ includes("core")
 includes("vstl")
 includes("ast")
 includes("runtime")
-includes("compile")
 if EnableDSL then
 	includes("dsl")	
 end

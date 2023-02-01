@@ -6,7 +6,6 @@
 #include "ast/expression.h"
 #include "ast/statement.h"
 #include "vstl/md5.h"
-#include "compile/definition_analysis.h"
 #include "shader_property.h"
 #include <raster/raster_state.h>
 #include <core/logging.h>
