@@ -101,7 +101,7 @@ public:
         return this->view(0).copy_from(std::forward<U>(dst));
     }
 };
-
+class ViewExporter;
 template<typename T>
 class ImageView {
 
@@ -115,7 +115,7 @@ private:
     friend class Image<T>;
     friend class detail::MipmapView;
     friend class DepthBuffer;
-
+    friend class ViewExporter;
     constexpr ImageView(
         uint64_t handle,
         PixelStorage storage,

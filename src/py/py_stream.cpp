@@ -9,7 +9,7 @@ PyStream::PyStream(Device &device) noexcept
 }
 
 PyStream::Data::Data(Device &device) noexcept
-    : stream(device.create_stream()),
+    : stream(device.create_stream(StreamTag::GRAPHICS)),
       buffer(stream.command_buffer()) {
 }
 

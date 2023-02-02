@@ -11,7 +11,6 @@ template<typename T>
 struct Var;
 
 class DynamicStruct;
-
 template<>
 class BufferView<DynamicStruct> {
     friend class Buffer<DynamicStruct>;

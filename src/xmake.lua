@@ -12,6 +12,9 @@ includes("runtime")
 if EnableDSL then
 	includes("dsl")	
 end
+if EnableGUI then
+	includes("gui")
+end
 if get_config("enable_py") then
 	includes("py")
 end

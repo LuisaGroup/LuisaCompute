@@ -35,6 +35,7 @@ class PyStream : public vstd::IOperatorNewBase {
     vstd::unique_ptr<Data> _data;
 
 public:
+    Stream &stream() const { return _data->stream; }
     PyStream(PyStream &&) noexcept;
     PyStream(PyStream const &) = delete;
     PyStream(Device &device) noexcept;

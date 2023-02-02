@@ -36,7 +36,7 @@ using is_valid_buffer_element = std::conjunction<
 
 template<typename T>
 constexpr auto is_valid_buffer_element_v = is_valid_buffer_element<T>::value;
-
+class ViewExporter;
 template<typename T>
 class Buffer final : public Resource {
 
@@ -95,6 +95,7 @@ private:
 private:
     friend class Heap;
     friend class Buffer<T>;
+    friend class ViewExporter;
     template<typename U>
     friend class BufferView;
     BufferView(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept

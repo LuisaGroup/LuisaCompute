@@ -5,8 +5,7 @@ function CompilePython(version)
 	_config_project({
 		project_name = projectName,
 		project_kind = "shared",
-		enable_exception = true,
-		enable_rtti = true
+		enable_exception = true
 	})
 	add_links("python3", pyName)
 	add_linkdirs("../ext/" .. pyName .. "/libs")
@@ -15,6 +14,10 @@ function CompilePython(version)
 	add_deps("lc-runtime")
 	add_defines("LC_AST_EXCEPTION")
 	set_values("projectName", projectName)
+	if EnableGUI then
+		add_deps("lc-gui")
+		add_defines("LC_PY_ENABLE_GUI")
+	end
 	after_build(function(target)
 		local projectName = target:values("projectName")
 		local bdPath = target:targetdir()

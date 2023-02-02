@@ -28,7 +28,7 @@
 #include <ast/ast_evaluator.h>
 #include <dsl/struct.h>
 #include <core/thread_pool.h>
-
+#include <py/managed_device.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -41,7 +41,9 @@ void export_vector3(py::module &m);
 void export_vector4(py::module &m);
 void export_matrix(py::module &m);
 void export_img(py::module &m);
-
+#ifdef LC_PY_ENABLE_GUI
+void export_gui(py::module &m);
+#endif
 class ManagedMeshFormat {
 public:
     MeshFormat format;
@@ -83,33 +85,27 @@ static vstd::vector<std::shared_future<void>> futures;
 static vstd::optional<ThreadPool> thread_pool;
 static std::filesystem::path output_path;
 static size_t device_count = 0;
-class ManagedDevice {
-public:
-    Device device;
-    bool valid;
-    ManagedDevice(Device &&device) noexcept : device(std::move(device)) {
-        valid = true;
-        if (device_count == 0) {
-            if (!RefCounter::current)
-                RefCounter::current = vstd::create_unique(new RefCounter());
-        }
-        device_count++;
+ManagedDevice::ManagedDevice(Device &&device) noexcept : device(std::move(device)) {
+    valid = true;
+    if (device_count == 0) {
+        if (!RefCounter::current)
+            RefCounter::current = vstd::create_unique(new RefCounter());
     }
-    ManagedDevice(ManagedDevice &&v) noexcept : device(std::move(v.device)), valid(false) {
-        std::swap(valid, v.valid);
+    device_count++;
+}
+ManagedDevice::ManagedDevice(ManagedDevice &&v) noexcept : device(std::move(v.device)), valid(false) {
+    std::swap(valid, v.valid);
+}
+ManagedDevice::~ManagedDevice() noexcept {
+    device_count--;
+    for (auto &&i : futures) {
+        i.wait();
     }
-    ManagedDevice(ManagedDevice const &) = delete;
-    ~ManagedDevice() noexcept {
-        device_count--;
-        for (auto &&i : futures) {
-            i.wait();
-        }
-        futures.clear();
-        if (device_count == 0) {
-            thread_pool.Delete();
-        }
+    futures.clear();
+    if (device_count == 0) {
+        thread_pool.Delete();
     }
-};
+}
 struct IntEval {
     int32_t value;
     bool exist;
@@ -517,10 +513,10 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("end_branch", []() {
         analyzer.back().end_branch_scope();
     });
-    m.def("begin_switch", [](SwitchStmt const* stmt){
+    m.def("begin_switch", [](SwitchStmt const *stmt) {
         analyzer.back().begin_switch(stmt);
     });
-    m.def("end_switch", [](){
+    m.def("end_switch", []() {
         analyzer.back().end_switch();
     });
     m.def("analyze_condition", [](Expression const *expr) -> int32_t {
@@ -819,4 +815,7 @@ PYBIND11_MODULE(lcapi, m) {
             fmt.format.emplace_vertex_stream(fmt.attributes);
             fmt.attributes.clear();
         });
+#ifdef LC_PY_ENABLE_GUI
+    export_gui(m);
+#endif
 }

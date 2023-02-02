@@ -36,10 +36,10 @@
 #define LC_VSTL_API __declspec(dllimport)
 #endif
 
-#ifdef LC_COMPILE_EXPORT_DLL
-#define LC_COMPILE_API __declspec(dllexport)
+#ifdef LC_GUI_EXPORT_DLL
+#define LC_GUI_API __declspec(dllexport)
 #else
-#define LC_COMPILE_API __declspec(dllimport)
+#define LC_GUI_API __declspec(dllimport)
 #endif
 
 #ifdef LC_AST_EXPORT_DLL
