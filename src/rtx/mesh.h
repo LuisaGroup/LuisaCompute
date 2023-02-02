@@ -6,7 +6,6 @@
 
 #include <runtime/device.h>
 #include <runtime/buffer.h>
-#include <runtime/custom_pass.h>
 #include <dsl/syntax.h>
 #include <dsl/struct.h>
 
@@ -43,19 +42,12 @@ private:
                  is_buffer_or_view_v<TBuffer> &&
                  std::same_as<buffer_element_t<TBuffer>, Triangle>
     [[nodiscard]] static uint64_t _create_resource(
-        DeviceInterface *device,
-        MeshBuildOption const &option,
+        DeviceInterface *device, MeshBuildOption const &option,
         const VBuffer &vertex_buffer, const TBuffer &triangle_buffer) noexcept {
-        BufferView vertices{vertex_buffer};
-        BufferView triangles{triangle_buffer};
-        auto vertex_buffer_handle = vertices.handle();
-        auto vertex_buffer_offset = vertices.offset_bytes();
-        auto vertex_stride = vertices.stride();
-        auto vertex_count = vertices.size();
-        auto triangle_buffer_handle = triangles.handle();
-        auto triangle_buffer_offset = triangles.offset_bytes();
-        auto triangle_count = triangles.size();
-        return device->create_mesh(option.hint, DeviceInterface::MeshType::Mesh, option.allow_compact, option.allow_update);
+        return device->create_mesh(option.hint,
+                                   DeviceInterface::MeshType::Mesh,
+                                   option.allow_compact,
+                                   option.allow_update);
     }
 
 private:
@@ -84,23 +76,6 @@ template<typename VBuffer, typename TBuffer>
 Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, MeshBuildOption option) noexcept {
     return this->_create<Mesh>(std::forward<VBuffer>(vertices), std::forward<TBuffer>(triangles), option);
 }
-
-namespace custompass_detail {
-
-template<>
-struct CustomResFilter<Mesh> {
-    static constexpr bool LegalType = true;
-    static void emplace(luisa::string &&name, Usage usage, CustomPass *cmd, Mesh const &v) {
-        CustomCommand::ResourceBinding bindings;
-        bindings.name = std::move(name);
-        bindings.usage = usage;
-        bindings.resource_view = CustomCommand::MeshView{
-            .handle = v.handle()};
-        cmd->_bindings.emplace_back(std::move(bindings));
-    }
-};
-
-}// namespace custompass_detail
 
 }// namespace luisa::compute
 

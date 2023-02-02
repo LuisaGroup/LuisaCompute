@@ -45,7 +45,7 @@ public:
     Context &operator=(const Context &) noexcept = default;
     [[nodiscard]] ContextPaths paths() const noexcept;
     [[nodiscard]] Device create_device(luisa::string_view backend_name,
-                                       DeviceConfig const *settings = nullptr) noexcept;
+                                       const DeviceConfig *settings = nullptr) noexcept;
     [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;
     [[nodiscard]] luisa::span<const DynamicModule> loaded_modules() const noexcept;
     [[nodiscard]] Device create_default_device() noexcept;

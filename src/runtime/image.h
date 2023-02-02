@@ -59,7 +59,7 @@ public:
     Image() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto byte_size() const noexcept {
+    [[nodiscard]] auto size_bytes() const noexcept {
         size_t byte_size = 0;
         auto size = _size;
         for (size_t i = 0; i < _mip_levels; ++i) {
@@ -72,13 +72,15 @@ public:
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
 
-    [[nodiscard]] auto view(uint32_t level = 0u) const noexcept {
+    [[nodiscard]] auto view(uint32_t level) const noexcept {
         if (level >= _mip_levels) [[unlikely]] {
             detail::error_image_invalid_mip_levels(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
         return ImageView<T>{handle(), _storage, level, mip_size};
     }
+
+    [[nodiscard]] auto view() const noexcept { return view(0u); }
 
     template<typename UV>
     [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
@@ -134,7 +136,7 @@ public:
     ImageView(const Image<T> &image) noexcept : ImageView{image.view(0u)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto byte_size() const noexcept {
+    [[nodiscard]] auto size_bytes() const noexcept {
         return pixel_storage_size(_storage, _size.x, _size.y, 1);
     }
     [[nodiscard]] auto storage() const noexcept { return _storage; }

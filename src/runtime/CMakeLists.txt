@@ -8,7 +8,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         context_paths.h
         custom_pass.cpp custom_pass.h
         custom_struct.cpp custom_struct.h
-        depth_buffer.cpp
         device.cpp device.h
         dynamic_buffer.cpp dynamic_buffer.h
         dynamic_struct.h

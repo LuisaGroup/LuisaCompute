@@ -2,12 +2,11 @@
 
 namespace luisa::compute {
 
-CustomPass::CustomPass(luisa::string &&name,
+CustomPass::CustomPass(luisa::string name,
                        StreamTag stream_tag,
-                       size_t capacity) noexcept
-    : _name(std::move(name)),
-      _stream_tag(stream_tag) {
-    _bindings.reserve(capacity);
+                       size_t reserved_capacity) noexcept
+    : _name(std::move(name)), _stream_tag(stream_tag) {
+    _bindings.reserve(reserved_capacity);
 }
 
 CustomPass::~CustomPass() noexcept = default;

@@ -52,7 +52,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto byte_size() const noexcept {
+    [[nodiscard]] auto size_bytes() const noexcept {
         size_t byte_size = 0;
         auto size = _size;
         for (size_t i = 0; i < _mip_levels; ++i) {
@@ -71,6 +71,8 @@ public:
         auto mip_size = luisa::max(_size >> level, 1u);
         return VolumeView<T>{handle(), _storage, level, mip_size};
     }
+
+    [[nodiscard]] auto view() const noexcept { return view(0u); }
 
     template<typename UVW>
     [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
@@ -121,7 +123,7 @@ public:
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto byte_size() const noexcept {
+    [[nodiscard]] auto size_bytes() const noexcept {
         return pixel_storage_size(_storage, _size.x, _size.y, _size.z);
     }
     [[nodiscard]] auto storage() const noexcept { return _storage; }

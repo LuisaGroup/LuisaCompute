@@ -11,7 +11,6 @@
 #include <dsl/expr.h>
 #endif
 
-#include <runtime/custom_pass.h>
 #include <rtx/ray.h>
 #include <rtx/ray_query.h>
 #include <rtx/mesh.h>
@@ -119,22 +118,5 @@ struct Var<Accel> : public Expr<Accel> {
 
 using AccelVar = Var<Accel>;
 #endif
-
-namespace custompass_detail {
-
-template<>
-struct CustomResFilter<Accel> {
-    static constexpr bool LegalType = true;
-    static void emplace(luisa::string &&name, Usage usage, CustomPass *cmd, Accel const &v) {
-        CustomCommand::ResourceBinding bindings;
-        bindings.name = std::move(name);
-        bindings.usage = usage;
-        bindings.resource_view = CustomCommand::AccelView{
-            .handle = v.handle()};
-        cmd->_bindings.emplace_back(std::move(bindings));
-    }
-};
-
-}// namespace custompass_detail
 
 }// namespace luisa::compute

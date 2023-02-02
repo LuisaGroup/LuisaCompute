@@ -86,15 +86,15 @@ Context::Context(string_view program_path) noexcept
 }
 
 const std::filesystem::path &ContextPaths::runtime_directory() const noexcept {
-    return reinterpret_cast<Context::Impl *>(_impl)->runtime_directory;
+    return static_cast<const Context::Impl *>(_impl)->runtime_directory;
 }
 
 const std::filesystem::path &ContextPaths::cache_directory() const noexcept {
-    return reinterpret_cast<Context::Impl *>(_impl)->cache_directory;
+    return static_cast<const Context::Impl *>(_impl)->cache_directory;
 }
 
 const std::filesystem::path &ContextPaths::data_directory() const noexcept {
-    return reinterpret_cast<Context::Impl *>(_impl)->data_directory;
+    return static_cast<const Context::Impl *>(_impl)->data_directory;
 }
 
 ContextPaths Context::paths() const noexcept {
