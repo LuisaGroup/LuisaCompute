@@ -95,6 +95,6 @@
 #include <rtx/ray_query.h>
 
 #ifdef LUISA_GUI_ENABLED
-#include <gui/framerate.h>
-#include <gui/window.h>
+#include <gui/backup/framerate.h>
+#include <gui/backup/window.h>
 #endif

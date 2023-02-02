@@ -15,7 +15,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <dsl/sugar.h>
-#include <gui/framerate.h>
+#include <gui/backup/framerate.h>
 
 using namespace luisa;
 using namespace luisa::compute;

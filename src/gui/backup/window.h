@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 
+#include <core/stl/functional.h>
 #include <core/basic_types.h>
 
 namespace luisa::compute {

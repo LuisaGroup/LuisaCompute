@@ -7,10 +7,10 @@
 #include <glad/glad.h>
 #include <imgui/backends/imgui_impl_opengl3.h>
 
-#include <core/stl.h>
 #include <core/logging.h>
-#include <gui/imgui_impl_glfw.h>
-#include <gui/window.h>
+#include <core/basic_types.h>
+#include <gui/backup/imgui_impl_glfw.h>
+#include <gui/backup/window.h>
 
 namespace luisa::compute {
 
@@ -173,7 +173,8 @@ Window::Window(const char *name, uint2 initial_size, bool resizable) noexcept
     });
     glfwSetWindowSizeCallback(_handle, [](GLFWwindow *window, int width, int height) noexcept {
         auto self = static_cast<Window *>(glfwGetWindowUserPointer(window));
-        if (auto &&cb = self->_window_size_callback) { cb(make_uint2(width, height)); }
+        if (auto &&cb = self->_window_size_callback) { cb(make_uint2(static_cast<uint>(width),
+                                                                     static_cast<uint>(height))); }
     });
     glfwSetKeyCallback(_handle, [](GLFWwindow *window, int key, int scancode, int action, int mods) noexcept {
         if (ImGui::GetIO().WantCaptureKeyboard) {// ImGui is handling the keyboard

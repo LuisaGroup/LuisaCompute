@@ -13,8 +13,8 @@
 #include <dsl/sugar.h>
 #include <dsl/printer.h>
 #include <rtx/accel.h>
-#include <gui/window.h>
-#include <gui/framerate.h>
+#include <gui/backup/window.h>
+#include <gui/backup/framerate.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
 

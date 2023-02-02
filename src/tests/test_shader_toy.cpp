@@ -11,8 +11,8 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/syntax.h>
-#include <gui/window.h>
-#include <gui/framerate.h>
+#include <gui/backup/window.h>
+#include <gui/backup/framerate.h>
 
 using namespace luisa;
 using namespace luisa::compute;

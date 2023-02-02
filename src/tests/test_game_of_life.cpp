@@ -11,7 +11,7 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/sugar.h>
-#include <gui/window.h>
+#include <gui/backup/window.h>
 
 using namespace luisa;
 using namespace luisa::compute;

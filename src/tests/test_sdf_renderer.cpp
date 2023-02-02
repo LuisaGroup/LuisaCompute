@@ -25,7 +25,7 @@ using namespace luisa::compute;
 #endif
 
 #if ENABLE_DISPLAY
-#include <gui/window.h>
+#include <gui/backup/window.h>
 #endif
 
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
