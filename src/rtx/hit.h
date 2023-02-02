@@ -34,10 +34,11 @@ struct Hit {
 
 }// namespace luisa::compute
 
-// clang-format off
 LUISA_STRUCT(luisa::compute::Hit, inst, prim, bary, hit_type, committed_ray_t)
+
 #ifndef LC_DISABLE_DSL
-{
+// clang-format off
+LUISA_STRUCT_EXT(luisa::compute::Hit) {
     [[nodiscard]] auto miss() const noexcept {
         return hit_type == static_cast<uint32_t>(luisa::compute::HitType::Miss);
     }
@@ -56,6 +57,5 @@ LUISA_STRUCT(luisa::compute::Hit, inst, prim, bary, hit_type, committed_ray_t)
             std::forward<C>(c));
     }
 };
-#else
-#endif
 // clang-format on
+#endif

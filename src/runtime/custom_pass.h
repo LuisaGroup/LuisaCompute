@@ -27,10 +27,9 @@ private:
     StreamTag _stream_tag;
 
 public:
-    CustomPass(
-        luisa::string &&name,
-        StreamTag stream_tag,
-        size_t capacity = 8);
+    CustomPass(luisa::string &&name,
+               StreamTag stream_tag,
+               size_t capacity = 8) noexcept;
     ~CustomPass() noexcept;
     luisa::unique_ptr<Command> build() &noexcept;
     luisa::unique_ptr<Command> build() &&noexcept;

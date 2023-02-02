@@ -54,7 +54,6 @@ add_subdirectory(ast)
 add_subdirectory(rust)
 add_subdirectory(ir)
 add_subdirectory(runtime)
-add_subdirectory(compile)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
 add_subdirectory(gui)
@@ -66,7 +65,6 @@ target_link_libraries(compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl
         luisa-compute-ast
-        luisa-compute-compile
         luisa-compute-runtime
         luisa-compute-dsl
         luisa-compute-rtx

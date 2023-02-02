@@ -26,9 +26,9 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Material{
+struct Material {
     float3 albedo;
-    float3 emission; 
+    float3 emission;
 };
 
 struct Onb {
@@ -50,19 +50,18 @@ struct heapNode {
 };
 
 // clang-format off
-LUISA_STRUCT(Material, albedo, emission) {};
-LUISA_STRUCT(Onb, tangent, binormal, normal) {
+LUISA_STRUCT(Material, albedo, emission)
+LUISA_STRUCT(Onb, tangent, binormal, normal)
+LUISA_STRUCT_EXT(Onb) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
     }
 };
-LUISA_STRUCT(Photon, position, power, in_direction, nxt) {};
-LUISA_STRUCT(heapNode, dis, index) {};
+LUISA_STRUCT(Photon, position, power, in_direction, nxt)
+LUISA_STRUCT(heapNode, dis, index)
 // clang-format on
 
-
-
-int main(int argc, char* argv[]){
+int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
@@ -104,7 +103,7 @@ int main(int argc, char* argv[]){
         auto phi = 2.0f * constants::pi * u.y;
         return make_float3(r * cos(phi), r * sin(phi), sqrt(1.0f - u.x));
     };
-    
+
     //load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
     obj_reader_config.triangulate = true;
@@ -128,8 +127,7 @@ int main(int argc, char* argv[]){
         vertices.emplace_back(float3{
             p[i + 0u],
             p[i + 1u],
-            p[i + 2u]
-        });
+            p[i + 2u]});
 
         grid_min.x = min(p[i + 0u], grid_min.x);
         grid_min.y = min(p[i + 1u], grid_min.y);
@@ -139,11 +137,10 @@ int main(int argc, char* argv[]){
         grid_max.y = max(p[i + 1u], grid_max.y);
         grid_max.z = max(p[i + 2u], grid_max.z);
     }
-    
+
     LUISA_INFO(
         "Loaded mesh with {} shape(s) and {} vertices.",
-        obj_reader.GetShapes().size(), vertices.size()
-    );
+        obj_reader.GetShapes().size(), vertices.size());
 
     auto heap = device.create_bindless_array();
     auto stream = device.create_stream();
@@ -276,7 +273,7 @@ int main(int argc, char* argv[]){
 
             // store photons
             auto index = photon_limit_buffer.atomic(0).fetch_add(1u);
-            
+
             auto grid_index = make_uint3((p - grid_min) / grid_len);
             auto grid_index_m = grid_index.x * grid_size.y * grid_size.z + grid_index.y * grid_size.z + grid_index.z;
             auto link_head = grid_head_buffer.atomic(grid_index_m).exchange(index);
@@ -299,7 +296,7 @@ int main(int argc, char* argv[]){
             // rr
             auto rr_prob = 0.9f;
             auto rr_check = lcg(state);
-            $if(rr_check >= rr_prob){ $break; };
+            $if(rr_check >= rr_prob) { $break; };
             power *= 1.0f / rr_prob;
         };
     };
@@ -329,12 +326,12 @@ int main(int argc, char* argv[]){
         auto p_index = get_index_from_point(p);
         auto photon_sum = def(0);
 
-        $for(x, ite(p_index.x == 0, 0u, p_index.x-1), min(p_index.x+1, grid_size.x)) {
-            $for(y, ite(p_index.y == 0, 0u, p_index.y-1), min(p_index.y+1, grid_size.y)) {
-                $for(z, ite(p_index.z == 0, 0u, p_index.z-1), min(p_index.z+1, grid_size.z)) {
+        $for(x, ite(p_index.x == 0, 0u, p_index.x - 1), min(p_index.x + 1, grid_size.x)) {
+            $for(y, ite(p_index.y == 0, 0u, p_index.y - 1), min(p_index.y + 1, grid_size.y)) {
+                $for(z, ite(p_index.z == 0, 0u, p_index.z - 1), min(p_index.z + 1, grid_size.z)) {
                     auto grid_index_m = get_index_merge(x, y, z);
                     auto photon_index = grid_head_buffer.read(grid_index_m);
-                    $while (photon_index != ~0u) {
+                    $while(photon_index != ~0u) {
                         photon_sum += 1;
                         auto photon = photon_buffer.read(photon_index);
                         auto dis = distance(Float3{photon.position}, p);
@@ -425,13 +422,13 @@ int main(int argc, char* argv[]){
                     radiance *= inv_pi / (radius * radius * photon_number);
 
                     // $if(dot(radiance, radiance) > 10000) {
-                    //     printer.info_with_location("p : ({}, {}, {}) o ({}, {}, {}) dir ({}, {}, {}) inst {} prim {}", 
-                    //     p.x, p.y, p.z, 
-                    //     ray->origin().x, ray->origin().y, ray->origin().z, 
+                    //     printer.info_with_location("p : ({}, {}, {}) o ({}, {}, {}) dir ({}, {}, {}) inst {} prim {}",
+                    //     p.x, p.y, p.z,
+                    //     ray->origin().x, ray->origin().y, ray->origin().z,
                     //     ray->direction().x, ray->direction().y, ray->direction().z,
                     //     hit.inst, hit.prim
                     //     );
-                    // }; 
+                    // };
                 };
             };
         };
@@ -458,7 +455,7 @@ int main(int argc, char* argv[]){
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 radiance = light_emission;
             }
-            $else{
+            $else {
                 auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
                 auto p0 = vertex_buffer.read(triangle.i0);
                 auto p1 = vertex_buffer.read(triangle.i1);
@@ -587,8 +584,8 @@ int main(int argc, char* argv[]){
             << ldr_image.copy_to(host_image.data())
             << commit();
 
-        stream <<  printer.retrieve()
-               <<  synchronize();
+        stream << printer.retrieve()
+               << synchronize();
         window.set_background(host_image.data(), resolution);
 
         framerate.record(spp_per_dispatch);

@@ -16,13 +16,14 @@ struct Test {
     float a;
 };
 
-LUISA_STRUCT(Test, something, a) {};
+LUISA_STRUCT(Test, something, a)
+
 using $Test = Var<Test>;
 
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }

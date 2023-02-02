@@ -37,19 +37,20 @@ private:
 public:
     explicit Context(string_view program_path) noexcept;
     explicit Context(const char *program_path) noexcept
-        : Context(string_view{program_path}) {}
+        : Context{string_view{program_path}} {}
     ~Context() noexcept;
     Context(Context &&) noexcept = default;
     Context(const Context &) noexcept = default;
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
     [[nodiscard]] ContextPaths paths() const noexcept;
-    [[nodiscard]] Device create_device(luisa::string_view backend_name, DeviceConfig const *settings = nullptr) noexcept;
+    [[nodiscard]] Device create_device(luisa::string_view backend_name,
+                                       DeviceConfig const *settings = nullptr) noexcept;
     [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;
     [[nodiscard]] luisa::span<const DynamicModule> loaded_modules() const noexcept;
     [[nodiscard]] Device create_default_device() noexcept;
-    [[nodiscard]] BinaryIO *get_fileio_visitor() const noexcept;
-    void set_fileio_visitor(BinaryIO *file_io) noexcept;
+    [[nodiscard]] BinaryIO *file_io() const noexcept;
+    void set_file_io(BinaryIO *file_io) noexcept;
 };
 
 }// namespace luisa::compute

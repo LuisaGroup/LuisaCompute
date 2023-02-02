@@ -1,6 +1,9 @@
 #pragma once
-#include <stdint.h>
+
+#include <cstdint>
+
 namespace luisa::compute {
+
 enum class DepthFormat : uint8_t {
     None,
     D16,
@@ -8,4 +11,5 @@ enum class DepthFormat : uint8_t {
     D32,
     D32S8A24
 };
+
 }

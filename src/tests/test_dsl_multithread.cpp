@@ -21,7 +21,7 @@ struct Test {
     float a;
 };
 
-LUISA_STRUCT(Test, something, a) {};
+LUISA_STRUCT(Test, something, a)
 
 int main(int argc, char *argv[]) {
 

@@ -162,11 +162,11 @@ Device Context::create_default_device() noexcept {
     return create_device(installed_backends().front());
 }
 
-BinaryIO *Context::get_fileio_visitor() const noexcept {
+BinaryIO *Context::file_io() const noexcept {
     return _impl->file_io;
 }
 
-void Context::set_fileio_visitor(BinaryIO *file_io) noexcept {
+void Context::set_file_io(BinaryIO *file_io) noexcept {
     _impl->file_io = file_io;
 }
 

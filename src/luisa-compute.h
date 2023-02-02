@@ -16,8 +16,6 @@
 #include <core/dynamic_module.h>
 #include <core/first_fit.h>
 #include <core/intrin.h>
-#include <core/json.h>
-#include <core/json_fwd.h>
 #include <core/logging.h>
 #include <core/macro.h>
 #include <core/mathematics.h>

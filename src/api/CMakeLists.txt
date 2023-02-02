@@ -12,10 +12,8 @@ set(LUISA_COMPUTE_API_SOURCES
 add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})
 target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-runtime
-        luisa-compute-compile
         luisa-compute-backends
-        luisa-compute-ir
-        )
+        luisa-compute-ir)
 target_link_libraries(luisa-compute-api INTERFACE
         luisa-compute-rust-meta
         )

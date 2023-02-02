@@ -80,7 +80,7 @@ template<typename T>
 using soa_t = typename soa<T>::type;
 
 LUISA_BINDING_GROUP(SomeSOA, a, b)
-LUISA_STRUCT(Some, a, b){};
+LUISA_STRUCT(Some, a, b)
 
 struct Complicated {
     float a;
@@ -88,7 +88,7 @@ struct Complicated {
     std::tuple<Some> c;
 };
 
-LUISA_STRUCT(Complicated, a, b, c){};
+LUISA_STRUCT(Complicated, a, b, c)
 
 using complicated_tuple = canonical_layout_t<Complicated>;
 using linear_tuple = linear_layout_t<Complicated>;
