@@ -32,7 +32,7 @@ public:
     BuiltinBuffer create_aabb_buffer(size_t capacity) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     void *buffer_native_handle(uint64_t handle) const noexcept override;
-    void set_io_visitor(BinaryIO *visitor) noexcept override;
+    void set_io(BinaryIO *visitor) noexcept override;
     // texture
     uint64_t create_texture(
         PixelFormat format, uint dimension,

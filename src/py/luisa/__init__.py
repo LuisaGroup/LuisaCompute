@@ -22,7 +22,7 @@ from lcapi import log_level_verbose, log_level_info, log_level_warning, log_leve
 from os.path import realpath
 
 
-def init(backend_name = None, shader_path = None):
+def init(backend_name = None, shader_path = None, support_gui = True):
     if globalvars.device != None:
         return
     if globalvars.context == None:
@@ -36,7 +36,8 @@ def init(backend_name = None, shader_path = None):
     elif backend_name not in backends:
         raise NameError(f"backend '{backend_name}' is not installed.")
     globalvars.device = globalvars.context.create_device(backend_name)
-    globalvars.stream = globalvars.device.create_stream()
+    globalvars.stream = globalvars.device.create_stream(support_gui)
+    globalvars.stream_support_gui = support_gui
     if shader_path != None:
         globalvars.context.set_shader_path(shader_path)
 

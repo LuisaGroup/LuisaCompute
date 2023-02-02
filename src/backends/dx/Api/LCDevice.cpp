@@ -148,7 +148,7 @@ void *LCDevice::stream_native_handle(uint64 handle) const noexcept {
     return reinterpret_cast<LCCmdBuffer *>(handle)
         ->queue.Queue();
 }
-void LCDevice::set_io_visitor(BinaryIO *visitor) noexcept {
+void LCDevice::set_io(BinaryIO *visitor) noexcept {
     if (visitor) {
         nativeDevice.fileIo = visitor;
     } else {

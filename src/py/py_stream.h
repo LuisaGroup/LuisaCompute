@@ -30,7 +30,7 @@ class PyStream : public vstd::IOperatorNewBase {
         CommandBuffer buffer;
         vstd::vector<Disposer> uploadDisposer;
         // vstd::vector<Disposer> readbackDisposer;
-        Data(Device &device) noexcept;
+        Data(Device &device, bool support_window) noexcept;
     };
     vstd::unique_ptr<Data> _data;
 
@@ -38,7 +38,7 @@ public:
     Stream &stream() const { return _data->stream; }
     PyStream(PyStream &&) noexcept;
     PyStream(PyStream const &) = delete;
-    PyStream(Device &device) noexcept;
+    PyStream(Device &device, bool support_window) noexcept;
     ~PyStream() noexcept;
     vstd::vector<vstd::function<void()>> delegates;
     void add(Command *cmd) noexcept;

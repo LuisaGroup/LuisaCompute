@@ -5,7 +5,8 @@ from .globalvars import stream, get_global_device
 
 class GUI:
     def __init__(self, title: str, resolution, vsync = True, show_FPS = True):
-
+        if not globalvars.stream_support_gui:
+            raise RuntimeError("Stream no support GUI, use init(support_gui=True).")
         self.window = lcapi.PyWindow()
         self.window.reset(get_global_device(), globalvars.stream, title, resolution[0], resolution[1], vsync)
         self.resolution = resolution

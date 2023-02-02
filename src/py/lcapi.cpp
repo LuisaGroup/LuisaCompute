@@ -178,7 +178,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, bool visible) { a.GetAccel().set_visibility_on_update(index, visible); });
     py::class_<ManagedDevice>(m, "Device")
         .def(
-            "create_stream", [](ManagedDevice &self) { return PyStream(self.device); })
+            "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
         .def(
             "impl", [](ManagedDevice &s) { return s.device.impl(); }, pyref)
         .def("create_accel", [](ManagedDevice &device, AccelUsageHint hint, bool allow_compact, bool allow_update) {

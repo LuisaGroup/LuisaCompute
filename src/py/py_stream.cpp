@@ -4,12 +4,12 @@
 
 namespace luisa::compute {
 
-PyStream::PyStream(Device &device) noexcept
-    : _data(new Data(device)) {
+PyStream::PyStream(Device &device, bool support_window) noexcept
+    : _data(new Data(device, support_window)) {
 }
 
-PyStream::Data::Data(Device &device) noexcept
-    : stream(device.create_stream(StreamTag::GRAPHICS)),
+PyStream::Data::Data(Device &device, bool support_window) noexcept
+    : stream(device.create_stream(support_window ? StreamTag::GRAPHICS : StreamTag::COMPUTE)),
       buffer(stream.command_buffer()) {
 }
 
