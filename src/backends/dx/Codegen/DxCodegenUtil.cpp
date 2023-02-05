@@ -167,7 +167,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
         }
             return;
         case Type::Tag::ARRAY: {
-            if (type.element()->tag() == Type::Tag::FLOAT && type.dimension() == 3) {
+            if (type.element()->tag() == Type::Tag::FLOAT && type.dimension() == 3u) {
                 str << "FLOATV3";
             } else {
                 auto customType = opt->CreateStruct(&type);

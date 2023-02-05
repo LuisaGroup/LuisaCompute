@@ -25,6 +25,7 @@ luisa_compute_add_executable(test_command_reorder test_command_reorder.cpp)
 luisa_compute_add_executable(test_command_schedule test_command_schedule.cpp)
 luisa_compute_add_executable(test_thread_pool test_thread_pool.cpp)
 luisa_compute_add_executable(test_sdf_renderer test_sdf_renderer.cpp)
+luisa_compute_add_executable(test_sturct_param test_sturct_param.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_game_of_life test_game_of_life.cpp)

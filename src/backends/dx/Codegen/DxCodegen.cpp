@@ -162,7 +162,7 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             str << '[';
             expr->index()->accept(*this);
             str << ']';
-            if (t->dimension() == 3u) {
+            if (t->dimension() == 3u) {// for alignment
                 str << ".xyz";
             }
             break;
@@ -171,6 +171,12 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             str << ".v[";
             expr->index()->accept(*this);
             str << ']';
+            // for correct alignment, vector3 arrays are stored as vector4 arrays
+            if (t->is_array() &&
+                t->element()->is_vector() &&
+                t->element()->dimension() == 3u) {
+                str << ".xyz";
+            }
         } break;
     }
     str << ")";
