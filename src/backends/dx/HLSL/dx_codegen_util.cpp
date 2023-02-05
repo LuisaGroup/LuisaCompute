@@ -1352,18 +1352,17 @@ void CodegenUtility::GenerateCBuffer(
     std::initializer_list<vstd::IRange<Variable> *> fs,
     vstd::string &result) {
     result << "struct Args{\n"sv;
-    size_t align = 0;
     for (auto &&f : fs) {
         for (auto &&i : *f) {
             if (!detail::IsCBuffer(i.tag())) continue;
             GetTypeName(*i.type(), result, Usage::READ);
+            if (i.type()->is_vector() && i.type()->dimension() == 3) {
+                result.pop_back();
+                result << '4';
+            }
             result << ' ';
             GetVariableName(i, result);
             result << ";\n"sv;
-            if (i.type()->is_vector() && i.type()->dimension() == 3) {
-                result << "uint _a"sv << vstd::to_string(align) << ";\n"sv;
-                align++;
-            }
         }
     }
     result << R"(};

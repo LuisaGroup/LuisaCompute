@@ -141,13 +141,8 @@ void StructGenerator::InitAsStruct(
                 break;
             case Type::Tag::VECTOR: {
                 Align(i->alignment());
-                //TODO: vulkan float3
-                /*if (CodegenStackData::ThreadLocalSpirv()) {
-                    auto alignDim = i->dimension();
-                    alignDim = (alignDim == 3) ? 4 : alignDim;
-                    structSize += 4 * alignDim;
-                } else*/
-                structSize += 4 * i->dimension();
+                auto dim = i->dimension() == 3 ? 4 : i->dimension();
+                structSize += 4 * dim;
 
                 ele = StructureType::GetVector(i->dimension());
             } break;
@@ -172,6 +167,10 @@ void StructGenerator::InitAsStruct(
             } break;
         }
         CodegenUtility::GetTypeName(*i, structDesc, Usage::READ);
+        if (i->is_vector() && i->dimension() == 3) {
+            structDesc.pop_back();
+            structDesc << '4';
+        }
         structDesc << ' ' << varName;
         if (i->tag() == Type::Tag::BOOL) {
             structDesc << ":8"sv;
@@ -192,7 +191,7 @@ void StructGenerator::InitAsArray(
     vstd::function<StructGenerator *(Type const *)> const &visitor) {
     auto &&ele = t->element();
     CodegenUtility::GetTypeName(*ele, structDesc, Usage::READ);
-    if(ele->is_vector() && ele->dimension() == 3){
+    if (ele->is_vector() && ele->dimension() == 3) {
         structDesc.pop_back();
         structDesc << '4';
     }

@@ -130,6 +130,10 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
         auto &&selfStruct = CodegenUtility::GetStruct(expr->self()->type());
         auto &&structVar = selfStruct->GetStructVar(expr->member_index());
         str << curStr << '.' << structVar;
+        auto t = expr->type();
+        if (t->is_vector() && t->dimension() == 3) {
+            str << ".xyz"sv;
+        }
     }
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
@@ -139,7 +143,7 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
         str << '[';
         expr->index()->accept(*this);
         str << ']';
-        if ((t->is_matrix() && t->dimension() == 3u) || (t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3)){
+        if ((t->is_matrix() && t->dimension() == 3u) || (t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3)) {
             str << ".xyz"sv;
         }
     };
@@ -175,7 +179,7 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             str << ".v[";
             expr->index()->accept(*this);
             str << ']';
-            if(t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3){
+            if (t->element()->is_vector() && t->element()->dimension() == 3) {
                 str << ".xyz"sv;
             }
         } break;
@@ -187,6 +191,10 @@ void StringStateVisitor::visit(const RefExpr *expr) {
     CodegenUtility::GetVariableName(v, tempStr);
     CodegenUtility::RegistStructType(v.type());
     str << tempStr;
+    auto t = expr->type();
+    if (t->is_vector() && t->dimension() == 3) {
+        str << ".xyz"sv;
+    }
 }
 
 void StringStateVisitor::visit(const LiteralExpr *expr) {
