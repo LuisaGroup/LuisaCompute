@@ -9,11 +9,14 @@ using namespace luisa;
 using namespace luisa::compute;
 
 struct foo {
+    bool b1;
+    bool b2;
     luisa::float3 test1[2] = {{0, 0, 0}, {0, 0, 0}};
     luisa::int2 a;
     luisa::float3 test2[2] = {{0, 0, 0}, {0, 0, 0}};
+    bool b3;
 };
-LUISA_STRUCT(foo, test1, a, test2){};
+LUISA_STRUCT(foo, b1, b2, test1, a, test2, b3){};
 
 int main(int args, char *argv[]) {
     std::vector<std::array<uint8_t, 4u>> download_image(1280 * 720);

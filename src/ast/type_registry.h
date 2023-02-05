@@ -130,7 +130,7 @@ LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, UINT32)
 // array
 template<typename T, size_t N>
 struct TypeDesc<std::array<T, N>> {
-    static_assert(alignof(T) >= 4u);
+    static_assert(alignof(T) >= 4u, "Array elements should be at least 4-byte aligned.");
     static luisa::string_view description() noexcept {
         static thread_local auto s = luisa::format(
             FMT_STRING("array<{},{}>"),

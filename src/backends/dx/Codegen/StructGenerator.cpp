@@ -29,60 +29,23 @@ size_t StructureType::align() const {
     }
     LUISA_ERROR_WITH_LOCATION("Invalid.");
 }
-void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc) {
-    auto leftedValue = tarAlign - (structSize % tarAlign);
-    if (leftedValue == tarAlign) {
-        leftedValue = 0;
+void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &structSize,
+                                           size_t &alignCount, vstd::string &structDesc) {
+    auto alignedSize = (structSize + tarAlign - 1u) / tarAlign * tarAlign;
+    auto padding = alignedSize - structSize;
+    if (padding == 0) return;
+    // use bitfields to fill small gaps (< 4B)
+    for (; padding % 4 != 0; padding--) {
+        structDesc.append(luisa::format(
+            "bool pad{}:8;\n", alignCount++));
     }
-    if (leftedValue == 0) return;
-    structSize += leftedValue;
-    switch (leftedValue) {
-        case 1:
-            structDesc << "uint _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ":8;\n";
-            break;
-        case 2:
-            structDesc << "uint _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ":16;\n";
-            break;
-        case 3:
-            structDesc << "uint _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ":8;\nuint _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ":16;\n";
-            break;
-        case 4:
-            structDesc << "uint _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ";\n";
-            break;
-        case 8:
-            structDesc << "uint2 _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ";\n";
-            break;
-        case 12:
-            structDesc << "uint3 _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ";\n";
-            break;
-        case 16:
-            structDesc << "uint4 _aa";
-            vstd::to_string(alignCount, structDesc);
-            alignCount++;
-            structDesc << ";\n";
-            break;
+    // handle remaining gaps (4 to 12B)
+    if (padding != 0) {
+        structDesc.append(luisa::format(
+            "uint pad{}[{}];\n",
+            alignCount++, padding / 4));
     }
+    structSize = alignedSize;
 }
 
 StructureType StructureType::GetScalar() {
@@ -110,76 +73,49 @@ void StructGenerator::InitAsStruct(
         varName << 'v';
         vstd::to_string(structTypes.size(), varName);
     };
-    size_t maxAlign = 4;
     auto Align = [&](size_t tarAlign) {
-        maxAlign = std::max(maxAlign, tarAlign);
         ProvideAlignVariable(tarAlign, structSize, alignCount, structDesc);
     };
 
     for (; vars; vars++) {
         auto &&i = *vars;
         updateVarName();
-        vstd::variant<StructureType, StructGenerator *> ele;
+        Align(i->alignment());
         switch (i->tag()) {
             case Type::Tag::BOOL:
-                structSize += 1;
-                ele = StructureType::GetScalar();
-                break;
             case Type::Tag::FLOAT:
-                Align(4);
-                structSize += 4;
-                ele = StructureType::GetScalar();
-                break;
             case Type::Tag::INT:
-                Align(4);
-                structSize += 4;
-                ele = StructureType::GetScalar();
-                break;
             case Type::Tag::UINT:
-                Align(4);
-                structSize += 4;
-                ele = StructureType::GetScalar();
+                structTypes.emplace_back(varName, StructureType::GetScalar());
                 break;
             case Type::Tag::VECTOR:
-                Align(i->alignment());
-                structSize += 4 * i->dimension();
-                ele = StructureType::GetVector(i->dimension());
+                structTypes.emplace_back(varName, StructureType::GetVector(i->dimension()));
                 break;
-            case Type::Tag::MATRIX: {
-                Align(i->alignment());
-                auto alignDim = i->dimension();
-                alignDim = (alignDim == 3) ? 4 : alignDim;
-                structSize += 4 * alignDim * i->dimension();
-                ele = StructureType::GetMatrix(i->dimension());
-            } break;
-            case Type::Tag::STRUCTURE: {
-                Align(i->alignment());
-                auto subStruct = visitor(i);
-                structSize += i->size();
-                ele = subStruct;
-            } break;
-            case Type::Tag::ARRAY: {
-                auto subStruct = visitor(i);
-                Align(i->element()->alignment());
-                structSize += i->size();
-                ele = subStruct;
-            } break;
+            case Type::Tag::MATRIX:
+                structTypes.emplace_back(varName, StructureType::GetMatrix(i->dimension()));
+                break;
+            case Type::Tag::STRUCTURE:
+            case Type::Tag::ARRAY:
+                structTypes.emplace_back(varName, visitor(i));
+                break;
+            default:
+                LUISA_ERROR_WITH_LOCATION("Invalid struct member '{}'.",
+                                          i->description());
         }
+        structSize += i->size();
         CodegenUtility::GetTypeName(*i, structDesc, Usage::READ);
         structDesc << ' ' << varName;
         if (i->tag() == Type::Tag::BOOL) {
+            // HLSL bool are 4-byte aligned, so
+            // use bitfields here to workaround
             structDesc << ":8"sv;
         }
         structDesc << ";\n"sv;
-        Align(i->alignment());
-        structTypes.emplace_back(
-            std::move(varName),
-            ele);
     }
-
-    updateVarName();
-    Align(maxAlign);
+    // final padding for structure-wise alignment
+    Align(structureType->alignment());
 }
+
 void StructGenerator::InitAsArray(
     Type const *t,
     size_t structIdx,
@@ -193,6 +129,7 @@ void StructGenerator::InitAsArray(
     CodegenUtility::GetTypeName(*ele, structDesc, Usage::READ);
     structDesc << " v["sv << vstd::to_string(t->dimension()) << "];\n";
 }
+
 StructGenerator::StructGenerator(
     Type const *structureType,
     size_t structIdx,
@@ -205,5 +142,7 @@ StructGenerator::StructGenerator(
         InitAsArray(structureType, structIdx, visitor);
     }
 }
+
 StructGenerator::~StructGenerator() = default;
+
 }// namespace toolhub::directx
