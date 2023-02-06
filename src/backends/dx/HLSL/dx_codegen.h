@@ -114,6 +114,7 @@ class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
         Scope(StringStateVisitor *self);
         ~Scope();
     };
+    size_t accessCount = 0;
 
 public:
     luisa::unordered_map<uint64, Variable> *sharedVariables = nullptr;

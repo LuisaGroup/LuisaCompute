@@ -117,7 +117,9 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
 void StringStateVisitor::visit(const MemberExpr *expr) {
     char const *xyzw = "xyzw";
     if (expr->is_swizzle()) {
+        accessCount++;
         expr->self()->accept(*this);
+        accessCount--;
         str << '.';
         for (auto i : vstd::range(expr->swizzle_size())) {
             str << xyzw[expr->swizzle_index(i)];
@@ -139,14 +141,15 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 void StringStateVisitor::visit(const AccessExpr *expr) {
     auto t = expr->range()->type();
     auto PrintOrigin = [&] {
+        accessCount++;
         expr->range()->accept(*this);
+        accessCount--;
         str << '[';
         expr->index()->accept(*this);
         str << ']';
-        if (t->is_matrix() && t->dimension() == 3u) {
+        if (accessCount == 0 && t->is_matrix() && t->dimension() == 3u) {
             str << ".xyz"sv;
-        }
-        else if(t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3){
+        } else if (t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3) {
             str << ".v"sv;
         }
     };
@@ -163,22 +166,28 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
     switch (t->tag()) {
         case Type::Tag::BUFFER:
         case Type::Tag::VECTOR: {
+            accessCount++;
             expr->range()->accept(*this);
+            accessCount--;
             str << '[';
             expr->index()->accept(*this);
             str << ']';
         } break;
         case Type::Tag::MATRIX: {
+            accessCount++;
             expr->range()->accept(*this);
+            accessCount--;
             str << '[';
             expr->index()->accept(*this);
             str << ']';
-            if (t->dimension() == 3u) {
+            if (accessCount == 0 && t->dimension() == 3u) {
                 str << ".xyz"sv;
             }
         } break;
         default: {
+            accessCount++;
             expr->range()->accept(*this);
+            accessCount--;
             str << ".v[";
             expr->index()->accept(*this);
             str << ']';
