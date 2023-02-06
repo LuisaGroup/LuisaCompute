@@ -57,8 +57,8 @@ public:
     decltype(auto) end() const { return vec.end(); }
     void erase(auto &&iter) { vec.erase(iter); }
 };
-LC_VSTL_API void to_string(double val, StringBuilder &builder);
-inline void to_string(float val, StringBuilder &builder) {
+LC_VSTL_API void to_string(double val, StringBuilder &builder) noexcept;
+inline void to_string(float val, StringBuilder &builder) noexcept {
     to_string((double)val, builder);
 }
 template<class Ty>

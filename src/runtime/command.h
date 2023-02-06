@@ -774,6 +774,7 @@ public:
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand, StreamTag::COPY)
 };
+
 class ClearDepthCommand final : public Command {
     uint64_t _handle;
     float _value;

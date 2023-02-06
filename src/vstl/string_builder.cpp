@@ -30,6 +30,7 @@ inline void _float_str_resize(size_t lastSize, StringBuilder &str) noexcept {
     }
     str << ".0"sv;
 }
+
 LC_VSTL_API void to_string(double Val, StringBuilder &str) noexcept {
     const size_t len = snprintf(nullptr, 0, "%f", Val);
     auto lastLen = str.size();
@@ -40,4 +41,5 @@ LC_VSTL_API void to_string(double Val, StringBuilder &str) noexcept {
     str.erase(iter);
     _float_str_resize(lastLen, str);
 }
+
 }// namespace vstd

@@ -1,9 +1,11 @@
 #pragma once
 #include <raster/vertex_attribute.h>
 #include <core/stl/optional.h>
-#include <raster/depth_format.h>
+#include <runtime/depth_format.h>
 #include <raster/viewport.h>
+
 namespace luisa::compute {
+
 enum class Comparison : uint8_t {
     Never,
     Less,
@@ -14,7 +16,9 @@ enum class Comparison : uint8_t {
     GreaterEqual,
     Always
 };
+
 class MeshFormat {
+
 private:
     luisa::vector<luisa::vector<VertexAttribute>> _streams;
 
@@ -37,20 +41,24 @@ public:
     decltype(auto) begin() const { return _streams.begin(); }
     decltype(auto) end() const { return _streams.end(); }
 };
+
 enum class FillMode : uint8_t {
     WireFrame,
     Solid
 };
+
 enum class CullMode : uint8_t {
     None,
     Front,
     Back
 };
+
 enum class TopologyType : uint8_t {
     Point,
     Line,
     Triangle
 };
+
 enum class BlendWeight : uint8_t {
     Zero,
     One,
@@ -63,34 +71,40 @@ enum class BlendWeight : uint8_t {
     OneMinusPrimAlpha,
     OneMinusImgAlpha
 };
+
 enum class BlendOp : uint8_t {
     Add,
     Subtract,
     Min,
     Max
 };
+
 enum class StencilOp : uint8_t {
     Keep,
     Zero,
     Replace
 };
+
 struct BlendState {
     bool enableBlend{};
     BlendOp op{BlendOp::Add};
     BlendWeight prim_op{BlendWeight::Zero};
     BlendWeight img_op{BlendWeight::One};
 };
+
 struct DepthState {
     bool enableDepth{};
     Comparison comparison{};
     bool write{};
 };
+
 struct StencilFaceOp {
     StencilOp stencil_fail_op{};
     StencilOp depth_fail_op{};
     StencilOp pass_op{};
     Comparison comparison{};
 };
+
 struct StencilState {
     bool enableStencil{};
     StencilFaceOp front_face_op{};
@@ -98,6 +112,7 @@ struct StencilState {
     uint8_t read_mask{};
     uint8_t write_mask{};
 };
+
 struct RasterState {
     FillMode fill_mode{FillMode::Solid};
     CullMode cull_mode{CullMode::Back};
@@ -112,4 +127,5 @@ struct RasterState {
 
 // Make raster state hash-able
 static_assert(alignof(RasterState) == 1);
+
 }// namespace luisa::compute

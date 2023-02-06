@@ -36,7 +36,7 @@ using is_valid_buffer_element = std::conjunction<
 
 template<typename T>
 constexpr auto is_valid_buffer_element_v = is_valid_buffer_element<T>::value;
-class ViewExporter;
+
 template<typename T>
 class Buffer final : public Resource {
 
