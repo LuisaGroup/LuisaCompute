@@ -149,6 +149,13 @@ struct Expr<std::array<T, N>>
     LUISA_EXPR_COMMON(std::array<T, N>)
 };
 
+template<typename T, size_t N>
+struct Expr<T[N]>
+    : detail::ExprEnableSubscriptAccess<Expr<std::array<T, N>>>,
+      detail::ExprEnableGetMemberByIndex<Expr<std::array<T, N>>> {
+    LUISA_EXPR_COMMON(std::array<T, N>)
+};
+
 /// Class of Expr<Matrix><N>>. Can be constructed from Matrix<N>
 template<size_t N>
 struct Expr<Matrix<N>>
