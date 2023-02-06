@@ -86,23 +86,26 @@ void StructGenerator::InitAsStruct(
             case Type::Tag::FLOAT:
             case Type::Tag::INT:
             case Type::Tag::UINT:
+                structSize += i->size();
                 structTypes.emplace_back(varName, StructureType::GetScalar());
                 break;
             case Type::Tag::VECTOR:
+                structSize += i->element()->size() * i->dimension();
                 structTypes.emplace_back(varName, StructureType::GetVector(i->dimension()));
                 break;
             case Type::Tag::MATRIX:
+                structSize += i->size();
                 structTypes.emplace_back(varName, StructureType::GetMatrix(i->dimension()));
                 break;
             case Type::Tag::STRUCTURE:
             case Type::Tag::ARRAY:
+                structSize += i->size();
                 structTypes.emplace_back(varName, visitor(i));
                 break;
             default:
                 LUISA_ERROR_WITH_LOCATION("Invalid struct member '{}'.",
                                           i->description());
         }
-        structSize += i->size();
         CodegenUtility::GetTypeName(*i, structDesc, Usage::READ);
         structDesc << ' ' << varName;
         if (i->tag() == Type::Tag::BOOL) {

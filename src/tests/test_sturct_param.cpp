@@ -11,9 +11,9 @@ using namespace luisa::compute;
 struct foo {
     bool b1;
     bool b2;
-    luisa::float3 test1[2] = {{0, 0, 0}, {0, 0, 0}};
+    luisa::float3 test1;
     luisa::int2 a;
-    luisa::float3 test2[2] = {{0, 0, 0}, {0, 0, 0}};
+    luisa::float3 test2[2];
     bool b3;
 };
 LUISA_STRUCT(foo, b1, b2, test1, a, test2, b3){};
