@@ -123,8 +123,9 @@ void StructGenerator::InitAsArray(
     structName = "A";
     vstd::to_string(structIdx, structName);
     auto ele = t->element();
-    if (ele->is_vector() && ele->dimension() == 3u) {// work around vector3 alignment
-        ele = Type::from(luisa::format("vector<{},4>", ele->element()->description()));
+    if (ele->is_vector() && ele->dimension() == 3u) {
+        // work around vector3 alignment
+        structDesc.append("aligned_");
     }
     CodegenUtility::GetTypeName(*ele, structDesc, Usage::READ);
     structDesc << " v["sv << vstd::to_string(t->dimension()) << "];\n";

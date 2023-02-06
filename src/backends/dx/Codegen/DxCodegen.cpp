@@ -162,7 +162,10 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             str << '[';
             expr->index()->accept(*this);
             str << ']';
-            if (t->dimension() == 3u) {// for alignment
+            // FIXME: this might not work with assignments to chained access,
+            //  e.g., m[2].xyz[3] = 5.f, maybe we should do more detection...
+            if (t->dimension() == 3u) {
+                // for alignment
                 str << ".xyz";
             }
             break;
@@ -175,7 +178,7 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             if (t->is_array() &&
                 t->element()->is_vector() &&
                 t->element()->dimension() == 3u) {
-                str << ".xyz";
+                str << ".v";
             }
         } break;
     }

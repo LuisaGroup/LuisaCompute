@@ -302,17 +302,14 @@ float4 Mul(float4x4 b, float4 a) { return mul(a, b); }
 float3 Mul(float3x4 b, float3 a) { return mul(a, b).xyz; }
 float2 Mul(float2x2 b, float2 a) { return mul(a, b); }
 
-struct WrappedFloat2x2 {
-row_major float2x2 m;
-};
+struct WrappedFloat2x2 { row_major float2x2 m; };
+struct WrappedFloat3x3 { row_major float3x4 m; };
+struct WrappedFloat4x4 { row_major float4x4 m; };
 
-struct WrappedFloat3x3 {
-row_major float3x4 m;
-};
-
-struct WrappedFloat4x4 {
-row_major float4x4 m;
-};
+struct aligned_float3 { float3 v; float pad; };
+struct aligned_uint3 { uint3 v; uint pad; };
+struct aligned_int3 { int3 v; int pad; };
+struct aligned_bool3 { bool3 v; bool pad; };
 
 #define bfread(bf, idx) (bf[idx])
 #define bfread_float(bf, idx) (asfloat(bf[idx]))
