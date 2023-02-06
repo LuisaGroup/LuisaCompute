@@ -191,6 +191,14 @@ public:
      */
     uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override;
     /**
+     * @brief Create a shader on device from an IR module
+     *
+     * @param kernel IR module of the kernel function
+     * @param meta_options meta options (ignored for now)
+     * @return handle of shader
+     */
+    uint64_t create_shader_ex(const ir::KernelModule &kernel, std::string_view meta_options) noexcept override;
+    /**
      * @brief Destroy a shader on device
      * 
      * @param handle handle of shader

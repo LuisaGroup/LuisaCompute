@@ -312,3 +312,7 @@ src/rust/target/**
 # XMake
 .xmake/**
 src/ext/python311/**
+src/rust/luisa_compute_api_types/bindings.*
+
+.fleet/**
+

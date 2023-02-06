@@ -1,13 +1,14 @@
 pub mod ffi;
 pub mod ir;
 pub use ffi::*;
-use std::{hash::Hash, collections::HashMap, rc::Rc};
+pub mod codegen;
+use std::{collections::HashMap, hash::Hash, rc::Rc};
 pub mod context;
-pub mod transform;
 mod display;
+pub mod transform;
 
 pub use gc::Gc;
-use ir::{Primitive, Type};
+use ir::{ArrayType, Primitive, Type};
 
 pub trait TypeOf {
     fn type_() -> Gc<Type>;
@@ -46,6 +47,14 @@ impl TypeOf for i64 {
 impl TypeOf for u64 {
     fn type_() -> Gc<Type> {
         context::register_type(Type::Primitive(Primitive::Uint64))
+    }
+}
+impl<T: TypeOf, const N: usize> TypeOf for [T; N] {
+    fn type_() -> Gc<Type> {
+        context::register_type(Type::Array(ArrayType {
+            element: T::type_(),
+            length: N,
+        }))
     }
 }
 

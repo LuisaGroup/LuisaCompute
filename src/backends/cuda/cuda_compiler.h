@@ -10,6 +10,7 @@
 #include <core/lru_cache.h>
 #include <ast/function.h>
 #include <runtime/context.h>
+#include <ir/codegen.h>
 
 namespace luisa::compute::cuda {
 
@@ -45,10 +46,21 @@ public:
      * 
      * @param ctx context
      * @param function function
-     * @param sm // TODO
+     * @param sm stream multiprocessor capability
      * @return compile result
      */
     [[nodiscard]] luisa::string compile(const Context &ctx, Function function, uint32_t sm) noexcept;
+    /**
+     * @brief Compile kernel function from IR
+     *
+     * @param ctx context
+     * @param m kernel module
+     * @param sm stream multiprocessor capability
+     * @return compile result
+     */
+    [[nodiscard]] luisa::string compile(const Context &ctx,
+                                        const ir::KernelModule &m,
+                                        uint32_t sm) noexcept;
 };
 
 }// namespace luisa::compute::cuda

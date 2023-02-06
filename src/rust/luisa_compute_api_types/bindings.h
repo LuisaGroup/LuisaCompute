@@ -88,8 +88,6 @@ typedef enum LCStreamTag {
     LC_STREAM_TAG_COPY,
 } LCStreamTag;
 
-typedef struct LCCapture LCCapture;
-
 typedef struct LCBuffer {
     uint64_t _0;
 } LCBuffer;
@@ -346,20 +344,6 @@ typedef struct LCAppContext {
     void *ir_context;
 } LCAppContext;
 
-typedef struct LCIrModule {
-    uint64_t _0;
-} LCIrModule;
-
-typedef struct LCNodeRef {
-    uint64_t _0;
-} LCNodeRef;
-
 typedef struct LCKernelModule {
-    struct LCIrModule ir_module;
-    const struct LCCapture *captured;
-    size_t captured_count;
-    const struct LCNodeRef *args;
-    size_t args_count;
-    const struct LCNodeRef *shared;
-    size_t shared_count;
+    uint64_t ptr;
 } LCKernelModule;

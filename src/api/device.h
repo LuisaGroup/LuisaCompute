@@ -82,7 +82,7 @@ typedef struct LCDeviceInterface {
     // [[nodiscard]] virtual uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept = 0;
     // virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
-    uint64_t (*create_shader_ex)(struct LCDeviceInterface *self, const LCKernelModule *kernel, const char *meta_options);
+    uint64_t (*create_shader_ex)(struct LCDeviceInterface *self, LCKernelModule kernel, const char *meta_options);
     void (*destroy_shader)(struct LCDeviceInterface *self, uint64_t handle);
     // event
     // [[nodiscard]] virtual uint64_t create_event() noexcept = 0;

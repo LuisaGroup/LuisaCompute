@@ -22,6 +22,10 @@ class SwapChain;
 class BinaryIO;
 class BindlessArray;
 
+namespace ir {
+struct KernelModule;
+}
+
 template<typename T>
 class Buffer;
 

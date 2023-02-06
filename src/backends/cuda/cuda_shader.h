@@ -8,9 +8,11 @@
 #include <memory>
 
 #include <core/basic_types.h>
+#include <ir/ir.hpp>
 
 namespace luisa::compute {
 class ShaderDispatchCommand;
+class ShaderDispatchExCommand;
 }
 
 namespace luisa::compute::cuda {
@@ -22,8 +24,14 @@ class CUDAStream;
  * @brief Shader on CUDA
  * 
  */
-struct CUDAShader {
-    CUDAShader() noexcept = default;
+class CUDAShader {
+
+protected:
+    luisa::vector<ir::Binding> _captures;// only for shaders from IR
+
+public:
+    explicit CUDAShader(luisa::vector<ir::Binding> captures) noexcept
+        : _captures{std::move(captures)} {}
     CUDAShader(CUDAShader &&) noexcept = delete;
     CUDAShader(const CUDAShader &) noexcept = delete;
     CUDAShader &operator=(CUDAShader &&) noexcept = delete;
@@ -39,7 +47,10 @@ struct CUDAShader {
      * @param is_raytracing is raytracing
      * @return CUDAShader* 
      */
-    [[nodiscard]] static CUDAShader *create(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry, bool is_raytracing) noexcept;
+    [[nodiscard]] static CUDAShader *create(CUDADevice *device, uint3 block_size,
+                                            const char *ptx, size_t ptx_size,
+                                            const char *entry, bool is_raytracing,
+                                            luisa::vector<ir::Binding>) noexcept;
     /**
      * @brief Destroy a CUDAShader
      * 
@@ -53,6 +64,7 @@ struct CUDAShader {
      * @param command 
      */
     virtual void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept = 0;
+    virtual void launch(CUDAStream *stream, const ShaderDispatchExCommand *command) const noexcept = 0;
 };
 
 }

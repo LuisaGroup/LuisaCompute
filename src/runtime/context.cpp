@@ -40,6 +40,7 @@ auto runtime_directory(const std::filesystem::path &p) noexcept {
 }
 
 }// namespace detail
+<<<<<<< HEAD
 
 Context::Context(string_view program_path) noexcept
     : _impl{luisa::make_shared<Impl>()} {
@@ -58,6 +59,12 @@ Context::Context(string_view program_path) noexcept
     DynamicModule::add_search_path(_impl->runtime_directory);
     for (auto &&p : std::filesystem::directory_iterator{_impl->runtime_directory}) {
         if (auto &&path = p.path();
+=======
+void Context::add_search_path(const std::filesystem::path &path) noexcept {
+    DynamicModule::add_search_path(path);
+    for (auto &&p : std::filesystem::directory_iterator{path}) {
+        if (auto path = p.path();
+>>>>>>> autodiff
             p.is_regular_file() &&
             (path.extension() == ".so" ||
              path.extension() == ".dll" ||
@@ -83,6 +90,22 @@ Context::Context(string_view program_path) noexcept
     _impl->installed_backends.erase(
         std::unique(_impl->installed_backends.begin(), _impl->installed_backends.end()),
         _impl->installed_backends.end());
+}
+Context::Context(const std::filesystem::path &program) noexcept
+    : _impl{luisa::make_shared<Impl>()} {
+    _impl->runtime_directory = detail::runtime_directory(program);
+#ifdef LUISA_PLATFORM_WINDOWS
+    SetDllDirectoryW(_impl->runtime_directory.c_str());
+#endif
+    LUISA_INFO("Created context for program '{}'.", program.filename().string<char>());
+    LUISA_INFO("Runtime directory: {}.", _impl->runtime_directory.string<char>());
+    _impl->cache_directory = _impl->runtime_directory / ".cache";
+    LUISA_INFO("Cache directory: {}.", _impl->cache_directory.string<char>());
+    if (!std::filesystem::exists(_impl->cache_directory)) {
+        LUISA_INFO("Created cache directory.");
+        std::filesystem::create_directories(_impl->cache_directory);
+    }
+    add_search_path(_impl->runtime_directory);
 }
 
 const std::filesystem::path &ContextPaths::runtime_directory() const noexcept {
@@ -110,6 +133,7 @@ Device Context::create_device(std::string_view backend_name_in, DeviceConfig con
                   backend_name) == impl->installed_backends.cend()) {
         LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
     }
+<<<<<<< HEAD
     Device::Creator *creator;
     Device::Deleter *deleter;
     size_t index;
@@ -138,6 +162,32 @@ Device Context::create_device(std::string_view backend_name_in, DeviceConfig con
         impl->device_deleters.emplace_back(deleter);
     }
     return Device{Device::Handle{creator(Context{_impl}, settings), deleter}};
+=======
+    auto [create, destroy] = [backend_name, this] {
+        if (auto iter = std::find(_impl->device_identifiers.cbegin(),
+                                  _impl->device_identifiers.cend(),
+                                  backend_name);
+            iter != _impl->device_identifiers.cend()) {
+            auto i = iter - _impl->device_identifiers.cbegin();
+            auto c = _impl->device_creators[i];
+            auto d = _impl->device_deleters[i];
+            return std::make_pair(c, d);
+        }
+        auto &&m = _impl->loaded_modules.emplace_back(
+            _impl->runtime_directory,
+            fmt::format("luisa-compute-backend-{}", backend_name));
+        //   auto &&m = _impl->loaded_modules.emplace_back(
+        //     DynamicModule::load(
+        //     fmt::format("luisa-compute-backend-{}", backend_name)));
+        auto c = m.function<Device::Creator>("create");
+        auto d = m.function<Device::Deleter>("destroy");
+        _impl->device_identifiers.emplace_back(backend_name);
+        _impl->device_creators.emplace_back(c);
+        _impl->device_deleters.emplace_back(d);
+        return std::make_pair(c, d);
+    }();
+    return Device{Device::Handle{create(*this, property_json), destroy}};
+>>>>>>> autodiff
 }
 
 Context::Context(luisa::shared_ptr<Impl> impl) noexcept

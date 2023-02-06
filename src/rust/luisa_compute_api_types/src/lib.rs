@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 use std::ffi::c_void;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct Buffer(pub u64);
@@ -100,23 +101,6 @@ bitflags! {
         const VISIBILITY = Self::VISIBILITY_ON.bits | Self::VISIBILITY_OFF.bits;
     }
 }
-// impl AccelBuildModificationFlags {
-//     fn is_empty(&self) -> bool {
-//         self.0 == 0
-//     }
-// }
-// impl std::ops::BitAnd for AccelBuildModificationFlags {
-//     type Output = Self;
-//     fn bitand(self, rhs: Self) -> Self {
-//         Self(self.0 & rhs.0)
-//     }
-// }
-// impl std::ops::BitOr for AccelBuildModificationFlags {
-//     type Output = Self;
-//     fn bitor(self, rhs: Self) -> Self {
-//         Self(self.0 | rhs.0)
-//     }
-// }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct AccelBuildModification {
@@ -125,6 +109,7 @@ pub struct AccelBuildModification {
     pub mesh: u64,
     pub affine: [f32; 12],
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum PixelStorage {
@@ -144,6 +129,29 @@ pub enum PixelStorage {
     Float2,
     Float4,
 }
+
+impl PixelStorage {
+    pub fn size(&self) -> usize {
+        match self {
+            PixelStorage::Byte1 => 1,
+            PixelStorage::Byte2 => 2,
+            PixelStorage::Byte4 => 4,
+            PixelStorage::Short1 => 2,
+            PixelStorage::Short2 => 4,
+            PixelStorage::Short4 => 8,
+            PixelStorage::Int1 => 4,
+            PixelStorage::Int2 => 8,
+            PixelStorage::Int4 => 16,
+            PixelStorage::Half1 => 2,
+            PixelStorage::Half2 => 4,
+            PixelStorage::Half4 => 8,
+            PixelStorage::Float1 => 4,
+            PixelStorage::Float2 => 8,
+            PixelStorage::Float4 => 16,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum PixelFormat {
@@ -181,6 +189,7 @@ pub enum PixelFormat {
     Rg32f,
     Rgba32f,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum SamplerFilter {
@@ -198,6 +207,7 @@ pub enum SamplerAddress {
     Mirror,
     Zero,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct Sampler {
@@ -212,6 +222,7 @@ pub struct BufferArgument {
     pub offset: usize,
     pub size: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct TextureArgument {
@@ -235,21 +246,25 @@ pub enum Argument {
     Accel(Accel),
     BindlessArray(BindlessArray),
 }
+
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct Capture {
     pub node: NodeRef,
     pub arg: Argument,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct KernelModule {
-    pub ir_module: IrModule,
-    pub captured: *const Capture,
-    pub captured_count: usize,
-    pub args: *const NodeRef,
-    pub args_count: usize,
-    pub shared: *const NodeRef,
-    pub shared_count: usize,
+    pub ptr: u64
+    // pub ir_module: IrModule,
+    // pub captured: *const Capture,
+    // pub captured_count: usize,
+    // pub args: *const NodeRef,
+    // pub args_count: usize,
+    // pub shared: *const NodeRef,
+    // pub shared_count: usize,
+    // pub block_size: [u32; 3],
 }
 
 #[repr(C)]
@@ -259,6 +274,7 @@ pub struct CallableModule {
     pub args: *const NodeRef,
     pub args_count: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BufferUploadCommand {
@@ -267,6 +283,7 @@ pub struct BufferUploadCommand {
     pub size: usize,
     pub data: *const u8,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BufferDownloadCommand {
@@ -275,6 +292,7 @@ pub struct BufferDownloadCommand {
     pub size: usize,
     pub data: *mut u8,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BufferCopyCommand {
@@ -284,6 +302,7 @@ pub struct BufferCopyCommand {
     pub dst_offset: usize,
     pub size: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BufferToTextureCopyCommand {
@@ -294,6 +313,7 @@ pub struct BufferToTextureCopyCommand {
     pub texture_level: u32,
     pub texture_size: [u32; 3],
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct TextureToBufferCopyCommand {
@@ -304,6 +324,7 @@ pub struct TextureToBufferCopyCommand {
     pub texture_level: u32,
     pub texture_size: [u32; 3],
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct TextureUploadCommand {
@@ -313,6 +334,7 @@ pub struct TextureUploadCommand {
     pub size: [u32; 3],
     pub data: *const u8,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct TextureDownloadCommand {
@@ -322,15 +344,16 @@ pub struct TextureDownloadCommand {
     pub size: [u32; 3],
     pub data: *mut u8,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ShaderDispatchCommand {
     pub shader: Shader,
-    // pub m: KernelModule,
     pub dispatch_size: [u32; 3],
     pub args: *const Argument,
     pub args_count: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct MeshBuildCommand {
@@ -343,6 +366,7 @@ pub struct MeshBuildCommand {
     pub index_buffer_offset: usize,
     pub index_buffer_size: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct AccelBuildCommand {
@@ -352,6 +376,7 @@ pub struct AccelBuildCommand {
     pub modifications: *const AccelBuildModification,
     pub modifications_count: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum Command {
@@ -367,16 +392,23 @@ pub enum Command {
     AccelBuild(AccelBuildCommand),
     BindlessArrayUpdate(BindlessArray),
 }
+
+unsafe impl Send for Command {}
+
+unsafe impl Sync for Command {}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct CommandList {
     pub commands: *const Command,
     pub commands_count: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct AppContext {
     pub gc_context: *mut c_void,
     pub ir_context: *mut c_void,
 }
+
 pub fn __dummy() {}

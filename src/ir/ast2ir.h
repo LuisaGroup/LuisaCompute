@@ -27,10 +27,14 @@ private:
         const ir::IrBuilder *_builder;
 
     public:
+<<<<<<< HEAD
         IrBuilderGuard(AST2IR *self, ir::IrBuilder *builder) noexcept
             : _self{self}, _builder{builder} {
             self->_builder_stack.emplace_back(builder);
         }
+=======
+        IrBuilderGuard(AST2IR *self, ir::IrBuilder *builder) noexcept;
+>>>>>>> autodiff
         ~IrBuilderGuard() noexcept;
     };
 
@@ -43,6 +47,7 @@ private:
 
 private:
     template<typename T>
+<<<<<<< HEAD
     [[nodiscard]] auto _boxed_slice(size_t n) noexcept -> ir::CBoxedSlice<T> {
         if (n == 0u) {
             return {.ptr = nullptr,
@@ -53,13 +58,12 @@ private:
                 .len = n,
                 .destructor = [](T *ptr, size_t) noexcept { luisa::deallocate_with_allocator(ptr); }};
     }
+=======
+    [[nodiscard]] auto _boxed_slice(size_t n) noexcept -> ir::CBoxedSlice<T>;
+>>>>>>> autodiff
 
     template<typename Fn>
-    auto _with_builder(Fn &&fn) noexcept {
-        auto b = ir::luisa_compute_ir_new_builder();
-        IrBuilderGuard guard{this, &b};
-        return fn(&b);
-    }
+    auto _with_builder(Fn &&fn) noexcept;
 
 private:
     [[nodiscard]] ir::IrBuilder *_current_builder() noexcept;
