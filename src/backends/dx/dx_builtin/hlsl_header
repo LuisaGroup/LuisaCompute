@@ -170,6 +170,10 @@ float2x2 Mul(const float2x2 a,const float2x2 b){return mul(a,b);}
 float4 Mul(const float4x4 b,const float4 a){return mul(a,b);}
 float3 Mul(const float3x4 b,const float3 a){return mul(a,b).xyz;}
 float2 Mul(const float2x2 b,const float2 a){return mul(a,b);}
+struct wbool3 {bool3 v; bool a;};
+struct wfloat3 {float3 v; float a;};
+struct wuint3 {uint3 v; uint a;};
+struct wint3 {int3 v; int a;};
 struct WrappedFloat2x2 {row_major float2x2 m;};
 struct WrappedFloat3x3 {
 row_major float3x4 m;

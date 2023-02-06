@@ -1,9 +1,10 @@
 #pragma once
-#include "vstl/common.h"
-#include "vstl/functional.h"
-#include "ast/function.h"
-#include "ast/expression.h"
-#include "ast/statement.h"
+#include <vstl/common.h>
+#include <vstl/functional.h>
+#include <ast/function.h>
+#include <ast/expression.h>
+#include <ast/statement.h>
+#include <vstl/string_builder.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class StructureType : public vstd::IOperatorNewBase {
@@ -33,7 +34,7 @@ public:
 class StructGenerator : public vstd::IOperatorNewBase {
     Type const *structureType{nullptr};
     vstd::vector<std::pair<vstd::string, vstd::variant<StructureType, StructGenerator *>>> structTypes;
-    vstd::string structDesc;
+    vstd::StringBuilder structDesc;
     vstd::string structName;
     size_t alignCount = 0;
     size_t idx;
@@ -50,8 +51,8 @@ public:
     vstd::string const &GetStructVar(uint idx) const {
         return structTypes[idx].first;
     }
-    static void ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::string &structDesc);
-    vstd::string_view GetStructDesc() const { return structDesc; }
+    static void ProvideAlignVariable(size_t tarAlign, size_t &structSize, size_t &alignCount, vstd::StringBuilder &structDesc);
+    vstd::string_view GetStructDesc() const { return structDesc.view(); }
     vstd::string_view GetStructName() const { return structName; }
     void SetStructName(vstd::string &&name) {
         structName = std::move(name);

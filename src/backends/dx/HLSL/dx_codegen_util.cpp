@@ -6,9 +6,9 @@
 #include "codegen_stack_data.h"
 #include <vstl/pdqsort.h>
 namespace toolhub::directx {
-vstd::string CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::compute::BinaryIO *ctx) {
+vstd::StringBuilder CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::compute::BinaryIO *ctx) {
     auto bin = ctx->read_internal(name);
-    vstd::string str;
+    vstd::StringBuilder str;
     str.resize(bin->length());
     bin->read({reinterpret_cast<std::byte *>(str.data()), str.size()});
     return str;
@@ -45,8 +45,9 @@ uint CodegenUtility::IsBool(Type const &type) {
     }
     return 0;
 };
-vstd::string CodegenUtility::GetNewTempVarName() {
-    vstd::string name = "tmp";
+vstd::StringBuilder CodegenUtility::GetNewTempVarName() {
+    vstd::StringBuilder name;
+    name <<  "tmp"sv;
     vstd::to_string(opt->tempCount, name);
     opt->tempCount++;
     return name;
@@ -63,7 +64,7 @@ void CodegenUtility::RegistStructType(Type const *type) {
     }
 }
 
-void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::string &str) {
+void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBuilder &str) {
     switch (type) {
         case Variable::Tag::BLOCK_ID:
             str << "grpId"sv;
@@ -154,16 +155,16 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::string &
     }
 }
 
-void CodegenUtility::GetVariableName(Variable const &type, vstd::string &str) {
+void CodegenUtility::GetVariableName(Variable const &type, vstd::StringBuilder &str) {
     GetVariableName(type.tag(), type.uid(), str);
 }
-bool CodegenUtility::GetConstName(uint64 hash, ConstantData const &data, vstd::string &str) {
+bool CodegenUtility::GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str) {
     auto constCount = opt->GetConstCount(hash);
     str << "c";
     vstd::to_string((constCount.first), str);
     return constCount.second;
 }
-void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::string &str) {
+void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str) {
     uint64 constCount = opt->GetConstCount(data.hash()).first;
     //auto typeName = CodegenUtility::GetBasicTypeName(view.index());
     str << "struct tc";
@@ -180,7 +181,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::string &s
     str << "];\n";
     str << "};\n";
 }
-void CodegenUtility::GetConstantData(ConstantData const &data, vstd::string &str) {
+void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuilder &str) {
     auto &&view = data.view();
     uint64 constCount = opt->GetConstCount(data.hash()).first;
 
@@ -204,7 +205,7 @@ void CodegenUtility::GetConstantData(ConstantData const &data, vstd::string &str
     str << "};\n";
 }
 
-void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usage) {
+void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usage usage, bool local_var) {
     switch (type.tag()) {
         case Type::Tag::BOOL:
             str << "bool"sv;
@@ -226,8 +227,14 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
         }
             return;
         case Type::Tag::VECTOR: {
-            CodegenUtility::GetTypeName(*type.element(), str, usage);
-            vstd::to_string((type.dimension()), str);
+            if (type.dimension() != 3 || local_var) {
+                CodegenUtility::GetTypeName(*type.element(), str, usage);
+                vstd::to_string((type.dimension()), str);
+            } else {
+                str << 'w';
+                CodegenUtility::GetTypeName(*type.element(), str, usage);
+                vstd::to_string(3, str);
+            }
         }
             return;
         case Type::Tag::ARRAY: {
@@ -250,7 +257,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
                 auto n = ele->dimension();
                 str << luisa::format("WrappedFloat{}x{}", n, n);
             } else {
-                vstd::string typeName;
+                vstd::StringBuilder typeName;
                 if (ele->is_vector() && ele->dimension() == 3) {
                     typeName << "float4"sv;
                 } else {
@@ -298,8 +305,8 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::string &str, Usage usag
     }
 }
 
-void CodegenUtility::GetFunctionDecl(Function func, vstd::string &funcDecl) {
-    vstd::string data;
+void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &funcDecl) {
+    vstd::StringBuilder data;
     uint64 tempIdx = 0;
     auto GetTemplateName = [&] {
         data << 'T';
@@ -340,7 +347,7 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &funcDecl) {
                 }
                 RegistStructType(i.type());
 
-                vstd::string varName;
+                vstd::StringBuilder varName;
                 CodegenUtility::GetVariableName(i, varName);
                 if (i.type()->is_accel()) {
                     if ((to_underlying(usage) & to_underlying(Usage::WRITE)) == 0) {
@@ -370,10 +377,10 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::string &funcDecl) {
     funcDecl << '\n'
              << data;
 }
-void CodegenUtility::GetFunctionName(Function callable, vstd::string &result) {
+void CodegenUtility::GetFunctionName(Function callable, vstd::StringBuilder &result) {
     result << "custom_"sv << vstd::to_string((opt->GetFuncCount(callable.builder())));
 }
-void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, StringStateVisitor &vis) {
+void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &str, StringStateVisitor &vis) {
     auto args = expr->arguments();
     auto getPointer = [&]() {
         str << '(';
@@ -1042,7 +1049,7 @@ size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
 
 template<typename T>
 struct TypeNameStruct {
-    void operator()(vstd::string &str) {
+    void operator()(vstd::StringBuilder &str) {
         if constexpr (std::is_same_v<bool, T>) {
             str << "bool";
         } else if constexpr (std::is_same_v<int, T>) {
@@ -1058,7 +1065,7 @@ struct TypeNameStruct {
 };
 template<typename T, size_t t>
 struct TypeNameStruct<luisa::Vector<T, t>> {
-    void operator()(vstd::string &str) {
+    void operator()(vstd::StringBuilder &str) {
         TypeNameStruct<T>()(str);
         size_t n = (t == 3) ? 4 : t;
         str += ('0' + n);
@@ -1066,7 +1073,7 @@ struct TypeNameStruct<luisa::Vector<T, t>> {
 };
 template<size_t t>
 struct TypeNameStruct<luisa::Matrix<t>> {
-    void operator()(vstd::string &str) {
+    void operator()(vstd::StringBuilder &str) {
         TypeNameStruct<float>()(str);
         if constexpr (t == 2) {
             str << "2x2";
@@ -1079,19 +1086,19 @@ struct TypeNameStruct<luisa::Matrix<t>> {
         }
     }
 };
-void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::string &str) {
+void CodegenUtility::GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str) {
     vstd::VariantVisitor_t<basic_types>()(
         [&]<typename T>() {
             TypeNameStruct<T>()(str);
         },
         typeIndex);
 }
-void CodegenUtility::CodegenFunction(Function func, vstd::string &result, bool cbufferNonEmpty) {
+void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty) {
 
     auto codegenOneFunc = [&](Function func) {
         auto constants = func.constants();
         for (auto &&i : constants) {
-            vstd::string constValueName;
+            vstd::StringBuilder constValueName;
             if (!GetConstName(i.data.hash(), i.data, constValueName)) continue;
             result << "static const "sv;
             GetTypeName(*i.type->element(), result, Usage::READ);
@@ -1179,7 +1186,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
     };
     callable(callable, func);
 }
-void CodegenUtility::CodegenVertex(Function vert, vstd::string &result, bool cBufferNonEmpty, vstd::function<void(string &)> const &bindVertex) {
+void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, vstd::function<void(vstd::StringBuilder &)> const &bindVertex) {
     vstd::unordered_set<void const *> callableMap;
     auto gen = [&](auto &callable, Function func) -> void {
         for (auto &&i : func.custom_callables()) {
@@ -1195,7 +1202,7 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::string &result, bool cBu
     };
     auto args = vert.arguments();
     gen(callable, vert);
-    vstd::string retName;
+    vstd::StringBuilder retName;
     auto retType = vert.return_type();
     GetTypeName(*retType, retName, Usage::READ);
     result << "template<typename T>\n"sv << retName << " vert(T vt){\n"sv;
@@ -1238,7 +1245,7 @@ v2p o;
 }
 )"sv;
 }
-void CodegenUtility::CodegenPixel(Function pixel, vstd::string &result, bool cBufferNonEmpty) {
+void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty) {
     opt->isPixelShader = true;
     auto resetPixelShaderKey = vstd::scope_exit([&] { opt->isPixelShader = false; });
     vstd::unordered_set<void const *> callableMap;
@@ -1255,7 +1262,7 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::string &result, bool cBu
         CodegenFunction(func, result, cBufferNonEmpty);
     };
     gen(callable, pixel);
-    vstd::string retName;
+    vstd::StringBuilder retName;
     auto retType = pixel.return_type();
     GetTypeName(*retType, retName, Usage::READ);
     result << retName << " pixel(v2p p){\n"sv;
@@ -1350,16 +1357,12 @@ bool CodegenUtility::IsCBufferNonEmpty(Function f) {
 }
 void CodegenUtility::GenerateCBuffer(
     std::initializer_list<vstd::IRange<Variable> *> fs,
-    vstd::string &result) {
+    vstd::StringBuilder &result) {
     result << "struct Args{\n"sv;
     for (auto &&f : fs) {
         for (auto &&i : *f) {
             if (!detail::IsCBuffer(i.tag())) continue;
-            GetTypeName(*i.type(), result, Usage::READ);
-            if (i.type()->is_vector() && i.type()->dimension() == 3) {
-                result.pop_back();
-                result << '4';
-            }
+            GetTypeName(*i.type(), result, Usage::READ, false);
             result << ' ';
             GetVariableName(i, result);
             result << ";\n"sv;
@@ -1371,7 +1374,7 @@ StructuredBuffer<Args> _Global:register(t0);
 }
 #ifdef USE_SPIRV
 void CodegenUtility::GenerateBindlessSpirv(
-    vstd::string &str) {
+    vstd::StringBuilder &str) {
     for (auto &&i : opt->bindlessBufferTypes) {
         str << "StructuredBuffer<"sv;
         if (i.first->is_matrix()) {
@@ -1382,7 +1385,7 @@ void CodegenUtility::GenerateBindlessSpirv(
         } else {
             GetTypeName(*i.first, str, Usage::READ);
         }
-        vstd::string instName("bdls"sv);
+        vstd::StringBuilder instName("bdls"sv);
         vstd::to_string(i.second, instName);
         str << "> " << instName << "[]:register(t0,space1);"sv;
     }
@@ -1390,7 +1393,7 @@ void CodegenUtility::GenerateBindlessSpirv(
 #endif
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
-    vstd::string &str) {
+    vstd::StringBuilder &str) {
     for (auto &&i : opt->bindlessBufferTypes) {
         str << "StructuredBuffer<"sv;
         if (i.first->is_matrix()) {
@@ -1416,7 +1419,7 @@ void CodegenUtility::GenerateBindless(
 }
 
 void CodegenUtility::PreprocessCodegenProperties(
-    CodegenResult::Properties &properties, vstd::string &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
+    CodegenResult::Properties &properties, vstd::StringBuilder &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
     bool isRaster) {
     registerCount = {1u, 0u, 0u};
     properties.emplace_back(
@@ -1457,7 +1460,7 @@ void CodegenUtility::PreprocessCodegenProperties(
 
     GenerateBindless(properties, varData);
 }
-void CodegenUtility::PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::string &finalResult) {
+void CodegenUtility::PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult) {
     if (!opt->customStructVector.empty()) {
         vstd::fixed_vector<const StructGenerator *, 8> structures(
             opt->customStructVector.begin(),
@@ -1483,8 +1486,8 @@ void CodegenUtility::PostprocessCodegenProperties(CodegenResult::Properties &pro
 }
 void CodegenUtility::CodegenProperties(
     CodegenResult::Properties &properties,
-    vstd::string &finalResult,
-    vstd::string &varData,
+    vstd::StringBuilder &finalResult,
+    vstd::StringBuilder &varData,
     Function kernel,
     uint offset,
     vstd::array<uint, 3> &registerCount) {
@@ -1501,19 +1504,15 @@ void CodegenUtility::CodegenProperties(
         auto print = [&] {
             GetTypeName(*i.type(), varData, kernel.variable_usage(i.uid()));
             varData << ' ';
-            vstd::string varName;
-            GetVariableName(i, varName);
-            varData << varName;
+            GetVariableName(i, varData);
         };
         auto printInstBuffer = [&]<bool writable>() {
             if constexpr (writable)
                 varData << "RWStructuredBuffer<MeshInst> "sv;
             else
                 varData << "StructuredBuffer<MeshInst> "sv;
-            vstd::string varName;
-            GetVariableName(i, varName);
-            varName << "Inst"sv;
-            varData << varName;
+            GetVariableName(i, varData);
+            varData << "Inst"sv;
         };
         auto genArg = [&]<bool rtBuffer = false, bool writable = false>(RegisterType regisT, ShaderVariableType sT, char v) {
             auto &&r = registerCount[(uint8_t)regisT];
@@ -1585,12 +1584,12 @@ vstd::MD5 CodegenUtility::GetTypeMD5(std::initializer_list<vstd::IRange<Variable
     return {typeDescs};
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
-    vstd::string typeDescs;
+    vstd::StringBuilder typeDescs;
     typeDescs.reserve(512);
     for (auto &&i : func.arguments()) {
         typeDescs << i.type()->description();
     }
-    return {typeDescs};
+    return {typeDescs.view()};
 }
 CodegenResult CodegenUtility::Codegen(
     Function kernel, luisa::compute::BinaryIO *internalDataPath) {
@@ -1603,10 +1602,10 @@ CodegenResult CodegenUtility::Codegen(
     opt->kernel = kernel;
     bool nonEmptyCbuffer = IsCBufferNonEmpty(kernel);
 
-    vstd::string codegenData;
-    vstd::string varData;
+    vstd::StringBuilder codegenData;
+    vstd::StringBuilder varData;
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
-    vstd::string finalResult;
+    vstd::StringBuilder finalResult;
     finalResult.reserve(65500);
 
     finalResult << detail::HLSLHeader(internalDataPath);
@@ -1646,9 +1645,9 @@ CodegenResult CodegenUtility::RasterCodegen(
         opt->isRaster = false;
         CodegenStackData::DeAllocate(std::move(opt));
     });
-    vstd::string codegenData;
-    vstd::string varData;
-    vstd::string finalResult;
+    vstd::StringBuilder codegenData;
+    vstd::StringBuilder varData;
+    vstd::StringBuilder finalResult;
     finalResult.reserve(65500);
     // Vertex
     codegenData << "struct v2p{\n"sv;
@@ -1703,7 +1702,7 @@ uint obj_id:register(b0);
         "float2"sv,
         "float2"sv,
         "float2"sv};
-    auto PrintSetValue = [&](vstd::string &d) {
+    auto PrintSetValue = [&](vstd::StringBuilder &d) {
         for (auto i : vstd::range(meshFormat.vertex_stream_count())) {
             for (auto &&j : meshFormat.attributes(i)) {
                 auto type = j.type;

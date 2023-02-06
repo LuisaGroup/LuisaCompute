@@ -11,6 +11,7 @@
 #include <core/logging.h>
 #include <filesystem>
 #include <core/binary_io.h>
+#include <vstl/string_builder.h>
 using namespace luisa;
 using namespace luisa::compute;
 namespace toolhub::directx {
@@ -20,14 +21,14 @@ class StructGenerator;
 struct CodegenStackData;
 struct CodegenResult {
     using Properties = vstd::vector<Property>;
-    vstd::string result;
+    vstd::StringBuilder result;
     Properties properties;
     uint64 bdlsBufferCount = 0;
     uint64 immutableHeaderSize = 0;
     vstd::MD5 typeMD5;
     CodegenResult() {}
     CodegenResult(
-        vstd::string &&result,
+        vstd::StringBuilder &&result,
         Properties &&properties,
         uint64 bdlsBufferCount,
         uint64 immutableHeaderSize,
@@ -39,32 +40,32 @@ class CodegenUtility {
 
 public:
     static uint IsBool(Type const &type);
-    static bool GetConstName(uint64 hash, ConstantData const &data, vstd::string &str);
-    static void GetVariableName(Variable const &type, vstd::string &str);
-    static void GetVariableName(Variable::Tag type, uint id, vstd::string &str);
-    static void GetTypeName(Type const &type, vstd::string &str, Usage usage);
-    static void GetBasicTypeName(uint64 typeIndex, vstd::string &str);
-    static void GetConstantStruct(ConstantData const &data, vstd::string &str);
+    static bool GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str);
+    static void GetVariableName(Variable const &type, vstd::StringBuilder &str);
+    static void GetVariableName(Variable::Tag type, uint id, vstd::StringBuilder &str);
+    static void GetTypeName(Type const &type, vstd::StringBuilder &str, Usage usage, bool local_var = true);
+    static void GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str);
+    static void GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str);
     //static void
-    static void GetConstantData(ConstantData const &data, vstd::string &str);
+    static void GetConstantData(ConstantData const &data, vstd::StringBuilder &str);
     static size_t GetTypeAlign(Type const &t);
     static size_t GetTypeSize(Type const &t);
-    static vstd::string GetBasicTypeName(uint64 typeIndex) {
-        vstd::string s;
+    static vstd::StringBuilder GetBasicTypeName(uint64 typeIndex) {
+        vstd::StringBuilder s;
         GetBasicTypeName(typeIndex, s);
         return s;
     }
-    static void GetFunctionDecl(Function func, vstd::string &str);
-    static void GetFunctionName(Function callable, vstd::string &result);
-    static void GetFunctionName(CallExpr const *expr, vstd::string &result, StringStateVisitor &visitor);
+    static void GetFunctionDecl(Function func, vstd::StringBuilder &str);
+    static void GetFunctionName(Function callable, vstd::StringBuilder &result);
+    static void GetFunctionName(CallExpr const *expr, vstd::StringBuilder &result, StringStateVisitor &visitor);
     static void RegistStructType(Type const *type);
 
     static void CodegenFunction(
         Function func,
-        vstd::string &result,
+        vstd::StringBuilder &result,
         bool cBufferNonEmpty);
-    static void CodegenVertex(Function vert, vstd::string &result, bool cBufferNonEmpty, vstd::function<void(string &)> const &bindVertex);
-    static void CodegenPixel(Function pixel, vstd::string &result, bool cBufferNonEmpty);
+    static void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, vstd::function<void(vstd::StringBuilder &)> const &bindVertex);
+    static void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
     static StructGenerator const *GetStruct(
         Type const *type);
     static bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
@@ -75,17 +76,17 @@ public:
 
     static void GenerateCBuffer(
         std::initializer_list<vstd::IRange<Variable> *> f,
-        vstd::string &result);
+        vstd::StringBuilder &result);
     static void GenerateBindless(
         CodegenResult::Properties &properties,
-        vstd::string &str);
-    static void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::string &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
+        vstd::StringBuilder &str);
+    static void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
                                             bool isRaster);
-    static void PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::string &finalResult);
+    static void PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult);
     static void CodegenProperties(
         CodegenResult::Properties &properties,
-        vstd::string &finalResult,
-        vstd::string &varData,
+        vstd::StringBuilder &finalResult,
+        vstd::StringBuilder &varData,
         Function kernel,
         uint offset,
         vstd::array<uint, 3> &registerCount);
@@ -95,16 +96,16 @@ public:
         Function vertFunc,
         Function pixelFunc,
         luisa::compute::BinaryIO *internalDataPath);
-    static vstd::string ReadInternalHLSLFile(vstd::string_view name, luisa::compute::BinaryIO *ctx);
+    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::compute::BinaryIO *ctx);
     static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::compute::BinaryIO *ctx);
     /*
 #ifdef USE_SPIRV
     static void GenerateBindlessSpirv(
-        vstd::string &str);
+        vstd::StringBuilder &str);
     static CodegenStackData *StackData();
-    static vstd::optional<vstd::string> CodegenSpirv(Function kernel, luisa::compute::BinaryIO*internalDataPath);
+    static vstd::optional<vstd::StringBuilder> CodegenSpirv(Function kernel, luisa::compute::BinaryIO*internalDataPath);
 #endif*/
-    static vstd::string GetNewTempVarName();
+    static vstd::StringBuilder GetNewTempVarName();
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
@@ -142,17 +143,17 @@ public:
     void visit(const CommentStmt *) override;
     StringStateVisitor(
         Function f,
-        vstd::string &str);
+        vstd::StringBuilder &str);
     ~StringStateVisitor();
 
 protected:
-    vstd::string &str;
+    vstd::StringBuilder &str;
 };
 template<typename T>
 struct PrintValue;
 template<>
 struct PrintValue<float> {
-    void operator()(float const &v, vstd::string &str) {
+    void operator()(float const &v, vstd::StringBuilder &str) {
         if (std::isnan(v)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
         }
@@ -165,13 +166,13 @@ struct PrintValue<float> {
 };
 template<>
 struct PrintValue<int> {
-    void operator()(int const &v, vstd::string &str) {
+    void operator()(int const &v, vstd::StringBuilder &str) {
         vstd::to_string(v, str);
     }
 };
 template<>
 struct PrintValue<uint> {
-    void operator()(uint const &v, vstd::string &str) {
+    void operator()(uint const &v, vstd::StringBuilder &str) {
         vstd::to_string(v, str);
         str << 'u';
     }
@@ -179,7 +180,7 @@ struct PrintValue<uint> {
 
 template<>
 struct PrintValue<bool> {
-    void operator()(bool const &v, vstd::string &str) {
+    void operator()(bool const &v, vstd::StringBuilder &str) {
         if (v)
             str << "true";
         else
@@ -189,7 +190,7 @@ struct PrintValue<bool> {
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
-    void PureRun(T const &v, vstd::string &varName) {
+    void PureRun(T const &v, vstd::StringBuilder &varName) {
         for (uint64 i = 0; i < N; ++i) {
             vstd::to_string(v[i], varName);
             varName += ',';
@@ -198,7 +199,7 @@ struct PrintValue<Vector<EleType, N>> {
         if (*last == ',')
             varName.erase(last);
     }
-    void operator()(T const &v, vstd::string &varName) {
+    void operator()(T const &v, vstd::StringBuilder &varName) {
         if constexpr (N > 1) {
             if constexpr (std::is_same_v<EleType, float>) {
                 varName << "float";
@@ -223,7 +224,7 @@ template<uint64 N>
 struct PrintValue<Matrix<N>> {
     using T = Matrix<N>;
     using EleType = float;
-    void operator()(T const &v, vstd::string &varName) {
+    void operator()(T const &v, vstd::StringBuilder &varName) {
         varName << "make_float";
         auto ss = vstd::to_string(N);
         varName << ss << 'x' << ss << '(';

@@ -124,7 +124,7 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
         }
 
     } else {
-        vstd::string curStr;
+        vstd::StringBuilder curStr;
         StringStateVisitor vis(f, curStr);
         expr->self()->accept(vis);
         auto &&selfStruct = CodegenUtility::GetStruct(expr->self()->type());
@@ -132,7 +132,7 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
         str << curStr << '.' << structVar;
         auto t = expr->type();
         if (t->is_vector() && t->dimension() == 3) {
-            str << ".xyz"sv;
+            str << ".v"sv;
         }
     }
 }
@@ -143,8 +143,11 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
         str << '[';
         expr->index()->accept(*this);
         str << ']';
-        if ((t->is_matrix() && t->dimension() == 3u) || (t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3)) {
+        if (t->is_matrix() && t->dimension() == 3u) {
             str << ".xyz"sv;
+        }
+        else if(t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3){
+            str << ".v"sv;
         }
     };
     if (expr->range()->tag() == Expression::Tag::REF) {
@@ -180,21 +183,18 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             expr->index()->accept(*this);
             str << ']';
             if (t->element()->is_vector() && t->element()->dimension() == 3) {
-                str << ".xyz"sv;
+                str << ".v"sv;
             }
         } break;
     }
 }
 void StringStateVisitor::visit(const RefExpr *expr) {
     Variable v = expr->variable();
-    vstd::string tempStr;
+    vstd::StringBuilder tempStr;
     CodegenUtility::GetVariableName(v, tempStr);
     CodegenUtility::RegistStructType(v.type());
     str << tempStr;
     auto t = expr->type();
-    if (t->is_vector() && t->dimension() == 3) {
-        str << ".xyz"sv;
-    }
 }
 
 void StringStateVisitor::visit(const LiteralExpr *expr) {
@@ -418,7 +418,7 @@ void StringStateVisitor::visit(const ForStmt *state) {
 }
 StringStateVisitor::StringStateVisitor(
     Function f,
-    vstd::string &str)
+    vstd::StringBuilder &str)
     : f(f), str(str) {
 }
 void StringStateVisitor::VisitFunction(Function func) {
@@ -432,7 +432,7 @@ void StringStateVisitor::VisitFunction(Function func) {
         }
 #if false// clear struct
         if (v.type()->is_structure()) {
-            vstd::string typeName;
+            vstd::StringBuilder typeName;
             CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
             str << typeName << ' ';
             CodegenUtility::GetVariableName(v, str);

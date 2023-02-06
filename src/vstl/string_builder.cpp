@@ -1,43 +1,43 @@
 #include "string_builder.h"
 namespace vstd {
-StringBuilder::StringBuilder(vstd::string *target)
-    : target(target) {
+StringBuilder::~StringBuilder() {}
+StringBuilder &StringBuilder::append(vstd::string_view str) {
+    vstd::push_back_all(vec, str.data(), str.size());
+    return *this;
 }
-StringBuilder::~StringBuilder() {
-    auto lastSize = target->size();
-    target->resize(lastSize + size);
-    auto ptr = target->data() + lastSize;
-    for (auto &&i : views) {
-        i.visit(
-            [&]<typename T>(T const &c) {
-                if constexpr (std::is_same_v<T, char>) {
-                    *ptr = c;
-                    ++ptr;
-                } else {
-                    memcpy(ptr, c.data(), c.size());
-                    ptr += c.size();
+StringBuilder &StringBuilder::append(char str) {
+    vec.push_back(str);
+    return *this;
+}
+StringBuilder &StringBuilder::append(vstd::string const &str) {
+    vstd::push_back_all(vec, str.data(), str.size());
+    return *this;
+}
+StringBuilder::StringBuilder(){}
+inline void _float_str_resize(size_t lastSize, StringBuilder &str) noexcept {
+    for (int64_t i = str.size() - 1; i >= lastSize; --i) {
+        if (str[i] == '.') [[unlikely]] {
+            auto end = i + 2;
+            int64_t j = str.size() - 1;
+            for (; j >= end; --j) {
+                if (str[j] != '0') {
+                    break;
                 }
-            });
+            }
+            str.resize(j + 1);
+            return;
+        }
     }
+    str << ".0"sv;
 }
-StringBuilder &StringBuilder::operator<<(vstd::string_view str) {
-    size += str.size();
-    views.emplace_back(str);
-    return *this;
-}
-StringBuilder &StringBuilder::operator<<(char str) {
-    size += 1;
-    views.emplace_back(str);
-    return *this;
-}
-StringBuilder &StringBuilder::operator<<(vstd::string &&str) {
-    size += str.size();
-    views.emplace_back(std::move(str));
-    return *this;
-}
-StringBuilder &StringBuilder::operator<<(vstd::string const &str) {
-    size += str.size();
-    views.emplace_back(vstd::string_view(str));
-    return *this;
+LC_VSTL_API void to_string(double Val, StringBuilder &str) noexcept {
+    const size_t len = snprintf(nullptr, 0, "%f", Val);
+    auto lastLen = str.size();
+    str.push_back(len + 1);
+    auto iter = str.end() - 1;
+    *iter = 0;
+    snprintf(str.data() + lastLen, len + 1, "%f", Val);
+    str.erase(iter);
+    _float_str_resize(lastLen, str);
 }
 }// namespace vstd

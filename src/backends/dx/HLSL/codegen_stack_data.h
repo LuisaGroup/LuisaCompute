@@ -35,7 +35,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::function<StructGenerator *(Type const *)> generateStruct;
     StructGenerator *rayDesc = nullptr;
     StructGenerator *hitDesc = nullptr;
-    vstd::unordered_map<vstd::string, vstd::string> structReplaceName;
+    vstd::unordered_map<vstd::string, vstd::string, vstd::hash<vstd::StringBuilder>> structReplaceName;
     vstd::unordered_map<uint64, Variable> sharedVariable;
     Expression const *tempSwitchExpr;
     size_t tempSwitchCounter = 0;

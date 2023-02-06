@@ -68,7 +68,7 @@ ComputeShader *ComputeShader::CompileCompute(
             fclose(f);
         }
         auto compResult = Device::Compiler()->CompileCompute(
-            str.result,
+            str.result.view(),
             true,
             shaderModel);
         return compResult.multi_visit_or(
@@ -116,7 +116,7 @@ ComputeShader *ComputeShader::CompileCompute(
                 return cs;
             },
             [](auto &&err) {
-                VSTL_ABORT();
+                LUISA_ERROR("Compile Error: {}", err);
                 return nullptr;
             });
     };
@@ -162,7 +162,7 @@ void ComputeShader::SaveCompute(
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) return;
     auto compResult = Device::Compiler()->CompileCompute(
-        str.result,
+        str.result.view(),
         true,
         shaderModel);
     compResult.multi_visit(

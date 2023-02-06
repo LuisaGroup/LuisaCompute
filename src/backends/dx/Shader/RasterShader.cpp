@@ -343,7 +343,7 @@ RasterShader *RasterShader::CompileRaster(
             fclose(f);
         }
         auto compResult = Device::Compiler()->CompileRaster(
-            str.result,
+            str.result.view(),
             true,
             shaderModel);
         if (compResult.vertex.IsTypeOf<vstd::string>()) {
@@ -427,7 +427,7 @@ void RasterShader::SaveRaster(
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) return;
     auto compResult = Device::Compiler()->CompileRaster(
-        str.result,
+        str.result.view(),
         true,
         shaderModel);
     if (compResult.vertex.IsTypeOf<vstd::string>()) {

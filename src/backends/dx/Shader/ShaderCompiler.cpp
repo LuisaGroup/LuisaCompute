@@ -60,7 +60,7 @@ CompileResult ShaderCompiler::Compile(
     DxcBuffer buffer{
         code.data(),
         code.size(),
-        CP_UTF8};
+        CP_ACP};
     ComPtr<IDxcResult> compileResult;
 
     ThrowIfFailed(Compiler()->Compile(
