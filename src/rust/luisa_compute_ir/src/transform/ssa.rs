@@ -155,6 +155,8 @@ impl ToSSA {
                 builder.loop_(body, cond)
             }
             Instruction::GenericLoop { .. } => todo!(),
+            Instruction::AdScope { .. } => todo!(),
+            Instruction::AdDetach(_) => todo!(),
             Instruction::Comment(_) => return node,
             Instruction::Debug(_) => return node,
             Instruction::Return(_) => {

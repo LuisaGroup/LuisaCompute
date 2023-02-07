@@ -18,6 +18,7 @@ enum class AccelBuildRequest {
 enum class AccelUsageHint {
     FAST_TRACE,
     FAST_BUILD,
+    FAST_UPDATE,
 };
 
 enum class PixelFormat {
@@ -79,8 +80,6 @@ enum class SamplerFilter {
     LINEAR_LINEAR,
     ANISOTROPIC,
 };
-
-struct Capture;
 
 struct Buffer {
     uint64_t _0;
@@ -394,22 +393,8 @@ struct AppContext {
     void *ir_context;
 };
 
-struct IrModule {
-    uint64_t _0;
-};
-
-struct NodeRef {
-    uint64_t _0;
-};
-
 struct KernelModule {
-    IrModule ir_module;
-    const Capture *captured;
-    size_t captured_count;
-    const NodeRef *args;
-    size_t args_count;
-    const NodeRef *shared;
-    size_t shared_count;
+    uint64_t ptr;
 };
 
 } // namespace luisa::compute::api

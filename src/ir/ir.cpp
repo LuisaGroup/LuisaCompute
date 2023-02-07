@@ -1,30 +1,30 @@
-#include <core/logging.h>
 #include <ir/ir.hpp>
 
 namespace luisa::compute {
 
 void luisa_compute_ir_initialize_context() {
-    static std::once_flag flag;
-    std::call_once(flag, [] {
-        using namespace luisa::compute::ir;
-        auto gc_ctx = luisa_compute_gc_create_context();
-        luisa_compute_gc_set_context(gc_ctx);
-        auto ir_ctx = luisa_compute_ir_new_context();
-        luisa_compute_ir_set_context(ir_ctx);
-    });
+    // static std::once_flag flag;
+    // std::call_once(flag, [] {
+    //     using namespace luisa::compute::ir;
+    //     auto gc_ctx = luisa_compute_gc_create_context();
+    //     luisa_compute_gc_set_context(gc_ctx);
+    //     auto ir_ctx = luisa_compute_ir_new_context();
+    //     luisa_compute_ir_set_context(ir_ctx);
+    // });
 }
 
 // TODO: is it good to go here?
-static auto context_initializer = []() noexcept {
-    luisa_compute_ir_initialize_context();
-    return 0;
-}();
+// comment: Nope
+// static auto context_initializer = []() noexcept {
+//     luisa_compute_ir_initialize_context();
+//     return 0;
+// }();
 
 using ir::Func;
 using ir::Instruction;
 struct Converter {
     detail::FunctionBuilder *builder;
-    luisa::unordered_map<const ir::Type *, const Type *, pointer_hash<ir::Type>> type_map;
+    luisa::unordered_map<const ir::Type *, const Type *> type_map;
     luisa::unordered_map<ir::NodeRef, const Expression *, NodeRefHash> node_map;
     // luisa::unordered_map<const
     const Type *convert(const ir::Type *ty) noexcept {
@@ -145,8 +145,8 @@ void convert_to_ast(const ir::Module *module, detail::FunctionBuilder *builder) 
 
 struct ToIR {
     const ScopeStmt *stmt;
-    luisa::unordered_map<const Expression *, ir::NodeRef, pointer_hash<Expression>> expr_map;
-    luisa::unordered_map<const Type *, ir::Gc<ir::Type>, pointer_hash<Type>> type_map;
+    luisa::unordered_map<const Expression *, ir::NodeRef> expr_map;
+    luisa::unordered_map<const Type *, ir::Gc<ir::Type>> type_map;
     luisa::unordered_map<uint32_t, ir::NodeRef> var_map;
     ir::IrBuilder *var_def_builder = nullptr;
     ir::Gc<ir::Type> _build_type(const Type *ty) noexcept {
@@ -282,7 +282,7 @@ LC_IR_API AutodiffResult end_autodiff() noexcept {
     LUISA_ASSERT(ad_context, "no autodiff context exists");
     auto func_builder = detail::FunctionBuilder::current();
     func_builder->pop_scope(ad_context->stmt);
-    (void)func_builder->pop_stmt();
+    (void)func_builder->_pop_stmt();
     auto m = convert_to_ir(ad_context->stmt);
 
     auto pipeline = ir::luisa_compute_ir_transform_pipeline_new();
@@ -295,5 +295,4 @@ LC_IR_API AutodiffResult end_autodiff() noexcept {
     ad_context = nullptr;
     return {};
 }
-
 }// namespace luisa::compute

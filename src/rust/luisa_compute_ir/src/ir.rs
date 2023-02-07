@@ -6,8 +6,11 @@ use crate::context::with_context;
 use crate::*;
 use std::any::Any;
 use std::cell::RefCell;
+use std::collections::binary_heap::Iter;
+use std::collections::HashSet;
 use std::ffi::CString;
 use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -46,6 +49,7 @@ pub enum VectorElementType {
     Scalar(Primitive),
     Vector(Gc<VectorType>),
 }
+
 impl VectorElementType {
     pub fn is_float(&self) -> bool {
         match self {
@@ -70,6 +74,12 @@ impl VectorElementType {
             VectorElementType::Scalar(Primitive::Bool) => true,
             VectorElementType::Vector(v) => v.element.is_bool(),
             _ => false,
+        }
+    }
+    pub fn to_type(&self) -> Gc<Type> {
+        match self {
+            VectorElementType::Scalar(p) => context::register_type(Type::Primitive(*p)),
+            VectorElementType::Vector(v) => context::register_type(Type::Vector(v.deref().clone())),
         }
     }
 }
@@ -245,6 +255,12 @@ impl MatrixType {
     pub fn size(&self) -> usize {
         self.element.size() * self.dimension as usize * self.dimension as usize
     }
+    pub fn column(&self) -> Gc<Type> {
+        match self.element {
+            VectorElementType::Scalar(t) => Type::vector(t, self.dimension),
+            VectorElementType::Vector(t) => Type::vector_vector(t, self.dimension),
+        }
+    }
 }
 
 impl Type {
@@ -262,15 +278,54 @@ impl Type {
             Type::Array(t) => t.element.size() * t.length,
         }
     }
+    pub fn element(&self) -> Gc<Type> {
+        match self {
+            Type::Void | Type::Primitive(_) => context::register_type(self.clone()),
+            Type::Vector(vec_type) => vec_type.element.to_type(),
+            Type::Matrix(mat_type) => mat_type.element.to_type(),
+            Type::Struct(_) => Gc::null(),
+            Type::Array(arr_type) => arr_type.element,
+        }
+    }
+    pub fn dimension(&self) -> usize {
+        match self {
+            Type::Void => 0,
+            Type::Primitive(_) => 1,
+            Type::Vector(vec_type) => vec_type.length as usize,
+            Type::Matrix(mat_type) => mat_type.dimension as usize,
+            Type::Struct(struct_type) => struct_type.fields.as_ref().len(),
+            Type::Array(arr_type) => arr_type.length,
+        }
+    }
     pub fn alignment(&self) -> usize {
         match self {
             Type::Void => 0,
             Type::Primitive(t) => t.size(),
-
             Type::Struct(t) => t.alignment,
             Type::Vector(t) => t.element.size(), // TODO
             Type::Matrix(t) => t.element.size(),
             Type::Array(t) => t.element.alignment(),
+        }
+    }
+    pub fn vector_to_bool(from: &VectorType) -> Gc<VectorType> {
+        match from.element {
+            VectorElementType::Scalar(_) => Gc::new(VectorType {
+                element: VectorElementType::Scalar(Primitive::Bool),
+                length: from.length,
+            }),
+            VectorElementType::Vector(v) => Type::vector_to_bool(v.deref()),
+        }
+    }
+    pub fn bool(from: Gc<Type>) -> Gc<Type> {
+        match from.deref() {
+            Type::Primitive(_) => context::register_type(Type::Primitive(Primitive::Bool)),
+            Type::Vector(vec_type) => match vec_type.element {
+                VectorElementType::Scalar(_) => Type::vector(Primitive::Bool, vec_type.length),
+                VectorElementType::Vector(v) => {
+                    Type::vector_vector(Type::vector_to_bool(v.deref()), vec_type.length)
+                }
+            },
+            _ => panic!("Cannot convert to bool"),
         }
     }
     pub fn vector(element: Primitive, length: u32) -> Gc<Type> {
@@ -296,6 +351,12 @@ impl Type {
             element: VectorElementType::Vector(element),
             dimension,
         }))
+    }
+    pub fn is_primitive(&self) -> bool {
+        match self {
+            Type::Primitive(_) => true,
+            _ => false,
+        }
     }
     pub fn is_float(&self) -> bool {
         match self {
@@ -327,6 +388,24 @@ impl Type {
             },
             Type::Vector(v) => v.element.is_int(),
             Type::Matrix(m) => m.element.is_int(),
+            _ => false,
+        }
+    }
+    pub fn is_matrix(&self) -> bool {
+        match self {
+            Type::Matrix(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_array(&self) -> bool {
+        match self {
+            Type::Array(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_vector(&self) -> bool {
+        match self {
+            Type::Vector(_) => true,
             _ => false,
         }
     }
@@ -411,6 +490,16 @@ impl Trace for Instruction {
                 default.trace();
                 cases.trace();
             }
+            Instruction::AdScope {
+                forward,
+                backward,
+                epilogue,
+            } => {
+                forward.trace();
+                backward.trace();
+                epilogue.trace();
+            }
+            Instruction::AdDetach(bb) => bb.trace(),
             Instruction::Comment(_) => todo!(),
             crate::ir::Instruction::Debug { .. } => {}
         }
@@ -447,12 +536,31 @@ pub enum Func {
     RequiresGradient,
     Gradient,
     GradientMarker, // marks a (node, gradient) tuple
+    AccGrad,        // grad (local), increment
+    Detach,
 
-    InstanceToWorldMatrix,
-    TraceClosest,
-    TraceAny,
-    SetInstanceTransform,
-    SetInstanceVisibility,
+    // (handle, instance_id) -> Mat4
+    RayTracingInstanceTransform,
+    RayTracingInstanceAabb,
+    RayTracingInstanceVisibility,
+    RayTracingInstanceOpacity,
+    RayTracingSetInstanceAabb,
+    RayTracingSetInstanceTransform,
+    RayTracingSetInstanceOpactiy,
+    RayTracingSetInstanceVisibility,
+     // (handle, Ray) -> Hit
+    // struct Ray alignas(16) { float origin[3], tmin; float direction[3], tmax; };
+    // struct Hit alignas(16) { uint inst; uint prim; float u; float v; };
+    RayTracingTraceClosest,
+    RayTracingTraceAny,
+
+    RayQueryProceed,
+    RayQueryIsCandidateTriangle,
+    RayQueryProceduralCandidateHit,
+    RayQueryTriangleCandidateHit,
+    RayQueryCommittedHit,
+    RayQueryCommitTriangle,
+    RayQueryCommitProcedural,
 
     /// When referencing a Local in Call, it is always interpreted as a load
     /// However, there are cases you want to do this explicitly
@@ -481,7 +589,6 @@ pub enum Func {
     Gt,
     Ge,
     MatCompMul,
-    MatCompDiv,
 
     // Unary op
     Neg,
@@ -491,6 +598,7 @@ pub enum Func {
     All,
     Any,
 
+    // select(p, a, b) => p ? a : b
     Select,
     Clamp,
     Lerp,
@@ -554,6 +662,8 @@ pub enum Func {
     // Vector operations
     Cross,
     Dot,
+    // (a, b) => a * b^T
+    OuterProduct,
     Length,
     LengthSquared,
     Normalize,
@@ -566,23 +676,23 @@ pub enum Func {
 
     SynchronizeBlock,
 
-    /// (atomic_ref, desired) -> old: stores desired, returns old.
+    /// (buffer/smem, index, desired) -> old: stores desired, returns old.
     AtomicExchange,
-    /// (atomic_ref, expected, desired) -> old: stores (old == expected ? desired : old), returns old.
+    /// (buffer/smem, index, expected, desired) -> old: stores (old == expected ? desired : old), returns old.
     AtomicCompareExchange,
-    /// (atomic_ref, val) -> old: stores (old + val), returns old.
+    /// (buffer/smem, index, val) -> old: stores (old + val), returns old.
     AtomicFetchAdd,
-    /// (atomic_ref, val) -> old: stores (old - val), returns old.
+    /// (buffer/smem, index, val) -> old: stores (old - val), returns old.
     AtomicFetchSub,
-    /// (atomic_ref, val) -> old: stores (old & val), returns old.
+    /// (buffer/smem, index, val) -> old: stores (old & val), returns old.
     AtomicFetchAnd,
-    /// (atomic_ref, val) -> old: stores (old | val), returns old.
+    /// (buffer/smem, index, val) -> old: stores (old | val), returns old.
     AtomicFetchOr,
-    /// (atomic_ref, val) -> old: stores (old ^ val), returns old.
+    /// (buffer/smem, index, val) -> old: stores (old ^ val), returns old.
     AtomicFetchXor,
-    /// (atomic_ref, val) -> old: stores min(old, val), returns old.
+    /// (buffer/smem, index, val) -> old: stores min(old, val), returns old.
     AtomicFetchMin,
-    /// (atomic_ref, val) -> old: stores max(old, val), returns old.
+    /// (buffer/smem, index, val) -> old: stores max(old, val), returns old.
     AtomicFetchMax,
     // memory access
     /// (buffer, index) -> value: reads the index-th element in bu
@@ -626,7 +736,9 @@ pub enum Func {
     /// (bindless_array, index: uint, element: uint) -> T
     BindlessBufferRead,
     /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
-    BindlessBufferSize,
+    BindlessBufferSize(Gc<Type>),
+    // (bindless_array, index: uint) -> u64: returns the type of the buffer
+    BindlessBufferType,
 
     // scalar -> vector, the resulting type is stored in node
     Vec,
@@ -639,10 +751,10 @@ pub enum Func {
 
     // (vector, indices,...) -> vector
     Permute,
-    // (vector, index) -> scalar
-    ExtractElement,
     // (vector, scalar, index) -> vector
     InsertElement,
+    // (vector, index) -> scalar
+    ExtractElement,
     //(struct, index) -> value; the value can be passed to an Update instruction
     GetElementPtr,
     // (fields, ...) -> struct
@@ -650,14 +762,16 @@ pub enum Func {
 
     // scalar -> matrix, all elements are set to the scalar
     Mat,
-    // scalar x 4 -> matrix
-    Matrix2,
-    // scalar x 9 -> matrix
-    Matrix3,
-    // scalar x 16 -> matrix
-    Matrix4,
+    // vector x 2 -> matrix
+    Mat2,
+    // vector x 3 -> matrix
+    Mat3,
+    // vector x 4 -> matrix
+    Mat4,
 
     Callable(u64),
+
+    // ArgT -> ArgT
     CpuCustomOp(CRc<CpuCustomOp>),
 }
 
@@ -669,6 +783,7 @@ impl Trace for Func {
 #[repr(C)]
 pub enum Const {
     Zero(Gc<Type>),
+    One(Gc<Type>),
     Bool(bool),
     Int32(i32),
     Uint32(u32),
@@ -683,6 +798,7 @@ impl std::fmt::Display for Const {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Const::Zero(t) => write!(f, "0_{}", t),
+            Const::One(t) => write!(f, "1_{}", t),
             Const::Bool(b) => write!(f, "{}", b),
             Const::Int32(i) => write!(f, "{}", i),
             Const::Uint32(u) => write!(f, "{}", u),
@@ -690,7 +806,7 @@ impl std::fmt::Display for Const {
             Const::Uint64(u) => write!(f, "{}", u),
             Const::Float32(fl) => write!(f, "{}", fl),
             Const::Float64(fl) => write!(f, "{}", fl),
-            Const::Generic(_, _) => todo!(),
+            Const::Generic(data, t) => write!(f, "byte<{}>[{}]", t, data.as_ref().len()),
         }
     }
 }
@@ -709,12 +825,14 @@ impl Const {
     pub fn get_i32(&self) -> i32 {
         match self {
             Const::Int32(v) => *v,
-            _ => panic!("not an i32"),
+            Const::Uint32(v) => *v as i32,
+            _ => panic!("cannot convert to i32"),
         }
     }
     pub fn type_(&self) -> Gc<Type> {
         match self {
             Const::Zero(ty) => ty.clone(),
+            Const::One(ty) => ty.clone(),
             Const::Bool(_) => <bool as TypeOf>::type_(),
             Const::Int32(_) => <i32 as TypeOf>::type_(),
             Const::Uint32(_) => <u32 as TypeOf>::type_(),
@@ -752,33 +870,30 @@ impl Trace for PhiIncoming {
 
 #[repr(C)]
 pub struct CpuCustomOp {
-    pub name: CBoxedSlice<u8>,
     pub data: *mut u8,
-    /// func(data: *mut u8, active:*const u8, arg:*mut u8, vector_length: u32)
-    pub func: extern "C" fn(*mut u8, *const u8, *mut u8, u32),
+    /// func(data, args); func should modify args in place
+    pub func: extern "C" fn(*mut u8, *mut u8),
     pub destructor: extern "C" fn(*mut u8),
+    pub arg_type: Gc<Type>,
 }
 
 impl Serialize for CpuCustomOp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut state = serializer.serialize_struct("CpuCustomOp", 1)?;
-        state.serialize_field("name", &CString::from(self.name.clone()))?;
+        let state = serializer.serialize_struct("CpuCustomOp", 1)?;
         state.end()
     }
 }
 
 impl Debug for CpuCustomOp {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.debug_struct("CpuCustomOp")
-            .field("name", &CString::from(self.name.clone()))
-            .finish()
+        f.debug_struct("CpuCustomOp").finish()
     }
 }
 
 #[repr(C)]
 #[derive(Clone, Debug, Serialize)]
 pub struct SwitchCase {
-    pub value: NodeRef,
+    pub value: i32,
     pub block: Gc<BasicBlock>,
 }
 
@@ -797,11 +912,14 @@ pub enum Instruction {
     Texture2D,
     Texture3D,
     Accel,
+    // Shared memory
     Shared,
+    // Uniform kernel arguments
     Uniform,
     Local {
         init: NodeRef,
     },
+    // Callable arguments
     Argument {
         by_value: bool,
     },
@@ -817,12 +935,12 @@ pub enum Instruction {
     },
 
     Call(Func, CBoxedSlice<NodeRef>),
-    // CpuCustomOp(CRc<CpuCustomOp>, NodeRef),
+
     Phi(CBoxedSlice<PhiIncoming>),
     /* represent a loop in the form of
     loop {
         body();
-        if (cond) {
+        if (!cond) {
             break;
         }
     }
@@ -839,6 +957,13 @@ pub enum Instruction {
             body;
             update; // continue goes here
         }
+    }
+    for (;; update) {
+        prepare;
+        if (!cond) {
+            break;
+        }
+        body;
     }
     */
     GenericLoop {
@@ -859,6 +984,12 @@ pub enum Instruction {
         default: Gc<BasicBlock>,
         cases: CBoxedSlice<SwitchCase>,
     },
+    AdScope {
+        forward: Gc<BasicBlock>,
+        backward: Gc<BasicBlock>,
+        epilogue: Gc<BasicBlock>,
+    },
+    AdDetach(Gc<BasicBlock>),
     Comment(CBoxedSlice<u8>),
     Debug(CBoxedSlice<u8>), // for CPU only, would print the message if executed
 }
@@ -870,6 +1001,29 @@ pub enum Instruction {
 //         Type::void(),
 //     ))
 // }
+impl Instruction {
+    pub fn is_call(&self) -> bool {
+        match self {
+            Instruction::Call(_, _) => true,
+            _ => false,
+        }
+    }
+    pub fn is_const(&self) -> bool {
+        match self {
+            Instruction::Const(_) => true,
+            _ => false,
+        }
+    }
+    pub fn is_phi(&self) -> bool {
+        match self {
+            Instruction::Phi(_) => true,
+            _ => false,
+        }
+    }
+    pub fn has_value(&self) -> bool {
+        self.is_call() || self.is_const() || self.is_phi()
+    }
+}
 const INVALID_INST: Instruction = Instruction::Invalid;
 
 pub fn new_node(node: Node) -> NodeRef {
@@ -920,28 +1074,53 @@ impl Serialize for BasicBlock {
         state.end()
     }
 }
-
-impl BasicBlock {
-    pub fn nodes(&self) -> Vec<NodeRef> {
-        let mut vec = Vec::new();
-        let mut cur = self.first.get().next;
-
-        while cur != self.last {
-            vec.push(cur);
-            cur = cur.get().next;
+pub struct BasicBlockIter<'a> {
+    cur: NodeRef,
+    last: NodeRef,
+    _block: &'a BasicBlock,
+}
+impl Iterator for BasicBlockIter<'_> {
+    type Item = NodeRef;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur == self.last {
+            None
+        } else {
+            let ret = self.cur;
+            self.cur = self.cur.get().next;
+            Some(ret)
         }
-        vec
     }
-    pub fn into_vec(self) -> Vec<NodeRef> {
+}
+impl BasicBlock {
+    pub fn iter(&self) -> BasicBlockIter {
+        BasicBlockIter {
+            cur: self.first.get().next,
+            last: self.last,
+            _block: self,
+        }
+    }
+    pub fn phis(&self) -> Vec<NodeRef> {
+        self.iter().filter(|n| n.is_phi()).collect()
+    }
+    pub fn nodes(&self) -> Vec<NodeRef> {
+        self.iter().collect()
+    }
+    pub fn into_vec(&self) -> Vec<NodeRef> {
         let mut vec = Vec::new();
         let mut cur = self.first.get().next;
         while cur != self.last {
             vec.push(cur.clone());
-            cur = cur.get().next;
+            let next = cur.get().next;
             cur.update(|node| {
                 node.prev = INVALID_REF;
                 node.next = INVALID_REF;
             });
+            cur = next;
+        }
+        self.first.update(|node| node.next = self.last);
+        self.last.update(|node| node.prev = self.first);
+        for i in &vec {
+            debug_assert!(!i.is_linked());
         }
         vec
     }
@@ -952,18 +1131,9 @@ impl BasicBlock {
         last.update(|node| node.prev = first);
         Self { first, last }
     }
-    pub fn push(&mut self, node: NodeRef) {
-        if self.last.valid() {
-            self.last.update(|last| {
-                last.next = node.clone();
-            });
-            node.update(|node| {
-                node.prev = self.last;
-            });
-        } else {
-            self.first = node;
-        }
-        self.last = node;
+    pub fn push(&self, node: NodeRef) {
+        // node.insert_before(self.last);
+        self.last.insert_before(node);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -978,13 +1148,31 @@ impl BasicBlock {
         }
         len
     }
+    pub fn merge(&self, other: Gc<BasicBlock>) {
+        let nodes = other.into_vec();
+        for node in nodes {
+            self.push(node);
+        }
+    }
 }
 
 impl NodeRef {
     pub fn get_i32(&self) -> i32 {
         match self.get().instruction.as_ref() {
             Instruction::Const(c) => c.get_i32(),
-            _ => panic!("not i32 node"),
+            _ => panic!("not i32 node; found: {:?}", self.get().instruction),
+        }
+    }
+    pub fn is_local(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Local { .. } => true,
+            _ => false,
+        }
+    }
+    pub fn is_phi(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Phi { .. } => true,
+            _ => false,
         }
     }
     pub fn get_gc_node(&self) -> Gc<Node> {
@@ -1162,6 +1350,8 @@ pub struct KernelModule {
     pub captures: CBoxedSlice<Capture>,
     pub args: CBoxedSlice<NodeRef>,
     pub shared: CBoxedSlice<NodeRef>,
+    pub cpu_custom_ops: CBoxedSlice<CRc<CpuCustomOp>>,
+    pub block_size: [u32; 3],
 }
 
 impl Trace for KernelModule {
@@ -1181,7 +1371,81 @@ impl Module {
         }
     }
 }
-
+struct NodeCollector {
+    nodes: Vec<NodeRef>,
+    unique: HashSet<NodeRef>,
+}
+impl NodeCollector {
+    fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            unique: HashSet::new(),
+        }
+    }
+    fn visit_block(&mut self, block: Gc<BasicBlock>) {
+        for node in block.iter() {
+            self.visit_node(node);
+        }
+    }
+    fn visit_node(&mut self, node_ref: NodeRef) {
+        if self.unique.contains(&node_ref) {
+            return;
+        }
+        self.unique.insert(node_ref);
+        self.nodes.push(node_ref);
+        let inst = node_ref.get().instruction.as_ref();
+        match inst {
+            Instruction::AdScope {
+                forward,
+                backward,
+                epilogue,
+            } => {
+                self.visit_block(*forward);
+                self.visit_block(*backward);
+                self.visit_block(*epilogue);
+            }
+            Instruction::If {
+                cond: _,
+                true_branch,
+                false_branch,
+            } => {
+                self.visit_block(*true_branch);
+                self.visit_block(*false_branch);
+            }
+            Instruction::Loop { body, cond: _ } => {
+                self.visit_block(*body);
+            }
+            Instruction::GenericLoop {
+                prepare,
+                cond: _,
+                body,
+                update,
+            } => {
+                self.visit_block(*prepare);
+                self.visit_block(*body);
+                self.visit_block(*update);
+            }
+            Instruction::Switch {
+                value: _,
+                default,
+                cases,
+            } => {
+                self.visit_block(*default);
+                for SwitchCase { value: _, block } in cases.as_ref().iter() {
+                    self.visit_block(*block);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+impl Module {
+    pub fn collect_nodes(&self) -> Vec<NodeRef> {
+        let mut collector = NodeCollector::new();
+        collector.visit_block(self.entry);
+        collector.nodes
+    }
+}
 struct ModuleCloner {
     node_map: HashMap<NodeRef, NodeRef>,
 }
@@ -1219,6 +1483,8 @@ impl ModuleCloner {
             Instruction::Return(_) => todo!(),
             Instruction::If { .. } => todo!(),
             Instruction::Switch { .. } => todo!(),
+            Instruction::AdScope { .. } => todo!(),
+            Instruction::AdDetach(_) => todo!(),
             Instruction::Comment(_) => builder.clone_node(node),
             crate::ir::Instruction::Debug { .. } => builder.clone_node(node),
         };
@@ -1253,7 +1519,7 @@ impl Clone for Module {
 #[repr(C)]
 pub struct IrBuilder {
     bb: Gc<BasicBlock>,
-    insert_point: NodeRef,
+    pub(crate) insert_point: NodeRef,
 }
 
 impl IrBuilder {
@@ -1269,6 +1535,10 @@ impl IrBuilder {
         self.insert_point.insert_after(node);
         self.insert_point = node;
     }
+    pub fn append_block(&mut self, block: Gc<BasicBlock>) {
+        self.bb.merge(block);
+        self.insert_point = self.bb.last.get().prev;
+    }
     pub fn break_(&mut self) -> NodeRef {
         let new_node = new_node(Node::new(Gc::new(Instruction::Break), Type::void()));
         self.append(new_node);
@@ -1278,6 +1548,10 @@ impl IrBuilder {
         let new_node = new_node(Node::new(Gc::new(Instruction::Continue), Type::void()));
         self.append(new_node);
         new_node
+    }
+    pub fn return_(&mut self, node: NodeRef) {
+        let new_node = new_node(Node::new(Gc::new(Instruction::Return(node)), Type::void()));
+        self.append(new_node);
     }
     pub fn zero_initializer(&mut self, ty: Gc<Type>) -> NodeRef {
         self.call(Func::ZeroInitializer, &[], ty)
@@ -1356,6 +1630,18 @@ impl IrBuilder {
         self.append(node.clone());
         node
     }
+    pub fn switch(&mut self, value: NodeRef, cases: &[SwitchCase], default: Gc<BasicBlock>) {
+        let node = Node::new(
+            Gc::new(Instruction::Switch {
+                value,
+                default,
+                cases: CBoxedSlice::new(cases.to_vec()),
+            }),
+            Type::void(),
+        );
+        let node = new_node(node);
+        self.append(node);
+    }
     pub fn if_(
         &mut self,
         cond: NodeRef,
@@ -1380,6 +1666,26 @@ impl IrBuilder {
         self.append(node);
         node
     }
+    pub fn generic_loop(
+        &mut self,
+        prepare: Gc<BasicBlock>,
+        cond: NodeRef,
+        body: Gc<BasicBlock>,
+        update: Gc<BasicBlock>,
+    ) -> NodeRef {
+        let node = Node::new(
+            Gc::new(Instruction::GenericLoop {
+                prepare,
+                cond,
+                body,
+                update,
+            }),
+            Type::void(),
+        );
+        let node = new_node(node);
+        self.append(node);
+        node
+    }
     pub fn finish(self) -> Gc<BasicBlock> {
         self.bb
     }
@@ -1394,6 +1700,7 @@ pub extern "C" fn luisa_compute_ir_new_node(node: Node) -> NodeRef {
 pub extern "C" fn luisa_compute_ir_node_get(node_ref: NodeRef) -> *const Node {
     node_ref.get()
 }
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_node_set_root(node_ref: NodeRef, flag: bool) {
     if flag {
@@ -1463,6 +1770,10 @@ pub extern "C" fn luisa_compute_gc_create_context() -> *mut gc::GcContext {
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_gc_set_context(ctx: *mut gc::GcContext) {
+    assert_ne!(ctx, std::ptr::null_mut());
+    if ctx == gc::context() {
+        return;
+    }
     gc::set_context(ctx)
 }
 
@@ -1504,7 +1815,6 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
 ) -> *mut GcObject<KernelModule> {
     Gc::into_raw(Gc::new(m))
 }
-
 pub mod debug {
     use crate::display::DisplayIR;
     use std::ffi::CString;

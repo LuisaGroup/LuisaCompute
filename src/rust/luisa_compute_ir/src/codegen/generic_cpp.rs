@@ -870,7 +870,7 @@ impl GenericCppCodeGen {
                 .unwrap();
                 true
             }
-            Func::TraceAny => {
+            Func::RayTracingTraceAny => {
                 writeln!(
                     self.body,
                     "const {0} {1} = lc_trace_any({2}, lc_bit_cast<Ray>({3}));",
@@ -879,7 +879,7 @@ impl GenericCppCodeGen {
                 .unwrap();
                 true
             }
-            Func::TraceClosest => {
+            Func::RayTracingTraceClosest => {
                 writeln!(
                     self.body,
                     "const {0} {1} = lc_bit_cast<{0}>(lc_trace_closest({2}, lc_bit_cast<Ray>({3})));",
@@ -888,7 +888,7 @@ impl GenericCppCodeGen {
                 .unwrap();
                 true
             }
-            Func::InstanceToWorldMatrix => {
+            Func::RayTracingInstanceTransform => {
                 writeln!(
                     self.body,
                     "const {0} {1} = lc_accel_instance_transform({2}, {3});",
@@ -897,7 +897,7 @@ impl GenericCppCodeGen {
                 .unwrap();
                 true
             }
-            Func::SetInstanceTransform => {
+            Func::RayTracingSetInstanceTransform => {
                 writeln!(
                     self.body,
                     "lc_set_instance_transform({0}, {1});",
@@ -906,7 +906,7 @@ impl GenericCppCodeGen {
                 .unwrap();
                 true
             }
-            Func::SetInstanceVisibility => {
+            Func::RayTracingSetInstanceVisibility => {
                 writeln!(
                     self.body,
                     "lc_set_instance_visibility({0}, {1});",

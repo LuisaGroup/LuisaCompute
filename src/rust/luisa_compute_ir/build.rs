@@ -12,6 +12,7 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file("bindings.hpp");
+
     // cbindgen::Builder::new()
     //     .with_config(Config::from_file("c.toml").unwrap())
     //     .with_crate(&crate_dir)

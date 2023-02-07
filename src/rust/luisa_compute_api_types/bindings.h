@@ -15,12 +15,8 @@ typedef enum LCAccelBuildRequest {
 typedef enum LCAccelUsageHint {
     LC_ACCEL_USAGE_HINT_FAST_TRACE,
     LC_ACCEL_USAGE_HINT_FAST_BUILD,
+    LC_ACCEL_USAGE_HINT_FAST_UPDATE,
 } LCAccelUsageHint;
-
-typedef enum LCMeshType {
-    LC_MESH_TYPE_MESH,
-    LC_MESH_TYPE_PROCEDURAL_PRIMITIVE,
-} LCMeshType;
 
 typedef enum LCPixelFormat {
     LC_PIXEL_FORMAT_R8_SINT,
@@ -82,14 +78,6 @@ typedef enum LCSamplerFilter {
     LC_SAMPLER_FILTER_ANISOTROPIC,
 } LCSamplerFilter;
 
-typedef enum LCStreamTag {
-    LC_STREAM_TAG_GRAPHICS,
-    LC_STREAM_TAG_COMPUTE,
-    LC_STREAM_TAG_COPY,
-} LCStreamTag;
-
-typedef struct LCCapture LCCapture;
-
 typedef struct LCBuffer {
     uint64_t _0;
 } LCBuffer;
@@ -113,10 +101,6 @@ typedef struct LCStream {
 typedef struct LCShader {
     uint64_t _0;
 } LCShader;
-
-typedef struct LCHash128 {
-    uint8_t _0[16];
-} LCHash128;
 
 typedef struct LCAccelBuildModificationFlags {
     uint32_t bits;
@@ -346,20 +330,6 @@ typedef struct LCAppContext {
     void *ir_context;
 } LCAppContext;
 
-typedef struct LCIrModule {
-    uint64_t _0;
-} LCIrModule;
-
-typedef struct LCNodeRef {
-    uint64_t _0;
-} LCNodeRef;
-
 typedef struct LCKernelModule {
-    struct LCIrModule ir_module;
-    const struct LCCapture *captured;
-    size_t captured_count;
-    const struct LCNodeRef *args;
-    size_t args_count;
-    const struct LCNodeRef *shared;
-    size_t shared_count;
+    uint64_t ptr;
 } LCKernelModule;
