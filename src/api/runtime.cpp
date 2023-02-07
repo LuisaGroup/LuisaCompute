@@ -322,7 +322,7 @@ LUISA_EXPORT_API LCMesh luisa_compute_mesh_create(
     return LCMesh{d->retain()->object()->impl()->create_mesh(
         AccelCreateOption{static_cast<AccelCreateOption::UsageHint>(hint), true, true},
         v_buffer._0, v_offset, v_stride, v_count,
-        t_buffer._0, t_offset, t_count};
+        t_buffer._0, t_offset, t_count)};
 }
 
 LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) LUISA_NOEXCEPT {
@@ -334,8 +334,8 @@ LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) L
 
 LUISA_EXPORT_API LCAccel luisa_compute_accel_create(LCDevice device, LCAccelUsageHint hint) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return LCAccel{
-        d->retain()->object()->impl()->create_accel(static_cast<AccelUsageHint>(hint))};
+    return LCAccel{d->retain()->object()->impl()->create_accel(AccelCreateOption{
+        static_cast<AccelCreateOption::UsageHint>(hint), true, true})};
 }
 
 LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel) LUISA_NOEXCEPT {
@@ -400,6 +400,7 @@ LUISA_EXPORT_API LCBindlessArray luisa_compute_bindless_array_create(LCDevice de
     auto bindless_array = d->retain()->object()->impl()->create_bindless_array(n);
     return LCBindlessArray{bindless_array};
 }
+
 LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_buffer(LCDevice device, LCBindlessArray array, size_t index, LCBuffer buffer) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
@@ -411,21 +412,25 @@ LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex2d(LCDevice device
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->emplace_tex2d_in_bindless_array(handle, index, texture._0, convert_sampler(sampler));
 }
+
 LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex3d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->emplace_tex3d_in_bindless_array(handle, index, texture._0, convert_sampler(sampler));
 }
+
 LUISA_EXPORT_API void luisa_compute_bindless_array_remove_buffer(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->remove_buffer_in_bindless_array(handle, index);
 }
+
 LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex2d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->remove_tex2d_in_bindless_array(handle, index);
 }
+
 LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex3d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
