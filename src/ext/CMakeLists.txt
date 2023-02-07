@@ -100,7 +100,6 @@ if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(pybind11)
 endif ()
 
-
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 
 # for rust bindings
