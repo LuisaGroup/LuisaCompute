@@ -1,7 +1,10 @@
 #pragma once
+
 #include <runtime/buffer.h>
 #include <runtime/image.h>
+
 namespace luisa::compute {
+
 class ViewExporter {
 public:
     template<typename T>
@@ -13,4 +16,5 @@ public:
         return {handle, storage, level, size};
     }
 };
+
 }// namespace luisa::compute

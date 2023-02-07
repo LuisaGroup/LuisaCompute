@@ -44,9 +44,9 @@ typedef struct LCDeviceInterface {
     void (*emplace_tex2d_in_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index, uint64_t handle, LCSampler sampler);
     void (*emplace_tex3d_in_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index, uint64_t handle, LCSampler sampler);
     bool (*is_resource_in_bindless_array)(struct LCDeviceInterface *self, uint64_t array, uint64_t handle);
-    void (*remove_buffer_from_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index);
-    void (*remove_tex2d_from_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index);
-    void (*remove_tex3d_from_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index);
+    void (*remove_buffer_in_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index);
+    void (*remove_tex2d_in_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index);
+    void (*remove_tex3d_in_bindless_array)(struct LCDeviceInterface *self, uint64_t array, size_t index);
 
     // stream
     // [[nodiscard]] virtual uint64_t create_stream(bool for_present) noexcept = 0;
@@ -82,7 +82,7 @@ typedef struct LCDeviceInterface {
     // [[nodiscard]] virtual uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept = 0;
     // virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
-    uint64_t (*create_shader_ex)(struct LCDeviceInterface *self, const LCKernelModule *kernel, const char *meta_options);
+    uint64_t (*create_shader_ex)(struct LCDeviceInterface *self, LCKernelModule kernel, const char *meta_options);
     void (*destroy_shader)(struct LCDeviceInterface *self, uint64_t handle);
     // event
     // [[nodiscard]] virtual uint64_t create_event() noexcept = 0;
