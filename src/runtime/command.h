@@ -13,7 +13,6 @@
 #include <raster/viewport.h>
 #include <runtime/custom_struct.h>
 #include <runtime/sampler.h>
-#include <rust/luisa_compute_api_types/bindings.h>
 
 namespace luisa::compute {
 
@@ -27,7 +26,6 @@ class RasterMesh;
         BufferCopyCommand,             \
         BufferToTextureCopyCommand,    \
         ShaderDispatchCommand,         \
-        ShaderDispatchExCommand,       \
         TextureUploadCommand,          \
         TextureDownloadCommand,        \
         TextureCopyCommand,            \
@@ -46,14 +44,14 @@ LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
 
 struct CommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
-    virtual void visit(const CMD *) noexcept { LUISA_ERROR_WITH_LOCATION("Not implemented."); }
+    virtual void visit(const CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
 
 struct MutableCommandVisitor {
 #define LUISA_MAKE_COMMAND_VISITOR_INTERFACE(CMD) \
-    virtual void visit(CMD *) noexcept { LUISA_ERROR_WITH_LOCATION("Not implemented."); }
+    virtual void visit(CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
 };
@@ -316,39 +314,10 @@ public:
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand, StreamTag::COPY)
 };
-<<<<<<< HEAD
 namespace detail {
 LC_RUNTIME_API void log_cmd_invalidargs();
 }
 class LC_RUNTIME_API ShaderDispatchCommandBase : public Command {
-=======
-
-class ShaderDispatchExCommand final : public Command {
-private:
-    luisa::vector<LCArgument> _arguments;
-    uint64_t _shader_handle{};
-    uint _dispatch_size[3]{};
-
-public:
-    explicit ShaderDispatchExCommand(uint64_t shader_handle) noexcept
-        : Command{Command::Tag::EShaderDispatchExCommand},
-          _shader_handle{shader_handle} {}
-    [[nodiscard]] auto shader() const noexcept { return _shader_handle; }
-    [[nodiscard]] auto dispatch_size() const noexcept { return make_uint3(_dispatch_size[0], _dispatch_size[1], _dispatch_size[2]); }
-    [[nodiscard]] auto arguments() const noexcept { return _arguments; }
-    void set_dispatch_size(uint3 size) noexcept {
-        _dispatch_size[0] = size.x;
-        _dispatch_size[1] = size.y;
-        _dispatch_size[2] = size.z;
-    }
-    void add_argument(LCArgument arg) noexcept {
-        _arguments.emplace_back(arg);
-    }
-    LUISA_MAKE_COMMAND_COMMON(ShaderDispatchExCommand)
-};
-
-class ShaderDispatchCommand final : public Command {
->>>>>>> autodiff
 
 public:
     struct alignas(8) Argument {

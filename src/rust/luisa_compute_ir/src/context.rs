@@ -95,10 +95,6 @@ pub extern "C" fn luisa_compute_ir_new_context() -> *mut c_void {
 }
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_set_context(ctx: *mut c_void) {
-    assert_ne!(ctx, std::ptr::null_mut());
-    if CONTEXT.read().is_some() && ctx == luisa_compute_ir_context() {
-        return;
-    }
     let ctx = ctx as *mut GcObject<Context>;
     let ctx = unsafe { Gc::from_raw(ctx) };
     let mut context = CONTEXT.write();

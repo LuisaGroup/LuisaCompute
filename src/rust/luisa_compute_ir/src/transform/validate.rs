@@ -74,7 +74,6 @@ impl Validator {
             Instruction::Const(c) => {
                 let const_type = match c {
                     Const::Zero(t) => *t,
-                    Const::One(t) => *t,
                     Const::Bool(_) => <bool as TypeOf>::type_(),
                     Const::Int32(_) => <i32 as TypeOf>::type_(),
                     Const::Uint32(_) => <u32 as TypeOf>::type_(),
@@ -169,20 +168,15 @@ impl Validator {
                     }
                     Func::RequiresGradient => {
                         assert_eq!(args.len(), 1);
-                        // assert!(grad_type_of(args[0].type_()).is_some());
+                        assert!(grad_type_of(args[0].type_()).is_some());
                     }
                     Func::Gradient => {
                         assert_eq!(args.len(), 1);
-                        // assert!(grad_type_of(args[0].type_()).is_some());
+                        assert!(grad_type_of(args[0].type_()).is_some());
                     }
                     Func::GradientMarker => {
-                        assert_eq!(args.len(), 2);
-                        // assert!(grad_type_of(args[0].type_()).is_some());
-                    }
-                    Func::Detach=>{}
-                    Func::AccGrad => {
-                        assert_eq!(args.len(), 2);
-                        assert!(args[0].is_local());
+                        assert_eq!(args.len(), 1);
+                        assert!(grad_type_of(args[0].type_()).is_some());
                     }
                     Func::InstanceToWorldMatrix => todo!(),
                     Func::TraceClosest => todo!(),
@@ -214,7 +208,7 @@ impl Validator {
                         }
                         assert!(vector_compatible(type_, args[0].type_()));
                     }
-                    Func::Load => {
+                    Func::Load=>{
                         assert!(args[0].is_lvalue());
                     }
                     Func::Add => {
@@ -272,6 +266,9 @@ impl Validator {
                         check_cmp!();
                     }
                     Func::MatCompMul => {
+                        check_binop_same!();
+                    }
+                    Func::MatCompDiv => {
                         check_binop_same!();
                     }
                     Func::Neg => {
@@ -409,7 +406,6 @@ impl Validator {
                     Func::Copysign => todo!(),
                     Func::Cross => todo!(),
                     Func::Dot => todo!(),
-                    Func::OuterProduct => todo!(),
                     Func::Length => todo!(),
                     Func::LengthSquared => todo!(),
                     Func::Normalize => todo!(),
@@ -447,8 +443,7 @@ impl Validator {
                     Func::BindlessTexture2dSizeLevel => todo!(),
                     Func::BindlessTexture3dSizeLevel => todo!(),
                     Func::BindlessBufferRead => todo!(),
-                    Func::BindlessBufferSize(_) => todo!(),
-                    Func::BindlessBufferType => todo!(),
+                    Func::BindlessBufferSize => todo!(),
                     Func::Vec => todo!(),
                     Func::Vec2 => todo!(),
                     Func::Vec3 => todo!(),
@@ -457,11 +452,11 @@ impl Validator {
                     Func::ExtractElement => todo!(),
                     Func::InsertElement => todo!(),
                     Func::GetElementPtr => todo!(),
-                    Func::Struct => todo!(),
+                    Func::Struct=>todo!(),
                     Func::Mat => todo!(),
-                    Func::Mat2 => todo!(),
-                    Func::Mat3 => todo!(),
-                    Func::Mat4 => todo!(),
+                    Func::Matrix2 => todo!(),
+                    Func::Matrix3 => todo!(),
+                    Func::Matrix4 => todo!(),
                     Func::Callable(_) => todo!(),
                     Func::CpuCustomOp(_) => todo!(),
                 }
@@ -489,8 +484,6 @@ impl Validator {
                 self.check_block(body);
                 self.check_block(update);
             }
-            Instruction::AdScope { .. } => todo!(),
-            Instruction::AdDetach(_) => todo!(),
             Instruction::Break => {
                 assert_eq!(type_, Type::void());
             }
@@ -516,13 +509,13 @@ impl Validator {
                 assert_eq!(value.type_(), <i32 as TypeOf>::type_());
                 self.check_block(default);
                 for case in cases.as_ref() {
+                    assert_eq!(case.value.type_(), <i32 as TypeOf>::type_());
                     self.check_block(&case.block);
                 }
             }
             Instruction::Comment(_) => {
                 assert_eq!(type_, Type::void());
-            }
-            crate::ir::Instruction::Debug { .. } => {}
+            } crate::ir::Instruction::Debug { .. } => {}
         }
     }
     fn validate(&mut self, module: &Module) {

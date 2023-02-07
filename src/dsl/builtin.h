@@ -1476,7 +1476,7 @@ template<typename X, typename Y>
 template<typename X>
     requires is_dsl_v<X> && is_float_or_vector_expr_v<X>
 [[nodiscard]] inline auto sign(X &&x) noexcept {
-    return copysign(1.f, std::forward<X>(x));
+    return copysign(1.0f, std::forward<X>(x));
 }
 
 /// Cross product.

@@ -155,11 +155,6 @@ impl<T> Drop for CRc<T> {
         }
     }
 }
-impl<T> CRc<T> {
-    pub fn as_ptr(&self) -> *const T {
-        unsafe { &(*self.inner).ptr }
-    }
-}
 impl<T> std::ops::Deref for CRc<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {

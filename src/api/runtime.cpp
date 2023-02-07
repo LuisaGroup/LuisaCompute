@@ -76,58 +76,7 @@ class CommandListConverter {
     LCCommandList _list;
     bool _is_c_api;
     luisa::optional<CommandList> _converted;
-    luisa::unique_ptr<Command> convert_one(LCCommand cmd) {
-        switch(cmd.tag) {
-            case LC_COMMAND_BUFFER_COPY: {
-                auto c = cmd.buffer_copy;
-                return make_unique<BufferCopyCommand>(
-                   c.src._0,
-                    c.dst._0,
-                    c.src_offset,
-                    c.dst_offset,
-                    c.size);
-            }
-            case LC_COMMAND_BUFFER_UPLOAD: {
-                auto c = cmd.buffer_upload;
-                return make_unique<BufferUploadCommand>(
-                    c.buffer._0,
-                    c.offset,
-                    c.size,
-                    c.data);
-            }
-            case LC_COMMAND_BUFFER_DOWNLOAD: {
-                auto c = cmd.buffer_download;
-                return make_unique<BufferDownloadCommand>(
-                    c.buffer._0,
-                    c.offset,
-                    c.size,
-                    c.data);
-            }
-            case LC_COMMAND_BINDLESS_ARRAY_UPDATE: {
-                return make_unique<BindlessArrayUpdateCommand>(
-                    cmd.bindless_array_update._0);
-            }
-            case LC_COMMAND_SHADER_DISPATCH: {
-                auto c = ShaderDispatchExCommand(cmd.shader_dispatch.shader._0);
-                c.set_dispatch_size(make_uint3(cmd.shader_dispatch.dispatch_size[0],
-                                               cmd.shader_dispatch.dispatch_size[1],
-                                               cmd.shader_dispatch.dispatch_size[2]));
-                for (int i=0;i<cmd.shader_dispatch.args_count; i++) {
-                    c.add_argument(cmd.shader_dispatch.args[i]);
-                }
-                return make_unique<ShaderDispatchExCommand>(
-                    std::move(c));
-            }
-            default:
-                LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
-        };
-    }
     void convert() {
-        auto cmd_list = CommandList();
-        for (int i=0;i<_list.commands_count;i++) {
-            cmd_list.append(convert_one(_list.commands[i]));
-        }
-        _converted = std::move(cmd_list);
     }
 
 public:
@@ -160,10 +109,7 @@ LUISA_EXPORT_API LCContext luisa_compute_context_create(const char *exe_path) LU
 LUISA_EXPORT_API void luisa_compute_context_destroy(LCContext ctx) LUISA_NOEXCEPT {
     delete_with_allocator(reinterpret_cast<Context *>(ctx._0));
 }
-LUISA_EXPORT_API void luisa_compute_context_add_search_path(LCContext ctx, const char *path) LUISA_NOEXCEPT {
-    auto ctx_ = reinterpret_cast<Context *>(ctx._0);
-    ctx_->add_search_path(path);
-}
+
 inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
     auto s = path.string();
     auto cs = static_cast<char *>(malloc(s.size() + 1u));
@@ -196,9 +142,7 @@ LUISA_EXPORT_API void luisa_compute_device_retain(LCDevice device) LUISA_NOEXCEP
 LUISA_EXPORT_API void luisa_compute_device_release(LCDevice device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device._0)->release();
 }
-LUISA_EXPORT_API void * luisa_compute_device_native_handle(LCDevice device) LUISA_NOEXCEPT {
-    return reinterpret_cast<RC<Device> *>(device._0)->object()->impl()->native_handle();
-}
+
 LUISA_EXPORT_API LCBuffer luisa_compute_buffer_create(LCDevice device, size_t size) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto handle = d->retain()->object()->impl()->create_buffer(size);
@@ -211,11 +155,7 @@ LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buf
     d->object()->impl()->destroy_buffer(handle);
     d->release();
 }
-LUISA_EXPORT_API void * luisa_compute_buffer_native_handle(LCDevice device, LCBuffer buffer) LUISA_NOEXCEPT {
-    auto handle = buffer._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return d->object()->impl()->buffer_native_handle(handle);
-}
+
 LUISA_EXPORT_API LCTexture luisa_compute_texture_create(LCDevice device, uint32_t format, uint32_t dim, uint32_t w, uint32_t h, uint32_t d, uint32_t mips) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<RC<Device> *>(device._0);
     return LCTexture{dev->retain()->object()->impl()->create_texture(
@@ -255,20 +195,13 @@ LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream st
     auto &cmd_list = converter.converted();
     d->object()->impl()->dispatch(handle, std::move(cmd_list));
 }
-LUISA_EXPORT_API void luisa_compute_stream_native_handle(LCDevice device, LCStream stream, void *handle) LUISA_NOEXCEPT {
-    auto h = stream._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->stream_native_handle(reinterpret_cast<uint64_t>(handle));
-}
 
-LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, LCKernelModule m, const char *options) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, const LCKernelModule *function, const char *options) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto ir = reinterpret_cast<const ir::KernelModule *>(m.ptr);
     // return (LCShader)d->retain()->object()->impl()->create_shader(
     //     luisa::compute::Function{reinterpret_cast<luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> *>(function)->get()},
     //     std::string_view{options});
-    // FIXME: akr help
-    auto handle = d->retain()->object()->impl()->create_shader_ex(*ir, options);
+    auto handle = d->retain()->object()->impl()->create_shader_ex(function, options);
     return LCShader{handle};
 }
 
@@ -388,7 +321,6 @@ inline Sampler convert_sampler(LCSampler sampler) {
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid sampler filter mode {}", static_cast<int>(sampler.filter));
     }
-    LUISA_ERROR("Unreachable.");
 }
 
 LUISA_EXPORT_API LCBindlessArray luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT {
@@ -514,45 +446,36 @@ public:
         LUISA_ASSERT(c_cmd_list != nullptr, "null!");
         impl->dispatch(impl, stream_handle, *c_cmd_list);
     }
-
-    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept override {
+    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
         for (auto &&list : lists) { dispatch(stream_handle, list); }
     }
-
     void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept override {
         func();
     }
-
     [[nodiscard]] void *stream_native_handle(uint64_t handle) const noexcept override {
         return impl->stream_native_handle(impl, handle);
     }
-
     // swap chain
     [[nodiscard]] uint64_t create_swap_chain(
         uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
         bool allow_hdr, uint back_buffer_size) noexcept override {
         return impl->create_swap_chain(impl, window_handle, stream_handle, width, height, allow_hdr, back_buffer_size);
     }
-
     void destroy_swap_chain(uint64_t handle) noexcept override {
         impl->destroy_swap_chain(impl, handle);
     }
-
     PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override {
         return static_cast<PixelStorage>(impl->swap_chain_pixel_storage(impl, handle));
     }
-
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override {
         impl->present_display_in_stream(impl, stream_handle, swapchain_handle, image_handle);
     }
-
     // kernel
     [[nodiscard]] uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override {
         LUISA_ERROR_WITH_LOCATION("create_shader() is deprecated.");
     }
-
-    [[nodiscard]] virtual uint64_t create_shader_ex(const ir::KernelModule &kernel, std::string_view meta_options) noexcept override {
-        return impl->create_shader_ex(impl, {.ptr = reinterpret_cast<uint64_t>(&kernel)}, meta_options.data());
+    [[nodiscard]] virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept {
+        return impl->create_shader_ex(impl, kernel, meta_options.data());
     }
 
     void destroy_shader(uint64_t handle) noexcept override {

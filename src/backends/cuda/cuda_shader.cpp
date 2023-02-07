@@ -19,7 +19,6 @@
 #include <backends/cuda/cuda_shader.h>
 #include <backends/cuda/optix_api.h>
 
-
 namespace luisa::compute::cuda {
 
 class CUDAShaderNative final : public CUDAShader {
@@ -28,14 +27,10 @@ private:
     CUmodule _module{};
     CUfunction _function{};
     luisa::string _entry;
-    uint3 _block_size;
 
 public:
-    CUDAShaderNative(const char *ptx, size_t ptx_size,
-                     const char *entry, uint3 block_size,
-                     luisa::vector<ir::Binding> captures) noexcept
-        : CUDAShader{std::move(captures)},
-          _entry{entry}, _block_size{block_size} {
+    CUDAShaderNative(const char *ptx, size_t ptx_size, const char *entry) noexcept
+        : _entry{entry} {
         auto ret = cuModuleLoadData(&_module, ptx);
         if (ret == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
             // For users with newer CUDA and older driver,
@@ -115,127 +110,10 @@ public:
             blocks.x, blocks.y, blocks.z,
             block_size.x, block_size.y, block_size.z);
         auto cuda_stream = stream->handle();
-        LUISA_CHECK_CUDA_LAUNCH(cuLaunchKernel(
+        LUISA_CHECK_CUDA(cuLaunchKernel(
             _function,
             blocks.x, blocks.y, blocks.z,
             block_size.x, block_size.y, block_size.z,
-            0u, cuda_stream,
-            arguments.data(), nullptr));
-    }
-
-    void launch(CUDAStream *stream, const ShaderDispatchExCommand *command) const noexcept override {
-        static thread_local std::array<std::byte, 65536u> argument_buffer;// should be enough...
-        static thread_local std::vector<void *> arguments;
-        auto argument_buffer_offset = static_cast<size_t>(0u);
-        auto allocate_argument = [&](size_t bytes) noexcept {
-            static constexpr auto alignment = 16u;
-            auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
-            argument_buffer_offset = offset + bytes;
-            if (argument_buffer_offset > argument_buffer.size()) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Too many arguments in ShaderDispatchCommand");
-            }
-            return arguments.emplace_back(argument_buffer.data() + offset);
-        };
-
-        auto encode_buffer = [&](uint64_t handle, size_t offset, size_t size) noexcept {
-            struct B {
-                uint64_t addr;
-                size_t size_bytes;
-            };
-            auto arg = B{handle + offset, size};
-            auto ptr = allocate_argument(sizeof(B));
-            std::memcpy(ptr, &arg, sizeof(B));
-        };
-
-        auto encode_texture = [&](uint64_t handle, uint level) noexcept {
-            auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(handle);
-            auto surface = mipmap_array->surface(level);
-            auto ptr = allocate_argument(sizeof(CUDASurface));
-            std::memcpy(ptr, &surface, sizeof(CUDASurface));
-        };
-
-        auto encode_bindless_array = [&](uint64_t handle) noexcept {
-            auto ptr = allocate_argument(sizeof(CUDABindlessArray::SlotSOA));
-            auto array = reinterpret_cast<CUDABindlessArray *>(handle)->handle();
-            std::memcpy(ptr, &array, sizeof(CUDABindlessArray::SlotSOA));
-        };
-
-        auto encode_accel = [&](uint64_t handle) noexcept {
-            auto ptr = allocate_argument(sizeof(CUDAAccel::Binding));
-            auto accel = reinterpret_cast<CUDAAccel *>(handle);
-            CUDAAccel::Binding binding{.handle = accel->handle(), .instances = accel->instance_buffer()};
-            std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
-        };
-
-        auto encode_uniform = [&](const void *data, size_t size) noexcept {
-            auto ptr = allocate_argument(size);
-            std::memcpy(ptr, data, size);
-        };
-
-        arguments.clear();
-        arguments.reserve(_captures.size() +
-                          command->arguments().size() + 1u);
-        // captured bindings
-        for (auto &&b : _captures) {
-            switch (b.tag) {
-                case ir::Binding::Tag::Buffer:
-                    encode_buffer(b.buffer._0.handle,
-                                  b.buffer._0.offset,
-                                  b.buffer._0.size);
-                    break;
-                case ir::Binding::Tag::Texture:
-                    encode_texture(b.texture._0.handle,
-                                   b.texture._0.level);
-                    break;
-                case ir::Binding::Tag::BindlessArray:
-                    encode_bindless_array(b.bindless_array._0.handle);
-                    break;
-                case ir::Binding::Tag::Accel:
-                    encode_accel(b.accel._0.handle);
-                    break;
-            }
-        }
-        // arguments
-        for (auto &&a : command->arguments()) {
-            switch (a.tag) {
-                case LC_ARGUMENT_BUFFER:
-                    encode_buffer(a.buffer.buffer._0,
-                                  a.buffer.offset,
-                                  a.buffer.size);
-                    break;
-                case LC_ARGUMENT_TEXTURE:
-                    encode_texture(a.texture.texture._0,
-                                   a.texture.level);
-                    break;
-                case LC_ARGUMENT_UNIFORM:
-                    encode_uniform(a.uniform.data,
-                                   a.uniform.size);
-                    break;
-                case LC_ARGUMENT_ACCEL:
-                    encode_accel(a.accel._0);
-                    break;
-                case LC_ARGUMENT_BINDLESS_ARRAY:
-                    encode_bindless_array(a.bindless_array._0);
-                    break;
-            }
-        }
-        // the last one is always the launch size
-        auto launch_size = command->dispatch_size();
-        auto ptr = allocate_argument(sizeof(luisa::uint3));
-        std::memcpy(ptr, &launch_size, sizeof(luisa::uint3));
-        auto blocks = (launch_size + _block_size - 1u) / _block_size;
-        LUISA_VERBOSE_WITH_LOCATION(
-            "Dispatching native shader #{} ({}) with {} argument(s) "
-            "in ({}, {}, {}) blocks of size ({}, {}, {}).",
-            command->shader(), _entry, arguments.size(),
-            blocks.x, blocks.y, blocks.z,
-            _block_size.x, _block_size.y, _block_size.z);
-        auto cuda_stream = stream->handle();
-        LUISA_CHECK_CUDA_LAUNCH(cuLaunchKernel(
-            _function,
-            blocks.x, blocks.y, blocks.z,
-            _block_size.x, _block_size.y, _block_size.z,
             0u, cuda_stream,
             arguments.data(), nullptr));
     }
@@ -284,11 +162,8 @@ private:
     mutable luisa::unordered_set<CUstream> _sbt_recoreded_streams;
 
 public:
-    CUDAShaderOptiX(CUDADevice *device,
-                    const char *ptx, size_t ptx_size,
-                    const char *entry,
-                    luisa::vector<ir::Binding> captures) noexcept
-        : CUDAShader{std::move(captures)}, _device{device}, _entry{entry} {
+    CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept
+        : _device{device}, _entry{entry} {
 
         // create SBT event
         LUISA_CHECK_CUDA(cuEventCreate(&_sbt_event, CU_EVENT_DISABLE_TIMING));
@@ -514,21 +389,13 @@ public:
         }
         stream->emplace_callback(host_argument_buffer);
     }
-
-    void launch(CUDAStream *stream, const ShaderDispatchExCommand *command) const noexcept override {
-        LUISA_ERROR_WITH_LOCATION("Not implemented.");
-    }
 };
 
-CUDAShader *CUDAShader::create(CUDADevice *device, uint3 block_size,
-                               const char *ptx, size_t ptx_size,
-                               const char *entry, bool is_raytracing,
-                               luisa::vector<ir::Binding> captures) noexcept {
+CUDAShader *CUDAShader::create(CUDADevice *device, const char *ptx, size_t ptx_size,
+                               const char *entry, bool is_raytracing) noexcept {
     return is_raytracing ?
-               static_cast<CUDAShader *>(new_with_allocator<CUDAShaderOptiX>(
-                   device, ptx, ptx_size, entry, std::move(captures))) :
-               static_cast<CUDAShader *>(new_with_allocator<CUDAShaderNative>(
-                   ptx, ptx_size, entry, block_size, std::move(captures)));
+               static_cast<CUDAShader *>(new_with_allocator<CUDAShaderOptiX>(device, ptx, ptx_size, entry)) :
+               static_cast<CUDAShader *>(new_with_allocator<CUDAShaderNative>(ptx, ptx_size, entry));
 }
 
 void CUDAShader::destroy(CUDAShader *shader) noexcept {

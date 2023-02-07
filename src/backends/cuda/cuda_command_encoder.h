@@ -37,7 +37,6 @@ public:
     void visit(const AccelBuildCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
     void visit(const BindlessArrayUpdateCommand *command) noexcept override;
-    void visit(const ShaderDispatchExCommand *command) noexcept override;
 
     template<typename F>
     void with_upload_buffer(size_t size, F &&f) noexcept;

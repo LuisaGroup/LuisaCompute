@@ -45,8 +45,6 @@ public:
     [[nodiscard]] auto get() const noexcept { return const_cast<const T *>(&object->data); }
     [[nodiscard]] T *operator->() noexcept { return get(); }
     [[nodiscard]] const T *operator->() const noexcept { return get(); }
-    [[nodiscard]] auto &operator*() noexcept { return *get(); }
-    [[nodiscard]] const auto &operator*() const noexcept { return *get(); }
     void set_root(bool root) const noexcept {
         object->header.root = root;
     }

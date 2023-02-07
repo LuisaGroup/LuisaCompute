@@ -1,7 +1,6 @@
 set(LUISA_COMPUTE_IR_SOURCES
         ir.cpp ir.hpp
-        ast2ir.cpp ast2ir.h
-        codegen.cpp codegen.h)
+        ast2ir.cpp ast2ir.h)
 
 add_library(luisa-compute-ir SHARED ${LUISA_COMPUTE_IR_SOURCES})
 target_link_libraries(luisa-compute-ir PUBLIC luisa-compute-ast luisa-compute-rust-meta)

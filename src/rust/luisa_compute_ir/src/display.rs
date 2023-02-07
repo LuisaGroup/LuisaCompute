@@ -1,5 +1,5 @@
-use crate::ir::{Instruction, Module, NodeRef, SwitchCase, Type};
 use std::collections::HashMap;
+use crate::ir::{Instruction, Module, NodeRef, SwitchCase, Type};
 
 pub struct DisplayIR {
     output: String,
@@ -38,7 +38,7 @@ impl DisplayIR {
     }
 
     fn add_ident(&mut self, ident: usize) {
-        for _ in 0..ident {
+        for _ in 0 .. ident {
             self.output += "    ";
         }
     }
@@ -49,31 +49,59 @@ impl DisplayIR {
         self.add_ident(ident);
         match instruction.as_ref() {
             Instruction::Buffer => {
-                let temp = format!("${}: Buffer<{}> [param]", self.get(&node), type_,);
+                let temp = format!(
+                    "${}: Buffer<{}> [param]",
+                    self.get(&node),
+                    type_,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Bindless => {
-                let temp = format!("${}: Bindless<{}> [param]", self.get(&node), type_,);
+                let temp = format!(
+                    "${}: Bindless<{}> [param]",
+                    self.get(&node),
+                    type_,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Texture2D => {
-                let temp = format!("${}: Texture2D<{}> [param]", self.get(&node), type_,);
+                let temp = format!(
+                    "${}: Texture2D<{}> [param]",
+                    self.get(&node),
+                    type_,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Texture3D => {
-                let temp = format!("${}: Texture3D<{}> [param]", self.get(&node), type_,);
+                let temp = format!(
+                    "${}: Texture3D<{}> [param]",
+                    self.get(&node),
+                    type_,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Accel => {
-                let temp = format!("${}: Accel<{}> [param]", self.get(&node), type_,);
+                let temp = format!(
+                    "${}: Accel<{}> [param]",
+                    self.get(&node),
+                    type_,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Shared => {
-                let temp = format!("${}: Shared<{}> [param]", self.get(&node), type_,);
+                let temp = format!(
+                    "${}: Shared<{}> [param]",
+                    self.get(&node),
+                    type_,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Uniform => {
-                let temp = format!("${}: {} [param]", self.get(&node), type_,);
+                let temp = format!(
+                    "${}: {} [param]",
+                    self.get(&node),
+                    type_,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Local { init } => {
@@ -89,32 +117,48 @@ impl DisplayIR {
             Instruction::UserData(_) => self.output += "Userdata",
             Instruction::Invalid => self.output += "INVALID",
             Instruction::Const(c) => {
-                let temp = format!("${}: {} = Const {}", self.get(&node), type_, c,);
+                let temp = format!(
+                    "${}: {} = Const {}",
+                    self.get(&node),
+                    type_,
+                    c,
+                );
                 self.output += temp.as_str();
             }
             Instruction::Update { var, value } => {
-                let temp = format!("${} = ${}", self.get(var), self.get(value),);
+                let temp = format!(
+                    "${} = ${}",
+                    self.get(var),
+                    self.get(value),
+                );
                 self.output += temp.as_str();
             }
             Instruction::Call(func, args) => {
                 if type_ != Type::void() {
-                    let tmp = format!("${}: {} = ", self.get(&node), type_,);
+                    let tmp = format!(
+                        "${}: {} = ",
+                        self.get(&node),
+                        type_,
+                    );
                     self.output += tmp.as_str();
                 }
 
                 let args = args
                     .as_ref()
                     .iter()
-                    .map(|arg| format!("${}", self.get(arg)))
+                    .map(|arg| {
+                       format!("${}", self.get(arg))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                self.output += format!("Call {:?}({})", func, args,).as_str();
+                self.output += format!(
+                    "Call {:?}({})",
+                    func,
+                    args,
+                ).as_str();
             }
-            Instruction::Phi(_) => {
-                let n = self.get(&node);
-                self.output += &format!("${}: Phi", n)
-            }
+            Instruction::Phi(_) => todo!(),
             Instruction::Break => self.output += "break",
             Instruction::Continue => self.output += "continue",
             Instruction::If {
@@ -137,16 +181,12 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::Switch {
-                value,
-                default,
-                cases,
-            } => {
+            Instruction::Switch { value, default, cases } => {
                 let temp = format!("switch ${} {{\n", self.get(value));
                 self.output += temp.as_str();
                 for SwitchCase { value, block } in cases.as_ref() {
                     self.add_ident(ident + 1);
-                    let temp = format!("{} => {{\n", value);
+                    let temp = format!("${} => {{\n", self.get(value));
                     self.output += temp.as_str();
                     for node in block.nodes().iter() {
                         self.display(*node, ident + 2, false);
@@ -172,12 +212,7 @@ impl DisplayIR {
                 self.add_ident(ident);
                 self.output += "}";
             }
-            Instruction::GenericLoop {
-                prepare,
-                cond,
-                body,
-                update,
-            } => {
+            Instruction::GenericLoop { prepare, cond, body, update} => {
                 self.output += "for ";
                 for (index, node) in prepare.nodes().iter().enumerate() {
                     self.display(*node, 0, true);
@@ -196,37 +231,6 @@ impl DisplayIR {
                 }
                 self.output += " {\n";
                 for node in body.nodes().iter() {
-                    self.display(*node, ident + 1, false);
-                }
-                self.add_ident(ident);
-                self.output += "}";
-            }
-            Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
-            } => {
-                self.output += "AdScope {\n";
-                for node in forward.nodes().iter() {
-                    self.display(*node, ident + 1, false);
-                }
-                self.add_ident(ident);
-                self.output += "} {\n";
-
-                for node in backward.nodes().iter() {
-                    self.display(*node, ident + 1, false);
-                }
-
-                self.add_ident(ident);
-                self.output += "} {\n";
-                for node in epilogue.nodes().iter() {
-                    self.display(*node, ident + 1, false);
-                }
-                self.add_ident(ident);
-            }
-            Instruction::AdDetach(bb) => {
-                self.output += "AdDetach {\n";
-                for node in bb.nodes().iter() {
                     self.display(*node, ident + 1, false);
                 }
                 self.add_ident(ident);

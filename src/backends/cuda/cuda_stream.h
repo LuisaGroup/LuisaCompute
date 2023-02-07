@@ -25,8 +25,8 @@ class CUDACallbackContext;
 class CUDAStream {
 
 public:
-    static constexpr auto backed_cuda_stream_count = 1u;// TODO: enable multiple streams when IR analysis is ready
-    static_assert(backed_cuda_stream_count <= 32u);     // limit of uint bits
+    static constexpr auto backed_cuda_stream_count = 3u;
+    static_assert(backed_cuda_stream_count <= 32u);// limit of uint bits
 
 private:
     CUDADevice *_device;

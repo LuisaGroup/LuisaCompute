@@ -70,10 +70,6 @@ void CUDACommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
     reinterpret_cast<CUDAShader *>(command->handle())->launch(_stream, command);
 }
 
-void CUDACommandEncoder::visit(const ShaderDispatchExCommand *command) noexcept {
-    reinterpret_cast<CUDAShader *>(command->shader())->launch(_stream, command);
-}
-
 void CUDACommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->handle());
     auto array = mipmap_array->level(command->level());

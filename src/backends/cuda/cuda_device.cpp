@@ -236,31 +236,7 @@ uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_option
                      luisa::format("kernel_{:016X}", kernel.hash());
     LUISA_INFO("Generated PTX for {} in {} ms.", entry, clock.toc());
     return with_handle([&] {
-        auto shader = CUDAShader::create(this, kernel.block_size(),
-                                         ptx.c_str(), ptx.size(),
-                                         entry.c_str(),
-                                         kernel.raytracing(), {});
-        return reinterpret_cast<uint64_t>(shader);
-    });
-}
-
-uint64_t CUDADevice::create_shader_ex(const ir::KernelModule &kernel, std::string_view meta_options) noexcept {
-    Clock clock;
-    auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
-    luisa::vector<ir::Binding> captures;
-    captures.reserve(kernel.captures.len);
-    for (auto &&c : luisa::span{kernel.captures.ptr, kernel.captures.len}) {
-        captures.emplace_back(c.binding);
-    }
-    LUISA_INFO("Generated PTX in {} ms.", clock.toc());
-    return with_handle([&] {
-        auto shader = CUDAShader::create(this,
-                                         make_uint3(kernel.block_size[0],
-                                                    kernel.block_size[1],
-                                                    kernel.block_size[2]),
-                                         ptx.c_str(), ptx.size(),
-                                         "kernel_main", false,
-                                         std::move(captures));
+        auto shader = CUDAShader::create(this, ptx.c_str(), ptx.size(), entry.c_str(), kernel.raytracing());
         return reinterpret_cast<uint64_t>(shader);
     });
 }

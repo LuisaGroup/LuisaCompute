@@ -24,18 +24,6 @@
         }                                                \
     }()
 
-#define LUISA_CHECK_CUDA_LAUNCH(...)                     \
-    [&] {                                                \
-        if (auto ec = __VA_ARGS__; ec != CUDA_SUCCESS) { \
-            const char *err_name = nullptr;              \
-            const char *err_string = nullptr;            \
-            cuGetErrorName(ec, &err_name);               \
-            cuGetErrorString(ec, &err_string);           \
-            LUISA_ERROR_WITH_LOCATION(                   \
-                "{}: {}\nset LUISA_BACKTRACE=1 for more info", err_name, err_string);         \
-        }                                                \
-    }()
-
 #define LUISA_CHECK_NVRTC(...)                            \
     [&] {                                                 \
         if (auto ec = __VA_ARGS__; ec != NVRTC_SUCCESS) { \

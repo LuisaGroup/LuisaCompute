@@ -80,6 +80,8 @@ enum class SamplerFilter {
     ANISOTROPIC,
 };
 
+struct Capture;
+
 struct Buffer {
     uint64_t _0;
 };
@@ -392,8 +394,22 @@ struct AppContext {
     void *ir_context;
 };
 
+struct IrModule {
+    uint64_t _0;
+};
+
+struct NodeRef {
+    uint64_t _0;
+};
+
 struct KernelModule {
-    uint64_t ptr;
+    IrModule ir_module;
+    const Capture *captured;
+    size_t captured_count;
+    const NodeRef *args;
+    size_t args_count;
+    const NodeRef *shared;
+    size_t shared_count;
 };
 
 } // namespace luisa::compute::api

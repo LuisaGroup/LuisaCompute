@@ -1,7 +1,5 @@
 [workspace]
 members = [
     "luisa_compute_ir",
-    "luisa_compute_api_types",
-    "luisa_compute_cpu_kernel_defs",
-    "luisa_compute_backend"
+    "luisa_compute_api_types"
 ]
