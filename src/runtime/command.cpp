@@ -165,6 +165,10 @@ void ShaderDispatchCommandBase::_encode_pending_bindings(Function kernel) noexce
     }
 }
 
+void ShaderDispatchCommandBase::_error_invalid_argument() noexcept {
+    LUISA_ERROR_WITH_LOCATION("Invalid argument.");
+}
+
 ShaderDispatchCommand::ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept
     : ShaderDispatchCommandBase{Command::Tag::EShaderDispatchCommand}, _handle{handle}, _kernel(kernel) {
     _argument_buffer.reserve(256u);
@@ -238,11 +242,5 @@ DrawRasterSceneCommand::DrawRasterSceneCommand(uint64_t handle,
     : ShaderDispatchCommandBase{Command::Tag::EDrawRasterSceneCommand},
       _handle{handle}, _vertex_func{vertex_func},
       _pixel_func{pixel_func} { _default_func = _vertex_func; }
-
-namespace detail {
-void log_cmd_invalidargs() {
-    LUISA_ERROR_WITH_LOCATION("Invalid argument.");
-}
-}// namespace detail
 
 }// namespace luisa::compute

@@ -314,9 +314,7 @@ public:
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand, StreamTag::COPY)
 };
-namespace detail {
-LC_RUNTIME_API void log_cmd_invalidargs();
-}
+
 class LC_RUNTIME_API ShaderDispatchCommandBase : public Command {
 
 public:
@@ -384,8 +382,7 @@ public:
 protected:
     uint32_t _argument_count{0u};
     luisa::vector<std::byte> _argument_buffer;
-    ShaderDispatchCommandBase(Command::Tag tag) noexcept
-        : Command(tag) {}
+    explicit ShaderDispatchCommandBase(Command::Tag tag) noexcept : Command(tag) {}
     void _encode_pending_bindings(Function kernel) noexcept;
     void _encode_buffer(Function kernel, uint64_t handle, size_t offset, size_t size) noexcept;
     void _encode_texture(Function kernel, uint64_t handle, uint32_t level) noexcept;
@@ -402,6 +399,8 @@ protected:
         std::memcpy(p, &argument, sizeof(T));
         _argument_count++;
     }
+
+    [[noreturn]] static void _error_invalid_argument() noexcept;
 
 public:
     [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
@@ -451,8 +450,7 @@ public:
                     break;
                 }
                 default: {
-                    detail::log_cmd_invalidargs();
-                    break;
+                    _error_invalid_argument();// no return
                 }
             }
         }
@@ -796,20 +794,25 @@ public:
         uint64_t start_byte;
         uint64_t size_byte;
     };
+
     struct TextureView {
         uint64_t handle;
         uint64_t start_mip;
         uint64_t size_mip;
     };
+
     struct MeshView {
         uint64_t handle;
     };
+
     struct AccelView {
         uint64_t handle;
     };
+
     struct BindlessView {
         uint64_t handle;
     };
+
     struct ResourceBinding {
         luisa::variant<
             BufferView,

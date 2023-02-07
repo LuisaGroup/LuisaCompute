@@ -1,7 +1,9 @@
 #include <dsl/dispatch_indirect.h>
 #include <runtime/device.h>
 #include <runtime/buffer.h>
+
 namespace luisa::compute {
+
 /*
 Buffer<DrawIndirectArgs> Device::create_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept {
     Buffer<DrawIndirectArgs> v;
@@ -28,15 +30,19 @@ Buffer<DrawIndexedIndirectArgs> Device::create_indexed_draw_buffer(const MeshFor
     return v;
 }
 */
+
 void clear_dispatch_buffer(Expr<Buffer<DispatchArgs1D>> buffer) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
 }
+
 void clear_dispatch_buffer(Expr<Buffer<DispatchArgs2D>> buffer) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
 }
+
 void clear_dispatch_buffer(Expr<Buffer<DispatchArgs3D>> buffer) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
 }
+
 void emplace_dispatch_kernel(
     Expr<Buffer<DispatchArgs1D>> buffer,
     Expr<uint> block_size,
@@ -44,6 +50,7 @@ void emplace_dispatch_kernel(
     Expr<uint> kernel_id) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL, {buffer.expression(), block_size.expression(), dispatch_size.expression(), kernel_id.expression()});
 }
+
 void emplace_dispatch_kernel(
     Expr<Buffer<DispatchArgs2D>> buffer,
     Expr<uint2> block_size,
@@ -51,6 +58,7 @@ void emplace_dispatch_kernel(
     Expr<uint> kernel_id) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL, {buffer.expression(), block_size.expression(), dispatch_size.expression(), kernel_id.expression()});
 }
+
 void emplace_dispatch_kernel(
     Expr<Buffer<DispatchArgs3D>> buffer,
     Expr<uint3> block_size,
@@ -58,4 +66,5 @@ void emplace_dispatch_kernel(
     Expr<uint> kernel_id) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL, {buffer.expression(), block_size.expression(), dispatch_size.expression(), kernel_id.expression()});
 }
+
 }// namespace luisa::compute

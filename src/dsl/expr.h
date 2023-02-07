@@ -151,6 +151,14 @@ struct Expr<std::array<T, N>>
     LUISA_EXPR_COMMON(std::array<T, N>)
 };
 
+/// Class of Expr<T[N]>
+template<typename T, size_t N>
+struct Expr<T[N]>
+    : detail::ExprEnableSubscriptAccess<Expr<T[N]>>,
+      detail::ExprEnableGetMemberByIndex<Expr<T[N]>> {
+    LUISA_EXPR_COMMON(T[N])
+};
+
 /// Class of Expr<Matrix><N>>. Can be constructed from Matrix<N>
 template<size_t N>
 struct Expr<Matrix<N>>
@@ -767,7 +775,7 @@ Expr(const Volume<T> &) -> Expr<Volume<T>>;
 template<typename T>
 Expr(VolumeView<T>) -> Expr<Volume<T>>;
 
-Expr(const BindlessArray &)->Expr<BindlessArray>;
+Expr(const BindlessArray &) -> Expr<BindlessArray>;
 
 /// Get 2D texture at index
 template<typename I>

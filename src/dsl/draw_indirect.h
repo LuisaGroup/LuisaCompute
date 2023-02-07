@@ -1,5 +1,7 @@
 #pragma once
+
 #ifndef LC_DISABLE_DSL
+
 #include <dsl/expr.h>
 #include <dsl/var.h>
 #include <dsl/struct.h>
@@ -16,6 +18,7 @@ LUISA_CUSTOM_STRUCT(DrawIndirectArgs);
 LUISA_CUSTOM_STRUCT(DrawIndexedIndirectArgs);
 LUISA_CUSTOM_STRUCT(VertexBufferAddress);
 LUISA_CUSTOM_STRUCT(IndexBufferAddress);
+
 /*
 namespace luisa::compute {
 template<typename T>
@@ -35,4 +38,5 @@ luisa::unique_ptr<BufferUploadCommand> upload_vertex_buffer(
 }
 }// namespace luisa::compute
 */
+
 #endif
