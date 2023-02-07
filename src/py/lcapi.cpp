@@ -149,10 +149,12 @@ PYBIND11_MODULE(lcapi, m) {
             return accel.GetAccel().size();
         })
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
-        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
+        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
             cmd.request = AccelUsageHint::FAST_BUILD;
             cmd.vertex_buffer = vertex_buffer;
+            cmd.vertex_buffer_offset = vertex_buffer_offset;
+            cmd.triangle_buffer_offset = triangle_buffer_offset;
             cmd.vertex_buffer_size = vertex_buffer_size;
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
@@ -162,10 +164,12 @@ PYBIND11_MODULE(lcapi, m) {
             accel.emplace(cmd, transform, visible, opaque);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
-        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
+        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
             cmd.request = AccelUsageHint::FAST_BUILD;
             cmd.vertex_buffer = vertex_buffer;
+            cmd.vertex_buffer_offset = vertex_buffer_offset;
+            cmd.triangle_buffer_offset = triangle_buffer_offset;
             cmd.vertex_buffer_size = vertex_buffer_size;
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;

@@ -1359,13 +1359,22 @@ void CodegenUtility::GenerateCBuffer(
     std::initializer_list<vstd::IRange<Variable> *> fs,
     vstd::StringBuilder &result) {
     result << "struct Args{\n"sv;
+    size_t align = 0;
     for (auto &&f : fs) {
         for (auto &&i : *f) {
             if (!detail::IsCBuffer(i.tag())) continue;
-            GetTypeName(*i.type(), result, Usage::READ, false);
+            GetTypeName(*i.type(), result, Usage::READ, true);
+            // vec3 need extra alignment
             result << ' ';
             GetVariableName(i, result);
             result << ";\n"sv;
+            if(i.type()->is_vector() && i.type()->dimension() == 3){
+                GetTypeName(*i.type()->element(), result, Usage::READ, true);
+                result << " _a"sv;
+                vstd::to_string(align, result);
+                result << ";\n"sv;
+                ++align;
+            }
         }
     }
     result << R"(};
