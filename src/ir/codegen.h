@@ -16,7 +16,7 @@ public:
     struct BoxedSliceHash {
         using is_avalaunching = void;
         [[nodiscard]] auto operator()(ir::CBoxedSlice<T> slice) const noexcept {
-            return luisa::hash64(slice.ptr, slice.len * sizeof(T), Hash64::default_seed);
+            return luisa::hash64(slice.ptr, slice.len * sizeof(T), hash64_default_seed);
         }
     };
 

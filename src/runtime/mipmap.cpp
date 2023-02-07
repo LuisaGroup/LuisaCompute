@@ -7,7 +7,7 @@
 
 namespace luisa::compute::detail {
 
-LC_RUNTIME_API void error_mipmap_copy_buffer_size_mismatch(size_t mip_size, size_t buffer_size) noexcept {
+void MipmapView::_error_mipmap_copy_buffer_size_mismatch(size_t mip_size, size_t buffer_size) noexcept {
     LUISA_ERROR_WITH_LOCATION(
         "No enough data (required = {} bytes) in buffer (size = {} bytes).",
         mip_size, buffer_size);

@@ -1,3 +1,4 @@
+#include <core/logging.h>
 #include <ir/ir.hpp>
 
 namespace luisa::compute {
@@ -261,15 +262,19 @@ struct ToIR {
         return ir::luisa_compute_ir_build_finish(builder);
     }
 };
+
 LC_IR_API ir::Module convert_to_ir(const ScopeStmt *stmt) noexcept {
     ir::Module m;
 
     return m;
 }
+
 struct AdContext {
     ScopeStmt *stmt;
 };
+
 thread_local AdContext *ad_context = nullptr;
+
 LC_IR_API void begin_autodiff() noexcept {
     LUISA_ASSERT(!ad_context, "autodiff context already exists");
     ad_context = new AdContext();
@@ -278,11 +283,12 @@ LC_IR_API void begin_autodiff() noexcept {
     auto if_ = func_builder->if_(true_);
     ad_context->stmt = if_->true_branch();
 }
+
 LC_IR_API AutodiffResult end_autodiff() noexcept {
     LUISA_ASSERT(ad_context, "no autodiff context exists");
     auto func_builder = detail::FunctionBuilder::current();
     func_builder->pop_scope(ad_context->stmt);
-    (void)func_builder->_pop_stmt();
+    (void)func_builder->pop_stmt();
     auto m = convert_to_ir(ad_context->stmt);
 
     auto pipeline = ir::luisa_compute_ir_transform_pipeline_new();
@@ -295,4 +301,5 @@ LC_IR_API AutodiffResult end_autodiff() noexcept {
     ad_context = nullptr;
     return {};
 }
+
 }// namespace luisa::compute

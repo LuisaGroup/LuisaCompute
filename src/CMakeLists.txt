@@ -52,8 +52,9 @@ add_subdirectory(core)
 add_subdirectory(vstl)
 add_subdirectory(ast)
 add_subdirectory(rust)
-add_subdirectory(ir)
+add_subdirectory(rhi)
 add_subdirectory(runtime)
+add_subdirectory(ir)
 add_subdirectory(dsl)
 add_subdirectory(rtx)
 add_subdirectory(gui/backup)
@@ -66,13 +67,13 @@ target_link_libraries(compute INTERFACE
         luisa-compute-vstl
         luisa-compute-ast
         luisa-compute-runtime
+        luisa-compute-rhi
         luisa-compute-dsl
         luisa-compute-rtx
         luisa-compute-gui
         luisa-compute-api
         luisa-compute-backends
-        # luisa-compute-ir
-        )
+        luisa-compute-ir)
 add_library(luisa::compute ALIAS compute)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)

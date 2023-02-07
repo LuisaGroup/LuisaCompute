@@ -80,7 +80,7 @@ luisa::string CppSourceBuilder::_generate_type(const ir::Type *type) noexcept {
                     one_init.append(luisa::format("  s.m{} = lc_one<{}>();\n", i, field));
                     accum_grad.append(luisa::format("  lc_accumulate_grad(&dst->m{}, grad.m{});\n", i, i));
                 }
-                auto hash = hash64(body, hash64(s.alignment));
+                auto hash = hash_combine({hash_value(body), s.alignment});
                 auto name = luisa::format("lc_struct_{:016x}", hash);
                 auto decl = luisa::format("struct alignas({}) {} {{\n"
                                           "{}"
@@ -650,26 +650,26 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
                 return luisa::format("lc_accumulate_grad(&({}), {});",
                                      _generate_node(args[0]),
                                      _generate_node(args[1]));
-            case ir::Func::Tag::InstanceToWorldMatrix:
+            case ir::Func::Tag::RayTracingInstanceTransform:
                 LUISA_ASSERT(args.size() == 1u, "InstanceToWorldMatrix takes 1 argument.");
                 return luisa::format("lc_accel_instance_transform({});", _generate_node(args[0]));
-            case ir::Func::Tag::TraceClosest:
+            case ir::Func::Tag::RayTracingTraceClosest:
                 LUISA_ASSERT(args.size() == 2u, "TraceClosest takes 2 arguments.");
                 return luisa::format("lc_accel_trace_closest({}, {});",
                                      _generate_node(args[0]),
                                      _generate_node(args[1]));
-            case ir::Func::Tag::TraceAny:
+            case ir::Func::Tag::RayTracingTraceAny:
                 LUISA_ASSERT(args.size() == 2u, "TraceAny takes 2 arguments.");
                 return luisa::format("lc_accel_trace_any({}, {});",
                                      _generate_node(args[0]),
                                      _generate_node(args[1]));
-            case ir::Func::Tag::SetInstanceTransform:
+            case ir::Func::Tag::RayTracingSetInstanceTransform:
                 LUISA_ASSERT(args.size() == 3u, "SetInstanceTransform takes 3 arguments.");
                 return luisa::format("lc_accel_set_instance_transform({}, {}, {});",
                                      _generate_node(args[0]),
                                      _generate_node(args[1]),
                                      _generate_node(args[2]));
-            case ir::Func::Tag::SetInstanceVisibility:
+            case ir::Func::Tag::RayTracingSetInstanceVisibility:
                 LUISA_ASSERT(args.size() == 3u, "SetInstanceVisibility takes 3 arguments.");
                 return luisa::format("lc_accel_set_instance_visibility({}, {}, {});",
                                      _generate_node(args[0]),

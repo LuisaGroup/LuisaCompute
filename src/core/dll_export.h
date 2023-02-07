@@ -84,6 +84,12 @@
 #define LC_REMOTE_API __declspec(dllimport)
 #endif
 
+#ifdef LC_RHI_EXPORT_DLL
+#define LC_RHI_API __declspec(dllexport)
+#else
+#define LC_RHI_API __declspec(dllimport)
+#endif
+
 #else
 #define LC_CORE_API
 #define LC_VSTL_API
@@ -94,4 +100,5 @@
 #define LC_SERDE_LIB_API
 #define LC_SHADER_GRAPH_LIB_API
 #define LC_REMOTE_API
+#define LC_RHI_API
 #endif

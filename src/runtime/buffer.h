@@ -79,6 +79,10 @@ public:
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return this->view().atomic(std::forward<I>(i));
     }
+
+    [[nodiscard]] auto operator->() const noexcept {
+        return Expr<Buffer<T>>{*this};
+    }
 };
 
 template<typename T>
@@ -168,6 +172,11 @@ public:
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return Expr<Buffer<T>>{*this}.atomic(std::forward<I>(i));
     }
+
+    [[nodiscard]] auto operator->() const noexcept {
+        return Expr<Buffer<T>>{*this};
+    }
+
     [[nodiscard]] BufferView<DynamicStruct> as(const Type *type) const noexcept;
 };
 

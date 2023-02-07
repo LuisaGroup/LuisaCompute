@@ -1,0 +1,8 @@
+//
+// Created by Mike Smith on 2023/2/7.
+//
+
+#ifndef LUISACOMPUTE_STREAM_TAG_H
+#define LUISACOMPUTE_STREAM_TAG_H
+
+#endif//LUISACOMPUTE_STREAM_TAG_H
