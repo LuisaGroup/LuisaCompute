@@ -3,13 +3,17 @@
 //
 
 #pragma once
+
 #include <core/dll_export.h>
 #include <core/stl/memory.h>
 
 namespace luisa::compute {
+
 class DeviceInterface;
 class Device;
+
 class LC_RUNTIME_API Resource {
+
     friend class Device;
 
 public:
