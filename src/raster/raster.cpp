@@ -1,6 +1,6 @@
 #include <raster/raster_kernel.h>
 #include <raster/raster_shader.h>
-#include <raster/depth_format.h>
+#include <runtime/depth_format.h>
 #include <raster/depth_buffer.h>
 #include <raster/raster_scene.h>
 #include <rtx/accel.h>

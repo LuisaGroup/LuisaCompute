@@ -1,6 +1,6 @@
 #pragma once
 
-#include <raster/depth_format.h>
+#include <runtime/depth_format.h>
 #include <runtime/image.h>
 
 namespace luisa::compute {
