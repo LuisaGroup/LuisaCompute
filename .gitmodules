@@ -19,9 +19,6 @@
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/LuisaGroup/pybind11
-[submodule "src/ext/embree"]
-	path = src/ext/embree
-	url = https://github.com/embree/embree.git
 [submodule "src/ext/parallel-hashmap"]
 	path = src/ext/parallel-hashmap
 	url = https://github.com/greg7mdp/parallel-hashmap.git
