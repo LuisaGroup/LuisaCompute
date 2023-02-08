@@ -51,7 +51,8 @@ public:
     static variant<int64, double> StringToNumber(std::string_view numStr);
     static void ToLower(string &str);
     static void ToUpper(string &str);
-
+    static char ToUpper(char c);
+    static char ToLower(char c);
     static string ToLower(std::string_view str);
     static string ToUpper(std::string_view str);
     static void EncodeToBase64(std::span<uint8_t const> binary, string &result);

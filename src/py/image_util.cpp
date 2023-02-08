@@ -7,7 +7,7 @@
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
 #include <core/logging.h>
-
+#include <vstl/string_utility.h>
 namespace py = pybind11;
 using namespace luisa::compute;
 const auto pyref = py::return_value_policy::reference;// object lifetime is managed on C++ side
@@ -39,13 +39,22 @@ void export_img(py::module &m) {
         stbi_write_hdr(path.c_str(), x, y, 4, reinterpret_cast<float *>(buf.request().ptr));
     });
     m.def("save_ldr_image", [](const std::string &path, const py::buffer &buf, int x, int y) {
-        if (path.ends_with(".png")) {
+        auto ends_with = [&](vstd::string_view ext){
+            if(path.size() < ext.size()) return false;
+            for(auto i : vstd::range(ext.size())){
+                if(vstd::StringUtil::ToLower(path[path.size() - ext.size() + i]) != ext[i]){
+                    return false;
+                }
+                return true;
+            }
+        };
+        if (ends_with(".png")) {
             stbi_write_png(path.c_str(), x, y, 4, buf.request().ptr, 0);
-        } else if (path.ends_with(".jpg")) {
+        } else if (ends_with(".jpg")) {
             stbi_write_jpg(path.c_str(), x, y, 4, buf.request().ptr, 100);
-        } else if (path.ends_with(".bmp")) {
+        } else if (ends_with(".bmp")) {
             stbi_write_bmp(path.c_str(), x, y, 4, buf.request().ptr);
-        } else if (path.ends_with(".tga")) {
+        } else if (ends_with(".tga")) {
             stbi_write_tga(path.c_str(), x, y, 4, buf.request().ptr);
         } else {
             LUISA_ERROR("Illegal image file '{}'.", path);

@@ -129,13 +129,20 @@ if UseSIMD then
 	end);
 end
 table.insert(_configs.events, function(config)
+	function _add_link_flags(...)
+		if config.project_kind == "shared" then
+			add_shflags(...)
+		elseif config.project_kind == "binary" then
+			add_ldflags(...)
+		else
+			add_arflags(...)
+		end
+	end
 	if is_plat("windows") then
 		if is_mode("release") then
-			add_ldflags("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
-			add_shflags("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
+			_add_link_flags("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
 		else
-			add_ldflags("/LTCG:incremental")
-			add_shflags("/LTCG:incremental")
+			_add_link_flags("/LTCG:incremental")
 		end
 	end
 

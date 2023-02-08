@@ -113,7 +113,7 @@ class Texture2D:
         assert arr.size * arr.itemsize == self.bytesize
         ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width,self.height,1), arr)
         stream.add(ulcmd)
-        # stream.add_upload_buffer(arr)
+        stream.add_upload_buffer(arr)
         if sync:
             stream.synchronize()
 

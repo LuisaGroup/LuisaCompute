@@ -1,30 +1,22 @@
 #include <vstl/string_utility.h>
 namespace vstd {
 
-inline void mtolower(char &c) {
+char StringUtil::ToLower(char c) {
     if ((c >= 'A') && (c <= 'Z'))
-        c = c + ('a' - 'A');
-}
-inline void mtoupper(char &c) {
-    if ((c >= 'a') && (c <= 'z'))
-        c = c + ('A' - 'a');
-}
-
-inline char mtolower_value(char c) {
-    if ((c >= 'A') && (c <= 'Z'))
-        return c + ('a' - 'A');
+        c + ('a' - 'A');
     return c;
 }
-inline char mtoupper_value(char c) {
+char StringUtil::ToUpper(char c) {
     if ((c >= 'a') && (c <= 'z'))
         return c + ('A' - 'a');
     return c;
 }
+
 void StringUtil::ToLower(string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
-        mtolower(c[i]);
+        c[i] = ToLower(c[i]);
     }
 }
 int64 StringUtil::GetFirstIndexOf(std::string_view str, char sign) {
@@ -40,7 +32,7 @@ void StringUtil::ToUpper(string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
-        mtoupper(c[i]);
+        c[i] = ToUpper(c[i]);
     }
 }
 
@@ -50,7 +42,7 @@ string StringUtil::ToLower(std::string_view str) {
     for (auto i : range(str.size())) {
         auto &&v = s[i];
         v = str[i];
-        mtolower(v);
+        v = ToLower(v);
     }
     return s;
 }
@@ -60,7 +52,7 @@ string StringUtil::ToUpper(std::string_view str) {
     for (auto i : range(str.size())) {
         auto &&v = s[i];
         v = str[i];
-        mtoupper(v);
+        v = ToUpper(v);
     }
     return s;
 }
