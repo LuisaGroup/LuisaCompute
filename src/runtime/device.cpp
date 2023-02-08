@@ -7,14 +7,16 @@
 
 namespace luisa::compute {
 
-#ifndef NDEBUG
 void Device::_check_no_implicit_binding(Function func, luisa::string_view shader_path) noexcept {
+#ifndef NDEBUG
     for (auto &&b : func.argument_bindings()) {
         if (!holds_alternative<monostate>(b)) {
-            LUISA_ERROR("Kernel {} with resource bindings cannot be saved!", shader_path);
+            LUISA_ERROR("Kernel {} with resource "
+                        "bindings cannot be saved!",
+                        shader_path);
         }
     }
-}
 #endif
+}
 
 }// namespace luisa::compute

@@ -151,7 +151,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
         .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.option = {.hint = AccelCreateOption::UsageHint::FAST_BUILD,
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
@@ -166,7 +166,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
         .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.option = {.hint = AccelCreateOption::UsageHint::FAST_BUILD,
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
@@ -185,8 +185,8 @@ PYBIND11_MODULE(lcapi, m) {
             "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
         .def(
             "impl", [](ManagedDevice &s) { return s.device.impl(); }, pyref)
-        .def("create_accel", [](ManagedDevice &device, AccelCreateOption::UsageHint hint, bool allow_compact, bool allow_update) {
-            return ManagedAccel(device.device.create_accel(AccelCreateOption{
+        .def("create_accel", [](ManagedDevice &device, AccelOption::UsageHint hint, bool allow_compact, bool allow_update) {
+            return ManagedAccel(device.device.create_accel(AccelOption{
                 .hint = hint,
                 .allow_compaction = allow_compact,
                 .allow_update = allow_update}));
@@ -707,9 +707,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def(
             "build_command", [](AccelWrapper &self, Accel::BuildRequest request) { return self.accel.build(request).release(); }, pyref);
 */
-    py::enum_<AccelCreateOption::UsageHint>(m, "AccelUsageHint")
-        .value("FAST_TRACE", AccelCreateOption::UsageHint::FAST_TRACE)
-        .value("FAST_BUILD", AccelCreateOption::UsageHint::FAST_BUILD);
+    py::enum_<AccelOption::UsageHint>(m, "AccelUsageHint")
+        .value("FAST_TRACE", AccelOption::UsageHint::FAST_TRACE)
+        .value("FAST_BUILD", AccelOption::UsageHint::FAST_BUILD);
 
     py::enum_<AccelBuildRequest>(m, "AccelBuildRequest")
         .value("PREFER_UPDATE", AccelBuildRequest::PREFER_UPDATE)

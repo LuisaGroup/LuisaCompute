@@ -11,24 +11,31 @@
 
 template<class T>
 struct RC {
+
     T *_object;
     std::atomic_uint64_t _ref_count;
     std::function<void(T *)> _deleter;
     uint32_t tombstone;
-    RC(T *object, std::function<void(T *)> deleter) : _object{object}, _deleter{deleter}, _ref_count(1) {
-        tombstone = 0;
-    }
+
+    RC(T *object, std::function<void(T *)> deleter)
+        : _object{object},
+          _deleter{deleter},
+          _ref_count{1} { tombstone = 0; }
+
     ~RC() { _deleter(_object); }
+
     void check() const {
         if (tombstone == LC_RC_TOMBSTONE) {
             LUISA_ERROR_WITH_LOCATION("Object has been destroyed");
         }
     }
+
     RC *retain() {
         check();
         _ref_count.fetch_add(1, std::memory_order_acquire);
         return this;
     }
+
     void release() {
         check();
         if (_ref_count.fetch_sub(1, std::memory_order_release) == 0) {
@@ -37,30 +44,38 @@ struct RC {
             delete this;
         }
     }
+
     T *object() {
         check();
         return _object;
     }
 };
+
 namespace luisa::compute {
 
 struct BufferResource final : public Resource {
     BufferResource(DeviceInterface *device, size_t size_bytes) noexcept
-        : Resource{device, Tag::BUFFER, device->create_buffer(size_bytes)} {}
+        : Resource{device, Tag::BUFFER,
+                   device->create_buffer(size_bytes)} {}
 };
 
 struct TextureResource final : public Resource {
-    TextureResource(
-        DeviceInterface *device,
-        PixelFormat format, uint dimension,
-        uint width, uint height, uint depth,
-        uint mipmap_levels) noexcept
-        : Resource{device, Tag::TEXTURE, device->create_texture(format, dimension, width, height, depth, mipmap_levels)} {}
+    TextureResource(DeviceInterface *device,
+                    PixelFormat format, uint dimension,
+                    uint width, uint height, uint depth,
+                    uint mipmap_levels) noexcept
+        : Resource{device, Tag::TEXTURE,
+                   device->create_texture(format, dimension,
+                                          width, height, depth,
+                                          mipmap_levels)} {}
 };
 
 struct ShaderResource : public Resource {
-    ShaderResource(DeviceInterface *device, Function f, luisa::string_view opts) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(f, opts)} {}
+    ShaderResource(DeviceInterface *device,
+                   Function function,
+                   luisa::string_view opts) noexcept
+        : Resource{device, Tag::SHADER,
+                   device->create_shader(function, opts)} {}
 };
 
 }// namespace luisa::compute
@@ -83,27 +98,20 @@ private:
             case LC_COMMAND_BUFFER_COPY: {
                 auto c = cmd.buffer_copy;
                 return make_unique<BufferCopyCommand>(
-                    c.src._0,
-                    c.dst._0,
-                    c.src_offset,
-                    c.dst_offset,
-                    c.size);
+                    c.src._0, c.dst._0,
+                    c.src_offset, c.dst_offset, c.size);
             }
             case LC_COMMAND_BUFFER_UPLOAD: {
                 auto c = cmd.buffer_upload;
                 return make_unique<BufferUploadCommand>(
-                    c.buffer._0,
-                    c.offset,
-                    c.size,
-                    c.data);
+                    c.buffer._0, c.offset,
+                    c.size, c.data);
             }
             case LC_COMMAND_BUFFER_DOWNLOAD: {
                 auto c = cmd.buffer_download;
                 return make_unique<BufferDownloadCommand>(
-                    c.buffer._0,
-                    c.offset,
-                    c.size,
-                    c.data);
+                    c.buffer._0, c.offset,
+                    c.size, c.data);
             }
             case LC_COMMAND_BINDLESS_ARRAY_UPDATE: {
                 return make_unique<BindlessArrayUpdateCommand>(
@@ -162,11 +170,6 @@ LUISA_EXPORT_API void luisa_compute_context_destroy(LCContext ctx) LUISA_NOEXCEP
     delete_with_allocator(reinterpret_cast<Context *>(ctx._0));
 }
 
-LUISA_EXPORT_API void luisa_compute_context_add_search_path(LCContext ctx, const char *path) LUISA_NOEXCEPT {
-    auto ctx_ = reinterpret_cast<Context *>(ctx._0);
-    ctx_->add_search_path(path);
-}
-
 inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
     auto s = path.string();
     auto cs = static_cast<char *>(malloc(s.size() + 1u));
@@ -184,7 +187,9 @@ LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUIS
     return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().cache_directory());
 }
 
-LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx, const char *name, const char *properties) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
+                                                      const char *name,
+                                                      const char *properties) LUISA_NOEXCEPT {
     // TODO: handle properties? or convert it to DeviceConfig?
     auto device = new Device(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr)));
     return from_ptr<LCDevice>(new_with_allocator<RC<Device>>(
@@ -194,15 +199,19 @@ LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx, const char 
 LUISA_EXPORT_API void luisa_compute_device_destroy(LCDevice device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device._0)->release();
 }
+
 LUISA_EXPORT_API void luisa_compute_device_retain(LCDevice device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device._0)->retain();
 }
+
 LUISA_EXPORT_API void luisa_compute_device_release(LCDevice device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device._0)->release();
 }
+
 LUISA_EXPORT_API void *luisa_compute_device_native_handle(LCDevice device) LUISA_NOEXCEPT {
     return reinterpret_cast<RC<Device> *>(device._0)->object()->impl()->native_handle();
 }
+
 LUISA_EXPORT_API LCBuffer luisa_compute_buffer_create(LCDevice device, size_t size) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto handle = d->retain()->object()->impl()->create_buffer(size);
@@ -215,16 +224,14 @@ LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buf
     d->object()->impl()->destroy_buffer(handle);
     d->release();
 }
-LUISA_EXPORT_API void *luisa_compute_buffer_native_handle(LCDevice device, LCBuffer buffer) LUISA_NOEXCEPT {
-    auto handle = buffer._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return d->object()->impl()->buffer_native_handle(handle);
-}
-LUISA_EXPORT_API LCTexture luisa_compute_texture_create(LCDevice device, uint32_t format, uint32_t dim, uint32_t w, uint32_t h, uint32_t d, uint32_t mips) LUISA_NOEXCEPT {
+
+LUISA_EXPORT_API LCTexture luisa_compute_texture_create(LCDevice device,
+                                                        uint32_t format, uint32_t dim,
+                                                        uint32_t w, uint32_t h, uint32_t d,
+                                                        uint32_t mips) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<RC<Device> *>(device._0);
     return LCTexture{dev->retain()->object()->impl()->create_texture(
-        static_cast<PixelFormat>(format),
-        dim, w, h, d, mips)};
+        static_cast<PixelFormat>(format), dim, w, h, d, mips)};
 }
 
 LUISA_EXPORT_API void luisa_compute_texture_destroy(LCDevice device, LCTexture texture) LUISA_NOEXCEPT {
@@ -257,11 +264,6 @@ LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream st
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto converter = luisa::compute::detail::CommandListConverter(c_cmd_list, d->object()->impl()->is_c_api());
     d->object()->impl()->dispatch(handle, converter.convert());
-}
-LUISA_EXPORT_API void luisa_compute_stream_native_handle(LCDevice device, LCStream stream, void *handle) LUISA_NOEXCEPT {
-    auto h = stream._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->stream_native_handle(reinterpret_cast<uint64_t>(handle));
 }
 
 LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, LCKernelModule m, const char *options) LUISA_NOEXCEPT {
@@ -314,13 +316,13 @@ LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent e
     d->object()->impl()->synchronize_event(handle);
 }
 
-LUISA_EXPORT_API LCMesh luisa_compute_mesh_create(
-    LCDevice device,
-    LCBuffer v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-    LCBuffer t_buffer, size_t t_offset, size_t t_count, LCAccelUsageHint hint) LUISA_NOEXCEPT {
+LUISA_EXPORT_API LCMesh luisa_compute_mesh_create(LCDevice device,
+                                                  LCBuffer v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
+                                                  LCBuffer t_buffer, size_t t_offset, size_t t_count,
+                                                  LCAccelUsageHint hint) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     return LCMesh{d->retain()->object()->impl()->create_mesh(
-        AccelCreateOption{static_cast<AccelCreateOption::UsageHint>(hint), true, true},
+        AccelOption{static_cast<AccelOption::UsageHint>(hint), true, true},
         v_buffer._0, v_offset, v_stride, v_count,
         t_buffer._0, t_offset, t_count)};
 }
@@ -334,8 +336,8 @@ LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) L
 
 LUISA_EXPORT_API LCAccel luisa_compute_accel_create(LCDevice device, LCAccelUsageHint hint) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return LCAccel{d->retain()->object()->impl()->create_accel(AccelCreateOption{
-        static_cast<AccelCreateOption::UsageHint>(hint), true, true})};
+    return LCAccel{d->retain()->object()->impl()->create_accel(AccelOption{
+        static_cast<AccelOption::UsageHint>(hint), true, true})};
 }
 
 LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel) LUISA_NOEXCEPT {
@@ -401,42 +403,6 @@ LUISA_EXPORT_API LCBindlessArray luisa_compute_bindless_array_create(LCDevice de
     return LCBindlessArray{bindless_array};
 }
 
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_buffer(LCDevice device, LCBindlessArray array, size_t index, LCBuffer buffer) LUISA_NOEXCEPT {
-    auto handle = array._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->emplace_buffer_in_bindless_array(handle, index, buffer._0, 0);
-}
-
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex2d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT {
-    auto handle = array._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->emplace_tex2d_in_bindless_array(handle, index, texture._0, convert_sampler(sampler));
-}
-
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex3d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT {
-    auto handle = array._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->emplace_tex3d_in_bindless_array(handle, index, texture._0, convert_sampler(sampler));
-}
-
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_buffer(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
-    auto handle = array._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->remove_buffer_in_bindless_array(handle, index);
-}
-
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex2d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
-    auto handle = array._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->remove_tex2d_in_bindless_array(handle, index);
-}
-
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex3d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT {
-    auto handle = array._0;
-    auto d = reinterpret_cast<RC<Device> *>(device._0);
-    d->object()->impl()->remove_tex3d_in_bindless_array(handle, index);
-}
-
 LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
@@ -448,10 +414,13 @@ class ExternDevice : public DeviceInterface {
     LCDeviceInterface *impl;
 
 public:
-    ExternDevice(LCContext ctx, LCDeviceInterface *impl) : Interface(Context(*(Context *)ctx._0)), impl{impl} {}
+    ExternDevice(LCContext ctx, LCDeviceInterface *impl)
+        : Interface{Context(*(Context *)ctx._0)}, impl{impl} {}
+
     ~ExternDevice() override {
         impl->dtor(impl);
     }
+
     // native handle
     [[nodiscard]] void *native_handle() const noexcept override {
         return impl;
@@ -464,50 +433,24 @@ public:
     void destroy_buffer(uint64_t handle) noexcept override {
         impl->destroy_buffer(impl, handle);
     }
-    [[nodiscard]] void *buffer_native_handle(uint64_t handle) const noexcept override {
-        return impl->buffer_native_handle(impl, handle);
-    }
 
     // texture
-    [[nodiscard]] uint64_t create_texture(
-        PixelFormat format, uint dimension,
-        uint width, uint height, uint depth,
-        uint mipmap_levels) noexcept override {
-        return impl->create_texture(impl, static_cast<LCPixelFormat>(format), dimension, width, height, depth, mipmap_levels);
+    [[nodiscard]] uint64_t create_texture(PixelFormat format, uint dimension,
+                                          uint width, uint height, uint depth,
+                                          uint mipmap_levels) noexcept override {
+        return impl->create_texture(impl, static_cast<LCPixelFormat>(format), dimension,
+                                    width, height, depth, mipmap_levels);
     }
     void destroy_texture(uint64_t handle) noexcept override {
         impl->destroy_texture(impl, handle);
     }
-    [[nodiscard]] void *texture_native_handle(uint64_t handle) const noexcept override {
-        return impl->texture_native_handle(impl, handle);
-    }
+
     // bindless array
     [[nodiscard]] uint64_t create_bindless_array(size_t size) noexcept override {
         return impl->create_bindless_array(impl, size);
     }
     void destroy_bindless_array(uint64_t handle) noexcept override {
         impl->destroy_bindless_array(impl, handle);
-    }
-    void emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept override {
-        impl->emplace_buffer_in_bindless_array(impl, array, index, handle, offset_bytes);
-    }
-    void emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override {
-        impl->emplace_tex2d_in_bindless_array(impl, array, index, handle, LCSampler{.filter = (LCSamplerFilter)sampler.filter(), .address = (LCSamplerAddress)sampler.address()});
-    }
-    void emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept override {
-        impl->emplace_tex3d_in_bindless_array(impl, array, index, handle, LCSampler{.filter = (LCSamplerFilter)sampler.filter(), .address = (LCSamplerAddress)sampler.address()});
-    }
-    bool is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept override {
-        return impl->is_resource_in_bindless_array(impl, array, handle);
-    }
-    void remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept override {
-        impl->remove_buffer_in_bindless_array(impl, array, index);
-    }
-    void remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept override {
-        impl->remove_tex2d_in_bindless_array(impl, array, index);
-    }
-    void remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept override {
-        impl->remove_tex3d_in_bindless_array(impl, array, index);
     }
 
     // stream
@@ -534,10 +477,6 @@ public:
         func();
     }
 
-    [[nodiscard]] void *stream_native_handle(uint64_t handle) const noexcept override {
-        return impl->stream_native_handle(impl, handle);
-    }
-
     // swap chain
     [[nodiscard]] uint64_t create_swap_chain(
         uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
@@ -562,7 +501,7 @@ public:
         LUISA_ERROR_WITH_LOCATION("create_shader() is deprecated.");
     }
 
-    [[nodiscard]] virtual uint64_t create_shader_ex(const ir::KernelModule &kernel, std::string_view meta_options) noexcept override {
+    [[nodiscard]] uint64_t create_shader_ex(const ir::KernelModule &kernel, std::string_view meta_options) noexcept override {
         return impl->create_shader_ex(impl, {.ptr = reinterpret_cast<uint64_t>(&kernel)}, meta_options.data());
     }
 
@@ -596,6 +535,7 @@ public:
     void destroy_mesh(uint64_t handle) noexcept override {
         impl->destroy_mesh(impl, handle);
     }
+
     [[nodiscard]] uint64_t create_accel(AccelUsageHint hint) noexcept override {
         return impl->create_accel(impl, static_cast<LCAccelUsageHint>(hint));
     }
@@ -624,10 +564,8 @@ LUISA_EXPORT_API void luisa_compute_init() LUISA_NOEXCEPT {
 }
 
 LUISA_EXPORT_API LCAppContext luisa_compute_app_context() LUISA_NOEXCEPT {
-    return LCAppContext{
-        .gc_context = ir::luisa_compute_gc_context(),
-        .ir_context = ir::luisa_compute_ir_context(),
-    };
+    return LCAppContext{.gc_context = ir::luisa_compute_gc_context(),
+                        .ir_context = ir::luisa_compute_ir_context()};
 }
 
 LUISA_EXPORT_API void luisa_compute_set_app_context(LCAppContext ctx) LUISA_NOEXCEPT {

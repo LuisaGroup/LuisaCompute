@@ -7,62 +7,47 @@
 #include <core/logging.h>
 
 namespace luisa::compute {
+
 Resource::Resource(Resource &&rhs) noexcept
-    : _device(std::move(rhs._device)),
-      _handle(rhs._handle),
-      _tag(rhs._tag) {
-    rhs._handle = invalid_handle;
-}
+    : _device{std::move(rhs._device)},
+      _info{rhs._info},
+      _tag{rhs._tag} { rhs._info.invalidate(); }
 
 void Resource::_destroy() noexcept {
     if (*this) {
         switch (_tag) {
-            case Tag::BUFFER: _device->destroy_buffer(_handle); break;
-            case Tag::TEXTURE: _device->destroy_texture(_handle); break;
-            case Tag::BINDLESS_ARRAY: _device->destroy_bindless_array(_handle); break;
-            case Tag::MESH:
-            case Tag::PROCEDURAL_PRIMITIVE: _device->destroy_mesh(_handle); break;
-            case Tag::ACCEL: _device->destroy_accel(_handle); break;
-            case Tag::STREAM: _device->destroy_stream(_handle); break;
-            case Tag::EVENT: _device->destroy_event(_handle); break;
-            case Tag::SHADER: _device->destroy_shader(_handle); break;
-            case Tag::RASTER_SHADER: _device->destroy_raster_shader(_handle); break;
-            case Tag::SWAP_CHAIN: _device->destroy_swap_chain(_handle); break;
-            case Tag::DEPTH_BUFFER: _device->destroy_depth_buffer(_handle); break;
+            case Tag::BUFFER: _device->destroy_buffer(_info.handle); break;
+            case Tag::TEXTURE: _device->destroy_texture(_info.handle); break;
+            case Tag::BINDLESS_ARRAY: _device->destroy_bindless_array(_info.handle); break;
+            case Tag::MESH: _device->destroy_mesh(_info.handle); break;
+            case Tag::PROCEDURAL_PRIMITIVE: _device->destroy_procedural_primitive(_info.handle); break;
+            case Tag::ACCEL: _device->destroy_accel(_info.handle); break;
+            case Tag::STREAM: _device->destroy_stream(_info.handle); break;
+            case Tag::EVENT: _device->destroy_event(_info.handle); break;
+            case Tag::SHADER: _device->destroy_shader(_info.handle); break;
+            case Tag::RASTER_SHADER: _device->destroy_raster_shader(_info.handle); break;
+            case Tag::SWAP_CHAIN: _device->destroy_swap_chain(_info.handle); break;
+            case Tag::DEPTH_BUFFER: _device->destroy_depth_buffer(_info.handle); break;
         }
     }
 }
 
 Resource &Resource::operator=(Resource &&rhs) noexcept {
-    if (this == &rhs) [[unlikely]]
-        return *this;
+    if (this == &rhs) [[unlikely]] { return *this; }
+    LUISA_ASSERT(_device == rhs._device, "Cannot move resources between different devices.");
+    LUISA_ASSERT(_tag == rhs._tag, "Cannot move resources of different types.");
     _destroy();
     _device = std::move(rhs._device);
-    _handle = rhs._handle;
-    rhs._handle = invalid_handle;
+    _info = rhs._info;
+    rhs._info.invalidate();
     _tag = rhs._tag;
     return *this;
 }
 
-Resource::Resource(DeviceInterface *device, Resource::Tag tag, uint64_t handle) noexcept
-    : _device{device->shared_from_this()}, _handle{handle}, _tag{tag} {}
-
-void *Resource::native_handle() const noexcept {
-    switch (_tag) {
-        case Tag::BUFFER: return _device->buffer_native_handle(_handle);
-        case Tag::TEXTURE: return _device->texture_native_handle(_handle);
-        case Tag::BINDLESS_ARRAY: return _device->bindless_native_handle(_handle);
-        case Tag::MESH: return _device->mesh_native_handle(_handle);
-        case Tag::PROCEDURAL_PRIMITIVE: return  _device->mesh_native_handle(_handle);
-        case Tag::ACCEL: return _device->accel_native_handle(_handle);
-        case Tag::STREAM: return _device->stream_native_handle(_handle);
-        case Tag::EVENT: return _device->event_native_handle(_handle);
-        case Tag::SHADER: LUISA_ERROR_WITH_LOCATION("Native handles of shaders are not obtainable yet.");
-        case Tag::RASTER_SHADER: LUISA_ERROR_WITH_LOCATION("Native handles of raster shaders are not obtainable yet.");
-        case Tag::SWAP_CHAIN: return _device->swapchain_native_handle(_handle);
-        case Tag::DEPTH_BUFFER: return _device->depth_native_handle(_handle);
-    }
-    LUISA_ERROR_WITH_LOCATION("Unknown resource tag.");
-}
+Resource::Resource(DeviceInterface *device,
+                   Resource::Tag tag,
+                   const ResourceCreationInfo &info) noexcept
+    : _device{device->shared_from_this()},
+      _info{info}, _tag{tag} {}
 
 }// namespace luisa::compute

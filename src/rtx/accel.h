@@ -31,7 +31,7 @@ private:
 private:
     friend class Device;
     friend class Mesh;
-    explicit Accel(DeviceInterface *device, const AccelCreateOption &option) noexcept;
+    explicit Accel(DeviceInterface *device, const AccelOption &option) noexcept;
     luisa::unique_ptr<Command> update(bool build_accel, Accel::BuildRequest request) noexcept;
 
 public:

@@ -197,7 +197,7 @@ private:
            string_view file_path) noexcept
         : Resource{[device, &file_path]() noexcept {
               auto handle = device->load_shader(file_path, luisa::span<Type const *const>{{Type::of<Args>()...}});
-              return handle == Resource::invalid_handle ?
+              return handle == invalid_resource_handle ?
                          Resource{} :
                          Resource{device, Tag::SHADER, handle};
           }()} {}

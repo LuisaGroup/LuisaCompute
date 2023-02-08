@@ -9,7 +9,7 @@
 namespace luisa::compute {
 
 struct MeshUpdateCmd {
-    AccelCreateOption option;
+    AccelOption option;
     uint64_t vertex_buffer;
     size_t vertex_buffer_offset;
     size_t vertex_buffer_size;

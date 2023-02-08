@@ -29,7 +29,7 @@ private:
 
 private:
     template<typename VBuffer, typename TBuffer>
-    Mesh(DeviceInterface *device, const AccelCreateOption &option,
+    Mesh(DeviceInterface *device, const AccelOption &option,
          const VBuffer &vertex_buffer, const TBuffer &triangle_buffer) noexcept
         : Resource{device, Resource::Tag::MESH,
                    device->create_mesh(option,
@@ -45,8 +45,9 @@ public:
 };
 
 template<typename VBuffer, typename TBuffer>
-Mesh Device::create_mesh(const AccelCreateOption &option,
-                         VBuffer &&vertices, TBuffer &&triangles) noexcept {
+Mesh Device::create_mesh(VBuffer &&vertices,
+                         TBuffer &&triangles,
+                         const AccelOption &option) noexcept {
     return this->_create<Mesh>(option,
                                BufferView{std::forward<VBuffer>(vertices)},
                                BufferView{std::forward<TBuffer>(triangles)});

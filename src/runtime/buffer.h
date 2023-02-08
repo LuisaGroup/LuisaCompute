@@ -44,17 +44,18 @@ class Buffer final : public Resource {
 
 private:
     size_t _size{};
+    size_t _element_stride{};
+
+private:
+    Buffer(DeviceInterface *device, size_t size, BufferCreationInfo info) noexcept
+        : Resource{device, Tag::BUFFER, info},
+          _size{size},
+          _element_stride{info.element_stride} {}
 
 private:
     friend class Device;
     Buffer(DeviceInterface *device, size_t size) noexcept
-        : Resource{device, Tag::BUFFER,
-                   device->create_buffer(size * sizeof(T))},
-          _size{size} {}
-    Buffer(DeviceInterface *device, void *native_handle, size_t size) noexcept
-        : Resource{device, Tag::BUFFER,
-                   device->create_buffer(native_handle)},
-          _size{size} {}
+        : Buffer{device, size, device->create_buffer(Type::of<T>(), size)} {}
 
 public:
     Buffer() noexcept = default;
@@ -70,10 +71,14 @@ public:
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept { return this->view().copy_from(source); }
 
     template<typename I>
-    [[nodiscard]] decltype(auto) read(I &&i) const noexcept { return this->view().read(std::forward<I>(i)); }
+    [[nodiscard]] decltype(auto) read(I &&i) const noexcept {
+        return this->view().read(std::forward<I>(i));
+    }
 
     template<typename I, typename V>
-    void write(I &&i, V &&v) const noexcept { this->view().write(std::forward<I>(i), std::forward<V>(v)); }
+    void write(I &&i, V &&v) const noexcept {
+        this->view().write(std::forward<I>(i), std::forward<V>(v));
+    }
 
     template<typename I>
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
@@ -97,9 +102,8 @@ private:
     size_t _total_size;
 
 private:
-    friend class Heap;
     friend class Buffer<T>;
-    friend class ViewExporter;
+
     template<typename U>
     friend class BufferView;
     BufferView(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept
@@ -110,8 +114,8 @@ private:
     }
 
 public:
-    BufferView() noexcept : BufferView(Resource::invalid_handle, 0, 0, 0) {}
-    [[nodiscard]] explicit operator bool() const noexcept { return _handle != Resource::invalid_handle; }
+    BufferView() noexcept : BufferView{invalid_resource_handle, 0, 0, 0} {}
+    [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }

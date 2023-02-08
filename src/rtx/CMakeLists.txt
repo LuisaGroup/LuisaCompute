@@ -3,7 +3,6 @@ set(LUISA_COMPUTE_RTX_SOURCES
         ray.cpp ray.h
         hit.cpp hit.h
         mesh.cpp mesh.h
-        option.h
         procedural_primitive.cpp procedural_primitive.h
         ray_query.cpp ray_query.h)
 

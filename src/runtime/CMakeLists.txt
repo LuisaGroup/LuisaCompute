@@ -9,7 +9,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         custom_pass.cpp custom_pass.h
         custom_struct.cpp custom_struct.h
         depth_format.h
-        device_interface.cpp device_interface.h
+        device_interface.h
         device.cpp device.h
         dynamic_buffer.cpp dynamic_buffer.h
         dynamic_struct.h
@@ -27,9 +27,8 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         volume.cpp volume.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
-target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast
-        # luisa-compute-ir # this is so broken, disable it for now
-        )
+target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compute-ir) # this is so broken, disable it for now
+
 target_compile_definitions(luisa-compute-runtime PRIVATE LC_RUNTIME_EXPORT_DLL=1)
 set_target_properties(luisa-compute-runtime PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON

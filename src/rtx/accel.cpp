@@ -20,7 +20,7 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 
 }// namespace detail
 
-Accel Device::create_accel(const AccelCreateOption &option) noexcept {
+Accel Device::create_accel(const AccelOption &option) noexcept {
     return _create<Accel>(option);
 }
 
@@ -32,7 +32,7 @@ void CustomPass::_emplace(luisa::string name, Usage usage, const Accel &accel) n
     _bindings.emplace_back(std::move(bindings));
 }
 
-Accel::Accel(DeviceInterface *device, const AccelCreateOption &option) noexcept
+Accel::Accel(DeviceInterface *device, const AccelOption &option) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(option)} {}
 
 luisa::unique_ptr<Command> Accel::update(bool build_accel, Accel::BuildRequest request) noexcept {

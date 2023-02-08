@@ -220,7 +220,10 @@ private:
         : Command{Command::Tag::EBufferUploadCommand} {}
 
 public:
-    BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
+    BufferUploadCommand(uint64_t handle,
+                        size_t offset_bytes,
+                        size_t size_bytes,
+                        const void *data) noexcept
         : Command{Command::Tag::EBufferUploadCommand},
           _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }

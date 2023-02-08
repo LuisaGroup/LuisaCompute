@@ -1,8 +1,7 @@
 #pragma once
 
-#include <runtime/device.h>
+#include <runtime/resource.h>
 #include <runtime/buffer.h>
-#include <rtx/option.h>
 
 #ifndef LC_DISABLE_DSL
 #include <dsl/syntax.h>
@@ -10,13 +9,16 @@
 
 namespace luisa::compute {
 
+class Device;
+class DeviceInterface;
+
 class LC_RUNTIME_API ProceduralPrimitive final : public Resource {
 
     friend class Device;
 
 private:
     ProceduralPrimitive(DeviceInterface *device,
-                        const AccelCreateOption &option,
+                        const AccelOption &option,
                         BufferView<AABB> buffer) noexcept;
 
 public:
