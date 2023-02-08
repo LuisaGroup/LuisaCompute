@@ -184,7 +184,7 @@ private:
     Shader(DeviceInterface *device,
            luisa::shared_ptr<const detail::FunctionBuilder> kernel,
            bool use_cache) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(kernel->function(), use_cache)},
+        : Resource{device, Tag::SHADER, device->create_shader(kernel->function(), static_cast<DeviceInterface::ShaderCacheOption>(use_cache))},
           _kernel{std::move(kernel)} {}
 
 private:
