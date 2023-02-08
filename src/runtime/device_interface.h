@@ -15,8 +15,13 @@
 
 namespace luisa::compute {
 
+namespace ir {
+struct KernelModule;
+}
+
 class MeshFormat;
 class RasterState;
+struct AccelCreateOption;
 
 class DeviceExtension {
 public:
@@ -106,11 +111,9 @@ public:
     [[nodiscard]] virtual uint64_t load_shader(luisa::string_view ser_path, luisa::span<Type const *const> types) noexcept = 0;
     [[nodiscard]] virtual uint3 shader_block_size(uint64_t handle) const noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
-// FIXME:
-// _ex are experiemental apis
-#ifdef LC_ENABLE_API
-    [[nodiscard]] LC_RUNTIME_API virtual uint64_t create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept;
-#endif
+
+    // FIXME: _ex are experiemental apis
+    [[nodiscard]] LC_RUNTIME_API virtual uint64_t create_shader_ex(const ir::KernelModule *kernel, std::string_view meta_options) noexcept;
 
     // raster kernel  (may not be supported by some backends)
     [[nodiscard]] virtual uint64_t create_raster_shader(
@@ -146,15 +149,21 @@ public:
     virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
     // accel
-    enum struct MeshType : uint8_t {
-        Mesh,
-        ProceduralPrimitive
-    };
-    [[nodiscard]] virtual uint64_t create_mesh(
-        AccelUsageHint hint, MeshType type,
-        bool allow_compact, bool allow_update) noexcept = 0;
+    [[nodiscard]] virtual uint64_t create_mesh(const AccelCreateOption &option,
+                                               uint64_t vertex_buffer,
+                                               size_t vertex_buffer_offset,
+                                               size_t vertex_stride,
+                                               size_t vertex_count,
+                                               uint64_t triangle_buffer,
+                                               size_t triangle_buffer_offset,
+                                               size_t triangle_count) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
-    [[nodiscard]] virtual uint64_t create_accel(AccelUsageHint hint, bool allow_compact, bool allow_update) noexcept = 0;
+    [[nodiscard]] virtual uint64_t create_procedural_primitive(const AccelCreateOption &option,
+                                                               uint64_t aabb_buffer,
+                                                               size_t aabb_buffer_offset,
+                                                               size_t aabb_count) noexcept = 0;
+    virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;
+    [[nodiscard]] virtual uint64_t create_accel(const AccelCreateOption &option) noexcept = 0;
     virtual void destroy_accel(uint64_t handle) noexcept = 0;
     [[nodiscard]] virtual void *mesh_native_handle(uint64_t handle) const noexcept = 0;
     [[nodiscard]] virtual void *accel_native_handle(uint64_t handle) const noexcept = 0;

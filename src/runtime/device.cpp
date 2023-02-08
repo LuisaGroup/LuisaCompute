@@ -17,10 +17,4 @@ void Device::_check_no_implicit_binding(Function func, luisa::string_view shader
 }
 #endif
 
-#ifdef LC_ENABLE_API
-uint64_t DeviceInterface::create_shader_ex(const LCKernelModule *kernel, std::string_view meta_options) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Should not be called.");
-}
-#endif
-
 }// namespace luisa::compute

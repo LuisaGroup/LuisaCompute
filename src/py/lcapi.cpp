@@ -151,7 +151,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
         .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.request = AccelUsageHint::FAST_BUILD;
+            cmd.option = {.hint = AccelCreateOption::UsageHint::FAST_BUILD,
+                          .allow_compaction = allow_compact,
+                          .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
             cmd.vertex_buffer_offset = vertex_buffer_offset;
             cmd.triangle_buffer_offset = triangle_buffer_offset;
@@ -159,14 +161,14 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            cmd.allow_compact = allow_compact;
-            cmd.allow_update = allow_update;
             accel.emplace(cmd, transform, visible, opaque);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
         .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.request = AccelUsageHint::FAST_BUILD;
+            cmd.option = {.hint = AccelCreateOption::UsageHint::FAST_BUILD,
+                          .allow_compaction = allow_compact,
+                          .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
             cmd.vertex_buffer_offset = vertex_buffer_offset;
             cmd.triangle_buffer_offset = triangle_buffer_offset;
@@ -174,8 +176,6 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            cmd.allow_compact = allow_compact;
-            cmd.allow_update = allow_update;
             accel.set(index, cmd, transform, visible, opaque);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })
@@ -185,10 +185,10 @@ PYBIND11_MODULE(lcapi, m) {
             "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
         .def(
             "impl", [](ManagedDevice &s) { return s.device.impl(); }, pyref)
-        .def("create_accel", [](ManagedDevice &device, AccelUsageHint hint, bool allow_compact, bool allow_update) {
-            return ManagedAccel(device.device.create_accel(AccelBuildOption{
+        .def("create_accel", [](ManagedDevice &device, AccelCreateOption::UsageHint hint, bool allow_compact, bool allow_update) {
+            return ManagedAccel(device.device.create_accel(AccelCreateOption{
                 .hint = hint,
-                .allow_compact = allow_compact,
+                .allow_compaction = allow_compact,
                 .allow_update = allow_update}));
         });
     m.def("get_bindless_handle", [](uint64 handle) {
@@ -707,9 +707,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def(
             "build_command", [](AccelWrapper &self, Accel::BuildRequest request) { return self.accel.build(request).release(); }, pyref);
 */
-    py::enum_<AccelUsageHint>(m, "AccelUsageHint")
-        .value("FAST_TRACE", AccelUsageHint::FAST_TRACE)
-        .value("FAST_BUILD", AccelUsageHint::FAST_BUILD);
+    py::enum_<AccelCreateOption::UsageHint>(m, "AccelUsageHint")
+        .value("FAST_TRACE", AccelCreateOption::UsageHint::FAST_TRACE)
+        .value("FAST_BUILD", AccelCreateOption::UsageHint::FAST_BUILD);
 
     py::enum_<AccelBuildRequest>(m, "AccelBuildRequest")
         .value("PREFER_UPDATE", AccelBuildRequest::PREFER_UPDATE)

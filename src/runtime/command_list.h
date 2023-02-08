@@ -5,9 +5,8 @@
 #pragma once
 
 #include <runtime/command.h>
-#ifdef LC_ENABLE_API
 #include <api/common.h>
-#endif
+
 namespace luisa::compute {
 
 class CmdDeser;
@@ -26,11 +25,9 @@ class LC_RUNTIME_API CommandList : concepts::Noncopyable {
 private:
     luisa::vector<luisa::unique_ptr<Command>> _commands;
 
-// For backends that use C API only
-// DO NOT USE THIS FIELD OTHERWISE
-#ifdef LC_ENABLE_API
+    // For backends that use C API only
+    // DO NOT USE THIS FIELD OTHERWISE
     luisa::optional<LCCommandList> _c_list;
-#endif
 
 public:
     CommandList() noexcept = default;

@@ -118,16 +118,12 @@ public:
     [[nodiscard]] Buffer<T> create_dispatch_buffer(size_t capacity) noexcept;
 
     template<typename VBuffer, typename TBuffer>
-    [[nodiscard]] Mesh create_mesh(
-        VBuffer &&vertices, TBuffer &&triangles,
-        MeshBuildOption option = {}) noexcept;// see definition in rtx/mesh.h
-    [[nodiscard]] ProceduralPrimitive create_primitive(
-        const Buffer<AABB> &aabb_buffer,
-        size_t aabb_offset,
-        size_t aabb_count,
-        MeshBuildOption option = {});
+    [[nodiscard]] Mesh create_mesh(const AccelCreateOption &option,
+                                   VBuffer &&vertices, TBuffer &&triangles) noexcept;// see definition in rtx/mesh.h
+    [[nodiscard]] ProceduralPrimitive create_procedural_primitive(
+        const AccelCreateOption &option, BufferView<AABB> aabb_buffer) noexcept;
 
-    [[nodiscard]] Accel create_accel(AccelBuildOption option = {}) noexcept;          // see definition in rtx/accel.cpp
+    [[nodiscard]] Accel create_accel(const AccelCreateOption &option) noexcept;       // see definition in rtx/accel.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.cpp
 
     template<typename T>

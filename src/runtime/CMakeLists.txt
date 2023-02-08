@@ -9,6 +9,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         custom_pass.cpp custom_pass.h
         custom_struct.cpp custom_struct.h
         depth_format.h
+        device_interface.cpp device_interface.h
         device.cpp device.h
         dynamic_buffer.cpp dynamic_buffer.h
         dynamic_struct.h
@@ -23,7 +24,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         stream.cpp stream.h
         stream_tag.h
         swap_chain.cpp swap_chain.h
-        volume.cpp volume.h device_interface.h)
+        volume.cpp volume.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast

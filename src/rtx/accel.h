@@ -21,7 +21,6 @@ namespace luisa::compute {
 class LC_RUNTIME_API Accel final : public Resource {
 
 public:
-    using UsageHint = AccelUsageHint;
     using BuildRequest = AccelBuildRequest;
     using Modification = AccelBuildCommand::Modification;
 
@@ -32,7 +31,7 @@ private:
 private:
     friend class Device;
     friend class Mesh;
-    explicit Accel(DeviceInterface *device, AccelBuildOption const &option) noexcept;
+    explicit Accel(DeviceInterface *device, const AccelCreateOption &option) noexcept;
     luisa::unique_ptr<Command> update(bool build_accel, Accel::BuildRequest request) noexcept;
 
 public:

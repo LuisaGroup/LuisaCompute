@@ -1,5 +1,7 @@
 #pragma once
+
 #include <core/stl/memory.h>
+
 namespace luisa::compute {
 
 struct alignas(8) Argument {
@@ -17,9 +19,11 @@ struct alignas(8) Argument {
     Argument() noexcept = default;
     explicit Argument(Tag tag) noexcept : tag{tag} {}
 };
+
 struct IndirectDispatchArg {
     uint64_t handle;
 };
+
 struct BufferArgument : Argument {
     uint64_t handle{};
     size_t offset{};
@@ -64,4 +68,5 @@ struct AccelArgument : Argument {
     explicit AccelArgument(uint64_t handle) noexcept
         : Argument{Tag::ACCEL}, handle{handle} {}
 };
+
 }// namespace luisa::compute
