@@ -160,7 +160,9 @@ class RasterShader : public Resource {
         DepthFormat dsv_format,
         luisa::shared_ptr<const detail::FunctionBuilder> vert,
         luisa::shared_ptr<const detail::FunctionBuilder> pixel,
-        luisa::string_view file_path)noexcept
+        luisa::string_view name,
+        bool enable_debug_info,
+        bool enable_fast_math)noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,
@@ -171,7 +173,11 @@ class RasterShader : public Resource {
                   dsv_format,
                   Function(vert.get()),
                   Function(pixel.get()),
-                  file_path)),
+                  DeviceInterface::ShaderOption{
+                    .enable_cache = true, 
+                    .enable_debug_info = enable_debug_info,
+                    .enable_fast_math = enable_fast_math,
+                    .name = name})),
         _vert(std::move(vert)),
         _pixel(std::move(pixel))
 #ifndef NDEBUG
@@ -196,7 +202,9 @@ class RasterShader : public Resource {
                  DepthFormat dsv_format,
                  luisa::shared_ptr<const detail::FunctionBuilder> vert,
                  luisa::shared_ptr<const detail::FunctionBuilder> pixel,
-                 bool use_cache)noexcept
+                 bool enable_cache,
+                 bool enable_debug_info,
+                 bool enable_fast_math)noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,
@@ -207,7 +215,10 @@ class RasterShader : public Resource {
                   dsv_format,
                   Function(vert.get()),
                   Function(pixel.get()),
-                  use_cache)),
+                  DeviceInterface::ShaderOption{
+                    .enable_cache = enable_cache,
+                    .enable_debug_info = enable_debug_info,
+                    .enable_fast_math = enable_fast_math})),
           _vert(std::move(vert)),
           _pixel(std::move(pixel)) 
 #ifndef NDEBUG

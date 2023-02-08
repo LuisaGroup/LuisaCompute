@@ -91,7 +91,7 @@ private:
     }
 
 #ifndef NDEBUG
-    static void _check_no_implicit_binding(Function func, luisa::string_view shader_path) noexcept;
+    static void _check_no_implicit_binding(Function func, luisa::string_view shader_name) noexcept;
 #endif
 
 public:
@@ -173,15 +173,23 @@ public:
         _impl->set_io(visitor);
     }
     template<size_t N, typename... Args>
-    [[nodiscard]] auto compile_to(const Kernel<N, Args...> &kernel, luisa::string_view shader_path) noexcept {
+    [[nodiscard]] auto compile_to(
+        const Kernel<N, Args...> &kernel,
+        luisa::string_view shader_name,
+        bool enable_debug_info = false,
+        bool enable_fast_math = true) noexcept {
 #ifndef NDEBUG
-        _check_no_implicit_binding(kernel.function().get(), shader_path);
+        _check_no_implicit_binding(kernel.function().get(), shader_name);
 #endif
-        return _create<Shader<N, Args...>>(kernel.function(), shader_path);
+        return _create<Shader<N, Args...>>(kernel.function(), shader_name, enable_debug_info, enable_fast_math);
     }
     template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel, bool use_cache = true) noexcept {
-        return _create<Shader<N, Args...>>(kernel.function(), use_cache);
+    [[nodiscard]] auto compile(
+        const Kernel<N, Args...> &kernel,
+        bool use_cache = true,
+        bool enable_debug_info = false,
+        bool enable_fast_math = true) noexcept {
+        return _create<Shader<N, Args...>>(kernel.function(), use_cache, enable_debug_info, enable_fast_math);
     }
     template<typename... Args>
     [[nodiscard]] auto compile_to(
@@ -190,12 +198,14 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        luisa::string_view shader_path) noexcept {
+        luisa::string_view shader_name,
+        bool enable_debug_info = false,
+        bool enable_fast_math = true) noexcept {
 #ifndef NDEBUG
-        _check_no_implicit_binding(kernel.vert().get(), shader_path);
-        _check_no_implicit_binding(kernel.pixel().get(), shader_path);
+        _check_no_implicit_binding(kernel.vert().get(), shader_name);
+        _check_no_implicit_binding(kernel.pixel().get(), shader_name);
 #endif
-        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), shader_path);
+        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), shader_name, enable_debug_info, enable_fast_math);
     }
     template<typename... Args>
     [[nodiscard]] auto compile(
@@ -204,23 +214,43 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        bool use_cache = true) noexcept {
-        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), use_cache);
+        bool use_cache = true,
+        bool enable_debug_info = false,
+        bool enable_fast_math = true) noexcept {
+        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), use_cache, enable_debug_info, enable_fast_math);
     }
     template<size_t N, typename... Args>
-    void save(const Kernel<N, Args...> &kernel, luisa::string_view shader_path) noexcept {
+    void save(
+        const Kernel<N, Args...> &kernel,
+        luisa::string_view shader_name,
+        bool enable_debug_info = false,
+        bool enable_fast_math = true) noexcept {
 #ifndef NDEBUG
-        _check_no_implicit_binding(kernel.function().get(), shader_path);
+        _check_no_implicit_binding(kernel.function().get(), shader_name);
 #endif
-        _impl->save_shader(Function(kernel.function().get()), shader_path);
+        _impl->create_shader(
+            Function(kernel.function().get()),
+            DeviceInterface::ShaderOption{
+                .enable_debug_info = enable_debug_info,
+                .enable_fast_math = enable_fast_math,
+                .compile_only = true,
+                .name = shader_name});
     }
     template<typename V, typename P>
-    void save_raster_shader(const RasterKernel<V, P> &kernel, const MeshFormat &format, luisa::string_view serialization_path) {
+    void save_raster_shader(
+        const RasterKernel<V, P> &kernel,
+        const MeshFormat &format,
+        luisa::string_view shader_name,
+        bool enable_debug_info = false,
+        bool enable_fast_math = true) {
 #ifndef NDEBUG
-        _check_no_implicit_binding(kernel.vert().get(), serialization_path);
-        _check_no_implicit_binding(kernel.pixel().get(), serialization_path);
+        _check_no_implicit_binding(kernel.vert().get(), shader_name);
+        _check_no_implicit_binding(kernel.pixel().get(), shader_name);
 #endif
-        _impl->save_raster_shader(format, Function(kernel.vert().get()), Function(kernel.pixel().get()), serialization_path);
+        _impl->save_raster_shader(
+            format,
+            Function(kernel.vert().get()), Function(kernel.pixel().get()),
+            shader_name, enable_debug_info, enable_fast_math);
     }
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(
@@ -228,24 +258,26 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        luisa::string_view shader_path) {
-        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_path);
+        luisa::string_view shader_name,
+        bool enable_debug_info = false,
+        bool enable_fast_math = true) {
+        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name, enable_debug_info, enable_fast_math);
     }
     template<size_t N, typename... Args>
-    [[nodiscard]] auto load_shader(luisa::string_view shader_path) noexcept {
-        return _create<Shader<N, Args...>>(shader_path);
+    [[nodiscard]] auto load_shader(luisa::string_view shader_name) noexcept {
+        return _create<Shader<N, Args...>>(shader_name);
     }
 
     template<size_t N, typename Func>
         requires(
             std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>> && N >= 1 && N <= 3)
-    [[nodiscard]] auto compile_to(Func &&f, std::string_view shader_path) noexcept {
+    [[nodiscard]] auto compile_to(Func &&f, std::string_view shader_name) noexcept {
         if constexpr (N == 1u) {
-            return compile_to(Kernel1D{std::forward<Func>(f)}, shader_path);
+            return compile_to(Kernel1D{std::forward<Func>(f)}, shader_name);
         } else if constexpr (N == 2u) {
-            return compile_to(Kernel2D{std::forward<Func>(f)}, shader_path);
+            return compile_to(Kernel2D{std::forward<Func>(f)}, shader_name);
         } else {
-            return compile_to(Kernel3D{std::forward<Func>(f)}, shader_path);
+            return compile_to(Kernel3D{std::forward<Func>(f)}, shader_name);
         }
     }
     template<size_t N, typename Func>

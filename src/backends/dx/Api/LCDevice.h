@@ -44,7 +44,7 @@ public:
     // bindless array
     uint64_t create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
-    
+
     void *bindless_native_handle(uint64_t handle) const noexcept override;
     uint64_t create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
     void destroy_depth_buffer(uint64_t handle) noexcept override;
@@ -60,10 +60,9 @@ public:
     void *stream_native_handle(uint64_t handle) const noexcept override;
 
     // kernel
-    uint64_t create_shader(Function kernel, variant<string_view, ShaderCacheOption> cache_option) noexcept override;
+    uint64_t create_shader(Function kernel, ShaderOption cache_option) noexcept override;
     uint64_t load_shader(vstd::string_view file_name, vstd::span<Type const *const> types) noexcept override;
     uint3 shader_block_size(uint64_t handle) const noexcept override;
-    void save_shader(Function kernel, string_view serialization_path) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
 
     uint64_t create_raster_shader(
@@ -73,16 +72,14 @@ public:
         DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        string_view serialization_path) noexcept override;
-
-    uint64_t create_raster_shader(
+        ShaderOption cache_option) noexcept override;
+    [[nodiscard]] virtual uint64_t save_raster_shader(
         const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        span<const PixelFormat> rtv_format,
-        DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        bool use_cache) noexcept override;
+        luisa::string_view name,
+        bool enable_debug_info,
+        bool enable_fast_math) noexcept override;
     [[nodiscard]] uint64_t load_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -90,11 +87,6 @@ public:
         DepthFormat dsv_format,
         span<Type const *const> types,
         string_view ser_path) noexcept override;
-    void save_raster_shader(
-        const MeshFormat &mesh_format,
-        Function vert,
-        Function pixel,
-        string_view serialization_path) noexcept override;
 
     // event
     uint64_t create_event() noexcept override;

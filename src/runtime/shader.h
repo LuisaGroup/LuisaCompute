@@ -178,13 +178,17 @@ private:
     // JIT shader
     Shader(DeviceInterface *device,
            luisa::shared_ptr<const detail::FunctionBuilder> kernel,
-           string_view file_path) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(kernel->function(), file_path)},
+           luisa::string_view name,
+           bool enable_debug_info,
+           bool enable_fast_math) noexcept
+        : Resource{device, Tag::SHADER, device->create_shader(kernel->function(), DeviceInterface::ShaderOption{.enable_cache = true, .enable_debug_info = enable_debug_info, .enable_fast_math = enable_fast_math, .name = name})},
           _kernel{std::move(kernel)} {}
     Shader(DeviceInterface *device,
            luisa::shared_ptr<const detail::FunctionBuilder> kernel,
-           bool use_cache) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(kernel->function(), static_cast<DeviceInterface::ShaderCacheOption>(use_cache))},
+           bool enable_cache,
+           bool enable_debug_info,
+           bool enable_fast_math) noexcept
+        : Resource{device, Tag::SHADER, device->create_shader(kernel->function(), DeviceInterface::ShaderOption{.enable_cache = enable_cache, .enable_debug_info = enable_debug_info, .enable_fast_math = enable_fast_math})},
           _kernel{std::move(kernel)} {}
 
 private:

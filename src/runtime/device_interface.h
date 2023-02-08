@@ -94,15 +94,17 @@ public:
     [[nodiscard]] virtual void *swapchain_native_handle(uint64_t handle) const noexcept { return nullptr; }
     virtual PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept { return {}; }
     virtual void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {}
-    enum class ShaderCacheOption : bool{
-        SAVE = true,
-        DISCARD = false
+    struct ShaderOption {
+        bool enable_cache{true};
+        bool enable_debug_info{false};
+        bool enable_fast_math{true};
+        bool compile_only{false};
+        luisa::string_view name;
     };
     // kernel
-    [[nodiscard]] virtual uint64_t create_shader(Function kernel, variant<string_view, ShaderCacheOption> cache_option) noexcept = 0;
+    [[nodiscard]] virtual uint64_t create_shader(Function kernel, ShaderOption shader_option) noexcept = 0;
     [[nodiscard]] virtual uint64_t load_shader(luisa::string_view ser_path, luisa::span<Type const *const> types) noexcept = 0;
     [[nodiscard]] virtual uint3 shader_block_size(uint64_t handle) const noexcept = 0;
-    virtual void save_shader(Function kernel, luisa::string_view serialization_path) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
 // FIXME:
 // _ex are experiemental apis
@@ -118,15 +120,14 @@ public:
         DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        luisa::string_view serialization_path) noexcept { return ~0ull; }
-    [[nodiscard]] virtual uint64_t create_raster_shader(
+        ShaderOption shader_option) noexcept { return ~0ull; }
+    [[nodiscard]] virtual uint64_t save_raster_shader(
         const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<const PixelFormat> rtv_format,
-        DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        bool use_cache) noexcept { return ~0ull; }
+        luisa::string_view name,
+        bool enable_debug_info,
+        bool enable_fast_math) noexcept { return ~0ull; }
     [[nodiscard]] virtual uint64_t load_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -134,11 +135,6 @@ public:
         DepthFormat dsv_format,
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept { return ~0ull; }
-    virtual void save_raster_shader(
-        const MeshFormat &mesh_format,
-        Function vert,
-        Function pixel,
-        luisa::string_view serialization_path) noexcept {}
     virtual void destroy_raster_shader(uint64_t handle) noexcept {}
 
     // event

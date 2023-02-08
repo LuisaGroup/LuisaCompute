@@ -203,7 +203,14 @@ PYBIND11_MODULE(lcapi, m) {
         });
 
     py::class_<DeviceInterface, eastl::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
-        .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) { return self.create_shader(kernel, str); })// TODO: support metaoptions
+        .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
+            DeviceInterface::ShaderOption option{
+                .enable_debug_info = false,
+                .enable_fast_math = true,
+                .compile_only = false,
+                .name = str};
+            return self.create_shader(kernel, option);
+        })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             luisa::string_view str_view;
             luisa::string dst_path_str;
@@ -214,7 +221,12 @@ PYBIND11_MODULE(lcapi, m) {
             } else {
                 str_view = str;
             }
-            self.save_shader(kernel, str_view);
+            DeviceInterface::ShaderOption option{
+                .enable_debug_info = false,
+                .enable_fast_math = true,
+                .compile_only = true,
+                .name = str_view};
+            self.create_shader(kernel, option);
         })
         .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
             thread_pool.New();
@@ -228,7 +240,12 @@ PYBIND11_MODULE(lcapi, m) {
                 } else {
                     str_view = str;
                 }
-                self.save_shader(builder->function(), str_view);
+                DeviceInterface::ShaderOption option{
+                    .enable_debug_info = false,
+                    .enable_fast_math = true,
+                    .compile_only = true,
+                    .name = str_view};
+                self.create_shader(builder->function(), option);
             }));
         })
         /*
@@ -290,7 +307,7 @@ PYBIND11_MODULE(lcapi, m) {
             } else {
                 str_view = str;
             }
-            self.save_raster_shader(fmt.format, vertex, pixel, str_view);
+            self.save_raster_shader(fmt.format, vertex, pixel, str_view, false, true);
         })
         .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, eastl::shared_ptr<FunctionBuilder> const &vertex, eastl::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.New();
@@ -304,7 +321,7 @@ PYBIND11_MODULE(lcapi, m) {
                 } else {
                     str_view = str;
                 }
-                self.save_raster_shader(fmt.format, vertex->function(), pixel->function(), str_view);
+                self.save_raster_shader(fmt.format, vertex->function(), pixel->function(), str_view, false, true);
             }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
@@ -601,7 +618,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("encode_uniform", [](ComputeDispatchCmdEncoder &self, char *buf, size_t size) { self.encode_uniform(buf, size); })
         .def("encode_bindless_array", &ComputeDispatchCmdEncoder::encode_bindless_array)
         .def("encode_accel", &ComputeDispatchCmdEncoder::encode_accel)
-        .def("build", [](ComputeDispatchCmdEncoder &c) { return std::move(c).build().release(); });
+        .def("build", [](ComputeDispatchCmdEncoder &c) { return std::move(c).build().release(); }, pyref);
     // buffer operation commands
     // Pybind can't deduce argument list of the create function, so using lambda to inform it
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
