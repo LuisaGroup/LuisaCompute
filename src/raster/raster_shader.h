@@ -15,13 +15,13 @@ template<typename T>
 struct PixelDst : public std::false_type {};
 template<typename T>
 struct PixelDst<Image<T>> : public std::true_type {
-    static ShaderDispatchCommandBase::TextureArgument get(Image<T> const &v) noexcept {
+    static TextureArgument get(Image<T> const &v) noexcept {
         return {v.handle(), 0};
     }
 };
 template<typename T>
 struct PixelDst<ImageView<T>> : public std::true_type {
-    static ShaderDispatchCommandBase::TextureArgument get(ImageView<T> const &v) noexcept {
+    static TextureArgument get(ImageView<T> const &v) noexcept {
         return {v.handle(), v.level()};
     }
 };
@@ -39,7 +39,7 @@ static constexpr bool LegalDst() noexcept {
 }// namespace detail
 class LC_RUNTIME_API RasterShaderInvoke {
 private:
-    luisa::unique_ptr<DrawRasterSceneCommand> _command;
+    luisa::unique_ptr<RasterDispatchCmdEncoder> _command;
     Function _vert;
     Function _pixel;
 
@@ -48,7 +48,7 @@ public:
         uint64_t handle,
         Function vertex_func,
         Function pixel_func) noexcept
-        : _command(DrawRasterSceneCommand::create(handle, vertex_func, pixel_func)),
+        : _command(luisa::make_unique<RasterDispatchCmdEncoder>(handle, vertex_func, pixel_func)),
           _vert(vertex_func),
           _pixel(pixel_func) {
     }
@@ -112,10 +112,10 @@ public:
         requires(sizeof...(Rtv) == 0 || detail::LegalDst<Rtv...>())
     [[nodiscard]] auto draw(luisa::vector<RasterMesh> &&scene, Viewport viewport, DepthBuffer const *dsv, Rtv const &...rtv) &&noexcept {
         if (dsv) {
-            auto dsv_arg = ShaderDispatchCommandBase::TextureArgument(dsv->handle(), 0);
+            auto dsv_arg = TextureArgument(dsv->handle(), 0);
             _command->set_dsv_tex(dsv_arg);
         } else {
-            _command->set_dsv_tex(ShaderDispatchCommandBase::TextureArgument{~0ull, 0});
+            _command->set_dsv_tex(TextureArgument{~0ull, 0});
         }
         if constexpr (sizeof...(Rtv) > 0) {
             auto tex_args = {detail::PixelDst<std::remove_cvref_t<Rtv>>::get(rtv)...};
@@ -130,7 +130,7 @@ public:
 #endif
         _command->scene = std::move(scene);
         _command->viewport = viewport;
-        return std::move(_command);
+        return std::move(*_command).build();
     }
 };
 namespace detail {

@@ -155,29 +155,24 @@ void LCDevice::set_io(BinaryIO *visitor) noexcept {
         nativeDevice.fileIo = &nativeDevice.serVisitor;
     }
 }
+uint64_t LCDevice::create_shader(Function kernel, variant<string_view, ShaderCacheOption> cache_option) noexcept {
+    auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);
+    vstd::string_view file_name;
+    vstd::string str_cache;
+    vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+    visit(
+        [&]<typename T>(T const &t) {
+            if constexpr (std::is_same_v<T, string_view>) {
+                file_name = t;
+            } else {
+                if (static_cast<bool>(t)) {
+                    str_cache << checkMD5.ToString(false) << ".dxil"sv;
+                }
+                file_name = str_cache;
+            }
+        },
+        cache_option);
 
-uint64 LCDevice::create_shader(Function kernel, std::string_view file_name) noexcept {
-    auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);
-    vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-    return reinterpret_cast<uint64>(
-        ComputeShader::CompileCompute(
-            nativeDevice.fileIo,
-            &nativeDevice,
-            kernel,
-            [&]() { return std::move(code); },
-            checkMD5,
-            kernel.block_size(),
-            kShaderModel,
-            file_name,
-            FileType::ByteCode));
-}
-uint64 LCDevice::create_shader(Function kernel, bool use_cache) noexcept {
-    auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);
-    vstd::string file_name;
-    vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-    if (use_cache) {
-        file_name << checkMD5.ToString(false) << ".dxil"sv;
-    }
     return reinterpret_cast<uint64>(
         ComputeShader::CompileCompute(
             nativeDevice.fileIo,

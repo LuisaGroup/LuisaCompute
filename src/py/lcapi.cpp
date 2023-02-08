@@ -14,7 +14,7 @@
 #include <runtime/context.h>
 #include <runtime/stream.h>
 #include <py/py_stream.h>
-#include <runtime/command.h>
+#include <runtime/cmd_encoder.h>
 #include <runtime/image.h>
 #include <rtx/accel.h>
 #include <rtx/mesh.h>
@@ -588,19 +588,20 @@ PYBIND11_MODULE(lcapi, m) {
         .def_static("custom", [](luisa::string_view str) {
             return Type::custom(str);
         });
-
     // commands
     py::class_<Command>(m, "Command");
-    py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand")
+    py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand");
+    py::class_<ComputeDispatchCmdEncoder>(m, "ComputeDispatchCmdEncoder")
         .def_static(
-            "create", [](uint64_t handle, Function func) { return ShaderDispatchCommand::create(handle, func).release(); }, pyref)
-        .def("set_dispatch_size", [](ShaderDispatchCommand &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
-        .def("set_dispatch_buffer", [](ShaderDispatchCommand &self, uint64_t handle) { self.set_dispatch_size(ShaderDispatchCommand::IndirectArg{handle}); })
-        .def("encode_buffer", &ShaderDispatchCommand::encode_buffer)
-        .def("encode_texture", &ShaderDispatchCommand::encode_texture)
-        .def("encode_uniform", [](ShaderDispatchCommand &self, char *buf, size_t size) { self.encode_uniform(buf, size); })
-        .def("encode_bindless_array", &ShaderDispatchCommand::encode_bindless_array)
-        .def("encode_accel", &ShaderDispatchCommand::encode_accel);
+            "create", [](uint64_t handle, Function func) { return make_unique<ComputeDispatchCmdEncoder>(handle, func).release(); }, pyref)
+        .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
+        .def("set_dispatch_buffer", [](ComputeDispatchCmdEncoder &self, uint64_t handle) { self.set_dispatch_size(IndirectDispatchArg{handle}); })
+        .def("encode_buffer", &ComputeDispatchCmdEncoder::encode_buffer)
+        .def("encode_texture", &ComputeDispatchCmdEncoder::encode_texture)
+        .def("encode_uniform", [](ComputeDispatchCmdEncoder &self, char *buf, size_t size) { self.encode_uniform(buf, size); })
+        .def("encode_bindless_array", &ComputeDispatchCmdEncoder::encode_bindless_array)
+        .def("encode_accel", &ComputeDispatchCmdEncoder::encode_accel)
+        .def("build", [](ComputeDispatchCmdEncoder &c) { return std::move(c).build().release(); });
     // buffer operation commands
     // Pybind can't deduce argument list of the create function, so using lambda to inform it
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
@@ -650,12 +651,6 @@ PYBIND11_MODULE(lcapi, m) {
         .def_static(
             "create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size) {
                 return TextureToBufferCopyCommand::create(buffer, buffer_offset, texture, storage, level, size).release();
-            },
-            pyref);
-    py::class_<DrawRasterSceneCommand, Command>(m, "DrawRasterSceneCommand")
-        .def_static(
-            "create", [](uint64_t handle, Function vertex_func, Function pixel_func) {
-                return DrawRasterSceneCommand::create(handle, vertex_func, pixel_func).release();
             },
             pyref);
     // vector and matrix types

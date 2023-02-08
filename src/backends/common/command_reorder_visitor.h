@@ -593,7 +593,7 @@ public:
         visit(command, command->handle(), [&] {
             luisa::visit(
                 [&]<typename T>(T const &t) {
-                    if constexpr (std::is_same_v<T, ShaderDispatchCommand::IndirectArg>) {
+                    if constexpr (std::is_same_v<T, IndirectDispatchArg>) {
                         AddDispatchHandle(
                             t.handle,
                             ResourceType::Buffer,
@@ -605,7 +605,7 @@ public:
         });
     }
     void visit(const DrawRasterSceneCommand *command) noexcept override {
-        auto SetTexDst = [&](ShaderDispatchCommandBase::TextureArgument const &a) {
+        auto SetTexDst = [&](TextureArgument const &a) {
             AddDispatchHandle(
                 a.handle,
                 ResourceType::Texture,
@@ -621,7 +621,7 @@ public:
             if (dsv.handle != ~0ull) {
                 SetTexDst(dsv);
             }
-            for (auto &&mesh : command->scene) {
+            for (auto &&mesh : command->scene()) {
                 for (auto &&v : mesh.vertex_buffers()) {
                     AddDispatchHandle(
                         v.handle(),
@@ -756,7 +756,7 @@ public:
         }
     }
 
-    void operator()(ShaderDispatchCommandBase::BufferArgument const &bf) {
+    void operator()(BufferArgument const &bf) {
         AddDispatchHandle(
             bf.handle,
             ResourceType::Buffer,
@@ -764,7 +764,7 @@ public:
             ((uint)funcTable.get_usage(shaderHandle, argIndex) & (uint)Usage::WRITE) != 0);
         ++argIndex;
     }
-    void operator()(ShaderDispatchCommandBase::TextureArgument const &bf) {
+    void operator()(TextureArgument const &bf) {
         AddDispatchHandle(
             bf.handle,
             ResourceType::Texture,
@@ -772,7 +772,7 @@ public:
             ((uint)funcTable.get_usage(shaderHandle, argIndex) & (uint)Usage::WRITE) != 0);
         ++argIndex;
     }
-    void operator()(ShaderDispatchCommandBase::BindlessArrayArgument const &bf) {
+    void operator()(BindlessArrayArgument const &bf) {
         useBindlessInPass = true;
         AddDispatchHandle(
             bf.handle,
@@ -781,10 +781,10 @@ public:
             false);
         ++argIndex;
     }
-    void operator()(ShaderDispatchCommandBase::UniformArgument const &) {
+    void operator()(UniformArgument const &) {
         ++argIndex;
     }
-    void operator()(ShaderDispatchCommandBase::AccelArgument const &bf) {
+    void operator()(AccelArgument const &bf) {
         useAccelInPass = true;
         AddDispatchHandle(
             bf.handle,

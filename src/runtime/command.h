@@ -13,6 +13,7 @@
 #include <raster/viewport.h>
 #include <runtime/custom_struct.h>
 #include <runtime/sampler.h>
+#include <runtime/arguments.h>
 
 namespace luisa::compute {
 
@@ -96,6 +97,110 @@ public:
     virtual void accept(MutableCommandVisitor &visitor) noexcept = 0;
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] virtual StreamTag stream_tag() const noexcept = 0;
+};
+class ShaderDispatchCommandBase : public Command {
+
+private:
+    luisa::vector<std::byte> _argument_buffer;
+    uint32_t _argument_count{0u};
+
+protected:
+    ShaderDispatchCommandBase(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count, Tag tag)
+        : Command{tag},
+          _argument_buffer{std::move(argument_buffer)},
+          _argument_count{argument_count} {}
+
+public:
+    [[noreturn]] LC_RUNTIME_API static void _error_invalid_argument() noexcept;
+    template<typename Visit>
+    void decode(Visit &&visit) const noexcept {
+        auto p = _argument_buffer.data();
+        auto end = _argument_buffer.data() + _argument_buffer.size();
+        while (p < end) {
+            Argument argument{};
+            std::memcpy(&argument, p, sizeof(Argument));
+            switch (argument.tag) {
+                case Argument::Tag::BUFFER: {
+                    BufferArgument buffer_argument{};
+                    std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
+                    visit(buffer_argument);
+                    p += sizeof(BufferArgument);
+                    break;
+                }
+                case Argument::Tag::TEXTURE: {
+                    TextureArgument texture_argument{};
+                    std::memcpy(&texture_argument, p, sizeof(TextureArgument));
+                    visit(texture_argument);
+                    p += sizeof(TextureArgument);
+                    break;
+                }
+                case Argument::Tag::UNIFORM: {
+                    UniformArgumentHead head{};
+                    std::memcpy(&head, p, sizeof(UniformArgumentHead));
+                    p += sizeof(UniformArgumentHead);
+                    visit(UniformArgument{head, p});
+                    p += head.size;
+                    break;
+                }
+                case Argument::Tag::BINDLESS_ARRAY: {
+                    BindlessArrayArgument bindless_array_argument;
+                    std::memcpy(&bindless_array_argument, p, sizeof(BindlessArrayArgument));
+                    visit(bindless_array_argument);
+                    p += sizeof(BindlessArrayArgument);
+                    break;
+                }
+                case Argument::Tag::ACCEL: {
+                    AccelArgument accel_argument;
+                    std::memcpy(&accel_argument, p, sizeof(AccelArgument));
+                    visit(accel_argument);
+                    p += sizeof(AccelArgument);
+                    break;
+                }
+                default: {
+                    _error_invalid_argument();// no return
+                }
+            }
+        }
+    }
+};
+class ShaderDispatchCommand final : public ShaderDispatchCommandBase {
+    friend class ComputeDispatchCmdEncoder;
+    ShaderDispatchCommand(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count)
+        : ShaderDispatchCommandBase{std::move(argument_buffer), argument_count, Tag::EShaderDispatchCommand} {}
+    uint64_t _handle;
+    luisa::variant<
+        uint3,
+        IndirectDispatchArg>
+        _dispatch_size;
+
+public:
+    ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
+    ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto const &dispatch_size() const noexcept { return _dispatch_size; }
+    LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand, StreamTag::COMPUTE)
+};
+
+class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommandBase {
+    friend class RasterDispatchCmdEncoder;
+    DrawRasterSceneCommand(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count);
+    uint64_t _handle;
+    TextureArgument _rtv_texs[8];
+    size_t _rtv_count;
+    TextureArgument _dsv_tex;
+    luisa::vector<RasterMesh> _scene;
+    Viewport _viewport;
+
+public:
+    DrawRasterSceneCommand(DrawRasterSceneCommand const &) = delete;
+    DrawRasterSceneCommand(DrawRasterSceneCommand &&);
+    ~DrawRasterSceneCommand() noexcept;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const TextureArgument>{_rtv_texs, _rtv_count}; }
+    [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
+    [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
+    [[nodiscard]] auto viewport() const noexcept { return _viewport; }
+    LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)
 };
 
 class BufferUploadCommand final : public Command {
@@ -314,233 +419,6 @@ public:
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand, StreamTag::COPY)
 };
-
-class LC_RUNTIME_API ShaderDispatchCommandBase : public Command {
-
-public:
-    struct alignas(8) Argument {
-
-        enum struct Tag : uint8_t {
-            BUFFER,
-            TEXTURE,
-            UNIFORM,
-            BINDLESS_ARRAY,
-            ACCEL,
-        };
-
-        Tag tag{};
-
-        Argument() noexcept = default;
-        explicit Argument(Tag tag) noexcept : tag{tag} {}
-    };
-
-    struct BufferArgument : Argument {
-        uint64_t handle{};
-        size_t offset{};
-        size_t size{};
-        BufferArgument() noexcept : Argument{Tag::BUFFER} {}
-        BufferArgument(uint64_t handle, size_t offset, size_t size) noexcept
-            : Argument{Tag::BUFFER}, handle{handle}, offset{offset}, size{size} {}
-    };
-
-    struct TextureArgument : Argument {
-        uint64_t handle{};
-        uint32_t level{};
-        TextureArgument() noexcept : Argument{Tag::TEXTURE} {}
-        TextureArgument(uint64_t handle, uint32_t level) noexcept
-            : Argument{Tag::TEXTURE}, handle{handle}, level{level} {}
-    };
-
-    struct UniformArgumentHead : Argument {
-        size_t size{};
-        UniformArgumentHead() noexcept : Argument{Tag::UNIFORM} {}
-        explicit UniformArgumentHead(size_t size) noexcept
-            : Argument{Tag::UNIFORM}, size{size} {}
-    };
-
-    struct UniformArgument : UniformArgumentHead {
-        const std::byte *data{};
-        UniformArgument(UniformArgumentHead head, const std::byte *data) noexcept
-            : UniformArgumentHead{head}, data{data} {}
-        [[nodiscard]] auto span() const noexcept { return luisa::span{data, size}; }
-    };
-
-    struct BindlessArrayArgument : Argument {
-        uint64_t handle{};
-        BindlessArrayArgument() noexcept : Argument{Tag::BINDLESS_ARRAY} {}
-        explicit BindlessArrayArgument(uint64_t handle) noexcept
-            : Argument{Tag::BINDLESS_ARRAY}, handle{handle} {}
-    };
-
-    struct AccelArgument : Argument {
-        uint64_t handle{};
-        AccelArgument() noexcept : Argument{Tag::ACCEL} {}
-        explicit AccelArgument(uint64_t handle) noexcept
-            : Argument{Tag::ACCEL}, handle{handle} {}
-    };
-
-protected:
-    uint32_t _argument_count{0u};
-    luisa::vector<std::byte> _argument_buffer;
-    explicit ShaderDispatchCommandBase(Command::Tag tag) noexcept : Command(tag) {}
-    void _encode_pending_bindings(Function kernel) noexcept;
-    void _encode_buffer(Function kernel, uint64_t handle, size_t offset, size_t size) noexcept;
-    void _encode_texture(Function kernel, uint64_t handle, uint32_t level) noexcept;
-    void _encode_uniform(Function kernel, const void *data, size_t size) noexcept;
-    void _encode_bindless_array(Function kernel, uint64_t handle) noexcept;
-    void _encode_accel(Function kernel, uint64_t handle) noexcept;
-    [[nodiscard]] std::byte *_make_space(size_t size) noexcept;
-
-    template<typename T>
-        requires(std::is_base_of_v<Argument, T> &&
-                 std::negation_v<std::is_same<T, Argument>>)
-    void _encode_argument(T argument) noexcept {
-        auto p = _make_space(sizeof(T));
-        std::memcpy(p, &argument, sizeof(T));
-        _argument_count++;
-    }
-
-    [[noreturn]] static void _error_invalid_argument() noexcept;
-
-public:
-    [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
-
-    template<typename Visit>
-    void decode(Visit &&visit) const noexcept {
-        auto p = _argument_buffer.data();
-        auto end = _argument_buffer.data() + _argument_buffer.size();
-        while (p < end) {
-            Argument argument{};
-            std::memcpy(&argument, p, sizeof(Argument));
-            switch (argument.tag) {
-                case Argument::Tag::BUFFER: {
-                    BufferArgument buffer_argument{};
-                    std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
-                    visit(buffer_argument);
-                    p += sizeof(BufferArgument);
-                    break;
-                }
-                case Argument::Tag::TEXTURE: {
-                    TextureArgument texture_argument{};
-                    std::memcpy(&texture_argument, p, sizeof(TextureArgument));
-                    visit(texture_argument);
-                    p += sizeof(TextureArgument);
-                    break;
-                }
-                case Argument::Tag::UNIFORM: {
-                    UniformArgumentHead head{};
-                    std::memcpy(&head, p, sizeof(UniformArgumentHead));
-                    p += sizeof(UniformArgumentHead);
-                    visit(UniformArgument{head, p});
-                    p += head.size;
-                    break;
-                }
-                case Argument::Tag::BINDLESS_ARRAY: {
-                    BindlessArrayArgument bindless_array_argument;
-                    std::memcpy(&bindless_array_argument, p, sizeof(BindlessArrayArgument));
-                    visit(bindless_array_argument);
-                    p += sizeof(BindlessArrayArgument);
-                    break;
-                }
-                case Argument::Tag::ACCEL: {
-                    AccelArgument accel_argument;
-                    std::memcpy(&accel_argument, p, sizeof(AccelArgument));
-                    visit(accel_argument);
-                    p += sizeof(AccelArgument);
-                    break;
-                }
-                default: {
-                    _error_invalid_argument();// no return
-                }
-            }
-        }
-    }
-};
-
-class LC_RUNTIME_API ShaderDispatchCommand final : public ShaderDispatchCommandBase {
-public:
-    struct IndirectArg {
-        uint64_t handle;
-    };
-
-private:
-    uint64_t _handle{};
-    Function _kernel{};
-    luisa::variant<
-        uint3,
-        IndirectArg>
-        _dispatch_size;
-
-private:
-    ShaderDispatchCommand() noexcept
-        : ShaderDispatchCommandBase{Command::Tag::EShaderDispatchCommand} {}
-
-public:
-    explicit ShaderDispatchCommand(uint64_t handle, Function kernel) noexcept;
-    ShaderDispatchCommand(ShaderDispatchCommand &&) noexcept = default;
-    ShaderDispatchCommand &operator=(ShaderDispatchCommand &&) noexcept = default;
-    ~ShaderDispatchCommand() noexcept = default;
-    void set_dispatch_size(uint3 launch_size) noexcept;
-    void set_dispatch_size(IndirectArg indirect_arg) noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto kernel() const noexcept { return _kernel; }
-    [[nodiscard]] auto const &dispatch_size() const noexcept { return _dispatch_size; }
-
-    void encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
-    void encode_texture(uint64_t handle, uint32_t level) noexcept;
-    void encode_uniform(const void *data, size_t size) noexcept;
-    void encode_bindless_array(uint64_t handle) noexcept;
-    void encode_accel(uint64_t handle) noexcept;
-
-    LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand, StreamTag::COMPUTE)
-};
-
-class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommandBase {
-private:
-    uint64_t _handle{};
-    Function _vertex_func{};
-    Function _pixel_func{};
-    Function _default_func{};
-    TextureArgument _rtv_texs[8];
-    size_t _rtv_count{};
-    TextureArgument _dsv_tex{};
-
-    Function arg_kernel();
-
-public:
-    luisa::vector<RasterMesh> scene;
-    Viewport viewport{};
-
-    explicit DrawRasterSceneCommand(uint64_t handle,
-                                    Function vertex_func,
-                                    Function pixel_func) noexcept;
-    DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
-    ~DrawRasterSceneCommand() noexcept;
-    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
-    DrawRasterSceneCommand &operator=(DrawRasterSceneCommand &&) noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto vertex_func() const noexcept { return _vertex_func; }
-    [[nodiscard]] auto pixel_func() const noexcept { return _pixel_func; }
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const TextureArgument>{_rtv_texs, _rtv_count}; }
-    [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
-    void set_rtv_texs(luisa::span<const TextureArgument> tex) {
-        assert(tex.size() <= 8);
-        _rtv_count = tex.size();
-        memcpy(_rtv_texs, tex.data(), tex.size_bytes());
-    }
-    void set_dsv_tex(TextureArgument tex) {
-        _dsv_tex = tex;
-    }
-    // TODO
-    void encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
-    void encode_texture(uint64_t handle, uint32_t level) noexcept;
-    void encode_uniform(const void *data, size_t size) noexcept;
-    void encode_bindless_array(uint64_t handle) noexcept;
-    void encode_accel(uint64_t handle) noexcept;
-
-    LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)
-};
-
 // TODO: allow compaction/update
 enum struct AccelUsageHint : uint8_t {
     FAST_TRACE,// build with best quality

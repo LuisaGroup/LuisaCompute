@@ -31,7 +31,7 @@ class BindlessArray:
     def empty(n_slots = 65536):
         return BindlessArray(n_slots)
 
-    def emplace(self, idx, res, byte_offset = 0, filter = None, address = None):
+    def emplace(self, idx, res, filter = None, address = None, byte_offset = 0):
         if type(res) is Buffer:
             device().impl().emplace_buffer_in_bindless_array(self.array, idx, res.handle, byte_offset)
         elif type(res) is Texture2D:

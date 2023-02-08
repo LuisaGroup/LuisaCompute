@@ -222,7 +222,7 @@ class func:
         argtypes = tuple(dtype_of(a) for a in args)
         f = self.get_compiled(call_from_host=True, allow_ref=False, argtypes=argtypes)
         # create command
-        command = lcapi.ShaderDispatchCommand.create(f.shader_handle, f.function)
+        command = lcapi.ComputeDispatchCmdEncoder.create(f.shader_handle, f.function)
         # push arguments
         for a in args:
             lctype = to_lctype(dtype_of(a))
@@ -245,7 +245,7 @@ class func:
             command.set_dispatch_buffer(dispatch_size.handle)
         else:
             command.set_dispatch_size(*dispatch_size)
-        stream.add(command)
+        stream.add(command.build())
         if f.uses_printer: # assume that this property doesn't change with argtypes
             globalvars.printer.final_print()
             # Note: printing will FORCE synchronize (#21)

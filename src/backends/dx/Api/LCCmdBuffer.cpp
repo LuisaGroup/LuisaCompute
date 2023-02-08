@@ -49,7 +49,7 @@ public:
     struct Visitor {
         LCPreProcessVisitor *self;
         SavedArgument const *arg;
-        void operator()(ShaderDispatchCommandBase::BufferArgument const &bf) {
+        void operator()(BufferArgument const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
                 self->stateTracker->RecordState(
@@ -63,7 +63,7 @@ public:
             }
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::TextureArgument const &bf) {
+        void operator()(TextureArgument const &bf) {
             auto rt = reinterpret_cast<TextureBase *>(bf.handle);
             //UAV
             if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
@@ -80,7 +80,7 @@ public:
             }
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::BindlessArrayArgument const &bf) {
+        void operator()(BindlessArrayArgument const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             for (auto &&i : self->stateTracker->WriteStateMap()) {
                 if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
@@ -93,7 +93,7 @@ public:
             self->backState->clear();
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::UniformArgument const &a) {
+        void operator()(UniformArgument const &a) {
             vstd::span<std::byte const> bf(a.data, a.size);
             if (bf.size() < 4) {
                 bool v = (bool)bf[0];
@@ -104,7 +104,7 @@ public:
             }
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::AccelArgument const &bf) {
+        void operator()(AccelArgument const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if (accel->GetInstBuffer()) {
                 if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
@@ -199,7 +199,7 @@ public:
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
         luisa::visit(
             [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::IndirectArg>) {
+                if constexpr (std::is_same_v<T, IndirectDispatchArg>) {
                     auto buffer = reinterpret_cast<Buffer *>(t.handle);
                     stateTracker->RecordState(buffer, stateTracker->BufferReadState());
                 }
@@ -277,7 +277,7 @@ public:
         size_t afterSize = argBuffer->size();
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
 
-        for (auto &&mesh : cmd->scene) {
+        for (auto &&mesh : cmd->scene()) {
             for (auto &&v : mesh.vertex_buffers()) {
                 stateTracker->RecordState(
                     reinterpret_cast<Buffer *>(v.handle()),
@@ -364,14 +364,14 @@ public:
         LCCmdVisitor *self;
         SavedArgument const *arg;
 
-        void operator()(ShaderDispatchCommandBase::BufferArgument const &bf) {
+        void operator()(BufferArgument const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
 
             self->bindProps->emplace_back(
                 BufferView(res, bf.offset));
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::TextureArgument const &bf) {
+        void operator()(TextureArgument const &bf) {
             auto rt = reinterpret_cast<TextureBase *>(bf.handle);
             //UAV
             if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
@@ -389,14 +389,14 @@ public:
             }
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::BindlessArrayArgument const &bf) {
+        void operator()(BindlessArrayArgument const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             auto res = arr->BindlessBuffer();
             self->bindProps->emplace_back(
                 BufferView(res, 0));
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::AccelArgument const &bf) {
+        void operator()(AccelArgument const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if ((static_cast<uint>(arg->varUsage) & static_cast<uint>(Usage::WRITE)) == 0) {
                 self->bindProps->emplace_back(
@@ -406,7 +406,7 @@ public:
                 BufferView(accel->GetInstBuffer()));
             ++arg;
         }
-        void operator()(ShaderDispatchCommandBase::UniformArgument const &) {
+        void operator()(UniformArgument const &) {
             ++arg;
         }
     };
@@ -427,7 +427,7 @@ public:
         };
         luisa::visit(
             [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, ShaderDispatchCommand::IndirectArg>) {
+                if constexpr (std::is_same_v<T, IndirectDispatchArg>) {
                     auto buffer = reinterpret_cast<Buffer *>(t.handle);
                     bindProps->emplace_back();
                     BeforeDispatch();
@@ -663,7 +663,7 @@ public:
                 auto tex = reinterpret_cast<TextureBase *>(dsv.handle);
                 size = {tex->Width(), tex->Height()};
             }
-            auto &&viewport = cmd->viewport;
+            auto &&viewport = cmd->viewport();
             view.MinDepth = 0;
             view.MaxDepth = 1;
             view.TopLeftX = size.x * viewport.start.x;
@@ -724,7 +724,7 @@ public:
                     return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
             }
         }());
-        auto &&meshes = cmd->scene;
+        auto &&meshes = cmd->scene();
         auto propCount = shader->Properties().size();
         for (auto idx : vstd::range(meshes.size())) {
             auto &&mesh = meshes[idx];

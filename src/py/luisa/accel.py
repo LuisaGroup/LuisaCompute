@@ -107,8 +107,13 @@ class Accel:
         self._accel.set(index, vertex_buffer.handle, 0, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(), triangle_buffer.handle, 0, triangle_buffer.bytesize, transform, allow_compact, allow_update, visible, opaque)
 
     def add_buffer_view(self, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer, triangle_byteoffset, triangle_bytesize, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visible:bool = True, opaque:bool = True):
+        assert (triangle_byteoffset & 15) == 0 and (vertex_byteoffset & 15) == 0
+        assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
+        assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
         self._accel.emplace_back(vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform, allow_compact, allow_update, visible, opaque)
     def set_buffer_view(self, index, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer, triangle_byteoffset, triangle_bytesize, transform = float4x4(1),allow_compact:bool = True, allow_update:bool = False, visible = True, opaque:bool = True):
+        assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
+        assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
         self._accel.set(index, vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform, allow_compact, allow_update, visible, opaque)
     def pop(self):
         self._accel.pop_back()
