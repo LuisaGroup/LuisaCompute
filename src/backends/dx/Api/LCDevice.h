@@ -73,7 +73,7 @@ public:
         Function vert,
         Function pixel,
         ShaderOption cache_option) noexcept override;
-    [[nodiscard]] virtual uint64_t save_raster_shader(
+    [[nodiscard]] virtual void save_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,
         Function pixel,

@@ -121,13 +121,13 @@ public:
         Function vert,
         Function pixel,
         ShaderOption shader_option) noexcept { return ~0ull; }
-    [[nodiscard]] virtual uint64_t save_raster_shader(
+    [[nodiscard]] virtual void save_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         luisa::string_view name,
         bool enable_debug_info,
-        bool enable_fast_math) noexcept { return ~0ull; }
+        bool enable_fast_math) noexcept {}
     [[nodiscard]] virtual uint64_t load_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,

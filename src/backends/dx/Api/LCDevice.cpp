@@ -285,7 +285,7 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
             reinterpret_cast<TextureBase *>(image_handle), nativeDevice.maxAllocatorCount);
 }
-uint64_t LCDevice::save_raster_shader(
+void LCDevice::save_raster_shader(
     const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
@@ -325,6 +325,7 @@ uint64_t LCDevice::create_raster_shader(
             vert,
             pixel,
             kShaderModel);
+        return compute::Resource::invalid_handle;
     } else {
         vstd::string_view file_name;
         vstd::string str_cache;

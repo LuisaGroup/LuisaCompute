@@ -129,9 +129,16 @@ if UseSIMD then
 	end);
 end
 table.insert(_configs.events, function(config)
-	if is_plat("windows") and is_mode("release") then
-		add_ldflags("/INCREMENTAL:NO", "/LTCG:incremental", "/OPT:REF", "/OPT:ICF")
+	if is_plat("windows") then
+		if is_mode("release") then
+			add_ldflags("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
+			add_shflags("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
+		else
+			add_ldflags("/LTCG:incremental")
+			add_shflags("/LTCG:incremental")
+		end
 	end
+
 	if config.no_rtti then
 		add_cxflags("/GR-", {
 			tools = {"clang_cl", "cl"}
