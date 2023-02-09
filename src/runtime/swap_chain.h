@@ -20,13 +20,14 @@ public:
 
 private:
     friend class Device;
+    PixelStorage _storage;
     SwapChain(DeviceInterface *device, uint64_t window_handle,
               uint64_t stream_handle, uint width, uint height,
               bool allow_hdr, bool vsync, uint back_buffer_size) noexcept;
 
 public:
     SwapChain() noexcept = default;
-    [[nodiscard]] PixelStorage backend_storage() const;
+    [[nodiscard]] PixelStorage backend_storage() const { return _storage; }
     [[nodiscard]] Present present(ImageView<float> frame) const noexcept;
 };
 

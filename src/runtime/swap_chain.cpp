@@ -22,14 +22,15 @@ SwapChain Device::create_swapchain(
 SwapChain::SwapChain(DeviceInterface *device, uint64_t window_handle, uint64_t stream_handle,
                      uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept
     : Resource{device, Tag::SWAP_CHAIN,
-               device->create_swap_chain(
-                   window_handle, stream_handle, width, height,
-                   allow_hdr, vsync, back_buffer_size)} {
+               [&] {
+                   auto create_info = device->create_swap_chain(
+                       window_handle, stream_handle, width, height,
+                       allow_hdr, vsync, back_buffer_size);
+                   _storage = create_info.storage;
+                   return create_info;
+               }()} {
 }
 
-PixelStorage SwapChain::backend_storage() const {
-    return device()->swap_chain_pixel_storage(handle());
-}
 
 SwapChain::Present SwapChain::present(ImageView<float> frame) const noexcept {
     return {this, frame};

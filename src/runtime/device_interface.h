@@ -50,7 +50,8 @@ public:
 
 public:
     // buffer
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(size_t byte_size) noexcept = 0;
+    // [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
     [[nodiscard]] virtual ResourceCreationInfo register_external_buffer(void *native_handle, size_t size_bytes) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
@@ -80,29 +81,11 @@ public:
     virtual void dispatch(uint64_t stream_handle, CommandList &&list, luisa::fixed_vector<luisa::move_only_function<void()>, 1> &&callback) noexcept = 0;
 
     // swap chain
-<<<<<<< HEAD
-    [[nodiscard]] virtual uint64_t create_swap_chain(
-        uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
-        bool allow_hdr, bool vsync, uint back_buffer_size) noexcept { return ~0ull; }
-    virtual void destroy_swap_chain(uint64_t handle) noexcept {}
-    [[nodiscard]] virtual void *swapchain_native_handle(uint64_t handle) const noexcept { return nullptr; }
-    virtual PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept { return {}; }
-    virtual void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {}
-    struct ShaderOption {
-        bool enable_cache{true};
-        bool enable_debug_info{false};
-        bool enable_fast_math{true};
-        bool compile_only{false};
-        luisa::string_view name;
-    };
-    // kernel
-    [[nodiscard]] virtual uint64_t create_shader(Function kernel, ShaderOption shader_option) noexcept = 0;
-    [[nodiscard]] virtual uint64_t load_shader(luisa::string_view ser_path, luisa::span<Type const *const> types) noexcept = 0;
-    [[nodiscard]] virtual uint3 shader_block_size(uint64_t handle) const noexcept = 0;
-=======
-    [[nodiscard]] virtual SwapChainCreationInfo create_swap_chain(uint64_t window_handle, uint64_t stream_handle,
-                                                                  uint width, uint height, bool allow_hdr,
-                                                                  bool vsync, uint back_buffer_size) noexcept = 0;
+
+    [[nodiscard]] virtual SwapChainCreationInfo create_swap_chain(
+        uint64_t window_handle, uint64_t stream_handle,
+        uint width, uint height, bool allow_hdr,
+        bool vsync, uint back_buffer_size) noexcept = 0;
     virtual void destroy_swap_chain(uint64_t handle) noexcept = 0;
     virtual void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept = 0;
 
@@ -110,12 +93,10 @@ public:
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
->>>>>>> f9bd719a (merge)
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
     // TODO
     // raster kernel  (may not be supported by some backends)
-<<<<<<< HEAD
     [[nodiscard]] virtual uint64_t create_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -139,33 +120,6 @@ public:
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept { return ~0ull; }
     virtual void destroy_raster_shader(uint64_t handle) noexcept {}
-=======
-    [[nodiscard]] virtual ResourceCreationInfo create_raster_shader(const MeshFormat &mesh_format,
-                                                                    const RasterState &raster_state,
-                                                                    luisa::span<const PixelFormat> rtv_format,
-                                                                    DepthFormat dsv_format,
-                                                                    Function vert,
-                                                                    Function pixel,
-                                                                    luisa::string_view serialization_path) noexcept = 0;
-    [[nodiscard]] virtual ResourceCreationInfo create_raster_shader(const MeshFormat &mesh_format,
-                                                                    const RasterState &raster_state,
-                                                                    luisa::span<const PixelFormat> rtv_format,
-                                                                    DepthFormat dsv_format,
-                                                                    Function vert,
-                                                                    Function pixel,
-                                                                    bool use_cache) noexcept = 0;
-    [[nodiscard]] virtual ResourceCreationInfo load_raster_shader(const MeshFormat &mesh_format,
-                                                                  const RasterState &raster_state,
-                                                                  luisa::span<const PixelFormat> rtv_format,
-                                                                  DepthFormat dsv_format,
-                                                                  luisa::span<Type const *const> types,
-                                                                  luisa::string_view ser_path) noexcept = 0;
-    virtual void save_raster_shader(const MeshFormat &mesh_format,
-                                    Function vert,
-                                    Function pixel,
-                                    luisa::string_view serialization_path) noexcept = 0;
-    virtual void destroy_raster_shader(uint64_t handle) noexcept = 0;
->>>>>>> f9bd719a (merge)
 
     // event
     [[nodiscard]] virtual ResourceCreationInfo create_event() noexcept = 0;
@@ -175,20 +129,22 @@ public:
     virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
     // accel
-    [[nodiscard]] virtual ResourceCreationInfo create_mesh(const AccelOption &option,
-                                                           uint64_t vertex_buffer,
-                                                           size_t vertex_buffer_offset,
-                                                           size_t vertex_stride,
-                                                           size_t vertex_count,
-                                                           uint64_t triangle_buffer,
-                                                           size_t triangle_buffer_offset,
-                                                           size_t triangle_count) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo create_mesh(
+        const AccelOption &option,
+        uint64_t vertex_buffer,
+        size_t vertex_buffer_offset,
+        size_t vertex_stride,
+        size_t vertex_size,
+        uint64_t triangle_buffer,
+        size_t triangle_buffer_offset,
+        size_t triangle_size) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
-    [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(const AccelOption &option,
-                                                                           uint64_t aabb_buffer,
-                                                                           size_t aabb_buffer_offset,
-                                                                           size_t aabb_count) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(
+        const AccelOption &option,
+        uint64_t aabb_buffer,
+        size_t aabb_buffer_offset,
+        size_t aabb_count) noexcept = 0;
     virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;
 
     [[nodiscard]] virtual ResourceCreationInfo create_accel(const AccelOption &option) noexcept = 0;

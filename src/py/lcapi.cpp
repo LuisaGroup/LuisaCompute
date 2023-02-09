@@ -194,22 +194,22 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("get_bindless_handle", [](uint64 handle) {
         return reinterpret_cast<ManagedBindless *>(handle)->GetHandle();
     });
-    py::class_<DeviceInterface::BuiltinBuffer>(m, "BuiltinBuffer")
-        .def("handle", [](DeviceInterface::BuiltinBuffer &buffer) {
-            return buffer.handle;
-        })
-        .def("size", [](DeviceInterface::BuiltinBuffer &buffer) {
-            return buffer.size;
-        });
+    // py::class_<DeviceInterface::BuiltinBuffer>(m, "BuiltinBuffer")
+    //     .def("handle", [](DeviceInterface::BuiltinBuffer &buffer) {
+    //         return buffer.handle;
+    //     })
+    //     .def("size", [](DeviceInterface::BuiltinBuffer &buffer) {
+    //         return buffer.size;
+    //     });
 
     py::class_<DeviceInterface, eastl::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
         .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
-            DeviceInterface::ShaderOption option{
+            ShaderOption option{
                 .enable_debug_info = false,
                 .enable_fast_math = true,
                 .compile_only = false,
                 .name = str};
-            return self.create_shader(kernel, option);
+            return self.create_shader(option, kernel);
         })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             luisa::string_view str_view;
@@ -221,12 +221,12 @@ PYBIND11_MODULE(lcapi, m) {
             } else {
                 str_view = str;
             }
-            DeviceInterface::ShaderOption option{
+            ShaderOption option{
                 .enable_debug_info = false,
                 .enable_fast_math = true,
                 .compile_only = true,
                 .name = str_view};
-            self.create_shader(kernel, option);
+            self.create_shader(option, kernel );
         })
         .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
             thread_pool.New();
@@ -240,12 +240,12 @@ PYBIND11_MODULE(lcapi, m) {
                 } else {
                     str_view = str;
                 }
-                DeviceInterface::ShaderOption option{
+                ShaderOption option{
                     .enable_debug_info = false,
                     .enable_fast_math = true,
                     .compile_only = true,
                     .name = str_view};
-                self.create_shader(builder->function(), option);
+                self.create_shader(option, builder->function());
             }));
         })
         /*
@@ -326,20 +326,20 @@ PYBIND11_MODULE(lcapi, m) {
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
         .def("create_buffer", [](DeviceInterface &d, size_t size_bytes) {
-            auto ptr = d.create_buffer(size_bytes);
+            auto ptr = d.create_buffer(size_bytes).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return ptr;
         })
-        .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
-            auto ptr = d.create_dispatch_buffer(dimension, size);
-            RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
-            return ptr;
-        })
+        // .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
+        //     auto ptr = d.create_dispatch_buffer(dimension, size);
+        //     RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+        //     return ptr;
+        // })
         .def("destroy_buffer", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
         .def("create_texture", [](DeviceInterface &d, PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) {
-            auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels);
+            auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
             return ptr;
         })

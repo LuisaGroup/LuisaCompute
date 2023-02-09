@@ -1,4 +1,4 @@
-#include <runtime/dynamic_buffer.h>
+// #include <runtime/dynamic_buffer.h>
 #include <core/logging.h>
 
 namespace luisa::compute::detail {

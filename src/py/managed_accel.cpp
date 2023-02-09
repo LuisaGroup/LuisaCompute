@@ -23,11 +23,14 @@ ManagedAccel::~ManagedAccel() noexcept {
 
 void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
     auto device = data->accel.device();
-    auto newMesh = device->create_mesh(mesh.option,
-                                       mesh.vertex_buffer, mesh.vertex_buffer_offset,
-                                       mesh.vertex_stride, mesh.vertex_buffer_size / mesh.vertex_stride,
-                                       mesh.triangle_buffer, mesh.triangle_buffer_offset,
-                                       mesh.triangle_buffer_size / sizeof(Triangle));
+    auto newMesh =
+        device->create_mesh(
+                  mesh.option,
+                  mesh.vertex_buffer, mesh.vertex_buffer_offset,
+                  mesh.vertex_stride, mesh.vertex_buffer_size / mesh.vertex_stride,
+                  mesh.triangle_buffer, mesh.triangle_buffer_offset,
+                  mesh.triangle_buffer_size / sizeof(Triangle))
+            .handle;
     auto lastSize = data->meshes.size();
     data->meshes.emplace_back(newMesh, mesh);
     data->requireUpdateMesh.emplace(newMesh, mesh);
@@ -50,11 +53,13 @@ void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &tr
     data->requireUpdateMesh.erase(lastMesh.first);
     data->meshDisposeList.emplace_back(lastMesh.first);
     auto device = data->accel.device();
-    lastMesh.first = device->create_mesh(mesh.option,
-                                         mesh.vertex_buffer, mesh.vertex_buffer_offset,
-                                         mesh.vertex_stride, mesh.vertex_buffer_size / mesh.vertex_stride,
-                                         mesh.triangle_buffer, mesh.triangle_buffer_offset,
-                                         mesh.triangle_buffer_size / sizeof(Triangle));
+    lastMesh.first = device->create_mesh(
+                               mesh.option,
+                               mesh.vertex_buffer, mesh.vertex_buffer_offset,
+                               mesh.vertex_stride, mesh.vertex_buffer_size / mesh.vertex_stride,
+                               mesh.triangle_buffer, mesh.triangle_buffer_offset,
+                               mesh.triangle_buffer_size / sizeof(Triangle))
+                         .handle;
     lastMesh.second = mesh;
     data->accel.set_handle(idx, lastMesh.first, transform, visible, opaque);
     data->requireUpdateMesh.emplace(lastMesh.first, lastMesh.second);

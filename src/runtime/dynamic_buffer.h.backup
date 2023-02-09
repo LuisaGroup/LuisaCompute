@@ -24,8 +24,8 @@ class BufferView<DynamicStruct> {
         : _handle(handle), _offset_bytes(offset), _type(type), _size(size), _total_size(total_size) {}
 
 public:
-    BufferView() noexcept : BufferView(Resource::invalid_handle, 0, nullptr, 0, 0) {}
-    [[nodiscard]] explicit operator bool() const noexcept { return _handle != Resource::invalid_handle; }
+    BufferView() noexcept : BufferView(invalid_resource_handle, 0, nullptr, 0, 0) {}
+    [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
     BufferView(const Buffer<DynamicStruct> &buffer) noexcept;
 
     [[nodiscard]] auto type() const noexcept { return _type; }

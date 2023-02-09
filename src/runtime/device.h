@@ -89,14 +89,7 @@ private:
     [[nodiscard]] auto _create(Args &&...args) noexcept {
         return T{this->_impl.get(), std::forward<Args>(args)...};
     }
-
-<<<<<<< HEAD
-#ifndef NDEBUG
-    static void _check_no_implicit_binding(Function func, luisa::string_view shader_name) noexcept;
-#endif
-=======
     static void _check_no_implicit_binding(Function func, luisa::string_view shader_path) noexcept;
->>>>>>> f9bd719a (merge)
 
 public:
     explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
@@ -177,25 +170,6 @@ public:
     void set_io(BinaryIO *visitor) noexcept { _impl->set_io(visitor); }
 
     template<size_t N, typename... Args>
-<<<<<<< HEAD
-    [[nodiscard]] auto compile_to(
-        const Kernel<N, Args...> &kernel,
-        luisa::string_view shader_name,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) noexcept {
-#ifndef NDEBUG
-        _check_no_implicit_binding(kernel.function().get(), shader_name);
-#endif
-        return _create<Shader<N, Args...>>(kernel.function(), shader_name, enable_debug_info, enable_fast_math);
-    }
-    template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(
-        const Kernel<N, Args...> &kernel,
-        bool use_cache = true,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) noexcept {
-        return _create<Shader<N, Args...>>(kernel.function(), use_cache, enable_debug_info, enable_fast_math);
-=======
     [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel,
                                const ShaderOption &option = {}) noexcept {
         return _create<Shader<N, Args...>>(kernel.function(), option);
@@ -210,9 +184,9 @@ public:
             .enable_cache = false,
             .enable_fast_math = enable_fast_math,
             .enable_debug_info = enable_debug_info,
+            .compile_only = true,
             .name = name};
         static_cast<void>(this->compile(std::forward<Kernel>(kernel), option));
->>>>>>> f9bd719a (merge)
     }
 
     template<size_t N, typename Func>
@@ -236,35 +210,9 @@ public:
             .enable_cache = false,
             .enable_fast_math = enable_fast_math,
             .enable_debug_info = enable_debug_info,
+            .compile_only = true,
             .name = name};
         static_cast<void>(this->compile<N>(std::forward<Kernel>(kernel), option));
-    }
-
-    template<typename... Args>
-    [[nodiscard]] auto compile_to(
-        const RasterKernel<Args...> &kernel,
-        const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<PixelFormat const> rtv_format,
-        DepthFormat dsv_format,
-<<<<<<< HEAD
-        luisa::string_view shader_name,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) noexcept {
-#ifndef NDEBUG
-        _check_no_implicit_binding(kernel.vert().get(), shader_name);
-        _check_no_implicit_binding(kernel.pixel().get(), shader_name);
-#endif
-        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), shader_name, enable_debug_info, enable_fast_math);
-=======
-        luisa::string_view shader_path) noexcept {
-        _check_no_implicit_binding(kernel.vert().get(), shader_path);
-        _check_no_implicit_binding(kernel.pixel().get(), shader_path);
-        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state,
-                                                                         rtv_format, dsv_format,
-                                                                         kernel.vert(), kernel.pixel(),
-                                                                         shader_path);
->>>>>>> f9bd719a (merge)
     }
 
     template<typename... Args>
@@ -274,52 +222,19 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        bool use_cache = true,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) noexcept {
-        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), use_cache, enable_debug_info, enable_fast_math);
-    }
-<<<<<<< HEAD
-    template<size_t N, typename... Args>
-    void save(
-        const Kernel<N, Args...> &kernel,
-        luisa::string_view shader_name,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) noexcept {
-#ifndef NDEBUG
-        _check_no_implicit_binding(kernel.function().get(), shader_name);
-#endif
-        _impl->create_shader(
-            Function(kernel.function().get()),
-            DeviceInterface::ShaderOption{
-                .enable_debug_info = enable_debug_info,
-                .enable_fast_math = enable_fast_math,
-                .compile_only = true,
-                .name = shader_name});
+        const ShaderOption &option = {}) noexcept {
+        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
     }
     template<typename V, typename P>
-    void save_raster_shader(
+    void compile_to(
         const RasterKernel<V, P> &kernel,
         const MeshFormat &format,
-        luisa::string_view shader_name,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) {
-#ifndef NDEBUG
-        _check_no_implicit_binding(kernel.vert().get(), shader_name);
-        _check_no_implicit_binding(kernel.pixel().get(), shader_name);
-#endif
-        _impl->save_raster_shader(
-            format,
-            Function(kernel.vert().get()), Function(kernel.pixel().get()),
-            shader_name, enable_debug_info, enable_fast_math);
-=======
-
-    template<typename V, typename P>
-    void save_raster_shader(const RasterKernel<V, P> &kernel, const MeshFormat &format, luisa::string_view serialization_path) {
+        luisa::string_view serialization_path,
+        bool enable_debug_info,
+        bool enable_fast_math) {
         _check_no_implicit_binding(kernel.vert().get(), serialization_path);
         _check_no_implicit_binding(kernel.pixel().get(), serialization_path);
-        _impl->save_raster_shader(format, Function(kernel.vert().get()), Function(kernel.pixel().get()), serialization_path);
->>>>>>> f9bd719a (merge)
+        _impl->save_raster_shader(format, Function(kernel.vert().get()), Function(kernel.pixel().get()), serialization_path, enable_debug_info, enable_fast_math);
     }
 
     template<typename... Args>
@@ -339,34 +254,6 @@ public:
         return _create<Shader<N, Args...>>(shader_name);
     }
 
-<<<<<<< HEAD
-    template<size_t N, typename Func>
-        requires(
-            std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>> && N >= 1 && N <= 3)
-    [[nodiscard]] auto compile_to(Func &&f, std::string_view shader_name) noexcept {
-        if constexpr (N == 1u) {
-            return compile_to(Kernel1D{std::forward<Func>(f)}, shader_name);
-        } else if constexpr (N == 2u) {
-            return compile_to(Kernel2D{std::forward<Func>(f)}, shader_name);
-        } else {
-            return compile_to(Kernel3D{std::forward<Func>(f)}, shader_name);
-        }
-    }
-    template<size_t N, typename Func>
-        requires(
-            std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>> && N >= 1 && N <= 3)
-    [[nodiscard]] auto compile(Func &&f, bool use_cache = true) noexcept {
-        if constexpr (N == 1u) {
-            return compile(Kernel1D{std::forward<Func>(f)}, use_cache);
-        } else if constexpr (N == 2u) {
-            return compile(Kernel2D{std::forward<Func>(f)}, use_cache);
-        } else {
-            return compile(Kernel3D{std::forward<Func>(f)}, use_cache);
-        }
-    }
-
-=======
->>>>>>> f9bd719a (merge)
     [[nodiscard]] auto query(std::string_view meta_expr) const noexcept {
         return _impl->query(meta_expr);
     }
