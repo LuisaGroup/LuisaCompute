@@ -23,9 +23,10 @@ class Buffer:
         self.write = self.bufferType.write
         self.dtype = dtype
         self.size = size
-        self.bytesize = size * to_lctype(self.dtype).size()
+        lc_type = to_lctype(self.dtype)
+        self.bytesize = size * lc_type.size()
         # instantiate buffer on device
-        self.handle = get_global_device().impl().create_buffer(self.bytesize)
+        self.handle = get_global_device().impl().create_buffer(lc_type, size)
 
     def __del__(self):
         if self.handle != None:

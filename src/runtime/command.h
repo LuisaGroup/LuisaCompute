@@ -437,17 +437,37 @@ class MeshBuildCommand final : public Command {
 private:
     uint64_t _handle{};
     AccelBuildRequest _request{};
+    uint64_t _vertex_buffer{};
+    size_t _vertex_buffer_offset{};
+    size_t _vertex_buffer_size{};
+    size_t _vertex_stride{};
+    uint64_t _triangle_buffer{};
+    size_t _triangle_buffer_offset{};
+    size_t _triangle_buffer_size{};
 
 private:
     MeshBuildCommand() noexcept
         : Command{Command::Tag::EMeshBuildCommand} {}
 
 public:
-    MeshBuildCommand(uint64_t handle, AccelBuildRequest request) noexcept
-        : Command{Command::Tag::EMeshBuildCommand}, _handle{handle}, _request{request} {
+    MeshBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t vertex_buffer,
+                     size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride,
+                     uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size) noexcept
+        : Command{Command::Tag::EMeshBuildCommand}, _handle{handle}, _request{request},
+          _vertex_buffer{vertex_buffer}, _vertex_buffer_offset{vertex_buffer_offset},
+          _vertex_buffer_size{vertex_buffer_size}, _vertex_stride{vertex_stride},
+          _triangle_buffer{triangle_buffer}, _triangle_buffer_offset{triangle_buffer_offset},
+          _triangle_buffer_size{triangle_buffer_size} {
     }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto vertex_stride() const noexcept { return _vertex_stride; }
     [[nodiscard]] auto request() const noexcept { return _request; }
+    [[nodiscard]] auto vertex_buffer() const noexcept { return _vertex_buffer; }
+    [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
+    [[nodiscard]] auto vertex_buffer_offset() const noexcept { return _vertex_buffer_offset; }
+    [[nodiscard]] auto vertex_buffer_size() const noexcept { return _vertex_buffer_size; }
+    [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
+    [[nodiscard]] auto triangle_buffer_size() const noexcept { return _triangle_buffer_size; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand, StreamTag::COMPUTE)
 };
 
@@ -456,13 +476,21 @@ class ProceduralPrimitiveBuildCommand final : public Command {
 private:
     uint64_t _handle{};
     AccelBuildRequest _request{};
+    uint64_t _aabb_buffer{};
+    size_t _aabb_offset{};
+    size_t _aabb_count{};
 
 public:
-    ProceduralPrimitiveBuildCommand(uint64_t handle, AccelBuildRequest request) noexcept
-        : Command{Command::Tag::EProceduralPrimitiveBuildCommand},
-          _handle{handle}, _request{request} {}
+    ProceduralPrimitiveBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t aabb_buffer,
+                     size_t aabb_offset, size_t aabb_count)
+        : Command(Command::Tag::EProceduralPrimitiveBuildCommand),
+          _handle(handle), _request(request), _aabb_buffer(aabb_buffer),
+          _aabb_offset(aabb_offset), _aabb_count(aabb_count) {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
+    [[nodiscard]] auto aabb_buffer() const noexcept { return _aabb_buffer; }
+    [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
+    [[nodiscard]] auto aabb_count() const noexcept { return _aabb_count; }
     LUISA_MAKE_COMMAND_COMMON(ProceduralPrimitiveBuildCommand, StreamTag::COMPUTE)
 };
 

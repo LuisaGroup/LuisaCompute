@@ -50,8 +50,7 @@ public:
 
 public:
     // buffer
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(size_t byte_size) noexcept = 0;
-    // [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
     [[nodiscard]] virtual ResourceCreationInfo register_external_buffer(void *native_handle, size_t size_bytes) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
@@ -129,22 +128,12 @@ public:
     virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
     // accel
-    [[nodiscard]] virtual ResourceCreationInfo create_mesh(
-        const AccelOption &option,
-        uint64_t vertex_buffer,
-        size_t vertex_buffer_offset,
-        size_t vertex_stride,
-        size_t vertex_size,
-        uint64_t triangle_buffer,
-        size_t triangle_buffer_offset,
-        size_t triangle_size) noexcept = 0;
+    [[nodiscard]] virtual uint64_t create_mesh(
+        const AccelOption &option) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
     [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(
-        const AccelOption &option,
-        uint64_t aabb_buffer,
-        size_t aabb_buffer_offset,
-        size_t aabb_count) noexcept = 0;
+        const AccelOption &option) noexcept = 0;
     virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;
 
     [[nodiscard]] virtual ResourceCreationInfo create_accel(const AccelOption &option) noexcept = 0;
