@@ -63,13 +63,12 @@ public:
     }
     BottomAccel(
         Device *device,
-        luisa::compute::AccelUsageHint hint,
-        bool allow_compact, bool allow_update);
+        luisa::compute::AccelOption const &option);
     size_t PreProcessStates(
         CommandBufferBuilder &builder,
         ResourceStateTracker &tracker,
         bool update,
-        vstd::variant<MeshOptions, AABBOptions> const& options,
+        vstd::variant<MeshOptions, AABBOptions> const &options,
         BottomAccelData &bottomData);
     void UpdateStates(
         CommandBufferBuilder &builder,

@@ -207,12 +207,14 @@ void StringStateVisitor::visit(const RefExpr *expr) {
 }
 
 void StringStateVisitor::visit(const LiteralExpr *expr) {
+    str << '(';
     luisa::visit(
         [&]<typename T>(T const &value) -> void {
             PrintValue<T> prt;
             prt(value, str);
         },
         expr->value());
+    str << ')';
 }
 void StringStateVisitor::visit(const CallExpr *expr) {
     CodegenUtility::GetFunctionName(expr, str, *this);

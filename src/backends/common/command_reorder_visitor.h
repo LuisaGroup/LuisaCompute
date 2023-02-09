@@ -687,7 +687,7 @@ public:
                 Range(command->triangle_buffer_offset(),
                       command->triangle_buffer_size())));
     }
-    void visit(const PrimBuildCommand *command) noexcept override {
+    void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
         auto stride = funcTable.aabb_stride();
         AddCommand(
             command,

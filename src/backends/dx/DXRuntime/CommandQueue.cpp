@@ -3,7 +3,7 @@
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <Resource/GpuAllocator.h>
-#include <Api/LCEvent.h>
+#include <DXApi/LCEvent.h>
 namespace toolhub::directx {
 CommandQueue::CommandQueue(
     Device *device,
