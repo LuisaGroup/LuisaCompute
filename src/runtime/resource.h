@@ -45,7 +45,7 @@ struct SwapChainCreationInfo : public ResourceCreationInfo {
 };
 
 struct ShaderCreationInfo : public ResourceCreationInfo {
-    luisa::string name;
+    // luisa::string name;
     uint3 block_size;
 };
 
@@ -98,9 +98,13 @@ protected:
     void _destroy() noexcept;
 
 public:
-    Resource() noexcept = default;
+    Resource() noexcept {
+        _info.invalidate();
+    }
     Resource(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
-    virtual ~Resource() noexcept { _destroy(); }
+    virtual ~Resource() noexcept {
+        if (*this) { _destroy(); }
+    }
     Resource(Resource &&) noexcept;
     Resource(const Resource &) noexcept = delete;
     Resource &operator=(Resource &&) noexcept;

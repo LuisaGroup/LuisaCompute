@@ -56,10 +56,6 @@ public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
-    // indirect dispatch buffer
-    [[nodiscard]] virtual ResourceCreationInfo create_indirect_dispatch_buffer(size_t capacity) noexcept = 0;
-    virtual void destroy_indirect_dispatch_buffer(uint64_t handle) noexcept = 0;
-
     // texture
     [[nodiscard]] virtual ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,

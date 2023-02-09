@@ -205,8 +205,8 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<DeviceInterface, eastl::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
         .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             ShaderOption option{
-                .enable_debug_info = false,
                 .enable_fast_math = true,
+                .enable_debug_info = false,
                 .compile_only = false,
                 .name = str};
             return self.create_shader(option, kernel);
@@ -222,8 +222,8 @@ PYBIND11_MODULE(lcapi, m) {
                 str_view = str;
             }
             ShaderOption option{
-                .enable_debug_info = false,
                 .enable_fast_math = true,
+                .enable_debug_info = false,
                 .compile_only = true,
                 .name = str_view};
             self.create_shader(option, kernel );
@@ -241,8 +241,8 @@ PYBIND11_MODULE(lcapi, m) {
                     str_view = str;
                 }
                 ShaderOption option{
-                    .enable_debug_info = false,
                     .enable_fast_math = true,
+                    .enable_debug_info = false,
                     .compile_only = true,
                     .name = str_view};
                 self.create_shader(option, builder->function());
