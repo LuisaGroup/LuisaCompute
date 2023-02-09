@@ -325,8 +325,8 @@ PYBIND11_MODULE(lcapi, m) {
             }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
-        .def("create_buffer", [](DeviceInterface &d, size_t size_bytes) {
-            auto ptr = d.create_buffer(size_bytes).handle;
+        .def("create_buffer", [](DeviceInterface &d, const Type* type, size_t size) {
+            auto ptr = d.create_buffer(type, size).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return ptr;
         })

@@ -23,14 +23,7 @@ ManagedAccel::~ManagedAccel() noexcept {
 
 void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
     auto device = data->accel.device();
-    auto newMesh =
-        device->create_mesh(
-                  mesh.option,
-                  mesh.vertex_buffer, mesh.vertex_buffer_offset,
-                  mesh.vertex_stride, mesh.vertex_buffer_size / mesh.vertex_stride,
-                  mesh.triangle_buffer, mesh.triangle_buffer_offset,
-                  mesh.triangle_buffer_size / sizeof(Triangle))
-            .handle;
+    auto newMesh = device->create_mesh(mesh.option).handle;
     auto lastSize = data->meshes.size();
     data->meshes.emplace_back(newMesh, mesh);
     data->requireUpdateMesh.emplace(newMesh, mesh);
@@ -53,13 +46,7 @@ void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &tr
     data->requireUpdateMesh.erase(lastMesh.first);
     data->meshDisposeList.emplace_back(lastMesh.first);
     auto device = data->accel.device();
-    lastMesh.first = device->create_mesh(
-                               mesh.option,
-                               mesh.vertex_buffer, mesh.vertex_buffer_offset,
-                               mesh.vertex_stride, mesh.vertex_buffer_size / mesh.vertex_stride,
-                               mesh.triangle_buffer, mesh.triangle_buffer_offset,
-                               mesh.triangle_buffer_size / sizeof(Triangle))
-                         .handle;
+    lastMesh.first = device->create_mesh(mesh.option).handle;
     lastMesh.second = mesh;
     data->accel.set_handle(idx, lastMesh.first, transform, visible, opaque);
     data->requireUpdateMesh.emplace(lastMesh.first, lastMesh.second);
@@ -72,7 +59,14 @@ void ManagedAccel::update(PyStream &stream) noexcept {
         auto &m = i.second;
         stream.add(MeshBuildCommand::create(
             i.first,
-            AccelBuildRequest::FORCE_BUILD));
+            AccelBuildRequest::FORCE_BUILD,
+            m.vertex_buffer,
+            m.vertex_buffer_offset,
+            m.vertex_buffer_size,
+            m.vertex_stride,
+            m.triangle_buffer,
+            m.triangle_buffer_offset,
+            m.triangle_buffer_size));
     }
     stream.add(data->accel.build(AccelBuildRequest::FORCE_BUILD));
     stream.delegates.emplace_back([lst = std::move(data->meshDisposeList), device = data->accel.device()] {

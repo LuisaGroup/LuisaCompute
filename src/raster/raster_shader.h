@@ -173,7 +173,7 @@ class RasterShader : public Resource {
                   dsv_format,
                   Function(vert.get()),
                   Function(pixel.get()),
-                  DeviceInterface::ShaderOption{
+                  ShaderOption{
                     .enable_cache = true, 
                     .enable_debug_info = enable_debug_info,
                     .enable_fast_math = enable_fast_math,
@@ -215,7 +215,7 @@ class RasterShader : public Resource {
                   dsv_format,
                   Function(vert.get()),
                   Function(pixel.get()),
-                  DeviceInterface::ShaderOption{
+                  ShaderOption{
                     .enable_cache = enable_cache,
                     .enable_debug_info = enable_debug_info,
                     .enable_fast_math = enable_fast_math})),

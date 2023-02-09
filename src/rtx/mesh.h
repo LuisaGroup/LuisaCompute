@@ -41,7 +41,7 @@ private:
         requires is_buffer_or_view_v<VBuffer> &&
                  is_buffer_or_view_v<TBuffer> &&
                  std::same_as<buffer_element_t<TBuffer>, Triangle>
-    [[nodiscard]] static uint64_t _create_resource(
+    [[nodiscard]] static ResourceCreationInfo _create_resource(
         DeviceInterface *device, const AccelOption &option,
         const VBuffer &vertex_buffer, const TBuffer &triangle_buffer) noexcept {
         return device->create_mesh(option);

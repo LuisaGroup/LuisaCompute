@@ -96,14 +96,14 @@ public:
 
     // TODO
     // raster kernel  (may not be supported by some backends)
-    [[nodiscard]] virtual uint64_t create_raster_shader(
+    [[nodiscard]] virtual ResourceCreationInfo create_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
         luisa::span<const PixelFormat> rtv_format,
         DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        ShaderOption shader_option) noexcept { return ~0ull; }
+        ShaderOption shader_option) noexcept { return ResourceCreationInfo::make_invalid(); }
     [[nodiscard]] virtual void save_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,
@@ -111,13 +111,13 @@ public:
         luisa::string_view name,
         bool enable_debug_info,
         bool enable_fast_math) noexcept {}
-    [[nodiscard]] virtual uint64_t load_raster_shader(
+    [[nodiscard]] virtual ResourceCreationInfo load_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
         luisa::span<const PixelFormat> rtv_format,
         DepthFormat dsv_format,
         luisa::span<Type const *const> types,
-        luisa::string_view ser_path) noexcept { return ~0ull; }
+        luisa::string_view ser_path) noexcept { return ResourceCreationInfo::make_invalid(); }
     virtual void destroy_raster_shader(uint64_t handle) noexcept {}
 
     // event
@@ -128,7 +128,7 @@ public:
     virtual void synchronize_event(uint64_t handle) noexcept = 0;
 
     // accel
-    [[nodiscard]] virtual uint64_t create_mesh(
+    [[nodiscard]] virtual ResourceCreationInfo create_mesh(
         const AccelOption &option) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
