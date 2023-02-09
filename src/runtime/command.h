@@ -28,7 +28,6 @@ class RasterMesh;
         BufferCopyCommand,               \
         BufferToTextureCopyCommand,      \
         ShaderDispatchCommand,           \
-        ShaderDispatchExCommand,         \
         TextureUploadCommand,            \
         TextureDownloadCommand,          \
         TextureCopyCommand,              \
