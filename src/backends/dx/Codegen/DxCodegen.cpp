@@ -57,8 +57,13 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         expr->rhs()->accept(*this);
         str << ")";
     } else {
-
+        
+        // parentheses around the operand to avoid
+        // wrong tokenization (e.g., `(a) - (-b)`)
+        str << '(';
         expr->lhs()->accept(*this);
+        str << ") "sv;
+        
         switch (op) {
             case BinaryOp::ADD:
                 str << '+';
@@ -112,7 +117,11 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
                 LUISA_ERROR_WITH_LOCATION(
                     "Not implemented.");
         }
+        // parentheses around the operand to avoid
+        // wrong tokenization (e.g., `(a) - (-b)`)
+        str << " ("sv;
         expr->rhs()->accept(*this);
+        str << ')';
     }
     str << ")";
 }
