@@ -56,6 +56,8 @@ private:
     friend class Device;
     Buffer(DeviceInterface *device, size_t size) noexcept
         : Buffer{device, size, device->create_buffer(Type::of<T>(), size)} {}
+    Buffer(DeviceInterface *device, void* external_ptr, size_t size) noexcept
+        : Buffer{device, size, device->create_buffer(external_ptr, Type::of<T>(), size)} {}
 
 public:
     Buffer() noexcept = default;
