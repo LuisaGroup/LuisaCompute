@@ -219,11 +219,11 @@ struct TypeDesc<std::tuple<T...>> {
 template<typename T>
 const Type *Type::of() noexcept {
     if constexpr (std::is_same_v<T, void>) { return nullptr; }
-    auto desc = detail::TypeDesc<std::remove_cvref_t<T>>::description();
-    if constexpr (requires { typename T::is_struct; }) {
-        static thread_local auto t = Type::custom(desc);
+    if constexpr (requires { typename T::is_custom_struct; }) {
+        static thread_local auto t = Type::custom(T::type_name);
         return t;
     } else {
+        auto desc = detail::TypeDesc<std::remove_cvref_t<T>>::description();
         static thread_local auto t = Type::from(desc);
         return t;
     }

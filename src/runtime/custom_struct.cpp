@@ -18,16 +18,16 @@ namespace luisa::compute {
 //    return v;
 //}
 //
-//Buffer<DispatchArgs1D> Device::create_1d_dispatch_buffer(size_t capacity) noexcept {
-//    return create_dispatch_buffer<1, DispatchArgs1D>(capacity);
+//Buffer<DispatchArgs> Device::create_1d_dispatch_buffer(size_t capacity) noexcept {
+//    return create_dispatch_buffer<1, DispatchArgs>(capacity);
 //}
 //
-//Buffer<DispatchArgs2D> Device::create_2d_dispatch_buffer(size_t capacity) noexcept {
-//    return create_dispatch_buffer<2, DispatchArgs2D>(capacity);
+//Buffer<DispatchArgs> Device::create_2d_dispatch_buffer(size_t capacity) noexcept {
+//    return create_dispatch_buffer<2, DispatchArgs>(capacity);
 //}
 //
-//Buffer<DispatchArgs3D> Device::create_3d_dispatch_buffer(size_t capacity) noexcept {
-//    return create_dispatch_buffer<3, DispatchArgs3D>(capacity);
+//Buffer<DispatchArgs> Device::create_3d_dispatch_buffer(size_t capacity) noexcept {
+//    return create_dispatch_buffer<3, DispatchArgs>(capacity);
 //}
 //
 //Buffer<AABB> Device::create_aabb_buffer(size_t capacity) noexcept {
