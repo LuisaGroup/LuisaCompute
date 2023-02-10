@@ -44,12 +44,12 @@ using prototype_to_shader_invocation_t = typename prototype_to_shader_invocation
 class LC_RUNTIME_API ShaderInvokeBase {
 
 private:
-    luisa::unique_ptr<ComputeDispatchCmdEncoder> _command;
+    ComputeDispatchCmdEncoder _command;
     Function _kernel;
 
 public:
     explicit ShaderInvokeBase(uint64_t handle, Function kernel) noexcept
-        : _command{luisa::make_unique<ComputeDispatchCmdEncoder>(handle, kernel)},
+        : _command{handle, kernel},
           _kernel{kernel} {}
     ShaderInvokeBase(ShaderInvokeBase &&) noexcept = default;
     ShaderInvokeBase(const ShaderInvokeBase &) noexcept = delete;
@@ -57,19 +57,19 @@ public:
     ShaderInvokeBase &operator=(const ShaderInvokeBase &) noexcept = delete;
     template<typename T>
     ShaderInvokeBase &operator<<(BufferView<T> buffer) noexcept {
-        _command->encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
+        _command.encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(ImageView<T> image) noexcept {
-        _command->encode_texture(image.handle(), image.level());
+        _command.encode_texture(image.handle(), image.level());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(VolumeView<T> volume) noexcept {
-        _command->encode_texture(volume.handle(), volume.level());
+        _command.encode_texture(volume.handle(), volume.level());
         return *this;
     }
 
@@ -90,7 +90,7 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {
-        _command->encode_uniform(&data, sizeof(T));
+        _command.encode_uniform(&data, sizeof(T));
         return *this;
     }
 
@@ -102,11 +102,11 @@ public:
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) &&noexcept {
-        _command->set_dispatch_size(dispatch_size);
+        _command.set_dispatch_size(dispatch_size);
         return std::move(_command);
     }
     [[nodiscard]] auto _parallelize(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        _command->set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle()});
+        _command.set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle()});
         return std::move(_command);
     }
 };
@@ -120,10 +120,10 @@ template<>
 struct ShaderInvoke<1> : public ShaderInvokeBase {
     explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
+        return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
     }
     [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(indirect_buffer)).build();
+        return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
 };
 
@@ -131,13 +131,13 @@ template<>
 struct ShaderInvoke<2> : public ShaderInvokeBase {
     explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
+        return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
     }
     [[nodiscard]] auto dispatch(uint2 size) &&noexcept {
         return std::move(*this).dispatch(size.x, size.y);
     }
     [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(indirect_buffer)).build();
+        return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
 };
 
@@ -145,10 +145,10 @@ template<>
 struct ShaderInvoke<3> : public ShaderInvokeBase {
     explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
+        return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
     }
     [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(indirect_buffer)).build();
+        return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
     [[nodiscard]] auto dispatch(uint3 size) &&noexcept {
         std::move(*this).dispatch(size.x, size.y, size.z);
