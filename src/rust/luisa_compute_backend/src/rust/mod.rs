@@ -300,14 +300,11 @@ impl Backend for RustBackend {
         allow_compact: bool,
         allow_update: bool,
     ) -> api::Mesh {
-        // unsafe {
-        //     let mesh = Box::new(MeshImpl::new(
-        //         usage, v_buffer, v_offset, v_stride, v_count, t_buffer, t_offset, t_stride, t_count,
-        //     ));
-        //     let mesh = Box::into_raw(mesh);
-        //     api::Mesh(mesh as u64)
-        // }
-        todo!()
+        unsafe {
+            let mesh = Box::new(MeshImpl::new(hint, ty, allow_compact, allow_update));
+            let mesh = Box::into_raw(mesh);
+            api::Mesh(mesh as u64)
+        }
     }
     fn destroy_mesh(&self, mesh: api::Mesh) {
         unsafe {
@@ -316,13 +313,13 @@ impl Backend for RustBackend {
         }
     }
     fn mesh_native_handle(&self, mesh: api::Mesh) -> *mut libc::c_void {
-        mesh.0 as *mut libc::c_void
+        unsafe { (&*(mesh.0 as *const MeshImpl)).handle as *mut libc::c_void }
     }
     fn create_accel(
         &self,
-        hint: api::AccelUsageHint,
-        allow_compact: bool,
-        allow_update: bool,
+        _hint: api::AccelUsageHint,
+        _allow_compact: bool,
+        _allow_update: bool,
     ) -> api::Accel {
         unsafe {
             let accel = Box::new(AccelImpl::new());
@@ -337,7 +334,7 @@ impl Backend for RustBackend {
         }
     }
     fn accel_native_handle(&self, accel: api::Accel) -> *mut libc::c_void {
-        accel.0 as *mut libc::c_void
+        unsafe { (&*(accel.0 as *const AccelImpl)).handle as *mut libc::c_void }
     }
 }
 impl RustBackend {
