@@ -102,89 +102,127 @@ public:
 
 class ShaderDispatchCommandBase : public Command {
 
+public:
+    struct Argument {
+        enum struct Tag {
+            BUFFER,
+            TEXTURE,
+            UNIFORM,
+            BINDLESS_ARRAY,
+            ACCEL
+        };
+
+        struct Buffer {
+            uint64_t handle;
+            size_t offset;
+            size_t size;
+        };
+
+        struct Texture {
+            uint64_t handle;
+            uint32_t level;
+        };
+
+        struct Uniform {
+            size_t offset;
+            size_t size;
+        };
+
+        struct BindlessArray {
+            uint64_t handle;
+        };
+
+        struct Accel {
+            uint64_t handle;
+        };
+
+        Tag tag;
+        union {
+            Buffer buffer;
+            Texture texture;
+            Uniform uniform;
+            BindlessArray bindless_array;
+            Accel accel;
+        };
+    };
+
 private:
-    luisa::vector<std::byte> _argument_buffer;
-    uint32_t _argument_count{0u};
+    uint64_t _handle;
+    luisa::vector<std::byte> _uniform_buffer;
+    luisa::vector<Argument> _arguments;
 
 protected:
-    ShaderDispatchCommandBase(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count, Tag tag)
-        : Command{tag},
-          _argument_buffer{std::move(argument_buffer)},
-          _argument_count{argument_count} {}
+    ShaderDispatchCommandBase(Tag tag, uint64_t shader_handle,
+                              uint32_t reserved_argument_count) noexcept
+        : Command{tag}, _handle{shader_handle} {
+        if (reserved_argument_count != 0u) {
+            _arguments.reserve(reserved_argument_count);
+        }
+    }
 
 public:
-    [[noreturn]] LC_RUNTIME_API static void _error_invalid_argument() noexcept;
-    template<typename Visit>
-    void decode(Visit &&visit) const noexcept {
-        auto p = _argument_buffer.data();
-        auto end = _argument_buffer.data() + _argument_buffer.size();
-        while (p < end) {
-            Argument argument{};
-            std::memcpy(&argument, p, sizeof(Argument));
-            switch (argument.tag) {
-                case Argument::Tag::BUFFER: {
-                    BufferArgument buffer_argument{};
-                    std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
-                    visit(buffer_argument);
-                    p += sizeof(BufferArgument);
-                    break;
-                }
-                case Argument::Tag::TEXTURE: {
-                    TextureArgument texture_argument{};
-                    std::memcpy(&texture_argument, p, sizeof(TextureArgument));
-                    visit(texture_argument);
-                    p += sizeof(TextureArgument);
-                    break;
-                }
-                case Argument::Tag::UNIFORM: {
-                    UniformArgumentHead head{};
-                    std::memcpy(&head, p, sizeof(UniformArgumentHead));
-                    p += sizeof(UniformArgumentHead);
-                    visit(UniformArgument{head, p});
-                    p += head.size;
-                    break;
-                }
-                case Argument::Tag::BINDLESS_ARRAY: {
-                    BindlessArrayArgument bindless_array_argument;
-                    std::memcpy(&bindless_array_argument, p, sizeof(BindlessArrayArgument));
-                    visit(bindless_array_argument);
-                    p += sizeof(BindlessArrayArgument);
-                    break;
-                }
-                case Argument::Tag::ACCEL: {
-                    AccelArgument accel_argument;
-                    std::memcpy(&accel_argument, p, sizeof(AccelArgument));
-                    visit(accel_argument);
-                    p += sizeof(AccelArgument);
-                    break;
-                }
-                default: {
-                    _error_invalid_argument();// no return
-                }
-            }
-        }
+    void set_buffer(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept {
+        _arguments.emplace_back(Argument{.tag = Argument::Tag::BUFFER,
+                                         .buffer = {.handle = handle,
+                                                    .offset = offset_bytes,
+                                                    .size = size_bytes}});
+    }
+
+    void set_texture(uint64_t handle, uint32_t level) noexcept {
+        _arguments.emplace_back(Argument{.tag = Argument::Tag::TEXTURE,
+                                         .texture = {.handle = handle,
+                                                     .level = level}});
+    }
+
+    void set_uniform(const void *data, size_t size_bytes) noexcept {
+        auto offset_bytes = align(_uniform_buffer.size(), 16u);
+        _uniform_buffer.resize(offset_bytes + size_bytes);
+        std::memcpy(_uniform_buffer.data() + offset_bytes, data, size_bytes);
+        _arguments.emplace_back(Argument{.tag = Argument::Tag::UNIFORM,
+                                         .uniform = {.offset = offset_bytes,
+                                                     .size = size_bytes}});
+    }
+
+    void set_bindless_array(uint64_t handle) noexcept {
+        _arguments.emplace_back(Argument{.tag = Argument::Tag::BINDLESS_ARRAY,
+                                         .bindless_array = {.handle = handle}});
+    }
+
+    void set_accel(uint64_t handle) noexcept {
+        _arguments.emplace_back(Argument{.tag = Argument::Tag::ACCEL,
+                                         .accel = {.handle = handle}});
+    }
+
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto uniform_buffer() const noexcept { return luisa::span{_uniform_buffer}; }
+    [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
+
+    [[nodiscard]] auto steal_uniform_buffer() noexcept {
+        luisa::vector<std::byte> buffer;
+        std::swap(buffer, _uniform_buffer);
+        return buffer;
     }
 };
 
 class ShaderDispatchCommand final : public ShaderDispatchCommandBase {
-    friend class ComputeDispatchCmdEncoder;
-    ShaderDispatchCommand(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count)
-        : ShaderDispatchCommandBase{std::move(argument_buffer), argument_count, Tag::EShaderDispatchCommand} {}
-    uint64_t _handle;
-    luisa::variant<
-        uint3,
-        IndirectDispatchArg>
-        _dispatch_size;
+
+private:
+    luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
 
 public:
+    ShaderDispatchCommand(uint64_t shader, uint32_t reserved_argument_count = 0u) noexcept
+        : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand, shader, reserved_argument_count} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
     ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto const &dispatch_size() const noexcept { return _dispatch_size; }
+    [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
+    [[nodiscard]] auto dispatch_size() const noexcept { return luisa::get<uint3>(_dispatch_size); }
+    [[nodiscard]] auto indirect_dispatch_size() const noexcept { return luisa::get<IndirectDispatchArg>(_dispatch_size); }
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand, StreamTag::COMPUTE)
 };
 
 class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommandBase {
+
+private:
     friend class RasterDispatchCmdEncoder;
     DrawRasterSceneCommand(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count);
     uint64_t _handle;
@@ -481,7 +519,7 @@ private:
 
 public:
     ProceduralPrimitiveBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t aabb_buffer,
-                     size_t aabb_offset, size_t aabb_count)
+                                    size_t aabb_offset, size_t aabb_count)
         : Command(Command::Tag::EProceduralPrimitiveBuildCommand),
           _handle(handle), _request(request), _aabb_buffer(aabb_buffer),
           _aabb_offset(aabb_offset), _aabb_count(aabb_count) {}

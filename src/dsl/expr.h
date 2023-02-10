@@ -10,7 +10,6 @@
 #include <runtime/image.h>
 #include <runtime/volume.h>
 #include <runtime/buffer.h>
-#include <runtime/dynamic_buffer.h>
 #include <runtime/bindless_array.h>
 #include <ast/function_builder.h>
 #include <dsl/expr_traits.h>
@@ -800,6 +799,7 @@ BindlessBuffer<T> BindlessArray::buffer(I &&index) const noexcept {
 
 template<>
 struct Expr<DynamicStruct> {
+
 private:
     const Expression *_expression;
 
