@@ -111,7 +111,7 @@ bool ShaderSerializer::CheckMD5(
 ComputeShader *ShaderSerializer::DeSerialize(
     vstd::string_view name,
     luisa::string_view psoName,
-    FileType fileType,
+    bool isInternal,
     Device *device,
     BinaryIO &streamFunc,
     vstd::optional<vstd::MD5> const &checkMD5,
@@ -120,13 +120,10 @@ ComputeShader *ShaderSerializer::DeSerialize(
     using namespace shader_ser;
 
     auto binStream = [&] {
-        switch (fileType) {
-            case FileType::ByteCode:
-                return streamFunc.read_bytecode(name);
-            case FileType::Cache:
-                return streamFunc.read_cache(name);
-            case FileType::Internal:
-                return streamFunc.read_internal(name);
+        if (isInternal) {
+            return streamFunc.read_internal(name);
+        } else {
+            return streamFunc.read_bytecode(name);
         }
     }();
     if (binStream == nullptr || binStream->length() <= sizeof(Header)) return nullptr;
@@ -211,7 +208,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
 RasterShader *ShaderSerializer::RasterDeSerialize(
     luisa::string_view name,
     luisa::string_view psoName,
-    FileType fileType,
+    bool isInternal,
     Device *device,
     BinaryIO &streamFunc,
     vstd::optional<vstd::MD5> const &ilMd5,
@@ -224,13 +221,10 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     bool &clearCache) {
     using namespace shader_ser;
     auto binStream = [&] {
-        switch (fileType) {
-            case FileType::ByteCode:
-                return streamFunc.read_bytecode(name);
-            case FileType::Cache:
-                return streamFunc.read_cache(name);
-            case FileType::Internal:
-                return streamFunc.read_internal(name);
+        if (isInternal) {
+            return streamFunc.read_internal(name);
+        } else {
+            return streamFunc.read_bytecode(name);
         }
     }();
     if (binStream == nullptr || binStream->length() <= sizeof(RasterHeader)) return nullptr;

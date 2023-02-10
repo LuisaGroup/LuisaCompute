@@ -20,7 +20,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
     auto result = ShaderSerializer::DeSerialize(
         fileName,
         psoName,
-        FileType::ByteCode,
+        false,
         device,
         *fileIo,
         {},
@@ -48,7 +48,7 @@ ComputeShader *ComputeShader::CompileCompute(
     uint3 blockSize,
     uint shaderModel,
     vstd::string_view fileName,
-    FileType fileType) {
+    bool isInternal) {
 
     using namespace ComputeShaderDetail;
     auto CompileNewCompute = [&](bool WriteCache, vstd::string_view psoName) {
@@ -90,16 +90,10 @@ ComputeShader *ComputeShader::CompileCompute(
                         str.typeMD5,
                         str.bdlsBufferCount,
                         blockSize);
-                    switch (fileType) {
-                        case FileType::ByteCode:
-                            fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                            break;
-                        case FileType::Cache:
-                            fileIo->write_cache(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                            break;
-                        case FileType::Internal:
-                            fileIo->write_internal(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                            break;
+                    if (isInternal) {
+                        fileIo->write_internal(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+                    } else {
+                        fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
                     }
                 }
                 auto cs = new ComputeShader(
@@ -128,7 +122,7 @@ ComputeShader *ComputeShader::CompileCompute(
         auto result = ShaderSerializer::DeSerialize(
             fileName,
             psoName,
-            fileType,
+            isInternal,
             device,
             *fileIo,
             checkMD5,
