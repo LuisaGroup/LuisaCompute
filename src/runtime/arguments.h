@@ -20,9 +20,7 @@ struct alignas(8) Argument {
     explicit Argument(Tag tag) noexcept : tag{tag} {}
 };
 
-struct IndirectDispatchArg {
-    uint64_t handle;
-};
+
 
 struct BufferArgument : Argument {
     uint64_t handle{};

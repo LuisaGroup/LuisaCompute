@@ -28,11 +28,13 @@ template<typename T>
 class BufferView;
 
 template<typename T>
-using is_valid_buffer_element = std::conjunction<
-    std::is_same<T, std::remove_cvref_t<T>>,
-    std::is_trivially_copyable<T>,
-    std::is_trivially_destructible<T>,
-    std::bool_constant<(alignof(T) >= 4u)>>;
+using is_valid_buffer_element = std::disjunction<
+    std::conjunction<
+        std::is_same<T, std::remove_cvref_t<T>>,
+        std::is_trivially_copyable<T>,
+        std::is_trivially_destructible<T>,
+        std::bool_constant<(alignof(T) >= 4u)>>,
+    std::is_same<T, DynamicStruct>>;
 
 template<typename T>
 constexpr auto is_valid_buffer_element_v = is_valid_buffer_element<T>::value;
@@ -56,7 +58,7 @@ private:
     friend class Device;
     Buffer(DeviceInterface *device, size_t size) noexcept
         : Buffer{device, size, device->create_buffer(Type::of<T>(), size)} {}
-    Buffer(DeviceInterface *device, void* external_ptr, size_t size) noexcept
+    Buffer(DeviceInterface *device, void *external_ptr, size_t size) noexcept
         : Buffer{device, size, device->register_external_buffer(external_ptr, Type::of<T>(), size)} {}
 
 public:

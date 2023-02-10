@@ -44,32 +44,31 @@ using prototype_to_shader_invocation_t = typename prototype_to_shader_invocation
 class LC_RUNTIME_API ShaderInvokeBase {
 
 private:
-    luisa::unique_ptr<ComputeDispatchCmdEncoder> _command;
-    Function _kernel;
+    ComputeDispatchCmdEncoder _command;
 
 public:
-    explicit ShaderInvokeBase(uint64_t handle, Function kernel) noexcept
-        : _command{luisa::make_unique<ComputeDispatchCmdEncoder>(handle, kernel)},
-          _kernel{kernel} {}
+    explicit ShaderInvokeBase(size_t arg_size, uint64_t handle, Function kernel) noexcept
+        : _command{arg_size, handle, kernel} {}
+
     ShaderInvokeBase(ShaderInvokeBase &&) noexcept = default;
     ShaderInvokeBase(const ShaderInvokeBase &) noexcept = delete;
     ShaderInvokeBase &operator=(ShaderInvokeBase &&) noexcept = default;
     ShaderInvokeBase &operator=(const ShaderInvokeBase &) noexcept = delete;
     template<typename T>
     ShaderInvokeBase &operator<<(BufferView<T> buffer) noexcept {
-        _command->encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
+        _command.encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(ImageView<T> image) noexcept {
-        _command->encode_texture(image.handle(), image.level());
+        _command.encode_texture(image.handle(), image.level());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(VolumeView<T> volume) noexcept {
-        _command->encode_texture(volume.handle(), volume.level());
+        _command.encode_texture(volume.handle(), volume.level());
         return *this;
     }
 
@@ -90,7 +89,7 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {
-        _command->encode_uniform(&data, sizeof(T));
+        _command.encode_uniform(&data, sizeof(T));
         return *this;
     }
 
@@ -102,11 +101,11 @@ public:
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) &&noexcept {
-        _command->set_dispatch_size(dispatch_size);
+        _command.set_dispatch_size(dispatch_size);
         return std::move(_command);
     }
     [[nodiscard]] auto _parallelize(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        _command->set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle()});
+        _command.set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle()});
         return std::move(_command);
     }
 };
@@ -118,37 +117,37 @@ struct ShaderInvoke {
 
 template<>
 struct ShaderInvoke<1> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
+    explicit ShaderInvoke(size_t arg_size, uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{arg_size, handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
+        return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
     }
     [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(indirect_buffer)).build();
+        return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
 };
 
 template<>
 struct ShaderInvoke<2> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
+    explicit ShaderInvoke(size_t arg_size, uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{arg_size, handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
+        return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
     }
     [[nodiscard]] auto dispatch(uint2 size) &&noexcept {
         return std::move(*this).dispatch(size.x, size.y);
     }
     [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(indirect_buffer)).build();
+        return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
 };
 
 template<>
 struct ShaderInvoke<3> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
+    explicit ShaderInvoke(size_t arg_size, uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{arg_size, handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
+        return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
     }
     [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
-        return std::move(*std::move(*this)._parallelize(indirect_buffer)).build();
+        return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
     [[nodiscard]] auto dispatch(uint3 size) &&noexcept {
         std::move(*this).dispatch(size.x, size.y, size.z);
@@ -164,42 +163,33 @@ class Shader final : public Resource {
 
 private:
     friend class Device;
-    luisa::shared_ptr<const detail::FunctionBuilder> _kernel;
+    Function _kernel;
 
 private:
     // JIT shader
     Shader(DeviceInterface *device,
            luisa::shared_ptr<const detail::FunctionBuilder> kernel,
-           luisa::string_view name,
-           bool enable_debug_info,
-           bool enable_fast_math) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(ShaderOption{.enable_cache = true, .enable_debug_info = enable_debug_info, .enable_fast_math = enable_fast_math, .name = name}, kernel->function())},
-          _kernel{std::move(kernel)} {}
-    Shader(DeviceInterface *device,
-           luisa::shared_ptr<const detail::FunctionBuilder> kernel,
-           bool enable_cache,
-           bool enable_debug_info,
-           bool enable_fast_math) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(ShaderOption{.enable_cache = enable_cache, .enable_debug_info = enable_debug_info, .enable_fast_math = enable_fast_math}, kernel->function())},
-          _kernel{std::move(kernel)} {}
+           const ShaderOption &option) noexcept
+        : Resource{device, Tag::SHADER, device->create_shader(option, kernel->function())},
+          _kernel{kernel->function()} {}
 
 private:
     // AOT shader
     Shader(DeviceInterface *device,
            string_view file_path) noexcept
-        : Resource{[device, &file_path]() noexcept {
-              auto handle = device->load_shader(file_path, luisa::span<Type const *const>{{Type::of<Args>()...}});
-              return handle.valid() ?
-                         Resource{device, Tag::SHADER, handle} :
-                         Resource();
-          }()} {}
+        : Resource{device, Tag::SHADER,
+                   device->load_shader(file_path, std::array{Type::of<Args>()...})} {}
 
 public:
     Shader() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         using invoke_type = detail::ShaderInvoke<dimension>;
-        invoke_type invoke{handle(), _kernel->function()};
+        invoke_type invoke{
+            _kernel.arguments().size(),
+            handle(),
+            _kernel
+        };
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
     [[nodiscard]] uint3 block_size() const noexcept {

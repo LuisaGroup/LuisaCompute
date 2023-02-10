@@ -392,7 +392,8 @@ PYBIND11_MODULE(lcapi, m) {
             "execute", [](PyStream &self) { self.execute(); }, pyref);
 
     // AST (FunctionBuilder)
-    py::class_<Function>(m, "Function");
+    py::class_<Function>(m, "Function")
+        .def("argument_size", [](Function &func) { return func.arguments().size(); });
     py::class_<IntEval>(m, "IntEval")
         .def("value", [](IntEval &self) { return self.value; })
         .def("exist", [](IntEval &self) { return self.exist; });
@@ -610,7 +611,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand");
     py::class_<ComputeDispatchCmdEncoder>(m, "ComputeDispatchCmdEncoder")
         .def_static(
-            "create", [](uint64_t handle, Function func) { return make_unique<ComputeDispatchCmdEncoder>(handle, func).release(); }, pyref)
+            "create", [](size_t arg_size, uint64_t handle, Function func) { return make_unique<ComputeDispatchCmdEncoder>(arg_size, handle, func).release(); }, pyref)
         .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
         .def("set_dispatch_buffer", [](ComputeDispatchCmdEncoder &self, uint64_t handle) { self.set_dispatch_size(IndirectDispatchArg{handle}); })
         .def("encode_buffer", &ComputeDispatchCmdEncoder::encode_buffer)

@@ -199,6 +199,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
         if (option.name.empty()) {
             str_cache << checkMD5.ToString(false) << ".dxil"sv;
+            std::cout << "yes\n";
             file_name = str_cache;
         } else {
             file_name = option.name;
@@ -212,7 +213,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel.block_size(),
             kShaderModel,
             file_name,
-            FileType::Cache);
+            false);
         info.block_size = kernel.block_size();
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->Pso();
@@ -391,7 +392,7 @@ ResourceCreationInfo LCDevice::create_raster_shader(
             rtv_format,
             dsv_format,
             file_name,
-            FileType::Cache);
+            false);
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->Pso();
         return info;
