@@ -15,13 +15,12 @@ template<typename T>
     __builtin_unreachable();
 }
 
-#define lc_assert(...)                                \
-    do {                                              \
-        if (!(__VA_ARGS__)) {                         \
-            printf("Assertion failed: %s, %s:%d\n",   \
-                   #__VA_ARGS__, __FILE__, __LINE__); \
-            asm("trap;");                             \
-        }                                             \
+#define lc_assert(...)                        \
+    do {                                      \
+        if (!(__VA_ARGS__)) {                 \
+            printf("Assertion failed: %s, %s:%d\n", #__VA_ARGS__, __FILE__, __LINE__); \
+            asm("trap;");                     \
+        }                                     \
     } while (false)
 
 template<typename T>

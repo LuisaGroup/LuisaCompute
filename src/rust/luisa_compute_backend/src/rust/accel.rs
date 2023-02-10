@@ -25,15 +25,9 @@ fn init_device() {
     }
 }
 pub struct MeshImpl {
-    vbuffer: BufferView,
-    ibuffer: BufferView,
     handle: sys::RTCScene,
     usage: AccelUsageHint,
     built: bool,
-    vertex_buffer_stride: usize,
-    index_buffer_stride: usize,
-    vertex_count: usize,
-    index_count: usize,
     lock: Mutex<()>,
 }
 macro_rules! check_error {
@@ -48,13 +42,6 @@ impl MeshImpl {
     pub unsafe fn new(
         usage: api::AccelUsageHint,
         vertex_buffer: api::Buffer,
-        vertex_buffer_offset: usize,
-        vertex_buffer_stride: usize,
-        vertex_count: usize,
-        index_buffer: api::Buffer,
-        index_buffer_offset: usize,
-        index_buffer_stride: usize,
-        index_count: usize,
     ) -> Self {
         init_device();
         let device = DEVICE.lock();
@@ -69,23 +56,9 @@ impl MeshImpl {
         let index_buffer = &*(index_buffer.0 as *const BufferImpl);
 
         Self {
-            vbuffer: BufferView {
-                data: vertex_buffer.data.add(vertex_buffer_offset),
-                size: vertex_buffer_stride * vertex_count,
-                ty: 0,
-            },
-            ibuffer: BufferView {
-                data: index_buffer.data.add(index_buffer_offset),
-                size: index_buffer_stride * index_count,
-                ty: 0,
-            },
             handle,
             usage,
             built: false,
-            vertex_buffer_stride,
-            index_buffer_stride,
-            vertex_count,
-            index_count,
             lock: Mutex::new(()),
         }
     }
@@ -102,10 +75,10 @@ impl MeshImpl {
                 sys::RTC_BUFFER_TYPE_VERTEX,
                 0,
                 sys::RTC_FORMAT_FLOAT3,
-                self.vbuffer.data as *const c_void,
+                cmd.vbuffer.data as *const c_void,
                 0,
-                self.vertex_buffer_stride,
-                self.vertex_count,
+                cmd.vertex_stride,
+                cmd.vertex_buffer_offset,
             );
             check_error!(device);
             sys::rtcSetSharedGeometryBuffer(
@@ -115,8 +88,8 @@ impl MeshImpl {
                 sys::RTC_FORMAT_UINT3,
                 self.ibuffer.data as *const c_void,
                 0,
-                self.index_buffer_stride,
-                self.index_count,
+                cmd.index_stride,
+                cmd.index_buffer_size,
             );
             check_error!(device);
             sys::rtcCommitGeometry(geometry);
