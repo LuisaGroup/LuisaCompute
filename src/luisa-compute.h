@@ -50,7 +50,6 @@
 #include <runtime/custom_pass.h>
 #include <runtime/custom_struct.h>
 #include <runtime/device.h>
-#include <runtime/dynamic_buffer.h>
 #include <runtime/dynamic_struct.h>
 #include <runtime/event.h>
 #include <runtime/image.h>

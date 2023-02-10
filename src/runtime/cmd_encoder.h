@@ -1,7 +1,9 @@
 #pragma once
+
 #include <ast/function.h>
 #include <raster/viewport.h>
 #include <runtime/command.h>
+
 namespace luisa::compute {
 
 class LC_RUNTIME_API ShaderDispatchCmdEncoder {
@@ -33,21 +35,16 @@ public:
 class LC_RUNTIME_API ComputeDispatchCmdEncoder final : public ShaderDispatchCmdEncoder {
 private:
     uint64_t _handle{};
-    Function _kernel{};
-    luisa::variant<
-        uint3,
-        IndirectDispatchArg>
-        _dispatch_size;
+    luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
 
 public:
-    explicit ComputeDispatchCmdEncoder(uint64_t handle, Function kernel) noexcept;
+    explicit ComputeDispatchCmdEncoder(uint64_t handle) noexcept;
     ComputeDispatchCmdEncoder(ComputeDispatchCmdEncoder &&) noexcept = default;
     ComputeDispatchCmdEncoder &operator=(ComputeDispatchCmdEncoder &&) noexcept = default;
     ~ComputeDispatchCmdEncoder() noexcept = default;
     void set_dispatch_size(uint3 launch_size) noexcept;
     void set_dispatch_size(IndirectDispatchArg indirect_arg) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto kernel() const noexcept { return _kernel; }
     [[nodiscard]] auto const &dispatch_size() const noexcept { return _dispatch_size; }
 
     void encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
@@ -57,8 +54,11 @@ public:
     void encode_accel(uint64_t handle) noexcept;
     luisa::unique_ptr<ShaderDispatchCommand> build() &&noexcept;
 };
+
 class RasterMesh;
+
 class LC_RUNTIME_API RasterDispatchCmdEncoder final : public ShaderDispatchCmdEncoder {
+
 private:
     uint64_t _handle{};
     Function _vertex_func{};

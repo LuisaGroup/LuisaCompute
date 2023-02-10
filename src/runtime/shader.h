@@ -45,12 +45,11 @@ class LC_RUNTIME_API ShaderInvokeBase {
 
 private:
     ComputeDispatchCmdEncoder _command;
-    Function _kernel;
 
 public:
-    explicit ShaderInvokeBase(uint64_t handle, Function kernel) noexcept
-        : _command{handle, kernel},
-          _kernel{kernel} {}
+    explicit ShaderInvokeBase(uint64_t handle) noexcept
+        : _command{handle} {}
+
     ShaderInvokeBase(ShaderInvokeBase &&) noexcept = default;
     ShaderInvokeBase(const ShaderInvokeBase &) noexcept = delete;
     ShaderInvokeBase &operator=(ShaderInvokeBase &&) noexcept = default;
@@ -118,7 +117,7 @@ struct ShaderInvoke {
 
 template<>
 struct ShaderInvoke<1> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
+    explicit ShaderInvoke(uint64_t handle) noexcept : ShaderInvokeBase{handle} {}
     [[nodiscard]] auto dispatch(uint size_x) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
     }
@@ -129,7 +128,7 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
 
 template<>
 struct ShaderInvoke<2> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
+    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
     }
@@ -143,7 +142,7 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
 
 template<>
 struct ShaderInvoke<3> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle, kernel} {}
+    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
     }
@@ -164,42 +163,27 @@ class Shader final : public Resource {
 
 private:
     friend class Device;
-    luisa::shared_ptr<const detail::FunctionBuilder> _kernel;
 
 private:
     // JIT shader
     Shader(DeviceInterface *device,
            luisa::shared_ptr<const detail::FunctionBuilder> kernel,
-           luisa::string_view name,
-           bool enable_debug_info,
-           bool enable_fast_math) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(ShaderOption{.enable_cache = true, .enable_debug_info = enable_debug_info, .enable_fast_math = enable_fast_math, .name = name}, kernel->function())},
-          _kernel{std::move(kernel)} {}
-    Shader(DeviceInterface *device,
-           luisa::shared_ptr<const detail::FunctionBuilder> kernel,
-           bool enable_cache,
-           bool enable_debug_info,
-           bool enable_fast_math) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(ShaderOption{.enable_cache = enable_cache, .enable_debug_info = enable_debug_info, .enable_fast_math = enable_fast_math}, kernel->function())},
-          _kernel{std::move(kernel)} {}
+           const ShaderOption &option) noexcept
+        : Resource{device, Tag::SHADER, device->create_shader(option, kernel->function())} {}
 
 private:
     // AOT shader
     Shader(DeviceInterface *device,
            string_view file_path) noexcept
-        : Resource{[device, &file_path]() noexcept {
-              auto handle = device->load_shader(file_path, luisa::span<Type const *const>{{Type::of<Args>()...}});
-              return handle.valid() ?
-                         Resource{device, Tag::SHADER, handle} :
-                         Resource();
-          }()} {}
+        : Resource{device, Tag::SHADER,
+                   device->load_shader(file_path, std::array{Type::of<Args>()...})} {}
 
 public:
     Shader() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         using invoke_type = detail::ShaderInvoke<dimension>;
-        invoke_type invoke{handle(), _kernel->function()};
+        invoke_type invoke{handle()};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
     [[nodiscard]] uint3 block_size() const noexcept {

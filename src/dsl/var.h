@@ -6,7 +6,6 @@
 #ifndef LC_DISABLE_DSL
 #include <dsl/ref.h>
 #include <dsl/arg.h>
-#include <runtime/dynamic_buffer.h>
 #include <runtime/dynamic_struct.h>
 
 namespace luisa::compute {
@@ -179,14 +178,17 @@ struct Var<BufferView<DynamicStruct>> : public Expr<Buffer<DynamicStruct>> {
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
+
 template<typename I>
 Var<DynamicStruct> BufferView<DynamicStruct>::read(I &&i) const noexcept {
     return Expr<Buffer<DynamicStruct>>{*this}.read(std::forward<I>(i));
 }
+
 template<typename I, typename V>
 void BufferView<DynamicStruct>::write(I &&i, V &&v) const noexcept {
     Expr<Buffer<DynamicStruct>>{*this}.write(std::forward<I>(i), std::forward<V>(v));
 }
+
 template<typename T>
 Var(T &&) -> Var<expr_value_t<T>>;
 
