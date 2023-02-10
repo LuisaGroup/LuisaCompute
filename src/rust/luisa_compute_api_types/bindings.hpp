@@ -295,9 +295,11 @@ struct MeshBuildCommand {
     Buffer vertex_buffer;
     size_t vertex_buffer_offset;
     size_t vertex_buffer_size;
+    size_t vertex_stride;
     Buffer index_buffer;
     size_t index_buffer_offset;
     size_t index_buffer_size;
+    size_t index_stride;
 };
 
 struct AccelBuildCommand {

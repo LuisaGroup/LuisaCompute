@@ -352,9 +352,11 @@ pub struct MeshBuildCommand {
     pub vertex_buffer: Buffer,
     pub vertex_buffer_offset: usize,
     pub vertex_buffer_size: usize,
+    pub vertex_stride: usize,
     pub index_buffer: Buffer,
     pub index_buffer_offset: usize,
     pub index_buffer_size: usize,
+    pub index_stride: usize,
 }
 
 #[repr(C)]
