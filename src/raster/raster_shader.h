@@ -15,13 +15,13 @@ template<typename T>
 struct PixelDst : public std::false_type {};
 template<typename T>
 struct PixelDst<Image<T>> : public std::true_type {
-    static TextureArgument get(Image<T> const &v) noexcept {
+    static ShaderDispatchCommandBase::Argument::Texture get(Image<T> const &v) noexcept {
         return {v.handle(), 0};
     }
 };
 template<typename T>
 struct PixelDst<ImageView<T>> : public std::true_type {
-    static TextureArgument get(ImageView<T> const &v) noexcept {
+    static ShaderDispatchCommandBase::Argument::Texture get(ImageView<T> const &v) noexcept {
         return {v.handle(), v.level()};
     }
 };
@@ -45,10 +45,11 @@ private:
 
 public:
     explicit RasterShaderInvoke(
+        size_t arg_size,
         uint64_t handle,
         Function vertex_func,
         Function pixel_func) noexcept
-        : _command{handle, vertex_func, pixel_func},
+        : _command{arg_size, handle, vertex_func, pixel_func},
           _vert(vertex_func),
           _pixel(pixel_func) {
     }
@@ -112,10 +113,9 @@ public:
         requires(sizeof...(Rtv) == 0 || detail::LegalDst<Rtv...>())
     [[nodiscard]] auto draw(luisa::vector<RasterMesh> &&scene, Viewport viewport, DepthBuffer const *dsv, Rtv const &...rtv) &&noexcept {
         if (dsv) {
-            auto dsv_arg = TextureArgument(dsv->handle(), 0);
-            _command.set_dsv_tex(dsv_arg);
+            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{dsv->handle(), 0});
         } else {
-            _command.set_dsv_tex(TextureArgument{~0ull, 0});
+            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{~0ull, 0});
         }
         if constexpr (sizeof...(Rtv) > 0) {
             auto tex_args = {detail::PixelDst<std::remove_cvref_t<Rtv>>::get(rtv)...};
@@ -270,7 +270,7 @@ class RasterShader : public Resource {
 
 public:
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        RasterShaderInvoke invoke(handle(), Function(_vert.get()), Function(_pixel.get()));
+        RasterShaderInvoke invoke(_vert->arguments().size() + _pixel->arguments().size(), handle(), Function(_vert.get()), Function(_pixel.get()));
 #ifndef NDEBUG
         invoke._raster_state = &_raster_state;
         invoke._mesh_format = &_mesh_format;

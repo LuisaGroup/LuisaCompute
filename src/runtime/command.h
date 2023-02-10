@@ -13,11 +13,12 @@
 #include <raster/viewport.h>
 #include <runtime/custom_struct.h>
 #include <runtime/sampler.h>
-#include <runtime/arguments.h>
 #include <rust/luisa_compute_api_types/bindings.h>
 
 namespace luisa::compute {
-
+struct IndirectDispatchArg {
+    uint64_t handle;
+};
 class CmdDeser;
 class CmdSer;
 class RasterMesh;
@@ -137,7 +138,6 @@ public:
         };
 
         Tag tag;
-        Usage usage;
         union {
             Buffer buffer;
             Texture texture;
@@ -173,6 +173,7 @@ public:
 class ShaderDispatchCommand final : public ShaderDispatchCommandBase {
 
 private:
+friend class ComputeDispatchCmdEncoder;
     luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
 
 public:
@@ -195,10 +196,10 @@ private:
     friend class RasterDispatchCmdEncoder;
     DrawRasterSceneCommand(uint64_t shader_handle,
                            luisa::vector<std::byte> &&argument_buffer,
-                           uint32_t argument_count) noexcept;
-    TextureArgument _rtv_texs[8];
+                           size_t argument_count) noexcept;
+    Argument::Texture _rtv_texs[8];
     size_t _rtv_count;
-    TextureArgument _dsv_tex;
+    Argument::Texture _dsv_tex;
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport;
 
@@ -206,7 +207,7 @@ public:
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) = delete;
     DrawRasterSceneCommand(DrawRasterSceneCommand &&);
     ~DrawRasterSceneCommand() noexcept;
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const TextureArgument>{_rtv_texs, _rtv_count}; }
+    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const Argument::Texture>{_rtv_texs, _rtv_count}; }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }

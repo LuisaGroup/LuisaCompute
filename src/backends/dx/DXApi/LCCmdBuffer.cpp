@@ -13,6 +13,30 @@
 #include <runtime/buffer.h>
 #include <runtime/custom_struct.h>
 namespace toolhub::directx {
+using Argument = ShaderDispatchCommandBase::Argument;
+template<typename Visitor>
+void DecodeCmd(ShaderDispatchCommandBase const &cmd, Visitor &&visitor) {
+    using Tag = Argument::Tag;
+    for (auto &&i : cmd.arguments()) {
+        switch (i.tag) {
+            case Tag::BUFFER: {
+                visitor(i.buffer);
+            } break;
+            case Tag::TEXTURE: {
+                visitor(i.texture);
+            } break;
+            case Tag::UNIFORM: {
+                visitor(i.uniform);
+            } break;
+            case Tag::BINDLESS_ARRAY: {
+                visitor(i.bindless_array);
+            } break;
+            case Tag::ACCEL: {
+                visitor(i.accel);
+            } break;
+        }
+    }
+}
 class LCPreProcessVisitor : public CommandVisitor {
 public:
     CommandBufferBuilder *bd;
@@ -49,7 +73,8 @@ public:
     struct Visitor {
         LCPreProcessVisitor *self;
         SavedArgument const *arg;
-        void operator()(BufferArgument const &bf) {
+        ShaderDispatchCommandBase const &cmd;
+        void operator()(Argument::Buffer const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
             if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
                 self->stateTracker->RecordState(
@@ -63,7 +88,7 @@ public:
             }
             ++arg;
         }
-        void operator()(TextureArgument const &bf) {
+        void operator()(Argument::Texture const &bf) {
             auto rt = reinterpret_cast<TextureBase *>(bf.handle);
             //UAV
             if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
@@ -80,7 +105,7 @@ public:
             }
             ++arg;
         }
-        void operator()(BindlessArrayArgument const &bf) {
+        void operator()(Argument::BindlessArray const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             for (auto &&i : self->stateTracker->WriteStateMap()) {
                 if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
@@ -93,8 +118,8 @@ public:
             self->backState->clear();
             ++arg;
         }
-        void operator()(UniformArgument const &a) {
-            vstd::span<std::byte const> bf(a.data, a.size);
+        void operator()(Argument::Uniform const &a) {
+            auto bf = cmd.uniform(a);
             if (bf.size() < 4) {
                 bool v = (bool)bf[0];
                 uint value = v ? std::numeric_limits<uint>::max() : 0;
@@ -104,7 +129,7 @@ public:
             }
             ++arg;
         }
-        void operator()(AccelArgument const &bf) {
+        void operator()(Argument::Accel const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if (accel->GetInstBuffer()) {
                 if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
@@ -193,18 +218,14 @@ public:
     void visit(const ShaderDispatchCommand *cmd) noexcept override {
         auto cs = reinterpret_cast<ComputeShader *>(cmd->handle());
         size_t beforeSize = argBuffer->size();
-        cmd->decode(Visitor{this, cs->Args().data()});
+        DecodeCmd(*cmd, Visitor{this, cs->Args().data(), *cmd});
         UniformAlign(16);
         size_t afterSize = argBuffer->size();
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
-        luisa::visit(
-            [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, IndirectDispatchArg>) {
-                    auto buffer = reinterpret_cast<Buffer *>(t.handle);
-                    stateTracker->RecordState(buffer, stateTracker->BufferReadState());
-                }
-            },
-            cmd->dispatch_size());
+        if (cmd->is_indirect()) {
+            auto buffer = reinterpret_cast<Buffer *>(cmd->indirect_dispatch_size().handle);
+            stateTracker->RecordState(buffer, stateTracker->BufferReadState());
+        }
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
@@ -272,7 +293,7 @@ public:
         size_t beforeSize = argBuffer->size();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
-        cmd->decode(Visitor{this, cs->Args().data()});
+        DecodeCmd(*cmd, Visitor{this, cs->Args().data(), *cmd});
         UniformAlign(16);
         size_t afterSize = argBuffer->size();
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
@@ -364,14 +385,14 @@ public:
         LCCmdVisitor *self;
         SavedArgument const *arg;
 
-        void operator()(BufferArgument const &bf) {
+        void operator()(Argument::Buffer const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
 
             self->bindProps->emplace_back(
                 BufferView(res, bf.offset));
             ++arg;
         }
-        void operator()(TextureArgument const &bf) {
+        void operator()(Argument::Texture const &bf) {
             auto rt = reinterpret_cast<TextureBase *>(bf.handle);
             //UAV
             if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
@@ -389,14 +410,14 @@ public:
             }
             ++arg;
         }
-        void operator()(BindlessArrayArgument const &bf) {
+        void operator()(Argument::BindlessArray const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             auto res = arr->BindlessBuffer();
             self->bindProps->emplace_back(
                 BufferView(res, 0));
             ++arg;
         }
-        void operator()(AccelArgument const &bf) {
+        void operator()(Argument::Accel const &bf) {
             auto accel = reinterpret_cast<TopAccel *>(bf.handle);
             if ((static_cast<uint>(arg->varUsage) & static_cast<uint>(Usage::WRITE)) == 0) {
                 self->bindProps->emplace_back(
@@ -406,7 +427,7 @@ public:
                 BufferView(accel->GetInstBuffer()));
             ++arg;
         }
-        void operator()(UniformArgument const &) {
+        void operator()(Argument::Uniform const &) {
             ++arg;
         }
     };
@@ -423,27 +444,25 @@ public:
             }
             DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
             vstd::push_back_func(*bindProps, shader->BindlessCount() + 2, [&] { return globalHeapView; });
-            cmd->decode(Visitor{this, shader->Args().data()});
+            DecodeCmd(*cmd, Visitor{this, cs->Args().data()});
         };
-        luisa::visit(
-            [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, IndirectDispatchArg>) {
-                    auto buffer = reinterpret_cast<Buffer *>(t.handle);
-                    bindProps->emplace_back();
-                    BeforeDispatch();
-                    bd->DispatchComputeIndirect(cs, *buffer, *bindProps);
-                } else {
-                    // auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(16, 16);
-                    // static_cast<UploadBuffer const *>(bfView.buffer)->CopyData(bfView.offset, {reinterpret_cast<uint8_t const *>(&t), 12});
-                    bindProps->emplace_back(4, make_uint4(t, 1));
-                    BeforeDispatch();
-                    bd->DispatchCompute(
-                        cs,
-                        t,
-                        *bindProps);
-                }
-            },
-            cmd->dispatch_size());
+        if (cmd->is_indirect()) {
+            auto &&t = cmd->indirect_dispatch_size();
+            auto buffer = reinterpret_cast<Buffer *>(t.handle);
+            bindProps->emplace_back();
+            BeforeDispatch();
+            bd->DispatchComputeIndirect(cs, *buffer, *bindProps);
+        } else {
+            auto &&t = cmd->dispatch_size();
+            // auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(16, 16);
+            // static_cast<UploadBuffer const *>(bfView.buffer)->CopyData(bfView.offset, {reinterpret_cast<uint8_t const *>(&t), 12});
+            bindProps->emplace_back(4, make_uint4(t, 1));
+            BeforeDispatch();
+            bd->DispatchCompute(
+                cs,
+                t,
+                *bindProps);
+        }
         /*switch (shader->GetTag()) {
             case Shader::Tag::ComputeShader: {
                 auto cs = static_cast<ComputeShader const *>(shader);
@@ -643,7 +662,7 @@ public:
         }
         DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
         vstd::push_back_func(*bindProps, shader->BindlessCount() + 2, [&] { return globalHeapView; });
-        cmd->decode(Visitor{this, shader->Args().data()});
+        DecodeCmd(*cmd, Visitor{this, shader->Args().data()});
         bd->SetRasterShader(shader, *bindProps);
         auto cmdList = bd->CmdList();
         auto rtvs = cmd->rtv_texs();

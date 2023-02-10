@@ -47,8 +47,8 @@ private:
     ComputeDispatchCmdEncoder _command;
 
 public:
-    explicit ShaderInvokeBase(uint64_t handle) noexcept
-        : _command{handle} {}
+    explicit ShaderInvokeBase(size_t arg_size, uint64_t handle, Function kernel) noexcept
+        : _command{arg_size, handle, kernel} {}
 
     ShaderInvokeBase(ShaderInvokeBase &&) noexcept = default;
     ShaderInvokeBase(const ShaderInvokeBase &) noexcept = delete;
@@ -117,7 +117,7 @@ struct ShaderInvoke {
 
 template<>
 struct ShaderInvoke<1> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle) noexcept : ShaderInvokeBase{handle} {}
+    explicit ShaderInvoke(size_t arg_size, uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{arg_size, handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
     }
@@ -128,7 +128,7 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
 
 template<>
 struct ShaderInvoke<2> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle} {}
+    explicit ShaderInvoke(size_t arg_size, uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{arg_size, handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
     }
@@ -142,7 +142,7 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
 
 template<>
 struct ShaderInvoke<3> : public ShaderInvokeBase {
-    explicit ShaderInvoke(uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{handle} {}
+    explicit ShaderInvoke(size_t arg_size, uint64_t handle, Function kernel) noexcept : ShaderInvokeBase{arg_size, handle, kernel} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
     }
@@ -163,13 +163,15 @@ class Shader final : public Resource {
 
 private:
     friend class Device;
+    Function _kernel;
 
 private:
     // JIT shader
     Shader(DeviceInterface *device,
            luisa::shared_ptr<const detail::FunctionBuilder> kernel,
            const ShaderOption &option) noexcept
-        : Resource{device, Tag::SHADER, device->create_shader(option, kernel->function())} {}
+        : Resource{device, Tag::SHADER, device->create_shader(option, kernel->function())},
+          _kernel{kernel->function()} {}
 
 private:
     // AOT shader
@@ -183,7 +185,11 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         using invoke_type = detail::ShaderInvoke<dimension>;
-        invoke_type invoke{handle()};
+        invoke_type invoke{
+            _kernel.arguments().size(),
+            handle(),
+            _kernel
+        };
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
     [[nodiscard]] uint3 block_size() const noexcept {
