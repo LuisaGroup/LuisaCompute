@@ -137,6 +137,7 @@ public:
         };
 
         Tag tag;
+        Usage usage;
         union {
             Buffer buffer;
             Texture texture;
@@ -148,59 +149,24 @@ public:
 
 private:
     uint64_t _handle;
-    luisa::vector<std::byte> _uniform_buffer;
-    luisa::vector<Argument> _arguments;
+    luisa::vector<std::byte> _argument_buffer;
+    size_t _argument_count;
 
 protected:
     ShaderDispatchCommandBase(Tag tag, uint64_t shader_handle,
-                              uint32_t reserved_argument_count) noexcept
-        : Command{tag}, _handle{shader_handle} {
-        if (reserved_argument_count != 0u) {
-            _arguments.reserve(reserved_argument_count);
-        }
-    }
+                              luisa::vector<std::byte> argument_buffer,
+                              size_t argument_count) noexcept
+        : Command{tag}, _handle{shader_handle},
+          _argument_buffer{std::move(argument_buffer)},
+          _argument_count{argument_count} {}
 
 public:
-    void set_buffer(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept {
-        _arguments.emplace_back(Argument{.tag = Argument::Tag::BUFFER,
-                                         .buffer = {.handle = handle,
-                                                    .offset = offset_bytes,
-                                                    .size = size_bytes}});
-    }
-
-    void set_texture(uint64_t handle, uint32_t level) noexcept {
-        _arguments.emplace_back(Argument{.tag = Argument::Tag::TEXTURE,
-                                         .texture = {.handle = handle,
-                                                     .level = level}});
-    }
-
-    void set_uniform(const void *data, size_t size_bytes) noexcept {
-        auto offset_bytes = align(_uniform_buffer.size(), 16u);
-        _uniform_buffer.resize(offset_bytes + size_bytes);
-        std::memcpy(_uniform_buffer.data() + offset_bytes, data, size_bytes);
-        _arguments.emplace_back(Argument{.tag = Argument::Tag::UNIFORM,
-                                         .uniform = {.offset = offset_bytes,
-                                                     .size = size_bytes}});
-    }
-
-    void set_bindless_array(uint64_t handle) noexcept {
-        _arguments.emplace_back(Argument{.tag = Argument::Tag::BINDLESS_ARRAY,
-                                         .bindless_array = {.handle = handle}});
-    }
-
-    void set_accel(uint64_t handle) noexcept {
-        _arguments.emplace_back(Argument{.tag = Argument::Tag::ACCEL,
-                                         .accel = {.handle = handle}});
-    }
-
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto uniform_buffer() const noexcept { return luisa::span{_uniform_buffer}; }
-    [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
-
-    [[nodiscard]] auto steal_uniform_buffer() noexcept {
-        luisa::vector<std::byte> buffer;
-        std::swap(buffer, _uniform_buffer);
-        return buffer;
+    [[nodiscard]] auto arguments() const noexcept {
+        return luisa::span{reinterpret_cast<const Argument *>(_argument_buffer.data()), _argument_count};
+    }
+    [[nodiscard]] auto uniform(const Argument::Uniform &u) const noexcept {
+        return luisa::span{_argument_buffer}.subspan(u.offset, u.size);
     }
 };
 
@@ -210,8 +176,11 @@ private:
     luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
 
 public:
-    ShaderDispatchCommand(uint64_t shader, uint32_t reserved_argument_count = 0u) noexcept
-        : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand, shader, reserved_argument_count} {}
+    ShaderDispatchCommand(uint64_t shader_handle,
+                          luisa::vector<std::byte> argument_buffer,
+                          size_t argument_count) noexcept
+        : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand, shader_handle,
+                                    std::move(argument_buffer), argument_count} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
     ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
     [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
@@ -224,8 +193,9 @@ class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommand
 
 private:
     friend class RasterDispatchCmdEncoder;
-    DrawRasterSceneCommand(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count);
-    uint64_t _handle;
+    DrawRasterSceneCommand(uint64_t shader_handle,
+                           luisa::vector<std::byte> &&argument_buffer,
+                           uint32_t argument_count) noexcept;
     TextureArgument _rtv_texs[8];
     size_t _rtv_count;
     TextureArgument _dsv_tex;
@@ -236,7 +206,6 @@ public:
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) = delete;
     DrawRasterSceneCommand(DrawRasterSceneCommand &&);
     ~DrawRasterSceneCommand() noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const TextureArgument>{_rtv_texs, _rtv_count}; }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
