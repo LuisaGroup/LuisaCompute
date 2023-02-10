@@ -6,7 +6,7 @@ from .array import ArrayType
 from .mathtypes import *
 from .func import func
 from .types import uint, to_lctype
-from .builtin import _builtin_call, _bitwise_cast
+from .builtin import _builtin_call, bitwise_cast
 from .hit import Hit
 from .rayquery import rayQueryType, rayQuery
 # Ray
@@ -45,14 +45,14 @@ def offset_ray_origin(p: float3, n: float3):
     int_scale = 256.0
     of_i = int3(int_scale * n)
     int_p = int3()
-    int_p.x = _bitwise_cast(int, p.x)
-    int_p.y = _bitwise_cast(int, p.y)
-    int_p.z = _bitwise_cast(int, p.z)
+    int_p.x = bitwise_cast(int, p.x)
+    int_p.y = bitwise_cast(int, p.y)
+    int_p.z = bitwise_cast(int, p.z)
     p_i_tmp = int_p + select(of_i, -of_i, p < 0.0)
     p_i = float3()
-    p_i.x = _bitwise_cast(float, p_i_tmp.x)
-    p_i.y = _bitwise_cast(float, p_i_tmp.y)
-    p_i.z = _bitwise_cast(float, p_i_tmp.z)
+    p_i.x = bitwise_cast(float, p_i_tmp.x)
+    p_i.y = bitwise_cast(float, p_i_tmp.y)
+    p_i.z = bitwise_cast(float, p_i_tmp.z)
     return select(p_i, p + float_scale * n, abs(p) < origin)
 
 @func
