@@ -13,30 +13,32 @@
 #include <raster/viewport.h>
 #include <runtime/custom_struct.h>
 #include <runtime/sampler.h>
-#include <runtime/arguments.h>
+#include <rust/luisa_compute_api_types/bindings.h>
 
 namespace luisa::compute {
-
+struct IndirectDispatchArg {
+    uint64_t handle;
+};
 class CmdDeser;
 class CmdSer;
 class RasterMesh;
 
-#define LUISA_COMPUTE_RUNTIME_COMMANDS \
-    BufferUploadCommand,               \
-        BufferDownloadCommand,         \
-        BufferCopyCommand,             \
-        BufferToTextureCopyCommand,    \
-        ShaderDispatchCommand,         \
-        TextureUploadCommand,          \
-        TextureDownloadCommand,        \
-        TextureCopyCommand,            \
-        TextureToBufferCopyCommand,    \
-        AccelBuildCommand,             \
-        MeshBuildCommand,              \
-        PrimBuildCommand,              \
-        BindlessArrayUpdateCommand,    \
-        CustomCommand,                 \
-        DrawRasterSceneCommand,        \
+#define LUISA_COMPUTE_RUNTIME_COMMANDS   \
+    BufferUploadCommand,                 \
+        BufferDownloadCommand,           \
+        BufferCopyCommand,               \
+        BufferToTextureCopyCommand,      \
+        ShaderDispatchCommand,           \
+        TextureUploadCommand,            \
+        TextureDownloadCommand,          \
+        TextureCopyCommand,              \
+        TextureToBufferCopyCommand,      \
+        AccelBuildCommand,               \
+        MeshBuildCommand,                \
+        ProceduralPrimitiveBuildCommand, \
+        BindlessArrayUpdateCommand,      \
+        CustomCommand,                   \
+        DrawRasterSceneCommand,          \
         ClearDepthCommand
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
@@ -98,96 +100,106 @@ public:
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] virtual StreamTag stream_tag() const noexcept = 0;
 };
+
 class ShaderDispatchCommandBase : public Command {
 
+public:
+    struct Argument {
+        enum struct Tag {
+            BUFFER,
+            TEXTURE,
+            UNIFORM,
+            BINDLESS_ARRAY,
+            ACCEL
+        };
+
+        struct Buffer {
+            uint64_t handle;
+            size_t offset;
+            size_t size;
+        };
+
+        struct Texture {
+            uint64_t handle;
+            uint32_t level;
+        };
+
+        struct Uniform {
+            size_t offset;
+            size_t size;
+        };
+
+        struct BindlessArray {
+            uint64_t handle;
+        };
+
+        struct Accel {
+            uint64_t handle;
+        };
+
+        Tag tag;
+        union {
+            Buffer buffer;
+            Texture texture;
+            Uniform uniform;
+            BindlessArray bindless_array;
+            Accel accel;
+        };
+    };
+
 private:
+    uint64_t _handle;
     luisa::vector<std::byte> _argument_buffer;
-    uint32_t _argument_count{0u};
+    size_t _argument_count;
 
 protected:
-    ShaderDispatchCommandBase(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count, Tag tag)
-        : Command{tag},
+    ShaderDispatchCommandBase(Tag tag, uint64_t shader_handle,
+                              luisa::vector<std::byte> argument_buffer,
+                              size_t argument_count) noexcept
+        : Command{tag}, _handle{shader_handle},
           _argument_buffer{std::move(argument_buffer)},
           _argument_count{argument_count} {}
 
 public:
-    [[noreturn]] LC_RUNTIME_API static void _error_invalid_argument() noexcept;
-    template<typename Visit>
-    void decode(Visit &&visit) const noexcept {
-        auto p = _argument_buffer.data();
-        auto end = _argument_buffer.data() + _argument_buffer.size();
-        while (p < end) {
-            Argument argument{};
-            std::memcpy(&argument, p, sizeof(Argument));
-            switch (argument.tag) {
-                case Argument::Tag::BUFFER: {
-                    BufferArgument buffer_argument{};
-                    std::memcpy(&buffer_argument, p, sizeof(BufferArgument));
-                    visit(buffer_argument);
-                    p += sizeof(BufferArgument);
-                    break;
-                }
-                case Argument::Tag::TEXTURE: {
-                    TextureArgument texture_argument{};
-                    std::memcpy(&texture_argument, p, sizeof(TextureArgument));
-                    visit(texture_argument);
-                    p += sizeof(TextureArgument);
-                    break;
-                }
-                case Argument::Tag::UNIFORM: {
-                    UniformArgumentHead head{};
-                    std::memcpy(&head, p, sizeof(UniformArgumentHead));
-                    p += sizeof(UniformArgumentHead);
-                    visit(UniformArgument{head, p});
-                    p += head.size;
-                    break;
-                }
-                case Argument::Tag::BINDLESS_ARRAY: {
-                    BindlessArrayArgument bindless_array_argument;
-                    std::memcpy(&bindless_array_argument, p, sizeof(BindlessArrayArgument));
-                    visit(bindless_array_argument);
-                    p += sizeof(BindlessArrayArgument);
-                    break;
-                }
-                case Argument::Tag::ACCEL: {
-                    AccelArgument accel_argument;
-                    std::memcpy(&accel_argument, p, sizeof(AccelArgument));
-                    visit(accel_argument);
-                    p += sizeof(AccelArgument);
-                    break;
-                }
-                default: {
-                    _error_invalid_argument();// no return
-                }
-            }
-        }
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto arguments() const noexcept {
+        return luisa::span{reinterpret_cast<const Argument *>(_argument_buffer.data()), _argument_count};
+    }
+    [[nodiscard]] auto uniform(const Argument::Uniform &u) const noexcept {
+        return luisa::span{_argument_buffer}.subspan(u.offset, u.size);
     }
 };
+
 class ShaderDispatchCommand final : public ShaderDispatchCommandBase {
-    friend class ComputeDispatchCmdEncoder;
-    ShaderDispatchCommand(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count)
-        : ShaderDispatchCommandBase{std::move(argument_buffer), argument_count, Tag::EShaderDispatchCommand} {}
-    uint64_t _handle;
-    luisa::variant<
-        uint3,
-        IndirectDispatchArg>
-        _dispatch_size;
+
+private:
+friend class ComputeDispatchCmdEncoder;
+    luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
 
 public:
+    ShaderDispatchCommand(uint64_t shader_handle,
+                          luisa::vector<std::byte> argument_buffer,
+                          size_t argument_count) noexcept
+        : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand, shader_handle,
+                                    std::move(argument_buffer), argument_count} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
     ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto const &dispatch_size() const noexcept { return _dispatch_size; }
+    [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
+    [[nodiscard]] auto dispatch_size() const noexcept { return luisa::get<uint3>(_dispatch_size); }
+    [[nodiscard]] auto indirect_dispatch_size() const noexcept { return luisa::get<IndirectDispatchArg>(_dispatch_size); }
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand, StreamTag::COMPUTE)
 };
 
 class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommandBase {
+
+private:
     friend class RasterDispatchCmdEncoder;
-    DrawRasterSceneCommand(luisa::vector<std::byte> &&argument_buffer, uint32_t argument_count);
-    uint64_t _handle;
-    TextureArgument _rtv_texs[8];
+    DrawRasterSceneCommand(uint64_t shader_handle,
+                           luisa::vector<std::byte> &&argument_buffer,
+                           size_t argument_count) noexcept;
+    Argument::Texture _rtv_texs[8];
     size_t _rtv_count;
-    TextureArgument _dsv_tex;
+    Argument::Texture _dsv_tex;
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport;
 
@@ -195,8 +207,7 @@ public:
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) = delete;
     DrawRasterSceneCommand(DrawRasterSceneCommand &&);
     ~DrawRasterSceneCommand() noexcept;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const TextureArgument>{_rtv_texs, _rtv_count}; }
+    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const Argument::Texture>{_rtv_texs, _rtv_count}; }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }
@@ -216,7 +227,10 @@ private:
         : Command{Command::Tag::EBufferUploadCommand} {}
 
 public:
-    BufferUploadCommand(uint64_t handle, size_t offset_bytes, size_t size_bytes, const void *data) noexcept
+    BufferUploadCommand(uint64_t handle,
+                        size_t offset_bytes,
+                        size_t size_bytes,
+                        const void *data) noexcept
         : Command{Command::Tag::EBufferUploadCommand},
           _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -419,27 +433,10 @@ public:
     [[nodiscard]] auto data() const noexcept { return _data; }
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand, StreamTag::COPY)
 };
-// TODO: allow compaction/update
-enum struct AccelUsageHint : uint8_t {
-    FAST_TRACE,// build with best quality
-    FAST_BUILD // optimize for frequent rebuild, maybe without compaction
-};
 
 enum struct AccelBuildRequest : uint8_t {
     PREFER_UPDATE,
     FORCE_BUILD,
-};
-
-struct AccelBuildOption {
-    AccelUsageHint hint{AccelUsageHint::FAST_BUILD};
-    bool allow_compact{false};
-    bool allow_update{false};
-};
-
-struct MeshBuildOption {
-    AccelUsageHint hint{AccelUsageHint::FAST_TRACE};
-    bool allow_compact{true};
-    bool allow_update{false};
 };
 
 class MeshBuildCommand final : public Command {
@@ -481,7 +478,8 @@ public:
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand, StreamTag::COMPUTE)
 };
 
-class PrimBuildCommand final : public Command {
+class ProceduralPrimitiveBuildCommand final : public Command {
+
 private:
     uint64_t _handle{};
     AccelBuildRequest _request{};
@@ -490,9 +488,9 @@ private:
     size_t _aabb_count{};
 
 public:
-    PrimBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t aabb_buffer,
-                     size_t aabb_offset, size_t aabb_count)
-        : Command(Command::Tag::EPrimBuildCommand),
+    ProceduralPrimitiveBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t aabb_buffer,
+                                    size_t aabb_offset, size_t aabb_count)
+        : Command(Command::Tag::EProceduralPrimitiveBuildCommand),
           _handle(handle), _request(request), _aabb_buffer(aabb_buffer),
           _aabb_offset(aabb_offset), _aabb_count(aabb_count) {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -500,12 +498,10 @@ public:
     [[nodiscard]] auto aabb_buffer() const noexcept { return _aabb_buffer; }
     [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
     [[nodiscard]] auto aabb_count() const noexcept { return _aabb_count; }
-    LUISA_MAKE_COMMAND_COMMON(PrimBuildCommand, StreamTag::COMPUTE)
+    LUISA_MAKE_COMMAND_COMMON(ProceduralPrimitiveBuildCommand, StreamTag::COMPUTE)
 };
 
 class AccelBuildCommand final : public Command {
-    friend class CmdSer;
-    friend class CmdDeser;
 
 public:
     struct alignas(16) Modification {

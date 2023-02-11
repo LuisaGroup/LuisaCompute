@@ -4,7 +4,7 @@ from .types import to_lctype, basic_dtypes, dtype_of
 from .types import vector_dtypes, matrix_dtypes, element_of, length_of
 from functools import cache
 from .func import func
-from .builtin import _builtin_call, _bitwise_cast
+from .builtin import _builtin_call, bitwise_cast
 from .struct import StructType
 from .mathtypes import *
 from .builtin import check_exact_signature

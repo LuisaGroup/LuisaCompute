@@ -9,13 +9,13 @@
 namespace luisa::compute {
 // see definition in rtx/accel.cpp
 RasterShaderInvoke &RasterShaderInvoke::operator<<(const Accel &accel) noexcept {
-    _command->encode_accel(accel.handle());
+    _command.encode_accel(accel.handle());
     return *this;
 }
 
 // see definition in runtime/bindless_array.cpp
 RasterShaderInvoke &RasterShaderInvoke::operator<<(const BindlessArray &array) noexcept {
-    _command->encode_bindless_array(array.handle());
+    _command.encode_bindless_array(array.handle());
     return *this;
 }
 #ifndef NDEBUG

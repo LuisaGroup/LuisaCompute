@@ -12,7 +12,7 @@ private:
     uint64_t _aabb_buffer{};
     size_t _aabb_offset{};
     size_t _aabb_count{};
-    ProceduralPrimitive(DeviceInterface *device, const Buffer<AABB> &buffer, size_t aabb_offset, size_t aabb_count, const MeshBuildOption &option) noexcept;
+    ProceduralPrimitive(DeviceInterface *device, BufferView<AABB> aabb, const AccelOption &option) noexcept;
 
 public:
     ProceduralPrimitive() noexcept = default;

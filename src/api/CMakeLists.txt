@@ -13,7 +13,7 @@ add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})
 target_link_libraries(luisa-compute-api PRIVATE
         luisa-compute-runtime
         luisa-compute-backends
-        # luisa-compute-ir
+        luisa-compute-ir
         )
 target_link_libraries(luisa-compute-api INTERFACE
         luisa-compute-rust-meta
@@ -22,7 +22,7 @@ set_target_properties(luisa-compute-api PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 
 luisa_compute_install(api SOURCES ${LUISA_COMPUTE_API_SOURCES})
-
+       
 # find_package(Python3 COMPONENTS Interpreter)
 # if (Python3_Interpreter_FOUND AND Python3_VERSION VERSION_GREATER_EQUAL 3.6)
 #     message(STATUS "Found suitable Python interpreter: ${Python3_VERSION}")

@@ -1175,8 +1175,8 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
                 auto b = _current_builder();
                 return ir::luisa_compute_ir_build_const(b, c);
             } else {
-                auto salt = luisa::hash64("__ast2ir_literal");
-                auto hash = luisa::hash64(x, luisa::hash64(type->hash(), salt));
+                auto salt = luisa::hash_value("__ast2ir_literal");
+                auto hash = luisa::hash_combine({luisa::hash_value(x), type->hash()}, salt);
                 if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
                 auto slice = _boxed_slice<uint8_t>(sizeof(T));
                 std::memcpy(slice.ptr, &x, sizeof(T));

@@ -8,7 +8,7 @@
 #include <runtime/buffer.h>
 #include <raster/raster_scene.h>
 namespace luisa::compute {
-template <typename T>
+template<typename T>
 /*
 struct ReorderFuncTable{
     bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept {}
@@ -17,12 +17,13 @@ struct ReorderFuncTable{
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {}
 }
 */
-concept ReorderFuncTable = requires(const T t, uint64_t uint64_v, size_t size_v, luisa::span<const BindlessArrayUpdateCommand::Modification> modification){
-    requires(std::is_same_v<bool, decltype(t.is_res_in_bindless(uint64_v, uint64_v))>);
-    requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
-    requires(std::is_same_v<size_t, decltype(t.aabb_stride())>);
-    t.update_bindless(uint64_v, modification);
-};
+concept ReorderFuncTable =
+    requires(const T t, uint64_t uint64_v, size_t size_v, luisa::span<const BindlessArrayUpdateCommand::Modification> modification) {
+        requires(std::is_same_v<bool, decltype(t.is_res_in_bindless(uint64_v, uint64_v))>);
+        requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
+        requires(std::is_same_v<size_t, decltype(t.aabb_stride())>);
+        t.update_bindless(uint64_v, modification);
+    };
 template<ReorderFuncTable FuncTable, bool supportConcurrentCopy>
 class CommandReorderVisitor : public CommandVisitor {
 public:
@@ -516,7 +517,53 @@ private:
         dispatchLayer = 0;
         argIndex = 0;
         shaderHandle = shader_handle;
-        command->decode(*this);
+        using Argument = ShaderDispatchCommandBase::Argument;
+        using Tag = Argument::Tag;
+        for (auto &&i : command->arguments()) {
+            switch (i.tag) {
+                case Tag::BUFFER: {
+                    auto &&bf = i.buffer;
+                    AddDispatchHandle(
+                        bf.handle,
+                        ResourceType::Buffer,
+                        Range(bf.offset, bf.size),
+                        ((uint)funcTable.get_usage(shaderHandle, argIndex) & (uint)Usage::WRITE) != 0);
+                    ++argIndex;
+                } break;
+                case Tag::TEXTURE: {
+                    auto &&tex = i.texture;
+                    AddDispatchHandle(
+                        tex.handle,
+                        ResourceType::Texture,
+                        Range(tex.level),
+                        ((uint)funcTable.get_usage(shaderHandle, argIndex) & (uint)Usage::WRITE) != 0);
+                    ++argIndex;
+                } break;
+                case Tag::UNIFORM: {
+                    ++argIndex;
+                } break;
+                case Tag::BINDLESS_ARRAY: {
+                    auto &&arr = i.bindless_array;
+                    useBindlessInPass = true;
+                    AddDispatchHandle(
+                        arr.handle,
+                        ResourceType::Bindless,
+                        Range(),
+                        false);
+                    ++argIndex;
+                } break;
+                case Tag::ACCEL: {
+                    auto &&acc = i.accel;
+                    useAccelInPass = true;
+                    AddDispatchHandle(
+                        acc.handle,
+                        ResourceType::Accel,
+                        Range(),
+                        false);
+                    ++argIndex;
+                } break;
+            }
+        }
         if constexpr (sizeof...(callbacks) > 0) {
             auto cb = {(callbacks(), 0)...};
         }
@@ -591,21 +638,18 @@ public:
     // Shader : function, read/write multi resources
     void visit(const ShaderDispatchCommand *command) noexcept override {
         visit(command, command->handle(), [&] {
-            luisa::visit(
-                [&]<typename T>(T const &t) {
-                    if constexpr (std::is_same_v<T, IndirectDispatchArg>) {
-                        AddDispatchHandle(
-                            t.handle,
-                            ResourceType::Buffer,
-                            Range(),
-                            false);
-                    }
-                },
-                command->dispatch_size());
+            if (command->is_indirect()) {
+                auto &&t = command->indirect_dispatch_size();
+                AddDispatchHandle(
+                    t.handle,
+                    ResourceType::Buffer,
+                    Range(),
+                    false);
+            }
         });
     }
     void visit(const DrawRasterSceneCommand *command) noexcept override {
-        auto SetTexDst = [&](TextureArgument const &a) {
+        auto SetTexDst = [&](ShaderDispatchCommandBase::Argument::Texture const &a) {
             AddDispatchHandle(
                 a.handle,
                 ResourceType::Texture,
@@ -687,7 +731,7 @@ public:
                 Range(command->triangle_buffer_offset(),
                       command->triangle_buffer_size())));
     }
-    void visit(const PrimBuildCommand *command) noexcept override {
+    void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
         auto stride = funcTable.aabb_stride();
         AddCommand(
             command,
@@ -754,44 +798,6 @@ public:
         if (useAccelInPass) {
             maxAccelReadLevel = std::max<int64_t>(maxAccelReadLevel, dispatchLayer);
         }
-    }
-
-    void operator()(BufferArgument const &bf) {
-        AddDispatchHandle(
-            bf.handle,
-            ResourceType::Buffer,
-            Range(bf.offset, bf.size),
-            ((uint)funcTable.get_usage(shaderHandle, argIndex) & (uint)Usage::WRITE) != 0);
-        ++argIndex;
-    }
-    void operator()(TextureArgument const &bf) {
-        AddDispatchHandle(
-            bf.handle,
-            ResourceType::Texture,
-            Range(bf.level),
-            ((uint)funcTable.get_usage(shaderHandle, argIndex) & (uint)Usage::WRITE) != 0);
-        ++argIndex;
-    }
-    void operator()(BindlessArrayArgument const &bf) {
-        useBindlessInPass = true;
-        AddDispatchHandle(
-            bf.handle,
-            ResourceType::Bindless,
-            Range(),
-            false);
-        ++argIndex;
-    }
-    void operator()(UniformArgument const &) {
-        ++argIndex;
-    }
-    void operator()(AccelArgument const &bf) {
-        useAccelInPass = true;
-        AddDispatchHandle(
-            bf.handle,
-            ResourceType::Accel,
-            Range(),
-            false);
-        ++argIndex;
     }
 };
 

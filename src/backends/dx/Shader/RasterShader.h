@@ -80,7 +80,7 @@ public:
         vstd::span<PixelFormat const> rtv,
         DepthFormat dsv,
         vstd::string_view fileName,
-        FileType fileType);
+        bool isInternal);
     static void SaveRaster(
         BinaryIO *fileIo,
         Device *device,

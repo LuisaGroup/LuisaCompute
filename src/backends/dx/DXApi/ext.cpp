@@ -1,8 +1,8 @@
-#include <Api/ext.h>
-#include <Api/LCDevice.h>
+#include <DXApi/ext.h>
+#include <DXApi/LCDevice.h>
 #include <DXRuntime/Device.h>
 #include <Resource/RenderTexture.h>
-#include <Api/LCCmdBuffer.h>
+#include <DXApi/LCCmdBuffer.h>
 #include <runtime/stream.h>
 namespace toolhub::directx {
 // IUtil *LCDevice::get_util() noexcept {

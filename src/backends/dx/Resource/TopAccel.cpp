@@ -19,16 +19,15 @@ void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
         }
 }
 }// namespace detail
-TopAccel::TopAccel(Device *device, luisa::compute::AccelUsageHint hint,
-                   bool allow_compact, bool allow_update)
+TopAccel::TopAccel(Device *device, AccelOption const &option)
     : device(device) {
     //TODO: allow_compact not supported
-    allow_compact = false;
+    // option.allow_compaction = false;
     auto GetPreset = [&] {
-        switch (hint) {
-            case AccelUsageHint::FAST_TRACE:
+        switch (option.hint) {
+            case AccelOption::UsageHint::FAST_TRACE:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-            case AccelUsageHint::FAST_BUILD:
+            case AccelOption::UsageHint::FAST_BUILD:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
         }
     };
@@ -37,10 +36,10 @@ TopAccel::TopAccel(Device *device, luisa::compute::AccelUsageHint hint,
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &topLevelInputs = topLevelBuildDesc.Inputs;
     topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     topLevelInputs.Flags = GetPreset();
-    if (allow_compact) {
-        topLevelInputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
-    }
-    if (allow_update) {
+    // if (option.allow_compaction) {
+    //     topLevelInputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_COMPACTION;
+    // }
+    if (option.allow_update) {
         topLevelInputs.Flags |= D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
     }
     topLevelInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;

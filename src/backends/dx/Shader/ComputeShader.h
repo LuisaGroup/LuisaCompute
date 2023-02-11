@@ -35,7 +35,7 @@ public:
         uint3 blockSize,
         uint shaderModel,
         vstd::string_view fileName,
-        FileType fileType);
+        bool isInternal);
     static void SaveCompute(
         BinaryIO *fileIo,
         Function kernel,

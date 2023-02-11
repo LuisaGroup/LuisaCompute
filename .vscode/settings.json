@@ -1,9 +1,5 @@
 {
-  "xmake.additionalConfigArguments": [
-    "--toolchain=clang-cl",
-    "--enable_py=true",
-    "--enable_gui=true"
-  ],
+  "xmake.additionalConfigArguments": [],
   "C_Cpp.codeAnalysis.runAutomatically": false,
   "C_Cpp.intelliSenseEngine": "Disabled",
   "C_Cpp.formatting": "Disabled",

@@ -1,7 +1,8 @@
 set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp bindless_array.h
         buffer.cpp buffer.h
-        command.cpp command.h
+        command.h
+#        cmd_encoder.cpp cmd_encoder.h
         command_buffer.cpp command_buffer.h
         command_list.cpp command_list.h
         context.cpp context.h
@@ -9,8 +10,8 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         custom_pass.cpp custom_pass.h
         custom_struct.cpp custom_struct.h
         depth_format.h
+        device_interface.h
         device.cpp device.h
-        dynamic_buffer.cpp dynamic_buffer.h
         dynamic_struct.h
         event.cpp event.h
         image.cpp image.h
@@ -23,12 +24,11 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         stream.cpp stream.h
         stream_tag.h
         swap_chain.cpp swap_chain.h
-        volume.cpp volume.h device_interface.h)
+        volume.cpp volume.h)
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
-target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast
-        # luisa-compute-ir # this is so broken, disable it for now
-        )
+target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compute-ir) # this is so broken, disable it for now
+
 target_compile_definitions(luisa-compute-runtime PRIVATE LC_RUNTIME_EXPORT_DLL=1)
 set_target_properties(luisa-compute-runtime PROPERTIES
         WINDOWS_EXPORT_ALL_SYMBOLS ON

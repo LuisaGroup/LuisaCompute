@@ -9,7 +9,7 @@
 namespace luisa::compute {
 
 struct MeshUpdateCmd {
-    AccelUsageHint request;
+    AccelOption option;
     uint64_t vertex_buffer;
     size_t vertex_buffer_offset;
     size_t vertex_buffer_size;
@@ -17,8 +17,6 @@ struct MeshUpdateCmd {
     uint64_t triangle_buffer;
     size_t triangle_buffer_offset;
     size_t triangle_buffer_size;
-    bool allow_compact;
-    bool allow_update;
 };
 
 class ManagedAccel final {

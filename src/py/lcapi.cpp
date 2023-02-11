@@ -151,7 +151,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
         .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.request = AccelUsageHint::FAST_BUILD;
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
+                          .allow_compaction = allow_compact,
+                          .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
             cmd.vertex_buffer_offset = vertex_buffer_offset;
             cmd.triangle_buffer_offset = triangle_buffer_offset;
@@ -159,14 +161,14 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            cmd.allow_compact = allow_compact;
-            cmd.allow_update = allow_update;
             accel.emplace(cmd, transform, visible, opaque);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
         .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.request = AccelUsageHint::FAST_BUILD;
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
+                          .allow_compaction = allow_compact,
+                          .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
             cmd.vertex_buffer_offset = vertex_buffer_offset;
             cmd.triangle_buffer_offset = triangle_buffer_offset;
@@ -174,8 +176,6 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            cmd.allow_compact = allow_compact;
-            cmd.allow_update = allow_update;
             accel.set(index, cmd, transform, visible, opaque);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })
@@ -185,31 +185,31 @@ PYBIND11_MODULE(lcapi, m) {
             "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
         .def(
             "impl", [](ManagedDevice &s) { return s.device.impl(); }, pyref)
-        .def("create_accel", [](ManagedDevice &device, AccelUsageHint hint, bool allow_compact, bool allow_update) {
-            return ManagedAccel(device.device.create_accel(AccelBuildOption{
+        .def("create_accel", [](ManagedDevice &device, AccelOption::UsageHint hint, bool allow_compact, bool allow_update) {
+            return ManagedAccel(device.device.create_accel(AccelOption{
                 .hint = hint,
-                .allow_compact = allow_compact,
+                .allow_compaction = allow_compact,
                 .allow_update = allow_update}));
         });
     m.def("get_bindless_handle", [](uint64 handle) {
         return reinterpret_cast<ManagedBindless *>(handle)->GetHandle();
     });
-    py::class_<DeviceInterface::BuiltinBuffer>(m, "BuiltinBuffer")
-        .def("handle", [](DeviceInterface::BuiltinBuffer &buffer) {
-            return buffer.handle;
-        })
-        .def("size", [](DeviceInterface::BuiltinBuffer &buffer) {
-            return buffer.size;
-        });
+    // py::class_<DeviceInterface::BuiltinBuffer>(m, "BuiltinBuffer")
+    //     .def("handle", [](DeviceInterface::BuiltinBuffer &buffer) {
+    //         return buffer.handle;
+    //     })
+    //     .def("size", [](DeviceInterface::BuiltinBuffer &buffer) {
+    //         return buffer.size;
+    //     });
 
     py::class_<DeviceInterface, eastl::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
         .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
-            DeviceInterface::ShaderOption option{
-                .enable_debug_info = false,
+            ShaderOption option{
                 .enable_fast_math = true,
+                .enable_debug_info = false,
                 .compile_only = false,
                 .name = str};
-            return self.create_shader(kernel, option);
+            return self.create_shader(option, kernel).handle;
         })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             luisa::string_view str_view;
@@ -221,12 +221,12 @@ PYBIND11_MODULE(lcapi, m) {
             } else {
                 str_view = str;
             }
-            DeviceInterface::ShaderOption option{
-                .enable_debug_info = false,
+            ShaderOption option{
                 .enable_fast_math = true,
+                .enable_debug_info = false,
                 .compile_only = true,
                 .name = str_view};
-            self.create_shader(kernel, option);
+            auto useless = self.create_shader(option, kernel);
         })
         .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
             thread_pool.New();
@@ -240,12 +240,12 @@ PYBIND11_MODULE(lcapi, m) {
                 } else {
                     str_view = str;
                 }
-                DeviceInterface::ShaderOption option{
-                    .enable_debug_info = false,
+                ShaderOption option{
                     .enable_fast_math = true,
+                    .enable_debug_info = false,
                     .compile_only = true,
                     .name = str_view};
-                self.create_shader(builder->function(), option);
+                auto useless = self.create_shader(option, builder->function());
             }));
         })
         /*
@@ -325,21 +325,21 @@ PYBIND11_MODULE(lcapi, m) {
             }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
-        .def("create_buffer", [](DeviceInterface &d, size_t size_bytes) {
-            auto ptr = d.create_buffer(size_bytes);
+        .def("create_buffer", [](DeviceInterface &d, const Type *type, size_t size) {
+            auto ptr = d.create_buffer(type, size).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
             return ptr;
         })
-        .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
-            auto ptr = d.create_dispatch_buffer(dimension, size);
-            RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
-            return ptr;
-        })
+        // .def("create_dispatch_buffer", [](DeviceInterface &d, uint32_t dimension, size_t size) {
+        //     auto ptr = d.create_dispatch_buffer(dimension, size);
+        //     RefCounter::current->AddObject(ptr.handle, {[](DeviceInterface *d, uint64 handle) { d->destroy_buffer(handle); }, &d});
+        //     return ptr;
+        // })
         .def("destroy_buffer", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
         .def("create_texture", [](DeviceInterface &d, PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) {
-            auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels);
+            auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
             return ptr;
         })
@@ -392,7 +392,8 @@ PYBIND11_MODULE(lcapi, m) {
             "execute", [](PyStream &self) { self.execute(); }, pyref);
 
     // AST (FunctionBuilder)
-    py::class_<Function>(m, "Function");
+    py::class_<Function>(m, "Function")
+        .def("argument_size", [](Function &func) { return func.arguments().size(); });
     py::class_<IntEval>(m, "IntEval")
         .def("value", [](IntEval &self) { return self.value; })
         .def("exist", [](IntEval &self) { return self.exist; });
@@ -610,7 +611,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand");
     py::class_<ComputeDispatchCmdEncoder>(m, "ComputeDispatchCmdEncoder")
         .def_static(
-            "create", [](uint64_t handle, Function func) { return make_unique<ComputeDispatchCmdEncoder>(handle, func).release(); }, pyref)
+            "create", [](size_t arg_size, uint64_t handle, Function func) { return make_unique<ComputeDispatchCmdEncoder>(arg_size, handle, func).release(); }, pyref)
         .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
         .def("set_dispatch_buffer", [](ComputeDispatchCmdEncoder &self, uint64_t handle) { self.set_dispatch_size(IndirectDispatchArg{handle}); })
         .def("encode_buffer", &ComputeDispatchCmdEncoder::encode_buffer)
@@ -618,7 +619,8 @@ PYBIND11_MODULE(lcapi, m) {
         .def("encode_uniform", [](ComputeDispatchCmdEncoder &self, char *buf, size_t size) { self.encode_uniform(buf, size); })
         .def("encode_bindless_array", &ComputeDispatchCmdEncoder::encode_bindless_array)
         .def("encode_accel", &ComputeDispatchCmdEncoder::encode_accel)
-        .def("build", [](ComputeDispatchCmdEncoder &c) { return std::move(c).build().release(); }, pyref);
+        .def(
+            "build", [](ComputeDispatchCmdEncoder &c) { return std::move(c).build().release(); }, pyref);
     // buffer operation commands
     // Pybind can't deduce argument list of the create function, so using lambda to inform it
     py::class_<BufferUploadCommand, Command>(m, "BufferUploadCommand")
@@ -707,9 +709,9 @@ PYBIND11_MODULE(lcapi, m) {
         .def(
             "build_command", [](AccelWrapper &self, Accel::BuildRequest request) { return self.accel.build(request).release(); }, pyref);
 */
-    py::enum_<AccelUsageHint>(m, "AccelUsageHint")
-        .value("FAST_TRACE", AccelUsageHint::FAST_TRACE)
-        .value("FAST_BUILD", AccelUsageHint::FAST_BUILD);
+    py::enum_<AccelOption::UsageHint>(m, "AccelUsageHint")
+        .value("FAST_TRACE", AccelOption::UsageHint::FAST_TRACE)
+        .value("FAST_BUILD", AccelOption::UsageHint::FAST_BUILD);
 
     py::enum_<AccelBuildRequest>(m, "AccelBuildRequest")
         .value("PREFER_UPDATE", AccelBuildRequest::PREFER_UPDATE)

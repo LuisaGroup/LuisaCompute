@@ -1,8 +1,6 @@
 #pragma pack_matrix(row_major)
 #define INFINITY_f 3.40282347e+37
-#define DispatchArgs1D uint
-#define DispatchArgs2D uint
-#define DispatchArgs3D uint
+#define DispatchArgs uint
 SamplerState samplers[16]:register(s0,space1);
 float determinant(const float2x2 m){
 return m[0][0]*m[1][1]-m[1][0]*m[0][1];

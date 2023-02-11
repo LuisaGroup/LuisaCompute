@@ -25,8 +25,6 @@ class BufferView;
 
 namespace detail {
 
-LC_RUNTIME_API void error_mipmap_copy_buffer_size_mismatch(size_t mip_size, size_t buffer_size) noexcept;
-
 class LC_RUNTIME_API MipmapView {
 
 private:
@@ -34,6 +32,9 @@ private:
     uint3 _size;
     uint32_t _level;
     PixelStorage _storage;
+
+private:
+    [[noreturn]] static void _error_mipmap_copy_buffer_size_mismatch(size_t mip_size, size_t buffer_size) noexcept;
 
 public:
     MipmapView(uint64_t handle, uint3 size, uint32_t level, PixelStorage storage) noexcept;
@@ -70,7 +71,7 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(BufferView<U> buffer) const noexcept {
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
-            error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
+            _error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
         }
         return BufferToTextureCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),
@@ -80,7 +81,7 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
-            error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
+            _error_mipmap_copy_buffer_size_mismatch(size, buffer.size_bytes());
         }
         return TextureToBufferCopyCommand::create(
             buffer.handle(), buffer.offset_bytes(),

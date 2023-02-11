@@ -219,10 +219,13 @@ impl StreamImpl {
                     }
                     luisa_compute_api_types::Command::AccelBuild(accel_build) => {
                         let accel = &mut *(accel_build.accel.0 as *mut AccelImpl);
-                        accel.update(std::slice::from_raw_parts(
-                            accel_build.modifications,
-                            accel_build.modifications_count,
-                        ));
+                        accel.update(
+                            accel_build.instance_count as usize,
+                            std::slice::from_raw_parts(
+                                accel_build.modifications,
+                                accel_build.modifications_count,
+                            ),
+                        );
                     }
                     luisa_compute_api_types::Command::BindlessArrayUpdate(_) => {}
                 }

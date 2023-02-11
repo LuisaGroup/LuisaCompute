@@ -13,7 +13,7 @@ namespace luisa::compute {
 namespace detail {
 
 ShaderInvokeBase &ShaderInvokeBase::operator<<(const BindlessArray &array) noexcept {
-    _command->encode_bindless_array(array.handle());
+    _command.encode_bindless_array(array.handle());
     return *this;
 }
 

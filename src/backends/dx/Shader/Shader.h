@@ -8,11 +8,6 @@
 #include <ast/function.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
-enum class FileType {
-    Cache,
-    ByteCode,
-    Internal
-};
 struct SavedArgument {
     Type::Tag tag;
     Usage varUsage;

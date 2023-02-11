@@ -333,7 +333,7 @@ RasterShader *RasterShader::CompileRaster(
     vstd::span<PixelFormat const> rtv,
     DepthFormat dsv,
     vstd::string_view fileName,
-    FileType fileType) {
+    bool isInternal) {
     vstd::optional<vstd::MD5> psoMd5 = GenMD5(md5, meshFormat, state, rtv, dsv);
     auto CompileNewCompute = [&](bool writeCache, vstd::string_view psoName) -> RasterShader * {
         auto str = codegen();
@@ -364,16 +364,10 @@ RasterShader *RasterShader::CompileRaster(
         auto pixelBin = GetSpan(*compResult.pixel.get<0>());
         if (writeCache) {
             auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
-            switch (fileType) {
-                case FileType::ByteCode:
-                    fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                    break;
-                case FileType::Cache:
-                    fileIo->write_cache(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                    break;
-                case FileType::Internal:
-                    fileIo->write_internal(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                    break;
+            if (isInternal) {
+                fileIo->write_internal(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+            } else {
+                fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
             }
         }
 
@@ -399,7 +393,7 @@ RasterShader *RasterShader::CompileRaster(
         bool oldDeleted = false;
         vstd::MD5 typeMD5;
         auto result = ShaderSerializer::RasterDeSerialize(
-            fileName, psoName, fileType, device, *fileIo, md5,
+            fileName, psoName, isInternal, device, *fileIo, md5,
             psoMd5, typeMD5, meshFormat, state, rtv, dsv, oldDeleted);
         if (result) {
             if (oldDeleted) {
@@ -463,7 +457,7 @@ RasterShader *RasterShader::LoadRaster(
     vstd::optional<vstd::MD5> md5;
     bool cacheDeleted = false;
     vstd::MD5 typeMD5;
-    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, psoName, FileType::ByteCode, device, *device->fileIo, {}, md5, typeMD5, mesh_format, raster_state, rtv_format, dsv_format, cacheDeleted);
+    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, psoName, false, device, *device->fileIo, {}, md5, typeMD5, mesh_format, raster_state, rtv_format, dsv_format, cacheDeleted);
     if (ptr) {
         auto md5 = CodegenUtility::GetTypeMD5(types);
         if (md5 != typeMD5) {

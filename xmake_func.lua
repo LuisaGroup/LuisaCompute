@@ -140,9 +140,9 @@ table.insert(_configs.events, function(config)
 	end
 	if is_plat("windows") then
 		if is_mode("release") then
-			_add_link_flags("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
+			_add_link_flags("/INCREMENTAL:NO", "/LTCG:INCREMENTAL", "/OPT:REF", "/OPT:ICF")
 		else
-			_add_link_flags("/LTCG:incremental")
+			_add_link_flags("/LTCG:OFF")
 		end
 	end
 

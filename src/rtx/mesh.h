@@ -41,19 +41,16 @@ private:
         requires is_buffer_or_view_v<VBuffer> &&
                  is_buffer_or_view_v<TBuffer> &&
                  std::same_as<buffer_element_t<TBuffer>, Triangle>
-    [[nodiscard]] static uint64_t _create_resource(
-        DeviceInterface *device, MeshBuildOption const &option,
+    [[nodiscard]] static ResourceCreationInfo _create_resource(
+        DeviceInterface *device, const AccelOption &option,
         const VBuffer &vertex_buffer, const TBuffer &triangle_buffer) noexcept {
-        return device->create_mesh(option.hint,
-                                   DeviceInterface::MeshType::Mesh,
-                                   option.allow_compact,
-                                   option.allow_update);
+        return device->create_mesh(option);
     }
 
 private:
     template<typename VBuffer, typename TBuffer>
     Mesh(DeviceInterface *device, const VBuffer &vertex_buffer, const TBuffer &triangle_buffer,
-         MeshBuildOption const &option) noexcept
+         const AccelOption &option) noexcept
         : Resource{device, Resource::Tag::MESH,
                    _create_resource(device, option, vertex_buffer, triangle_buffer)},
           _triangle_count{static_cast<uint>(triangle_buffer.size())},
@@ -73,7 +70,7 @@ public:
 };
 
 template<typename VBuffer, typename TBuffer>
-Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, MeshBuildOption option) noexcept {
+Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, const AccelOption &option) noexcept {
     return this->_create<Mesh>(std::forward<VBuffer>(vertices), std::forward<TBuffer>(triangles), option);
 }
 

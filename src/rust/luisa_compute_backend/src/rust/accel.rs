@@ -25,15 +25,9 @@ fn init_device() {
     }
 }
 pub struct MeshImpl {
-    vbuffer: BufferView,
-    ibuffer: BufferView,
-    handle: sys::RTCScene,
+    pub(crate) handle: sys::RTCScene,
     usage: AccelUsageHint,
     built: bool,
-    vertex_buffer_stride: usize,
-    index_buffer_stride: usize,
-    vertex_count: usize,
-    index_count: usize,
     lock: Mutex<()>,
 }
 macro_rules! check_error {
@@ -46,46 +40,29 @@ macro_rules! check_error {
 }
 impl MeshImpl {
     pub unsafe fn new(
-        usage: api::AccelUsageHint,
-        vertex_buffer: api::Buffer,
-        vertex_buffer_offset: usize,
-        vertex_buffer_stride: usize,
-        vertex_count: usize,
-        index_buffer: api::Buffer,
-        index_buffer_offset: usize,
-        index_buffer_stride: usize,
-        index_count: usize,
+        hint: api::AccelUsageHint,
+        ty: api::MeshType,
+        _allow_compact: bool,
+        _allow_update: bool,
     ) -> Self {
         init_device();
         let device = DEVICE.lock();
         let handle = sys::rtcNewScene(device.0);
-        let flags = match usage {
+        let flags = match hint {
             AccelUsageHint::FastBuild => sys::RTC_BUILD_QUALITY_LOW,
             AccelUsageHint::FastTrace => sys::RTC_BUILD_QUALITY_HIGH,
             AccelUsageHint::FastUpdate => sys::RTC_BUILD_QUALITY_REFIT,
         };
+        match ty {
+            api::MeshType::Mesh => {}
+            api::MeshType::ProceduralPrimitive => todo!(),
+        }
         sys::rtcSetSceneFlags(handle, flags);
-        let vertex_buffer = &*(vertex_buffer.0 as *const BufferImpl);
-        let index_buffer = &*(index_buffer.0 as *const BufferImpl);
 
         Self {
-            vbuffer: BufferView {
-                data: vertex_buffer.data.add(vertex_buffer_offset),
-                size: vertex_buffer_stride * vertex_count,
-                ty: 0,
-            },
-            ibuffer: BufferView {
-                data: index_buffer.data.add(index_buffer_offset),
-                size: index_buffer_stride * index_count,
-                ty: 0,
-            },
             handle,
-            usage,
+            usage: hint,
             built: false,
-            vertex_buffer_stride,
-            index_buffer_stride,
-            vertex_count,
-            index_count,
             lock: Mutex::new(()),
         }
     }
@@ -95,17 +72,20 @@ impl MeshImpl {
         let _lk = self.lock.lock();
         let request = cmd.request;
         let need_rebuild = request == AccelBuildRequest::ForceBuild || !self.built;
+
         if need_rebuild {
             let geometry = sys::rtcNewGeometry(device, sys::RTC_GEOMETRY_TYPE_TRIANGLE);
+            let vbuffer = &*(cmd.vertex_buffer.0 as *const BufferImpl);
+            let ibuffer = &*(cmd.index_buffer.0 as *const BufferImpl);
             sys::rtcSetSharedGeometryBuffer(
                 geometry,
                 sys::RTC_BUFFER_TYPE_VERTEX,
                 0,
                 sys::RTC_FORMAT_FLOAT3,
-                self.vbuffer.data as *const c_void,
+                vbuffer.data as *const c_void,
                 0,
-                self.vertex_buffer_stride,
-                self.vertex_count,
+                cmd.vertex_stride,
+                cmd.vertex_buffer_size / cmd.vertex_stride,
             );
             check_error!(device);
             sys::rtcSetSharedGeometryBuffer(
@@ -113,10 +93,10 @@ impl MeshImpl {
                 sys::RTC_BUFFER_TYPE_INDEX,
                 0,
                 sys::RTC_FORMAT_UINT3,
-                self.ibuffer.data as *const c_void,
+                ibuffer.data as *const c_void,
                 0,
-                self.index_buffer_stride,
-                self.index_count,
+                cmd.index_stride,
+                cmd.index_buffer_size / cmd.index_stride,
             );
             check_error!(device);
             sys::rtcCommitGeometry(geometry);
@@ -171,7 +151,7 @@ impl Default for Instance {
     }
 }
 pub struct AccelImpl {
-    handle: sys::RTCScene,
+    pub(crate) handle: sys::RTCScene,
     instances: Vec<RwLock<Instance>>,
 }
 impl AccelImpl {
@@ -184,9 +164,22 @@ impl AccelImpl {
             instances: Vec::new(),
         }
     }
-    pub unsafe fn update(&mut self, modifications: &[AccelBuildModification]) {
+    pub unsafe fn update(
+        &mut self,
+        instance_count: usize,
+        modifications: &[AccelBuildModification],
+    ) {
         let device = DEVICE.lock();
         let device = device.0;
+        while instance_count > self.instances.len() {
+            self.instances.push(RwLock::new(Instance::default()));
+        }
+        while instance_count < self.instances.len() {
+            let last = self.instances.pop().unwrap().into_inner();
+            if last.valid() {
+                sys::rtcDetachGeometry(self.handle, self.instances.len() as u32);
+            }
+        }
         for m in modifications {
             if m.flags.contains(AccelBuildModificationFlags::MESH) {
                 let mesh = &*(m.mesh as *const MeshImpl);
@@ -197,9 +190,6 @@ impl AccelImpl {
                     sys::rtcCommitGeometry(geometry);
                     sys::rtcSetGeometryInstancedScene(geometry, mesh.handle);
                     sys::rtcAttachGeometryByID(self.handle, geometry, m.index);
-                    let new_len = self.instances.len().max(m.index as usize + 1);
-                    self.instances
-                        .resize_with(new_len, || RwLock::new(Instance::default()));
                     *self.instances[m.index as usize].write() = Instance {
                         affine,
                         dirty: false,

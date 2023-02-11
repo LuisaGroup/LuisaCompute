@@ -254,9 +254,11 @@ typedef struct LCMeshBuildCommand {
     struct LCBuffer vertex_buffer;
     size_t vertex_buffer_offset;
     size_t vertex_buffer_size;
+    size_t vertex_stride;
     struct LCBuffer index_buffer;
     size_t index_buffer_offset;
     size_t index_buffer_size;
+    size_t index_stride;
 } LCMeshBuildCommand;
 
 typedef struct LCAccelBuildCommand {

@@ -1,6 +1,6 @@
 #pragma once
 #include <runtime/buffer.h>
-#include <runtime/dynamic_buffer.h>
+// #include <runtime/dynamic_buffer.h>
 namespace luisa::compute {
 class VertexBufferView {
     uint64_t _handle{};

@@ -100,13 +100,13 @@ int main(int argc, char *argv[]) {
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
         auto &&triangle_buffer = triangle_buffers.emplace_back(device.create_buffer<Triangle>(triangle_count));
-        auto &&mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
+        auto &&mesh = meshes.emplace_back(device.create_mesh({}, vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
                << mesh.build();
     }
 
-    auto accel = device.create_accel();
+    auto accel = device.create_accel({});
     for (auto &&m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f));
     }

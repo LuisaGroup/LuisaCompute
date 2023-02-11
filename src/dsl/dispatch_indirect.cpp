@@ -31,38 +31,14 @@ Buffer<DrawIndexedIndirectArgs> Device::create_indexed_draw_buffer(const MeshFor
 }
 */
 
-void clear_dispatch_buffer(Expr<Buffer<DispatchArgs1D>> buffer) {
-    detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
-}
-
-void clear_dispatch_buffer(Expr<Buffer<DispatchArgs2D>> buffer) {
-    detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
-}
-
-void clear_dispatch_buffer(Expr<Buffer<DispatchArgs3D>> buffer) {
+void clear_dispatch_buffer(Expr<Buffer<DispatchArgs>> buffer) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
 }
 
 void emplace_dispatch_kernel(
-    Expr<Buffer<DispatchArgs1D>> buffer,
+    Expr<Buffer<DispatchArgs>> buffer,
     Expr<uint> block_size,
     Expr<uint> dispatch_size,
-    Expr<uint> kernel_id) {
-    detail::FunctionBuilder::current()->call(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL, {buffer.expression(), block_size.expression(), dispatch_size.expression(), kernel_id.expression()});
-}
-
-void emplace_dispatch_kernel(
-    Expr<Buffer<DispatchArgs2D>> buffer,
-    Expr<uint2> block_size,
-    Expr<uint2> dispatch_size,
-    Expr<uint> kernel_id) {
-    detail::FunctionBuilder::current()->call(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL, {buffer.expression(), block_size.expression(), dispatch_size.expression(), kernel_id.expression()});
-}
-
-void emplace_dispatch_kernel(
-    Expr<Buffer<DispatchArgs3D>> buffer,
-    Expr<uint3> block_size,
-    Expr<uint3> dispatch_size,
     Expr<uint> kernel_id) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL, {buffer.expression(), block_size.expression(), dispatch_size.expression(), kernel_id.expression()});
 }
