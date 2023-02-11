@@ -68,6 +68,7 @@ void ManagedAccel::update(PyStream &stream) noexcept {
             m.triangle_buffer_offset,
             m.triangle_buffer_size));
     }
+    data->requireUpdateMesh.clear();
     stream.add(data->accel.build(AccelBuildRequest::FORCE_BUILD));
     stream.delegates.emplace_back([lst = std::move(data->meshDisposeList), device = data->accel.device()] {
         for (auto &&i : lst) {
