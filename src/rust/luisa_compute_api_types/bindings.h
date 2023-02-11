@@ -110,7 +110,10 @@ typedef struct LCAccelBuildModificationFlags {
 #define LCAccelBuildModificationFlags_TRANSFORM (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 1) }
 #define LCAccelBuildModificationFlags_VISIBILITY_ON (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 2) }
 #define LCAccelBuildModificationFlags_VISIBILITY_OFF (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 3) }
+#define LCAccelBuildModificationFlags_OPAQUE_ON (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 4) }
+#define LCAccelBuildModificationFlags_OPAQUE_OFF (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 5) }
 #define LCAccelBuildModificationFlags_VISIBILITY (LCAccelBuildModificationFlags){ .bits = (uint32_t)((LCAccelBuildModificationFlags_VISIBILITY_ON).bits | (LCAccelBuildModificationFlags_VISIBILITY_OFF).bits) }
+#define LCAccelBuildModificationFlags_OPAQUE (LCAccelBuildModificationFlags){ .bits = (uint32_t)((LCAccelBuildModificationFlags_OPAQUE_ON).bits | (LCAccelBuildModificationFlags_OPAQUE_OFF).bits) }
 
 typedef struct LCAccelBuildModification {
     uint32_t index;
@@ -267,6 +270,7 @@ typedef struct LCAccelBuildCommand {
     uint32_t instance_count;
     const struct LCAccelBuildModification *modifications;
     size_t modifications_count;
+    bool build_accel;
 } LCAccelBuildCommand;
 
 typedef enum LCCommand_Tag {

@@ -141,7 +141,10 @@ static const AccelBuildModificationFlags AccelBuildModificationFlags_MESH = Acce
 static const AccelBuildModificationFlags AccelBuildModificationFlags_TRANSFORM = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 1) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 2) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 3) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 4) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 5) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)((AccelBuildModificationFlags_VISIBILITY_ON).bits | (AccelBuildModificationFlags_VISIBILITY_OFF).bits) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)((AccelBuildModificationFlags_OPAQUE_ON).bits | (AccelBuildModificationFlags_OPAQUE_OFF).bits) };
 
 struct AccelBuildModification {
     uint32_t index;
@@ -308,6 +311,7 @@ struct AccelBuildCommand {
     uint32_t instance_count;
     const AccelBuildModification *modifications;
     size_t modifications_count;
+    bool build_accel;
 };
 
 struct Command {

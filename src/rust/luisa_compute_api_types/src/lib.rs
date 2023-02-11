@@ -82,7 +82,10 @@ bitflags! {
         const TRANSFORM = 1 << 1;
         const VISIBILITY_ON = 1 << 2;
         const VISIBILITY_OFF = 1 << 3;
+        const OPAQUE_ON = 1 << 4;
+        const OPAQUE_OFF = 1 << 5;
         const VISIBILITY = Self::VISIBILITY_ON.bits | Self::VISIBILITY_OFF.bits;
+        const OPAQUE = Self::OPAQUE_ON.bits | Self::OPAQUE_OFF.bits;
     }
 }
 #[repr(C)]
@@ -367,6 +370,7 @@ pub struct AccelBuildCommand {
     pub instance_count: u32,
     pub modifications: *const AccelBuildModification,
     pub modifications_count: usize,
+    pub build_accel: bool
 }
 
 #[repr(C)]

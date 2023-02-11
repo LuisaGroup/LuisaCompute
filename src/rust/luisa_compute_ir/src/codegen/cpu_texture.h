@@ -107,6 +107,194 @@ float half_to_float(float16_t half) noexcept {
 #endif
 }
 
+
+template<typename T>
+[[nodiscard]] inline float scalar_to_float(T x) noexcept {
+    if constexpr (std::is_same_v<T, float>) {
+        return x;
+    } else if constexpr (std::is_same_v<T, uint8_t>) {
+        return x / 255.f;
+    } else if constexpr (std::is_same_v<T, uint16_t>) {
+        return x / 65535.f;
+    } else if constexpr (std::is_same_v<T, float16_t>) {
+        return half_to_float(x);
+    } else {
+        return 0.f;
+    }
+}
+
+template<typename T>
+[[nodiscard]] inline T float_to_scalar(float x) noexcept {
+    if constexpr (std::is_same_v<T, float>) {
+        return x;
+    } else if constexpr (std::is_same_v<T, uint8_t>) {
+        return static_cast<T>(std::clamp(std::round(x * 255.f), 0.f, 255.f));
+    } else if constexpr (std::is_same_v<T, uint16_t>) {
+        return static_cast<T>(std::clamp(std::round(x * 65535.f), 0.f, 65535.f));
+    } else if constexpr (std::is_same_v<T, float16_t>) {
+        return static_cast<T>(float_to_half(x));
+    } else {
+        return static_cast<T>(0);
+    }
+}
+
+template<typename T>
+[[nodiscard]] inline uint scalar_to_int(T x) noexcept {
+    return static_cast<uint>(x);
+}
+
+template<typename T>
+[[nodiscard]] inline T int_to_scalar(uint x) noexcept {
+    return static_cast<T>(x);
+}
+
+template<typename T, uint dim>
+[[nodiscard]] inline float4 pixel_to_float4(const std::byte *pixel) noexcept {
+    auto value = reinterpret_cast<const T *>(pixel);
+    if constexpr (dim == 1u) {
+        return make_float4(
+            scalar_to_float<T>(value[0]),
+            0.f, 0.0f, 0.f);
+    } else if constexpr (dim == 2u) {
+        return make_float4(
+            scalar_to_float<T>(value[0]),
+            scalar_to_float<T>(value[1]),
+            0.0f, 0.f);
+    } else if constexpr (dim == 4u) {
+        return make_float4(
+            scalar_to_float<T>(value[0]),
+            scalar_to_float<T>(value[1]),
+            scalar_to_float<T>(value[2]),
+            scalar_to_float<T>(value[3]));
+    } else {
+        return make_float4();
+    }
+}
+
+template<typename T, uint dim>
+inline void float4_to_pixel(std::byte *pixel, float4 v) noexcept {
+    auto value = reinterpret_cast<T *>(pixel);
+    if constexpr (dim == 1u) {
+        value[0] = float_to_scalar<T>(v[0]);
+    } else if constexpr (dim == 2u) {
+        value[0] = float_to_scalar<T>(v[0]);
+        value[1] = float_to_scalar<T>(v[1]);
+    } else if constexpr (dim == 4u) {
+        value[0] = float_to_scalar<T>(v[0]);
+        value[1] = float_to_scalar<T>(v[1]);
+        value[2] = float_to_scalar<T>(v[2]);
+        value[3] = float_to_scalar<T>(v[3]);
+    }
+}
+
+template<typename T, uint dim>
+[[nodiscard]] inline uint4 pixel_to_int4(const std::byte *pixel) noexcept {
+    auto value = reinterpret_cast<const T *>(pixel);
+    if constexpr (dim == 1u) {
+        return make_uint4(
+            scalar_to_int<T>(value[0]),
+            0u, 0u, 0u);
+    } else if constexpr (dim == 2u) {
+        return make_uint4(
+            scalar_to_int<T>(value[0]),
+            scalar_to_int<T>(value[1]),
+            0u, 0u);
+    } else if constexpr (dim == 4u) {
+        return make_uint4(
+            scalar_to_int<T>(value[0]),
+            scalar_to_int<T>(value[1]),
+            scalar_to_int<T>(value[2]),
+            scalar_to_int<T>(value[3]));
+    } else {
+        return make_uint4();
+    }
+}
+
+template<typename T, uint dim>
+inline void int4_to_pixel(std::byte *pixel, uint4 v) noexcept {
+    auto value = reinterpret_cast<T *>(pixel);
+    if constexpr (dim == 1u) {
+        value[0] = int_to_scalar<T>(v[0]);
+    } else if constexpr (dim == 2u) {
+        value[0] = int_to_scalar<T>(v[0]);
+        value[1] = int_to_scalar<T>(v[1]);
+    } else if constexpr (dim == 4u) {
+        value[0] = int_to_scalar<T>(v[0]);
+        value[1] = int_to_scalar<T>(v[1]);
+        value[2] = int_to_scalar<T>(v[2]);
+        value[3] = int_to_scalar<T>(v[3]);
+    }
+}
+
+template<typename Dst, typename Src, uint dim>
+[[nodiscard]] inline auto read_pixel(const std::byte *p) noexcept {
+    if constexpr (std::is_same_v<Dst, float>) {
+        return pixel_to_float4<Src, dim>(p);
+    } else {
+        static_assert(std::is_same_v<Dst, int> ||
+                      std::is_same_v<Dst, uint>);
+        return luisa::bit_cast<Vector<Dst, 4u>>(
+            pixel_to_int4<Src, dim>(p));
+    }
+}
+
+template<typename Dst, typename Src, uint dim>
+[[nodiscard]] inline auto write_pixel(std::byte *p, Vector<Dst, 4u> value) noexcept {
+    if constexpr (std::is_same_v<Dst, float>) {
+        float4_to_pixel<Src, dim>(p, value);
+    } else {
+        static_assert(std::is_same_v<Dst, int> ||
+                      std::is_same_v<Dst, uint>);
+        int4_to_pixel<Src, dim>(
+            p, luisa::bit_cast<uint4>(value));
+    }
+}
+
+template<typename T>
+[[nodiscard]] inline Vector<T, 4u> read_pixel(PixelStorage storage, const std::byte *p) noexcept {
+    switch (storage) {
+        case PixelStorage::BYTE1: return detail::read_pixel<T, uint8_t, 1u>(p);
+        case PixelStorage::BYTE2: return detail::read_pixel<T, uint8_t, 2u>(p);
+        case PixelStorage::BYTE4: return detail::read_pixel<T, uint8_t, 4u>(p);
+        case PixelStorage::SHORT1: return detail::read_pixel<T, uint16_t, 1u>(p);
+        case PixelStorage::SHORT2: return detail::read_pixel<T, uint16_t, 2u>(p);
+        case PixelStorage::SHORT4: return detail::read_pixel<T, uint16_t, 4u>(p);
+        case PixelStorage::INT1: return detail::read_pixel<T, uint32_t, 1u>(p);
+        case PixelStorage::INT2: return detail::read_pixel<T, uint32_t, 2u>(p);
+        case PixelStorage::INT4: return detail::read_pixel<T, uint32_t, 4u>(p);
+        case PixelStorage::HALF1: return detail::read_pixel<T, float16_t, 1u>(p);
+        case PixelStorage::HALF2: return detail::read_pixel<T, float16_t, 2u>(p);
+        case PixelStorage::HALF4: return detail::read_pixel<T, float16_t, 4u>(p);
+        case PixelStorage::FLOAT1: return detail::read_pixel<T, float, 1u>(p);
+        case PixelStorage::FLOAT2: return detail::read_pixel<T, float, 2u>(p);
+        case PixelStorage::FLOAT4: return detail::read_pixel<T, float, 4u>(p);
+        default: break;
+    }
+    return {};
+}
+
+template<typename T>
+inline void write_pixel(PixelStorage storage, std::byte *p, Vector<T, 4u> v) noexcept {
+    switch (storage) {
+        case PixelStorage::BYTE1: detail::write_pixel<T, uint8_t, 1u>(p, v); break;
+        case PixelStorage::BYTE2: detail::write_pixel<T, uint8_t, 2u>(p, v); break;
+        case PixelStorage::BYTE4: detail::write_pixel<T, uint8_t, 4u>(p, v); break;
+        case PixelStorage::SHORT1: detail::write_pixel<T, uint16_t, 1u>(p, v); break;
+        case PixelStorage::SHORT2: detail::write_pixel<T, uint16_t, 2u>(p, v); break;
+        case PixelStorage::SHORT4: detail::write_pixel<T, uint16_t, 4u>(p, v); break;
+        case PixelStorage::INT1: detail::write_pixel<T, uint32_t, 1u>(p, v); break;
+        case PixelStorage::INT2: detail::write_pixel<T, uint32_t, 2u>(p, v); break;
+        case PixelStorage::INT4: detail::write_pixel<T, uint32_t, 4u>(p, v); break;
+        case PixelStorage::HALF1: detail::write_pixel<T, float16_t, 1u>(p, v); break;
+        case PixelStorage::HALF2: detail::write_pixel<T, float16_t, 2u>(p, v); break;
+        case PixelStorage::HALF4: detail::write_pixel<T, float16_t, 4u>(p, v); break;
+        case PixelStorage::FLOAT1: detail::write_pixel<T, float, 1u>(p, v); break;
+        case PixelStorage::FLOAT2: detail::write_pixel<T, float, 2u>(p, v); break;
+        case PixelStorage::FLOAT4: detail::write_pixel<T, float, 4u>(p, v); break;
+        default: break;
+    }
+}
+
 // MIP-Map EWA filtering LUT from PBRT-v4
 static constexpr const float ewa_filter_weight_lut[] = {
     0.8646647330f, 0.8490400310f, 0.8336595300f, 0.8185192940f, 0.8036156300f, 0.78894478100f, 0.7745032310f, 0.7602872850f,
