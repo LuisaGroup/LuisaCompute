@@ -222,7 +222,7 @@ class func:
         argtypes = tuple(dtype_of(a) for a in args)
         f = self.get_compiled(call_from_host=True, allow_ref=False, argtypes=argtypes)
         # create command
-        command = lcapi.ComputeDispatchCmdEncoder.create(len(args), f.shader_handle, f.function)
+        command = lcapi.ComputeDispatchCmdEncoder.create(f.function.argument_size(), f.shader_handle, f.function)
         # push arguments
         for a in args:
             lctype = to_lctype(dtype_of(a))
