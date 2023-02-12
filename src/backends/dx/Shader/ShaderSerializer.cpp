@@ -100,7 +100,7 @@ bool ShaderSerializer::CheckMD5(
     vstd::MD5 const &checkMD5,
     BinaryIO &streamFunc) {
     using namespace shader_ser;
-    auto binStream = streamFunc.read_bytecode(fileName);
+    auto binStream = streamFunc.read_shader_bytecode(fileName);
     if (binStream == nullptr) return false;
     vstd::MD5 md5;
     binStream->read({reinterpret_cast<std::byte *>(&md5),
@@ -121,9 +121,9 @@ ComputeShader *ShaderSerializer::DeSerialize(
 
     auto binStream = [&] {
         if (isInternal) {
-            return streamFunc.read_internal(name);
+            return streamFunc.read_internal_shader(name);
         } else {
-            return streamFunc.read_bytecode(name);
+            return streamFunc.read_shader_bytecode(name);
         }
     }();
     if (binStream == nullptr || binStream->length() <= sizeof(Header)) return nullptr;
@@ -144,7 +144,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
     vstd::vector<std::byte> psoCode;
 
     binStream->read({binCode.data(), binCode.size()});
-    auto psoStream = streamFunc.read_cache(psoName);
+    auto psoStream = streamFunc.read_shader_cache(psoName);
     if (psoStream != nullptr && psoStream->length() > 0) {
         psoCode.push_back_uninitialized(psoStream->length());
         psoStream->read({psoCode.data(), psoCode.size()});
@@ -222,9 +222,9 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     using namespace shader_ser;
     auto binStream = [&] {
         if (isInternal) {
-            return streamFunc.read_internal(name);
+            return streamFunc.read_internal_shader(name);
         } else {
-            return streamFunc.read_bytecode(name);
+            return streamFunc.read_shader_bytecode(name);
         }
     }();
     if (binStream == nullptr || binStream->length() <= sizeof(RasterHeader)) return nullptr;
@@ -257,7 +257,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         rtv,
         dsv);
 
-    auto psoStream = streamFunc.read_cache(psoName);
+    auto psoStream = streamFunc.read_shader_cache(psoName);
     if (psoStream != nullptr && psoStream->length() > 0) {
         psoCode.push_back_uninitialized(psoStream->length());
         psoStream->read({psoCode.data(), psoCode.size()});

@@ -91,27 +91,32 @@ private:
     static void _check_no_implicit_binding(Function func, luisa::string_view shader_path) noexcept;
 
 public:
+    // Device construct from backend handle, use Context::create_device for convenient usage
     explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
+    // Return a 128-bit device local unique identity hash-code, this code transformed after backend device's configure(hardware like GPU, drivers, etc.) changed
     [[nodiscard]] decltype(auto) device_hash() const noexcept { return _impl->device_hash(); }
+    // Shader may generate cache file for runtime loading performance, cache_name return this name from backend
     [[nodiscard]] decltype(auto) cache_name(luisa::string_view file_name) const noexcept { return _impl->cache_name(file_name); }
+    // see definition in runtime/context.h
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
+    // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
-
+    // backend native plugins & extensions interface
     template<typename Ext = DeviceExtension>
         requires std::derived_from<Ext, DeviceExtension>
     [[nodiscard]] auto extension(luisa::string_view name) const noexcept {
         return dynamic_cast<Ext *>(_impl->extension(name));
     }
-
-    [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;// see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;                                           // see definition in runtime/event.cpp
-
+    // see definition in runtime/stream.h
+    [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;
+    // see definition in runtime/event.h
+    [[nodiscard]] Event create_event() noexcept;
+    // see definition in runtime/swap_chain.h
     [[nodiscard]] SwapChain create_swapchain(
         uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
-
-    template<size_t i, typename T>
-    [[nodiscard]] Buffer<T> create_dispatch_buffer(size_t capacity) noexcept;
+    
+    [[nodiscard]] Buffer<DispatchArgs> create_dispatch_buffer(size_t capacity) noexcept;
 
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
@@ -121,8 +126,8 @@ public:
     [[nodiscard]] ProceduralPrimitive create_procedural_primitive(BufferView<AABB> aabb_buffer,
                                                                   const AccelOption &option = {}) noexcept;// see definition in rtx/procedural_primitive.h
 
-    [[nodiscard]] Accel create_accel(const AccelOption &option = {}) noexcept;        // see definition in rtx/accel.cpp
-    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.cpp
+    [[nodiscard]] Accel create_accel(const AccelOption &option = {}) noexcept;        // see definition in rtx/accel.h
+    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.h
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
@@ -156,8 +161,6 @@ public:
     [[nodiscard]] auto create_buffer(void *ptr, size_t size) noexcept {
         return _create<Buffer<T>>(ptr, size);
     }
-    // TODO
-    //    [[nodiscard]] Buffer<DispatchArgs> create_dispatch_buffer(size_t capacity) noexcept;
 
     // [[nodiscard]] Buffer<DrawIndirectArgs> create_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;
     // [[nodiscard]] Buffer<DrawIndexedIndirectArgs> create_indexed_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;

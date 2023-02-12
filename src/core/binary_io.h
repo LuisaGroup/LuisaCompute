@@ -18,12 +18,12 @@ class BinaryIO {
 
 public:
     virtual ~BinaryIO() = default;
-    virtual luisa::unique_ptr<IBinaryStream> read_bytecode(luisa::string_view name) noexcept = 0;
-    virtual luisa::unique_ptr<IBinaryStream> read_cache(luisa::string_view name) noexcept = 0;
-    virtual luisa::unique_ptr<IBinaryStream> read_internal(luisa::string_view name) noexcept = 0;
-    virtual void write_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept = 0;
-    virtual void write_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept = 0;
-    virtual void write_internal(luisa::string_view name, luisa::span<std::byte const> data) noexcept = 0;
+    virtual luisa::unique_ptr<IBinaryStream> read_shader_bytecode(luisa::string_view name) noexcept = 0;
+    virtual luisa::unique_ptr<IBinaryStream> read_shader_cache(luisa::string_view name) noexcept = 0;
+    virtual luisa::unique_ptr<IBinaryStream> read_internal_shader(luisa::string_view name) noexcept = 0;
+    virtual void write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept = 0;
+    virtual void write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept = 0;
+    virtual void write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) noexcept = 0;
 };
 
 }// namespace luisa::compute

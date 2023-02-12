@@ -8,7 +8,7 @@
 #include <runtime/resource.h>
 #include <runtime/mipmap.h>
 #include <runtime/sampler.h>
-#include <runtime/device.h>
+#include <runtime/device_interface.h>
 
 namespace luisa::compute {
 

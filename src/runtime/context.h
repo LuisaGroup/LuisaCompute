@@ -35,6 +35,7 @@ private:
     explicit Context(luisa::shared_ptr<Impl> impl) noexcept;
 
 public:
+    // program_path can be first arg from main entry
     explicit Context(string_view program_path) noexcept;
     explicit Context(const char *program_path) noexcept
         : Context{string_view{program_path}} {}
@@ -43,12 +44,22 @@ public:
     Context(const Context &) noexcept = default;
     Context &operator=(Context &&) noexcept = default;
     Context &operator=(const Context &) noexcept = default;
+    // relative paths
     [[nodiscard]] ContextPaths paths() const noexcept;
+    // Create a virtual device
+    // backend "metal", "dx", "cuda" is supported currently
     [[nodiscard]] Device create_device(luisa::string_view backend_name,
                                        const DeviceConfig *settings = nullptr) noexcept;
+    // installed backends automatically detacted
+    // The compiled backends' name is returned
     [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;
+    // loaded backends' modules
     [[nodiscard]] luisa::span<const DynamicModule> loaded_modules() const noexcept;
+    // choose one backend randomly when multiple installed backends compiled
+    // program panic when no installed backends compiled
     [[nodiscard]] Device create_default_device() noexcept;
+    // Interface for binary input and output
+    // A default BinaryIO instance is provided by backend, usually the behavior is: read and write binary data from disk
     [[nodiscard]] BinaryIO *file_io() const noexcept;
     void set_file_io(BinaryIO *file_io) noexcept;
 };

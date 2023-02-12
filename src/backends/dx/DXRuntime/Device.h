@@ -38,12 +38,12 @@ struct SerializeVisitor : public luisa::compute::BinaryIO {
     luisa::unique_ptr<luisa::compute::IBinaryStream> Read(vstd::string const &filePath) noexcept;
     void Write(vstd::string const &filePath, luisa::span<std::byte const> data) noexcept;
     //	static vstd::string_view FileNameFilter(vstd::string_view path);
-    luisa::unique_ptr<luisa::compute::IBinaryStream> read_bytecode(luisa::string_view name) noexcept override;
-    luisa::unique_ptr<luisa::compute::IBinaryStream> read_cache(luisa::string_view name) noexcept override;
-    luisa::unique_ptr<luisa::compute::IBinaryStream> read_internal(luisa::string_view name) noexcept override;
-    void write_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
-    void write_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
-    void write_internal(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
+    luisa::unique_ptr<luisa::compute::IBinaryStream> read_shader_bytecode(luisa::string_view name) noexcept override;
+    luisa::unique_ptr<luisa::compute::IBinaryStream> read_shader_cache(luisa::string_view name) noexcept override;
+    luisa::unique_ptr<luisa::compute::IBinaryStream> read_internal_shader(luisa::string_view name) noexcept override;
+    void write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
+    void write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
+    void write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
 };
 class Device {
 public:

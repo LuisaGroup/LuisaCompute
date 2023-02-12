@@ -7,14 +7,14 @@
 #include <vstl/pdqsort.h>
 namespace toolhub::directx {
 vstd::StringBuilder CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::compute::BinaryIO *ctx) {
-    auto bin = ctx->read_internal(name);
+    auto bin = ctx->read_internal_shader(name);
     vstd::StringBuilder str;
     str.resize(bin->length());
     bin->read({reinterpret_cast<std::byte *>(str.data()), str.size()});
     return str;
 }
 vstd::vector<char> CodegenUtility::ReadInternalHLSLFileByte(vstd::string_view name, luisa::compute::BinaryIO *ctx) {
-    auto bin = ctx->read_internal(name);
+    auto bin = ctx->read_internal_shader(name);
     vstd::vector<char> str;
     str.resize_uninitialized(bin->length());
     bin->read({reinterpret_cast<std::byte *>(str.data()), str.size()});

@@ -34,7 +34,7 @@ void SerializeVisitor::Write(vstd::string const &filePath, luisa::span<std::byte
         fclose(f);
     }
 }
-luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_bytecode(luisa::string_view name) noexcept {
+luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_shader_bytecode(luisa::string_view name) noexcept {
     std::filesystem::path localPath{name};
     if (localPath.is_absolute()) {
         return Read(luisa::to_string(name));
@@ -42,15 +42,15 @@ luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_bytecode
     auto filePath = luisa::to_string(this->path.runtimeFolder / name);
     return Read(filePath);
 }
-luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_internal(luisa::string_view name) noexcept {
+luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_internal_shader(luisa::string_view name) noexcept {
     auto filePath = luisa::to_string(this->path.dataFolder / name);
     return Read(filePath);
 }
-luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_cache(luisa::string_view name) noexcept {
+luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_shader_cache(luisa::string_view name) noexcept {
     auto filePath = luisa::to_string(this->path.shaderCacheFolder / name);
     return Read(filePath);
 }
-void SerializeVisitor::write_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
+void SerializeVisitor::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
     std::filesystem::path localPath{name};
     if (localPath.is_absolute()) {
         Write(luisa::to_string(name), data);
@@ -59,11 +59,11 @@ void SerializeVisitor::write_bytecode(luisa::string_view name, luisa::span<std::
     auto filePath = luisa::to_string(this->path.runtimeFolder / name);
     Write(filePath, data);
 }
-void SerializeVisitor::write_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
+void SerializeVisitor::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
     auto filePath = luisa::to_string(this->path.shaderCacheFolder / name);
     Write(filePath, data);
 }
-void SerializeVisitor::write_internal(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
+void SerializeVisitor::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
     auto filePath = luisa::to_string(this->path.dataFolder / name);
     Write(filePath, data);
 }

@@ -365,9 +365,9 @@ RasterShader *RasterShader::CompileRaster(
         if (writeCache) {
             auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
             if (isInternal) {
-                fileIo->write_internal(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+                fileIo->write_internal_shader(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
             } else {
-                fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+                fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
             }
         }
 
@@ -441,7 +441,7 @@ void RasterShader::SaveRaster(
     auto vertBin = GetSpan(*compResult.vertex.get<0>());
     auto pixelBin = GetSpan(*compResult.pixel.get<0>());
     auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
-    fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+    fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
 }
 RasterShader *RasterShader::LoadRaster(
     BinaryIO *fileIo,

@@ -180,7 +180,7 @@ void Shader::SavePSO(vstd::string_view psoName, BinaryIO *fileStream, Device con
     LUISA_INFO("Write Pipeline cache to {}.", psoName);
     ComPtr<ID3DBlob> psoCache;
     pso->GetCachedBlob(&psoCache);
-    fileStream->write_cache(psoName, {reinterpret_cast<std::byte const *>(psoCache->GetBufferPointer()), psoCache->GetBufferSize()});
+    fileStream->write_shader_cache(psoName, {reinterpret_cast<std::byte const *>(psoCache->GetBufferPointer()), psoCache->GetBufferSize()});
 };
 vstd::string Shader::PSOName(Device const *device, vstd::string_view fileName) {
     vstd::fixed_vector<uint8_t, 64> data;

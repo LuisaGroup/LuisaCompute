@@ -91,9 +91,9 @@ ComputeShader *ComputeShader::CompileCompute(
                         str.bdlsBufferCount,
                         blockSize);
                     if (isInternal) {
-                        fileIo->write_internal(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+                        fileIo->write_internal_shader(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
                     } else {
-                        fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+                        fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
                     }
                 }
                 auto cs = new ComputeShader(
@@ -170,7 +170,7 @@ void ComputeShader::SaveCompute(
                 str.typeMD5,
                 str.bdlsBufferCount,
                 blockSize);
-            fileIo->write_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
+            fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
         },
         [](auto &&err) {
             std::cout << err << '\n';
