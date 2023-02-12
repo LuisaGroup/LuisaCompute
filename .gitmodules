@@ -24,4 +24,4 @@
 	url = https://github.com/greg7mdp/parallel-hashmap.git
 [submodule "src/ext/corrosion"]
 	path = src/ext/corrosion
-	url = git@github.com:corrosion-rs/corrosion.git
+	url = https://github.com/corrosion-rs/corrosion.git
