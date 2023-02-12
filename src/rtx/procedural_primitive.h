@@ -1,9 +1,6 @@
 #pragma once
 #include <runtime/device.h>
 #include <runtime/buffer.h>
-#ifndef LC_DISABLE_DSL
-#include <dsl/syntax.h>
-#endif
 namespace luisa::compute {
 class LC_RUNTIME_API ProceduralPrimitive final : public Resource {
     friend class Device;

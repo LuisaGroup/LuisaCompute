@@ -108,7 +108,7 @@ class StructType:
 
 class CustomType:
     def __init__(self, name:str):
-        self.luisa_type = lcapi.Type.from_(name)
+        self.luisa_type = lcapi.Type.custom(name)
         self.name = name
     def __repr__(self):
         return self.name

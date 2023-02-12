@@ -1,4 +1,5 @@
-#include <rtx/ray_query.h>
+#include <dsl/syntax.h>
+#include <dsl/rtx/ray_query.h>
 #include <core/logging.h>
 #include <vstl/meta_lib.h>
 
@@ -20,7 +21,6 @@ RayQuery::RayQuery(const CallExpr *func) noexcept {
     func_builder->assign(_expr, func);
 }
 
-#ifndef LC_DISABLE_DSL
 Var<Hit> RayQuery::proceed(const Callback &triangle_callback, const Callback &prim_callback) noexcept {
 
     auto func_builder = detail::FunctionBuilder::current();
@@ -66,6 +66,4 @@ void commit_primitive(Expr<float> distance) noexcept {
     detail::FunctionBuilder::current()->call(CallOp::RAY_QUERY_COMMIT_PROCEDURAL,
                                              {rayquery_detail::rayquery_expr, distance.expression()});
 }
-#endif
-
 }// namespace luisa::compute

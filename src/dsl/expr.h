@@ -14,7 +14,6 @@
 #include <ast/function_builder.h>
 #include <dsl/expr_traits.h>
 #include <dsl/arg.h>
-#include <runtime/dynamic_struct.h>
 
 namespace luisa::compute {
 
@@ -594,31 +593,6 @@ public:
                 {_array, _index, detail::extract_expression(std::forward<I>(i))}));
     }
 };
-class BindlessDynamicBuffer {
-
-private:
-    const DynamicStruct *_type{nullptr};
-    const RefExpr *_array{nullptr};
-    const Expression *_index{nullptr};
-
-public:
-    /// Construct from array RefExpr and index Expression
-    BindlessDynamicBuffer(const DynamicStruct *type, const RefExpr *array, const Expression *index) noexcept
-        : _type(type), _array{array}, _index{index} {}
-
-    /// Read at index i
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(I &&i) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        return Var<DynamicStruct>(
-            _type,
-            f->call(
-                _type, CallOp::BINDLESS_BUFFER_READ,
-                {_array, _index, detail::extract_expression(std::forward<I>(i))}));
-    }
-};
-
 /// Class of bindless 2D texture
 class LC_DSL_API BindlessTexture2D {
 
@@ -735,12 +709,6 @@ public:
         auto i = def(std::forward<I>(index));
         return BindlessBuffer<T>{_expression, i.expression()};
     }
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto dynamic_buffer(const DynamicStruct &type, I &&index) const noexcept {
-        auto i = def(std::forward<I>(index));
-        return BindlessDynamicBuffer{&type, _expression, i.expression()};
-    }
 };
 
 // deduction guides
@@ -796,83 +764,6 @@ BindlessBuffer<T> BindlessArray::buffer(I &&index) const noexcept {
     auto i = def(std::forward<I>(index));
     return Expr<BindlessArray>{*this}.buffer<T>(i);
 }
-
-template<>
-struct Expr<DynamicStruct> {
-
-private:
-    const Expression *_expression;
-
-public:
-    explicit Expr(const Expression *e) noexcept
-        : _expression{e} {}
-    [[nodiscard]] auto expression() const noexcept { return this->_expression; }
-    Expr(Expr &&another) noexcept = default;
-    Expr(const Expr &another) noexcept = default;
-    Expr &operator=(Expr) noexcept = delete;
-    template<typename M>
-    [[nodiscard]] auto get(uint member_index) const noexcept {
-        auto type = _expression->type();
-        LUISA_ASSERT(*_expression->type()->members()[member_index] ==
-                         *Type::of<M>(),
-                     "Mismatched member type '{}' vs '{}' "
-                     "at index {} for struct '{}'.",
-                     Type::of<M>()->description(),
-                     type->members()[member_index]->description(),
-                     member_index, type->description());
-        return Expr<M>{detail::FunctionBuilder::current()->member(
-            Type::of<M>(), this->expression(), member_index)};
-    };
-};
-
-template<>
-struct Expr<Buffer<DynamicStruct>> {
-
-private:
-    const RefExpr *_expression{nullptr};
-
-public:
-    /// Construct from RefExpr
-    explicit Expr(const RefExpr *expr) noexcept
-        : _expression{expr} {}
-    /// Construct from BufferView. Will call buffer_binding() to bind buffer
-    Expr(BufferView<DynamicStruct> buffer) noexcept
-        : _expression{detail::FunctionBuilder::current()->buffer_binding(
-              buffer.type(), buffer.handle(),
-              buffer.offset_bytes(), buffer.size_bytes())} {}
-
-    /// Return RefExpr
-    [[nodiscard]] const RefExpr *expression() const noexcept { return _expression; }
-
-    /// Read buffer at index
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto read(I &&index) const noexcept {
-        auto f = detail::FunctionBuilder::current();
-        auto expr = f->call(
-            _expression->type()->element(), CallOp::BUFFER_READ,
-            {_expression,
-             detail::extract_expression(std::forward<I>(index))});
-        return def<DynamicStruct>(expr);
-    }
-
-    /// Write buffer at index
-    template<typename I>
-        requires is_integral_expr_v<I>
-    void write(I &&index, Expr<DynamicStruct> value) const noexcept {
-        detail::FunctionBuilder::current()->call(
-            CallOp::BUFFER_WRITE,
-            {_expression,
-             detail::extract_expression(std::forward<I>(index)),
-             value.expression()});
-    }
-};
-
-/// Same as Expr<Buffer<T>>
-template<>
-struct Expr<BufferView<DynamicStruct>> : public Expr<Buffer<DynamicStruct>> {
-    using Expr<Buffer<DynamicStruct>>::Expr;
-};
 
 }// namespace luisa::compute
 #endif

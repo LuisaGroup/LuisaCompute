@@ -6,7 +6,6 @@
 
 #include <runtime/device_interface.h>
 #include <runtime/custom_struct.h>
-#include <runtime/dynamic_struct.h>
 
 namespace luisa::compute {
 
@@ -157,12 +156,8 @@ public:
     [[nodiscard]] auto create_buffer(void *ptr, size_t size) noexcept {
         return _create<Buffer<T>>(ptr, size);
     }
-
-    [[nodiscard]] Buffer<DynamicStruct> create_buffer(const DynamicStruct &type, size_t size) noexcept;
     // TODO
-    //    [[nodiscard]] Buffer<DispatchArgs> create_1d_dispatch_buffer(size_t capacity) noexcept;
-    //    [[nodiscard]] Buffer<DispatchArgs> create_2d_dispatch_buffer(size_t capacity) noexcept;
-    //    [[nodiscard]] Buffer<DispatchArgs> create_3d_dispatch_buffer(size_t capacity) noexcept;
+    //    [[nodiscard]] Buffer<DispatchArgs> create_dispatch_buffer(size_t capacity) noexcept;
 
     // [[nodiscard]] Buffer<DrawIndirectArgs> create_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;
     // [[nodiscard]] Buffer<DrawIndexedIndirectArgs> create_indexed_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;

@@ -19,22 +19,18 @@ LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size
 LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst);
 }// namespace detail
 
-class DynamicStruct;
-
 template<typename T>
-struct Expr;
+struct BufferExprProxy;
 
 template<typename T>
 class BufferView;
 
 template<typename T>
-using is_valid_buffer_element = std::disjunction<
-    std::conjunction<
-        std::is_same<T, std::remove_cvref_t<T>>,
-        std::is_trivially_copyable<T>,
-        std::is_trivially_destructible<T>,
-        std::bool_constant<(alignof(T) >= 4u)>>,
-    std::is_same<T, DynamicStruct>>;
+using is_valid_buffer_element = std::conjunction<
+    std::is_same<T, std::remove_cvref_t<T>>,
+    std::is_trivially_copyable<T>,
+    std::is_trivially_destructible<T>,
+    std::bool_constant<(alignof(T) >= 4u)>>;
 
 template<typename T>
 constexpr auto is_valid_buffer_element_v = is_valid_buffer_element<T>::value;
@@ -75,22 +71,12 @@ public:
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept { return this->view().copy_from(source); }
 
     template<typename I>
-    [[nodiscard]] decltype(auto) read(I &&i) const noexcept {
-        return this->view().read(std::forward<I>(i));
-    }
-
-    template<typename I, typename V>
-    void write(I &&i, V &&v) const noexcept {
-        this->view().write(std::forward<I>(i), std::forward<V>(v));
-    }
-
-    template<typename I>
     [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
         return this->view().atomic(std::forward<I>(i));
     }
 
     [[nodiscard]] auto operator->() const noexcept {
-        return Expr<Buffer<T>>{*this};
+        return reinterpret_cast<BufferExprProxy<Buffer<T>> const*>(this);
     }
 };
 
@@ -166,26 +152,10 @@ public:
             this->size_bytes());
     }
 
-    template<typename I>
-    [[nodiscard]] decltype(auto) read(I &&i) const noexcept {
-        return Expr<Buffer<T>>{*this}.read(std::forward<I>(i));
-    }
-
-    template<typename I, typename V>
-    void write(I &&i, V &&v) const noexcept {
-        Expr<Buffer<T>>{*this}.write(std::forward<I>(i), std::forward<V>(v));
-    }
-
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return Expr<Buffer<T>>{*this}.atomic(std::forward<I>(i));
-    }
-
     [[nodiscard]] auto operator->() const noexcept {
-        return Expr<Buffer<T>>{*this};
+        return reinterpret_cast<BufferExprProxy<BufferView<T>> const*>(this);
     }
 
-    [[nodiscard]] BufferView<DynamicStruct> as(const Type *type) const noexcept;
 };
 
 template<typename T>

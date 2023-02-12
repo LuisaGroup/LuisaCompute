@@ -2,8 +2,7 @@
 // Created by Mike Smith on 2021/6/24.
 //
 
-#ifndef LC_DISABLE_DSL
-#include <rtx/ray.h>
+#include <dsl/rtx/ray.h>
 namespace luisa::compute {
 
 Var<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {
@@ -29,4 +28,3 @@ Float3 offset_ray_origin(Expr<float3> p, Expr<float3> n, Expr<float3> w) noexcep
 }
 
 }// namespace luisa::compute
-#endif

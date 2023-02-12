@@ -20,7 +20,7 @@ template<typename T>
 class VolumeView;
 
 template<typename T>
-struct Expr;
+struct VolumeExprProxy;
 
 // Volumes are 3D textures without sampling, i.e., 3D surfaces.
 template<typename T>
@@ -74,16 +74,8 @@ public:
 
     [[nodiscard]] auto view() const noexcept { return view(0u); }
 
-    template<typename UVW>
-    [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
-        return this->view().read(std::forward<UVW>(uvw));
-    }
-
-    template<typename UVW, typename Value>
-    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value) const noexcept {
-        return this->view().write(
-            std::forward<UVW>(uvw),
-            std::forward<Value>(value));
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<VolumeExprProxy<Volume<T>> const *>(this);
     }
 
     template<typename U>
@@ -134,17 +126,8 @@ public:
     [[nodiscard]] auto copy_to(U &&dst) const noexcept { return _as_mipmap().copy_to(std::forward<U>(dst)); }
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
-
-    template<typename UVW>
-    [[nodiscard]] decltype(auto) read(UVW &&uvw) const noexcept {
-        return Expr<Volume<T>>{*this}.read(std::forward<UVW>(uvw));
-    }
-
-    template<typename UVW, typename Value>
-    [[nodiscard]] decltype(auto) write(UVW &&uvw, Value &&value) const noexcept {
-        return Expr<Volume<T>>{*this}.write(
-            std::forward<UVW>(uvw),
-            std::forward<Value>(value));
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<VolumeExprProxy<VolumeView<T>> const *>(this);
     }
 };
 

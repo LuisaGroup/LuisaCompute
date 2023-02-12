@@ -1,8 +1,7 @@
 //
 // Created by Mike Smith on 2021/6/24.
 //
-#ifndef LC_DISABLE_DSL
-#include <rtx/hit.h>
+#include <dsl/rtx/hit.h>
 
 namespace luisa::compute {
 Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
@@ -21,4 +20,3 @@ Var<float4> interpolate(Expr<Hit> hit, Expr<float4> a, Expr<float4> b, Expr<floa
 }
 
 }// namespace luisa::compute
-#endif

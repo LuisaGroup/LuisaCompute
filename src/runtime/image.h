@@ -23,7 +23,7 @@ template<typename T>
 class BufferView;
 
 template<typename T>
-struct Expr;
+struct ImageExprProxy;
 
 class BindlessArray;
 
@@ -82,18 +82,6 @@ public:
 
     [[nodiscard]] auto view() const noexcept { return view(0u); }
 
-    template<typename UV>
-    [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
-        return this->view().read(std::forward<UV>(uv));
-    }
-
-    template<typename UV, typename Value>
-    [[nodiscard]] decltype(auto) write(UV &&uv, Value &&value) const noexcept {
-        return this->view().write(
-            std::forward<UV>(uv),
-            std::forward<Value>(value));
-    }
-
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept {
         return this->view(0).copy_to(std::forward<U>(dst));
@@ -101,6 +89,9 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(U &&dst) const noexcept {
         return this->view(0).copy_from(std::forward<U>(dst));
+    }
+    [[nodiscard]] auto operator->() const noexcept{
+        return reinterpret_cast<ImageExprProxy<Image<T>> const*>(*this);
     }
 };
 class ViewExporter;
@@ -147,16 +138,8 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
 
-    template<typename UV>
-    [[nodiscard]] decltype(auto) read(UV &&uv) const noexcept {
-        return Expr<Image<T>>{*this}.read(std::forward<UV>(uv));
-    }
-
-    template<typename UV, typename Value>
-    void write(UV uv, Value &&value) const noexcept {
-        Expr<Image<T>>{*this}.write(
-            std::forward<UV>(uv),
-            std::forward<Value>(value));
+    [[nodiscard]] auto operator->() const noexcept{
+        return reinterpret_cast<ImageExprProxy<ImageView<T>> const*>(*this);
     }
 };
 
