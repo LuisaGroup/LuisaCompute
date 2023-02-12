@@ -31,12 +31,12 @@ Buffer<DrawIndexedIndirectArgs> Device::create_indexed_draw_buffer(const MeshFor
 }
 */
 
-void clear_dispatch_buffer(Expr<Buffer<DispatchArgs>> buffer) {
+void clear_dispatch_buffer(Expr<DispatchArgsBuffer buffer) {
     detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
 }
 
 void emplace_dispatch_kernel(
-    Expr<Buffer<DispatchArgs>> buffer,
+    Expr<DispatchArgsBuffer buffer,
     Expr<uint> block_size,
     Expr<uint> dispatch_size,
     Expr<uint> kernel_id) {

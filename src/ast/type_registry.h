@@ -31,9 +31,10 @@ class VolumeView;
 
 class BindlessArray;
 class Accel;
-
 template<typename T>
-struct is_custom_struct : public std::false_type {};
+consteval bool is_custom_struct_v() {
+    return (requires { typename T::is_custom_struct; });
+}
 
 namespace detail {
 
@@ -218,14 +219,17 @@ struct TypeDesc<std::tuple<T...>> {
 
 template<typename T>
 const Type *Type::of() noexcept {
-    if constexpr (std::is_same_v<T, void>) { return nullptr; }
-    if constexpr (requires { typename T::is_custom_struct; }) {
-        static thread_local auto t = Type::custom(T::type_name);
-        return t;
+    if constexpr (std::is_same_v<T, void>) {
+        return nullptr;
     } else {
         auto desc = detail::TypeDesc<std::remove_cvref_t<T>>::description();
-        static thread_local auto t = Type::from(desc);
-        return t;
+        if constexpr (is_custom_struct_v<T>()) {
+            static thread_local auto t = Type::custom(desc);
+            return t;
+        } else {
+            static thread_local auto t = Type::from(desc);
+            return t;
+        }
     }
 }
 

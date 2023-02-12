@@ -9,7 +9,7 @@
 #include <runtime/resource.h>
 #include <runtime/device.h>
 #include <runtime/bindless_array.h>
-#include <runtime/custom_struct.h>
+#include <runtime/dispatch_buffer.h>
 #include <runtime/cmd_encoder.h>
 namespace luisa::compute {
 
@@ -104,7 +104,7 @@ protected:
         _command.set_dispatch_size(dispatch_size);
         return std::move(_command);
     }
-    [[nodiscard]] auto _parallelize(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
+    [[nodiscard]] auto _parallelize(DispatchArgsBuffer const &indirect_buffer) &&noexcept {
         _command.set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle()});
         return std::move(_command);
     }
@@ -121,7 +121,7 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint size_x) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
     }
-    [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
+    [[nodiscard]] auto dispatch(DispatchArgsBuffer const &indirect_buffer) &&noexcept {
         return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
 };
@@ -135,7 +135,7 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint2 size) &&noexcept {
         return std::move(*this).dispatch(size.x, size.y);
     }
-    [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
+    [[nodiscard]] auto dispatch(DispatchArgsBuffer const &indirect_buffer) &&noexcept {
         return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
 };
@@ -146,7 +146,7 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
     }
-    [[nodiscard]] auto dispatch(Buffer<DispatchArgs> const &indirect_buffer) &&noexcept {
+    [[nodiscard]] auto dispatch(DispatchArgsBuffer const &indirect_buffer) &&noexcept {
         return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
     [[nodiscard]] auto dispatch(uint3 size) &&noexcept {

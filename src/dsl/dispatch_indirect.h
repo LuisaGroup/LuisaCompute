@@ -11,10 +11,10 @@ LUISA_CUSTOM_STRUCT(DispatchArgs);
 
 namespace luisa::compute {
 
-LC_DSL_API void clear_dispatch_buffer(Expr<Buffer<DispatchArgs>> buffer);
+LC_DSL_API void clear_dispatch_buffer(Expr<DispatchArgsBuffer buffer);
 
 LC_DSL_API void emplace_dispatch_kernel(
-    Expr<Buffer<DispatchArgs>> buffer,
+    Expr<DispatchArgsBuffer buffer,
     Expr<uint> block_size,
     Expr<uint> dispatch_size,
     Expr<uint> kernel_id);

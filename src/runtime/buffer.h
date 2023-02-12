@@ -9,6 +9,7 @@
 #include <runtime/command.h>
 #include <runtime/resource.h>
 #include <runtime/device_interface.h>
+#include <runtime/custom_struct.h>
 
 namespace luisa::compute {
 
@@ -25,15 +26,11 @@ struct BufferExprProxy;
 template<typename T>
 class BufferView;
 template<typename T>
-using is_valid_buffer_element = std::conjunction<
-    std::is_same<T, std::remove_cvref_t<T>>,
-    std::is_trivially_copyable<T>,
-    std::is_trivially_destructible<T>,
-    std::bool_constant<(alignof(T) >= 4u)>,
-    std::negation<is_custom_struct<T>>>;
-
-template<typename T>
-constexpr auto is_valid_buffer_element_v = is_valid_buffer_element<T>::value;
+constexpr bool is_valid_buffer_element_v =
+    std::is_same_v<T, std::remove_cvref_t<T>> &&
+    std::is_trivially_copyable_v<T> &&
+    std::is_trivially_destructible_v<T> &&
+    (alignof(T) >= 4u) && (!std::is_same_v<T, DispatchArgs>);
 
 template<typename T>
 class Buffer final : public Resource {
@@ -59,9 +56,9 @@ public:
     Buffer() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] constexpr auto stride() const noexcept { return sizeof(T); }
-    [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
-    [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), 0u, _size, _size}; }
+    [[nodiscard]] constexpr auto stride() const noexcept { return _element_stride; }
+    [[nodiscard]] auto size_bytes() const noexcept { return _size * _element_stride; }
+    [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), _element_stride, 0u, _size, _size}; }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
 
     [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
@@ -86,6 +83,7 @@ class BufferView {
 private:
     uint64_t _handle;
     size_t _offset_bytes;
+    size_t _element_stride;
     size_t _size;
     size_t _total_size;
 
@@ -94,8 +92,8 @@ private:
 
     template<typename U>
     friend class BufferView;
-    BufferView(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept
-        : _handle{handle}, _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
+    BufferView(uint64_t handle, size_t element_stride, size_t offset_bytes, size_t size, size_t total_size) noexcept
+        : _handle{handle}, _element_stride{element_stride}, _offset_bytes{offset_bytes}, _size{size}, _total_size{total_size} {
         if (_offset_bytes % alignof(T) != 0u) [[unlikely]] {
             detail::error_buffer_invalid_alignment(_offset_bytes, alignof(T));
         }
@@ -107,24 +105,25 @@ public:
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] constexpr auto stride() const noexcept { return sizeof(T); }
+    [[nodiscard]] constexpr auto stride() const noexcept { return _element_stride; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto offset() const noexcept { return _offset_bytes / sizeof(T); }
+    [[nodiscard]] auto offset() const noexcept { return _offset_bytes / _element_stride; }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
-    [[nodiscard]] auto size_bytes() const noexcept { return _size * sizeof(T); }
+    [[nodiscard]] auto size_bytes() const noexcept { return _size * _element_stride; }
 
     [[nodiscard]] auto original() const noexcept {
-        return BufferView{_handle, 0u, _total_size, _total_size};
+        return BufferView{_handle, _element_stride, 0u, _total_size, _total_size};
     }
 
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
         if (size_elements + offset_elements > _size) [[unlikely]] {
             detail::error_buffer_subview_overflow(offset_elements, size_elements, _size);
         }
-        return BufferView{_handle, _offset_bytes + offset_elements * sizeof(T), size_elements, _total_size};
+        return BufferView{_handle, _element_stride, _offset_bytes + offset_elements * _element_stride, size_elements, _total_size};
     }
 
     template<typename U>
+        requires(!is_custom_struct_v<U>())
     [[nodiscard]] auto as() const noexcept {
         if (this->size_bytes() < sizeof(U)) [[unlikely]] {
             detail::error_buffer_reinterpret_size_too_small(sizeof(U), this->size_bytes());

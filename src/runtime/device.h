@@ -20,6 +20,7 @@ class Accel;
 class SwapChain;
 class BinaryIO;
 class BindlessArray;
+class DispatchArgsBuffer;
 
 template<typename T>
 class Buffer;
@@ -116,7 +117,7 @@ public:
         uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
     
-    [[nodiscard]] Buffer<DispatchArgs> create_dispatch_buffer(size_t capacity) noexcept;
+    [[nodiscard]] DispatchArgsBuffer create_dispatch_buffer(size_t capacity) noexcept;
 
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
