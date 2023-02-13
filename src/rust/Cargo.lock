@@ -36,9 +36,9 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.63.0"
+version = "0.64.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36d860121800b2a9a94f9b5604b332d5cffb234ce17609ea479d723dbc9d3885"
+checksum = "c4243e6031260db77ede97ad86c27e501d646a27ab57b59a574f725d98ab1fb4"
 dependencies = [
  "bitflags",
  "cexpr",
@@ -236,7 +236,7 @@ checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 [[package]]
 name = "embree_sys"
 version = "0.1.0"
-source = "git+https://github.com/shiinamiyuki/embree-sys#5a81e52162095cff8af5393d645c56a68834904c"
+source = "git+https://github.com/shiinamiyuki/embree-sys#d66a8079130026c03c13b803af4859f28e7d20fb"
 dependencies = [
  "bindgen",
  "cmake",
