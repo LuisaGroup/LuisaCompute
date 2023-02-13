@@ -268,13 +268,15 @@ impl AccelImpl {
                 instID: [u32::MAX],
             },
         };
-        let mut ctx = sys::RTCIntersectContext {
-            flags: sys::RTC_INTERSECT_CONTEXT_FLAG_INCOHERENT,
+        let mut args = sys::RTCIntersectArguments {
+            flags: sys::RTC_RAY_QUERY_FLAG_INCOHERENT,
+            feature_mask: sys::RTC_FEATURE_FLAG_ALL,
             filter: None,
-            instID: [u32::MAX],
+            intersect: None,
+            context: std::ptr::null_mut(),
         };
 
-        sys::rtcIntersect1(self.handle, &mut ctx as *mut _, &mut rayhit as *mut _);
+        sys::rtcIntersect1(self.handle, &mut rayhit as *mut _, &mut args as *mut _);
         if rayhit.hit.geomID != u32::MAX && rayhit.hit.primID != u32::MAX {
             defs::Hit {
                 inst_id: rayhit.hit.instID[0],
@@ -307,12 +309,14 @@ impl AccelImpl {
             id: 0,
             flags: 0,
         };
-        let mut ctx = sys::RTCIntersectContext {
-            flags: sys::RTC_INTERSECT_CONTEXT_FLAG_INCOHERENT,
+        let mut args = sys::RTCOccludedArguments {
+            flags: sys::RTC_RAY_QUERY_FLAG_INCOHERENT,
+            feature_mask: sys::RTC_FEATURE_FLAG_ALL,
             filter: None,
-            instID: [u32::MAX],
+            occluded: None,
+            context: std::ptr::null_mut(),
         };
-        sys::rtcOccluded1(self.handle, &mut ctx as *mut _, &mut ray as *mut _);
+        sys::rtcOccluded1(self.handle, &mut ray as *mut _, &mut args as *mut _);
         ray.tfar < 0.0
     }
     #[inline]
