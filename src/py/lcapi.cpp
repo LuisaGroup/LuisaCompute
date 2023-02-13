@@ -14,7 +14,7 @@
 #include <runtime/context.h>
 #include <runtime/stream.h>
 #include <py/py_stream.h>
-#include <runtime/cmd_encoder.h>
+#include <runtime/command_encoder.h>
 #include <runtime/image.h>
 #include <runtime/rtx/accel.h>
 #include <runtime/rtx/mesh.h>

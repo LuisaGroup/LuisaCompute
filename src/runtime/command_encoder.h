@@ -7,6 +7,7 @@
 namespace luisa::compute {
 
 class LC_RUNTIME_API ShaderDispatchCmdEncoder {
+
 public:
     using Argument = ShaderDispatchCommandBase::Argument;
 
@@ -29,10 +30,12 @@ public:
 };
 
 class LC_RUNTIME_API ComputeDispatchCmdEncoder final : public ShaderDispatchCmdEncoder {
+
 private:
     uint64_t _handle{};
     luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
     Function _kernel;
+
 public:
     explicit ComputeDispatchCmdEncoder(size_t arg_size, uint64_t handle, Function kernel) noexcept;
     ComputeDispatchCmdEncoder(ComputeDispatchCmdEncoder &&) noexcept = default;
@@ -75,6 +78,7 @@ public:
         uint64_t handle,
         Function vertex_func,
         Function pixel_func) noexcept;
+
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder const &) noexcept = delete;
     ~RasterDispatchCmdEncoder() noexcept;
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept;

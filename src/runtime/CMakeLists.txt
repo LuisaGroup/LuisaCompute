@@ -26,7 +26,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp bindless_array.h
         buffer.cpp buffer.h
         command.h
-        cmd_encoder.cpp cmd_encoder.h
+        command_encoder.cpp command_encoder.h
         command_buffer.cpp command_buffer.h
         command_list.cpp command_list.h
         context.cpp context.h
@@ -47,8 +47,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         swap_chain.cpp swap_chain.h
         volume.cpp volume.h
         ${LUISA_COMPUTE_RUNTIME_RTX_SOURCES}
-#        ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES}
-        )
+        ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES})
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compute-ir) # this is so broken, disable it for now

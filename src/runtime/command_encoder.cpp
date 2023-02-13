@@ -1,6 +1,6 @@
-#include <runtime/cmd_encoder.h>
 #include <core/logging.h>
 #include <runtime/command.h>
+#include <runtime/command_encoder.h>
 #include <runtime/raster/raster_scene.h>
 
 namespace luisa::compute {
@@ -10,16 +10,19 @@ std::byte *ShaderDispatchCmdEncoder::_make_space(size_t size) noexcept {
     _argument_buffer.resize(offset + size);
     return _argument_buffer.data() + offset;
 }
+
 ShaderDispatchCmdEncoder::ShaderDispatchCmdEncoder(size_t arg_count) : _argument_count(arg_count) {
     size_t size = arg_count * sizeof(Argument);
     _argument_buffer.reserve(size + 256);
     _argument_buffer.push_back_uninitialized(size);
 }
+
 ShaderDispatchCmdEncoder::Argument &ShaderDispatchCmdEncoder::create_arg() {
     auto idx = _argument_idx;
     _argument_idx++;
     return *std::launder(reinterpret_cast<Argument *>(_argument_buffer.data()) + idx);
 }
+
 void ShaderDispatchCmdEncoder::_encode_buffer(Function kernel, uint64_t handle, size_t offset, size_t size) noexcept {
 #ifndef NDEBUG
     if (kernel) {
@@ -212,26 +215,31 @@ void ComputeDispatchCmdEncoder::encode_accel(uint64_t handle) noexcept {
     _encode_accel(_kernel, handle);
     _encode_pending_bindings(_kernel);
 }
+
 void RasterDispatchCmdEncoder::encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
     auto kernel = arg_kernel();
     _encode_buffer(kernel, handle, offset, size);
     _encode_pending_bindings(kernel);
 }
+
 void RasterDispatchCmdEncoder::encode_texture(uint64_t handle, uint32_t level) noexcept {
     auto kernel = arg_kernel();
     _encode_texture(kernel, handle, level);
     _encode_pending_bindings(kernel);
 }
+
 void RasterDispatchCmdEncoder::encode_uniform(const void *data, size_t size) noexcept {
     auto kernel = arg_kernel();
     _encode_uniform(kernel, data, size);
     _encode_pending_bindings(kernel);
 }
+
 void RasterDispatchCmdEncoder::encode_bindless_array(uint64_t handle) noexcept {
     auto kernel = arg_kernel();
     _encode_bindless_array(kernel, handle);
     _encode_pending_bindings(kernel);
 }
+
 void RasterDispatchCmdEncoder::encode_accel(uint64_t handle) noexcept {
     auto kernel = arg_kernel();
     _encode_accel(kernel, handle);
@@ -246,9 +254,11 @@ Function RasterDispatchCmdEncoder::arg_kernel() {
     }
     return _default_func;
 }
+
 RasterDispatchCmdEncoder::~RasterDispatchCmdEncoder() noexcept = default;
 RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept = default;
 RasterDispatchCmdEncoder &RasterDispatchCmdEncoder::operator=(RasterDispatchCmdEncoder &&) noexcept = default;
+
 RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(
     size_t arg_size,
     uint64_t handle,
@@ -256,6 +266,7 @@ RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(
     Function pixel_func) noexcept
     : ShaderDispatchCmdEncoder{arg_size}, _handle{handle}, _vertex_func{vertex_func},
       _pixel_func{pixel_func} { _default_func = _vertex_func; }
+
 luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&noexcept {
     if (_argument_idx != _argument_count) [[unlikely]] {
         LUISA_ERROR("Required argument count {}, Actual argument count {}.", _argument_count, _argument_idx);
@@ -269,6 +280,7 @@ luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&no
     cmd->_dispatch_size = _dispatch_size;
     return cmd;
 }
+
 luisa::unique_ptr<DrawRasterSceneCommand> RasterDispatchCmdEncoder::build() &&noexcept {
     if (_argument_idx != _argument_count) [[unlikely]] {
         LUISA_ERROR("Required argument count {}, Actual argument count {}.", _argument_count, _argument_idx);
@@ -286,9 +298,11 @@ luisa::unique_ptr<DrawRasterSceneCommand> RasterDispatchCmdEncoder::build() &&no
     cmd->_viewport = viewport;
     return cmd;
 }
+
 DrawRasterSceneCommand::~DrawRasterSceneCommand() noexcept {}
 DrawRasterSceneCommand::DrawRasterSceneCommand(uint64_t shader_handle, luisa::vector<std::byte> &&argument_buffer, size_t argument_count) noexcept
     : ShaderDispatchCommandBase{Tag::EDrawRasterSceneCommand, shader_handle, std::move(argument_buffer), argument_count} {}
 luisa::span<const RasterMesh> DrawRasterSceneCommand::scene() const noexcept { return luisa::span{_scene}; }
 DrawRasterSceneCommand::DrawRasterSceneCommand(DrawRasterSceneCommand &&) = default;
+
 }// namespace luisa::compute
