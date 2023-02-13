@@ -16,10 +16,9 @@ ShaderDispatchCmdEncoder::ShaderDispatchCmdEncoder(size_t arg_count) : _argument
     _argument_buffer.push_back_uninitialized(size);
 }
 ShaderDispatchCmdEncoder::Argument &ShaderDispatchCmdEncoder::create_arg() {
-    if (_argument_idx >= _argument_count) [[unlikely]] {
-        LUISA_ERROR("Argument {} out of bound {}.", _argument_idx, _argument_count);
-    }
-    return *(reinterpret_cast<Argument *>(_argument_buffer.data()) + (_argument_idx++));
+    auto idx = _argument_idx;
+    _argument_idx++;
+    return *std::launder(reinterpret_cast<Argument *>(_argument_buffer.data()) + idx);
 }
 void ShaderDispatchCmdEncoder::_encode_buffer(Function kernel, uint64_t handle, size_t offset, size_t size) noexcept {
 #ifndef NDEBUG
@@ -82,12 +81,13 @@ void ShaderDispatchCmdEncoder::_encode_uniform(Function kernel, const void *data
         }
     }
 #endif
+    auto offset = _argument_buffer.size();
+    _argument_buffer.push_back_uninitialized(size);
+    std::memcpy(_argument_buffer.data() + offset, data, size);
     auto &&arg = create_arg();
     arg.tag = Argument::Tag::UNIFORM;
-    arg.uniform.offset = _argument_buffer.size();
-    _argument_buffer.push_back_uninitialized(size);
+    arg.uniform.offset = offset;
     arg.uniform.size = size;
-    std::memcpy(_argument_buffer.data() + arg.uniform.offset, data, size);
 }
 
 void ComputeDispatchCmdEncoder::set_dispatch_size(uint3 launch_size) noexcept {
@@ -257,6 +257,10 @@ RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(
     : ShaderDispatchCmdEncoder{arg_size}, _handle{handle}, _vertex_func{vertex_func},
       _pixel_func{pixel_func} { _default_func = _vertex_func; }
 luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&noexcept {
+    if (_argument_idx != _argument_count) [[unlikely]] {
+        LUISA_ERROR("Required argument count {}, Actual argument count {}.", _argument_count, _argument_idx);
+    }
+    auto args = luisa::span{std::launder(reinterpret_cast<const Argument *>(_argument_buffer.data())), _argument_count};
     luisa::unique_ptr<ShaderDispatchCommand> cmd{
         new (luisa::detail::allocator_allocate(sizeof(ShaderDispatchCommand), alignof(ShaderDispatchCommand))) ShaderDispatchCommand{
             _handle,
@@ -266,6 +270,9 @@ luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&no
     return cmd;
 }
 luisa::unique_ptr<DrawRasterSceneCommand> RasterDispatchCmdEncoder::build() &&noexcept {
+    if (_argument_idx != _argument_count) [[unlikely]] {
+        LUISA_ERROR("Required argument count {}, Actual argument count {}.", _argument_count, _argument_idx);
+    }
     // friend class
     luisa::unique_ptr<DrawRasterSceneCommand> cmd{
         new (luisa::detail::allocator_allocate(sizeof(DrawRasterSceneCommand), alignof(DrawRasterSceneCommand))) DrawRasterSceneCommand{
