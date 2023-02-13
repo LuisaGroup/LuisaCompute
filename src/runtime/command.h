@@ -154,7 +154,7 @@ private:
 
 protected:
     ShaderDispatchCommandBase(Tag tag, uint64_t shader_handle,
-                              luisa::vector<std::byte> argument_buffer,
+                              luisa::vector<std::byte> &&argument_buffer,
                               size_t argument_count) noexcept
         : Command{tag}, _handle{shader_handle},
           _argument_buffer{std::move(argument_buffer)},
@@ -178,7 +178,7 @@ friend class ComputeDispatchCmdEncoder;
 
 public:
     ShaderDispatchCommand(uint64_t shader_handle,
-                          luisa::vector<std::byte> argument_buffer,
+                          luisa::vector<std::byte> &&argument_buffer,
                           size_t argument_count) noexcept
         : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand, shader_handle,
                                     std::move(argument_buffer), argument_count} {}
