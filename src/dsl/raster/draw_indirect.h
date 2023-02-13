@@ -14,10 +14,10 @@ struct VertexBufferAddress {};
 struct IndexBufferAddress {};
 }// namespace luisa::compute
 
-LUISA_CUSTOM_STRUCT(DrawIndirectArgs);
-LUISA_CUSTOM_STRUCT(DrawIndexedIndirectArgs);
-LUISA_CUSTOM_STRUCT(VertexBufferAddress);
-LUISA_CUSTOM_STRUCT(IndexBufferAddress);
+LUISA_CUSTOM_STRUCT(DrawIndirectArgs)
+LUISA_CUSTOM_STRUCT(DrawIndexedIndirectArgs)
+LUISA_CUSTOM_STRUCT(VertexBufferAddress)
+LUISA_CUSTOM_STRUCT(IndexBufferAddress)
 
 /*
 namespace luisa::compute {

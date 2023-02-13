@@ -4,8 +4,8 @@
 //
 
 #include <runtime/custom_pass.h>
-#include <rtx/mesh.h>
-#include <rtx/accel.h>
+#include <runtime/rtx/mesh.h>
+#include <runtime/rtx/accel.h>
 
 namespace luisa::compute {
 

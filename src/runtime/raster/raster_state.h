@@ -1,8 +1,9 @@
 #pragma once
-#include <raster/vertex_attribute.h>
+
 #include <core/stl/optional.h>
 #include <runtime/depth_format.h>
-#include <raster/viewport.h>
+#include <runtime/raster/vertex_attribute.h>
+#include <runtime/raster/viewport.h>
 
 namespace luisa::compute {
 

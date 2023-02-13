@@ -151,7 +151,7 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
         return std::move(std::move(*this)._parallelize(indirect_buffer)).build();
     }
     [[nodiscard]] auto dispatch(uint3 size) &&noexcept {
-        std::move(*this).dispatch(size.x, size.y, size.z);
+        return std::move(*this).dispatch(size.x, size.y, size.z);
     }
 };
 

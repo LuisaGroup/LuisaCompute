@@ -4,7 +4,6 @@
 
 #pragma once
 
-
 #include <dsl/struct.h>
 #include <core/mathematics.h>
 #include <core/stl/format.h>
@@ -26,4 +25,5 @@ struct Hit {
 };
 
 }// namespace luisa::compute
+
 LUISA_STRUCT(luisa::compute::Hit, inst, prim, bary, hit_type, committed_ray_t)

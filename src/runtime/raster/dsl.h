@@ -1,10 +1,14 @@
 #pragma once
+
 #ifndef LC_DISABLE_DSL
-#include <raster/raster_kernel.h>
+
+#include <runtime/raster/raster_kernel.h>
 #include <ast/function_builder.h>
 #include <dsl/var.h>
 #include <dsl/struct.h>
+
 namespace luisa::compute {
+
 struct VertexData {
     Float3 position;
     Float3 normal;
@@ -14,8 +18,10 @@ struct VertexData {
     UInt vertex_id;
     UInt instance_id;
 };
+
 #define LUISA_EXPR(value) \
     detail::extract_expression(std::forward<decltype(value)>(value))
+
 inline VertexData get_vertex_data() {
     VertexData data;
     detail::FunctionBuilder::current()->call(
@@ -32,9 +38,13 @@ inline VertexData get_vertex_data() {
          LUISA_EXPR(data.instance_id)});
     return data;
 }
+
 inline auto object_id(){
     return Var<uint>{detail::FunctionBuilder::current()->object_id()};
 }
+
 #undef LUISA_EXPR
+
 }// namespace luisa::compute
+
 #endif

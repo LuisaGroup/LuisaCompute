@@ -6,9 +6,9 @@
 
 #include <core/dll_export.h>
 #include <core/basic_types.h>
-#include <rtx/ray.h>
-#include <rtx/mesh.h>
-#include <rtx/procedural_primitive.h>
+#include <runtime/rtx/ray.h>
+#include <runtime/rtx/mesh.h>
+#include <runtime/rtx/procedural_primitive.h>
 
 namespace luisa::compute {
 // DSL

@@ -1,9 +1,19 @@
 #pragma once
+
 #include <runtime/resource.h>
 #include <runtime/device_interface.h>
-#include <runtime/custom_struct.h>
+#include <dsl/struct.h>
+
 namespace luisa::compute {
+struct DispatchArgs {};
+}// namespace luisa::compute
+
+LUISA_CUSTOM_STRUCT(luisa::compute::DispatchArgs, "DispatchArgs")
+
+namespace luisa::compute {
+
 class DispatchArgsBuffer final : public Resource {
+
 private:
     size_t _capacity{};
     size_t _byte_size{};
@@ -24,7 +34,9 @@ public:
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] auto byte_size() const noexcept { return _byte_size; }
 };
+
 namespace detail{
+
 template<>
 struct TypeDesc<DispatchArgsBuffer> {
     static constexpr luisa::string_view description() noexcept {
@@ -32,5 +44,7 @@ struct TypeDesc<DispatchArgsBuffer> {
         return "buffer<DispatchArgs>"sv;
     }
 };
+
 }
+
 }// namespace luisa::compute

@@ -103,13 +103,15 @@ public:
         Function vert,
         Function pixel,
         ShaderOption shader_option) noexcept { return ResourceCreationInfo::make_invalid(); }
-    [[nodiscard]] virtual void save_raster_shader(
+
+    virtual void save_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         luisa::string_view name,
         bool enable_debug_info,
         bool enable_fast_math) noexcept {}
+
     [[nodiscard]] virtual ResourceCreationInfo load_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -117,6 +119,7 @@ public:
         DepthFormat dsv_format,
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept { return ResourceCreationInfo::make_invalid(); }
+
     virtual void destroy_raster_shader(uint64_t handle) noexcept {}
 
     // event

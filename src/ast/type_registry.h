@@ -31,10 +31,6 @@ class VolumeView;
 
 class BindlessArray;
 class Accel;
-template<typename T>
-consteval bool is_custom_struct_v() {
-    return (requires { typename T::is_custom_struct; });
-}
 
 namespace detail {
 
@@ -223,7 +219,7 @@ const Type *Type::of() noexcept {
         return nullptr;
     } else {
         auto desc = detail::TypeDesc<std::remove_cvref_t<T>>::description();
-        if constexpr (is_custom_struct_v<T>()) {
+        if constexpr (is_custom_struct_v<T>) {
             static thread_local auto t = Type::custom(desc);
             return t;
         } else {
@@ -330,19 +326,15 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
 #define LUISA_STRUCT_REFLECT(S, ...) \
     LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, __VA_ARGS__)
 
-#define LUISA_CUSTOM_STRUCT_REFLECT(S, name)                                 \
-    template<>                                                               \
-    struct luisa::compute::is_struct<luisa::compute::S> : std::true_type {}; \
-    template<>                                                               \
-    struct luisa::compute::struct_member_tuple<luisa::compute::S> {          \
-        using this_type = luisa::compute::S;                                 \
-        using type = std::tuple<>;                                           \
-    };                                                                       \
-    template<>                                                               \
-    struct luisa::compute::detail::TypeDesc<luisa::compute::S> {             \
-        using this_type = luisa::compute::S;                                 \
-        using is_custom = void;                                              \
-        static constexpr luisa::string_view description() noexcept {         \
-            return name;                                                     \
-        }                                                                    \
+#define LUISA_CUSTOM_STRUCT_REFLECT(S, name)                         \
+    template<>                                                       \
+    struct luisa::compute::is_struct<S> : std::true_type {};         \
+    template<>                                                       \
+    struct luisa::compute::is_custom_struct<S> : std::true_type {};  \
+    template<>                                                       \
+    struct luisa::compute::detail::TypeDesc<S> {                     \
+        using this_type = S;                                         \
+        static constexpr luisa::string_view description() noexcept { \
+            return name;                                             \
+        }                                                            \
     };

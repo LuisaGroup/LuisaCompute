@@ -157,15 +157,15 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     }                                                                                         \
     }
 
-#define LUISA_CUSTOM_STRUCT(S)                                                              \
-    LUISA_CUSTOM_STRUCT_REFLECT(S, #S)                                                      \
+#define LUISA_CUSTOM_STRUCT(S, ...)                                                         \
+    LUISA_CUSTOM_STRUCT_REFLECT(S, __VA_ARGS__)                                             \
     template<>                                                                              \
-    struct luisa_compute_extension<luisa::compute::S>;                                      \
+    struct luisa_compute_extension<S>;                                                      \
     namespace luisa::compute {                                                              \
     template<>                                                                              \
-    struct Expr<luisa::compute::S> {                                                        \
+    struct Expr<S> {                                                                        \
     private:                                                                                \
-        using this_type = luisa::compute::S;                                                \
+        using this_type = S;                                                                \
         const Expression *_expression;                                                      \
                                                                                             \
     public:                                                                                 \
@@ -178,9 +178,9 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     };                                                                                      \
     namespace detail {                                                                      \
     template<>                                                                              \
-    struct Ref<luisa::compute::S> {                                                         \
+    struct Ref<S> {                                                                         \
     private:                                                                                \
-        using this_type = luisa::compute::S;                                                \
+        using this_type = S;                                                                \
         const Expression *_expression;                                                      \
                                                                                             \
     public:                                                                                 \
@@ -264,8 +264,8 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 #include <ast/type_registry.h>
 #define LUISA_STRUCT(S, ...) \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)
-#define LUISA_CUSTOM_STRUCT(S) \
-    LUISA_CUSTOM_STRUCT_REFLECT(S, #S)
+#define LUISA_CUSTOM_STRUCT(S, ...) \
+    LUISA_CUSTOM_STRUCT_REFLECT(S, __VA_ARGS__)
 #define LUISA_STRUCT_EXT(S) \
     template<U>             \
     struct luisa_compute_dummy_extension<S, U> : public U

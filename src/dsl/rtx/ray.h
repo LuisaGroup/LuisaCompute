@@ -1,9 +1,12 @@
 #pragma once
+
 #ifndef LC_DISABLE_DSL
+
 #include <dsl/struct.h>
 #include <dsl/builtin.h>
 #include <dsl/var.h>
-#include <rtx/ray.h>
+#include <runtime/rtx/ray.h>
+
 // clang-format off
 LUISA_STRUCT_EXT(luisa::compute::Ray) {
     [[nodiscard]] auto origin() const noexcept { return luisa::compute::def<luisa::float3>(compressed_origin); }

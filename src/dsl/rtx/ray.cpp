@@ -2,7 +2,8 @@
 // Created by Mike Smith on 2021/6/24.
 //
 
-#include <dsl/rtx/ray.h>
+#include <dsl/ray.h>
+
 namespace luisa::compute {
 
 Var<Ray> make_ray(Expr<float3> origin, Expr<float3> direction, Expr<float> t_min, Expr<float> t_max) noexcept {

@@ -10,15 +10,16 @@
 #include <runtime/pixel.h>
 #include <ast/function_builder.h>
 #include <runtime/stream_tag.h>
-#include <raster/viewport.h>
-#include <runtime/custom_struct.h>
+#include <runtime/raster/viewport.h>
 #include <runtime/sampler.h>
 #include <rust/luisa_compute_api_types/bindings.h>
 
 namespace luisa::compute {
+
 struct IndirectDispatchArg {
     uint64_t handle;
 };
+
 class CmdDeser;
 class CmdSer;
 class RasterMesh;

@@ -31,6 +31,10 @@ add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
+if (NOT LUISA_COMPUTE_ENABLE_DSL)
+    target_compile_definitions(luisa-compute-include INTERFACE LC_DISABLE_DSL=1)
+endif ()
+
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(luisa-compute-include INTERFACE
             /wd4068 # Maxwell loves custom pragmas
@@ -52,35 +56,26 @@ add_subdirectory(core)
 add_subdirectory(vstl)
 add_subdirectory(ast)
 add_subdirectory(rust)
-add_subdirectory(rhi)
 add_subdirectory(runtime)
 add_subdirectory(ir)
-if(LUISA_COMPUTE_ENABLE_DSL)
-    add_subdirectory(dsl)
-endif()
-add_subdirectory(rtx)
+add_subdirectory(dsl)
 add_subdirectory(gui/backup)
 add_subdirectory(backends)
 
 add_library(compute INTERFACE luisa-compute.h)
-if(NOT LUISA_COMPUTE_ENABLE_DSL)
-    target_compile_definitions(compute INTERFACE LC_DISABLE_DSL)
-endif()
+
 set_target_properties(compute PROPERTIES PUBLIC_HEADER "luisa-compute.h")
 target_link_libraries(compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl
         luisa-compute-ast
+        luisa-compute-dsl
         luisa-compute-runtime
-        luisa-compute-rhi
-        luisa-compute-rtx
         luisa-compute-gui
         luisa-compute-api
         luisa-compute-backends
         luisa-compute-ir)
-if(LUISA_COMPUTE_ENABLE_DSL)
-    target_link_libraries(compute INTERFACE luisa-compute-dsl)
-endif()
+
 add_library(luisa::compute ALIAS compute)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)

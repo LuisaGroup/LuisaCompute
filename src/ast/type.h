@@ -79,6 +79,12 @@ struct is_struct<std::tuple<T...>> : std::true_type {};
 template<typename T>
 constexpr auto is_struct_v = is_struct<T>::value;
 
+template<typename T>
+struct is_custom_struct : std::false_type {};
+
+template<typename T>
+constexpr auto is_custom_struct_v = is_custom_struct<T>::value;
+
 namespace detail {
 
 template<typename T, size_t>

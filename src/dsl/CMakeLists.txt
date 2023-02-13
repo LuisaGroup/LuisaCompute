@@ -1,28 +1,34 @@
+set(LUISA_COMPUTE_DSL_RTX_SOURCES
+        rtx/aabb.h
+        rtx/accel.cpp
+        rtx/accel.h
+        rtx/hit.cpp
+        rtx/hit.h
+        rtx/ray.cpp
+        rtx/ray.h
+        rtx/ray_query.cpp
+        rtx/ray_query.h)
+
+set(LUISA_COMPUTE_DSL_RASTER_SOURCES
+        raster/draw_indirect.h)
+
 set(LUISA_COMPUTE_DSL_SOURCES
-        aabb.h
         arg.h
-        autodiff.cpp
-        autodiff.h
+        autodiff.cpp autodiff.h
+        buffer.h
         builtin.h
         constant.h
-        dispatch_indirect.cpp
-        dispatch_indirect.h
-        draw_indirect.h
-        expr.cpp
-        expr.h
+        dispatch_indirect.cpp dispatch_indirect.h
+        expr.cpp expr.h
         expr_traits.h
-        func.cpp
-        func.h
+        func.cpp func.h
         generate_swizzles.py
-        local.cpp
-        local.h
+        image.h
+        local.cpp local.h
         operators.h
-        polymorphic.cpp
-        polymorphic.h
-        printer.cpp
-        printer.h
-        ref.cpp
-        ref.h
+        polymorphic.cpp polymorphic.h
+        printer.cpp printer.h
+        ref.cpp ref.h
         shared.h
         stmt.h
         struct.h
@@ -31,7 +37,10 @@ set(LUISA_COMPUTE_DSL_SOURCES
         swizzle_3.inl.h
         swizzle_4.inl.h
         syntax.h
-        var.h)
+        var.h
+        volume.h
+        ${LUISA_COMPUTE_DSL_RTX_SOURCES}
+        ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
 
 add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
 target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime)

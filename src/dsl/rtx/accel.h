@@ -1,12 +1,17 @@
 #pragma once
+
 #ifndef LC_DISABLE_DSL
-#include <rtx/accel.h>
-#include <dsl/rtx/ray_query.h>
+
+#include <runtime/rtx/accel.h>
 #include <dsl/var.h>
-#include <dsl/rtx/hit.h>
-#include <dsl/rtx/ray.h>
+#include <dsl/ray_query.h>
+#include <dsl/hit.h>
+#include <dsl/ray.h>
+
 namespace luisa::compute {
+
 class LC_DSL_API AccelExprProxy {
+
 private:
     Accel _accel;
 
@@ -23,6 +28,7 @@ public:
     void set_instance_opaque(Expr<int> instance_id, Expr<bool> vis) const noexcept;
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
 };
+
 template<>
 struct LC_DSL_API Expr<Accel> {
 
@@ -57,4 +63,5 @@ struct Var<Accel> : public Expr<Accel> {
 };
 
 }// namespace luisa::compute
+
 #endif

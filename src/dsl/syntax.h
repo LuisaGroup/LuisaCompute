@@ -3,6 +3,7 @@
 //
 
 #pragma once
+
 #ifndef LC_DISABLE_DSL
 #include <dsl/func.h>
 #include <dsl/constant.h>

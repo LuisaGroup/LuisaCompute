@@ -11,4 +11,4 @@ if EnableRust then
 		public = true
 	})
 end
-add_files("**.cpp", "../raster/**.cpp", "../rtx/**.cpp")
+add_files("**.cpp", "raster/**.cpp", "rtx/**.cpp")

@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2020/12/2.
 //
 #pragma once
+
 #ifndef LC_DISABLE_DSL
 
 #include <array>
@@ -766,4 +767,5 @@ BindlessBuffer<T> BindlessArray::buffer(I &&index) const noexcept {
 }
 
 }// namespace luisa::compute
+
 #endif

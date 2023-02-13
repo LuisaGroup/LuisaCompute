@@ -1,9 +1,11 @@
 //
 // Created by Mike Smith on 2021/6/24.
 //
-#include <dsl/rtx/hit.h>
+
+#include <dsl/hit.h>
 
 namespace luisa::compute {
+
 Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
 }

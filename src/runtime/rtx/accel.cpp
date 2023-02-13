@@ -5,7 +5,7 @@
 #include <ast/function_builder.h>
 #include <runtime/shader.h>
 #include <runtime/custom_pass.h>
-#include <rtx/accel.h>
+#include <runtime/rtx/accel.h>
 #include <vstl/pdqsort.h>
 #include <core/logging.h>
 

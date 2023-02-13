@@ -213,4 +213,5 @@ using buffer_element = detail::buffer_element_impl<std::remove_cvref_t<T>>;
 
 template<typename T>
 using buffer_element_t = typename buffer_element<T>::type;
+
 }// namespace luisa::compute

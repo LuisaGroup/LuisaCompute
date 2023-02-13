@@ -1,18 +1,21 @@
 #include <dsl/syntax.h>
-#include <dsl/rtx/ray_query.h>
+#include <dsl/ray_query.h>
 #include <core/logging.h>
 #include <vstl/meta_lib.h>
 
 namespace luisa::compute {
 
 namespace rayquery_detail {
+
 enum class State : uint8_t {
     None,
     Primitive,
     Triangle
 };
+
 static thread_local State state{State::None};
 static thread_local const Expression *rayquery_expr;
+
 }// namespace rayquery_detail
 
 RayQuery::RayQuery(const CallExpr *func) noexcept {
@@ -56,6 +59,7 @@ void commit_triangle() noexcept {
     detail::FunctionBuilder::current()->call(CallOp::RAY_QUERY_COMMIT_TRIANGLE,
                                              {rayquery_detail::rayquery_expr});
 }
+
 void commit_primitive(Expr<float> distance) noexcept {
     if (rayquery_detail::rayquery_expr == nullptr) [[unlikely]] {
         LUISA_ERROR("Commit only availiable in callback scope!");
@@ -66,4 +70,5 @@ void commit_primitive(Expr<float> distance) noexcept {
     detail::FunctionBuilder::current()->call(CallOp::RAY_QUERY_COMMIT_PROCEDURAL,
                                              {rayquery_detail::rayquery_expr, distance.expression()});
 }
+
 }// namespace luisa::compute

@@ -1,10 +1,15 @@
 #pragma once
+
 #ifndef LC_DISABLE_DSL
+
 #include <runtime/buffer.h>
 #include <dsl/expr.h>
+
 namespace luisa::compute {
+
 template<typename T>
 class BufferExprProxy {
+
 private:
     T _buffer;
 
@@ -20,5 +25,7 @@ public:
         return Expr<Buffer<T>>{_buffer}.write(std::forward<I>(index), value);
     }
 };
+
 }// namespace luisa::compute
+
 #endif
