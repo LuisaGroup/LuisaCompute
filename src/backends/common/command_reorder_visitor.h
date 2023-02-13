@@ -6,7 +6,7 @@
 #include <vstl/common.h>
 #include <runtime/command.h>
 #include <runtime/buffer.h>
-#include <raster/raster_scene.h>
+#include <runtime/raster/raster_scene.h>
 namespace luisa::compute {
 template<typename T>
 /*

@@ -3,8 +3,8 @@
 //
 
 #pragma once
-#ifndef LC_DISABLE_DSL
-#ifndef LUISA_COMPUTE_DESUGAR
+
+#if !defined(LC_DISABLE_DSL) && !defined(LUISA_COMPUTE_DESUGAR)
 
 #include <dsl/syntax.h>
 
@@ -86,5 +86,4 @@
 #define $comment_with_location(...) \
     $comment(luisa::format(FMT_STRING("{} [{}:{}]"), std::string_view{__VA_ARGS__}, __FILE__, __LINE__))
 
-#endif
 #endif

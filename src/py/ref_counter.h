@@ -1,8 +1,8 @@
 #pragma once
 
 #include <vstl/common.h>
-#include <rtx/accel.h>
-#include <rtx/mesh.h>
+#include <runtime/rtx/accel.h>
+#include <runtime/rtx/mesh.h>
 
 namespace luisa::compute {
 

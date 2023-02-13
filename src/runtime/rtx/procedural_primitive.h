@@ -2,6 +2,7 @@
 
 #include <runtime/device.h>
 #include <runtime/buffer.h>
+#include <runtime/rtx/aabb.h>
 
 namespace luisa::compute {
 
@@ -22,4 +23,11 @@ public:
     [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
     [[nodiscard]] auto aabb_count() const noexcept { return _aabb_count; }
 };
+
+template<typename AABBBuffer>
+ProceduralPrimitive Device::create_procedural_primitive(
+    AABBBuffer &&aabb_buffer, const AccelOption &option) noexcept {
+    return this->_create<ProceduralPrimitive>(std::forward<AABBBuffer>(aabb_buffer), option);
+}
+
 }// namespace luisa::compute

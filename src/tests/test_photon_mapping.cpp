@@ -12,7 +12,7 @@
 #include <runtime/stream.h>
 #include <dsl/sugar.h>
 #include <dsl/printer.h>
-#include <rtx/accel.h>
+#include <runtime/rtx/accel.h>
 #include <gui/backup/window.h>
 #include <gui/backup/framerate.h>
 #include <tests/cornell_box.h>

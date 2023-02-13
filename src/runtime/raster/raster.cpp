@@ -1,9 +1,9 @@
-#include <raster/raster_kernel.h>
-#include <raster/raster_shader.h>
+#include <runtime/raster/raster_kernel.h>
+#include <runtime/raster/raster_shader.h>
 #include <runtime/depth_format.h>
-#include <raster/depth_buffer.h>
-#include <raster/raster_scene.h>
-#include <rtx/accel.h>
+#include <runtime/raster/depth_buffer.h>
+#include <runtime/raster/raster_scene.h>
+#include <runtime/rtx/accel.h>
 #include <runtime/bindless_array.h>
 #include <core/logging.h>
 namespace luisa::compute {

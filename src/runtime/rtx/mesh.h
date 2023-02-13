@@ -6,15 +6,9 @@
 
 #include <runtime/device.h>
 #include <runtime/buffer.h>
-#include <dsl/struct.h>
+#include <runtime/rtx/triangle.h>
 
 namespace luisa::compute {
-
-struct Triangle {
-    uint i0;
-    uint i1;
-    uint i2;
-};
 
 class Accel;
 
@@ -74,5 +68,3 @@ Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles, const AccelOpt
 }
 
 }// namespace luisa::compute
-
-LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2)

@@ -5,7 +5,6 @@
 #pragma once
 
 #include <runtime/device_interface.h>
-#include <runtime/custom_struct.h>
 
 namespace luisa::compute {
 
@@ -122,14 +121,15 @@ public:
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
                                    TBuffer &&triangles,
-                                   const AccelOption &option = {}) noexcept;// see definition in rtx/mesh.h
-    // see definition in rtx/procedural_primitive.cpp
-    [[nodiscard]] ProceduralPrimitive create_procedural_primitive(BufferView<AABB> aabb_buffer,
-                                                                  const AccelOption &option = {}) noexcept;// see definition in rtx/procedural_primitive.h
+                                   const AccelOption &option = {}) noexcept;
+    // see definition in rtx/procedural_primitive.h
+    template<typename AABBBuffer>
+    [[nodiscard]] ProceduralPrimitive create_procedural_primitive(AABBBuffer &&aabb_buffer,
+                                                                  const AccelOption &option = {}) noexcept;
     // see definition in rtx/accel.cpp
-    [[nodiscard]] Accel create_accel(const AccelOption &option = {}) noexcept;        // see definition in rtx/accel.h
+    [[nodiscard]] Accel create_accel(const AccelOption &option = {}) noexcept;
     // see definition in runtime/bindless_array.cpp
-    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.h
+    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;
 
     template<typename T>
     [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
@@ -140,7 +140,8 @@ public:
     [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u) noexcept {
         return _create<Image<T>>(pixel, size, mip_levels);
     }
-    DepthBuffer create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept;
+
+    [[nodiscard]] DepthBuffer create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept;
 
     template<typename T>
     [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
@@ -153,13 +154,13 @@ public:
     }
 
     template<typename T>
-        requires(!std::is_base_of_v<CustomStructBase, T>)//backend-specific type not allowed
+        requires(!is_custom_struct_v<T>)//backend-specific type not allowed
     [[nodiscard]] auto create_buffer(size_t size) noexcept {
         return _create<Buffer<T>>(size);
     }
 
     template<typename T>
-        requires(!std::is_base_of_v<CustomStructBase, T>)//backend-specific type not allowed
+        requires(!is_custom_struct_v<T>)//backend-specific type not allowed
     [[nodiscard]] auto create_buffer(void *ptr, size_t size) noexcept {
         return _create<Buffer<T>>(ptr, size);
     }

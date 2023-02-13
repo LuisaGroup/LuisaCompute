@@ -8,10 +8,10 @@
 #include <runtime/stream.h>
 #include <runtime/command.h>
 #include <runtime/image.h>
-#include <rtx/accel.h>
-#include <rtx/mesh.h>
-#include <rtx/hit.h>
-#include <rtx/ray.h>
+#include <runtime/rtx/accel.h>
+#include <runtime/rtx/mesh.h>
+#include <runtime/rtx/hit.h>
+#include <runtime/rtx/ray.h>
 
 namespace py = pybind11;
 using namespace luisa::compute;

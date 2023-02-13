@@ -1,6 +1,6 @@
 #include "codegen_stack_data.h"
-#include <rtx/ray.h>
-#include <rtx/hit.h>
+#include <runtime/rtx/ray.h>
+#include <runtime/rtx/hit.h>
 namespace toolhub::directx {
 CodegenStackData::CodegenStackData()
     : generateStruct(

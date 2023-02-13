@@ -9,7 +9,6 @@
 #include <dsl/constant.h>
 #include <dsl/local.h>
 #include <dsl/shared.h>
-#include <dsl/struct.h>
 #include <dsl/stmt.h>
 #include <dsl/expr.h>
 #include <dsl/ref.h>
@@ -18,3 +17,6 @@
 #include <dsl/polymorphic.h>
 #include <dsl/autodiff.h>
 #endif
+
+// some runtime modules depend on dsl/struct.h
+#include <dsl/struct.h>

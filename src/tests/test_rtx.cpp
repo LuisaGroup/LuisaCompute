@@ -14,7 +14,7 @@
 #include <runtime/event.h>
 #include <dsl/syntax.h>
 #include <dsl/sugar.h>
-#include <rtx/accel.h>
+#include <runtime/rtx/accel.h>
 
 using namespace luisa;
 using namespace luisa::compute;

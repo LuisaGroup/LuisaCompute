@@ -84,11 +84,11 @@
 #include <dsl/syntax.h>
 #include <dsl/var.h>
 
-#include <rtx/accel.h>
-#include <rtx/hit.h>
-#include <rtx/mesh.h>
-#include <rtx/procedural_primitive.h>
-#include <rtx/ray.h>
+#include <runtime/rtx/accel.h>
+#include <runtime/rtx/hit.h>
+#include <runtime/rtx/mesh.h>
+#include <runtime/rtx/procedural_primitive.h>
+#include <runtime/rtx/ray.h>
 
 #ifdef LUISA_GUI_ENABLED
 #include <gui/backup/framerate.h>

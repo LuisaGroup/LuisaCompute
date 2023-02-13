@@ -39,14 +39,12 @@ void export_img(py::module &m) {
         stbi_write_hdr(path.c_str(), x, y, 4, reinterpret_cast<float *>(buf.request().ptr));
     });
     m.def("save_ldr_image", [](const std::string &path, const py::buffer &buf, int x, int y) {
-        auto ends_with = [&](vstd::string_view ext){
-            if(path.size() < ext.size()) return false;
-            for(auto i : vstd::range(ext.size())){
-                if(vstd::StringUtil::ToLower(path[path.size() - ext.size() + i]) != ext[i]){
-                    return false;
-                }
-                return true;
+        auto ends_with = [&](vstd::string_view ext) noexcept {
+            if (path.size() < ext.size()) { return false; }
+            for (auto i : vstd::range(ext.size())) {
+                if (::tolower(path[path.size() - ext.size() + i]) != ext[i]) { return false; }
             }
+            return true;
         };
         if (ends_with(".png")) {
             stbi_write_png(path.c_str(), x, y, 4, buf.request().ptr, 0);

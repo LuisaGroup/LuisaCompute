@@ -1,8 +1,8 @@
 #include <runtime/cmd_encoder.h>
 #include <core/logging.h>
 #include <runtime/command.h>
-#include <raster/raster_scene.h>
-#include <runtime/custom_struct.h>
+#include <runtime/raster/raster_scene.h>
+
 namespace luisa::compute {
 
 std::byte *ShaderDispatchCmdEncoder::_make_space(size_t size) noexcept {

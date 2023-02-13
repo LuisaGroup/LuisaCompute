@@ -6,7 +6,7 @@
 
 #include <cuda.h>
 
-#include <rtx/mesh.h>
+#include <runtime/rtx/mesh.h>
 #include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {

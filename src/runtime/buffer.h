@@ -9,15 +9,14 @@
 #include <runtime/command.h>
 #include <runtime/resource.h>
 #include <runtime/device_interface.h>
-#include <runtime/custom_struct.h>
 
 namespace luisa::compute {
 
 namespace detail {
-LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst);
-LC_RUNTIME_API void error_buffer_reinterpret_size_too_small(size_t size, size_t dst);
-LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size, size_t size);
-LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst);
+LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst) noexcept;
+LC_RUNTIME_API void error_buffer_reinterpret_size_too_small(size_t size, size_t dst) noexcept;
+LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size, size_t size) noexcept;
+LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) noexcept;
 }// namespace detail
 
 template<typename T>
@@ -25,12 +24,13 @@ struct BufferExprProxy;
 
 template<typename T>
 class BufferView;
+
 template<typename T>
 constexpr bool is_valid_buffer_element_v =
     std::is_same_v<T, std::remove_cvref_t<T>> &&
     std::is_trivially_copyable_v<T> &&
     std::is_trivially_destructible_v<T> &&
-    (alignof(T) >= 4u) && (!std::is_same_v<T, DispatchArgs>);
+    (alignof(T) >= 4u);
 
 template<typename T>
 class Buffer final : public Resource {

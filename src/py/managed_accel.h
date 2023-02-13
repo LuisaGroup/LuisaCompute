@@ -1,7 +1,7 @@
 #pragma once
 
-#include <rtx/accel.h>
-#include <rtx/mesh.h>
+#include <runtime/rtx/accel.h>
+#include <runtime/rtx/mesh.h>
 #include <py/managed_collector.h>
 #include <py/py_stream.h>
 #include <core/stl/unordered_map.h>

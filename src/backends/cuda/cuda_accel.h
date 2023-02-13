@@ -8,7 +8,7 @@
 
 #include <cuda.h>
 
-#include <rtx/accel.h>
+#include <runtime/rtx/accel.h>
 #include <core/dirty_range.h>
 #include <backends/cuda/optix_api.h>
 
