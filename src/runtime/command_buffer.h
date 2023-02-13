@@ -55,8 +55,9 @@ public:
         return encode(std::move(args), std::index_sequence_for<T...>{});
     }
 };
-
+// Commmit all commands to the parent stream
 [[nodiscard]] constexpr auto commit() noexcept { return CommandBuffer::Commit{}; }
+// Commit all commands to the parent stream and wait until everything is finished
 [[nodiscard]] constexpr auto synchronize() noexcept { return CommandBuffer::Synchronize{}; }
 
 }// namespace luisa::compute

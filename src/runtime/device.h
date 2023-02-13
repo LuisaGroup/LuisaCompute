@@ -108,26 +108,27 @@ public:
     [[nodiscard]] auto extension(luisa::string_view name) const noexcept {
         return dynamic_cast<Ext *>(_impl->extension(name));
     }
-    // see definition in runtime/stream.h
+    // see definition in runtime/stream.cpp
     [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;
-    // see definition in runtime/event.h
+    // see definition in runtime/event.cpp
     [[nodiscard]] Event create_event() noexcept;
-    // see definition in runtime/swap_chain.h
+    // see definition in runtime/swap_chain.cpp
     [[nodiscard]] SwapChain create_swapchain(
         uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
-    
+    // see definition in runtime/dispatch_buffer.cpp
     [[nodiscard]] DispatchArgsBuffer create_dispatch_buffer(size_t capacity) noexcept;
-
+    // see definition in rtx/mesh.h
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
                                    TBuffer &&triangles,
                                    const AccelOption &option = {}) noexcept;// see definition in rtx/mesh.h
-
+    // see definition in rtx/procedural_primitive.cpp
     [[nodiscard]] ProceduralPrimitive create_procedural_primitive(BufferView<AABB> aabb_buffer,
                                                                   const AccelOption &option = {}) noexcept;// see definition in rtx/procedural_primitive.h
-
+    // see definition in rtx/accel.cpp
     [[nodiscard]] Accel create_accel(const AccelOption &option = {}) noexcept;        // see definition in rtx/accel.h
+    // see definition in runtime/bindless_array.cpp
     [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;// see definition in runtime/bindless_array.h
 
     template<typename T>
