@@ -50,13 +50,11 @@
 #include <runtime/custom_pass.h>
 #include <runtime/custom_struct.h>
 #include <runtime/device.h>
-#include <runtime/dynamic_struct.h>
 #include <runtime/event.h>
 #include <runtime/image.h>
 #include <runtime/mipmap.h>
 #include <runtime/pixel.h>
 #include <runtime/resource.h>
-#include <runtime/resource_tracker.h>
 #include <runtime/sampler.h>
 #include <runtime/shader.h>
 #include <runtime/stream.h>
@@ -91,7 +89,6 @@
 #include <rtx/mesh.h>
 #include <rtx/procedural_primitive.h>
 #include <rtx/ray.h>
-#include <rtx/ray_query.h>
 
 #ifdef LUISA_GUI_ENABLED
 #include <gui/backup/framerate.h>

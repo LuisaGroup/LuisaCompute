@@ -55,12 +55,17 @@ add_subdirectory(rust)
 add_subdirectory(rhi)
 add_subdirectory(runtime)
 add_subdirectory(ir)
-add_subdirectory(dsl)
+if(LUISA_COMPUTE_ENABLE_DSL)
+    add_subdirectory(dsl)
+endif()
 add_subdirectory(rtx)
 add_subdirectory(gui/backup)
 add_subdirectory(backends)
 
 add_library(compute INTERFACE luisa-compute.h)
+if(NOT LUISA_COMPUTE_ENABLE_DSL)
+    target_compile_definitions(compute INTERFACE LC_DISABLE_DSL)
+endif()
 set_target_properties(compute PROPERTIES PUBLIC_HEADER "luisa-compute.h")
 target_link_libraries(compute INTERFACE
         luisa-compute-core
@@ -68,12 +73,14 @@ target_link_libraries(compute INTERFACE
         luisa-compute-ast
         luisa-compute-runtime
         luisa-compute-rhi
-        luisa-compute-dsl
         luisa-compute-rtx
         luisa-compute-gui
         luisa-compute-api
         luisa-compute-backends
         luisa-compute-ir)
+if(LUISA_COMPUTE_ENABLE_DSL)
+    target_link_libraries(compute INTERFACE luisa-compute-dsl)
+endif()
 add_library(luisa::compute ALIAS compute)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)

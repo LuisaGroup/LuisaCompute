@@ -12,13 +12,11 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         depth_format.h
         device_interface.h
         device.cpp device.h
-        dynamic_struct.h
         event.cpp event.h
         image.cpp image.h
         mipmap.cpp mipmap.h
         pixel.cpp pixel.h
         resource.cpp resource.h
-        resource_tracker.cpp resource_tracker.h
         sampler.h
         shader.h
         stream.cpp stream.h
