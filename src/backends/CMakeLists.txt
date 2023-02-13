@@ -33,8 +33,8 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     add_subdirectory(cuda)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_LLVM)
-    add_subdirectory(llvm)
+if (LUISA_COMPUTE_ENABLE_CPU)
+    add_subdirectory(cpu)
 endif ()
 
 install(TARGETS luisa-compute-backends

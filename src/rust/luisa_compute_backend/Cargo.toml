@@ -19,3 +19,7 @@ log = "0.4"
 parking_lot = "0.12.1"
 embree_sys = {git = "https://github.com/shiinamiyuki/embree-sys"}
 lazy_static = "1.4.0"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+name = "luisa_compute_backend"

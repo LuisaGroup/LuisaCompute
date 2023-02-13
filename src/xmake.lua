@@ -10,7 +10,7 @@ includes("vstl")
 includes("ast")
 includes("runtime")
 if EnableDSL then
-	includes("dsl")	
+	includes("dsl")
 end
 if EnableGUI then
 	includes("gui")
@@ -26,6 +26,9 @@ if CudaBackend then
 end
 if MetalBackend then
 	includes("backends/metal")
+end
+if CpuBackend then
+	includes("backends/cpu")
 end
 if EnableTest then
 	includes("tests")
