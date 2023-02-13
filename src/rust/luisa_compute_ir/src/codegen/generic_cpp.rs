@@ -41,6 +41,7 @@ impl TypeGen {
                 // crate::ir::Primitive::USize => format!("i{}", std::mem::size_of::<usize>() * 8),
             },
             Type::Void => "()".to_string(),
+            Type::UserData => "lc_user_data_t".to_string(),
             Type::Struct(st) => {
                 let field_types: Vec<String> = st
                     .fields
@@ -269,7 +270,7 @@ impl GenericCppCodeGen {
                 Instruction::Uniform => format!("u{}", index),
                 Instruction::Local { .. } => format!("v{}", index),
                 Instruction::Argument { .. } => format!("arg{}", index),
-                Instruction::UserData(_) => format!("ud{}", index),
+                Instruction::UserData(_) => format!("_lc_user_data"),
                 Instruction::Const(_) => format!("c{}", index),
                 Instruction::Call(_, _) => {
                     if node.type_() == Type::void() {
@@ -1030,7 +1031,7 @@ impl GenericCppCodeGen {
                 writeln!(&mut self.body, "{0} {1} = {2};", node_ty_s, var, init_v).unwrap();
             }
             Instruction::Argument { by_value } => todo!(),
-            Instruction::UserData(_) => todo!(),
+            Instruction::UserData(_) => {}
             Instruction::Invalid => todo!(),
             Instruction::Const(cst) => {
                 self.write_ident();
@@ -1347,7 +1348,10 @@ impl CodeGen for CpuCodeGen {
             codegen.cpu_kernel_unpack_parameters.join("\n"),
             codegen.cpu_kernel_parameters.join(", "),
         );
-        let kernel_wrapper_decl = format!("void kernel_(const KernelFnArgs* k_args, {}) {{", codegen.signature.join(", "));
+        let kernel_wrapper_decl = format!(
+            "void kernel_(const KernelFnArgs* k_args, {}) {{",
+            codegen.signature.join(", ")
+        );
         let includes = r#"#include <cmath>
 #include <cstdlib>
 #include <cstdio>

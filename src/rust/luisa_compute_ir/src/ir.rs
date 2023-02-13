@@ -4,7 +4,7 @@ use serde::{Serialize, Serializer};
 
 use crate::context::with_context;
 use crate::*;
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::binary_heap::Iter;
 use std::collections::HashSet;
@@ -156,6 +156,7 @@ impl std::fmt::Display for ArrayType {
 #[repr(C)]
 pub enum Type {
     Void,
+    UserData,
     Primitive(Primitive),
     Vector(VectorType),
     Matrix(MatrixType),
@@ -166,6 +167,7 @@ pub enum Type {
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::UserData => write!(f, "userdata"),
             Self::Void => write!(f, "void"),
             Self::Primitive(primitive) => std::fmt::Display::fmt(primitive, f),
             Self::Vector(vector) => std::fmt::Display::fmt(vector, f),
@@ -180,6 +182,7 @@ impl Trace for Type {
     fn trace(&self) {
         match self {
             Type::Void => {}
+            Type::UserData => {}
             Type::Primitive(_) => {}
             Type::Vector(v) => v.trace(),
             Type::Matrix(m) => m.trace(),
@@ -265,13 +268,15 @@ impl MatrixType {
 
 impl Type {
     pub fn void() -> Gc<Type> {
-        Gc::new(Type::Void)
+        context::register_type(Type::Void)
+    }
+    pub fn userdata() -> Gc<Type> {
+        context::register_type(Type::UserData)
     }
     pub fn size(&self) -> usize {
         match self {
-            Type::Void => 0,
+            Type::Void | Type::UserData => 0,
             Type::Primitive(t) => t.size(),
-
             Type::Struct(t) => t.size,
             Type::Vector(t) => t.size(),
             Type::Matrix(t) => t.size(),
@@ -280,7 +285,9 @@ impl Type {
     }
     pub fn element(&self) -> Gc<Type> {
         match self {
-            Type::Void | Type::Primitive(_) => context::register_type(self.clone()),
+            Type::Void | Type::Primitive(_) | Type::UserData => {
+                context::register_type(self.clone())
+            }
             Type::Vector(vec_type) => vec_type.element.to_type(),
             Type::Matrix(mat_type) => mat_type.element.to_type(),
             Type::Struct(_) => Gc::null(),
@@ -289,7 +296,7 @@ impl Type {
     }
     pub fn dimension(&self) -> usize {
         match self {
-            Type::Void => 0,
+            Type::Void | Type::UserData => 0,
             Type::Primitive(_) => 1,
             Type::Vector(vec_type) => vec_type.length as usize,
             Type::Matrix(mat_type) => mat_type.dimension as usize,
@@ -299,7 +306,7 @@ impl Type {
     }
     pub fn alignment(&self) -> usize {
         match self {
-            Type::Void => 0,
+            Type::Void | Type::UserData => 0,
             Type::Primitive(t) => t.size(),
             Type::Struct(t) => t.alignment,
             Type::Vector(t) => t.element.size(), // TODO
@@ -548,7 +555,7 @@ pub enum Func {
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpactiy,
     RayTracingSetInstanceVisibility,
-     // (handle, Ray) -> Hit
+    // (handle, Ray) -> Hit
     // struct Ray alignas(16) { float origin[3], tmin; float direction[3], tmax; };
     // struct Hit alignas(16) { uint inst; uint prim; float u; float v; };
     RayTracingTraceClosest,
@@ -850,9 +857,19 @@ impl Const {
 #[repr(C)]
 pub struct NodeRef(pub usize);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize)]
 #[repr(C)]
-pub struct UserNodeDataRef(pub usize);
+#[derive(Debug)]
+pub struct UserData {
+    tag: u64,
+    data: *const u8,
+    eq: extern "C" fn(*const u8, *const u8) -> bool,
+}
+impl Serialize for UserData {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let state = serializer.serialize_struct("UserData", 1)?;
+        state.end()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[repr(C)]
@@ -923,7 +940,7 @@ pub enum Instruction {
     Argument {
         by_value: bool,
     },
-    UserData(UserNodeDataRef),
+    UserData(CRc<UserData>),
     Invalid,
     Const(Const),
 
@@ -993,14 +1010,34 @@ pub enum Instruction {
     Comment(CBoxedSlice<u8>),
     Debug(CBoxedSlice<u8>), // for CPU only, would print the message if executed
 }
-
-// pub fn new_user_node<T: UserNodeData>(data: T) -> NodeRef {
-//     new_node(Node::new(
-//         Instruction::UserData(Rc::new(data)),
-//         false,
-//         Type::void(),
-//     ))
-// }
+extern "C" fn eq_impl<T: UserNodeData>(a: *const u8, b: *const u8) -> bool {
+    let a = unsafe { &*(a as *const T) };
+    let b = unsafe { &*(b as *const T) };
+    a.equal(b)
+}
+extern "C" fn dtor_impl<T: UserNodeData>(a: *mut UserData) {
+    unsafe {
+        let data = Box::from_raw((*a).data as *mut T);
+        drop(data);
+        drop(Box::from_raw(a));
+    };
+}
+fn type_id_u64<T: UserNodeData>() -> u64 {
+    unsafe { std::mem::transmute(TypeId::of::<T>()) }
+}
+pub fn new_user_node<T: UserNodeData>(data: T) -> NodeRef {
+    new_node(Node::new(
+        Gc::new(Instruction::UserData(CRc::new_with_dtor(
+            UserData {
+                tag: type_id_u64::<T>(),
+                data: Box::into_raw(Box::new(data)) as *mut u8,
+                eq: eq_impl::<T>,
+            },
+            dtor_impl::<T>,
+        ))),
+        Type::userdata(),
+    ))
+}
 impl Instruction {
     pub fn is_call(&self) -> bool {
         match self {
@@ -1024,7 +1061,7 @@ impl Instruction {
         self.is_call() || self.is_const() || self.is_phi()
     }
 }
-const INVALID_INST: Instruction = Instruction::Invalid;
+pub const INVALID_INST: Instruction = Instruction::Invalid;
 
 pub fn new_node(node: Node) -> NodeRef {
     with_context(|ctx| ctx.alloc_node(node))
@@ -1034,6 +1071,25 @@ pub trait UserNodeData: Any + Debug {
     fn equal(&self, other: &dyn UserNodeData) -> bool;
     fn as_any(&self) -> &dyn Any;
 }
+macro_rules! impl_userdata {
+    ($t:ty) => {
+        impl UserNodeData for $t {
+            fn equal(&self, other: &dyn UserNodeData) -> bool {
+                let other = other.as_any().downcast_ref::<$t>().unwrap();
+                self == other
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+        }
+    };
+}
+impl_userdata!(usize);
+impl_userdata!(u32);
+impl_userdata!(u64);
+impl_userdata!(i32);
+impl_userdata!(i64);
+impl_userdata!(bool);
 
 #[derive(Debug)]
 #[repr(C)]
@@ -1162,6 +1218,18 @@ impl NodeRef {
             Instruction::Const(c) => c.get_i32(),
             _ => panic!("not i32 node; found: {:?}", self.get().instruction),
         }
+    }
+    pub fn get_user_data(&self) -> &UserData {
+        match self.get().instruction.as_ref() {
+            Instruction::UserData(data) => data,
+            _ => panic!("not user data node; found: {:?}", self.get().instruction),
+        }
+    }
+    pub fn unwrap_user_data<T: UserNodeData>(&self) -> &T {
+        let data = self.get_user_data();
+        assert_eq!(data.tag, type_id_u64::<T>());
+        let data = data.data as *const T;
+        unsafe { &*data }
     }
     pub fn is_local(&self) -> bool {
         match self.get().instruction.as_ref() {
@@ -1622,6 +1690,19 @@ impl IrBuilder {
         self.append(node);
     }
     pub fn phi(&mut self, incoming: &[PhiIncoming], t: Gc<Type>) -> NodeRef {
+        if t == Type::userdata() {
+            let userdata0 = incoming[0].value.get_user_data();
+            for i in 1..incoming.len() {
+                let userdata = incoming[i].value.get_user_data();
+                assert_eq!(userdata0.tag, userdata.tag, "Different UserData node found!");
+                assert_eq!(userdata0.eq, userdata.eq, "Different UserData node found!");
+                assert!(
+                    (userdata0.eq)(userdata0.data, userdata.data),
+                    "Different UserData node found!"
+                );
+            }
+            return incoming[0].value;
+        }
         let node = Node::new(
             Gc::new(Instruction::Phi(CBoxedSlice::new(incoming.to_vec()))),
             t,

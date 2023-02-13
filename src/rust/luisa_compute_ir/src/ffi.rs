@@ -136,6 +136,14 @@ impl<T> CRc<T> {
         }));
         Self { inner }
     }
+    pub fn new_with_dtor(value: T, dtor: extern "C" fn(*mut T)) -> Self {
+        let inner = Box::into_raw(Box::new(CRcSharedBlock {
+            ptr: value,
+            ref_count: 1,
+            destructor: dtor,
+        }));
+        Self { inner }
+    }
 }
 impl<T> Clone for CRc<T> {
     fn clone(&self) -> Self {

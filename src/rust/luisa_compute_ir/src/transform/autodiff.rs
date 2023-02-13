@@ -70,7 +70,7 @@ pub fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
 
 fn _grad_type_of(type_: Gc<Type>) -> Option<GradTypeRecord> {
     let record = match type_.as_ref() {
-        Type::Void => None,
+        Type::Void | Type::UserData => None,
         Type::Primitive(p) => match p {
             crate::ir::Primitive::Bool => None,
             crate::ir::Primitive::Int32 => None,
@@ -287,7 +287,8 @@ impl<'a> StoreIntermediate<'a> {
                     .as_ref()
                     .iter()
                     .any(|a| self.forward_reachable.contains(a))
-                    && grad_type.is_some() && *func != Func::Detach
+                    && grad_type.is_some()
+                    && *func != Func::Detach
                 {
                     self.forward_reachable.insert(node);
                 }
@@ -347,7 +348,10 @@ impl<'a> StoreIntermediate<'a> {
                 if *func == Func::GradientMarker {
                     self.backward_reachable.insert(args.as_ref()[0]);
                 }
-                if self.backward_reachable.contains(&node) && grad_type.is_some() && *func != Func::Detach {
+                if self.backward_reachable.contains(&node)
+                    && grad_type.is_some()
+                    && *func != Func::Detach
+                {
                     for a in args.as_ref().iter() {
                         if self.forward_reachable.contains(a) {
                             self.backward_reachable.insert(*a);
@@ -1086,7 +1090,7 @@ impl Backward {
             crate::ir::Instruction::AdScope { .. } => {
                 todo!()
             }
-            crate::ir::Instruction::AdDetach(_)=>{}
+            crate::ir::Instruction::AdDetach(_) => {}
             crate::ir::Instruction::Call(func, args) => {
                 if grad_type.is_none() {
                     return;

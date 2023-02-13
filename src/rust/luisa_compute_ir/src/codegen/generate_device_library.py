@@ -777,3 +777,4 @@ __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> gr
         ]
         for t in non_differentiable_types:
             print(f"__device__ inline void lc_accumulate_grad({t} *dst, {t} grad) noexcept {{}}", file=file)
+        print("struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};", file=file)
