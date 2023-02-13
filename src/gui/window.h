@@ -6,11 +6,11 @@
 namespace luisa::compute {
 class LC_GUI_API Window {
 public:
-    using MouseButtonCallback = luisa::function<void(int /* button */, int /* action */, float2 /* (x, y) */)>;
-    using CursorPositionCallback = luisa::function<void(float2 /* (x, y) */)>;
-    using WindowSizeCallback = luisa::function<void(uint2 /* (width, height) */)>;
-    using KeyCallback = luisa::function<void(int /* key */, int /* action */)>;
-    using ScrollCallback = luisa::function<void(float2 /* (dx, dy) */)>;
+    using MouseButtonCallback = luisa::function<void(int button, int action, float2 xy)>;
+    using CursorPositionCallback = luisa::function<void(float2 xy)>;
+    using WindowSizeCallback = luisa::function<void(uint2 size)>;
+    using KeyCallback = luisa::function<void(int key, int action)>;
+    using ScrollCallback = luisa::function<void(float2 dxdy)>;
     struct IWindowImpl {
         virtual ~IWindowImpl() = default;
     };

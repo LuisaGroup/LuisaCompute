@@ -36,6 +36,12 @@ set_default(true)
 set_showmenu(true)
 option_end()
 
+option("cpu_backend")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
+
 option("export_config")
 set_values(true, false)
 set_default(false)

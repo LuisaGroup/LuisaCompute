@@ -12,7 +12,7 @@ std::byte *ShaderDispatchCmdEncoder::_make_space(size_t size) noexcept {
 }
 ShaderDispatchCmdEncoder::ShaderDispatchCmdEncoder(size_t arg_count) : _argument_count(arg_count) {
     size_t size = arg_count * sizeof(Argument);
-    _argument_buffer.reserve(size + 64);
+    _argument_buffer.reserve(size + 256);
     _argument_buffer.push_back_uninitialized(size);
 }
 ShaderDispatchCmdEncoder::Argument &ShaderDispatchCmdEncoder::create_arg() {
