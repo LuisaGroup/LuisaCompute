@@ -814,7 +814,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << "asfloat("sv;
             }
             str << "READ_BUFFER"sv;
-            auto index = opt->AddBindlessType(expr->type());
+            opt->AddBindlessType(expr->type());
             str << '(';
             for (auto &&i : args) {
                 i->accept(vis);

@@ -10,7 +10,6 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::unordered_map<uint64, uint64> constTypes;
     vstd::unordered_map<void const*, uint64> funcTypes;
     vstd::unordered_map<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
-    vstd::unordered_map<Type const *, uint64> bindlessBufferTypes;
     vstd::unordered_map<uint, uint> arguments;
     enum class FuncType : uint8_t{
         Kernel,
@@ -41,7 +40,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     size_t tempSwitchCounter = 0;
     CodegenStackData();
     void Clear();
-    uint AddBindlessType(Type const *type);
+    void AddBindlessType(Type const *type);
     StructGenerator *CreateStruct(Type const *t);
     std::pair<uint64, bool> GetConstCount(uint64 data);
     uint64 GetFuncCount(void const* data);
