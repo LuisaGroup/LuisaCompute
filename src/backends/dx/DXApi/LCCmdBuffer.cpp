@@ -11,7 +11,8 @@
 #include <Shader/RasterShader.h>
 #include <core/stl/variant.h>
 #include <runtime/buffer.h>
-#include <runtime/custom_struct.h>
+#include <runtime/dispatch_buffer.h>
+#include <runtime/rtx/aabb.h>
 namespace toolhub::directx {
 using Argument = ShaderDispatchCommandBase::Argument;
 template<typename Visitor>

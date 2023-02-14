@@ -1,4 +1,6 @@
 add_rules("mode.release", "mode.debug")
+-- in case bug from version control
+set_policy("build.ccache", false)
 -- options
 option("use_mimalloc")
 set_values(true, false)
