@@ -27,7 +27,8 @@ private:
     uint64 executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
     bool enabled = true;
-    Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+    ID3D12CommandQueue* queue;
+    Microsoft::WRL::ComPtr<ID3D12CommandQueue> queueComPtr;
     Microsoft::WRL::ComPtr<ID3D12Fence> cmdFence;
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
@@ -39,7 +40,7 @@ private:
 public:
     void WaitFrame(uint64 lastFrame);
     uint64 LastFrame() const { return lastFrame; }
-    ID3D12CommandQueue *Queue() const { return queue.Get(); }
+    ID3D12CommandQueue *Queue() const { return queue; }
     CommandQueue(
         Device *device,
         GpuAllocator *resourceAllocator,

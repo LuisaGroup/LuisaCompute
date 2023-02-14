@@ -53,14 +53,14 @@ BufferView CommandAllocator::BufferAllocator<T>::Allocate(size_t size, size_t al
         return BufferView(v.get(), 0, size);
     }
 }
-void CommandAllocatorBase::WaitExternQueue(ID3D12Fence *fence, uint64 fenceIndex) {
-    if (device->deviceSettings) {
-        auto after_queue = device->deviceSettings->GetQueue();
-        if (after_queue) {
-            after_queue->Wait(fence, fenceIndex);
-        }
-    }
-}
+// void CommandAllocatorBase::WaitExternQueue(ID3D12Fence *fence, uint64 fenceIndex) {
+//     if (device->deviceSettings) {
+//         auto after_queue = device->deviceSettings->GetQueue();
+//         if (after_queue) {
+//             after_queue->Wait(fence, fenceIndex);
+//         }
+//     }
+// }
 void CommandAllocatorBase::Execute(
     CommandQueue *queue,
     ID3D12Fence *fence,
@@ -70,7 +70,7 @@ void CommandAllocatorBase::Execute(
         1,
         &cmdList);
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
-    WaitExternQueue(fence, fenceIndex);
+    // WaitExternQueue(fence, fenceIndex);
 }
 void CommandAllocatorBase::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain, bool vsync) {
     ID3D12CommandList *cmdList = cbuffer->CmdList();
@@ -83,7 +83,7 @@ void CommandAllocatorBase::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *f
         ThrowIfFailed(swapchain->Present(0, DXGI_PRESENT_ALLOW_TEARING));
     }
     ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
-    WaitExternQueue(fence, fenceIndex);
+    // WaitExternQueue(fence, fenceIndex);
 }
 
 void CommandAllocatorBase::Complete(

@@ -444,7 +444,7 @@ public:
                 bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
             }
             DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
-            vstd::push_back_func(*bindProps, shader->BindlessCount() + 2, [&] { return globalHeapView; });
+            vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
             DecodeCmd(*cmd, Visitor{this, cs->Args().data()});
         };
         if (cmd->is_indirect()) {
@@ -662,7 +662,7 @@ public:
             bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
         }
         DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
-        vstd::push_back_func(*bindProps, shader->BindlessCount() + 2, [&] { return globalHeapView; });
+        vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
         DecodeCmd(*cmd, Visitor{this, shader->Args().data()});
         bd->SetRasterShader(shader, *bindProps);
         auto cmdList = bd->CmdList();

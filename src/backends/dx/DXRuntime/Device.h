@@ -76,7 +76,7 @@ public:
     vstd::unique_ptr<GpuAllocator> defaultAllocator;
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
-    luisa::unique_ptr<luisa::compute::DirectXExternalRuntime> deviceSettings;
+    vstd::unique_ptr<luisa::compute::DirectXDeviceConfigExt> deviceSettings;
     LazyLoadShader setAccelKernel;
 
     LazyLoadShader bc6TryModeG10;

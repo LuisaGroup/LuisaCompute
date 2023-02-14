@@ -146,8 +146,8 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
         return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
     };
     if (useRuntime) {
-        if (settings && settings->hash == DirectXDeviceSettings::kHash) {
-            deviceSettings = static_cast<DirectXDeviceSettings const *>(settings)->CreateExternalRuntime();
+        if (settings && settings->extension) {
+            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt*>(settings->extension.release()));
         }
         if (deviceSettings) {
             device = static_cast<ID3D12Device5 *>(deviceSettings->GetDevice());

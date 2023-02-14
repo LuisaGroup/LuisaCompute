@@ -809,23 +809,24 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "TraceAll"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
-            if (opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT) {
-                str << "READ_BUFFER_FLOAT"sv;
-            } else {
-                str << "READ_BUFFER"sv;
+            bool isFloat = opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT;
+            if(isFloat){
+                str << "asfloat("sv;
             }
-            if (IsNumVec3(*expr->type())) {
-                str << "Vec3"sv;
-            }
+            str << "READ_BUFFER"sv;
             auto index = opt->AddBindlessType(expr->type());
             str << '(';
             for (auto &&i : args) {
                 i->accept(vis);
                 str << ',';
             }
-            str << "bdls"sv
-                << vstd::to_string(index)
-                << ')';
+            vstd::to_string(expr->type()->size(), str);
+            str << ',';
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ",bdls)"sv;
+            if(isFloat){
+                str << ')';
+            }
             return;
         }
         case CallOp::ASSUME:
@@ -1403,28 +1404,36 @@ void CodegenUtility::GenerateBindlessSpirv(
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str) {
-    for (auto &&i : opt->bindlessBufferTypes) {
-        str << "StructuredBuffer<"sv;
-        if (i.first->is_matrix()) {
-            auto n = i.first->dimension();
-            str << luisa::format("WrappedFloat{}x{}", n, n);
-        } else if (i.first->is_vector() && i.first->dimension() == 3) {
-            str << "float4"sv;
-        } else {
-            GetTypeName(*i.first, str, Usage::READ);
-        }
-        vstd::string instName("bdls"sv);
-        vstd::to_string(i.second, instName);
-        str << "> " << instName << "[]:register(t0,space"sv;
-        vstd::to_string(i.second + 3, str);
-        str << ");\n"sv;
-
+    if(opt->bindlessBufferCount > 0){
+        str << "ByteAddressBuffer bdls[]:register(t0,space3);\n"sv;
         properties.emplace_back(
             Property{
                 ShaderVariableType::SRVDescriptorHeap,
-                static_cast<uint>(i.second + 3u),
+                static_cast<uint>(3u),
                 0u, 0u});
     }
+    // for (auto &&i : opt->bindlessBufferTypes) {
+    //     str << "StructuredBuffer<"sv;
+    //     if (i.first->is_matrix()) {
+    //         auto n = i.first->dimension();
+    //         str << luisa::format("WrappedFloat{}x{}", n, n);
+    //     } else if (i.first->is_vector() && i.first->dimension() == 3) {
+    //         str << "float4"sv;
+    //     } else {
+    //         GetTypeName(*i.first, str, Usage::READ);
+    //     }
+    //     vstd::string_view instName("bdls"sv);
+    //     vstd::to_string(i.second, instName);
+    //     str << "> " << instName << "[]:register(t0,space"sv;
+    //     vstd::to_string(i.second + 3, str);
+    //     str << ");\n"sv;
+
+    //     properties.emplace_back(
+    //         Property{
+    //             ShaderVariableType::SRVDescriptorHeap,
+    //             static_cast<uint>(i.second + 3u),
+    //             0u, 0u});
+    // }
 }
 
 void CodegenUtility::PreprocessCodegenProperties(

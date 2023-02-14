@@ -23,6 +23,8 @@
 #include <core/stl/filesystem.h>
 #include <Resource/ExternalBuffer.h>
 #include <runtime/context_paths.h>
+#include <runtime/dispatch_buffer.h>
+#include <runtime/rtx/aabb.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 static constexpr uint kShaderModel = 65u;

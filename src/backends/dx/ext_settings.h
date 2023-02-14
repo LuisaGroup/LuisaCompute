@@ -5,19 +5,11 @@
 #include <dxgi1_4.h>
 #include <vstl/common.h>
 namespace luisa::compute {
-struct DirectXExternalRuntime : public vstd::IOperatorNewBase {
+struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNewBase {
     virtual ID3D12Device *GetDevice() = 0;
     virtual IDXGIAdapter1 *GetAdapter() = 0;
     virtual IDXGIFactory4 *GetDXGIFactory() = 0;
     // queue is nullable
-    virtual ID3D12CommandQueue *GetQueue() = 0;
-};
-struct DirectXDeviceSettings : public DeviceConfig, public vstd::IOperatorNewBase {
-    inline static Hash128 kHash{"eb8674d890a44168959dd0b8ede27132"};
-    // external runtime is nullable
-    virtual luisa::unique_ptr<DirectXExternalRuntime> CreateExternalRuntime() const = 0;
-    DirectXDeviceSettings() {
-        hash = kHash;
-    }
+    virtual ID3D12CommandQueue *CreateQueue(D3D12_COMMAND_LIST_TYPE type) = 0;
 };
 }// namespace luisa::compute

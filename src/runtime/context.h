@@ -17,9 +17,12 @@ namespace luisa::compute {
 class Device;
 class BinaryIO;
 class ContextPaths;
-
+class DeviceConfigExt {
+public:
+    virtual ~DeviceConfigExt() = default;
+};
 struct DeviceConfig {
-    Hash128 hash;
+    mutable luisa::unique_ptr<DeviceConfigExt> extension;
     size_t device_index{0ull};
     bool inqueue_buffer_limit{true};
     bool headless{false};
