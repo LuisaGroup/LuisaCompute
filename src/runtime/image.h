@@ -13,17 +13,19 @@
 namespace luisa::compute {
 
 namespace detail {
+
+template<typename ImageOrView>
+struct ImageExprProxy;
+
 LC_RUNTIME_API void error_image_invalid_mip_levels(size_t level, size_t mip) noexcept;
-}
+
+}// namespace detail
 
 template<typename T>
 class ImageView;
 
 template<typename T>
 class BufferView;
-
-template<typename T>
-struct ImageExprProxy;
 
 class BindlessArray;
 
@@ -90,8 +92,8 @@ public:
     [[nodiscard]] auto copy_from(U &&dst) const noexcept {
         return this->view(0).copy_from(std::forward<U>(dst));
     }
-    [[nodiscard]] auto operator->() const noexcept{
-        return reinterpret_cast<ImageExprProxy<Image<T>> const*>(*this);
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
 };
 class ViewExporter;
@@ -138,8 +140,8 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
 
-    [[nodiscard]] auto operator->() const noexcept{
-        return reinterpret_cast<ImageExprProxy<ImageView<T>> const*>(*this);
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<const detail::ImageExprProxy<ImageView<T>> *>(this);
     }
 };
 

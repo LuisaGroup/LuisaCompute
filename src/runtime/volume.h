@@ -13,14 +13,16 @@
 namespace luisa::compute {
 
 namespace detail {
+
+template<typename VolumeOrView>
+struct VolumeExprProxy;
+
 LC_RUNTIME_API void error_volume_invalid_mip_levels(size_t level, size_t mip) noexcept;
-}
+
+}// namespace detail
 
 template<typename T>
 class VolumeView;
-
-template<typename T>
-struct VolumeExprProxy;
 
 // Volumes are 3D textures without sampling, i.e., 3D surfaces.
 template<typename T>
@@ -75,7 +77,7 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
 
     [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<VolumeExprProxy<Volume<T>> const *>(this);
+        return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
     }
 
     template<typename U>
@@ -127,7 +129,7 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
     [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<VolumeExprProxy<VolumeView<T>> const *>(this);
+        return reinterpret_cast<const detail::VolumeExprProxy<VolumeView<T>> *>(this);
     }
 };
 

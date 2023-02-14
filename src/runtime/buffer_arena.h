@@ -1,6 +1,8 @@
 #include <runtime/buffer.h>
 #include <runtime/device.h>
+
 namespace luisa::compute {
+
 class BufferArena {
 
 private:

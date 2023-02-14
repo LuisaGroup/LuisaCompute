@@ -63,7 +63,7 @@ template<typename T>
 using ScalarType_t = typename ScalarType<T>::type;
 template <typename T, typename Variant>
 T& force_get(Variant&& variant){
-    return *variant.get_as<T*>();
+    return *variant.template get_as<T*>();
 }
 }// namespace analyzer_detail
 

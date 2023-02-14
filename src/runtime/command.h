@@ -4,15 +4,17 @@
 
 #pragma once
 
+#include <core/macro.h>
 #include <core/basic_types.h>
-#include <ast/variable.h>
-#include <ast/function.h>
+#include <core/stl/vector.h>
+#include <core/stl/memory.h>
+#include <core/stl/variant.h>
+#include <core/stl/string.h>
+#include <ast/usage.h>
 #include <runtime/pixel.h>
-#include <ast/function_builder.h>
 #include <runtime/stream_tag.h>
 #include <runtime/raster/viewport.h>
 #include <runtime/sampler.h>
-#include <rust/luisa_compute_api_types/bindings.h>
 
 namespace luisa::compute {
 

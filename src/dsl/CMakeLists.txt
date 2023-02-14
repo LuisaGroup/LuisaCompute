@@ -31,6 +31,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             polymorphic.cpp polymorphic.h
             printer.cpp printer.h
             ref.cpp ref.h
+            resource.h
             shared.h
             stmt.h
             struct.h

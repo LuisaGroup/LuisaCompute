@@ -3,7 +3,7 @@ namespace vstd {
 
 char StringUtil::ToLower(char c) {
     if ((c >= 'A') && (c <= 'Z'))
-        c + ('a' - 'A');
+        return c + ('a' - 'A');
     return c;
 }
 char StringUtil::ToUpper(char c) {

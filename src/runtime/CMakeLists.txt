@@ -25,6 +25,7 @@ set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
 set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp bindless_array.h
         buffer.cpp buffer.h
+        buffer_arena.h
         command.h
         command_encoder.cpp command_encoder.h
         command_buffer.cpp command_buffer.h

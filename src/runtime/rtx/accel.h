@@ -6,6 +6,7 @@
 
 #include <core/dll_export.h>
 #include <core/basic_types.h>
+#include <core/stl/unordered_map.h>
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/mesh.h>
 #include <runtime/rtx/procedural_primitive.h>

@@ -1,0 +1,8 @@
+//
+// Created by Mike Smith on 2023/2/14.
+//
+
+#ifndef LUISACOMPUTE_RESOURCE_H
+#define LUISACOMPUTE_RESOURCE_H
+
+#endif//LUISACOMPUTE_RESOURCE_H

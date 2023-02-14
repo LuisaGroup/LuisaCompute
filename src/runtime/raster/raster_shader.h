@@ -174,9 +174,9 @@ class RasterShader : public Resource {
                   Function(vert.get()),
                   Function(pixel.get()),
                   ShaderOption{
-                    .enable_cache = true, 
-                    .enable_debug_info = enable_debug_info,
+                    .enable_cache = true,
                     .enable_fast_math = enable_fast_math,
+                    .enable_debug_info = enable_debug_info,
                     .name = name})),
         _vert(std::move(vert)),
         _pixel(std::move(pixel))
@@ -217,8 +217,8 @@ class RasterShader : public Resource {
                   Function(pixel.get()),
                   ShaderOption{
                     .enable_cache = enable_cache,
-                    .enable_debug_info = enable_debug_info,
-                    .enable_fast_math = enable_fast_math})),
+                    .enable_fast_math = enable_fast_math,
+                    .enable_debug_info = enable_debug_info})),
           _vert(std::move(vert)),
           _pixel(std::move(pixel)) 
 #ifndef NDEBUG
