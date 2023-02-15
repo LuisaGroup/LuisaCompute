@@ -55,11 +55,7 @@ if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
 if constexpr(!requires{T{{},{},{},{},{},{},{},{}};}){ 
 if constexpr(!requires{T{{},{},{},{}};}){ 
 if constexpr(!requires{T{{},{}};}){ 
-if constexpr(!requires{T{};}){ 
-return 0;
-}else{
 return 1;
-}
 }else{
 if constexpr(!requires{T{{},{},{}};}){ 
 return 2;
