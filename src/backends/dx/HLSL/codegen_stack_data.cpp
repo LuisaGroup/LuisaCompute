@@ -2,6 +2,7 @@
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
 #include <iostream>
+#include <ast/type_registry.h>
 namespace toolhub::directx {
 CodegenStackData::CodegenStackData()
     : generateStruct(

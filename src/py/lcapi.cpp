@@ -55,12 +55,11 @@ struct VertexData {
     float3 normal;
     float4 tangent;
     float4 color;
-    float2 uv[4];
+    std::array<float2, 4> uv;
     uint vertex_id;
     uint instance_id;
 };
 
-LUISA_STRUCT(VertexData, position, normal, tangent, color, uv, vertex_id, instance_id)
 
 template<typename T>
 class raw_ptr {
