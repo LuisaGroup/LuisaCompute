@@ -43,13 +43,267 @@ struct AnyType {
     operator T();
 };
 
+
 template<typename T>
-consteval size_t count_member(auto &&...Args) {
-    if constexpr (!requires { T{Args...}; }) {// (1)
-        return sizeof...(Args) - 1;
-    } else {
-        return count_member<T>(Args..., AnyType{});// (2)
-    }
+consteval size_t count_member() {
+    // clang-format off
+if constexpr(requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+    static_assert(luisa::always_false_v<T>, "Struct member count must less than 64.");
+}
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{}};}){ 
+if constexpr(!requires{T{{},{},{},{}};}){ 
+if constexpr(!requires{T{{},{}};}){ 
+if constexpr(!requires{T{};}){ 
+return 0;
+}else{
+return 1;
+}
+}else{
+if constexpr(!requires{T{{},{},{}};}){ 
+return 2;
+}else{
+return 3;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{}};}){ 
+if constexpr(!requires{T{{},{},{},{},{}};}){ 
+return 4;
+}else{
+return 5;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{}};}){
+return 6;
+}else{
+return 7;
+}
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{}};}){
+return 8;
+}else{
+return 9;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{}};}){
+return 10;
+}else{
+return 11;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 12;
+}else{
+return 13;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 14;
+}else{
+return 15;
+}
+}
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 16;
+}else{
+return 17;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 18;
+}else{
+return 19;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 20;
+}else{
+return 21;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 22;
+}else{
+return 23;
+}
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 24;
+}else{
+return 25;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 26;
+}else{
+return 27;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 28;
+}else{
+return 29;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 30;
+}else{
+return 31;
+}
+}
+}
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 32;
+}else{
+return 33;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 34;
+}else{
+return 35;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 36;
+}else{
+return 37;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 38;
+}else{
+return 39;
+}
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 40;
+}else{
+return 41;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 42;
+}else{
+return 43;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 44;
+}else{
+return 45;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 46;
+}else{
+return 47;
+}
+}
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 48;
+}else{
+return 49;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 50;
+}else{
+return 51;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 52;
+}else{
+return 53;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 54;
+}else{
+return 55;
+}
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 56;
+}else{
+return 57;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 58;
+}else{
+return 59;
+}
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 60;
+}else{
+return 61;
+}
+}else{
+if constexpr(!requires{T{{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}};}){
+return 62;
+}else{
+return 63;
+}
+}
+}
+}
+}
+}
+    // clang-format on
 }
 template<typename T>
 luisa::string member_reflect();
@@ -298,8 +552,7 @@ luisa::string member_reflect() {
     str.append(std::to_string(alignof(T))).append(",");
     constexpr size_t i = count_member<T>();
     // clang-format off
-if constexpr(i == 0){}
-else if constexpr(i == 1){ auto [a0] = T{}; str.append(TypeDesc<decltype(a0)>::description());}
+if constexpr(i == 1){ auto [a0] = T{}; str.append(TypeDesc<decltype(a0)>::description());}
 else if constexpr(i == 2){ auto [a0,a1] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description());}
 else if constexpr(i == 3){ auto [a0,a1,a2] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description()).append(",").append(TypeDesc<decltype(a2)>::description());}
 else if constexpr(i == 4){ auto [a0,a1,a2,a3] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description()).append(",").append(TypeDesc<decltype(a2)>::description()).append(",").append(TypeDesc<decltype(a3)>::description());}
@@ -360,8 +613,7 @@ else if constexpr(i == 59){ auto [a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,
 else if constexpr(i == 60){ auto [a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31,a32,a33,a34,a35,a36,a37,a38,a39,a40,a41,a42,a43,a44,a45,a46,a47,a48,a49,a50,a51,a52,a53,a54,a55,a56,a57,a58,a59] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description()).append(",").append(TypeDesc<decltype(a2)>::description()).append(",").append(TypeDesc<decltype(a3)>::description()).append(",").append(TypeDesc<decltype(a4)>::description()).append(",").append(TypeDesc<decltype(a5)>::description()).append(",").append(TypeDesc<decltype(a6)>::description()).append(",").append(TypeDesc<decltype(a7)>::description()).append(",").append(TypeDesc<decltype(a8)>::description()).append(",").append(TypeDesc<decltype(a9)>::description()).append(",").append(TypeDesc<decltype(a10)>::description()).append(",").append(TypeDesc<decltype(a11)>::description()).append(",").append(TypeDesc<decltype(a12)>::description()).append(",").append(TypeDesc<decltype(a13)>::description()).append(",").append(TypeDesc<decltype(a14)>::description()).append(",").append(TypeDesc<decltype(a15)>::description()).append(",").append(TypeDesc<decltype(a16)>::description()).append(",").append(TypeDesc<decltype(a17)>::description()).append(",").append(TypeDesc<decltype(a18)>::description()).append(",").append(TypeDesc<decltype(a19)>::description()).append(",").append(TypeDesc<decltype(a20)>::description()).append(",").append(TypeDesc<decltype(a21)>::description()).append(",").append(TypeDesc<decltype(a22)>::description()).append(",").append(TypeDesc<decltype(a23)>::description()).append(",").append(TypeDesc<decltype(a24)>::description()).append(",").append(TypeDesc<decltype(a25)>::description()).append(",").append(TypeDesc<decltype(a26)>::description()).append(",").append(TypeDesc<decltype(a27)>::description()).append(",").append(TypeDesc<decltype(a28)>::description()).append(",").append(TypeDesc<decltype(a29)>::description()).append(",").append(TypeDesc<decltype(a30)>::description()).append(",").append(TypeDesc<decltype(a31)>::description()).append(",").append(TypeDesc<decltype(a32)>::description()).append(",").append(TypeDesc<decltype(a33)>::description()).append(",").append(TypeDesc<decltype(a34)>::description()).append(",").append(TypeDesc<decltype(a35)>::description()).append(",").append(TypeDesc<decltype(a36)>::description()).append(",").append(TypeDesc<decltype(a37)>::description()).append(",").append(TypeDesc<decltype(a38)>::description()).append(",").append(TypeDesc<decltype(a39)>::description()).append(",").append(TypeDesc<decltype(a40)>::description()).append(",").append(TypeDesc<decltype(a41)>::description()).append(",").append(TypeDesc<decltype(a42)>::description()).append(",").append(TypeDesc<decltype(a43)>::description()).append(",").append(TypeDesc<decltype(a44)>::description()).append(",").append(TypeDesc<decltype(a45)>::description()).append(",").append(TypeDesc<decltype(a46)>::description()).append(",").append(TypeDesc<decltype(a47)>::description()).append(",").append(TypeDesc<decltype(a48)>::description()).append(",").append(TypeDesc<decltype(a49)>::description()).append(",").append(TypeDesc<decltype(a50)>::description()).append(",").append(TypeDesc<decltype(a51)>::description()).append(",").append(TypeDesc<decltype(a52)>::description()).append(",").append(TypeDesc<decltype(a53)>::description()).append(",").append(TypeDesc<decltype(a54)>::description()).append(",").append(TypeDesc<decltype(a55)>::description()).append(",").append(TypeDesc<decltype(a56)>::description()).append(",").append(TypeDesc<decltype(a57)>::description()).append(",").append(TypeDesc<decltype(a58)>::description()).append(",").append(TypeDesc<decltype(a59)>::description());}
 else if constexpr(i == 61){ auto [a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31,a32,a33,a34,a35,a36,a37,a38,a39,a40,a41,a42,a43,a44,a45,a46,a47,a48,a49,a50,a51,a52,a53,a54,a55,a56,a57,a58,a59,a60] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description()).append(",").append(TypeDesc<decltype(a2)>::description()).append(",").append(TypeDesc<decltype(a3)>::description()).append(",").append(TypeDesc<decltype(a4)>::description()).append(",").append(TypeDesc<decltype(a5)>::description()).append(",").append(TypeDesc<decltype(a6)>::description()).append(",").append(TypeDesc<decltype(a7)>::description()).append(",").append(TypeDesc<decltype(a8)>::description()).append(",").append(TypeDesc<decltype(a9)>::description()).append(",").append(TypeDesc<decltype(a10)>::description()).append(",").append(TypeDesc<decltype(a11)>::description()).append(",").append(TypeDesc<decltype(a12)>::description()).append(",").append(TypeDesc<decltype(a13)>::description()).append(",").append(TypeDesc<decltype(a14)>::description()).append(",").append(TypeDesc<decltype(a15)>::description()).append(",").append(TypeDesc<decltype(a16)>::description()).append(",").append(TypeDesc<decltype(a17)>::description()).append(",").append(TypeDesc<decltype(a18)>::description()).append(",").append(TypeDesc<decltype(a19)>::description()).append(",").append(TypeDesc<decltype(a20)>::description()).append(",").append(TypeDesc<decltype(a21)>::description()).append(",").append(TypeDesc<decltype(a22)>::description()).append(",").append(TypeDesc<decltype(a23)>::description()).append(",").append(TypeDesc<decltype(a24)>::description()).append(",").append(TypeDesc<decltype(a25)>::description()).append(",").append(TypeDesc<decltype(a26)>::description()).append(",").append(TypeDesc<decltype(a27)>::description()).append(",").append(TypeDesc<decltype(a28)>::description()).append(",").append(TypeDesc<decltype(a29)>::description()).append(",").append(TypeDesc<decltype(a30)>::description()).append(",").append(TypeDesc<decltype(a31)>::description()).append(",").append(TypeDesc<decltype(a32)>::description()).append(",").append(TypeDesc<decltype(a33)>::description()).append(",").append(TypeDesc<decltype(a34)>::description()).append(",").append(TypeDesc<decltype(a35)>::description()).append(",").append(TypeDesc<decltype(a36)>::description()).append(",").append(TypeDesc<decltype(a37)>::description()).append(",").append(TypeDesc<decltype(a38)>::description()).append(",").append(TypeDesc<decltype(a39)>::description()).append(",").append(TypeDesc<decltype(a40)>::description()).append(",").append(TypeDesc<decltype(a41)>::description()).append(",").append(TypeDesc<decltype(a42)>::description()).append(",").append(TypeDesc<decltype(a43)>::description()).append(",").append(TypeDesc<decltype(a44)>::description()).append(",").append(TypeDesc<decltype(a45)>::description()).append(",").append(TypeDesc<decltype(a46)>::description()).append(",").append(TypeDesc<decltype(a47)>::description()).append(",").append(TypeDesc<decltype(a48)>::description()).append(",").append(TypeDesc<decltype(a49)>::description()).append(",").append(TypeDesc<decltype(a50)>::description()).append(",").append(TypeDesc<decltype(a51)>::description()).append(",").append(TypeDesc<decltype(a52)>::description()).append(",").append(TypeDesc<decltype(a53)>::description()).append(",").append(TypeDesc<decltype(a54)>::description()).append(",").append(TypeDesc<decltype(a55)>::description()).append(",").append(TypeDesc<decltype(a56)>::description()).append(",").append(TypeDesc<decltype(a57)>::description()).append(",").append(TypeDesc<decltype(a58)>::description()).append(",").append(TypeDesc<decltype(a59)>::description()).append(",").append(TypeDesc<decltype(a60)>::description());}
 else if constexpr(i == 62){ auto [a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31,a32,a33,a34,a35,a36,a37,a38,a39,a40,a41,a42,a43,a44,a45,a46,a47,a48,a49,a50,a51,a52,a53,a54,a55,a56,a57,a58,a59,a60,a61] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description()).append(",").append(TypeDesc<decltype(a2)>::description()).append(",").append(TypeDesc<decltype(a3)>::description()).append(",").append(TypeDesc<decltype(a4)>::description()).append(",").append(TypeDesc<decltype(a5)>::description()).append(",").append(TypeDesc<decltype(a6)>::description()).append(",").append(TypeDesc<decltype(a7)>::description()).append(",").append(TypeDesc<decltype(a8)>::description()).append(",").append(TypeDesc<decltype(a9)>::description()).append(",").append(TypeDesc<decltype(a10)>::description()).append(",").append(TypeDesc<decltype(a11)>::description()).append(",").append(TypeDesc<decltype(a12)>::description()).append(",").append(TypeDesc<decltype(a13)>::description()).append(",").append(TypeDesc<decltype(a14)>::description()).append(",").append(TypeDesc<decltype(a15)>::description()).append(",").append(TypeDesc<decltype(a16)>::description()).append(",").append(TypeDesc<decltype(a17)>::description()).append(",").append(TypeDesc<decltype(a18)>::description()).append(",").append(TypeDesc<decltype(a19)>::description()).append(",").append(TypeDesc<decltype(a20)>::description()).append(",").append(TypeDesc<decltype(a21)>::description()).append(",").append(TypeDesc<decltype(a22)>::description()).append(",").append(TypeDesc<decltype(a23)>::description()).append(",").append(TypeDesc<decltype(a24)>::description()).append(",").append(TypeDesc<decltype(a25)>::description()).append(",").append(TypeDesc<decltype(a26)>::description()).append(",").append(TypeDesc<decltype(a27)>::description()).append(",").append(TypeDesc<decltype(a28)>::description()).append(",").append(TypeDesc<decltype(a29)>::description()).append(",").append(TypeDesc<decltype(a30)>::description()).append(",").append(TypeDesc<decltype(a31)>::description()).append(",").append(TypeDesc<decltype(a32)>::description()).append(",").append(TypeDesc<decltype(a33)>::description()).append(",").append(TypeDesc<decltype(a34)>::description()).append(",").append(TypeDesc<decltype(a35)>::description()).append(",").append(TypeDesc<decltype(a36)>::description()).append(",").append(TypeDesc<decltype(a37)>::description()).append(",").append(TypeDesc<decltype(a38)>::description()).append(",").append(TypeDesc<decltype(a39)>::description()).append(",").append(TypeDesc<decltype(a40)>::description()).append(",").append(TypeDesc<decltype(a41)>::description()).append(",").append(TypeDesc<decltype(a42)>::description()).append(",").append(TypeDesc<decltype(a43)>::description()).append(",").append(TypeDesc<decltype(a44)>::description()).append(",").append(TypeDesc<decltype(a45)>::description()).append(",").append(TypeDesc<decltype(a46)>::description()).append(",").append(TypeDesc<decltype(a47)>::description()).append(",").append(TypeDesc<decltype(a48)>::description()).append(",").append(TypeDesc<decltype(a49)>::description()).append(",").append(TypeDesc<decltype(a50)>::description()).append(",").append(TypeDesc<decltype(a51)>::description()).append(",").append(TypeDesc<decltype(a52)>::description()).append(",").append(TypeDesc<decltype(a53)>::description()).append(",").append(TypeDesc<decltype(a54)>::description()).append(",").append(TypeDesc<decltype(a55)>::description()).append(",").append(TypeDesc<decltype(a56)>::description()).append(",").append(TypeDesc<decltype(a57)>::description()).append(",").append(TypeDesc<decltype(a58)>::description()).append(",").append(TypeDesc<decltype(a59)>::description()).append(",").append(TypeDesc<decltype(a60)>::description()).append(",").append(TypeDesc<decltype(a61)>::description());}
-else if constexpr(i == 63){ auto [a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31,a32,a33,a34,a35,a36,a37,a38,a39,a40,a41,a42,a43,a44,a45,a46,a47,a48,a49,a50,a51,a52,a53,a54,a55,a56,a57,a58,a59,a60,a61,a62] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description()).append(",").append(TypeDesc<decltype(a2)>::description()).append(",").append(TypeDesc<decltype(a3)>::description()).append(",").append(TypeDesc<decltype(a4)>::description()).append(",").append(TypeDesc<decltype(a5)>::description()).append(",").append(TypeDesc<decltype(a6)>::description()).append(",").append(TypeDesc<decltype(a7)>::description()).append(",").append(TypeDesc<decltype(a8)>::description()).append(",").append(TypeDesc<decltype(a9)>::description()).append(",").append(TypeDesc<decltype(a10)>::description()).append(",").append(TypeDesc<decltype(a11)>::description()).append(",").append(TypeDesc<decltype(a12)>::description()).append(",").append(TypeDesc<decltype(a13)>::description()).append(",").append(TypeDesc<decltype(a14)>::description()).append(",").append(TypeDesc<decltype(a15)>::description()).append(",").append(TypeDesc<decltype(a16)>::description()).append(",").append(TypeDesc<decltype(a17)>::description()).append(",").append(TypeDesc<decltype(a18)>::description()).append(",").append(TypeDesc<decltype(a19)>::description()).append(",").append(TypeDesc<decltype(a20)>::description()).append(",").append(TypeDesc<decltype(a21)>::description()).append(",").append(TypeDesc<decltype(a22)>::description()).append(",").append(TypeDesc<decltype(a23)>::description()).append(",").append(TypeDesc<decltype(a24)>::description()).append(",").append(TypeDesc<decltype(a25)>::description()).append(",").append(TypeDesc<decltype(a26)>::description()).append(",").append(TypeDesc<decltype(a27)>::description()).append(",").append(TypeDesc<decltype(a28)>::description()).append(",").append(TypeDesc<decltype(a29)>::description()).append(",").append(TypeDesc<decltype(a30)>::description()).append(",").append(TypeDesc<decltype(a31)>::description()).append(",").append(TypeDesc<decltype(a32)>::description()).append(",").append(TypeDesc<decltype(a33)>::description()).append(",").append(TypeDesc<decltype(a34)>::description()).append(",").append(TypeDesc<decltype(a35)>::description()).append(",").append(TypeDesc<decltype(a36)>::description()).append(",").append(TypeDesc<decltype(a37)>::description()).append(",").append(TypeDesc<decltype(a38)>::description()).append(",").append(TypeDesc<decltype(a39)>::description()).append(",").append(TypeDesc<decltype(a40)>::description()).append(",").append(TypeDesc<decltype(a41)>::description()).append(",").append(TypeDesc<decltype(a42)>::description()).append(",").append(TypeDesc<decltype(a43)>::description()).append(",").append(TypeDesc<decltype(a44)>::description()).append(",").append(TypeDesc<decltype(a45)>::description()).append(",").append(TypeDesc<decltype(a46)>::description()).append(",").append(TypeDesc<decltype(a47)>::description()).append(",").append(TypeDesc<decltype(a48)>::description()).append(",").append(TypeDesc<decltype(a49)>::description()).append(",").append(TypeDesc<decltype(a50)>::description()).append(",").append(TypeDesc<decltype(a51)>::description()).append(",").append(TypeDesc<decltype(a52)>::description()).append(",").append(TypeDesc<decltype(a53)>::description()).append(",").append(TypeDesc<decltype(a54)>::description()).append(",").append(TypeDesc<decltype(a55)>::description()).append(",").append(TypeDesc<decltype(a56)>::description()).append(",").append(TypeDesc<decltype(a57)>::description()).append(",").append(TypeDesc<decltype(a58)>::description()).append(",").append(TypeDesc<decltype(a59)>::description()).append(",").append(TypeDesc<decltype(a60)>::description()).append(",").append(TypeDesc<decltype(a61)>::description()).append(",").append(TypeDesc<decltype(a62)>::description());}
-else{static_assert(luisa::always_false_v<T>, "Type count out of bound.");}
+else{ auto [a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31,a32,a33,a34,a35,a36,a37,a38,a39,a40,a41,a42,a43,a44,a45,a46,a47,a48,a49,a50,a51,a52,a53,a54,a55,a56,a57,a58,a59,a60,a61,a62] = T{}; str.append(TypeDesc<decltype(a0)>::description()).append(",").append(TypeDesc<decltype(a1)>::description()).append(",").append(TypeDesc<decltype(a2)>::description()).append(",").append(TypeDesc<decltype(a3)>::description()).append(",").append(TypeDesc<decltype(a4)>::description()).append(",").append(TypeDesc<decltype(a5)>::description()).append(",").append(TypeDesc<decltype(a6)>::description()).append(",").append(TypeDesc<decltype(a7)>::description()).append(",").append(TypeDesc<decltype(a8)>::description()).append(",").append(TypeDesc<decltype(a9)>::description()).append(",").append(TypeDesc<decltype(a10)>::description()).append(",").append(TypeDesc<decltype(a11)>::description()).append(",").append(TypeDesc<decltype(a12)>::description()).append(",").append(TypeDesc<decltype(a13)>::description()).append(",").append(TypeDesc<decltype(a14)>::description()).append(",").append(TypeDesc<decltype(a15)>::description()).append(",").append(TypeDesc<decltype(a16)>::description()).append(",").append(TypeDesc<decltype(a17)>::description()).append(",").append(TypeDesc<decltype(a18)>::description()).append(",").append(TypeDesc<decltype(a19)>::description()).append(",").append(TypeDesc<decltype(a20)>::description()).append(",").append(TypeDesc<decltype(a21)>::description()).append(",").append(TypeDesc<decltype(a22)>::description()).append(",").append(TypeDesc<decltype(a23)>::description()).append(",").append(TypeDesc<decltype(a24)>::description()).append(",").append(TypeDesc<decltype(a25)>::description()).append(",").append(TypeDesc<decltype(a26)>::description()).append(",").append(TypeDesc<decltype(a27)>::description()).append(",").append(TypeDesc<decltype(a28)>::description()).append(",").append(TypeDesc<decltype(a29)>::description()).append(",").append(TypeDesc<decltype(a30)>::description()).append(",").append(TypeDesc<decltype(a31)>::description()).append(",").append(TypeDesc<decltype(a32)>::description()).append(",").append(TypeDesc<decltype(a33)>::description()).append(",").append(TypeDesc<decltype(a34)>::description()).append(",").append(TypeDesc<decltype(a35)>::description()).append(",").append(TypeDesc<decltype(a36)>::description()).append(",").append(TypeDesc<decltype(a37)>::description()).append(",").append(TypeDesc<decltype(a38)>::description()).append(",").append(TypeDesc<decltype(a39)>::description()).append(",").append(TypeDesc<decltype(a40)>::description()).append(",").append(TypeDesc<decltype(a41)>::description()).append(",").append(TypeDesc<decltype(a42)>::description()).append(",").append(TypeDesc<decltype(a43)>::description()).append(",").append(TypeDesc<decltype(a44)>::description()).append(",").append(TypeDesc<decltype(a45)>::description()).append(",").append(TypeDesc<decltype(a46)>::description()).append(",").append(TypeDesc<decltype(a47)>::description()).append(",").append(TypeDesc<decltype(a48)>::description()).append(",").append(TypeDesc<decltype(a49)>::description()).append(",").append(TypeDesc<decltype(a50)>::description()).append(",").append(TypeDesc<decltype(a51)>::description()).append(",").append(TypeDesc<decltype(a52)>::description()).append(",").append(TypeDesc<decltype(a53)>::description()).append(",").append(TypeDesc<decltype(a54)>::description()).append(",").append(TypeDesc<decltype(a55)>::description()).append(",").append(TypeDesc<decltype(a56)>::description()).append(",").append(TypeDesc<decltype(a57)>::description()).append(",").append(TypeDesc<decltype(a58)>::description()).append(",").append(TypeDesc<decltype(a59)>::description()).append(",").append(TypeDesc<decltype(a60)>::description()).append(",").append(TypeDesc<decltype(a61)>::description()).append(",").append(TypeDesc<decltype(a62)>::description());}
 str.append(">");
 return str;
     // clang-format on
