@@ -47,6 +47,14 @@ private:
 
 private:
     friend class Device;
+    friend class ResourceGenerator;
+    Image(const ResourceCreationInfo &create_info, DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels) noexcept
+        : Resource{
+              device,
+              Tag::TEXTURE,
+              create_info},
+          _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {
+    }
     Image(DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels = 1u) noexcept
         : Resource{
               device,

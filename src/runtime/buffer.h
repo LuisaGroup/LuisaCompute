@@ -45,7 +45,8 @@ private:
 
 private:
     friend class Device;
-    Buffer(DeviceInterface *device, size_t size, BufferCreationInfo info) noexcept
+    friend class ResourceGenerator;
+    Buffer(DeviceInterface *device, size_t size, const BufferCreationInfo &info) noexcept
         : Resource{device, Tag::BUFFER, info},
           _size{size},
           _element_stride{info.element_stride} {}
