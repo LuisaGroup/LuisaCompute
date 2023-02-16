@@ -5,7 +5,7 @@
 #pragma once
 
 #include <runtime/device_interface.h>
-
+#include <ast/type_registry.h>
 namespace luisa::compute {
 
 class MeshFormat;
