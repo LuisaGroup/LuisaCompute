@@ -121,9 +121,7 @@ public:
         if (size_elements + offset_elements > _size) [[unlikely]] {
             detail::error_buffer_subview_overflow(offset_elements, size_elements, _size);
         }
-        return BufferView{_handle, _element_stride,
-                          _offset_bytes + offset_elements * _element_stride,
-                          size_elements, _total_size};
+        return BufferView{_handle, _element_stride, _offset_bytes + offset_elements * _element_stride, size_elements, _total_size};
     }
 
     template<typename U>

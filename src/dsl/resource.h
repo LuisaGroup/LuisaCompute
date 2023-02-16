@@ -2,11 +2,7 @@
 // Created by Mike Smith on 2023/2/14.
 //
 
-#pragma once
+#ifndef LUISACOMPUTE_RESOURCE_H
+#define LUISACOMPUTE_RESOURCE_H
 
-#ifndef LC_DISABLE_DSL
-
-#include <runtime/buffer.h>
-
-
-#endif
+#endif//LUISACOMPUTE_RESOURCE_H

@@ -3,7 +3,6 @@
 //
 
 #pragma once
-
 #ifndef LC_DISABLE_DSL
 
 #include <core/constants.h>
@@ -1604,7 +1603,5 @@ inline void sync_block() noexcept {
 #undef LUISA_EXPR
 
 }// namespace dsl
-
 }// namespace luisa::compute
-
 #endif

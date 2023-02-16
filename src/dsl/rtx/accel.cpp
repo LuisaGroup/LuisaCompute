@@ -1,4 +1,4 @@
-#include <dsl/rtx/accel.h>
+#include <dsl/accel.h>
 
 namespace luisa::compute {
 
