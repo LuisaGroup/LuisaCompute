@@ -518,7 +518,7 @@ luisa::string member_reflect() noexcept {
 luisa::string str = "struct<";
 str.append(std::to_string(alignof(T)));
 constexpr size_t i = count_member<T>();
-auto d = [&]<typename U>(T& t)noexcept{str.append(",").append(TypeDesc<U>::description());};
+auto d = [&]<typename U>(U& t)noexcept{str.append(",").append(TypeDesc<U>::description());};
 if constexpr(i==1){auto [a0]=T{};d(a0);}
 else if constexpr(i==2){auto [a0,a1]=T{};d(a0);d(a1);}
 else if constexpr(i==3){auto [a0,a1,a2]=T{};d(a0);d(a1);d(a2);}
