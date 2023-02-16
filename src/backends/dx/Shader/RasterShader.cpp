@@ -124,7 +124,7 @@ RasterShader::RasterShader(
     DepthFormat dsv,
     vstd::span<std::byte const> vertBinData,
     vstd::span<std::byte const> pixelBinData)
-    : Shader(std::move(prop), std::move(args), device->device, true),
+    : Shader(std::move(prop), std::move(args), device->device.Get(), true),
       device(device),
       type(state.topology) {
     vstd::vector<D3D12_INPUT_ELEMENT_DESC> layouts;

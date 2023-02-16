@@ -74,9 +74,9 @@ GpuAllocator::GpuAllocator(Device *device) {
     using namespace D3D12MA;
     ALLOCATOR_DESC desc;
     desc.Flags = ALLOCATOR_FLAGS::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
-    desc.pAdapter = device->adapter;
+    desc.pAdapter = device->adapter.Get();
     desc.pAllocationCallbacks = &ma_detail::gAllocateCallback.callbacks;
-    desc.pDevice = device->device;
+    desc.pDevice = device->device.Get();
     desc.PreferredBlockSize = 0;
     D3D12MA::CreateAllocator(&desc, &allocator);
 }

@@ -147,12 +147,12 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
     };
     if (useRuntime) {
         if (settings && settings->extension) {
-            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt*>(settings->extension.release()));
+            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
         }
         if (deviceSettings) {
-            device = static_cast<ID3D12Device5 *>(deviceSettings->GetDevice());
-            adapter = deviceSettings->GetAdapter();
-            dxgiFactory = deviceSettings->GetDXGIFactory();
+            device = {static_cast<ID3D12Device5 *>(deviceSettings->GetDevice()), false};
+            adapter = {deviceSettings->GetAdapter(), false};
+            dxgiFactory = {deviceSettings->GetDXGIFactory(), false};
             DXGI_ADAPTER_DESC1 desc;
             adapter->GetDesc1(&desc);
             adapterID = GenAdapterGUID(desc);
@@ -171,17 +171,16 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
                 }
             }
 #endif
-            ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&mDxgiFactory)));
-            dxgiFactory = mDxgiFactory.Get();
+            ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));
             auto capableAdapterIndex = 0u;
-            for (auto adapterIndex = 0u; mDxgiFactory->EnumAdapters1(adapterIndex, &mAdapter) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
+            for (auto adapterIndex = 0u; dxgiFactory->EnumAdapters1(adapterIndex, adapter.GetAddressOf()) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
                 DXGI_ADAPTER_DESC1 desc;
-                mAdapter->GetDesc1(&desc);
+                adapter->GetDesc1(&desc);
                 if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
                     if (capableAdapterIndex++ == index) {
                         ThrowIfFailed(D3D12CreateDevice(
-                            mAdapter.Get(), D3D_FEATURE_LEVEL_12_1,
-                            IID_PPV_ARGS(&mDevice)));
+                            adapter.Get(), D3D_FEATURE_LEVEL_12_1,
+                            IID_PPV_ARGS(device.GetAddressOf())));
                         vstd::wstring s{desc.Description};
                         vstd::string ss(s.size(), ' ');
                         std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
@@ -190,12 +189,10 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
                         break;
                     }
                 }
-                mDevice = nullptr;
-                mAdapter = nullptr;
+                device.Clear();
+                adapter.Clear();
             }
-            device = mDevice.Get();
-            adapter = mAdapter.Get();
-            if (mAdapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
+            if (adapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
         }
         defaultAllocator = vstd::make_unique<GpuAllocator>(this);
         globalHeap = vstd::create_unique(

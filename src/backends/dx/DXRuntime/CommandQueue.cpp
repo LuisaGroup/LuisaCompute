@@ -17,11 +17,10 @@ CommandQueue::CommandQueue(
         D3D12_COMMAND_QUEUE_DESC queueDesc = {};
         queueDesc.Type = type;
         queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
-        ThrowIfFailed(device->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(queueComPtr.GetAddressOf())));
-        queue = queueComPtr.Get();
+        ThrowIfFailed(device->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(queue.GetAddressOf())));
     };
     if (device->deviceSettings) {
-        queue = device->deviceSettings->CreateQueue(type);
+        queue = {device->deviceSettings->CreateQueue(type), false};
         if (!queue) [[unlikely]] {
             CreateQueue();
         }

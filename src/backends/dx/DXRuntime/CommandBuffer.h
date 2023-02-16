@@ -30,7 +30,6 @@ private:
 
 public:
     CommandBuffer const *GetCB() const { return cb; }
-    ID3D12GraphicsCommandList4 *CmdList() const;
 
     void DispatchCompute(
         ComputeShader const *cs,

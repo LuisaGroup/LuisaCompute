@@ -108,7 +108,7 @@ void ResourceStateTracker::RestoreStateMap() {
 void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
     ExecuteStateMap();
     if (!states.empty()) {
-        cmdBuffer.CmdList()->ResourceBarrier(
+        cmdBuffer.GetCB()->CmdList()->ResourceBarrier(
             states.size(),
             states.data());
         states.clear();
@@ -117,7 +117,7 @@ void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
 void ResourceStateTracker::RestoreState(CommandBufferBuilder const &cmdBuffer) {
     RestoreStateMap();
     if (!states.empty()) {
-        cmdBuffer.CmdList()->ResourceBarrier(
+        cmdBuffer.GetCB()->CmdList()->ResourceBarrier(
             states.size(),
             states.data());
         states.clear();

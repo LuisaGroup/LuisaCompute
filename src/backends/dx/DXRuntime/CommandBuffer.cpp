@@ -6,7 +6,6 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RasterShader.h>
 namespace toolhub::directx {
-ID3D12GraphicsCommandList4 *CommandBufferBuilder::CmdList() const { return cb->cmdList.Get(); }
 CommandBuffer::CommandBuffer(CommandBuffer &&v)
     : cmdList(std::move(v.cmdList)),
       alloc(v.alloc) {
@@ -76,7 +75,7 @@ void CommandBufferBuilder::DispatchCompute(
 void CommandBufferBuilder::SetRasterShader(
     RasterShader const *s,
     vstd::span<const BindProperty> resources) {
-    auto c = CmdList();
+    auto c = cb->CmdList();
     c->SetPipelineState(s->Pso());
     c->SetGraphicsRootSignature(s->RootSig());
     SetRasterResources(s, resources);

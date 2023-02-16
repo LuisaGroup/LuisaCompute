@@ -60,7 +60,7 @@ void Shader::SetComputeResource(
     uint propertyName,
     CommandBufferBuilder *cb,
     BufferView buffer) const {
-    auto cmdList = cb->CmdList();
+    auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
         case ShaderVariableType::ConstantBuffer: {
@@ -85,7 +85,7 @@ void Shader::SetComputeResource(
     uint propertyName,
     CommandBufferBuilder *cb,
     DescriptorHeapView view) const {
-    auto cmdList = cb->CmdList();
+    auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
         case ShaderVariableType::UAVDescriptorHeap:
@@ -103,7 +103,7 @@ void Shader::SetComputeResource(
     uint propertyName,
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
-    auto cmdList = cb->CmdList();
+    auto cmdList = cb->GetCB()->CmdList();
     assert(properties[propertyName].type == ShaderVariableType::ConstantValue);
     cmdList->SetComputeRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
@@ -120,7 +120,7 @@ void Shader::SetRasterResource(
     uint propertyName,
     CommandBufferBuilder *cb,
     BufferView buffer) const {
-    auto cmdList = cb->CmdList();
+    auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
         case ShaderVariableType::ConstantBuffer: {
@@ -145,7 +145,7 @@ void Shader::SetRasterResource(
     uint propertyName,
     CommandBufferBuilder *cb,
     DescriptorHeapView view) const {
-    auto cmdList = cb->CmdList();
+    auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
         case ShaderVariableType::UAVDescriptorHeap:
@@ -172,7 +172,7 @@ void Shader::SetRasterResource(
     uint propertyName,
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
-    auto cmdList = cb->CmdList();
+    auto cmdList = cb->GetCB()->CmdList();
     assert(properties[propertyName].type == ShaderVariableType::ConstantValue);
     cmdList->SetGraphicsRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }

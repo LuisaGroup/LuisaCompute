@@ -518,7 +518,7 @@ public:
     }
     void visit(const ClearDepthCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
-        auto cmdList = bd->CmdList();
+        auto cmdList = bd->GetCB()->CmdList();
         auto alloc = bd->GetCB()->GetAlloc();
         D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle;
         auto chunk = alloc->dsvAllocator.Allocate(1);
@@ -665,7 +665,7 @@ public:
         vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
         DecodeCmd(*cmd, Visitor{this, shader->Args().data()});
         bd->SetRasterShader(shader, *bindProps);
-        auto cmdList = bd->CmdList();
+        auto cmdList = bd->GetCB()->CmdList();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
         // TODO:Set render target
@@ -841,7 +841,7 @@ void LCCmdBuffer::Execute(
         for (auto &&lst : cmdLists) {
             cmdListIsEmpty = cmdListIsEmpty && lst.empty();
             if (!cmdListIsEmpty) {
-                cmdBuilder.CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+                cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
             }
             // Clear caches
             ppVisitor.argVecs->clear();
@@ -944,7 +944,7 @@ void LCCmdBuffer::Present(
         auto &&rt = &swapchain->m_renderTargets[swapchain->frameIndex];
         auto cb = alloc->GetBuffer();
         auto bd = cb->Build();
-        auto cmdList = bd.CmdList();
+        auto cmdList = cb->CmdList();
         tracker.RecordState(
             rt, D3D12_RESOURCE_STATE_COPY_DEST);
         tracker.RecordState(
@@ -1014,7 +1014,7 @@ void LCCmdBuffer::CompressBC(
         ID3D12DescriptorHeap *h[2] = {
             device->globalHeap->GetHeap(),
             device->samplerHeap->GetHeap()};
-        cmdBuilder.CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+        cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
 
         BCCBuffer cbData;
         tracker.RecordState(rt, tracker.TextureReadState(rt));

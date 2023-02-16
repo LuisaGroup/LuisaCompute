@@ -1,6 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <vstl/lockfree_array_queue.h>
+#include <DxRuntime/DxPtr.h>
 namespace toolhub::directx {
 class CommandBuffer;
 class CommandAllocator;
@@ -27,8 +28,7 @@ private:
     uint64 executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
     bool enabled = true;
-    ID3D12CommandQueue* queue;
-    Microsoft::WRL::ComPtr<ID3D12CommandQueue> queueComPtr;
+    DxPtr<ID3D12CommandQueue> queue;
     Microsoft::WRL::ComPtr<ID3D12Fence> cmdFence;
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
     vstd::LockFreeArrayQueue<CallbackEvent> executedAllocators;
