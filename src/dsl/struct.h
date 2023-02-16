@@ -8,10 +8,7 @@
 
 #include <cstdint>
 #include <cstddef>
-
-#include <dsl/var.h>
-#include <dsl/func.h>
-#include <runtime/shader.h>
+#include <array>
 
 template<typename T>
 struct luisa_compute_extension {};
@@ -261,7 +258,9 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
     }                                                                                   \
     }
 #else
+
 #include <ast/type_registry.h>
+
 #define LUISA_STRUCT(S, ...) \
     LUISA_STRUCT_REFLECT(S, __VA_ARGS__)
 #define LUISA_CUSTOM_STRUCT(S, ...) \
@@ -269,4 +268,5 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
 #define LUISA_STRUCT_EXT(S) \
     template<U>             \
     struct luisa_compute_dummy_extension<S, U> : public U
+
 #endif

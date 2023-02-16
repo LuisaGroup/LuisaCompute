@@ -32,12 +32,9 @@ struct ResourceCreationInfo {
     }
 };
 
-struct BufferCreationInfo : public ResourceCreationInfo {
+struct TypedBufferCreationInfo : public ResourceCreationInfo {
     size_t element_stride;
     size_t total_size_bytes;
-    [[nodiscard]] static constexpr auto make_invalid() noexcept {
-        return BufferCreationInfo{invalid_resource_handle, nullptr, 0, 0};
-    }
 };
 
 struct SwapChainCreationInfo : public ResourceCreationInfo {

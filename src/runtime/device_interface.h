@@ -50,10 +50,11 @@ public:
 
 public:
     // buffer
-    [[nodiscard]] virtual BufferCreationInfo register_external_buffer(void *external_ptr, const Type *element, size_t elem_count) noexcept {
-        return BufferCreationInfo::make_invalid();
+    [[nodiscard]] virtual ResourceCreationInfo register_external_buffer(void *external_ptr, size_t size_bytes) noexcept {
+        return ResourceCreationInfo::make_invalid();
     }
-    [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo create_buffer(size_t size_bytes) noexcept = 0;
+    [[nodiscard]] virtual TypedBufferCreationInfo create_typed_buffer(const Type *element, size_t elem_count) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
     // texture

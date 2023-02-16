@@ -2,7 +2,9 @@
 // Created by Mike Smith on 2021/3/2.
 //
 #pragma once
+
 #ifndef LC_DISABLE_DSL
+
 #include <ast/constant_data.h>
 #include <dsl/expr.h>
 
@@ -75,4 +77,5 @@ template<concepts::container T>
 Constant(T &&) -> Constant<std::remove_const_t<typename std::remove_cvref_t<T>::value_type>>;
 
 }// namespace luisa::compute
+
 #endif
