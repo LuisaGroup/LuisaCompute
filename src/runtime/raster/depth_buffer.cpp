@@ -3,7 +3,13 @@
 #include <core/logging.h>
 
 namespace luisa::compute {
-
+DepthBuffer::DepthBuffer(const ResourceCreationInfo &create_info, DeviceInterface *device, DepthFormat format, uint2 size) noexcept
+    : Resource(
+          device,
+          Tag::DEPTH_BUFFER,
+          create_info),
+      _size(size), _format(format) {
+}
 DepthBuffer Device::create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept {
     return _create<DepthBuffer>(depth_format, size);
 }

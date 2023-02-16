@@ -1,5 +1,6 @@
 #pragma once
 #include <runtime/image.h>
+#include <runtime/raster/depth_buffer.h>
 #include <runtime/buffer.h>
 namespace luisa::compute {
 class ResourceGenerator {
@@ -11,6 +12,9 @@ public:
     template<typename T>
     static Buffer<T> create_native_buffer(const BufferCreationInfo &create_info, DeviceInterface *device, size_t size) noexcept {
         return {device, size, create_info};
+    }
+    static DepthBuffer create_native_depth_buffer(const ResourceCreationInfo &create_info, DeviceInterface *device, DepthFormat format, uint2 size) noexcept{
+        return {create_info, device, format, size};
     }
 };
 }// namespace luisa::compute
