@@ -46,16 +46,14 @@ private:
 private:
     friend class Device;
     friend class ResourceGenerator;
-    Buffer(DeviceInterface *device, size_t size, const BufferCreationInfo &info) noexcept
+    Buffer(DeviceInterface *device, const BufferCreationInfo &info) noexcept
         : Resource{device, Tag::BUFFER, info},
-          _size{size},
+          _size{info.total_size_bytes / info.element_stride},
           _element_stride{info.element_stride} {}
 
 public:
     Buffer(DeviceInterface *device, size_t size) noexcept
         : Buffer{device, size, device->create_buffer(Type::of<T>(), size)} {}
-    Buffer(DeviceInterface *device, void *external_ptr, size_t size) noexcept
-        : Buffer{device, size, device->register_external_buffer(external_ptr, Type::of<T>(), size)} {}
     Buffer() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }

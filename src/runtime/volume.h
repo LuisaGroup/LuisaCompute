@@ -40,7 +40,14 @@ private:
 
 private:
     friend class Device;
-    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u, Sampler sampler = {}) noexcept
+    friend class ResourceGenerator;
+    Volume(DeviceInterface *device, const ResourceCreationInfo &create_info, PixelStorage storage, uint3 size, uint mip_levels) noexcept
+        : Resource{
+              device, Tag::TEXTURE,
+              create_info},
+          _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {
+    }
+    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u) noexcept
         : Resource{
               device, Tag::TEXTURE,
               device->create_texture(
@@ -102,6 +109,7 @@ private:
 private:
     friend class Volume<T>;
     friend class detail::MipmapView;
+    friend class ResourceGenerator;
 
     constexpr explicit VolumeView(
         uint64_t handle, PixelStorage storage, uint level, uint3 size) noexcept

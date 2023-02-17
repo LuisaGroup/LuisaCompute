@@ -49,10 +49,6 @@ public:
     virtual void set_io(BinaryIO *visitor) noexcept = 0;
 
 public:
-    // buffer
-    [[nodiscard]] virtual BufferCreationInfo register_external_buffer(void *external_ptr, const Type *element, size_t elem_count) noexcept {
-        return BufferCreationInfo::make_invalid();
-    }
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 

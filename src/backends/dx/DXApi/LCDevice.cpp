@@ -32,8 +32,11 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       shaderPaths{_ctx.paths().cache_directory(), _ctx.paths().data_directory() / "dx_builtin", _ctx.paths().runtime_directory()},
       nativeDevice(_ctx, shaderPaths, settings) {
-    exts.try_emplace("tex_compress"sv, [](LCDevice *device) -> DeviceExtension * {
+    exts.try_emplace("TexCompressExt"sv, [](LCDevice *device) -> DeviceExtension * {
         return new DxTexCompressExt(&device->nativeDevice);
+    });
+    exts.try_emplace("NativeResourceExt"sv, [](LCDevice *device) -> DeviceExtension * {
+        return new DxNativeResourceExt(device, &device->nativeDevice);
     });
 }
 LCDevice::~LCDevice() {
@@ -48,17 +51,7 @@ Hash128 LCDevice::device_hash() const noexcept {
 void *LCDevice::native_handle() const noexcept {
     return nativeDevice.device;
 }
-BufferCreationInfo LCDevice::register_external_buffer(void *external_ptr, const Type *element, size_t elem_count) noexcept {
-    auto res = static_cast<Buffer *>(new ExternalBuffer(
-        &nativeDevice,
-        reinterpret_cast<ID3D12Resource *>(external_ptr)));
-    BufferCreationInfo info;
-    info.handle = reinterpret_cast<uint64>(res);
-    info.native_handle = res->GetResource();
-    info.element_stride = element->size();
-    info.total_size_bytes = element->size() * elem_count;
-    return info;
-}
+
 BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
     BufferCreationInfo info;
     Buffer *res;

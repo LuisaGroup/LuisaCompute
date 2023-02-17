@@ -48,7 +48,7 @@ private:
 private:
     friend class Device;
     friend class ResourceGenerator;
-    Image(const ResourceCreationInfo &create_info, DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels) noexcept
+    Image(DeviceInterface *device, const ResourceCreationInfo &create_info, PixelStorage storage, uint2 size, uint mip_levels) noexcept
         : Resource{
               device,
               Tag::TEXTURE,

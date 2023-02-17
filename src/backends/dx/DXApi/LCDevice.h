@@ -27,8 +27,6 @@ public:
     string cache_name(string_view file_name) const noexcept override;
     // buffer
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
-    BufferCreationInfo register_external_buffer(void *external_ptr, const Type *element, size_t elem_count) noexcept override;
-    ;
     void destroy_buffer(uint64_t handle) noexcept override;
     void set_io(BinaryIO *visitor) noexcept override;
     // texture

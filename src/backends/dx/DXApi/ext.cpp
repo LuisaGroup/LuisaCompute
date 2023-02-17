@@ -4,6 +4,8 @@
 #include <Resource/RenderTexture.h>
 #include <DXApi/LCCmdBuffer.h>
 #include <runtime/stream.h>
+#include <Resource/ExternalBuffer.h>
+#include <Resource/ExternalTexture.h>
 namespace toolhub::directx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -59,5 +61,39 @@ TexCompressExt::Result DxTexCompressExt::check_builtin_shader() noexcept {
     LUISA_INFO("start try compile bc7EncodeBlock");
     if (!device->bc7EncodeBlock.Check(device)) return Result::Failed;
     return Result::Success;
+}
+BufferCreationInfo DxNativeResourceExt::register_external_buffer(
+    void *external_ptr,
+    const Type *element,
+    size_t elem_count,
+    void *custom_data) noexcept {
+    auto res = static_cast<Buffer *>(new ExternalBuffer(
+        dx_device,
+        reinterpret_cast<ID3D12Resource *>(external_ptr)));
+    BufferCreationInfo info;
+    info.handle = reinterpret_cast<uint64>(res);
+    info.native_handle = res->GetResource();
+    info.element_stride = element->size();
+    info.total_size_bytes = element->size() * elem_count;
+    return info;
+}
+ResourceCreationInfo DxNativeResourceExt::register_external_image(
+    void *external_ptr,
+    PixelFormat format, uint dimension,
+    uint width, uint height, uint depth,
+    uint mipmap_levels,
+    void *custom_data) noexcept {
+    auto desc = reinterpret_cast<NativeTextureDesc const *>(custom_data);
+    auto res = static_cast<TextureBase *>(new ExternalTexture(
+        dx_device,
+        reinterpret_cast<ID3D12Resource *>(external_ptr),
+        desc->initState,
+        width,
+        height,
+        TextureBase::ToGFXFormat(format),
+        (TextureDimension)dimension,
+        depth,
+        mipmap_levels,
+        desc->allowUav));
 }
 }// namespace toolhub::directx

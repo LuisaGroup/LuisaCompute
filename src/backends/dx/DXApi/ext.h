@@ -1,6 +1,8 @@
 #pragma once
 #include <vstl/common.h>
 #include <backends/common/tex_compress_ext.h>
+#include <backends/common/native_resource_ext.h>
+#include <d3d12.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class Device;
@@ -14,4 +16,26 @@ public:
     Result compress_bc7(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result, float alphaImportance) noexcept override;
     Result check_builtin_shader() noexcept override;
 };
-}// namespace toolhub::directx 
+struct NativeTextureDesc {
+    D3D12_RESOURCE_STATES initState;
+    bool allowUav;
+};
+class DxNativeResourceExt final : public NativeResourceExt, public vstd::IOperatorNewBase {
+public:
+    Device *dx_device;
+    DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device) : NativeResourceExt{lc_device}, dx_device{dx_device} {}
+    BufferCreationInfo register_external_buffer(
+        void *external_ptr,
+        const Type *element,
+        size_t elem_count,
+        // unused
+        void *custom_data) noexcept override;
+    ResourceCreationInfo register_external_image(
+        void *external_ptr,
+        PixelFormat format, uint dimension,
+        uint width, uint height, uint depth,
+        uint mipmap_levels,
+        // NativeTextureDesc*
+        void *custom_data) noexcept override;
+};
+}// namespace toolhub::directx
