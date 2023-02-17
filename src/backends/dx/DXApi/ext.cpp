@@ -69,7 +69,8 @@ BufferCreationInfo DxNativeResourceExt::register_external_buffer(
     void *custom_data) noexcept {
     auto res = static_cast<Buffer *>(new ExternalBuffer(
         dx_device,
-        reinterpret_cast<ID3D12Resource *>(external_ptr)));
+        reinterpret_cast<ID3D12Resource *>(external_ptr),
+        *reinterpret_cast<D3D12_RESOURCE_STATES const *>(custom_data)));
     BufferCreationInfo info;
     info.handle = reinterpret_cast<uint64>(res);
     info.native_handle = res->GetResource();

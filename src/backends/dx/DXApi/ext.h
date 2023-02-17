@@ -28,14 +28,14 @@ public:
         void *external_ptr,
         const Type *element,
         size_t elem_count,
-        // unused
+        // D3D12_RESOURCE_STATES const*
         void *custom_data) noexcept override;
     ResourceCreationInfo register_external_image(
         void *external_ptr,
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels,
-        // NativeTextureDesc*
+        // NativeTextureDesc const*
         void *custom_data) noexcept override;
 };
 }// namespace toolhub::directx
