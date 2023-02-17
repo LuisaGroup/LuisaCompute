@@ -12,12 +12,12 @@ static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function
     if (vertexKernel.builder() == nullptr || pixelKernel.builder() == nullptr) {
         return {};
     } else {
-        auto vertArgs =
-            vstd::CacheEndRange(vertexKernel.arguments()) |
-            vstd::TransformRange(
-                [&](Variable const &var) {
-                    return std::pair<Variable, Usage>{var, vertexKernel.variable_usage(var.uid())};
-                });
+        auto vertSpan = vertexKernel.arguments();
+        auto vertArgs = vstd::CacheEndRange(vstd::ite_range(vertSpan.begin() + 1, vertSpan.end())) |
+                        vstd::TransformRange(
+                            [&](Variable const &var) {
+                                return std::pair<Variable, Usage>{var, vertexKernel.variable_usage(var.uid())};
+                            });
         auto pixelSpan = pixelKernel.arguments();
         auto pixelArgs =
             vstd::ite_range(pixelSpan.begin() + 1, pixelSpan.end()) |
@@ -394,7 +394,7 @@ RasterShader *RasterShader::CompileRaster(
         vstd::MD5 typeMD5;
         auto result = ShaderSerializer::RasterDeSerialize(
             fileName, psoName, isInternal, device, *fileIo, md5,
-            psoMd5, typeMD5, meshFormat, state, rtv, dsv, oldDeleted);
+            typeMD5, meshFormat, state, rtv, dsv, oldDeleted);
         if (result) {
             if (oldDeleted) {
                 result->SavePSO(psoName, fileIo, device);
@@ -424,6 +424,7 @@ void RasterShader::SaveRaster(
         str.result.view(),
         true,
         shaderModel);
+
     if (compResult.vertex.IsTypeOf<vstd::string>()) {
         std::cout << compResult.vertex.get<1>() << '\n';
         VSTL_ABORT();
@@ -454,10 +455,9 @@ RasterShader *RasterShader::LoadRaster(
     vstd::string_view fileName) {
     auto psoName = Shader::PSOName(device, fileName);
 
-    vstd::optional<vstd::MD5> md5;
     bool cacheDeleted = false;
     vstd::MD5 typeMD5;
-    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, psoName, false, device, *device->fileIo, {}, md5, typeMD5, mesh_format, raster_state, rtv_format, dsv_format, cacheDeleted);
+    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, psoName, false, device, *device->fileIo, {}, typeMD5, mesh_format, raster_state, rtv_format, dsv_format, cacheDeleted);
     if (ptr) {
         auto md5 = CodegenUtility::GetTypeMD5(types);
         if (md5 != typeMD5) {

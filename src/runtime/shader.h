@@ -17,7 +17,15 @@ class Accel;
 class BindlessArray;
 
 namespace detail {
-
+template <typename ... Args>
+decltype(auto) arg_types(){
+    if constexpr(sizeof...(Args) == 0){
+        return luisa::span<Type const* const>{};
+    }else{
+        static thread_local auto arg_arr = std::array{Type::of<Args>()...};
+        return luisa::span<Type const* const>{arg_arr};
+    }
+}
 template<typename T>
 struct prototype_to_shader_invocation {
     using type = const T &;
@@ -179,18 +187,23 @@ private:
     Shader(DeviceInterface *device,
            string_view file_path) noexcept
         : Resource{device, Tag::SHADER,
-                   device->load_shader(file_path, std::array{Type::of<Args>()...})} {}
+                   device->load_shader(file_path, detail::arg_types<Args...>())} {}
 
 public:
     Shader() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         using invoke_type = detail::ShaderInvoke<dimension>;
+        size_t arg_size;
+        if (_kernel) {
+            arg_size = _kernel.arguments().size();
+        } else {
+            arg_size = sizeof...(Args);
+        }
         invoke_type invoke{
-            _kernel.arguments().size(),
+            arg_size,
             handle(),
-            _kernel
-        };
+            _kernel};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
     [[nodiscard]] uint3 block_size() const noexcept {

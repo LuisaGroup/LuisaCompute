@@ -30,6 +30,7 @@ void CodegenStackData::Clear() {
     customStructVector.clear();
     sharedVariable.clear();
     constCount = 0;
+    argOffset = 0;
     appdataId = -1;
     count = 0;
     structCount = 0;

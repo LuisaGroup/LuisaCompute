@@ -47,7 +47,7 @@ uint CodegenUtility::IsBool(Type const &type) {
 };
 vstd::StringBuilder CodegenUtility::GetNewTempVarName() {
     vstd::StringBuilder name;
-    name <<  "tmp"sv;
+    name << "tmp"sv;
     vstd::to_string(opt->tempCount, name);
     opt->tempCount++;
     return name;
@@ -93,6 +93,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
                         str << "vv"sv;
                     } else {
                         if (opt->arguments.find(id) != opt->arguments.end()) {
+                            id += opt->argOffset;
                             str << "a.l"sv;
                         } else {
                             str << 'l';
@@ -113,6 +114,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
                                 str << "p.v0"sv;
                             }
                         } else {
+                            id += opt->argOffset;
                             str << "a.l"sv;
                             vstd::to_string(id, str);
                         }
@@ -810,7 +812,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
             bool isFloat = opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT;
-            if(isFloat){
+            if (isFloat) {
                 str << "asfloat("sv;
             }
             str << "READ_BUFFER"sv;
@@ -824,7 +826,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ',';
             GetTypeName(*expr->type(), str, Usage::READ, true);
             str << ",bdls)"sv;
-            if(isFloat){
+            if (isFloat) {
                 str << ')';
             }
             return;
@@ -1361,15 +1363,16 @@ void CodegenUtility::GenerateCBuffer(
     vstd::StringBuilder &result) {
     result << "struct Args{\n"sv;
     size_t align = 0;
+    size_t size = 0;
     for (auto &&f : fs) {
+        size_t size_cache = 0;
         for (auto &&i : *f) {
             if (!detail::IsCBuffer(i.tag())) continue;
+            size_cache++;
             GetTypeName(*i.type(), result, Usage::READ, true);
             // vec3 need extra alignment
-            result << ' ';
-            GetVariableName(i, result);
-            result << ";\n"sv;
-            if(i.type()->is_vector() && i.type()->dimension() == 3){
+            result << " l" << vstd::to_string(i.uid() + size) << ";\n"sv;
+            if (i.type()->is_vector() && i.type()->dimension() == 3) {
                 GetTypeName(*i.type()->element(), result, Usage::READ, true);
                 result << " _a"sv;
                 vstd::to_string(align, result);
@@ -1377,6 +1380,7 @@ void CodegenUtility::GenerateCBuffer(
                 ++align;
             }
         }
+        size += size_cache;
     }
     result << R"(};
 StructuredBuffer<Args> _Global:register(t0);
@@ -1404,7 +1408,7 @@ void CodegenUtility::GenerateBindlessSpirv(
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str) {
-    if(opt->bindlessBufferCount > 0){
+    if (opt->bindlessBufferCount > 0) {
         str << "ByteAddressBuffer bdls[]:register(t0,space3);\n"sv;
         properties.emplace_back(
             Property{
@@ -1731,7 +1735,11 @@ uint obj_id:register(b0);
                 if (idx >= 4) {
                     d << "vv.v4.v["sv << vstd::to_string(idx - 4) << "]=vt."sv << name << ";\n"sv;
                 } else {
-                    d << "vv.v"sv << vstd::to_string(i) << "=vt."sv << name << ";\n"sv;
+                    d << "vv.v"sv << vstd::to_string(i);
+                    if (i < 2) {
+                        d << ".v"sv;
+                    }
+                    d << "=vt."sv << name << ";\n"sv;
                 }
             }
         }
@@ -1740,7 +1748,11 @@ uint obj_id:register(b0);
             if (i >= 4) {
                 d << "vv.v4.v["sv << vstd::to_string(i - 4) << "]=0;\n"sv;
             } else {
-                d << "vv.v"sv << vstd::to_string(i) << "=0;\n"sv;
+                d << "vv.v"sv << vstd::to_string(i);
+                if (i < 2) {
+                    d << ".v"sv;
+                }
+                d << "=0;\n"sv;
             }
         }
         d << "vv.v5=vt.vid;\nvv.v6=vt.iid;\n"sv;
@@ -1758,7 +1770,7 @@ uint obj_id:register(b0);
 uint iid:SV_INSTANCEID;
 };
 )"sv;
-    auto vertRange = vstd::RangeImpl(vstd::CacheEndRange(vertFunc.arguments()) | vstd::ValueRange{});
+    auto vertRange = vstd::RangeImpl(vstd::CacheEndRange(vstd::ite_range(vertFunc.arguments().begin() + 1, vertFunc.arguments().end())) | vstd::ValueRange{});
     auto pixelRange = vstd::RangeImpl(vstd::ite_range(pixelFunc.arguments().begin() + 1, pixelFunc.arguments().end()) | vstd::ValueRange{});
     std::initializer_list<vstd::IRange<Variable> *> funcs = {&vertRange, &pixelRange};
 
@@ -1768,6 +1780,7 @@ uint iid:SV_INSTANCEID;
     opt->appdataId = -1;
     // TODO: gen vertex data
     codegenData << "#elif defined(PS)\n"sv;
+    opt->argOffset = vertFunc.arguments().size() - 1;
     // TODO: gen pixel data
     CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer);
     codegenData << "#endif\n"sv;
@@ -1783,7 +1796,7 @@ uint iid:SV_INSTANCEID;
     uint64 immutableHeaderSize = finalResult.size();
     vstd::array<uint, 3> registerCount;
     PreprocessCodegenProperties(properties, varData, registerCount, nonEmptyCbuffer, true);
-    CodegenProperties(properties, finalResult, varData, vertFunc, 0, registerCount);
+    CodegenProperties(properties, finalResult, varData, vertFunc, 1, registerCount);
     CodegenProperties(properties, finalResult, varData, pixelFunc, 1, registerCount);
     PostprocessCodegenProperties(properties, finalResult);
     finalResult << varData << codegenData;

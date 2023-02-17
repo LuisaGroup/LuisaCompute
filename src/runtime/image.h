@@ -104,7 +104,6 @@ public:
         return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
 };
-class ViewExporter;
 template<typename T>
 class ImageView {
 
@@ -118,7 +117,7 @@ private:
     friend class Image<T>;
     friend class detail::MipmapView;
     friend class DepthBuffer;
-    friend class ViewExporter;
+    friend class ResourceGenerator;
     constexpr ImageView(
         uint64_t handle,
         PixelStorage storage,

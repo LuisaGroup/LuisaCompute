@@ -244,10 +244,8 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        luisa::string_view shader_name,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) {
-        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name, enable_debug_info, enable_fast_math);
+        luisa::string_view shader_name) {
+        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name);
     }
 
     template<size_t N, typename... Args>

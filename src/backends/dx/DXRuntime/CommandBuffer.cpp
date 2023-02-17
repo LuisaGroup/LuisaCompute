@@ -17,12 +17,17 @@ CommandBuffer::CommandBuffer(
     Device *device,
     CommandAllocatorBase *alloc)
     : alloc(alloc) {
-    ThrowIfFailed(device->device->CreateCommandList(
-        0,
-        alloc->Type(),
-        alloc->Allocator(),// Associated command allocator
-        nullptr,           // Initial PipelineStateObject
-        IID_PPV_ARGS(&cmdList)));
+    if (device->deviceSettings) {
+        cmdList = {static_cast<ID3D12GraphicsCommandList4 *>(device->deviceSettings->BorrowCommandList(alloc->Type())), false};
+    }
+    if (!cmdList) {
+        ThrowIfFailed(device->device->CreateCommandList(
+            0,
+            alloc->Type(),
+            alloc->Allocator(),// Associated command allocator
+            nullptr,           // Initial PipelineStateObject
+            IID_PPV_ARGS(cmdList.GetAddressOf())));
+    }
     ThrowIfFailed(cmdList->Close());
     isOpened = false;
 }

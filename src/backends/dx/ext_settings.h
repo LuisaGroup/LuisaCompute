@@ -10,6 +10,9 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNe
     virtual IDXGIAdapter1 *GetAdapter() = 0;
     virtual IDXGIFactory4 *GetDXGIFactory() = 0;
     // queue is nullable
-    virtual ID3D12CommandQueue *CreateQueue(D3D12_COMMAND_LIST_TYPE type) = 0;
+    virtual ID3D12CommandQueue *CreateQueue(D3D12_COMMAND_LIST_TYPE type) { return nullptr; }
+    virtual ID3D12GraphicsCommandList *BorrowCommandList(D3D12_COMMAND_LIST_TYPE type) { return nullptr; }
+    // Signal after the borrowed commandlist
+    virtual void SignalAfterCmdDispatchFence(ID3D12Fence *fence, uint64 fenceIndex) {}
 };
 }// namespace luisa::compute

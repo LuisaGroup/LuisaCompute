@@ -92,7 +92,7 @@ private:
 
 private:
     friend class Buffer<T>;
-
+    friend class ResourceGenerator;
     template<typename U>
     friend class BufferView;
     BufferView(uint64_t handle, size_t element_stride, size_t offset_bytes, size_t size, size_t total_size) noexcept

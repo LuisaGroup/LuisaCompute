@@ -252,7 +252,7 @@ class RasterShader : public Resource {
                 raster_state,
                 rtv_format,
                 dsv_format,
-                luisa::span<Type const *const>{{Type::of<Args>()...}},
+                detail::arg_types<Args...>(),
                 file_path))
 #ifndef NDEBUG
         ,_mesh_format(mesh_format),
@@ -270,7 +270,13 @@ class RasterShader : public Resource {
 
 public:
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        RasterShaderInvoke invoke(_vert->arguments().size() + _pixel->arguments().size(), handle(), Function(_vert.get()), Function(_pixel.get()));
+        size_t arg_size;
+        if (_vert && _pixel) {
+            arg_size = _vert->arguments().size() + _pixel->arguments().size();
+        } else {
+            arg_size = sizeof...(Args);
+        }
+        RasterShaderInvoke invoke(arg_size, handle(), Function(_vert.get()), Function(_pixel.get()));
 #ifndef NDEBUG
         invoke._raster_state = &_raster_state;
         invoke._mesh_format = &_mesh_format;
