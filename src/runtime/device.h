@@ -174,7 +174,7 @@ public:
     template<size_t N, typename... Args>
     [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel,
                                const ShaderOption &option = {}) noexcept {
-        return _create<Shader<N, Args...>>(kernel.function(), option);
+        return _create<Shader<N, Args...>>(kernel.function()->function(), option);
     }
 
     template<typename Kernel>
