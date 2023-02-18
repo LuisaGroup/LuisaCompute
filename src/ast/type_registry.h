@@ -85,6 +85,13 @@ LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, UINT32)
 
 #undef LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION
 
+template<typename T>
+    requires std::is_enum_v<T>
+struct TypeDesc<T>
+    : TypeDesc<std::conditional_t<
+          std::is_signed_v<std::underlying_type_t<T>>,
+          int, uint>> {};
+
 // array
 template<typename T, size_t N>
 struct TypeDesc<std::array<T, N>> {
@@ -278,12 +285,15 @@ public:
 
 template<typename S, typename M, typename O>
 constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
+
 #include "member_reflect.inl"
+
 template<typename T>
 luisa::string_view TypeDesc<T>::description() noexcept {
     static thread_local luisa::string desc = member_reflect<T>();
     return desc;
 }
+
 }// namespace detail
 
 }// namespace luisa::compute

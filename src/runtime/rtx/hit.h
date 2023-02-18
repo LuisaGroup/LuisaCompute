@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include <core/mathematics.h>
-#include <core/stl/format.h>
+#include <core/basic_types.h>
 
 namespace luisa::compute {
 
@@ -16,12 +15,11 @@ enum class HitType : uint8_t {
 };
 
 struct Hit {
-    uint inst{0u};
-    uint prim{0u};
+    uint inst;
+    uint prim;
     float2 bary;
     uint hit_type;
     float committed_ray_t;
 };
 
 }// namespace luisa::compute
-
