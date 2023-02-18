@@ -182,4 +182,29 @@ constexpr auto is_image_view_v = is_image_view<T>::value;
 template<typename T>
 constexpr auto is_image_or_view_v = is_image_or_view<T>::value;
 
+namespace detail {
+
+template<typename ImageOrView>
+struct image_element_impl {
+    static_assert(always_false_v<ImageOrView>);
+};
+
+template<typename T>
+struct image_element_impl<Image<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct image_element_impl<ImageView<T>> {
+    using type = T;
+};
+
+}// namespace detail
+
+template<typename ImageOrView>
+using image_element = detail::image_element_impl<std::remove_cvref_t<ImageOrView>>;
+
+template<typename ImageOrView>
+using image_element_t = typename image_element<ImageOrView>::type;
+
 }// namespace luisa::compute

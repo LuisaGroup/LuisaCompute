@@ -1,22 +1,10 @@
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
 #include <core/stl/functional.h>
 #include <ast/function_builder.h>
-#include <dsl/hit.h>
+#include <dsl/rtx/hit.h>
 
 namespace luisa::compute {
-
-class RayQuery;
-
-template<>
-struct detail::TypeDesc<RayQuery> {
-    static constexpr luisa::string_view description() noexcept {
-        using namespace std::string_view_literals;
-        return "LC_RayQuery"sv;
-    }
-};
 
 class LC_DSL_API RayQuery {
 
@@ -36,4 +24,4 @@ LC_DSL_API void commit_primitive(Expr<float> distance) noexcept;
 
 }// namespace luisa::compute
 
-#endif
+LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::RayQuery, "LC_RayQuery")

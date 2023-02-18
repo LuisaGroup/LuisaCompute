@@ -92,16 +92,6 @@ public:
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::BindlessArrayExprProxy *>(this);
     }
-
-    // see implementations in dsl/expr.h
-    template<typename I>
-    BindlessTexture2D tex2d(I &&index) const noexcept;
-
-    template<typename I>
-    BindlessTexture3D tex3d(I &&index) const noexcept;
-
-    template<typename T, typename I>
-    BindlessBuffer<T> buffer(I &&index) const noexcept;
 };
 
 }// namespace luisa::compute

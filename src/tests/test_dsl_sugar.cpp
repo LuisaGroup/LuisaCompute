@@ -16,7 +16,7 @@ struct Test {
     float a;
 };
 
-LUISA_STRUCT(Test, something, a)
+LUISA_STRUCT(Test, something, a){};
 
 using $Test = Var<Test>;
 
@@ -100,12 +100,11 @@ int main(int argc, char *argv[]) {
         $ vt_copy = vt;
         $ c = 0.5f + vt.a * 1.0f;
 
-        $ vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
-        $ another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)
+        $ vec4 = buffer->read(10);           // indexing into captured buffer (with literal)
+        $ another_vec4 = buffer->read(v_int);// indexing into captured buffer (with Var)
     };
 
     auto shader = device.compile(kernel);
     auto command = shader(float_buffer, 12u).dispatch(1024u);
     auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
-    LUISA_INFO("Command: kernel = {}, args = {}", hash_to_string(launch_command->kernel().hash()), launch_command->argument_count());
 }

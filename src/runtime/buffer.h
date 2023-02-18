@@ -53,7 +53,7 @@ private:
 
 public:
     Buffer(DeviceInterface *device, size_t size) noexcept
-        : Buffer{device, size, device->create_buffer(Type::of<T>(), size)} {}
+        : Buffer{device, device->create_buffer(Type::of<T>(), size)} {}
     Buffer() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }

@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     auto buf = device.create_buffer<int>(100);
 
     Kernel1D k1 = [&] {
-        buf.write(1, 42);
+        buf->write(1, 42);
     };
     auto s = device.compile(k1);
     stream << s().dispatch(1u);

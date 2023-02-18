@@ -4,8 +4,9 @@
 
 #pragma once
 
-#include <runtime/device_interface.h>
 #include <ast/type_registry.h>
+#include <runtime/device_interface.h>
+
 namespace luisa::compute {
 
 class MeshFormat;
@@ -19,7 +20,7 @@ class Accel;
 class SwapChain;
 class BinaryIO;
 class BindlessArray;
-class DispatchArgsBuffer;
+class IndirectDispatchBuffer;
 
 template<typename T>
 class Buffer;
@@ -116,7 +117,7 @@ public:
         uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
     // see definition in runtime/dispatch_buffer.cpp
-    [[nodiscard]] DispatchArgsBuffer create_dispatch_buffer(size_t capacity) noexcept;
+    [[nodiscard]] IndirectDispatchBuffer create_indirect_dispatch_buffer(size_t capacity) noexcept;
     // see definition in rtx/mesh.h
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,

@@ -4,8 +4,6 @@
 
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
 #include <cstdint>
 #include <cstddef>
 
@@ -155,10 +153,11 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         }                                                                                     \
     };                                                                                        \
     }                                                                                         \
-    }
+    }                                                                                         \
+    template<>                                                                                \
+    struct luisa_compute_extension<S> final : luisa::compute::detail::Ref<S>
 
-#define LUISA_CUSTOM_STRUCT(S, ...)                                                         \
-    LUISA_CUSTOM_STRUCT_REFLECT(S, __VA_ARGS__)                                             \
+#define LUISA_CUSTOM_STRUCT_EXT(S)                                                          \
     template<>                                                                              \
     struct luisa_compute_extension<S>;                                                      \
     namespace luisa::compute {                                                              \
@@ -203,70 +202,6 @@ using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
         }                                                                                   \
     };                                                                                      \
     }                                                                                       \
-    }
-
-#define LUISA_STRUCT_EXT(S) \
-    template<>              \
+    }                                                                                       \
+    template<>                                                                              \
     struct luisa_compute_extension<S> final : luisa::compute::detail::Ref<S>
-
-#define LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_DECL(m) \
-    Var<member_type_##m> m;
-
-#define LUISA_BINDING_GROUP_MAKE_MEMBER_EXPR_DECL(m) \
-    Expr<member_type_##m> m;
-
-#define LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_INIT(m) \
-    m(detail::ArgumentCreation{})
-
-#define LUISA_BINDING_GROUP_MAKE_MEMBER_EXPR_INIT(m) \
-    m(s.m)
-
-#define LUISA_BINDING_GROUP_MAKE_INVOKE(m) \
-    invoke << s.m;
-
-#define LUISA_BINDING_GROUP(S, ...)                                                     \
-    namespace luisa::compute {                                                          \
-    template<>                                                                          \
-    struct Var<S> {                                                                     \
-        using this_type = S;                                                            \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                           \
-        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_DECL, __VA_ARGS__)                \
-        explicit Var(detail::ArgumentCreation) noexcept                                 \
-            : LUISA_MAP_LIST(LUISA_BINDING_GROUP_MAKE_MEMBER_VAR_INIT, __VA_ARGS__) {}  \
-        Var(Var &&) noexcept = default;                                                 \
-        Var(const Var &) noexcept = delete;                                             \
-        Var &operator=(Var &&) noexcept = delete;                                       \
-        Var &operator=(const Var &) noexcept = delete;                                  \
-    };                                                                                  \
-    template<>                                                                          \
-    struct Expr<S> {                                                                    \
-        using this_type = S;                                                            \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                           \
-        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_MEMBER_EXPR_DECL, __VA_ARGS__)               \
-        Expr(const Var<S> &s) noexcept                                                  \
-            : LUISA_MAP_LIST(LUISA_BINDING_GROUP_MAKE_MEMBER_EXPR_INIT, __VA_ARGS__) {} \
-        Expr(Expr &&another) noexcept = default;                                        \
-        Expr(const Expr &another) noexcept = default;                                   \
-        Expr &operator=(Expr) noexcept = delete;                                        \
-    };                                                                                  \
-    namespace detail {                                                                  \
-    CallableInvoke &operator<<(CallableInvoke &invoke, Expr<S> s) noexcept {            \
-        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_INVOKE, __VA_ARGS__)                         \
-        return invoke;                                                                  \
-    }                                                                                   \
-    ShaderInvokeBase &operator<<(ShaderInvokeBase &invoke, const S &s) noexcept {       \
-        LUISA_MAP(LUISA_BINDING_GROUP_MAKE_INVOKE, __VA_ARGS__)                         \
-        return invoke;                                                                  \
-    }                                                                                   \
-    }                                                                                   \
-    }
-#else
-#include <ast/type_registry.h>
-#define LUISA_STRUCT(S, ...) \
-    LUISA_STRUCT_REFLECT(S, __VA_ARGS__)
-#define LUISA_CUSTOM_STRUCT(S, ...) \
-    LUISA_CUSTOM_STRUCT_REFLECT(S, __VA_ARGS__)
-#define LUISA_STRUCT_EXT(S) \
-    template<U>             \
-    struct luisa_compute_dummy_extension<S, U> : public U
-#endif

@@ -1,5 +1,5 @@
 #include <dsl/syntax.h>
-#include <dsl/ray_query.h>
+#include <dsl/rtx/ray_query.h>
 #include <core/logging.h>
 #include <vstl/meta_lib.h>
 
@@ -33,6 +33,7 @@ Var<Hit> RayQuery::proceed(const Callback &triangle_callback, const Callback &pr
             break_();
         };
         rayquery_detail::rayquery_expr = _expr;
+
         auto reset = vstd::scope_exit([&] {
             rayquery_detail::rayquery_expr = nullptr;
             rayquery_detail::state = rayquery_detail::State::None;

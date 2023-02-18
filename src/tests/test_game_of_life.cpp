@@ -25,8 +25,6 @@ struct ImagePair {
     void swap() noexcept { std::swap(prev, curr); }
 };
 
-LUISA_BINDING_GROUP(ImagePair, prev, curr)
-
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
@@ -37,28 +35,28 @@ int main(int argc, char *argv[]) {
     auto device = context.create_device(argv[1]);
     LUISA_INFO("Keys: SPACE - Run/Pause, R - Reset, ESC - Quit");
 
-    Callable read_state = [](Var<ImagePair> pair, UInt2 uv) noexcept {
-        return pair.prev.read(uv).x == 255u;
+    Callable read_state = [](ImageUInt prev, UInt2 uv) noexcept {
+        return prev.read(uv).x == 255u;
     };
 
-    Kernel2D kernel = [&](Var<ImagePair> pair) noexcept {
+    Kernel2D kernel = [&](ImageUInt prev, ImageUInt curr) noexcept {
         auto count = def(0u);
         auto uv = dispatch_id().xy();
         auto size = dispatch_size().xy();
-        auto state = read_state(pair, uv);
+        auto state = read_state(prev, uv);
         auto p = make_int2(uv);
         for (auto dy = -1; dy <= 1; dy++) {
             for (auto dx = -1; dx <= 1; dx++) {
                 if (dx != 0 || dy != 0) {
                     auto q = p + make_int2(dx, dy) + make_int2(size);
-                    auto neighbor = read_state(pair, make_uint2(q) % size);
+                    auto neighbor = read_state(prev, make_uint2(q) % size);
                     count += neighbor;
                 }
             }
         }
         auto c0 = count == 2u;
         auto c1 = count == 3u;
-        pair.curr.write(uv, make_uint4(make_uint3(ite((state & c0) | c1, 255u, 0u)), 255u));
+        curr.write(uv, make_uint4(make_uint3(ite((state & c0) | c1, 255u, 0u)), 255u));
     };
     auto shader = device.compile(kernel);
 
@@ -95,7 +93,7 @@ int main(int argc, char *argv[]) {
     reset();
     while (!window.should_close()) {
         if (should_start) {
-            stream << shader(image_pair).dispatch(width, height)
+            stream << shader(image_pair.prev, image_pair.curr).dispatch(width, height)
                    << image_pair.curr.copy_to(host_image.data())
                    << synchronize();
             image_pair.swap();

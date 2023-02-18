@@ -2,9 +2,8 @@
 // Created by Mike Smith on 2021/6/24.
 //
 #pragma once
+
 #include <array>
-#include <core/mathematics.h>
-#include <core/stl/format.h>
 
 namespace luisa::compute {
 

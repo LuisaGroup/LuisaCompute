@@ -4,14 +4,13 @@
 
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
 #include <type_traits>
 #include <runtime/command.h>
 #include <runtime/device.h>
 #include <runtime/shader.h>
 #include <dsl/arg.h>
 #include <dsl/var.h>
+#include <dsl/resource.h>
 
 namespace luisa::compute {
 
@@ -500,5 +499,3 @@ template<typename T>
 Callable(T &&) -> Callable<detail::dsl_function_t<std::remove_cvref_t<T>>>;
 
 }// namespace luisa::compute
-
-#endif

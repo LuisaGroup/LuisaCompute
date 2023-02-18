@@ -3,7 +3,7 @@
 //
 
 #pragma once
-#ifndef LC_DISABLE_DSL
+
 #include <cassert>
 #include <dsl/var.h>
 #include <dsl/operators.h>
@@ -242,12 +242,12 @@ public:
 
 // FIXME: review this...
 template<typename Lhs, typename Rhs, size_t... i>
-inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs, std::index_sequence<i...>) noexcept {
+void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs, std::index_sequence<i...>) noexcept {
     (dsl::assign(lhs.template get<i>(), rhs.template get<i>()), ...);
 }
 
 template<typename Lhs, typename Rhs>
-inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs) noexcept {
+void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs) noexcept {
     using member_tuple = struct_member_tuple_t<expr_value_t<Lhs>>;
     assign_impl(lhs, rhs, std::make_index_sequence<std::tuple_size_v<member_tuple>>{});
 }
@@ -257,7 +257,7 @@ inline void assign_impl(Ref<Lhs> lhs, Expr<Rhs> rhs) noexcept {
 inline namespace dsl {
 
 template<typename Lhs, typename Rhs>
-inline void assign(Lhs &&lhs, Rhs &&rhs) noexcept {
+void assign(Lhs &&lhs, Rhs &&rhs) noexcept {
     static_assert(
         std::tuple_size_v<linear_layout_t<expr_value_t<Lhs>>> ==
         std::tuple_size_v<linear_layout_t<expr_value_t<Rhs>>>);
@@ -411,4 +411,3 @@ inline void return_() noexcept {
 
 }// namespace dsl
 }// namespace luisa::compute
-#endif

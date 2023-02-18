@@ -1,46 +1,42 @@
+#include <dsl/stmt.h>
 #include <dsl/dispatch_indirect.h>
-#include <runtime/device.h>
-#include <runtime/buffer.h>
 
 namespace luisa::compute {
 
-/*
-Buffer<DrawIndirectArgs> Device::create_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept {
-    Buffer<DrawIndirectArgs> v;
-    // Resource
-    v._device = _impl;
-    auto ptr = _impl.get();
-    auto buffer = ptr->create_draw_buffer(mesh_format, false, capacity);
-    v._handle = buffer.handle;
-    v._tag = Resource::Tag::BUFFER;
-    // Buffer
-    v._size = buffer.size / custom_struct_size;
-    return v;
-}
-Buffer<DrawIndexedIndirectArgs> Device::create_indexed_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept {
-    Buffer<DrawIndexedIndirectArgs> v;
-    // Resource
-    v._device = _impl;
-    auto ptr = _impl.get();
-    auto buffer = ptr->create_draw_buffer(mesh_format, true, capacity);
-    v._handle = buffer.handle;
-    v._tag = Resource::Tag::BUFFER;
-    // Buffer
-    v._size = buffer.size / custom_struct_size;
-    return v;
-}
-*/
+namespace detail {
 
-void clear_dispatch_buffer(Expr<DispatchArgsBuffer> buffer) {
-    detail::FunctionBuilder::current()->call(CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER, {buffer.expression()});
+void IndirectDispatchBufferExprProxy::clear() const noexcept {
+    Expr<IndirectDispatchBuffer>{_buffer}.clear();
 }
 
-void emplace_dispatch_kernel(
-    Expr<DispatchArgsBuffer> buffer,
-    Expr<uint> block_size,
-    Expr<uint> dispatch_size,
-    Expr<uint> kernel_id) {
-    detail::FunctionBuilder::current()->call(CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL, {buffer.expression(), block_size.expression(), dispatch_size.expression(), kernel_id.expression()});
+void IndirectDispatchBufferExprProxy::dispatch_kernel(Expr<uint> kernel_id,
+                                                      Expr<uint3> block_size,
+                                                      Expr<uint3> dispatch_size) const noexcept {
+    Expr<IndirectDispatchBuffer>{_buffer}
+        .dispatch_kernel(kernel_id, block_size, dispatch_size);
+}
+
+}// namespace detail
+
+Expr<IndirectDispatchBuffer>::Expr(const IndirectDispatchBuffer &buffer) noexcept
+    : _expression{detail::FunctionBuilder::current()->buffer_binding(
+          Type::of<IndirectKernelDispatch>(), buffer.handle(), 0u, buffer.size_bytes())} {}
+
+void Expr<IndirectDispatchBuffer>::clear() const noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER,
+        {_expression});
+}
+
+void Expr<IndirectDispatchBuffer>::dispatch_kernel(Expr<uint> kernel_id,
+                                                   Expr<uint3> block_size,
+                                                   Expr<uint3> dispatch_size) const noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL,
+        {_expression,
+         block_size.expression(),
+         dispatch_size.expression(),
+         kernel_id.expression()});
 }
 
 }// namespace luisa::compute

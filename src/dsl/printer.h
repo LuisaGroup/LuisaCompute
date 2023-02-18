@@ -4,8 +4,6 @@
 
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
 #include <mutex>
 #include <thread>
 
@@ -17,6 +15,7 @@
 #include <dsl/var.h>
 #include <dsl/builtin.h>
 #include <dsl/operators.h>
+#include <dsl/resource.h>
 
 namespace luisa::compute {
 
@@ -50,9 +49,9 @@ private:
             index++;
             using T = expr_value_t<Curr>;
             if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, uint>) {
-                _buffer.write(offset + index, cast<uint>(curr));
+                _buffer->write(offset + index, cast<uint>(curr));
             } else if constexpr (std::is_same_v<T, float>) {
-                _buffer.write(offset + index, as<uint>(curr));
+                _buffer->write(offset + index, as<uint>(curr));
             } else {
                 static_assert(always_false_v<T>, "unsupported type for printing in kernel.");
             }
@@ -129,9 +128,9 @@ template<typename... Args>
 void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...args) noexcept {
     auto count = (1u /* desc_id */ + ... + static_cast<uint>(is_dsl_v<Args>));
     auto size = static_cast<uint>(_buffer.size() - 1u);
-    auto offset = _buffer.atomic(size).fetch_add(count);
+    auto offset = _buffer->atomic(size).fetch_add(count);
     auto item = static_cast<uint>(_items.size());
-    if_(offset < size, [&] { _buffer.write(offset, item); });
+    if_(offset < size, [&] { _buffer->write(offset, item); });
     if_(offset + count <= size, [&] { _log_to_buffer(offset, 0u, args...); });
     // create decoder...
     auto counter = 0u;
@@ -169,5 +168,3 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
 }
 
 }// namespace luisa::compute
-
-#endif

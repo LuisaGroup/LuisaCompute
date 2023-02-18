@@ -11,7 +11,7 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -65,7 +65,8 @@ int main(int argc, char *argv[]) {
             auto t = saturate(-n.z);
             return normalize(make_float3(n.xy() + select(t, -t, n.xy() >= 0.0f), n.z));
         };
-        decoded_normal_buffer.write(dispatch_x(), oct_decode(encoded_normal_buffer.read(dispatch_x())));
+        auto encoded = oct_decode(encoded_normal_buffer->read(dispatch_x()));
+        decoded_normal_buffer->write(dispatch_x(), encoded);
     };
 
     auto shader = device.compile(kernel);

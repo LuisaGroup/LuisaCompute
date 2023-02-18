@@ -1,14 +1,18 @@
 #pragma once
-#ifndef LC_DISABLE_DSL
+
 #include <ast/function.h>
-#include <dsl/func.h>
+
 namespace luisa::compute {
+
 template<typename VertCallable, typename PixelCallable>
 class RasterKernel;
+
 template<typename... Args>
 class RasterShader;
+
 template<typename VertRet, typename... VertArgs, typename PixelRet, typename... PixelArgs>
 class RasterKernel<Callable<VertRet(VertArgs...)>, Callable<PixelRet(VertRet, PixelArgs...)>> {
+
 public:
     using VertexKernel = Callable<VertRet(VertArgs...)>;
     using PixelKernel = Callable<PixelRet(VertRet, PixelArgs...)>;
@@ -33,5 +37,5 @@ public:
         return _pixel;
     }
 };
+
 }// namespace luisa::compute
-#endif

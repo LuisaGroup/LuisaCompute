@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
 
     Buffer<float> buffer;
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -136,9 +136,9 @@ int main(int argc, char *argv[]) {
             Var x = w.x;
         }
 
-        Var vec4 = buffer.read(10);           // indexing into captured buffer (with literal)
-        Var another_vec4 = buffer.read(v_int);// indexing into captured buffer (with Var)
-        buffer.write(v_int + 1, 123.0f);
+        Var vec4 = buffer->read(10);           // indexing into captured buffer (with literal)
+        Var another_vec4 = buffer->read(v_int);// indexing into captured buffer (with Var)
+        buffer->write(v_int + 1, 123.0f);
     };
     auto compiled_kernel = device.compile(kernel);
     auto stream = device.create_stream();

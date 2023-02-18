@@ -247,7 +247,7 @@ struct is_valid_reflection : std::false_type {};
 template<typename S, typename... M, typename O, O... os>
 struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>> {
 
-    static_assert(((!is_struct_v<M> || alignof(M) >= 4u) && ...));
+    static_assert(((alignof(M) >= 4u) && ...));
     static_assert((!is_bool_vector_v<M> && ...),
                   "Boolean vectors are not allowed in DSL "
                   "structures since their may have different "
@@ -314,8 +314,6 @@ luisa::string_view TypeDesc<T>::description() noexcept {
 
 #define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...)                \
     template<>                                                               \
-    struct luisa::compute::is_struct<S> : std::true_type {};                 \
-    template<>                                                               \
     struct luisa::compute::struct_member_tuple<S> {                          \
         using this_type = S;                                                 \
         using type = std::tuple<                                             \
@@ -346,12 +344,9 @@ luisa::string_view TypeDesc<T>::description() noexcept {
 
 #define LUISA_CUSTOM_STRUCT_REFLECT(S, name)                         \
     template<>                                                       \
-    struct luisa::compute::is_struct<S> : std::true_type {};         \
-    template<>                                                       \
     struct luisa::compute::is_custom_struct<S> : std::true_type {};  \
     template<>                                                       \
     struct luisa::compute::detail::TypeDesc<S> {                     \
-        using this_type = S;                                         \
         static constexpr luisa::string_view description() noexcept { \
             return name;                                             \
         }                                                            \

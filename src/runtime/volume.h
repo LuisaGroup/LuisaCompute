@@ -171,4 +171,29 @@ constexpr auto is_volume_view_v = is_volume_view<T>::value;
 template<typename T>
 constexpr auto is_volume_or_view_v = is_volume_or_view<T>::value;
 
+namespace detail {
+
+template<typename VolumeOrView>
+struct volume_element_impl {
+    static_assert(always_false_v<VolumeOrView>);
+};
+
+template<typename T>
+struct volume_element_impl<Volume<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct volume_element_impl<VolumeView<T>> {
+    using type = T;
+};
+
+}// namespace detail
+
+template<typename VolumeOrView>
+using volume_element = detail::volume_element_impl<std::remove_cvref_t<VolumeOrView>>;
+
+template<typename VolumeOrView>
+using volume_element_t = typename volume_element<VolumeOrView>::type;
+
 }// namespace luisa::compute

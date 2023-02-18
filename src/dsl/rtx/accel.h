@@ -1,33 +1,11 @@
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
 #include <runtime/rtx/accel.h>
-#include <dsl/var.h>
-#include <dsl/ray_query.h>
-#include <dsl/hit.h>
-#include <dsl/ray.h>
+#include <dsl/rtx/ray_query.h>
+#include <dsl/rtx/hit.h>
+#include <dsl/rtx/ray.h>
 
 namespace luisa::compute {
-
-class LC_DSL_API AccelExprProxy {
-
-private:
-    Accel _accel;
-
-public:
-    [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
-    [[nodiscard]] RayQuery trace_all(Expr<Ray> ray) const noexcept;
-    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
-    [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
-    [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
-    void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
-    void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
-    void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept;
-    void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
-    void set_instance_opaque(Expr<int> instance_id, Expr<bool> vis) const noexcept;
-    void set_instance_opaque(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
-};
 
 template<>
 struct LC_DSL_API Expr<Accel> {
@@ -52,6 +30,8 @@ public:
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
 };
 
+Expr(const Accel &) -> Expr<Accel>;
+
 template<>
 struct Var<Accel> : public Expr<Accel> {
     explicit Var(detail::ArgumentCreation) noexcept
@@ -62,6 +42,32 @@ struct Var<Accel> : public Expr<Accel> {
     Var &operator=(const Var &) noexcept = delete;
 };
 
-}// namespace luisa::compute
+using AccelVar = Var<Accel>;
 
-#endif
+namespace detail {
+
+class LC_DSL_API AccelExprProxy {
+
+private:
+    Accel _accel;
+
+public:
+    LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(AccelExprProxy)
+
+public:
+    [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] RayQuery trace_all(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
+    [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
+    void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
+    void set_instance_transform(Expr<uint> instance_id, Expr<float4x4> mat) const noexcept;
+    void set_instance_visibility(Expr<int> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_visibility(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_opaque(Expr<int> instance_id, Expr<bool> vis) const noexcept;
+    void set_instance_opaque(Expr<uint> instance_id, Expr<bool> vis) const noexcept;
+};
+
+}// namespace detail
+
+}// namespace luisa::compute

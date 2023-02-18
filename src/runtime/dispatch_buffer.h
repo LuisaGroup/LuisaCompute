@@ -2,17 +2,26 @@
 
 #include <runtime/resource.h>
 #include <runtime/device_interface.h>
-#include <dsl/struct.h>
+#include <ast/type_registry.h>
 
 namespace luisa::compute {
-struct DispatchArgs {};
+struct IndirectKernelDispatch {};
+class IndirectDispatchBuffer;
 }// namespace luisa::compute
 
-LUISA_CUSTOM_STRUCT(luisa::compute::DispatchArgs, "DispatchArgs")
+LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::IndirectKernelDispatch,
+                            "LC_IndirectKernelDispatch")
+
+LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::IndirectDispatchBuffer,
+                            "buffer<LC_IndirectKernelDispatch>")
 
 namespace luisa::compute {
 
-class DispatchArgsBuffer final : public Resource {
+namespace detail {
+class IndirectDispatchBufferExprProxy;
+}
+
+class IndirectDispatchBuffer final : public Resource {
 
 private:
     size_t _capacity{};
@@ -20,31 +29,25 @@ private:
 
 private:
     friend class Device;
-    DispatchArgsBuffer(DeviceInterface *device, size_t capacity, BufferCreationInfo info) noexcept
+    IndirectDispatchBuffer(DeviceInterface *device, size_t capacity, BufferCreationInfo info) noexcept
         : Resource{device, Tag::BUFFER, info},
           _capacity{capacity},
           _byte_size{info.total_size_bytes} {}
 
 public:
-    DispatchArgsBuffer(DeviceInterface *device, size_t capacity) noexcept
-        : DispatchArgsBuffer{device, capacity, device->create_buffer(Type::of<DispatchArgs>(), capacity)} {
+    IndirectDispatchBuffer(DeviceInterface *device, size_t capacity) noexcept
+        : IndirectDispatchBuffer{device, capacity,
+                                 device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity)} {
     }
-    DispatchArgsBuffer() noexcept = default;
+    IndirectDispatchBuffer() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
-    [[nodiscard]] auto byte_size() const noexcept { return _byte_size; }
-};
+    [[nodiscard]] auto size_bytes() const noexcept { return _byte_size; }
 
-namespace detail{
-
-template<>
-struct TypeDesc<DispatchArgsBuffer> {
-    static constexpr luisa::string_view description() noexcept {
-        using namespace std::string_view_literals;
-        return "buffer<DispatchArgs>"sv;
+    // DSL interface
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<const detail::IndirectDispatchBufferExprProxy *>(this);
     }
 };
-
-}
 
 }// namespace luisa::compute

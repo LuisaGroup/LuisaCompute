@@ -1,11 +1,9 @@
 #pragma once
-#ifndef LC_DISABLE_DSL
-#include <runtime/raster/raster_kernel.h>
-#include <dsl/func.h>
-#endif
+
 #include <runtime/shader.h>
 #include <runtime/raster/raster_state.h>
 #include <runtime/raster/depth_buffer.h>
+
 namespace luisa::compute {
 class RasterMesh;
 class Accel;
