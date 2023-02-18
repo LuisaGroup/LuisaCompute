@@ -38,13 +38,18 @@ namespace detail {
 [[nodiscard]] LC_AST_API luisa::string make_array_description(luisa::string_view elem, size_t dim) noexcept;
 [[nodiscard]] LC_AST_API luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept;
 [[nodiscard]] LC_AST_API luisa::string make_buffer_description(luisa::string_view elem) noexcept;
-struct AnyType {
-    template<typename T>
-    operator T();
-};
+
+template<typename T>
+struct TypeDesc;
+
+#include <ast/member_reflect.inl>
+
 template<typename T>
 struct TypeDesc {
-    static luisa::string_view description() noexcept;
+    [[nodiscard]] static luisa::string_view description() noexcept {
+        static thread_local luisa::string desc = member_reflect<T>();
+        return desc;
+    }
 };
 
 // scalar
@@ -285,14 +290,6 @@ public:
 
 template<typename S, typename M, typename O>
 constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
-
-#include "member_reflect.inl"
-
-template<typename T>
-luisa::string_view TypeDesc<T>::description() noexcept {
-    static thread_local luisa::string desc = member_reflect<T>();
-    return desc;
-}
 
 }// namespace detail
 
