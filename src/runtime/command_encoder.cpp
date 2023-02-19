@@ -89,12 +89,13 @@ void ShaderDispatchCmdEncoder::_encode_pending_bindings(
     }
 }
 
-ComputeDispatchCmdEncoder::ComputeDispatchCmdEncoder(
-    size_t arg_size,
-    uint64_t handle,
-    luisa::vector<Variable> &&arguments,
-    luisa::vector<Function::Binding> &&bindings) noexcept
-    : ShaderDispatchCmdEncoder{arg_size}, _handle{handle}, _arguments{std::move(arguments)}, _bindings{std::move(bindings)} {
+ComputeDispatchCmdEncoder::ComputeDispatchCmdEncoder(size_t arg_size, uint64_t handle,
+                                                     luisa::span<const Variable> arguments,
+                                                     luisa::span<const Function::Binding> bindings) noexcept
+    : ShaderDispatchCmdEncoder{arg_size},
+      _handle{handle},
+      _arguments{arguments},
+      _bindings{std::move(bindings)} {
     _argument_buffer.reserve(256u);
     _encode_pending_bindings(_arguments, _bindings);
 }
@@ -167,19 +168,17 @@ RasterDispatchCmdEncoder::~RasterDispatchCmdEncoder() noexcept = default;
 RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept = default;
 RasterDispatchCmdEncoder &RasterDispatchCmdEncoder::operator=(RasterDispatchCmdEncoder &&) noexcept = default;
 
-RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(
-    size_t arg_size,
-    uint64_t handle,
-    luisa::vector<Variable> &&vertex_arguments,
-    luisa::vector<Function::Binding> &&vertex_bindings,
-    luisa::vector<Variable> &&pixel_arguments,
-    luisa::vector<Function::Binding> &&pixel_bindings) noexcept
+RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(size_t arg_size, uint64_t handle,
+                                                   luisa::span<const Variable> vertex_arguments,
+                                                   luisa::span<const Function::Binding> vertex_bindings,
+                                                   luisa::span<const Variable> pixel_arguments,
+                                                   luisa::span<const Function::Binding> pixel_bindings) noexcept
     : ShaderDispatchCmdEncoder{arg_size},
       _handle{handle},
-      _vertex_arguments{std::move(vertex_arguments)},
-      _vertex_bindings{std::move(vertex_bindings)},
-      _pixel_arguments{std::move(pixel_arguments)},
-      _pixel_bindings{std::move(pixel_bindings)} {
+      _vertex_arguments{vertex_arguments},
+      _vertex_bindings{vertex_bindings},
+      _pixel_arguments{pixel_arguments},
+      _pixel_bindings{pixel_bindings} {
     _current_arguments = _vertex_arguments;
     _current_bindings = _vertex_bindings;
     _argument_count = 1;

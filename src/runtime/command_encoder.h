@@ -36,15 +36,13 @@ class LC_RUNTIME_API ComputeDispatchCmdEncoder final : public ShaderDispatchCmdE
 private:
     uint64_t _handle{};
     luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
-    luisa::vector<Variable> _arguments;
-    luisa::vector<Function::Binding> _bindings;
+    luisa::span<const Variable> _arguments;
+    luisa::span<const Function::Binding> _bindings;
 
 public:
-    explicit ComputeDispatchCmdEncoder(
-        size_t arg_size,
-        uint64_t handle,
-        luisa::vector<Variable> &&arguments,
-        luisa::vector<Function::Binding> &&bindings) noexcept;
+    explicit ComputeDispatchCmdEncoder(size_t arg_size, uint64_t handle,
+                                       luisa::span<const Variable> arguments,
+                                       luisa::span<const Function::Binding> bindings) noexcept;
     ComputeDispatchCmdEncoder(ComputeDispatchCmdEncoder &&) noexcept = default;
     ComputeDispatchCmdEncoder &operator=(ComputeDispatchCmdEncoder &&) noexcept = default;
     ~ComputeDispatchCmdEncoder() noexcept = default;
@@ -67,10 +65,10 @@ class LC_RUNTIME_API RasterDispatchCmdEncoder final : public ShaderDispatchCmdEn
 
 private:
     uint64_t _handle{};
-    luisa::vector<Variable> _vertex_arguments;
-    luisa::vector<Function::Binding> _vertex_bindings;
-    luisa::vector<Variable> _pixel_arguments;
-    luisa::vector<Function::Binding> _pixel_bindings;
+    luisa::span<const Variable> _vertex_arguments;
+    luisa::span<const Function::Binding> _vertex_bindings;
+    luisa::span<const Variable> _pixel_arguments;
+    luisa::span<const Function::Binding> _pixel_bindings;
     luisa::span<const Variable> _current_arguments;
     luisa::span<const Function::Binding> _current_bindings;
     ShaderDispatchCommandBase::Argument::Texture _rtv_texs[8];
@@ -83,14 +81,11 @@ public:
     luisa::vector<RasterMesh> scene;
     Viewport viewport{};
 
-    explicit RasterDispatchCmdEncoder(
-        size_t arg_size,
-        uint64_t handle,
-        luisa::vector<Variable> &&vertex_arguments,
-        luisa::vector<Function::Binding> &&vertex_bindings,
-        luisa::vector<Variable> &&pixel_arguments,
-        luisa::vector<Function::Binding> &&pixel_bindings) noexcept;
-
+    explicit RasterDispatchCmdEncoder(size_t arg_size, uint64_t handle,
+                                      luisa::span<const Variable> vertex_arguments,
+                                      luisa::span<const Function::Binding> vertex_bindings,
+                                      luisa::span<const Variable> pixel_arguments,
+                                      luisa::span<const Function::Binding> pixel_bindings) noexcept;
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder const &) noexcept = delete;
     ~RasterDispatchCmdEncoder() noexcept;
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept;
