@@ -26,7 +26,6 @@
 #include <py/managed_accel.h>
 #include <py/managed_bindless.h>
 #include <ast/ast_evaluator.h>
-#include <dsl/struct.h>
 #include <core/thread_pool.h>
 #include <py/managed_device.h>
 namespace py = pybind11;

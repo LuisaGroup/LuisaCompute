@@ -96,5 +96,8 @@ ResourceCreationInfo DxNativeResourceExt::register_external_image(
         depth,
         mipmap_levels,
         desc->allowUav));
+    return {
+        reinterpret_cast<uint64_t>(res),
+        external_ptr};
 }
 }// namespace toolhub::directx

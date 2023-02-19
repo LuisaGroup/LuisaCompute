@@ -56,7 +56,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
     BufferCreationInfo info;
     Buffer *res;
     if (element->is_custom()) {
-        if (element == Type::of<DispatchArgs>()) {
+        if (element == Type::of<IndirectKernelDispatch>()) {
             info.element_stride = 28;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
             res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));

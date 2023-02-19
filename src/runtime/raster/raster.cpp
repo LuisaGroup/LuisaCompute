@@ -1,4 +1,6 @@
+#ifndef LC_DISABLE_DSL
 #include <runtime/raster/raster_kernel.h>
+#endif
 #include <runtime/raster/raster_shader.h>
 #include <runtime/depth_format.h>
 #include <runtime/raster/depth_buffer.h>
