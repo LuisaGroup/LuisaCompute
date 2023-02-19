@@ -79,7 +79,7 @@ class LC_RUNTIME_API Device {
 
 public:
     using Deleter = void(DeviceInterface *);
-    using Creator = DeviceInterface *(Context && /* context */, DeviceConfig const * /* properties */);
+    using Creator = DeviceInterface *(Context && /* context */, const DeviceConfig * /* properties */);
     using Handle = luisa::shared_ptr<DeviceInterface>;
 
 private:

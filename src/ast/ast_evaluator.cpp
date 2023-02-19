@@ -62,9 +62,10 @@ struct ScalarType<Matrix<N>> {
 template<typename T>
 using ScalarType_t = typename ScalarType<T>::type;
 template <typename T, typename Variant>
-T& force_get(Variant&& variant){
+T& force_get(Variant&& variant) {
     return *variant.template get_as<T*>();
 }
+
 }// namespace analyzer_detail
 
 ASTEvaluator::Result ASTEvaluator::try_eval(UnaryExpr const *expr) {
@@ -190,7 +191,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                 if constexpr (!std::is_same_v<A, monostate>) {
                     using TT = ScalarType<A>;
                     using TScalar = ScalarType_t<A>;
-                    auto b = force_get<A>(rr);
+                    auto b = analyzer_detail::force_get<A>(rr);
                     // TODO
                     switch (expr->op()) {
                         case BinaryOp::ADD:
@@ -433,7 +434,7 @@ bool ASTEvaluator::check_switch_case(SwitchCaseStmt const *stmt) {
     return visit(
         [&]<typename A>(A const &a) -> bool {
             using namespace analyzer_detail;
-            auto b = force_get<A>(case_result);
+            auto b = analyzer_detail::force_get<A>(case_result);
             if constexpr (std::is_same_v<A, int32_t> || std::is_same_v<A, uint32_t> || std::is_same_v<A, bool> || std::is_same_v<A, float>) {
                 return a == b;
             } else {
@@ -536,7 +537,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
                         return visit(
                             [&]<typename A>(A const &a) -> Result {
                                 if constexpr (ScalarType<A>::size == ScalarType<T>::size && !ScalarType<A>::is_matrix && !std::is_same_v<A, monostate>) {
-                                    auto b = force_get<A>(result_b);
+                                    auto b = analyzer_detail::force_get<A>(result_b);
                                     return select(a, b, t);
                                 } else {
                                     return monostate{};
@@ -561,8 +562,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (!std::is_same_v<T, monostate> && !ScalarType<T>::is_matrix) {
-                        auto min_v = force_get<T>(min_value);
-                        auto max_v = force_get<T>(max_value);
+                        auto min_v = analyzer_detail::force_get<T>(min_value);
+                        auto max_v = analyzer_detail::force_get<T>(max_value);
                         return clamp(t, min_v, max_v);
                     } else {
                         return monostate{};
@@ -603,8 +604,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (!std::is_same_v<T, monostate> && !ScalarType<T>::is_matrix && std::is_same_v<ScalarType_t<float>, bool>) {
-                        auto a_value = force_get<T>(a);
-                        auto b_value = force_get<T>(b);
+                        auto a_value = analyzer_detail::force_get<T>(a);
+                        auto b_value = analyzer_detail::force_get<T>(b);
                         return lerp(a_value, b_value, t);
                     } else {
                         return monostate{};
@@ -621,7 +622,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (!std::is_same_v<T, monostate> && !ScalarType<T>::is_matrix) {
-                        auto x_value = force_get<T>(x);
+                        auto x_value = analyzer_detail::force_get<T>(x);
                         if constexpr (ScalarType<T>::is_scalar) {
                             return (x_value >= t) ? static_cast<T>(1) : static_cast<T>(0);
                         } else {
@@ -659,7 +660,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (!std::is_same_v<T, monostate> && !ScalarType<T>::is_matrix) {
-                        auto b_value = force_get<T>(b);
+                        auto b_value = analyzer_detail::force_get<T>(b);
                         return min(t, b_value);
                     } else {
                         return monostate{};
@@ -676,7 +677,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (!std::is_same_v<T, monostate> && !ScalarType<T>::is_matrix) {
-                        auto b_value = force_get<T>(b);
+                        auto b_value = analyzer_detail::force_get<T>(b);
                         return max(t, b_value);
 
                     } else {
@@ -941,7 +942,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (std::is_same_v<ScalarType_t<T>, float> && !ScalarType<T>::is_matrix) {
-                        auto b_value = force_get<T>(b);
+                        auto b_value = analyzer_detail::force_get<T>(b);
                         return atan2(t, b_value);
                     } else {
                         return monostate{};
@@ -1268,8 +1269,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &a) -> Result {
                     if constexpr (std::is_same_v<ScalarType_t<T>, float> && !ScalarType<T>::is_matrix) {
-                        auto b = force_get<T>(result_b);
-                        auto c = force_get<T>(result_c);
+                        auto b = analyzer_detail::force_get<T>(result_b);
+                        auto c = analyzer_detail::force_get<T>(result_c);
                         if constexpr (ScalarType<T>::is_scalar) {
                             return a * b + c;
                         } else {
@@ -1298,7 +1299,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (std::is_same_v<ScalarType_t<T>, float> && !ScalarType<T>::is_matrix) {
-                        auto b_v = force_get<T>(b);
+                        auto b_v = analyzer_detail::force_get<T>(b);
                         if constexpr (ScalarType<T>::is_scalar) {
                             return copysign(t, b_v);
                         } else {
@@ -1323,7 +1324,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (std::is_same_v<T, float3>) {
-                        auto b_v = force_get<T>(b);
+                        auto b_v = analyzer_detail::force_get<T>(b);
                         return cross(t, b_v);
                     } else {
                         return monostate{};
@@ -1340,7 +1341,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CallExpr const *expr) {
             return visit(
                 [&]<typename T>(T const &t) -> Result {
                     if constexpr (std::is_same_v<T, float2> || std::is_same_v<T, float3> || std::is_same_v<T, float4>) {
-                        auto b_v = force_get<T>(b);
+                        auto b_v = analyzer_detail::force_get<T>(b);
                         return dot(t, b_v);
                     } else {
                         return monostate{};

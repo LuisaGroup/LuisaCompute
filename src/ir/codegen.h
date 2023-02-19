@@ -5,6 +5,7 @@
 #pragma once
 
 #include <core/stl.h>
+#include <core/basic_types.h>
 #include <luisa_compute_ir/bindings.hpp>
 
 namespace luisa::compute {
