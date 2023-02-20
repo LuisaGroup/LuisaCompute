@@ -82,7 +82,8 @@ pub(super) fn compile(source: String) -> std::io::Result<PathBuf> {
     } else {
         args.push("-O3");
     }
-
+    args.push("-march=native");
+    args.push("-mavx2");
     args.push("-std=c++20");
     args.push("-fno-math-errno");
     if cfg!(target_os = "linux") {

@@ -702,9 +702,9 @@ pub enum Func {
     /// (buffer/smem, index, val) -> old: stores max(old, val), returns old.
     AtomicFetchMax,
     // memory access
-    /// (buffer, index) -> value: reads the index-th element in bu
+    /// (buffer, index) -> value: reads the index-th element in buffer
     BufferRead,
-    /// (buffer, index, value) -> void: writes value into the inde
+    /// (buffer, index, value) -> void: writes value into the indeex
     BufferWrite,
     /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
@@ -720,7 +720,7 @@ pub enum Func {
     BindlessTexture2dSampleGrad,
     ///(bindless_array, index: uint, uv: float3) -> float4
     BindlessTexture3dSample,
-    ///(bindless_array, index: uint, uv: float3, level: float) -> float
+    ///(bindless_array, index: uint, uv: float3, level: float) -> float4
     BindlessTexture3dSampleLevel,
     ///(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3) -> float4
     BindlessTexture3dSampleGrad,

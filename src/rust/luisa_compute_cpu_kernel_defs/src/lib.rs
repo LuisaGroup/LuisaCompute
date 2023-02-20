@@ -76,12 +76,29 @@ pub struct Accel {
 pub struct BindlessArray {
     pub buffers: *const BufferView,
     pub buffers_count: usize,
+    pub textures: *const Texture,
+    pub textures_count: usize,
 }
 
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Texture {
+    pub data: *mut u8,
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub storage: u8,
+    pub dimension: u8,
+    pub mip_levels: u8,
+    pub pixel_stride_shift: u8,
+    pub mip_offsets: [usize; 16],
+    pub sampler: u8,
+}
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub enum KernelFnArg {
     Buffer(BufferView),
     BindlessArray(BindlessArray),
     Accel(Accel),
+    Texture(Texture),
 }
