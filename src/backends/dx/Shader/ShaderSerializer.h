@@ -55,7 +55,6 @@ public:
         Device *device,
         BinaryIO &streamFunc,
         vstd::optional<vstd::MD5> const &ilMd5,
-        vstd::optional<vstd::MD5> &psoMd5,
         vstd::MD5 &typeMD5,
         MeshFormat const &meshFormat,
         RasterState const &state,

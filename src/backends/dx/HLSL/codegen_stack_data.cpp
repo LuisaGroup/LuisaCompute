@@ -1,6 +1,8 @@
 #include "codegen_stack_data.h"
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
+#include <iostream>
+#include <ast/type_registry.h>
 namespace toolhub::directx {
 CodegenStackData::CodegenStackData()
     : generateStruct(
@@ -24,11 +26,11 @@ void CodegenStackData::Clear() {
     structTypes.clear();
     constTypes.clear();
     funcTypes.clear();
-    bindlessBufferTypes.clear();
     customStruct.clear();
     customStructVector.clear();
     sharedVariable.clear();
     constCount = 0;
+    argOffset = 0;
     appdataId = -1;
     count = 0;
     structCount = 0;
@@ -36,14 +38,8 @@ void CodegenStackData::Clear() {
     tempCount = 0;
     bindlessBufferCount = 0;
 }
-uint CodegenStackData::AddBindlessType(Type const *type) {
-    return bindlessBufferTypes
-        .try_emplace(
-            type,
-            vstd::LazyEval([&] {
-                return bindlessBufferCount++;
-            }))
-        .first->second;
+void CodegenStackData::AddBindlessType(Type const *type) {
+    bindlessBufferCount = 1;
 }
 /*
 static thread_local bool gIsCodegenSpirv = false;

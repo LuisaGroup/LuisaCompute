@@ -1,7 +1,7 @@
 #include <Resource/ExternalBuffer.h>
 namespace toolhub::directx {
-ExternalBuffer::ExternalBuffer(Device *device, ID3D12Resource *resource)
-    : Buffer(device), resource(resource) {
+ExternalBuffer::ExternalBuffer(Device *device, ID3D12Resource *resource, D3D12_RESOURCE_STATES initState)
+    : Buffer(device), resource(resource), initState(initState) {
     auto desc = resource->GetDesc();
     byteSize = desc.Width;
 }

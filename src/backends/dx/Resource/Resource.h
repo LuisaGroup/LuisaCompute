@@ -14,7 +14,8 @@ public:
 		Mesh,
 		SwapChain,
 		DepthBuffer,
-		ExternalBuffer
+		ExternalBuffer,
+		ExternalTexture
 	};
 
 protected:

@@ -3,7 +3,6 @@
 //
 
 #pragma once
-#ifndef LC_DISABLE_DSL
 
 #include <core/constants.h>
 #include <dsl/var.h>
@@ -164,72 +163,26 @@ inline void set_block_size(uint x, uint y = 1u, uint z = 1u) noexcept {
 
 }// namespace dsl
 
-namespace detail {
-
-template<size_t i, size_t n, typename I, typename S, typename B>
-inline void soa_read_impl(I index, S s, B buffers) noexcept {
-    if constexpr (i < n) {
-        s.template get<i>() = std::get<i>(buffers).read(index);
-        soa_read_impl<i + 1u, n>(index, s, buffers);
-    }
-}
-
-template<size_t i, size_t n, typename I, typename S, typename B>
-inline void soa_write_impl(I index, S s, B buffers) noexcept {
-    if constexpr (i < n) {
-        std::get<i>(buffers).write(index, s.template get<i>());
-        soa_write_impl<i + 1u, n>(index, s, buffers);
-    }
-}
-
-}// namespace detail
-
 inline namespace dsl {
 
 /// Define a var of type T and construct params args
 template<typename T, typename... Args>
     requires std::negation_v<std::disjunction<std::is_pointer<std::remove_cvref_t<Args>>...>>
-[[nodiscard]] inline auto def(Args &&...args) noexcept {
+[[nodiscard]] auto def(Args &&...args) noexcept {
     // TODO: generate default initializer list?
     return Var<expr_value_t<T>>{std::forward<Args>(args)...};
 }
 
 /// Define a var using rvalue
 template<typename T>
-[[nodiscard]] inline auto def(T &&x) noexcept -> Var<expr_value_t<T>> {
+[[nodiscard]] auto def(T &&x) noexcept -> Var<expr_value_t<T>> {
     return Var{Expr{std::forward<T>(x)}};
 }
 
 /// Define a var using expression
 template<typename T>
-[[nodiscard]] inline auto def(const Expression *expr) noexcept -> Var<expr_value_t<T>> {
+[[nodiscard]] auto def(const Expression *expr) noexcept -> Var<expr_value_t<T>> {
     return Var{Expr<expr_value_t<T>>{expr}};
-}
-
-/// TODO
-template<typename S, typename Index, typename... Buffers>
-    requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
-[[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
-    Var i = std::forward<Index>(index);
-    return Var<S>{std::forward<Buffers>(buffers).read(i)...};
-}
-
-/// TODO
-template<typename Index, typename... Buffers>
-    requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
-[[nodiscard]] inline auto soa_read(Index &&index, Buffers &&...buffers) noexcept {
-    Var i = std::forward<Index>(index);
-    return compose(std::forward<Buffers>(buffers).read(i)...);
-}
-
-/// TODO
-template<typename S, typename Index, typename... Buffers>
-    requires concepts::integral<expr_value_t<Index>> && std::conjunction_v<is_buffer_expr<Buffers>...>
-inline void soa_write(Index &&index, S &&s, Buffers &&...bs) noexcept {
-    Var i = std::forward<Index>(index);
-    Var v = std::forward<S>(s);
-    detail::soa_write_impl<0u, sizeof...(bs)>(
-        i, v, std::make_tuple(Expr{std::forward<Buffers>(bs)}...));
 }
 
 }// namespace dsl
@@ -1604,4 +1557,3 @@ inline void sync_block() noexcept {
 
 }// namespace dsl
 }// namespace luisa::compute
-#endif

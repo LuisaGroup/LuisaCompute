@@ -179,7 +179,7 @@ const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
 }
 
 const RefExpr *FunctionBuilder::buffer(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
+    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -204,7 +204,7 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
             return _ref(_arguments[i]);
         }
     }
-    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
+    Variable v{type, Variable::Tag::BUFFER, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back(Function::BufferBinding{handle, offset_bytes, size_bytes});
     return _ref(v);
@@ -329,7 +329,7 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
 }
 
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
+    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -351,7 +351,7 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
             return _ref(_arguments[i]);
         }
     }
-    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
+    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back(Function::TextureBinding{handle, level});
     return _ref(v);
@@ -407,14 +407,14 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
             return _ref(_arguments[i]);
         }
     }
-    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back(Function::BindlessArrayBinding{handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::bindless_array() noexcept {
-    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
+    Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -434,14 +434,14 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
             return _ref(_arguments[i]);
         }
     }
-    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back(Function::AccelBinding{handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::accel() noexcept {
-    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
+    Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);
@@ -457,7 +457,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
     _direct_builtin_callables.mark(call_op);
     _propagated_builtin_callables.mark(call_op);
     if (is_atomic_operation(call_op) &&
-        args.front()->type()->tag() == Type::Tag::FLOAT) {
+        args.front()->type()->tag() == Type::Tag::FLOAT32) {
         _requires_atomic_float = true;
     }
     auto expr = _create_expression<CallExpr>(
@@ -530,7 +530,7 @@ void FunctionBuilder::call(Function custom, luisa::span<const Expression *const>
 }
 
 const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {
-    Variable v{type, Variable::Tag::REFERENCE, _next_variable_uid()};
+    Variable v{type, Variable::Tag::REFERENCE, _next_variable_uid(), true};
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back();
     return _ref(v);

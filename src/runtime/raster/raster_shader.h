@@ -1,11 +1,9 @@
 #pragma once
-#ifndef LC_DISABLE_DSL
-#include <runtime/raster/raster_kernel.h>
-#include <dsl/func.h>
-#endif
+
 #include <runtime/shader.h>
 #include <runtime/raster/raster_state.h>
 #include <runtime/raster/depth_buffer.h>
+
 namespace luisa::compute {
 class RasterMesh;
 class Accel;
@@ -40,18 +38,16 @@ static constexpr bool LegalDst() noexcept {
 class LC_RUNTIME_API RasterShaderInvoke {
 private:
     RasterDispatchCmdEncoder _command;
-    Function _vert;
-    Function _pixel;
+    luisa::span<const Function::Binding> _vertex_bindings;
+    luisa::span<const Function::Binding> _pixel_bindings;
 
 public:
     explicit RasterShaderInvoke(
         size_t arg_size,
         uint64_t handle,
-        Function vertex_func,
-        Function pixel_func) noexcept
-        : _command{arg_size, handle, vertex_func, pixel_func},
-          _vert(vertex_func),
-          _pixel(pixel_func) {
+        luisa::span<const Function::Binding> vertex_bindings,
+        luisa::span<const Function::Binding> pixel_bindings) noexcept
+        : _command{arg_size, handle, std::move(vertex_bindings), std::move(pixel_bindings)} {
     }
     RasterShaderInvoke(RasterShaderInvoke &&) noexcept = default;
     RasterShaderInvoke(const RasterShaderInvoke &) noexcept = delete;
@@ -141,8 +137,8 @@ LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 template<typename... Args>
 class RasterShader : public Resource {
     friend class Device;
-    luisa::shared_ptr<const detail::FunctionBuilder> _vert;
-    luisa::shared_ptr<const detail::FunctionBuilder> _pixel;
+    luisa::vector<Function::Binding> _vertex_bindings;
+    luisa::vector<Function::Binding> _pixel_bindings;
 #ifndef NDEBUG
     MeshFormat _mesh_format;
     RasterState _raster_state;
@@ -174,12 +170,10 @@ class RasterShader : public Resource {
                   Function(vert.get()),
                   Function(pixel.get()),
                   ShaderOption{
-                    .enable_cache = true, 
-                    .enable_debug_info = enable_debug_info,
+                    .enable_cache = true,
                     .enable_fast_math = enable_fast_math,
-                    .name = name})),
-        _vert(std::move(vert)),
-        _pixel(std::move(pixel))
+                    .enable_debug_info = enable_debug_info,
+                    .name = name}))
 #ifndef NDEBUG
         ,_mesh_format(mesh_format),
         _raster_state(raster_state),
@@ -190,9 +184,17 @@ class RasterShader : public Resource {
             _rtv_format.resize(rtv_format.size());
             memcpy(_rtv_format.data(), rtv_format.data(), rtv_format.size_bytes());
             detail::rastershader_check_rtv_format(_rtv_format);
-            detail::rastershader_check_vertex_func(Function{_vert.get()});
-            detail::rastershader_check_pixel_func(Function{_pixel.get()});
+            detail::rastershader_check_vertex_func(Function{vert.get()});
+            detail::rastershader_check_pixel_func(Function{pixel.get()});
 #endif
+            auto copy_vec = [](auto&& src, auto&& dst){
+                src.push_back_uninitialized(dst.size());
+                std::memcpy(src.data(), dst.data(), dst.size_bytes());
+            };
+            auto vert_bindings = vert->argument_bindings();
+            auto pixel_bindings = pixel->argument_bindings();
+            copy_vec(_vertex_bindings, vert_bindings);
+            copy_vec(_pixel_bindings, pixel_bindings);
         }
 
     RasterShader(DeviceInterface *device,
@@ -217,10 +219,8 @@ class RasterShader : public Resource {
                   Function(pixel.get()),
                   ShaderOption{
                     .enable_cache = enable_cache,
-                    .enable_debug_info = enable_debug_info,
-                    .enable_fast_math = enable_fast_math})),
-          _vert(std::move(vert)),
-          _pixel(std::move(pixel)) 
+                    .enable_fast_math = enable_fast_math,
+                    .enable_debug_info = enable_debug_info}))
 #ifndef NDEBUG
         ,_mesh_format(mesh_format),
         _raster_state(raster_state),
@@ -231,9 +231,17 @@ class RasterShader : public Resource {
             _rtv_format.resize(rtv_format.size());
             memcpy(_rtv_format.data(), rtv_format.data(), rtv_format.size_bytes());
             detail::rastershader_check_rtv_format(_rtv_format);
-            detail::rastershader_check_vertex_func(Function{_vert.get()});
-            detail::rastershader_check_pixel_func(Function{_pixel.get()});
+            detail::rastershader_check_vertex_func(Function{vert.get()});
+            detail::rastershader_check_pixel_func(Function{pixel.get()});
 #endif
+            auto copy_vec = [](auto&& src, auto&& dst){
+                src.push_back_uninitialized(dst.size());
+                std::memcpy(src.data(), dst.data(), dst.size_bytes());
+            };
+            auto vert_bindings = vert->argument_bindings();
+            auto pixel_bindings = pixel->argument_bindings();
+            copy_vec(_vertex_bindings, vert_bindings);
+            copy_vec(_pixel_bindings, pixel_bindings);
         }
     // AOT Shader
     RasterShader(
@@ -252,7 +260,7 @@ class RasterShader : public Resource {
                 raster_state,
                 rtv_format,
                 dsv_format,
-                luisa::span<Type const *const>{{Type::of<Args>()...}},
+                detail::arg_types<Args...>(),
                 file_path))
 #ifndef NDEBUG
         ,_mesh_format(mesh_format),
@@ -270,7 +278,17 @@ class RasterShader : public Resource {
 
 public:
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        RasterShaderInvoke invoke(_vert->arguments().size() + _pixel->arguments().size(), handle(), Function(_vert.get()), Function(_pixel.get()));
+        size_t arg_size;
+        if (_vertex_bindings.empty() || _pixel_bindings.empty()) {
+            arg_size = sizeof...(Args);
+        } else {
+            arg_size = (_vertex_bindings.size() + _pixel_bindings.size() - 2);
+        }
+        RasterShaderInvoke invoke(
+            arg_size,
+            handle(),
+            _vertex_bindings,
+            _pixel_bindings);
 #ifndef NDEBUG
         invoke._raster_state = &_raster_state;
         invoke._mesh_format = &_mesh_format;

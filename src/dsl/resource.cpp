@@ -1,10 +1,12 @@
 //
-// Created by Mike Smith on 2021/4/12.
+// Created by Mike Smith on 2023/2/18.
 //
 
-#include <dsl/syntax.h>
+#include <dsl/builtin.h>
+#include <dsl/stmt.h>
+#include <dsl/resource.h>
 
-namespace luisa::compute {
+namespace luisa::compute::detail {
 
 Var<float4> BindlessTexture2D::sample(Expr<float2> uv) const noexcept {
     auto f = detail::FunctionBuilder::current();
@@ -104,4 +106,4 @@ Var<float4> BindlessTexture3D::read(Expr<uint3> coord) const noexcept {
         {_array, _index, coord.expression()}));
 }
 
-}// namespace luisa::compute
+}// namespace luisa::compute::detail

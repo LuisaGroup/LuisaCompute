@@ -3,7 +3,7 @@
 //
 
 #pragma once
-#ifndef LC_DISABLE_DSL
+
 #include <dsl/expr.h>
 
 namespace luisa::compute {
@@ -179,4 +179,3 @@ struct Ref<Vector<T, 4>>
 
 }// namespace detail
 }// namespace luisa::compute
-#endif

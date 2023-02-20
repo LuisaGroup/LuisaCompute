@@ -1,6 +1,7 @@
 #pragma once
 #include <Resource/BindProperty.h>
 #include <Resource/TextureBase.h>
+#include <DXRuntime/DxPtr.h>
 namespace toolhub::directx {
 class CommandAllocator;
 class CommandAllocatorBase;
@@ -30,7 +31,6 @@ private:
 
 public:
     CommandBuffer const *GetCB() const { return cb; }
-    ID3D12GraphicsCommandList4 *CmdList() const;
 
     void DispatchCompute(
         ComputeShader const *cs,
@@ -41,7 +41,7 @@ public:
         vstd::span<const BindProperty> resources);
     void DispatchComputeIndirect(
         ComputeShader const *cs,
-        Buffer const& indirectBuffer,
+        Buffer const &indirectBuffer,
         vstd::span<const BindProperty> resources);
     /*void DispatchRT(
         RTShader const *rt,
@@ -96,11 +96,12 @@ class CommandBuffer : public vstd::IOperatorNewBase {
     mutable std::atomic_bool isOpened;
     void Reset() const;
     void Close() const;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> cmdList;
+    DxPtr<ID3D12GraphicsCommandList4> cmdList;
     CommandAllocatorBase *alloc;
 
 public:
     ID3D12GraphicsCommandList4 *CmdList() const { return cmdList.Get(); }
+    bool ContainedCmdList() const { return cmdList.Contained(); }
     CommandBuffer(
         Device *device,
         CommandAllocatorBase *alloc);

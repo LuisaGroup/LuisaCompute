@@ -88,9 +88,9 @@ void StructGenerator::InitAsStruct(
         Align(i->alignment());
         switch (i->tag()) {
             case Type::Tag::BOOL:
-            case Type::Tag::FLOAT:
-            case Type::Tag::INT:
-            case Type::Tag::UINT:
+            case Type::Tag::FLOAT32:
+            case Type::Tag::INT32:
+            case Type::Tag::UINT32:
                 structTypes.emplace_back(varName, StructureType::GetScalar());
                 break;
             case Type::Tag::VECTOR:

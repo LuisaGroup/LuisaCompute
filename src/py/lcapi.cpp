@@ -26,7 +26,6 @@
 #include <py/managed_accel.h>
 #include <py/managed_bindless.h>
 #include <ast/ast_evaluator.h>
-#include <dsl/struct.h>
 #include <core/thread_pool.h>
 #include <py/managed_device.h>
 namespace py = pybind11;
@@ -55,12 +54,10 @@ struct VertexData {
     float3 normal;
     float4 tangent;
     float4 color;
-    float2 uv[4];
+    std::array<float2, 4> uv;
     uint vertex_id;
     uint instance_id;
 };
-
-LUISA_STRUCT(VertexData, position, normal, tangent, color, uv, vertex_id, instance_id)
 
 template<typename T>
 class raw_ptr {
@@ -281,7 +278,7 @@ PYBIND11_MODULE(lcapi, m) {
                 if (type->is_vector()) {
                     type = type->element();
                 }
-                return (type->tag() == Type::Tag::INT || type->tag() == Type::Tag::UINT || type->tag() == Type::Tag::FLOAT);
+                return (type->is_scalar() && type->tag() != Type::Tag::BOOL);
             };
             auto ret = pixel.return_type();
             if (ret) {
@@ -611,7 +608,10 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<ShaderDispatchCommand, Command>(m, "ShaderDispatchCommand");
     py::class_<ComputeDispatchCmdEncoder>(m, "ComputeDispatchCmdEncoder")
         .def_static(
-            "create", [](size_t arg_size, uint64_t handle, Function func) { return make_unique<ComputeDispatchCmdEncoder>(arg_size, handle, func).release(); }, pyref)
+            "create", [](size_t arg_size, uint64_t handle, Function func) {
+                return make_unique<ComputeDispatchCmdEncoder>(arg_size, handle, func.argument_bindings()).release();
+            },
+            pyref)
         .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
         .def("set_dispatch_buffer", [](ComputeDispatchCmdEncoder &self, uint64_t handle) { self.set_dispatch_size(IndirectDispatchArg{handle}); })
         .def("encode_buffer", &ComputeDispatchCmdEncoder::encode_buffer)

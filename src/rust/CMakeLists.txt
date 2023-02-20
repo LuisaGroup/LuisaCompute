@@ -7,7 +7,7 @@ endif ()
 
 add_library(luisa-compute-rust-meta INTERFACE)
 target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir luisa_compute_api_types luisa_compute_backend)
+target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir luisa_compute_api_types)
 
 function(luisa_compute_install_rust target)
     install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets
@@ -21,6 +21,7 @@ function(luisa_compute_install_rust target)
 endfunction()
 luisa_compute_install_rust(api_types)
 if(LUISA_COMPUTE_ENABLE_CPU)
+    target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_backend)
     luisa_compute_install_rust(backend)
 endif()
 luisa_compute_install_rust(ir)

@@ -4,16 +4,14 @@
 
 #pragma once
 
-#include <dsl/struct.h>
+#include <cstdint>
 
 namespace luisa::compute {
 
 struct Triangle {
-    uint i0;
-    uint i1;
-    uint i2;
+    uint32_t i0;
+    uint32_t i1;
+    uint32_t i2;
 };
 
 }// namespace luisa::compute
-
-LUISA_STRUCT(luisa::compute::Triangle, i0, i1, i2)

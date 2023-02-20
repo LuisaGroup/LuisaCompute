@@ -13,17 +13,19 @@
 namespace luisa::compute {
 
 namespace detail {
+
+template<typename ImageOrView>
+struct ImageExprProxy;
+
 LC_RUNTIME_API void error_image_invalid_mip_levels(size_t level, size_t mip) noexcept;
-}
+
+}// namespace detail
 
 template<typename T>
 class ImageView;
 
 template<typename T>
 class BufferView;
-
-template<typename T>
-struct ImageExprProxy;
 
 class BindlessArray;
 
@@ -45,6 +47,14 @@ private:
 
 private:
     friend class Device;
+    friend class ResourceGenerator;
+    Image(DeviceInterface *device, const ResourceCreationInfo &create_info, PixelStorage storage, uint2 size, uint mip_levels) noexcept
+        : Resource{
+              device,
+              Tag::TEXTURE,
+              create_info},
+          _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {
+    }
     Image(DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels = 1u) noexcept
         : Resource{
               device,
@@ -90,11 +100,10 @@ public:
     [[nodiscard]] auto copy_from(U &&dst) const noexcept {
         return this->view(0).copy_from(std::forward<U>(dst));
     }
-    [[nodiscard]] auto operator->() const noexcept{
-        return reinterpret_cast<ImageExprProxy<Image<T>> const*>(*this);
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
 };
-class ViewExporter;
 template<typename T>
 class ImageView {
 
@@ -108,7 +117,7 @@ private:
     friend class Image<T>;
     friend class detail::MipmapView;
     friend class DepthBuffer;
-    friend class ViewExporter;
+    friend class ResourceGenerator;
     constexpr ImageView(
         uint64_t handle,
         PixelStorage storage,
@@ -138,8 +147,8 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
 
-    [[nodiscard]] auto operator->() const noexcept{
-        return reinterpret_cast<ImageExprProxy<ImageView<T>> const*>(*this);
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<const detail::ImageExprProxy<ImageView<T>> *>(this);
     }
 };
 
@@ -172,5 +181,30 @@ constexpr auto is_image_view_v = is_image_view<T>::value;
 
 template<typename T>
 constexpr auto is_image_or_view_v = is_image_or_view<T>::value;
+
+namespace detail {
+
+template<typename ImageOrView>
+struct image_element_impl {
+    static_assert(always_false_v<ImageOrView>);
+};
+
+template<typename T>
+struct image_element_impl<Image<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct image_element_impl<ImageView<T>> {
+    using type = T;
+};
+
+}// namespace detail
+
+template<typename ImageOrView>
+using image_element = detail::image_element_impl<std::remove_cvref_t<ImageOrView>>;
+
+template<typename ImageOrView>
+using image_element_t = typename image_element<ImageOrView>::type;
 
 }// namespace luisa::compute

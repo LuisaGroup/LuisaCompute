@@ -50,15 +50,14 @@ struct heapNode {
 };
 
 // clang-format off
-LUISA_STRUCT(Material, albedo, emission)
-LUISA_STRUCT(Onb, tangent, binormal, normal)
-LUISA_STRUCT_EXT(Onb) {
+LUISA_STRUCT(Material, albedo, emission) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
     }
 };
-LUISA_STRUCT(Photon, position, power, in_direction, nxt)
-LUISA_STRUCT(heapNode, dis, index)
+LUISA_STRUCT(Photon, position, power, in_direction, nxt) {};
+LUISA_STRUCT(heapNode, dis, index) {};
 // clang-format on
 
 int main(int argc, char *argv[]) {
@@ -161,7 +160,7 @@ int main(int argc, char *argv[]) {
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
         auto &&triangle_buffer = triangle_buffers.emplace_back(device.create_buffer<Triangle>(triangle_count));
-        auto &&mesh = meshes.emplace_back(device.create_mesh({}, vertex_buffer, triangle_buffer));
+        auto &&mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
                << mesh.build();
@@ -226,12 +225,12 @@ int main(int argc, char *argv[]) {
 
     Kernel1D clear_grid_kernel = [&]() noexcept {
         auto index = static_cast<UInt>(dispatch_x());
-        grid_head_buffer.write(index, ~0u);
+        grid_head_buffer->write(index, ~0u);
     };
 
     Kernel1D photon_tracing_kernel = [&](AccelVar accel) noexcept {
         // random seed
-        auto state = seed_buffer.read(dispatch_x());
+        auto state = seed_buffer->read(dispatch_x());
         auto state2 = dispatch_x();
 
         // sample light
@@ -261,25 +260,25 @@ int main(int argc, char *argv[]) {
                 $break;
             };
 
-            auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
-            auto p0 = vertex_buffer.read(triangle.i0);
-            auto p1 = vertex_buffer.read(triangle.i1);
-            auto p2 = vertex_buffer.read(triangle.i2);
+            auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
+            auto p0 = vertex_buffer->read(triangle.i0);
+            auto p1 = vertex_buffer->read(triangle.i1);
+            auto p2 = vertex_buffer->read(triangle.i2);
             auto p = hit->interpolate(p0, p1, p2);
             auto n = normalize(cross(p1 - p0, p2 - p0));
             auto cos_wi = dot(-light_ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
-            auto material = material_buffer.read(hit.inst);
+            auto material = material_buffer->read(hit.inst);
 
             // store photons
-            auto index = photon_limit_buffer.atomic(0).fetch_add(1u);
+            auto index = photon_limit_buffer->atomic(0).fetch_add(1u);
 
             auto grid_index = make_uint3((p - grid_min) / grid_len);
             auto grid_index_m = grid_index.x * grid_size.y * grid_size.z + grid_index.y * grid_size.z + grid_index.z;
-            auto link_head = grid_head_buffer.atomic(grid_index_m).exchange(index);
+            auto link_head = grid_head_buffer->atomic(grid_index_m).exchange(index);
 
             Var<Photon> photon{p, power, -light_ray->direction(), link_head};
-            photon_buffer.write(index, photon);
+            photon_buffer->write(index, photon);
 
             // sample BxDF
             auto onb = make_onb(n);
@@ -330,10 +329,10 @@ int main(int argc, char *argv[]) {
             $for(y, ite(p_index.y == 0, 0u, p_index.y - 1), min(p_index.y + 1, grid_size.y)) {
                 $for(z, ite(p_index.z == 0, 0u, p_index.z - 1), min(p_index.z + 1, grid_size.z)) {
                     auto grid_index_m = get_index_merge(x, y, z);
-                    auto photon_index = grid_head_buffer.read(grid_index_m);
+                    auto photon_index = grid_head_buffer->read(grid_index_m);
                     $while(photon_index != ~0u) {
                         photon_sum += 1;
-                        auto photon = photon_buffer.read(photon_index);
+                        auto photon = photon_buffer->read(photon_index);
                         auto dis = distance(Float3{photon.position}, p);
                         $if(dis < r) {
                             radiance += material.albedo * inv_pi * Float3{photon.power};
@@ -359,14 +358,14 @@ int main(int argc, char *argv[]) {
             $for(y, ite(p_index.y == 0, 0u, p_index.y-1), min(p_index.y+1, grid_size.y)) {
                 $for(z, ite(p_index.z == 0, 0u, p_index.z-1), min(p_index.z+1, grid_size.z)) {
                     auto grid_index_m = get_index_merge(x, y, z);
-                    auto photon_index = grid_head_buffer.read(grid_index_m);
+                    auto photon_index = grid_head_buffer->read(grid_index_m);
                     $while(photon_index != -1u) {
-                        auto photon = photon_buffer.read(photon_index);
+                        auto photon = photon_buffer->read(photon_index);
                         auto dis = distance(Float3{photon.position}, p);
                         $if( (kNN_offset < kNN_k) | (dis < r) ) {
                             auto insert_index = base_offset + kNN_offset;
                             $for(check_index, base_offset, base_offset + kNN_offset) {
-                                auto check_photon = heap_buffer.read(check_index);
+                                auto check_photon = heap_buffer->read(check_index);
                                 $if(dis < check_photon.dis){
                                     insert_index = check_index;
                                     $break;
@@ -375,12 +374,12 @@ int main(int argc, char *argv[]) {
                             $if(kNN_offset < kNN_k){ kNN_offset += 1; };
                             auto copy_index = base_offset+kNN_offset-1;
                             $while(copy_index > insert_index){
-                                heap_buffer.write(copy_index, heap_buffer.read(copy_index-1));
+                                heap_buffer->write(copy_index, heap_buffer->read(copy_index-1));
                                 copy_index -= 1;
                             };
                             Var<heapNode> node{dis, photon_index};
-                            heap_buffer.write(insert_index, node);
-                            r = heap_buffer.read(base_offset+kNN_offset-1).dis;
+                            heap_buffer->write(insert_index, node);
+                            r = heap_buffer->read(base_offset+kNN_offset-1).dis;
                         };
                         photon_index = photon.nxt;
                     };
@@ -389,8 +388,8 @@ int main(int argc, char *argv[]) {
         };
         $for(index_offset, kNN_offset){
             auto real_index = base_offset + index_offset;
-            auto photon_index = heap_buffer.read(real_index).index;
-            auto photon = photon_buffer.read(photon_index);
+            auto photon_index = heap_buffer->read(real_index).index;
+            auto photon = photon_buffer->read(photon_index);
             radiance += material.albedo * Float3{photon.power};
         };
         return radiance;
@@ -408,13 +407,13 @@ int main(int argc, char *argv[]) {
                 // radiance = light_emission / light_area;
             }
             $else {
-                auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
-                auto p0 = vertex_buffer.read(triangle.i0);
-                auto p1 = vertex_buffer.read(triangle.i1);
-                auto p2 = vertex_buffer.read(triangle.i2);
+                auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
+                auto p0 = vertex_buffer->read(triangle.i0);
+                auto p1 = vertex_buffer->read(triangle.i1);
+                auto p2 = vertex_buffer->read(triangle.i2);
                 auto p = hit->interpolate(p0, p1, p2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
-                auto material = material_buffer.read(hit.inst);
+                auto material = material_buffer->read(hit.inst);
                 auto cos_wi = dot(-ray->direction(), n);
 
                 $if(cos_wi > 1e-4f) {
@@ -456,15 +455,15 @@ int main(int argc, char *argv[]) {
                 radiance = light_emission;
             }
             $else {
-                auto triangle = heap.buffer<Triangle>(hit.inst).read(hit.prim);
-                auto p0 = vertex_buffer.read(triangle.i0);
-                auto p1 = vertex_buffer.read(triangle.i1);
-                auto p2 = vertex_buffer.read(triangle.i2);
+                auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
+                auto p0 = vertex_buffer->read(triangle.i0);
+                auto p1 = vertex_buffer->read(triangle.i1);
+                auto p2 = vertex_buffer->read(triangle.i2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto p = hit->interpolate(p0, p1, p2);
                 auto cos_wi = dot(-ray->direction(), n);
                 $if(cos_wi > 1e-4f) {
-                    auto material = material_buffer.read(hit.inst);
+                    auto material = material_buffer->read(hit.inst);
                     //direct illumination
                     auto ux_light = lcg(state);
                     auto uy_light = lcg(state);

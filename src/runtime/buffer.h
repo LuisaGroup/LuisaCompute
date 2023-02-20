@@ -13,14 +13,16 @@
 namespace luisa::compute {
 
 namespace detail {
+
+template<typename BufferOrView>
+struct BufferExprProxy;
+
 LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst) noexcept;
 LC_RUNTIME_API void error_buffer_reinterpret_size_too_small(size_t size, size_t dst) noexcept;
 LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size, size_t size) noexcept;
 LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) noexcept;
-}// namespace detail
 
-template<typename T>
-struct BufferExprProxy;
+}// namespace detail
 
 template<typename T>
 class BufferView;
@@ -43,16 +45,15 @@ private:
 
 private:
     friend class Device;
-    Buffer(DeviceInterface *device, size_t size, BufferCreationInfo info) noexcept
+    friend class ResourceGenerator;
+    Buffer(DeviceInterface *device, const BufferCreationInfo &info) noexcept
         : Resource{device, Tag::BUFFER, info},
-          _size{size},
+          _size{info.total_size_bytes / info.element_stride},
           _element_stride{info.element_stride} {}
 
 public:
     Buffer(DeviceInterface *device, size_t size) noexcept
-        : Buffer{device, size, device->create_buffer(Type::of<T>(), size)} {}
-    Buffer(DeviceInterface *device, void *external_ptr, size_t size) noexcept
-        : Buffer{device, size, device->register_external_buffer(external_ptr, Type::of<T>(), size)} {}
+        : Buffer{device, device->create_buffer(Type::of<T>(), size)} {}
     Buffer() noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -71,7 +72,7 @@ public:
     }
 
     [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<BufferExprProxy<Buffer<T>> const *>(this);
+        return reinterpret_cast<const detail::BufferExprProxy<Buffer<T>> *>(this);
     }
 };
 
@@ -89,7 +90,7 @@ private:
 
 private:
     friend class Buffer<T>;
-
+    friend class ResourceGenerator;
     template<typename U>
     friend class BufferView;
     BufferView(uint64_t handle, size_t element_stride, size_t offset_bytes, size_t size, size_t total_size) noexcept
@@ -150,7 +151,7 @@ public:
     }
 
     [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<BufferExprProxy<BufferView<T>> const *>(this);
+        return reinterpret_cast<const detail::BufferExprProxy<BufferView<T>> *>(this);
     }
 };
 
@@ -159,6 +160,8 @@ BufferView(const Buffer<T> &) -> BufferView<T>;
 
 template<typename T>
 BufferView(BufferView<T>) -> BufferView<T>;
+
+// some traits
 namespace detail {
 
 template<typename T>

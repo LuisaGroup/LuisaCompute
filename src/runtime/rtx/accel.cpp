@@ -69,6 +69,7 @@ void Accel::pop_back() noexcept {
             "Ignoring pop-back operation on empty accel.");
     }
 }
+
 void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(

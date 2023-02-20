@@ -40,8 +40,16 @@ namespace detail {
 [[nodiscard]] LC_AST_API luisa::string make_buffer_description(luisa::string_view elem) noexcept;
 
 template<typename T>
+struct TypeDesc;
+
+#include <ast/member_reflect.inl>
+
+template<typename T>
 struct TypeDesc {
-    static_assert(always_false_v<T>, "Invalid type.");
+    [[nodiscard]] static luisa::string_view description() noexcept {
+        static thread_local luisa::string desc = member_reflect<T>();
+        return desc;
+    }
 };
 
 // scalar
@@ -81,6 +89,13 @@ LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(int, INT32)
 LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(uint, UINT32)
 
 #undef LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION
+
+template<typename T>
+    requires std::is_enum_v<T>
+struct TypeDesc<T>
+    : TypeDesc<std::conditional_t<
+          std::is_signed_v<std::underlying_type_t<T>>,
+          int, uint>> {};
 
 // array
 template<typename T, size_t N>
@@ -237,7 +252,7 @@ struct is_valid_reflection : std::false_type {};
 template<typename S, typename... M, typename O, O... os>
 struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>> {
 
-    static_assert(((!is_struct_v<M> || alignof(M) >= 4u) && ...));
+    static_assert(((alignof(M) >= 4u) && ...));
     static_assert((!is_bool_vector_v<M> && ...),
                   "Boolean vectors are not allowed in DSL "
                   "structures since their may have different "
@@ -296,8 +311,6 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
 
 #define LUISA_MAKE_STRUCTURE_TYPE_DESC_SPECIALIZATION(S, ...)                \
     template<>                                                               \
-    struct luisa::compute::is_struct<S> : std::true_type {};                 \
-    template<>                                                               \
     struct luisa::compute::struct_member_tuple<S> {                          \
         using this_type = S;                                                 \
         using type = std::tuple<                                             \
@@ -328,12 +341,9 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
 
 #define LUISA_CUSTOM_STRUCT_REFLECT(S, name)                         \
     template<>                                                       \
-    struct luisa::compute::is_struct<S> : std::true_type {};         \
-    template<>                                                       \
     struct luisa::compute::is_custom_struct<S> : std::true_type {};  \
     template<>                                                       \
     struct luisa::compute::detail::TypeDesc<S> {                     \
-        using this_type = S;                                         \
         static constexpr luisa::string_view description() noexcept { \
             return name;                                             \
         }                                                            \

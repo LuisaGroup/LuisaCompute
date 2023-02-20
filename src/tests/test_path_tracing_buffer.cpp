@@ -35,9 +35,8 @@ struct Onb {
 };
 
 // clang-format off
-LUISA_STRUCT(Material, albedo, emission)
-LUISA_STRUCT(Onb, tangent, binormal, normal)
-LUISA_STRUCT_EXT(Onb) {
+LUISA_STRUCT(Material, albedo, emission) {};
+LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
     }
@@ -99,7 +98,7 @@ int main(int argc, char *argv[]) {
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
         auto &&triangle_buffer = triangle_buffers.emplace_back(device.create_buffer<Triangle>(triangle_count));
-        auto &&mesh = meshes.emplace_back(device.create_mesh({}, vertex_buffer, triangle_buffer));
+        auto &&mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         bindless_array.emplace_on_update(index, triangle_buffer);
         stream << triangle_buffer.copy_from(indices.data())
                << mesh.build();
@@ -208,15 +207,15 @@ int main(int argc, char *argv[]) {
             // trace
             auto hit = accel.trace_closest(ray);
             $if(hit->miss()) { $break; };
-            auto triangle = bindless_array.buffer<Triangle>(hit.inst).read(hit.prim);
-            auto p0 = vertex_buffer.read(triangle.i0);
-            auto p1 = vertex_buffer.read(triangle.i1);
-            auto p2 = vertex_buffer.read(triangle.i2);
+            auto triangle = bindless_array->buffer<Triangle>(hit.inst).read(hit.prim);
+            auto p0 = vertex_buffer->read(triangle.i0);
+            auto p1 = vertex_buffer->read(triangle.i1);
+            auto p2 = vertex_buffer->read(triangle.i2);
             auto p = hit->interpolate(p0, p1, p2);
             auto n = normalize(cross(p1 - p0, p2 - p0));
             auto cos_wi = dot(-ray->direction(), n);
             $if(cos_wi < 1e-4f) { $break; };
-            auto material = material_buffer.read(hit.inst);
+            auto material = material_buffer->read(hit.inst);
 
             // hit light
             $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {

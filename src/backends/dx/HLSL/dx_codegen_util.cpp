@@ -47,7 +47,7 @@ uint CodegenUtility::IsBool(Type const &type) {
 };
 vstd::StringBuilder CodegenUtility::GetNewTempVarName() {
     vstd::StringBuilder name;
-    name <<  "tmp"sv;
+    name << "tmp"sv;
     vstd::to_string(opt->tempCount, name);
     opt->tempCount++;
     return name;
@@ -93,6 +93,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
                         str << "vv"sv;
                     } else {
                         if (opt->arguments.find(id) != opt->arguments.end()) {
+                            id += opt->argOffset;
                             str << "a.l"sv;
                         } else {
                             str << 'l';
@@ -113,6 +114,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
                                 str << "p.v0"sv;
                             }
                         } else {
+                            id += opt->argOffset;
                             str << "a.l"sv;
                             vstd::to_string(id, str);
                         }
@@ -210,13 +212,13 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::BOOL:
             str << "bool"sv;
             return;
-        case Type::Tag::FLOAT:
+        case Type::Tag::FLOAT32:
             str << "float"sv;
             return;
-        case Type::Tag::INT:
+        case Type::Tag::INT32:
             str << "int"sv;
             return;
-        case Type::Tag::UINT:
+        case Type::Tag::UINT32:
             str << "uint"sv;
             return;
         case Type::Tag::MATRIX: {
@@ -261,7 +263,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                 if (ele->is_vector() && ele->dimension() == 3) {
                     typeName << "float4"sv;
                 } else {
-                    if (opt->kernel.requires_atomic_float() && ele->tag() == Type::Tag::FLOAT) {
+                    if (opt->kernel.requires_atomic_float() && ele->tag() == Type::Tag::FLOAT32) {
                         typeName << "int";
                     } else {
                         GetTypeName(*ele, typeName, usage);
@@ -404,14 +406,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     auto IsNumVec3 = [&](Type const &t) {
         if (t.tag() != Type::Tag::VECTOR || t.dimension() != 3) return false;
         auto &&ele = *t.element();
-        switch (ele.tag()) {
-            case Type::Tag::INT:
-            case Type::Tag::UINT:
-            case Type::Tag::FLOAT:
-                return true;
-            default:
-                return false;
-        }
+        return ele.is_scalar();
     };
     auto PrintArgs = [&](size_t offset = 0) {
         auto last = args.size() - 1;
@@ -614,7 +609,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
-            if (expr->type()->tag() == Type::Tag::FLOAT) {
+            if (expr->type()->tag() == Type::Tag::FLOAT32) {
                 str << "_atomic_exchange_float"sv;
             } else {
                 str << "_atomic_exchange"sv;
@@ -623,7 +618,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_COMPARE_EXCHANGE: {
-            if (expr->type()->tag() == Type::Tag::FLOAT) {
+            if (expr->type()->tag() == Type::Tag::FLOAT32) {
                 str << "_atomic_compare_exchange_float"sv;
             } else {
                 str << "_atomic_compare_exchange"sv;
@@ -632,7 +627,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_ADD: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_add_float"sv;
             else
                 str << "_atomic_add"sv;
@@ -640,7 +635,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_SUB: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_sub_float"sv;
             else
                 str << "_atomic_sub"sv;
@@ -663,7 +658,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_MIN: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_min_float"sv;
             else
                 str << "_atomic_min"sv;
@@ -671,7 +666,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_MAX: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_max_float"sv;
             else
                 str << "_atomic_max"sv;
@@ -773,7 +768,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_READ: {
-            if (opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT) {
+            if (opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT32) {
                 str << "bfread_float"sv;
             } else {
                 str << "bfread"sv;
@@ -809,23 +804,24 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "TraceAll"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
-            if (opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT) {
-                str << "READ_BUFFER_FLOAT"sv;
-            } else {
-                str << "READ_BUFFER"sv;
+            bool isFloat = opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT32;
+            if (isFloat) {
+                str << "asfloat("sv;
             }
-            if (IsNumVec3(*expr->type())) {
-                str << "Vec3"sv;
-            }
-            auto index = opt->AddBindlessType(expr->type());
+            str << "READ_BUFFER"sv;
+            opt->AddBindlessType(expr->type());
             str << '(';
             for (auto &&i : args) {
                 i->accept(vis);
                 str << ',';
             }
-            str << "bdls"sv
-                << vstd::to_string(index)
-                << ')';
+            vstd::to_string(expr->type()->size(), str);
+            str << ',';
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ",bdls)"sv;
+            if (isFloat) {
+                str << ')';
+            }
             return;
         }
         case CallOp::ASSUME:
@@ -974,9 +970,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {
     switch (t.tag()) {
         case Type::Tag::BOOL:
             return 1;
-        case Type::Tag::FLOAT:
-        case Type::Tag::INT:
-        case Type::Tag::UINT:
+        case Type::Tag::FLOAT32:
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32:
             return 4;
         case Type::Tag::VECTOR:
             switch (t.dimension()) {
@@ -1013,9 +1009,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {
 size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     switch (t.tag()) {
         case Type::Tag::BOOL:
-        case Type::Tag::FLOAT:
-        case Type::Tag::INT:
-        case Type::Tag::UINT:
+        case Type::Tag::FLOAT32:
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32:
             return 4;
             // TODO: incorrect
         case Type::Tag::VECTOR:
@@ -1360,15 +1356,16 @@ void CodegenUtility::GenerateCBuffer(
     vstd::StringBuilder &result) {
     result << "struct Args{\n"sv;
     size_t align = 0;
+    size_t size = 0;
     for (auto &&f : fs) {
+        size_t size_cache = 0;
         for (auto &&i : *f) {
             if (!detail::IsCBuffer(i.tag())) continue;
+            size_cache++;
             GetTypeName(*i.type(), result, Usage::READ, true);
             // vec3 need extra alignment
-            result << ' ';
-            GetVariableName(i, result);
-            result << ";\n"sv;
-            if(i.type()->is_vector() && i.type()->dimension() == 3){
+            result << " l" << vstd::to_string(i.uid() + size) << ";\n"sv;
+            if (i.type()->is_vector() && i.type()->dimension() == 3) {
                 GetTypeName(*i.type()->element(), result, Usage::READ, true);
                 result << " _a"sv;
                 vstd::to_string(align, result);
@@ -1376,6 +1373,7 @@ void CodegenUtility::GenerateCBuffer(
                 ++align;
             }
         }
+        size += size_cache;
     }
     result << R"(};
 StructuredBuffer<Args> _Global:register(t0);
@@ -1403,28 +1401,36 @@ void CodegenUtility::GenerateBindlessSpirv(
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str) {
-    for (auto &&i : opt->bindlessBufferTypes) {
-        str << "StructuredBuffer<"sv;
-        if (i.first->is_matrix()) {
-            auto n = i.first->dimension();
-            str << luisa::format("WrappedFloat{}x{}", n, n);
-        } else if (i.first->is_vector() && i.first->dimension() == 3) {
-            str << "float4"sv;
-        } else {
-            GetTypeName(*i.first, str, Usage::READ);
-        }
-        vstd::string instName("bdls"sv);
-        vstd::to_string(i.second, instName);
-        str << "> " << instName << "[]:register(t0,space"sv;
-        vstd::to_string(i.second + 3, str);
-        str << ");\n"sv;
-
+    if (opt->bindlessBufferCount > 0) {
+        str << "ByteAddressBuffer bdls[]:register(t0,space3);\n"sv;
         properties.emplace_back(
             Property{
                 ShaderVariableType::SRVDescriptorHeap,
-                static_cast<uint>(i.second + 3u),
+                static_cast<uint>(3u),
                 0u, 0u});
     }
+    // for (auto &&i : opt->bindlessBufferTypes) {
+    //     str << "StructuredBuffer<"sv;
+    //     if (i.first->is_matrix()) {
+    //         auto n = i.first->dimension();
+    //         str << luisa::format("WrappedFloat{}x{}", n, n);
+    //     } else if (i.first->is_vector() && i.first->dimension() == 3) {
+    //         str << "float4"sv;
+    //     } else {
+    //         GetTypeName(*i.first, str, Usage::READ);
+    //     }
+    //     vstd::string_view instName("bdls"sv);
+    //     vstd::to_string(i.second, instName);
+    //     str << "> " << instName << "[]:register(t0,space"sv;
+    //     vstd::to_string(i.second + 3, str);
+    //     str << ");\n"sv;
+
+    //     properties.emplace_back(
+    //         Property{
+    //             ShaderVariableType::SRVDescriptorHeap,
+    //             static_cast<uint>(i.second + 3u),
+    //             0u, 0u});
+    // }
 }
 
 void CodegenUtility::PreprocessCodegenProperties(
@@ -1722,7 +1728,11 @@ uint obj_id:register(b0);
                 if (idx >= 4) {
                     d << "vv.v4.v["sv << vstd::to_string(idx - 4) << "]=vt."sv << name << ";\n"sv;
                 } else {
-                    d << "vv.v"sv << vstd::to_string(i) << "=vt."sv << name << ";\n"sv;
+                    d << "vv.v"sv << vstd::to_string(i);
+                    if (i < 2) {
+                        d << ".v"sv;
+                    }
+                    d << "=vt."sv << name << ";\n"sv;
                 }
             }
         }
@@ -1731,7 +1741,11 @@ uint obj_id:register(b0);
             if (i >= 4) {
                 d << "vv.v4.v["sv << vstd::to_string(i - 4) << "]=0;\n"sv;
             } else {
-                d << "vv.v"sv << vstd::to_string(i) << "=0;\n"sv;
+                d << "vv.v"sv << vstd::to_string(i);
+                if (i < 2) {
+                    d << ".v"sv;
+                }
+                d << "=0;\n"sv;
             }
         }
         d << "vv.v5=vt.vid;\nvv.v6=vt.iid;\n"sv;
@@ -1749,7 +1763,7 @@ uint obj_id:register(b0);
 uint iid:SV_INSTANCEID;
 };
 )"sv;
-    auto vertRange = vstd::RangeImpl(vstd::CacheEndRange(vertFunc.arguments()) | vstd::ValueRange{});
+    auto vertRange = vstd::RangeImpl(vstd::CacheEndRange(vstd::ite_range(vertFunc.arguments().begin() + 1, vertFunc.arguments().end())) | vstd::ValueRange{});
     auto pixelRange = vstd::RangeImpl(vstd::ite_range(pixelFunc.arguments().begin() + 1, pixelFunc.arguments().end()) | vstd::ValueRange{});
     std::initializer_list<vstd::IRange<Variable> *> funcs = {&vertRange, &pixelRange};
 
@@ -1759,6 +1773,7 @@ uint iid:SV_INSTANCEID;
     opt->appdataId = -1;
     // TODO: gen vertex data
     codegenData << "#elif defined(PS)\n"sv;
+    opt->argOffset = vertFunc.arguments().size() - 1;
     // TODO: gen pixel data
     CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer);
     codegenData << "#endif\n"sv;
@@ -1774,7 +1789,7 @@ uint iid:SV_INSTANCEID;
     uint64 immutableHeaderSize = finalResult.size();
     vstd::array<uint, 3> registerCount;
     PreprocessCodegenProperties(properties, varData, registerCount, nonEmptyCbuffer, true);
-    CodegenProperties(properties, finalResult, varData, vertFunc, 0, registerCount);
+    CodegenProperties(properties, finalResult, varData, vertFunc, 1, registerCount);
     CodegenProperties(properties, finalResult, varData, pixelFunc, 1, registerCount);
     PostprocessCodegenProperties(properties, finalResult);
     finalResult << varData << codegenData;

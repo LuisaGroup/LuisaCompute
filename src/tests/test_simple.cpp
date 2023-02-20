@@ -23,7 +23,7 @@ struct Test {
     float array[16];
 };
 
-LUISA_STRUCT(Test, a, b, array)
+LUISA_STRUCT(Test, a, b, array) {};
 
 int main(int argc, char *argv[]) {
 

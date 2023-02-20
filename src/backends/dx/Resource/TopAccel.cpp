@@ -282,12 +282,12 @@ void TopAccel::Build(
             postInfo.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
             auto compactOffset = scratchBuffer->offset + scratchBuffer->byteSize - sizeof(size_t);
             postInfo.DestBuffer = scratchBuffer->buffer->GetAddress() + compactOffset;
-            builder.CmdList()->BuildRaytracingAccelerationStructure(
+            builder.GetCB()->CmdList()->BuildRaytracingAccelerationStructure(
                 &topLevelBuildDesc,
                 1,
                 &postInfo);
         } else {
-            builder.CmdList()->BuildRaytracingAccelerationStructure(
+            builder.GetCB()->CmdList()->BuildRaytracingAccelerationStructure(
                 &topLevelBuildDesc,
                 0,
                 nullptr);
@@ -326,7 +326,7 @@ bool TopAccel::CheckAccel(
         device->defaultAllocator.get(),
         D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE));
 
-    builder.CmdList()->CopyRaytracingAccelerationStructure(
+    builder.GetCB()->CmdList()->CopyRaytracingAccelerationStructure(
         newAccelBuffer->GetAddress(),
         accelBuffer->GetAddress(),
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT);

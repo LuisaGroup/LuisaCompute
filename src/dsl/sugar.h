@@ -4,7 +4,7 @@
 
 #pragma once
 
-#if !defined(LC_DISABLE_DSL) && !defined(LUISA_COMPUTE_DESUGAR)
+#ifndef LUISA_COMPUTE_DESUGAR
 
 #include <dsl/syntax.h>
 

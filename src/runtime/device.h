@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <ast/type_registry.h>
 #include <runtime/device_interface.h>
 
 namespace luisa::compute {
@@ -19,7 +20,7 @@ class Accel;
 class SwapChain;
 class BinaryIO;
 class BindlessArray;
-class DispatchArgsBuffer;
+class IndirectDispatchBuffer;
 
 template<typename T>
 class Buffer;
@@ -78,7 +79,7 @@ class LC_RUNTIME_API Device {
 
 public:
     using Deleter = void(DeviceInterface *);
-    using Creator = DeviceInterface *(Context && /* context */, DeviceConfig const * /* properties */);
+    using Creator = DeviceInterface *(Context && /* context */, const DeviceConfig * /* properties */);
     using Handle = luisa::shared_ptr<DeviceInterface>;
 
 private:
@@ -116,7 +117,7 @@ public:
         uint64_t window_handle, const Stream &stream, uint2 resolution,
         bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
     // see definition in runtime/dispatch_buffer.cpp
-    [[nodiscard]] DispatchArgsBuffer create_dispatch_buffer(size_t capacity) noexcept;
+    [[nodiscard]] IndirectDispatchBuffer create_indirect_dispatch_buffer(size_t capacity) noexcept;
     // see definition in rtx/mesh.h
     template<typename VBuffer, typename TBuffer>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
@@ -173,7 +174,7 @@ public:
     template<size_t N, typename... Args>
     [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel,
                                const ShaderOption &option = {}) noexcept {
-        return _create<Shader<N, Args...>>(kernel.function(), option);
+        return _create<Shader<N, Args...>>(kernel.function()->function(), option);
     }
 
     template<typename Kernel>
@@ -244,10 +245,8 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        luisa::string_view shader_name,
-        bool enable_debug_info = false,
-        bool enable_fast_math = true) {
-        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name, enable_debug_info, enable_fast_math);
+        luisa::string_view shader_name) {
+        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name);
     }
 
     template<size_t N, typename... Args>

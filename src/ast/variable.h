@@ -66,6 +66,7 @@ public:
     [[nodiscard]] auto is_local() const noexcept { return _tag == Tag::LOCAL; }
     [[nodiscard]] auto is_shared() const noexcept { return _tag == Tag::SHARED; }
     [[nodiscard]] auto is_reference() const noexcept { return _tag == Tag::REFERENCE; }
+    [[nodiscard]] auto is_argument() const noexcept { return _is_argument; }
     [[nodiscard]] auto is_resource() const noexcept {
         return _tag == Tag::BUFFER ||
                _tag == Tag::TEXTURE ||

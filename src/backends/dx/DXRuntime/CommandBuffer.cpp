@@ -6,7 +6,6 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/RasterShader.h>
 namespace toolhub::directx {
-ID3D12GraphicsCommandList4 *CommandBufferBuilder::CmdList() const { return cb->cmdList.Get(); }
 CommandBuffer::CommandBuffer(CommandBuffer &&v)
     : cmdList(std::move(v.cmdList)),
       alloc(v.alloc) {
@@ -18,12 +17,17 @@ CommandBuffer::CommandBuffer(
     Device *device,
     CommandAllocatorBase *alloc)
     : alloc(alloc) {
-    ThrowIfFailed(device->device->CreateCommandList(
-        0,
-        alloc->Type(),
-        alloc->Allocator(),// Associated command allocator
-        nullptr,           // Initial PipelineStateObject
-        IID_PPV_ARGS(&cmdList)));
+    if (device->deviceSettings) {
+        cmdList = {static_cast<ID3D12GraphicsCommandList4 *>(device->deviceSettings->BorrowCommandList(alloc->Type())), false};
+    }
+    if (!cmdList) {
+        ThrowIfFailed(device->device->CreateCommandList(
+            0,
+            alloc->Type(),
+            alloc->Allocator(),// Associated command allocator
+            nullptr,           // Initial PipelineStateObject
+            IID_PPV_ARGS(cmdList.GetAddressOf())));
+    }
     ThrowIfFailed(cmdList->Close());
     isOpened = false;
 }
@@ -76,7 +80,7 @@ void CommandBufferBuilder::DispatchCompute(
 void CommandBufferBuilder::SetRasterShader(
     RasterShader const *s,
     vstd::span<const BindProperty> resources) {
-    auto c = CmdList();
+    auto c = cb->CmdList();
     c->SetPipelineState(s->Pso());
     c->SetGraphicsRootSignature(s->RootSig());
     SetRasterResources(s, resources);

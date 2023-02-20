@@ -1,14 +1,16 @@
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
+#include <runtime/rtx/ray.h>
 #include <dsl/struct.h>
 #include <dsl/builtin.h>
 #include <dsl/var.h>
-#include <runtime/rtx/ray.h>
 
 // clang-format off
-LUISA_STRUCT_EXT(luisa::compute::Ray) {
+LUISA_STRUCT(luisa::compute::Ray,
+             compressed_origin,
+             compressed_t_min,
+             compressed_direction,
+             compressed_t_max) {
     [[nodiscard]] auto origin() const noexcept { return luisa::compute::def<luisa::float3>(compressed_origin); }
     [[nodiscard]] auto direction() const noexcept { return luisa::compute::def<luisa::float3>(compressed_direction); }
     [[nodiscard]] auto t_min() const noexcept { return compressed_t_min; }
@@ -22,21 +24,20 @@ LUISA_STRUCT_EXT(luisa::compute::Ray) {
 
 namespace luisa::compute {
 
-[[nodiscard]] LC_RUNTIME_API Float3 offset_ray_origin(
+[[nodiscard]] LC_DSL_API Float3 offset_ray_origin(
     Expr<float3> p, Expr<float3> n) noexcept;
 
-[[nodiscard]] LC_RUNTIME_API Float3 offset_ray_origin(
+[[nodiscard]] LC_DSL_API Float3 offset_ray_origin(
     Expr<float3> p, Expr<float3> n, Expr<float3> w) noexcept;
 
-[[nodiscard]] LC_RUNTIME_API Var<Ray> make_ray(
+[[nodiscard]] LC_DSL_API Var<Ray> make_ray(
     Expr<float3> origin,
     Expr<float3> direction,
     Expr<float> t_min,
     Expr<float> t_max) noexcept;
 
-[[nodiscard]] LC_RUNTIME_API Var<Ray> make_ray(
+[[nodiscard]] LC_DSL_API Var<Ray> make_ray(
     Expr<float3> origin,
     Expr<float3> direction) noexcept;
-}// namespace luisa::compute
 
-#endif
+}// namespace luisa::compute

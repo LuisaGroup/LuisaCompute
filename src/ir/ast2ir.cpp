@@ -226,13 +226,13 @@ ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
         case Type::Tag::BOOL: return register_type(
             ir::Type{.tag = ir::Type::Tag::Primitive,
                      .primitive = {ir::Primitive::Bool}});
-        case Type::Tag::FLOAT: return register_type(
+        case Type::Tag::FLOAT32: return register_type(
             ir::Type{.tag = ir::Type::Tag::Primitive,
                      .primitive = {ir::Primitive::Float32}});
-        case Type::Tag::INT: return register_type(
+        case Type::Tag::INT32: return register_type(
             ir::Type{.tag = ir::Type::Tag::Primitive,
                      .primitive = {ir::Primitive::Int32}});
-        case Type::Tag::UINT: return register_type(
+        case Type::Tag::UINT32: return register_type(
             ir::Type{.tag = ir::Type::Tag::Primitive,
                      .primitive = {ir::Primitive::Uint32}});
         case Type::Tag::VECTOR: {
@@ -244,17 +244,17 @@ ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
                                  .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
                                                          .scalar = {ir::Primitive::Bool}},
                                              .length = dim}}});
-                case Type::Tag::FLOAT: return register_type(
+                case Type::Tag::FLOAT32: return register_type(
                     ir::Type{.tag = ir::Type::Tag::Vector,
                              .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
                                                      .scalar = {ir::Primitive::Float32}},
                                          .length = dim}}});
-                case Type::Tag::INT: return register_type(
+                case Type::Tag::INT32: return register_type(
                     ir::Type{.tag = ir::Type::Tag::Vector,
                              .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
                                                      .scalar = {ir::Primitive::Int32}},
                                          .length = dim}}});
-                case Type::Tag::UINT: return register_type(
+                case Type::Tag::UINT32: return register_type(
                     ir::Type{.tag = ir::Type::Tag::Vector,
                              .vector = {{.element = {.tag = ir::VectorElementType::Tag::Scalar,
                                                      .scalar = {ir::Primitive::Uint32}},
@@ -824,8 +824,8 @@ ir::NodeRef AST2IR::_convert(const ExprStmt *stmt) noexcept {
 }
 
 ir::NodeRef AST2IR::_convert(const SwitchStmt *stmt) noexcept {
-    LUISA_ASSERT(stmt->expression()->type()->tag() == Type::Tag::INT ||
-                     stmt->expression()->type()->tag() == Type::Tag::UINT,
+    LUISA_ASSERT(stmt->expression()->type()->tag() == Type::Tag::INT32 ||
+                     stmt->expression()->type()->tag() == Type::Tag::UINT32,
                  "Only integer type is supported in switch statement.");
     auto value = _convert_expr(stmt->expression());
     ir::Instruction switch_instr{.tag = ir::Instruction::Tag::Switch,
@@ -1131,7 +1131,7 @@ ir::NodeRef AST2IR::_cast(const Type *type_dst, const Type *type_src, ir::NodeRe
     }
     // scalar to matrix
     if (type_dst->is_matrix() && type_src->is_scalar()) {
-        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT,
+        LUISA_ASSERT(type_dst->element()->tag() == Type::Tag::FLOAT32,
                      "Only float matrices are supported.");
         auto elem = _cast(Type::of<float>(), type_src, node_src);
         return ir::luisa_compute_ir_build_call(

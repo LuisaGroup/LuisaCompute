@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/8/9.
 //
 #pragma once
-#ifndef LC_DISABLE_DSL
-
 
 #include <type_traits>
 #include <concepts>
@@ -239,12 +237,6 @@ template<typename T>
 constexpr auto is_uint_or_vector_expr_v = is_uint_or_vector_expr<T>::value;
 
 template<typename T>
-using is_struct_expr = is_struct<expr_value_t<T>>;
-
-template<typename T>
-constexpr auto is_struct_expr_v = is_struct_expr<T>::value;
-
-template<typename T>
 using is_buffer_expr = is_buffer_or_view<expr_value_t<T>>;
 
 template<typename T>
@@ -281,4 +273,3 @@ template<typename T>
 constexpr auto is_basic_expr_v = is_basic_expr<T>::value;
 
 }// namespace luisa::compute
-#endif

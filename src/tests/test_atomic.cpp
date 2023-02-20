@@ -29,9 +29,9 @@ int main(int argc, char *argv[]) {
     auto buffer = device.create_buffer<uint>(4u);
     Kernel1D count_kernel = [&]() noexcept {
         Constant<uint> constant{1u};
-        Var x = buffer.atomic(3u).fetch_add(constant[0]);
+        Var x = buffer->atomic(3u).fetch_add(constant[0]);
         if_(x == 0u, [&] {
-            buffer.write(0u, 1u);
+            buffer->write(0u, 1u);
         });
     };
     auto count = device.compile(count_kernel);

@@ -8,7 +8,7 @@
 #include <vstl/common.h>
 #include <py/managed_device.h>
 #include <py/py_stream.h>
-#include <api/view_export.h>
+#include <backends/common/resource_generator.h>
 #include <core/clock.h>
 namespace py = pybind11;
 using namespace luisa;
@@ -93,7 +93,7 @@ void export_gui(py::module &m) {
             return w.window->should_close();
         })
         .def("present", [](PyWindow &w, PyStream &stream, uint64_t handle, uint width, uint height, uint level, PixelStorage storage) {
-            auto view = ViewExporter::create_image_view<float>(handle, storage, level, {width, height});
+            auto view = ResourceGenerator::create_image_view<float>(handle, storage, level, {width, height});
             stream.execute();
             stream.stream() << w.chain.present(view);
             vector<int> remove_list;

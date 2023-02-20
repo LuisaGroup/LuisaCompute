@@ -19,8 +19,6 @@ protected:
     GpuAllocator *resourceAllocator;
     CommandAllocatorBase(Device *device, GpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
     vstd::LockFreeArrayQueue<vstd::function<void()>> executeAfterComplete;
-    // Embeded with external queue
-    void WaitExternQueue(ID3D12Fence *fence, uint64 fenceIndex);
 
 public:
     template<typename Func>

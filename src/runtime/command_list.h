@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <core/concepts.h>
+#include <core/stl/optional.h>
 #include <runtime/command.h>
 #include <api/common.h>
 

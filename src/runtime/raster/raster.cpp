@@ -1,4 +1,6 @@
+#ifndef LC_DISABLE_DSL
 #include <runtime/raster/raster_kernel.h>
+#endif
 #include <runtime/raster/raster_shader.h>
 #include <runtime/depth_format.h>
 #include <runtime/raster/depth_buffer.h>
@@ -59,7 +61,7 @@ void rastershader_check_func(Function func) noexcept {
     }
 }
 bool rastershader_rettype_is_float4(Type const *t) noexcept {
-    return (t->is_vector() && t->dimension() == 4 && t->element()->tag() == Type::Tag::FLOAT);
+    return (t->is_vector() && t->dimension() == 4 && t->element()->tag() == Type::Tag::FLOAT32);
 };
 void rastershader_check_vertex_func(Function func) noexcept {
     rastershader_check_func(func);

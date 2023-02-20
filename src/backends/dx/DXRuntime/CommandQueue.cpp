@@ -13,10 +13,20 @@ CommandQueue::CommandQueue(
       resourceAllocator(resourceAllocator),
       type(type),
       thd([this] { ExecuteThread(); }) {
-    D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-    queueDesc.Type = type;
-    queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
-    ThrowIfFailed(device->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(queue.GetAddressOf())));
+    auto CreateQueue = [&] {
+        D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+        queueDesc.Type = type;
+        queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
+        ThrowIfFailed(device->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(queue.GetAddressOf())));
+    };
+    if (device->deviceSettings) {
+        queue = {device->deviceSettings->CreateQueue(type), false};
+        if (!queue) [[unlikely]] {
+            CreateQueue();
+        }
+    } else {
+        CreateQueue();
+    }
     ThrowIfFailed(device->device->CreateFence(
         0,
         D3D12_FENCE_FLAG_NONE,

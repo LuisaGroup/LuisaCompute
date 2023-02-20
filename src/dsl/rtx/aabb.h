@@ -4,11 +4,12 @@
 
 #pragma once
 
+#include <dsl/builtin.h>
 #include <dsl/struct.h>
 #include <runtime/rtx/aabb.h>
 
 // clang-format off
-LUISA_STRUCT_EXT(luisa::compute::AABB) {
+LUISA_STRUCT(luisa::compute::AABB, packed_min, packed_max) {
     [[nodiscard]] auto min() const noexcept {
         return make_float3(packed_min[0], packed_min[1], packed_min[2]);
     }

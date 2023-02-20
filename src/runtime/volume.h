@@ -13,14 +13,16 @@
 namespace luisa::compute {
 
 namespace detail {
+
+template<typename VolumeOrView>
+struct VolumeExprProxy;
+
 LC_RUNTIME_API void error_volume_invalid_mip_levels(size_t level, size_t mip) noexcept;
-}
+
+}// namespace detail
 
 template<typename T>
 class VolumeView;
-
-template<typename T>
-struct VolumeExprProxy;
 
 // Volumes are 3D textures without sampling, i.e., 3D surfaces.
 template<typename T>
@@ -38,7 +40,14 @@ private:
 
 private:
     friend class Device;
-    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u, Sampler sampler = {}) noexcept
+    friend class ResourceGenerator;
+    Volume(DeviceInterface *device, const ResourceCreationInfo &create_info, PixelStorage storage, uint3 size, uint mip_levels) noexcept
+        : Resource{
+              device, Tag::TEXTURE,
+              create_info},
+          _storage{storage}, _mip_levels{detail::max_mip_levels(size, mip_levels)}, _size{size} {
+    }
+    Volume(DeviceInterface *device, PixelStorage storage, uint3 size, uint mip_levels = 1u) noexcept
         : Resource{
               device, Tag::TEXTURE,
               device->create_texture(
@@ -75,7 +84,7 @@ public:
     [[nodiscard]] auto view() const noexcept { return view(0u); }
 
     [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<VolumeExprProxy<Volume<T>> const *>(this);
+        return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
     }
 
     template<typename U>
@@ -100,6 +109,7 @@ private:
 private:
     friend class Volume<T>;
     friend class detail::MipmapView;
+    friend class ResourceGenerator;
 
     constexpr explicit VolumeView(
         uint64_t handle, PixelStorage storage, uint level, uint3 size) noexcept
@@ -127,7 +137,7 @@ public:
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
     [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<VolumeExprProxy<VolumeView<T>> const *>(this);
+        return reinterpret_cast<const detail::VolumeExprProxy<VolumeView<T>> *>(this);
     }
 };
 
@@ -160,5 +170,30 @@ constexpr auto is_volume_view_v = is_volume_view<T>::value;
 
 template<typename T>
 constexpr auto is_volume_or_view_v = is_volume_or_view<T>::value;
+
+namespace detail {
+
+template<typename VolumeOrView>
+struct volume_element_impl {
+    static_assert(always_false_v<VolumeOrView>);
+};
+
+template<typename T>
+struct volume_element_impl<Volume<T>> {
+    using type = T;
+};
+
+template<typename T>
+struct volume_element_impl<VolumeView<T>> {
+    using type = T;
+};
+
+}// namespace detail
+
+template<typename VolumeOrView>
+using volume_element = detail::volume_element_impl<std::remove_cvref_t<VolumeOrView>>;
+
+template<typename VolumeOrView>
+using volume_element_t = typename volume_element<VolumeOrView>::type;
 
 }// namespace luisa::compute

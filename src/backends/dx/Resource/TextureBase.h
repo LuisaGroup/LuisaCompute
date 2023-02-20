@@ -14,6 +14,10 @@ protected:
     uint depth;
     uint mip;
     //	vstd::unique_ptr<std::atomic<D3D12_BARRIER_LAYOUT>> layouts;
+protected:
+    D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDescBase(uint targetMipLevel, ID3D12Resource *resource) const;
+    D3D12_RENDER_TARGET_VIEW_DESC GetRenderTargetDescBase(uint mipOffset) const;
+    D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDescBase(uint mipOffset, ID3D12Resource *resource) const;
 
 public:
     //	vstd::span<std::atomic<D3D12_BARRIER_LAYOUT>> Layouts() const;

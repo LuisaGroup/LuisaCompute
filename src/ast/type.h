@@ -71,15 +71,6 @@ template<typename T>
 constexpr auto is_tuple_v = is_tuple<T>::value;
 
 template<typename T>
-struct is_struct : std::false_type {};
-
-template<typename... T>
-struct is_struct<std::tuple<T...>> : std::true_type {};
-
-template<typename T>
-constexpr auto is_struct_v = is_struct<T>::value;
-
-template<typename T>
 struct is_custom_struct : std::false_type {};
 
 template<typename T>
@@ -260,9 +251,9 @@ public:
     /// Type tags
     enum struct Tag : uint32_t {
         BOOL,
-        FLOAT,
-        INT,
-        UINT,
+        FLOAT32,
+        INT32,
+        UINT32,
 
         VECTOR,
         MATRIX,

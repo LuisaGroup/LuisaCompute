@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/stl/unordered_map.h>
 #include <runtime/sampler.h>
 #include <runtime/mipmap.h>
 #include <runtime/resource.h>
@@ -18,6 +19,10 @@ class BindlessTexture3D;
 class Command;
 class Device;
 class ManagedBindless;
+
+namespace detail {
+class BindlessArrayExprProxy;
+}
 
 template<typename T>
 class BindlessBuffer;
@@ -83,15 +88,10 @@ public:
 
     [[nodiscard]] luisa::unique_ptr<Command> update() noexcept;
 
-    // see implementations in dsl/expr.h
-    template<typename I>
-    BindlessTexture2D tex2d(I &&index) const noexcept;
-
-    template<typename I>
-    BindlessTexture3D tex3d(I &&index) const noexcept;
-
-    template<typename T, typename I>
-    BindlessBuffer<T> buffer(I &&index) const noexcept;
+    // DSL interface
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<const detail::BindlessArrayExprProxy *>(this);
+    }
 };
 
 }// namespace luisa::compute

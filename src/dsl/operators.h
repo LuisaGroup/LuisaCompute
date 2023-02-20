@@ -3,7 +3,7 @@
 //
 
 #pragma once
-#ifndef LC_DISABLE_DSL
+
 #include <string_view>
 
 #include <core/basic_types.h>
@@ -109,4 +109,3 @@ LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(^)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(<<)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(>>)
 #undef LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP
-#endif

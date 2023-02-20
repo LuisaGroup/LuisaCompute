@@ -3,9 +3,7 @@
 //
 #pragma once
 
-#include <dsl/struct.h>
-#include <core/mathematics.h>
-#include <core/stl/format.h>
+#include <array>
 
 namespace luisa::compute {
 
@@ -17,10 +15,3 @@ struct alignas(16) Ray {
 };
 
 }// namespace luisa::compute
-
-LUISA_STRUCT(
-    luisa::compute::Ray,
-    compressed_origin,
-    compressed_t_min,
-    compressed_direction,
-    compressed_t_max)

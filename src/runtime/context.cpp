@@ -101,7 +101,7 @@ ContextPaths Context::paths() const noexcept {
     return ContextPaths{_impl.get()};
 }
 
-Device Context::create_device(std::string_view backend_name_in, DeviceConfig const *settings) noexcept {
+Device Context::create_device(std::string_view backend_name_in, const DeviceConfig *settings) noexcept {
     luisa::string backend_name{backend_name_in};
     for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
     auto impl = _impl.get();
@@ -110,13 +110,16 @@ Device Context::create_device(std::string_view backend_name_in, DeviceConfig con
                   backend_name) == impl->installed_backends.cend()) {
         LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
     }
+    LUISA_ASSERT(impl->device_identifiers.size() == impl->device_creators.size() &&
+                 impl->device_identifiers.size() == impl->device_deleters.size(),
+                 "Internal error.");
     Device::Creator *creator;
     Device::Deleter *deleter;
-    size_t index;
     if (auto iter = std::find(impl->device_identifiers.cbegin(),
                               impl->device_identifiers.cend(),
                               backend_name);
         iter != impl->device_identifiers.cend()) {
+        auto index = std::distance(impl->device_identifiers.cbegin(), iter);
         creator = impl->device_creators[index];
         deleter = impl->device_deleters[index];
     } else {
@@ -134,6 +137,7 @@ Device Context::create_device(std::string_view backend_name_in, DeviceConfig con
 #endif
         creator = m.function<Device::Creator>("create");
         deleter = m.function<Device::Deleter>("destroy");
+        impl->device_identifiers.emplace_back(backend_name);
         impl->device_creators.emplace_back(creator);
         impl->device_deleters.emplace_back(deleter);
     }

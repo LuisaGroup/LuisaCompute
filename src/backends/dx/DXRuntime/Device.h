@@ -8,6 +8,7 @@
 #include <core/binary_io.h>
 #include <vstl/binary_reader.h>
 #include <runtime/device.h>
+#include <DxRuntime/DxPtr.h>
 #include <ext_settings.h>
 namespace luisa::compute {
 class BinaryIO;
@@ -67,16 +68,13 @@ public:
     };
     bool SupportMeshShader() const;
     vstd::MD5 adapterID;
-    IDXGIAdapter1 *adapter;
-    ID3D12Device5 *device;
-    IDXGIFactory4 *dxgiFactory;
-    Microsoft::WRL::ComPtr<IDXGIAdapter1> mAdapter;
-    Microsoft::WRL::ComPtr<ID3D12Device5> mDevice;
-    Microsoft::WRL::ComPtr<IDXGIFactory4> mDxgiFactory;
+    DxPtr<IDXGIAdapter1> adapter;
+    DxPtr<ID3D12Device5> device;
+    DxPtr<IDXGIFactory4> dxgiFactory;
     vstd::unique_ptr<GpuAllocator> defaultAllocator;
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
-    luisa::unique_ptr<luisa::compute::DirectXExternalRuntime> deviceSettings;
+    vstd::unique_ptr<luisa::compute::DirectXDeviceConfigExt> deviceSettings;
     LazyLoadShader setAccelKernel;
 
     LazyLoadShader bc6TryModeG10;

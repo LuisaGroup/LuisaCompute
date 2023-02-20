@@ -1,6 +1,6 @@
 #pragma once
 
-#include <dsl/struct.h>
+#include <array>
 
 namespace luisa::compute {
 
@@ -10,5 +10,3 @@ struct AABB {
 };
 
 }// namespace luisa::compute
-
-LUISA_STRUCT(luisa::compute::AABB, packed_min, packed_max)

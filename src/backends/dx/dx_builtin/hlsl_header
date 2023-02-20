@@ -1,6 +1,6 @@
 #pragma pack_matrix(row_major)
 #define INFINITY_f 3.40282347e+37
-#define DispatchArgs uint
+#define LC_IndirectKernelDispatch uint
 SamplerState samplers[16]:register(s0,space1);
 float determinant(const float2x2 m){
 return m[0][0]*m[1][1]-m[1][0]*m[0][1];
@@ -238,9 +238,7 @@ template<typename Idx,typename Lvl>
 uint2 Tex2DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex2DSize(arr,index)>>level,1u);}
 template<typename Idx,typename Lvl>
 uint3 Tex3DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex3DSize(arr,index)>>level,1u);}
-#define READ_BUFFER_FLOAT(arr,arrIdx,idx,bf) asfloat(bf[arr[arrIdx].buffer][idx])
-#define READ_BUFFER(arr,arrIdx,idx,bf) bf[arr[arrIdx].buffer][idx]
-#define READ_BUFFERVec3(arr,arrIdx,idx,bf) bf[arr[arrIdx].buffer][idx].xyz
+#define READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[arr[arrIdx].buffer].Load<type>(size*idx)
 struct MeshInst {
 float4 p0;
 float4 p1;
@@ -382,7 +380,7 @@ buffer[idx+4]=dispSize;
 buffer[idx+5]=1;
 buffer[idx+6]=1;
 }
-struct AABB{float3 bmin;float3 bmax;float2 _align;};
+struct AABB{float3 bmin;float3 bmax;};
 template<typename Idx>
 void SetAABB(RWStructuredBuffer<AABB> buffer,const Idx idx,const float3 bmin,const float3 bmax){
 AABB b;

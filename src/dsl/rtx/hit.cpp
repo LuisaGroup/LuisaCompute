@@ -2,7 +2,9 @@
 // Created by Mike Smith on 2021/6/24.
 //
 
-#include <dsl/hit.h>
+#include <dsl/builtin.h>
+#include <dsl/stmt.h>
+#include <dsl/rtx/hit.h>
 
 namespace luisa::compute {
 

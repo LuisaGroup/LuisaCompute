@@ -243,9 +243,9 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->dimension = 1u;         \
     } else
     TRY_PARSE_SCALAR_TYPE(bool, BOOL)
-    TRY_PARSE_SCALAR_TYPE(float, FLOAT)
-    TRY_PARSE_SCALAR_TYPE(int, INT)
-    TRY_PARSE_SCALAR_TYPE(uint, UINT)
+    TRY_PARSE_SCALAR_TYPE(float, FLOAT32)
+    TRY_PARSE_SCALAR_TYPE(int, INT32)
+    TRY_PARSE_SCALAR_TYPE(uint, UINT32)
 #undef TRY_PARSE_SCALAR_TYPE
     if (type_identifier == "vector"sv) {
         info->tag = Type::Tag::VECTOR;
@@ -351,11 +351,11 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         auto m = info->members.emplace_back(_decode(split()));
         match('>');
         if (auto t = m->tag();
-            t != Type::Tag::INT &&
-            t != Type::Tag::UINT &&
-            t != Type::Tag::FLOAT) [[unlikely]] {
+            t != Type::Tag::INT32 &&
+            t != Type::Tag::UINT32 &&
+            t != Type::Tag::FLOAT32) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
-                "Images can only hold int, uint, or float.");
+                "Images can only hold int32, uint32, or float32.");
         }
         info->size = 8u;
         info->alignment = 8u;
@@ -460,10 +460,7 @@ uint Type::dimension() const noexcept {
 }
 
 bool Type::is_scalar() const noexcept {
-    return tag() == Tag::BOOL ||
-           tag() == Tag::FLOAT ||
-           tag() == Tag::INT ||
-           tag() == Tag::UINT;
+    return to_underlying(tag()) < to_underlying(Tag::VECTOR);
 }
 
 bool Type::is_basic() const noexcept {

@@ -4,8 +4,6 @@
 
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
 #include <dsl/expr.h>
 #include <core/stl.h>
 
@@ -88,5 +86,3 @@ public:
 };
 
 }// namespace luisa::compute
-
-#endif

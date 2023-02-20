@@ -85,9 +85,9 @@ struct Impl : public Interface {};
 std::string_view tag_name(Type::Tag tag) noexcept {
     using namespace std::string_view_literals;
     if (tag == Type::Tag::BOOL) { return "bool"sv; }
-    if (tag == Type::Tag::FLOAT) { return "float"sv; }
-    if (tag == Type::Tag::INT) { return "int"sv; }
-    if (tag == Type::Tag::UINT) { return "uint"sv; }
+    if (tag == Type::Tag::FLOAT32) { return "float"sv; }
+    if (tag == Type::Tag::INT32) { return "int"sv; }
+    if (tag == Type::Tag::UINT32) { return "uint"sv; }
     if (tag == Type::Tag::VECTOR) { return "vector"sv; }
     if (tag == Type::Tag::MATRIX) { return "matrix"sv; }
     if (tag == Type::Tag::ARRAY) { return "array"sv; }

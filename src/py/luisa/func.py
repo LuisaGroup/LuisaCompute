@@ -16,7 +16,7 @@ from. meshformat import MeshFormat
 import textwrap
 import os
 import sys
-from .raster import appdata
+from .raster import AppData
 
 def create_arg_expr(dtype, allow_ref):
     # Note: scalars are always passed by value
@@ -253,7 +253,7 @@ class func:
 
 
 def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_argtypes, pixel_argtypes, name: str, async_builder: bool=True):
-    vert_f = vertex.get_compiled(False, False,(appdata,) + vert_argtypes)
+    vert_f = vertex.get_compiled(False, False,(AppData,) + vert_argtypes)
     pixel_f = pixel.get_compiled(False, False, (vert_f.return_type, ) + pixel_argtypes)
     device = get_global_device().impl()
     check_val = device.check_raster_shader(vert_f.function, pixel_f.function)
@@ -269,7 +269,7 @@ def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_
         elif(check_val == 5):
             raise TypeError("Vertex or pixel shader is not callable.")
         else:
-            raise TypeError("Vertex shader's first argument must be appdata type.")
+            raise TypeError("Vertex shader's first argument must be AppData type.")
     if async_builder:
         device.save_raster_shader_async(mesh_format.handle, vert_f.builder, pixel_f.builder, name)
     else:

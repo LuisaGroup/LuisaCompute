@@ -1,6 +1,9 @@
-#include <dsl/accel.h>
+#include <dsl/stmt.h>
+#include <dsl/rtx/accel.h>
 
 namespace luisa::compute {
+
+namespace detail {
 
 Var<Hit> AccelExprProxy::trace_closest(Expr<Ray> ray) const noexcept {
     return Expr<Accel>{_accel}.trace_closest(ray);
@@ -44,6 +47,8 @@ void AccelExprProxy::set_instance_opaque(Expr<int> instance_id, Expr<bool> opaqu
 void AccelExprProxy::set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept {
     Expr<Accel>{_accel}.set_instance_opaque(instance_id, opaque);
 }
+
+}// namespace detail
 
 Expr<Accel>::Expr(const RefExpr *expr) noexcept
     : _expression{expr} {}

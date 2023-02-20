@@ -1,9 +1,6 @@
 //
 // Created by Mike Smith on 2021/6/23.
 //
-
-#include <iostream>
-
 #include <stb/stb_image_write.h>
 
 #include <core/clock.h>
@@ -104,8 +101,8 @@ int main(int argc, char *argv[]) {
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data());
 
-    auto accel = device.create_accel({});
-    auto mesh = device.create_mesh({}, vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     accel.emplace_back(mesh, scaling(1.5f));
     accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                  rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));

@@ -8,6 +8,7 @@ set(LUISA_COMPUTE_RUNTIME_RTX_SOURCES
         rtx/procedural_primitive.cpp
         rtx/procedural_primitive.h
         rtx/ray.h
+        rtx/ray_query.h
         rtx/triangle.h)
 
 set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
@@ -25,6 +26,7 @@ set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
 set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp bindless_array.h
         buffer.cpp buffer.h
+        buffer_arena.h
         command.h
         command_encoder.cpp command_encoder.h
         command_buffer.cpp command_buffer.h
@@ -35,6 +37,7 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         depth_format.h
         device_interface.h
         device.cpp device.h
+        dispatch_buffer.cpp dispatch_buffer.h
         event.cpp event.h
         image.cpp image.h
         mipmap.cpp mipmap.h
@@ -47,7 +50,8 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         swap_chain.cpp swap_chain.h
         volume.cpp volume.h
         ${LUISA_COMPUTE_RUNTIME_RTX_SOURCES}
-        ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES})
+#        ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES}
+        )
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compute-ir) # this is so broken, disable it for now

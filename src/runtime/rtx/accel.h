@@ -6,13 +6,18 @@
 
 #include <core/dll_export.h>
 #include <core/basic_types.h>
+#include <core/stl/unordered_map.h>
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/mesh.h>
 #include <runtime/rtx/procedural_primitive.h>
 
 namespace luisa::compute {
-// DSL
+
+namespace detail {
+// for DSL
 class AccelExprProxy;
+}// namespace detail
+
 class LC_RUNTIME_API Accel final : public Resource {
 
 public:
@@ -53,6 +58,7 @@ public:
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, bool visible) noexcept;
     void set_opaque_on_update(size_t index, bool opaque) noexcept;
+
     // update top-level accel, build or only update instance data
     [[nodiscard]] luisa::unique_ptr<Command> update_instance() noexcept {
         return update(false, Accel::BuildRequest::PREFER_UPDATE);
@@ -60,9 +66,11 @@ public:
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept {
         return update(true, request);
     }
-    // shader functions
+
+    // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<AccelExprProxy const *>(this);
+        return reinterpret_cast<const detail::AccelExprProxy *>(this);
     }
 };
+
 }// namespace luisa::compute

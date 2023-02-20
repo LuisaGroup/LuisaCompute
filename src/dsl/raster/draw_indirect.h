@@ -1,7 +1,5 @@
 #pragma once
 
-#ifndef LC_DISABLE_DSL
-
 #include <dsl/expr.h>
 #include <dsl/var.h>
 #include <dsl/struct.h>
@@ -38,5 +36,3 @@ luisa::unique_ptr<BufferUploadCommand> upload_vertex_buffer(
 }
 }// namespace luisa::compute
 */
-
-#endif
