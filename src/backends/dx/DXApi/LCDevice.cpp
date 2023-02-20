@@ -452,7 +452,7 @@ DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
     {
         std::lock_guard lck{extMtx};
         if (v.ext == nullptr) {
-            v.ext = v.get_ext(this);
+            v.ext = v.ctor(this);
         }
     }
     return v.ext;

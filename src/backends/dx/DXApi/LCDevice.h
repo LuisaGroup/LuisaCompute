@@ -11,11 +11,11 @@ class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
         using Ctor = vstd::funcPtr_t<DeviceExtension *(LCDevice *)>;
         using Dtor = vstd::funcPtr_t<void(DeviceExtension *)>;
         DeviceExtension *ext;
-        Ctor get_ext;
+        Ctor ctor;
         Dtor dtor;
-        Ext(Ctor get_ext, Dtor dtor) : ext{nullptr}, get_ext{get_ext}, dtor{dtor} {}
+        Ext(Ctor ctor, Dtor dtor) : ext{nullptr}, ctor{ctor}, dtor{dtor} {}
         Ext(Ext const &) = delete;
-        Ext(Ext &&rhs) : ext{rhs.ext}, get_ext{rhs.get_ext}, dtor{rhs.dtor} {
+        Ext(Ext &&rhs) : ext{rhs.ext}, ctor{rhs.ctor}, dtor{rhs.dtor} {
             rhs.ext = nullptr;
         }
         ~Ext() {

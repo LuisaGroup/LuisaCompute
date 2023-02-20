@@ -15,7 +15,8 @@ public:
 		SwapChain,
 		DepthBuffer,
 		ExternalBuffer,
-		ExternalTexture
+		ExternalTexture,
+		ExternalDepth
 	};
 
 protected:

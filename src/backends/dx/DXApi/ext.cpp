@@ -6,6 +6,7 @@
 #include <runtime/stream.h>
 #include <Resource/ExternalBuffer.h>
 #include <Resource/ExternalTexture.h>
+#include <Resource/ExternalDepth.h>
 namespace toolhub::directx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -96,6 +97,24 @@ ResourceCreationInfo DxNativeResourceExt::register_external_image(
         depth,
         mipmap_levels,
         desc->allowUav));
+    return {
+        reinterpret_cast<uint64_t>(res),
+        external_ptr};
+}
+ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
+    void *external_ptr,
+    DepthFormat format,
+    uint width,
+    uint height,
+    // custom data see backends' header
+    void *custom_data) noexcept {
+    auto res = static_cast<TextureBase *>(new ExternalDepth(
+        reinterpret_cast<ID3D12Resource *>(external_ptr),
+        dx_device,
+        width,
+        height,
+        format,
+        *reinterpret_cast<D3D12_RESOURCE_STATES const *>(custom_data)));
     return {
         reinterpret_cast<uint64_t>(res),
         external_ptr};

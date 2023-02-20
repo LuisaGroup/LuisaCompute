@@ -68,7 +68,7 @@ void ShaderDispatchCmdEncoder::_encode_accel(uint64_t handle) noexcept {
 
 void ShaderDispatchCmdEncoder::_encode_pending_bindings(
     luisa::span<const Function::Binding> bindings) noexcept {
-    while (_argument_idx < _argument_count &&
+    while (_argument_idx < bindings.size() &&
            !luisa::holds_alternative<luisa::monostate>(bindings[_argument_idx])) {
         luisa::visit(
             [&]<typename T>(T binding) noexcept {
