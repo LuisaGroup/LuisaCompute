@@ -37,9 +37,24 @@ struct BufferView {
     uint64_t ty;
 };
 
+struct Texture {
+    uint8_t *data;
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint8_t storage;
+    uint8_t dimension;
+    uint8_t mip_levels;
+    uint8_t pixel_stride_shift;
+    size_t mip_offsets[16];
+    uint8_t sampler;
+};
+
 struct BindlessArray {
     const BufferView *buffers;
     size_t buffers_count;
+    const Texture *textures;
+    size_t textures_count;
 };
 
 struct KernelFnArg {
@@ -47,6 +62,7 @@ struct KernelFnArg {
         Buffer,
         BindlessArray,
         Accel,
+        Texture,
     };
 
     struct Buffer_Body {
@@ -61,11 +77,16 @@ struct KernelFnArg {
         Accel _0;
     };
 
+    struct Texture_Body {
+        Texture _0;
+    };
+
     Tag tag;
     union {
         Buffer_Body buffer;
         BindlessArray_Body bindless_array;
         Accel_Body accel;
+        Texture_Body texture;
     };
 };
 

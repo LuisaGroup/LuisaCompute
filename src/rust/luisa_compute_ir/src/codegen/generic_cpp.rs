@@ -1358,12 +1358,13 @@ impl CodeGen for CpuCodeGen {
 #include <cstdint>
 using namespace std;"#;
         format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             includes,
             CPU_KERNEL_DEFS,
             CPU_PRELUDE,
             DEVICE_MATH_SRC,
             CPU_RESOURCE,
+            CPU_TEXTURE,
             codegen.type_gen.struct_typedefs,
             kernel_wrapper_decl,
             codegen.fwd_defs,
@@ -1379,7 +1380,7 @@ pub const CPU_RESOURCE: &str = include_str!("cpu_resource.h");
 pub const DEVICE_MATH_SRC: &str = include_str!("device_math.h");
 pub const CPU_KERNEL_DEFS: &str =
     include_str!("../../../luisa_compute_cpu_kernel_defs/cpu_kernel_defs.h");
-
+pub const CPU_TEXTURE: &str = include_str!("cpu_texture.h");
 #[no_mangle]
 pub extern "C" fn luisa_compute_codegen_cpp(module: KernelModule) -> CBoxedSlice<u8> {
     let src = CpuCodeGen::run(&module);

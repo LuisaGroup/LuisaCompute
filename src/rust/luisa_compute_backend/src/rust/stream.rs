@@ -265,6 +265,8 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
                 buffers_count: a.buffers.len(),
+                textures: a.textures.as_ptr(),
+                textures_count: a.textures.len(),
             })
         }
     }
@@ -289,6 +291,8 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
                 buffers_count: a.buffers.len(),
+                textures: a.textures.as_ptr(),
+                textures_count: a.textures.len(),
             })
         }
         Binding::Accel(accel) => {

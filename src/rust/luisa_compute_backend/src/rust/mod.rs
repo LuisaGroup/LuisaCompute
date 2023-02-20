@@ -128,6 +128,21 @@ impl Backend for RustBackend {
     ) -> super::Result<luisa_compute_api_types::BindlessArray> {
         let bindless_array = BindlessArrayImpl {
             buffers: vec![defs::BufferView::default(); size],
+            textures: vec![
+                defs::Texture {
+                    data: std::ptr::null_mut(),
+                    width: 0,
+                    height: 0,
+                    depth: 0,
+                    mip_levels: 0,
+                    sampler: 0,
+                    storage: 0,
+                    pixel_stride_shift: 0,
+                    dimension: 0,
+                    mip_offsets: [0; 16]
+                };
+                size
+            ],
         };
         let ptr = Box::into_raw(Box::new(bindless_array));
         Ok(luisa_compute_api_types::BindlessArray(ptr as u64))
@@ -167,7 +182,10 @@ impl Backend for RustBackend {
         handle: luisa_compute_api_types::Texture,
         sampler: luisa_compute_api_types::Sampler,
     ) {
-        todo!()
+        // unsafe{
+        //     let array = &mut *(array.0 as *mut BindlessArrayImpl);
+        //     let
+        // }
     }
 
     fn emplace_tex3d_in_bindless_array(
