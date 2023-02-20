@@ -48,7 +48,7 @@ public:
         // compound commands
         template<typename... T>
         decltype(auto) operator<<(std::tuple<T...> args) &&noexcept {
-            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept->decltype(auto) {
+            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept -> decltype(auto) {
                 return (std::move(*this) << ... << std::move(std::get<i>(a)));
             };
             return encode(std::move(args), std::index_sequence_for<T...>{});
@@ -66,6 +66,10 @@ private:
 
 public:
     Stream() noexcept = default;
+    Stream(Stream &&) noexcept = default;
+    Stream(Stream const &) noexcept = delete;
+    Stream &operator=(Stream &&) noexcept = default;
+    Stream &operator=(Stream const &) noexcept = delete;
     using Resource::operator bool;
     Stream &operator<<(Event::Signal signal) noexcept;
     Stream &operator<<(Event::Wait wait) noexcept;

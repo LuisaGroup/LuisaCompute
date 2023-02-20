@@ -47,7 +47,7 @@ public:
         uint64_t handle,
         luisa::span<const Function::Binding> vertex_bindings,
         luisa::span<const Function::Binding> pixel_bindings) noexcept
-        : _command{arg_size, handle, std::move(vertex_bindings), std::move(pixel_bindings)} {
+        : _command{arg_size, handle, vertex_bindings, pixel_bindings} {
     }
     RasterShaderInvoke(RasterShaderInvoke &&) noexcept = default;
     RasterShaderInvoke(const RasterShaderInvoke &) noexcept = delete;
@@ -158,7 +158,7 @@ class RasterShader : public Resource {
         luisa::shared_ptr<const detail::FunctionBuilder> pixel,
         luisa::string_view name,
         bool enable_debug_info,
-        bool enable_fast_math)noexcept
+        bool enable_fast_math) noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,
@@ -277,6 +277,12 @@ class RasterShader : public Resource {
     // clang-format on
 
 public:
+    RasterShader() noexcept = default;
+    RasterShader(RasterShader &&) noexcept = default;
+    RasterShader(RasterShader const &) noexcept = delete;
+    RasterShader &operator=(RasterShader &&) noexcept = default;
+    RasterShader &operator=(RasterShader const &) noexcept = delete;
+    using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         size_t arg_size;
         if (_vertex_bindings.empty() || _pixel_bindings.empty()) {

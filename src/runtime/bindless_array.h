@@ -60,6 +60,10 @@ private:
 public:
     BindlessArray() noexcept = default;
     using Resource::operator bool;
+    BindlessArray(BindlessArray &&) noexcept = default;
+    BindlessArray(BindlessArray const &) noexcept = delete;
+    BindlessArray &operator=(BindlessArray &&) noexcept = default;
+    BindlessArray &operator=(BindlessArray const &) noexcept = delete;
 
     [[nodiscard]] auto size() const noexcept { return _size; }
     void emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;

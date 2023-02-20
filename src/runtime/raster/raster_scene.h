@@ -15,7 +15,7 @@ public:
     uint64_t stride() const noexcept { return _stride; }
     template<typename T>
         requires(is_buffer_view_v<T>)
-    VertexBufferView(T const &buffer_view) {
+    VertexBufferView(T const &buffer_view) noexcept {
         _handle = buffer_view.handle();
         _offset = buffer_view.offset_bytes();
         _size = buffer_view.size_bytes();
@@ -24,12 +24,13 @@ public:
 
     template<typename T>
         requires(is_buffer_v<T>)
-    VertexBufferView(T const &buffer) {
+    VertexBufferView(T const &buffer) noexcept {
         _handle = buffer.handle();
         _offset = 0;
         _size = buffer.size_bytes();
         _stride = buffer.stride();
     }
+    VertexBufferView() noexcept = default;
 };
 class RasterMesh {
     luisa::span<VertexBufferView const> _vertex_buffers{};
@@ -46,17 +47,22 @@ public:
         luisa::span<VertexBufferView const> vertex_buffers,
         BufferView<uint> index_buffer,
         uint instance_count,
-        uint object_id)
+        uint object_id) noexcept
         : _vertex_buffers(vertex_buffers),
           _index_buffer(index_buffer),
           _instance_count(instance_count),
           _object_id(object_id) {
     }
+    RasterMesh() noexcept = default;
+    RasterMesh(RasterMesh &&) noexcept = default;
+    RasterMesh(RasterMesh const &) noexcept = delete;
+    RasterMesh &operator=(RasterMesh &&) noexcept = default;
+    RasterMesh &operator=(RasterMesh const &) noexcept = delete;
     RasterMesh(
         luisa::span<VertexBufferView const> vertex_buffers,
         uint vertex_count,
         uint instance_count,
-        uint object_id)
+        uint object_id) noexcept
         : _vertex_buffers(vertex_buffers),
           _index_buffer(vertex_count),
           _instance_count(instance_count),

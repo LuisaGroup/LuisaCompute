@@ -93,7 +93,7 @@ ComputeDispatchCmdEncoder::ComputeDispatchCmdEncoder(
     luisa::span<const Function::Binding> bindings) noexcept
     : ShaderDispatchCmdEncoder{arg_size},
       _handle{handle},
-      _bindings{std::move(bindings)} {
+      _bindings{bindings} {
     _argument_buffer.reserve(256u);
     _encode_pending_bindings(_bindings);
 }

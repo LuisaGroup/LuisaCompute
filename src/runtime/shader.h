@@ -209,6 +209,10 @@ private:
 
 public:
     Shader() noexcept = default;
+    Shader(Shader &&) noexcept = default;
+    Shader(Shader const &) noexcept = delete;
+    Shader &operator=(Shader &&) noexcept = default;
+    Shader &operator=(Shader const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         using invoke_type = detail::ShaderInvoke<dimension>;
