@@ -195,6 +195,9 @@ class RasterShader : public Resource {
             auto pixel_bindings = pixel->argument_bindings();
             copy_vec(_vertex_bindings, vert_bindings);
             copy_vec(_pixel_bindings, pixel_bindings);
+#ifndef NDEBUG
+        
+#endif
         }
 
     RasterShader(DeviceInterface *device,

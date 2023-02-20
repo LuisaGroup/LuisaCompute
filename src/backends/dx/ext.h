@@ -24,6 +24,7 @@ class DxNativeResourceExt final : public NativeResourceExt, public vstd::IOperat
 public:
     Device *dx_device;
     DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device) : NativeResourceExt{lc_device}, dx_device{dx_device} {}
+    ~DxNativeResourceExt() = default;
     BufferCreationInfo register_external_buffer(
         void *external_ptr,
         const Type *element,

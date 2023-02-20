@@ -157,7 +157,8 @@ void RasterDispatchCmdEncoder::update_arg() {
     if (_vertex_bindings.empty()) return;
     if (_argument_count >= _vertex_bindings.size()) {
         _current_bindings = _pixel_bindings;
-        _argument_count = 1;
+        _argument_count = _pixel_bindings.size();
+        _argument_idx = 1;
     }
 }
 
@@ -174,7 +175,8 @@ RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(
       _vertex_bindings{vertex_bindings},
       _pixel_bindings{pixel_bindings} {
     _current_bindings = _vertex_bindings;
-    _argument_count = 1;
+    _argument_count = arg_size;
+    _argument_idx = vertex_bindings.empty() ? 0 : 1;
 }
 
 luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&noexcept {

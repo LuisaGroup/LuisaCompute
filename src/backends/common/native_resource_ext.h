@@ -6,7 +6,8 @@ namespace luisa::compute {
 class NativeResourceExt : public DeviceExtension {
 protected:
     DeviceInterface *_device;
-    NativeResourceExt(DeviceInterface *device) : _device{device} {}
+    NativeResourceExt(DeviceInterface *device) noexcept : _device{device} {}
+    ~NativeResourceExt() noexcept = default;
 
 public:
     virtual BufferCreationInfo register_external_buffer(

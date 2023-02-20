@@ -386,6 +386,5 @@ void SetAABB(RWStructuredBuffer<AABB> buffer,const Idx idx,const float3 bmin,con
 AABB b;
 b.bmin=bmin;
 b.bmax=bmax;
-b._align=0;
 buffer[idx]=b;
 }

@@ -9,9 +9,20 @@ namespace toolhub::directx {
 class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
     struct Ext {
         using Ctor = vstd::funcPtr_t<DeviceExtension *(LCDevice *)>;
-        vstd::unique_ptr<DeviceExtension> ext;
+        using Dtor = vstd::funcPtr_t<void(DeviceExtension *)>;
+        DeviceExtension *ext;
         Ctor get_ext;
-        Ext(Ctor get_ext) : ext{nullptr}, get_ext{get_ext} {}
+        Dtor dtor;
+        Ext(Ctor get_ext, Dtor dtor) : ext{nullptr}, get_ext{get_ext}, dtor{dtor} {}
+        Ext(Ext const &) = delete;
+        Ext(Ext &&rhs) : ext{rhs.ext}, get_ext{rhs.get_ext}, dtor{rhs.dtor} {
+            rhs.ext = nullptr;
+        }
+        ~Ext() {
+            if (ext) {
+                dtor(ext);
+            }
+        }
     };
 
 public:

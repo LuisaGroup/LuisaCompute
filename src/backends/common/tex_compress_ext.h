@@ -6,7 +6,7 @@ namespace luisa::compute {
 class TexCompressExt : public DeviceExtension {
 
 protected:
-    virtual ~TexCompressExt() = default;
+    ~TexCompressExt() noexcept = default;
 
 public:
     enum class Result : int8_t {
