@@ -55,10 +55,8 @@ private:
     ComputeDispatchCmdEncoder _command;
 
 public:
-    explicit ShaderInvokeBase(size_t arg_size, uint64_t handle,
-                              luisa::span<const Variable> arguments,
-                              luisa::span<const Function::Binding> bindings) noexcept
-        : _command{arg_size, handle, arguments, bindings} {}
+    explicit ShaderInvokeBase(size_t arg_size, uint64_t handle, luisa::span<const Function::Binding> bindings) noexcept
+        : _command{arg_size, handle, bindings} {}
 
     ShaderInvokeBase(ShaderInvokeBase &&) noexcept = default;
     ShaderInvokeBase(const ShaderInvokeBase &) noexcept = delete;
@@ -129,9 +127,8 @@ struct ShaderInvoke {
 template<>
 struct ShaderInvoke<1> : public ShaderInvokeBase {
     explicit ShaderInvoke(size_t arg_size, uint64_t handle,
-                          luisa::span<const Variable> arguments,
                           luisa::span<const Function::Binding> bindings) noexcept
-        : ShaderInvokeBase{arg_size, handle, arguments, bindings} {}
+        : ShaderInvokeBase{arg_size, handle, bindings} {}
     [[nodiscard]] auto dispatch(uint size_x) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, 1u, 1u})).build();
     }
@@ -143,9 +140,8 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
 template<>
 struct ShaderInvoke<2> : public ShaderInvokeBase {
     explicit ShaderInvoke(size_t arg_size, uint64_t handle,
-                          luisa::span<const Variable> arguments,
                           luisa::span<const Function::Binding> bindings) noexcept
-        : ShaderInvokeBase{arg_size, handle, arguments, bindings} {}
+        : ShaderInvokeBase{arg_size, handle, bindings} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, 1u})).build();
     }
@@ -160,9 +156,8 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
 template<>
 struct ShaderInvoke<3> : public ShaderInvokeBase {
     explicit ShaderInvoke(size_t arg_size, uint64_t handle,
-                          luisa::span<const Variable> arguments,
                           luisa::span<const Function::Binding> bindings) noexcept
-        : ShaderInvokeBase{arg_size, handle, arguments, bindings} {}
+        : ShaderInvokeBase{arg_size, handle, bindings} {}
     [[nodiscard]] auto dispatch(uint size_x, uint size_y, uint size_z) &&noexcept {
         return std::move(std::move(*this)._parallelize(uint3{size_x, size_y, size_z})).build();
     }
@@ -184,8 +179,6 @@ class Shader final : public Resource {
 private:
     friend class Device;
     uint3 _block_size{};
-    // TODO: recording only bindings should be sufficient
-    luisa::vector<Variable> _arguments;
     luisa::vector<Function::Binding> _argument_bindings;
 
 private:
@@ -197,12 +190,8 @@ private:
         if (kernel) {
             auto args = kernel.arguments();
             auto bindings = kernel.argument_bindings();
-            auto copy_vec = [](auto &&src, auto &&dst) {
-                src.push_back_uninitialized(dst.size());
-                std::memcpy(src.data(), dst.data(), dst.size_bytes());
-            };
-            copy_vec(_arguments, args);
-            copy_vec(_argument_bindings, bindings);
+            _argument_bindings.push_back_uninitialized(bindings.size());
+            std::memcpy(_argument_bindings.data(), bindings.data(), bindings.size_bytes());
         }
     }
 
@@ -223,8 +212,8 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         using invoke_type = detail::ShaderInvoke<dimension>;
-        auto arg_size = _arguments.empty() ? sizeof...(Args) : _arguments.size();
-        invoke_type invoke{arg_size, handle(), _arguments, _argument_bindings};
+        auto arg_size = _argument_bindings.empty() ? sizeof...(Args) : _argument_bindings.size();
+        invoke_type invoke{arg_size, handle(), _argument_bindings};
         return static_cast<invoke_type &&>((invoke << ... << args));
     }
     [[nodiscard]] uint3 block_size() const noexcept { return _block_size; }

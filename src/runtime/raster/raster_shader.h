@@ -38,20 +38,16 @@ static constexpr bool LegalDst() noexcept {
 class LC_RUNTIME_API RasterShaderInvoke {
 private:
     RasterDispatchCmdEncoder _command;
-    luisa::vector<Variable> _vertex_arguments;
-    luisa::vector<Function::Binding> _vertex_bindings;
-    luisa::vector<Variable> _pixel_arguments;
-    luisa::vector<Function::Binding> _pixel_bindings;
+    luisa::span<const Function::Binding> _vertex_bindings;
+    luisa::span<const Function::Binding> _pixel_bindings;
 
 public:
     explicit RasterShaderInvoke(
         size_t arg_size,
         uint64_t handle,
-        luisa::vector<Variable> &&vertex_arguments,
-        luisa::vector<Function::Binding> &&vertex_bindings,
-        luisa::vector<Variable> &&pixel_arguments,
-        luisa::vector<Function::Binding> &&pixel_bindings) noexcept
-        : _command{arg_size, handle, std::move(vertex_arguments), std::move(vertex_bindings), std::move(pixel_arguments), std::move(pixel_bindings)} {
+        luisa::span<const Function::Binding> vertex_bindings,
+        luisa::span<const Function::Binding> pixel_bindings) noexcept
+        : _command{arg_size, handle, std::move(vertex_bindings), std::move(pixel_bindings)} {
     }
     RasterShaderInvoke(RasterShaderInvoke &&) noexcept = default;
     RasterShaderInvoke(const RasterShaderInvoke &) noexcept = delete;
@@ -141,9 +137,7 @@ LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 template<typename... Args>
 class RasterShader : public Resource {
     friend class Device;
-    luisa::vector<Variable> _vertex_arguments;
     luisa::vector<Function::Binding> _vertex_bindings;
-    luisa::vector<Variable> _pixel_arguments;
     luisa::vector<Function::Binding> _pixel_bindings;
 #ifndef NDEBUG
     MeshFormat _mesh_format;
@@ -197,13 +191,9 @@ class RasterShader : public Resource {
                 src.push_back_uninitialized(dst.size());
                 std::memcpy(src.data(), dst.data(), dst.size_bytes());
             };
-            auto vert_args = vert->arguments();
             auto vert_bindings = vert->argument_bindings();
-            auto pixel_args = pixel->arguments();
             auto pixel_bindings = pixel->argument_bindings();
-            copy_vec(_vertex_arguments, vert_args);
             copy_vec(_vertex_bindings, vert_bindings);
-            copy_vec(_pixel_arguments, pixel_args);
             copy_vec(_pixel_bindings, pixel_bindings);
         }
 
@@ -248,13 +238,9 @@ class RasterShader : public Resource {
                 src.push_back_uninitialized(dst.size());
                 std::memcpy(src.data(), dst.data(), dst.size_bytes());
             };
-            auto vert_args = vert->arguments();
             auto vert_bindings = vert->argument_bindings();
-            auto pixel_args = pixel->arguments();
             auto pixel_bindings = pixel->argument_bindings();
-            copy_vec(_vertex_arguments, vert_args);
             copy_vec(_vertex_bindings, vert_bindings);
-            copy_vec(_pixel_arguments, pixel_args);
             copy_vec(_pixel_bindings, pixel_bindings);
         }
     // AOT Shader
@@ -293,18 +279,16 @@ class RasterShader : public Resource {
 public:
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         size_t arg_size;
-        if (_vertex_arguments.empty() || _pixel_arguments.empty()) {
+        if (_vertex_bindings.empty() || _pixel_bindings.empty()) {
             arg_size = sizeof...(Args);
         } else {
-            arg_size = (_vertex_arguments.size() + _pixel_arguments.size() - 2);
+            arg_size = (_vertex_bindings.size() + _pixel_bindings.size() - 2);
         }
         RasterShaderInvoke invoke(
             arg_size,
             handle(),
-            std::move(_vertex_arguments),
-            std::move(_vertex_bindings),
-            std::move(_pixel_arguments),
-            std::move(_pixel_bindings));
+            _vertex_bindings,
+            _pixel_bindings);
 #ifndef NDEBUG
         invoke._raster_state = &_raster_state;
         invoke._mesh_format = &_mesh_format;

@@ -609,17 +609,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<ComputeDispatchCmdEncoder>(m, "ComputeDispatchCmdEncoder")
         .def_static(
             "create", [](size_t arg_size, uint64_t handle, Function func) {
-                auto args = func.arguments();
-                auto bindings = func.argument_bindings();
-                auto copy_vec = [](auto &&src, auto &&dst) {
-                    src.push_back_uninitialized(dst.size());
-                    std::memcpy(src.data(), dst.data(), dst.size_bytes());
-                };
-                luisa::vector<Variable> arguments;
-                luisa::vector<Function::Binding> argument_bindings;
-                copy_vec(arguments, args);
-                copy_vec(argument_bindings, bindings);
-                return make_unique<ComputeDispatchCmdEncoder>(arg_size, handle, std::move(arguments), std::move(argument_bindings)).release();
+                return make_unique<ComputeDispatchCmdEncoder>(arg_size, handle, func.argument_bindings()).release();
             },
             pyref)
         .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
