@@ -212,13 +212,13 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::BOOL:
             str << "bool"sv;
             return;
-        case Type::Tag::FLOAT:
+        case Type::Tag::FLOAT32:
             str << "float"sv;
             return;
-        case Type::Tag::INT:
+        case Type::Tag::INT32:
             str << "int"sv;
             return;
-        case Type::Tag::UINT:
+        case Type::Tag::UINT32:
             str << "uint"sv;
             return;
         case Type::Tag::MATRIX: {
@@ -263,7 +263,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                 if (ele->is_vector() && ele->dimension() == 3) {
                     typeName << "float4"sv;
                 } else {
-                    if (opt->kernel.requires_atomic_float() && ele->tag() == Type::Tag::FLOAT) {
+                    if (opt->kernel.requires_atomic_float() && ele->tag() == Type::Tag::FLOAT32) {
                         typeName << "int";
                     } else {
                         GetTypeName(*ele, typeName, usage);
@@ -406,14 +406,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     auto IsNumVec3 = [&](Type const &t) {
         if (t.tag() != Type::Tag::VECTOR || t.dimension() != 3) return false;
         auto &&ele = *t.element();
-        switch (ele.tag()) {
-            case Type::Tag::INT:
-            case Type::Tag::UINT:
-            case Type::Tag::FLOAT:
-                return true;
-            default:
-                return false;
-        }
+        return ele.is_scalar();
     };
     auto PrintArgs = [&](size_t offset = 0) {
         auto last = args.size() - 1;
@@ -616,7 +609,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
-            if (expr->type()->tag() == Type::Tag::FLOAT) {
+            if (expr->type()->tag() == Type::Tag::FLOAT32) {
                 str << "_atomic_exchange_float"sv;
             } else {
                 str << "_atomic_exchange"sv;
@@ -625,7 +618,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_COMPARE_EXCHANGE: {
-            if (expr->type()->tag() == Type::Tag::FLOAT) {
+            if (expr->type()->tag() == Type::Tag::FLOAT32) {
                 str << "_atomic_compare_exchange_float"sv;
             } else {
                 str << "_atomic_compare_exchange"sv;
@@ -634,7 +627,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_ADD: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_add_float"sv;
             else
                 str << "_atomic_add"sv;
@@ -642,7 +635,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_SUB: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_sub_float"sv;
             else
                 str << "_atomic_sub"sv;
@@ -665,7 +658,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_MIN: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_min_float"sv;
             else
                 str << "_atomic_min"sv;
@@ -673,7 +666,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::ATOMIC_FETCH_MAX: {
-            if (expr->type()->tag() == Type::Tag::FLOAT)
+            if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_max_float"sv;
             else
                 str << "_atomic_max"sv;
@@ -775,7 +768,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_READ: {
-            if (opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT) {
+            if (opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT32) {
                 str << "bfread_float"sv;
             } else {
                 str << "bfread"sv;
@@ -811,7 +804,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "TraceAll"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
-            bool isFloat = opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT;
+            bool isFloat = opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT32;
             if (isFloat) {
                 str << "asfloat("sv;
             }
@@ -977,9 +970,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {
     switch (t.tag()) {
         case Type::Tag::BOOL:
             return 1;
-        case Type::Tag::FLOAT:
-        case Type::Tag::INT:
-        case Type::Tag::UINT:
+        case Type::Tag::FLOAT32:
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32:
             return 4;
         case Type::Tag::VECTOR:
             switch (t.dimension()) {
@@ -1016,9 +1009,9 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {
 size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     switch (t.tag()) {
         case Type::Tag::BOOL:
-        case Type::Tag::FLOAT:
-        case Type::Tag::INT:
-        case Type::Tag::UINT:
+        case Type::Tag::FLOAT32:
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32:
             return 4;
             // TODO: incorrect
         case Type::Tag::VECTOR:

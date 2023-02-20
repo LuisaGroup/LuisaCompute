@@ -65,9 +65,9 @@ LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type 
         auto lhs_and_rhs = [&] {
             switch (lhs->tag()) {
                 case Type::Tag::BOOL: return rhs;
-                case Type::Tag::FLOAT: return lhs;
-                case Type::Tag::INT: return rhs->tag() == Type::Tag::BOOL ? lhs : rhs;
-                case Type::Tag::UINT: return rhs->tag() == Type::Tag::FLOAT ? rhs : lhs;
+                case Type::Tag::FLOAT32: return lhs;
+                case Type::Tag::INT32: return rhs->tag() == Type::Tag::BOOL ? lhs : rhs;
+                case Type::Tag::UINT32: return rhs->tag() == Type::Tag::FLOAT32 ? rhs : lhs;
                 default: LUISA_ERROR_WITH_LOCATION(
                     "Invalid operand types '{}' and '{}'.",
                     lhs->description(), rhs->description());
@@ -95,8 +95,8 @@ LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type 
     if ((lhs->is_matrix() && rhs->is_vector()) ||
         (lhs->is_vector() && rhs->is_matrix())) {
         LUISA_ASSERT(lhs->dimension() == rhs->dimension() &&
-                         lhs->element()->tag() == Type::Tag::FLOAT &&
-                         rhs->element()->tag() == Type::Tag::FLOAT,
+                         lhs->element()->tag() == Type::Tag::FLOAT32 &&
+                         rhs->element()->tag() == Type::Tag::FLOAT32,
                      "Invalid operand types '{}' and '{}' "
                      "for binary operation.",
                      lhs->description(), rhs->description());
@@ -104,8 +104,8 @@ LC_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Type 
                 .rhs = rhs,
                 .result = lhs->is_matrix() ? rhs : lhs};
     }
-    LUISA_ASSERT(lhs->element()->tag() == Type::Tag::FLOAT &&
-                     rhs->element()->tag() == Type::Tag::FLOAT &&
+    LUISA_ASSERT(lhs->element()->tag() == Type::Tag::FLOAT32 &&
+                     rhs->element()->tag() == Type::Tag::FLOAT32 &&
                      dimensions_compatible(lhs, rhs),
                  "Invalid operand types '{}' and '{}' "
                  "for binary operation.",

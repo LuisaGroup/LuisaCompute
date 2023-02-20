@@ -278,7 +278,7 @@ PYBIND11_MODULE(lcapi, m) {
                 if (type->is_vector()) {
                     type = type->element();
                 }
-                return (type->tag() == Type::Tag::INT || type->tag() == Type::Tag::UINT || type->tag() == Type::Tag::FLOAT);
+                return (type->is_scalar() && type->tag() != Type::Tag::BOOL);
             };
             auto ret = pixel.return_type();
             if (ret) {

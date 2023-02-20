@@ -251,9 +251,9 @@ public:
     /// Type tags
     enum struct Tag : uint32_t {
         BOOL,
-        FLOAT,
-        INT,
-        UINT,
+        FLOAT32,
+        INT32,
+        UINT32,
 
         VECTOR,
         MATRIX,
