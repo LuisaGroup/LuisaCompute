@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <array>
+
 #include <core/macro.h>
 #include <core/basic_types.h>
 #include <core/stl/vector.h>
