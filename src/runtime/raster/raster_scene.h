@@ -1,7 +1,9 @@
 #pragma once
+
 #include <runtime/buffer.h>
-// #include <runtime/dynamic_buffer.h>
+
 namespace luisa::compute {
+
 class VertexBufferView {
     uint64_t _handle{};
     uint64_t _offset{};
@@ -69,4 +71,5 @@ public:
           _object_id(object_id) {
     }
 };
+
 }// namespace luisa::compute

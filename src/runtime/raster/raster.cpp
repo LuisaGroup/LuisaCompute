@@ -1,6 +1,3 @@
-#ifndef LC_DISABLE_DSL
-#include <runtime/raster/raster_kernel.h>
-#endif
 #include <runtime/raster/raster_shader.h>
 #include <runtime/depth_format.h>
 #include <runtime/raster/depth_buffer.h>
@@ -8,7 +5,9 @@
 #include <runtime/rtx/accel.h>
 #include <runtime/bindless_array.h>
 #include <core/logging.h>
+
 namespace luisa::compute {
+
 // see definition in rtx/accel.cpp
 RasterShaderInvoke &RasterShaderInvoke::operator<<(const Accel &accel) noexcept {
     _command.encode_accel(accel.handle());
@@ -20,6 +19,7 @@ RasterShaderInvoke &RasterShaderInvoke::operator<<(const BindlessArray &array) n
     _command.encode_bindless_array(array.handle());
     return *this;
 }
+
 #ifndef NDEBUG
 void RasterShaderInvoke::check_dst(luisa::span<PixelFormat const> rt_formats, DepthBuffer const *depth) noexcept {
     if (_rtv_format.size() != rt_formats.size()) {

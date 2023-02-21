@@ -609,7 +609,8 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<ComputeDispatchCmdEncoder>(m, "ComputeDispatchCmdEncoder")
         .def_static(
             "create", [](size_t arg_size, uint64_t handle, Function func) {
-                return make_unique<ComputeDispatchCmdEncoder>(arg_size, handle, func.argument_bindings()).release();
+                auto uniform_size = ComputeDispatchCmdEncoder::compute_uniform_size(func.arguments());
+                return make_unique<ComputeDispatchCmdEncoder>(handle, arg_size, uniform_size, func.argument_bindings()).release();
             },
             pyref)
         .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })

@@ -5,24 +5,30 @@
 #include <runtime/raster/depth_buffer.h>
 
 namespace luisa::compute {
+
 class RasterMesh;
 class Accel;
 class BindlessArray;
+
 namespace detail {
+
 template<typename T>
 struct PixelDst : public std::false_type {};
+
 template<typename T>
 struct PixelDst<Image<T>> : public std::true_type {
     static ShaderDispatchCommandBase::Argument::Texture get(Image<T> const &v) noexcept {
         return {v.handle(), 0};
     }
 };
+
 template<typename T>
 struct PixelDst<ImageView<T>> : public std::true_type {
     static ShaderDispatchCommandBase::Argument::Texture get(ImageView<T> const &v) noexcept {
         return {v.handle(), v.level()};
     }
 };
+
 template<typename T, typename... Args>
 static constexpr bool LegalDst() noexcept {
     constexpr bool r = PixelDst<T>::value;
@@ -34,8 +40,11 @@ static constexpr bool LegalDst() noexcept {
         return LegalDst<Args...>();
     }
 }
+
 }// namespace detail
+
 class LC_RUNTIME_API RasterShaderInvoke {
+
 private:
     RasterDispatchCmdEncoder _command;
     luisa::span<const Function::Binding> _vertex_bindings;
@@ -44,10 +53,11 @@ private:
 public:
     explicit RasterShaderInvoke(
         size_t arg_size,
+        size_t uniform_size,
         uint64_t handle,
         luisa::span<const Function::Binding> vertex_bindings,
         luisa::span<const Function::Binding> pixel_bindings) noexcept
-        : _command{arg_size, handle, vertex_bindings, pixel_bindings} {
+        : _command{handle, arg_size, uniform_size, vertex_bindings, pixel_bindings} {
     }
     RasterShaderInvoke(RasterShaderInvoke &&) noexcept = default;
     RasterShaderInvoke(const RasterShaderInvoke &) noexcept = delete;
@@ -124,21 +134,26 @@ public:
 #ifndef NDEBUG
         check_scene(scene);
 #endif
-        _command.scene = std::move(scene);
-        _command.viewport = viewport;
+        _command.set_scene(std::move(scene));
+        _command.set_viewport(viewport);
         return std::move(_command).build();
     }
 };
+
 namespace detail {
 LC_RUNTIME_API void rastershader_check_rtv_format(luisa::span<const PixelFormat> rtv_format) noexcept;
 LC_RUNTIME_API void rastershader_check_vertex_func(Function func) noexcept;
 LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 }// namespace detail
+
 template<typename... Args>
 class RasterShader : public Resource {
+
+private:
     friend class Device;
     luisa::vector<Function::Binding> _vertex_bindings;
     luisa::vector<Function::Binding> _pixel_bindings;
+    size_t _uniform_size;
 #ifndef NDEBUG
     MeshFormat _mesh_format;
     RasterState _raster_state;
@@ -173,7 +188,9 @@ class RasterShader : public Resource {
                     .enable_cache = true,
                     .enable_fast_math = enable_fast_math,
                     .enable_debug_info = enable_debug_info,
-                    .name = name}))
+                    .name = name})),
+         _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
+              detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
         ,_mesh_format(mesh_format),
         _raster_state(raster_state),
@@ -223,7 +240,9 @@ class RasterShader : public Resource {
                   ShaderOption{
                     .enable_cache = enable_cache,
                     .enable_fast_math = enable_fast_math,
-                    .enable_debug_info = enable_debug_info}))
+                    .enable_debug_info = enable_debug_info})),
+         _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
+                detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
         ,_mesh_format(mesh_format),
         _raster_state(raster_state),
@@ -263,8 +282,10 @@ class RasterShader : public Resource {
                 raster_state,
                 rtv_format,
                 dsv_format,
-                detail::arg_types<Args...>(),
-                file_path))
+                detail::shader_argument_types<Args...>(),
+                file_path)),
+            _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
+                detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
         ,_mesh_format(mesh_format),
         _raster_state(raster_state),
@@ -295,6 +316,7 @@ public:
         }
         RasterShaderInvoke invoke(
             arg_size,
+            _uniform_size,
             handle(),
             _vertex_bindings,
             _pixel_bindings);
@@ -307,4 +329,5 @@ public:
         return std::move((invoke << ... << args));
     }
 };
+
 }// namespace luisa::compute
