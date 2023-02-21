@@ -23,31 +23,26 @@ ExternalTexture::ExternalTexture(
       resource{resource}, initState{initState}, allowUav{allowUav} {}
 ExternalTexture::~ExternalTexture() {
     auto &globalHeap = *device->globalHeap.get();
-    if (uavIdcs) {
-        for (auto &&i : *uavIdcs) {
-            globalHeap.ReturnIndex(i.second);
-        }
+    for (auto &&i : uavIdcs) {
+        globalHeap.ReturnIndex(i.second);
     }
-    if (srvIdcs) {
-        for (auto &&i : *srvIdcs) {
-            globalHeap.ReturnIndex(i.second);
-        }
+    for (auto &&i : srvIdcs) {
+        globalHeap.ReturnIndex(i.second);
     }
 }
 
 D3D12_SHADER_RESOURCE_VIEW_DESC ExternalTexture::GetColorSrvDesc(uint mipOffset) const {
-    return GetColorSrvDescBase(mipOffset, resource);
+    return GetColorSrvDescBase(mipOffset);
 }
 D3D12_UNORDERED_ACCESS_VIEW_DESC ExternalTexture::GetColorUavDesc(uint targetMipLevel) const {
-    return GetColorUavDescBase(targetMipLevel, resource);
+    return GetColorUavDescBase(targetMipLevel);
 }
 D3D12_RENDER_TARGET_VIEW_DESC ExternalTexture::GetRenderTargetDesc(uint mipOffset) const {
     return GetRenderTargetDescBase(mipOffset);
 }
 uint ExternalTexture::GetGlobalSRVIndex(uint mipOffset) const {
     std::lock_guard lck(allocMtx);
-    srvIdcs.New();
-    auto ite = srvIdcs->Emplace(
+    auto ite = srvIdcs.try_emplace(
         mipOffset,
         vstd::LazyEval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
@@ -57,14 +52,13 @@ uint ExternalTexture::GetGlobalSRVIndex(uint mipOffset) const {
                 v);
             return v;
         }));
-    return ite.Value();
+    return ite.first->second;
 }
 uint ExternalTexture::GetGlobalUAVIndex(uint mipLevel) const {
-    if (!allowUav) return std::numeric_limits<uint>::max();
+    assert(allowUav);
     mipLevel = std::min<uint>(mipLevel, mip - 1);
     std::lock_guard lck(allocMtx);
-    uavIdcs.New();
-    auto ite = uavIdcs->Emplace(
+    auto ite = uavIdcs.try_emplace(
         mipLevel,
         vstd::LazyEval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
@@ -74,6 +68,6 @@ uint ExternalTexture::GetGlobalUAVIndex(uint mipLevel) const {
                 v);
             return v;
         }));
-    return ite.Value();
+    return ite.first->second;
 }
 }// namespace toolhub::directx

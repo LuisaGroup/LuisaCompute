@@ -18,12 +18,14 @@ public:
 };
 struct NativeTextureDesc {
     D3D12_RESOURCE_STATES initState;
+    DXGI_FORMAT custom_format;
     bool allowUav;
 };
 class DxNativeResourceExt final : public NativeResourceExt, public vstd::IOperatorNewBase {
 public:
     Device *dx_device;
-    DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device) : NativeResourceExt{lc_device}, dx_device{dx_device} {}
+
+    DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device);
     ~DxNativeResourceExt() = default;
     BufferCreationInfo register_external_buffer(
         void *external_ptr,

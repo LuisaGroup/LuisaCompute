@@ -33,12 +33,11 @@ TextureBase::TextureBase(
     }
     //layouts = vstd::create_unique(vengine_new_array<std::atomic<D3D12_BARRIER_LAYOUT>>(mip, D3D12_BARRIER_LAYOUT_COMMON));
 }
-D3D12_SHADER_RESOURCE_VIEW_DESC TextureBase::GetColorSrvDescBase(uint mipOffset, ID3D12Resource* resource) const {
+D3D12_SHADER_RESOURCE_VIEW_DESC TextureBase::GetColorSrvDescBase(uint mipOffset) const {
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    auto format = resource->GetDesc();
-    srvDesc.Format = format.Format;
-    auto mipSize = std::max<int>(0, (int32)format.MipLevels - (int32)mipOffset);
+    srvDesc.Format = static_cast<DXGI_FORMAT>(format);
+    auto mipSize = std::max<int>(0, (int32)mip - (int32)mipOffset);
     switch (dimension) {
         case TextureDimension::Cubemap:
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
@@ -90,12 +89,11 @@ D3D12_RENDER_TARGET_VIEW_DESC TextureBase::GetRenderTargetDescBase(uint mipOffse
 // vstd::span<std::atomic<D3D12_BARRIER_LAYOUT>> TextureBase::Layouts() const {
 // 	return {layouts.get(), size_t(mip)};
 // }
-D3D12_UNORDERED_ACCESS_VIEW_DESC TextureBase::GetColorUavDescBase(uint targetMipLevel, ID3D12Resource *resource) const {
+D3D12_UNORDERED_ACCESS_VIEW_DESC TextureBase::GetColorUavDescBase(uint targetMipLevel) const {
     D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc;
-    auto desc = resource->GetDesc();
-    uint maxLevel = desc.MipLevels - 1;
+    uint maxLevel = mip - 1;
     targetMipLevel = std::min(targetMipLevel, maxLevel);
-    uavDesc.Format = desc.Format;
+    uavDesc.Format = static_cast<DXGI_FORMAT>(format);
     switch (dimension) {
         case TextureDimension::Tex2D:
             uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;

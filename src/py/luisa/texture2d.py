@@ -188,7 +188,10 @@ class Texture2DType:
             # convert to vector4
             dtype4 = vector(element_of(dtype), 4)
             opstr = "MAKE_" + dtype4.__name__.upper()
-            zero = element_of(dtype)(0)
+            if element_of(dtype) == uint:
+                zero = 0
+            else:
+                zero = element_of(dtype)(0)
             if length_of(dtype) == 2:
                 @func
                 def write(self, coord: uint2, value: dtype):

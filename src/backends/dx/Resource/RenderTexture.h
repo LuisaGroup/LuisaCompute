@@ -5,8 +5,8 @@ namespace toolhub::directx {
 class RenderTexture final : public TextureBase {
 private:
     AllocHandle allocHandle;
-    mutable vstd::optional<vstd::HashMap<uint, uint>> uavIdcs;
-    mutable vstd::optional<vstd::HashMap<uint, uint>> srvIdcs;
+    mutable vstd::unordered_map<uint, uint> uavIdcs;
+    mutable vstd::unordered_map<uint, uint> srvIdcs;
     mutable std::mutex allocMtx;
     bool allowUav;
 

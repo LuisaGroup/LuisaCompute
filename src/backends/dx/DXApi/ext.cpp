@@ -63,6 +63,9 @@ TexCompressExt::Result DxTexCompressExt::check_builtin_shader() noexcept {
     if (!device->bc7EncodeBlock.Check(device)) return Result::Failed;
     return Result::Success;
 }
+DxNativeResourceExt::DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device)
+    : NativeResourceExt{lc_device}, dx_device{dx_device} {
+}
 BufferCreationInfo DxNativeResourceExt::register_external_buffer(
     void *external_ptr,
     const Type *element,
@@ -86,13 +89,19 @@ ResourceCreationInfo DxNativeResourceExt::register_external_image(
     uint mipmap_levels,
     void *custom_data) noexcept {
     auto desc = reinterpret_cast<NativeTextureDesc const *>(custom_data);
+    GFXFormat gfxFormat;
+    if (desc->custom_format == DXGI_FORMAT_UNKNOWN) {
+        gfxFormat = TextureBase::ToGFXFormat(format);
+    } else {
+        gfxFormat = static_cast<GFXFormat>(desc->custom_format);
+    }
     auto res = static_cast<TextureBase *>(new ExternalTexture(
         dx_device,
         reinterpret_cast<ID3D12Resource *>(external_ptr),
         desc->initState,
         width,
         height,
-        TextureBase::ToGFXFormat(format),
+        gfxFormat,
         (TextureDimension)dimension,
         depth,
         mipmap_levels,
