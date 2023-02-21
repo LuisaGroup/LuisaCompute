@@ -52,11 +52,12 @@ using prototype_to_shader_invocation_t = typename prototype_to_shader_invocation
 class LC_RUNTIME_API ShaderInvokeBase {
 
 private:
-    ComputeDispatchCmdEncoder _command;
+    ComputeDispatchCmdEncoder _encoder;
 
 public:
-    explicit ShaderInvokeBase(size_t arg_size, uint64_t handle, luisa::span<const Function::Binding> bindings) noexcept
-        : _command{arg_size, handle, bindings} {}
+    explicit ShaderInvokeBase(size_t arg_size, uint64_t handle,
+                              luisa::span<const Function::Binding> bindings) noexcept
+        : _encoder{arg_size, handle, bindings} {}
 
     ShaderInvokeBase(ShaderInvokeBase &&) noexcept = default;
     ShaderInvokeBase(const ShaderInvokeBase &) noexcept = delete;
@@ -65,19 +66,19 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(BufferView<T> buffer) noexcept {
-        _command.encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
+        _encoder.encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(ImageView<T> image) noexcept {
-        _command.encode_texture(image.handle(), image.level());
+        _encoder.encode_texture(image.handle(), image.level());
         return *this;
     }
 
     template<typename T>
     ShaderInvokeBase &operator<<(VolumeView<T> volume) noexcept {
-        _command.encode_texture(volume.handle(), volume.level());
+        _encoder.encode_texture(volume.handle(), volume.level());
         return *this;
     }
 
@@ -98,7 +99,7 @@ public:
 
     template<typename T>
     ShaderInvokeBase &operator<<(T data) noexcept {
-        _command.encode_uniform(&data, sizeof(T));
+        _encoder.encode_uniform(&data, sizeof(T));
         return *this;
     }
 
@@ -110,12 +111,12 @@ public:
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) &&noexcept {
-        _command.set_dispatch_size(dispatch_size);
-        return std::move(_command);
+        _encoder.set_dispatch_size(dispatch_size);
+        return std::move(_encoder);
     }
     [[nodiscard]] auto _parallelize(const IndirectDispatchBuffer &indirect_buffer) &&noexcept {
-        _command.set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle()});
-        return std::move(_command);
+        _encoder.set_dispatch_size(IndirectDispatchArg{indirect_buffer.handle()});
+        return std::move(_encoder);
     }
 };
 
