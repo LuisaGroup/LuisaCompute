@@ -44,7 +44,7 @@ uint ExternalTexture::GetGlobalSRVIndex(uint mipOffset) const {
     std::lock_guard lck(allocMtx);
     auto ite = srvIdcs.try_emplace(
         mipOffset,
-        vstd::LazyEval([&]() -> uint {
+        vstd::lazy_eval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
             device->globalHeap->CreateSRV(
                 GetResource(),
@@ -60,7 +60,7 @@ uint ExternalTexture::GetGlobalUAVIndex(uint mipLevel) const {
     std::lock_guard lck(allocMtx);
     auto ite = uavIdcs.try_emplace(
         mipLevel,
-        vstd::LazyEval([&]() -> uint {
+        vstd::lazy_eval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
             device->globalHeap->CreateUAV(
                 GetResource(),

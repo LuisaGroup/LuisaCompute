@@ -26,9 +26,9 @@ Node::~Node() {
         i->Deref();
     }
     if (parallelCount == 0)
-        singleFunc.Delete();
+        singleFunc.destroy();
     else
-        parallelFunc.Delete();
+        parallelFunc.destroy();
 }
 Node::Node(NodeAlloc *worker, ThreadPool *pool, ThreadBarrier *barrier, size_t joinedSize, size_t ref, function<void()> &&func)
     : worker(worker), parallelCount(0), ref(ref), pool(pool), joinedSize(joinedSize), barrier(barrier) {
@@ -36,7 +36,7 @@ Node::Node(NodeAlloc *worker, ThreadPool *pool, ThreadBarrier *barrier, size_t j
 #ifndef NDEBUG
     ++nodeCount;
 #endif
-    singleFunc.New(std::move(func));
+    singleFunc.create(std::move(func));
 }
 Node::Node(NodeAlloc *worker, ThreadPool *pool, ThreadBarrier *barrier, size_t joinedSize, size_t ref, function<void(size_t)> &&func, size_t count, size_t queueCount)
     : worker(worker), parallelCount(count), parallelIdx(0), ref(ref), pool(pool), queueCount(queueCount), joinedSize(joinedSize), barrier(barrier) {
@@ -44,7 +44,7 @@ Node::Node(NodeAlloc *worker, ThreadPool *pool, ThreadBarrier *barrier, size_t j
 #ifndef NDEBUG
     ++nodeCount;
 #endif
-    parallelFunc.New(std::move(func));
+    parallelFunc.create(std::move(func));
 }
 
 void Node::Deref() {

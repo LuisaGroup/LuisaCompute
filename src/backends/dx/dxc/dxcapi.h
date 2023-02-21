@@ -390,7 +390,7 @@ struct IDxcUtils : public IUnknown {
     _COM_Outptr_ IDxcBlobEncoding **pBlobEncoding) = 0;
 
   ////
-  // New blobs and copied contents are allocated with the current allocator
+  // create blobs and copied contents are allocated with the current allocator
 
   // Copy blob contents to memory owned by the new blob.
   // (was: CreateBlobWithEncodingOnHeapCopy)

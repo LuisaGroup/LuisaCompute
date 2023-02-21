@@ -184,7 +184,7 @@ struct SerDe<variant<Args...>, reverseBytes> {
             ExecuteGet<Args>...};
         Value v;
         v.reset_as(type);
-        ptrs[type](v.GetPlaceHolder(), sp);
+        ptrs[type](v.place_holder(), sp);
         return v;
     }
     static void Set(Value const &data, vector<std::byte> &arr) {

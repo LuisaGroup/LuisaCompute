@@ -315,11 +315,11 @@ variant<int64, double> StringUtil::StringToNumber(std::string_view numStr) {
     };
 
     auto GetRate = [&]() -> bool {
-        ratePart.New();
+        ratePart.create();
         return GetInt(*ratePart, error, error);
     };
     auto GetNumFloatPart = [&]() -> bool {
-        floatPart.New();
+        floatPart.create();
         return GetFloat(*floatPart, GetRate);
     };
     if (!GetInt.operator()(

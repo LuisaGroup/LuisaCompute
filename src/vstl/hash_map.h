@@ -89,7 +89,7 @@ private:
     template<typename POOL>
     void deleteOneNode(Node *z, POOL &pool) {
         detail::TreeMapUtility<Node>::deleteOneNode(z, root);
-        pool.Delete(z);
+        pool.destroy(z);
     }
 
     template<typename Key, typename POOL>
@@ -159,7 +159,7 @@ public:
                 x = x->right;
             }
         }
-        Node *node = pool.New(std::forward<Key>(key), std::forward<Value>(value)...);
+        Node *node = pool.create(std::forward<Key>(key), std::forward<Value>(value)...);
         node->parent = nullptr;
         node->left = nullptr;
         node->right = nullptr;
@@ -216,7 +216,7 @@ public:
                 x = x->right;
             }
         }
-        Node *node = pool.New(std::forward<Key>(key), std::forward<Value>(value)...);
+        Node *node = pool.create(std::forward<Key>(key), std::forward<Value>(value)...);
         node->parent = nullptr;
         node->left = nullptr;
         node->right = nullptr;
@@ -557,7 +557,7 @@ public:
 
         Map *map = reinterpret_cast<Map *>(&nodeVec[hashValue]);
         auto insertResult = map->insert_or_assign(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        //Add New
+        //Add create
         if (insertResult.second) {
             GetNewLinkNode(hashOriginValue, insertResult.first);
         }
@@ -575,7 +575,7 @@ public:
 
         Map *map = reinterpret_cast<Map *>(&nodeVec[hashValue]);
         auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        //Add New
+        //Add create
         if (insertResult.second) {
             GetNewLinkNode(hashOriginValue, insertResult.first);
         }
@@ -593,7 +593,7 @@ public:
 
         Map *map = reinterpret_cast<Map *>(&nodeVec[hashValue]);
         auto insertResult = map->try_insert(pool, std::forward<Key>(key), std::forward<ARGS>(args)...);
-        //Add New
+        //Add create
         if (insertResult.second) {
             GetNewLinkNode(hashOriginValue, insertResult.first);
         }
@@ -638,7 +638,7 @@ public:
         auto nodeVec = nodeArray + mCapacity;
         memset(nodeVec, 0, mCapacity * sizeof(LinkNode *));
         for (auto ite : ptr_range(nodeArray, nodeArray + mSize)) {
-            pool.Delete(ite);
+            pool.destroy(ite);
         }
         mSize = 0;
     }

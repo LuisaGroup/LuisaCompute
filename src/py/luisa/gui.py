@@ -111,7 +111,7 @@ class KeyCode:
     Tab: int = 258
     Backspace: int = 259
     Insert: int = 260
-    Delete: int = 261
+    destroy: int = 261
     Right: int = 262
     Left: int = 263
     Down: int = 264

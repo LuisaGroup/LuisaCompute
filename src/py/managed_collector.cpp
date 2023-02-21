@@ -35,7 +35,7 @@ ManagedCollector::~ManagedCollector() noexcept {
 }
 
 void ManagedCollector::InRef(size_t element, vstd::span<uint64> handles) noexcept {
-    auto ite = handleMap.try_emplace(element, vstd::LazyEval([this] { return Allocate(); }));
+    auto ite = handleMap.try_emplace(element, vstd::lazy_eval([this] { return Allocate(); }));
     auto eleArr = Sample(ite.first->second);
     assert(eleArr.size() == handles.size());
     for (auto i : vstd::range(eleArr.size())) {
@@ -52,7 +52,7 @@ void ManagedCollector::InRef(size_t element, vstd::span<uint64> handles) noexcep
 }
 
 void ManagedCollector::InRef(size_t element, size_t subElement, uint64 handle) noexcept {
-    auto ite = handleMap.try_emplace(element, vstd::LazyEval([this] { return Allocate(); }));
+    auto ite = handleMap.try_emplace(element, vstd::lazy_eval([this] { return Allocate(); }));
     auto eleArr = Sample(ite.first->second);
     auto &ele = eleArr[subElement];
     if (ele != 0) {

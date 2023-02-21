@@ -97,7 +97,7 @@ ManagedDevice::~ManagedDevice() noexcept {
     }
     futures.clear();
     if (device_count == 0) {
-        thread_pool.Delete();
+        thread_pool.destroy();
     }
 }
 struct IntEval {
@@ -226,7 +226,7 @@ PYBIND11_MODULE(lcapi, m) {
             auto useless = self.create_shader(option, kernel);
         })
         .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
-            thread_pool.New();
+            thread_pool.create();
             futures.emplace_back(thread_pool->async([str = luisa::string{str}, builder, &self]() {
                 luisa::string_view str_view;
                 luisa::string dst_path_str;
@@ -307,7 +307,7 @@ PYBIND11_MODULE(lcapi, m) {
             self.save_raster_shader(fmt.format, vertex, pixel, str_view, false, true);
         })
         .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, eastl::shared_ptr<FunctionBuilder> const &vertex, eastl::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
-            thread_pool.New();
+            thread_pool.create();
             futures.emplace_back(thread_pool->async([fmt, str = luisa::string{str}, vertex, pixel, &self]() {
                 luisa::string_view str_view;
                 luisa::string dst_path_str;

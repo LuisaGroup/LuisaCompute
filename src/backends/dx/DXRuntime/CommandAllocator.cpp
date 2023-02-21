@@ -118,7 +118,7 @@ CommandAllocatorBase::CommandAllocatorBase(
       resourceAllocator(resourceAllocator) {
     ThrowIfFailed(
         device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
-    cbuffer.New(
+    cbuffer.create(
         device,
         this);
 }
@@ -141,7 +141,7 @@ CommandAllocator::CommandAllocator(
 }
 
 CommandAllocator::~CommandAllocator() {
-    cbuffer.Delete();
+    cbuffer.destroy();
 }
 void CommandAllocatorBase::Reset(CommandQueue *queue) {
     ThrowIfFailed(

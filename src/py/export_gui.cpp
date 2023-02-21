@@ -50,10 +50,10 @@ void export_gui(py::module &m) {
             if (w.window) {
                 auto sz = w.window->size();
                 if (sz.x == width && sz.y == height) return;
-                w.window.Delete();
+                w.window.destroy();
             }
             w.size = float2(width, height);
-            w.window.New(string{name}, width, height, vsync);
+            w.window.create(string{name}, width, height, vsync);
             auto set_action = [](auto &&map, int key, auto &&action) {
                 auto iter = map.try_emplace(key, PyWindow::KeyState::None).first;
                 if (action == kPress) {

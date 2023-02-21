@@ -14,17 +14,17 @@ public:
 	size_t Length() const { return len; }
 	LockFreeStepQueue() {
 		for (auto&& i : queues) {
-			i.New();
+			i.create();
 		}
 	}
 	LockFreeStepQueue(size_t capacity) {
 		for (auto&& i : queues) {
-			i.New(capacity);
+			i.create(capacity);
 		}
 	}
 	~LockFreeStepQueue() {
 		for (auto&& i : queues) {
-			i.Delete();
+			i.destroy();
 		}
 	}
 	template<typename... Args>

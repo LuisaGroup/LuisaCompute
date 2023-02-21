@@ -607,7 +607,7 @@ public:
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         vstd::optional<BufferView> scratch;
         if (cmd->build_accel()) {
-            scratch.New(BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second));
+            scratch.create(BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second));
             if (accel->RequireCompact()) {
                 updateAccel->emplace_back(ButtomCompactCmd{
                     .accel = accel,
@@ -619,7 +619,7 @@ public:
         accel->Build(
             *stateTracker,
             *bd,
-            scratch.has_value() ? scratch.GetPtr() : nullptr);
+            scratch.has_value() ? scratch.ptr() : nullptr);
     }
     void BottomBuild(uint64 handle) {
         auto accel = reinterpret_cast<BottomAccel *>(handle);

@@ -78,16 +78,16 @@ public:
     using SelfType = StackObject<T, false>;
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &New(Args &&...args) &noexcept {
+    inline SelfType &create(Args &&...args) &noexcept {
         new (storage) T(std::forward<Args>(args)...);
         return *this;
     }
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &&New(Args &&...args) &&noexcept {
-        return std::move(New(std::forward<Args>(args)...));
+    inline SelfType &&create(Args &&...args) &&noexcept {
+        return std::move(create(std::forward<Args>(args)...));
     }
-    inline void Delete() noexcept {
+    inline void destroy() noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>)
             vstd::destruct(std::launder(reinterpret_cast<T *>(storage)));
     }
@@ -106,10 +106,10 @@ public:
     T const *operator->() const noexcept {
         return reinterpret_cast<T const *>(storage);
     }
-    T *GetPtr() noexcept {
+    T *ptr() noexcept {
         return std::launder(reinterpret_cast<T *>(storage));
     }
-    T const *GetPtr() const noexcept {
+    T const *ptr() const noexcept {
         return reinterpret_cast<T const *>(storage);
     }
     operator T *() noexcept {
@@ -143,8 +143,8 @@ public:
         if constexpr (std::is_copy_assignable_v<T>) {
             operator*() = *value;
         } else if constexpr (std::is_copy_constructible_v<T>) {
-            Delete();
-            New(*value);
+            destroy();
+            create(*value);
         } else {
             assert(false);
             VENGINE_EXIT;
@@ -155,8 +155,8 @@ public:
         if constexpr (std::is_move_assignable_v<T>) {
             operator*() = std::move(*value);
         } else if constexpr (std::is_move_constructible_v<T>) {
-            Delete();
-            New(std::move(*value));
+            destroy();
+            create(std::move(*value));
         } else {
             assert(false);
             VENGINE_EXIT;
@@ -176,31 +176,31 @@ template<typename T>
 class StackObject<T, true> {
 private:
     StackObject<T, false> stackObj;
-    bool initialized;
+    bool mInitialized;
 
 public:
     using SelfType = StackObject<T, true>;
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &New(Args &&...args) &noexcept {
-        if (initialized) return *this;
-        initialized = true;
-        stackObj.New(std::forward<Args>(args)...);
+    inline SelfType &create(Args &&...args) &noexcept {
+        if (mInitialized) return *this;
+        mInitialized = true;
+        stackObj.create(std::forward<Args>(args)...);
         return *this;
     }
 
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &&New(Args &&...args) &&noexcept {
-        return std::move(New(std::forward<Args>(args)...));
+    inline SelfType &&create(Args &&...args) &&noexcept {
+        return std::move(create(std::forward<Args>(args)...));
     }
 
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
     inline SelfType &ForceNew(Args &&...args) &noexcept {
-        if (initialized) { Delete(); }
-        initialized = true;
-        stackObj.New(std::forward<Args>(args)...);
+        if (mInitialized) { destroy(); }
+        mInitialized = true;
+        stackObj.create(std::forward<Args>(args)...);
         return *this;
     }
 
@@ -210,26 +210,26 @@ public:
     }
 
     bool has_value() const noexcept {
-        return initialized;
+        return mInitialized;
     }
 
-    bool Initialized() const noexcept {
-        return initialized;
+    bool initialized() const noexcept {
+        return mInitialized;
     }
     operator bool() const noexcept {
-        return Initialized();
+        return mInitialized;
     }
     operator bool() noexcept {
-        return Initialized();
+        return mInitialized;
     }
-    inline bool Delete() noexcept {
-        if (!Initialized()) return false;
-        initialized = false;
-        stackObj.Delete();
+    inline bool destroy() noexcept {
+        if (!mInitialized) return false;
+        mInitialized = false;
+        stackObj.destroy();
         return true;
     }
     void reset() const noexcept {
-        Delete();
+        destroy();
     }
     T &value() &noexcept {
         return *stackObj;
@@ -242,14 +242,14 @@ public:
     }
     template<class U>
     T value_or(U &&default_value) const & {
-        if (initialized)
+        if (mInitialized)
             return *stackObj;
         else
             return std::forward<U>(default_value);
     }
     template<class U>
     T value_or(U &&default_value) && {
-        if (initialized)
+        if (mInitialized)
             return std::move(*stackObj);
         else
             return std::forward<U>(default_value);
@@ -269,11 +269,11 @@ public:
     T const *operator->() const noexcept {
         return stackObj.operator->();
     }
-    T *GetPtr() noexcept {
-        return stackObj.GetPtr();
+    T *ptr() noexcept {
+        return stackObj.ptr();
     }
-    T const *GetPtr() const noexcept {
-        return stackObj.GetPtr();
+    T const *ptr() const noexcept {
+        return stackObj.ptr();
     }
     operator T *() noexcept {
         return stackObj;
@@ -282,18 +282,18 @@ public:
         return stackObj;
     }
     StackObject() noexcept {
-        initialized = false;
+        mInitialized = false;
     }
     template<typename... Args>
     StackObject(Args &&...args)
         : stackObj(std::forward<Args>(args)...),
-          initialized(true) {
+          mInitialized(true) {
     }
     StackObject(const SelfType &value) noexcept {
-        initialized = value.initialized;
-        if (initialized) {
+        mInitialized = value.mInitialized;
+        if (mInitialized) {
             if constexpr (std::is_copy_constructible_v<T>) {
-                stackObj.New(*value);
+                stackObj.create(*value);
             } else {
                 assert(false);
                 VENGINE_EXIT;
@@ -301,10 +301,10 @@ public:
         }
     }
     StackObject(SelfType &&value) noexcept {
-        initialized = value.initialized;
-        if (initialized) {
+        mInitialized = value.mInitialized;
+        if (mInitialized) {
             if constexpr (std::is_move_constructible_v<T>) {
-                stackObj.New(std::move(*value));
+                stackObj.create(std::move(*value));
             } else {
                 assert(false);
                 VENGINE_EXIT;
@@ -312,47 +312,47 @@ public:
         }
     }
     ~StackObject() noexcept {
-        if (Initialized())
-            stackObj.Delete();
+        if (mInitialized)
+            stackObj.destroy();
     }
     T &operator=(SelfType const &value) {
-        if (!initialized) {
-            if (value.initialized) {
+        if (!mInitialized) {
+            if (value.mInitialized) {
                 if constexpr (std::is_copy_constructible_v<T>) {
-                    stackObj.New(*value);
+                    stackObj.create(*value);
                 } else {
                     assert(false);
                     VENGINE_EXIT;
                 }
-                initialized = true;
+                mInitialized = true;
             }
         } else {
-            if (value.initialized) {
+            if (value.mInitialized) {
                 stackObj = value.stackObj;
             } else {
-                stackObj.Delete();
-                initialized = false;
+                stackObj.destroy();
+                mInitialized = false;
             }
         }
         return *stackObj;
     }
     T &operator=(SelfType &&value) {
-        if (!initialized) {
-            if (value.initialized) {
+        if (!mInitialized) {
+            if (value.mInitialized) {
                 if constexpr (std::is_move_constructible_v<T>) {
-                    stackObj.New(std::move(*value));
+                    stackObj.create(std::move(*value));
                 } else {
                     assert(false);
                     VENGINE_EXIT;
                 }
-                initialized = true;
+                mInitialized = true;
             }
         } else {
-            if (value.initialized) {
+            if (value.mInitialized) {
                 stackObj = std::move(value.stackObj);
             } else {
-                stackObj.Delete();
-                initialized = false;
+                stackObj.destroy();
+                mInitialized = false;
             }
         }
         return *stackObj;
@@ -361,10 +361,10 @@ public:
         requires(std::is_assignable_v<StackObject<T, false>, Arg &&>)
     T &
     operator=(Arg &&value) {
-        if (initialized) {
+        if (mInitialized) {
             return stackObj = std::forward<Arg>(value);
         } else {
-            New(std::forward<Arg>(value));
+            create(std::forward<Arg>(value));
             return **this;
         }
     }
@@ -765,16 +765,16 @@ static constexpr decltype(auto) TypeOfFunc() {
 }// namespace detail
 class Evaluable {};
 template<class Func>
-class v_LazyEval : public Evaluable {
+class v_lazy_eval : public Evaluable {
 private:
     Func func;
 
 public:
     using EvalType = decltype(std::declval<Func>()());
-    v_LazyEval(Func &&func)
+    v_lazy_eval(Func &&func)
         : func(std::forward<Func &&>(func)) {}
-    v_LazyEval(v_LazyEval const &) = delete;
-    v_LazyEval(v_LazyEval &&v)
+    v_lazy_eval(v_lazy_eval const &) = delete;
+    v_lazy_eval(v_lazy_eval &&v)
         : func(std::move(v.func)) {}
     operator EvalType() const {
         return func();
@@ -791,7 +791,7 @@ public:
 };
 
 template<class Func>
-v_LazyEval<Func> LazyEval(Func &&func) {
+v_lazy_eval<Func> lazy_eval(Func &&func) {
     return std::forward<Func>(func);
 }
 template<typename... Args>
@@ -861,7 +861,7 @@ public:
             if constexpr (cons)
                 new (&t) T(std::forward<Args>(args)...);
         };
-        detail::Visitor<decltype(func), void, AA &...>(typeIndex, GetPlaceHolder(), std::move(func));
+        detail::Visitor<decltype(func), void, AA &...>(typeIndex, place_holder(), std::move(func));
     }
     template<typename T, typename... Args>
         requires(
@@ -872,12 +872,11 @@ public:
         new (&placeHolder) T(std::forward<Args>(args)...);
     }
 
-    void *GetPlaceHolder() { return &placeHolder; }
-    void const *GetPlaceHolder() const { return &placeHolder; }
-    size_t GetType() const { return switcher; }
+    void *place_holder() { return &placeHolder; }
+    void const *place_holder() const { return &placeHolder; }
     size_t index() const { return switcher; }
     template<typename T>
-    bool IsTypeOf() const {
+    bool is_type_of() const {
         return switcher == (IndexOf<T>);
     }
 
@@ -1002,17 +1001,17 @@ public:
     template<typename Func>
     void visit(Func &&func) & {
         if (switcher >= argSize) return;
-        detail::Visitor<Func, void, AA &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        detail::Visitor<Func, void, AA &...>(switcher, place_holder(), std::forward<Func>(func));
     }
     template<typename Func>
     void visit(Func &&func) && {
         if (switcher >= argSize) return;
-        detail::Visitor<Func, void, AA...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        detail::Visitor<Func, void, AA...>(switcher, place_holder(), std::forward<Func>(func));
     }
     template<typename Func>
     void visit(Func &&func) const & {
         if (switcher >= argSize) return;
-        detail::Visitor<Func, void const, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func));
+        detail::Visitor<Func, void const, AA const &...>(switcher, place_holder(), std::forward<Func>(func));
     }
 
     template<typename... Funcs>
@@ -1021,7 +1020,7 @@ public:
         if (switcher >= argSize) return;
         detail::Visitor<PackedFunctors<Funcs...>, void, AA &...>(
             switcher,
-            GetPlaceHolder(),
+            place_holder(),
             PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename... Funcs>
@@ -1030,7 +1029,7 @@ public:
         if (switcher >= argSize) return;
         detail::Visitor<PackedFunctors<Funcs...>, void, AA...>(
             switcher,
-            GetPlaceHolder(),
+            place_holder(),
             PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename... Funcs>
@@ -1039,7 +1038,7 @@ public:
         if (switcher >= argSize) return;
         detail::Visitor<PackedFunctors<Funcs...>, void const, AA const &...>(
             switcher,
-            GetPlaceHolder(),
+            place_holder(),
             PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename Ret, typename... Funcs>
@@ -1051,14 +1050,14 @@ public:
             if (switcher >= argSize) return std::forward<Ret>(r).operator EvalType();
             return detail::VisitorRet<EvalType, Ret, PackedFunctors<Funcs...>, void, AA &...>(
                 switcher,
-                GetPlaceHolder(),
+                place_holder(),
                 PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...),
                 std::forward<Ret>(r));
         } else {
             if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
             return detail::VisitorRet<Ret, Ret, PackedFunctors<Funcs...>, void, AA &...>(
                 switcher,
-                GetPlaceHolder(),
+                place_holder(),
                 PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...),
                 std::forward<Ret>(r));
         }
@@ -1072,14 +1071,14 @@ public:
             if (switcher >= argSize) return std::forward<Ret>(r).operator EvalType();
             return detail::VisitorRet<EvalType, Ret, PackedFunctors<Funcs...>, void, AA...>(
                 switcher,
-                GetPlaceHolder(),
+                place_holder(),
                 PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...),
                 std::forward<Ret>(r));
         } else {
             if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
             return detail::VisitorRet<Ret, Ret, PackedFunctors<Funcs...>, void, AA...>(
                 switcher,
-                GetPlaceHolder(),
+                place_holder(),
                 PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...),
                 std::forward<Ret>(r));
         }
@@ -1093,14 +1092,14 @@ public:
             if (switcher >= argSize) return std::forward<Ret>(r).operator EvalType();
             return detail::VisitorRet<EvalType, Ret, PackedFunctors<Funcs...>, void const, AA const &...>(
                 switcher,
-                GetPlaceHolder(),
+                place_holder(),
                 PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...),
                 std::forward<Ret>(r));
         } else {
             if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
             return detail::VisitorRet<Ret, Ret, PackedFunctors<Funcs...>, void const, AA const &...>(
                 switcher,
-                GetPlaceHolder(),
+                place_holder(),
                 PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...),
                 std::forward<Ret>(r));
         }
@@ -1112,10 +1111,10 @@ public:
         if constexpr (std::is_base_of_v<Evaluable, RetType>) {
             using EvalType = typename RetType::EvalType;
             if (switcher >= argSize) return std::forward<Ret>(r).operator EvalType();
-            return detail::VisitorRet<EvalType, Ret, Func, void, AA &...>(switcher, GetPlaceHolder(), std::forward<Func>(func), std::forward<Ret>(r));
+            return detail::VisitorRet<EvalType, Ret, Func, void, AA &...>(switcher, place_holder(), std::forward<Func>(func), std::forward<Ret>(r));
         } else {
             if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
-            return detail::VisitorRet<Ret, Ret, Func, void, AA &...>(switcher, GetPlaceHolder(), std::forward<Func>(func), std::forward<Ret>(r));
+            return detail::VisitorRet<Ret, Ret, Func, void, AA &...>(switcher, place_holder(), std::forward<Func>(func), std::forward<Ret>(r));
         }
     }
     template<typename Ret, typename Func>
@@ -1124,10 +1123,10 @@ public:
         if constexpr (std::is_base_of_v<Evaluable, RetType>) {
             using EvalType = typename RetType::EvalType;
             if (switcher >= argSize) return std::forward<Ret>(r).operator EvalType();
-            return detail::VisitorRet<EvalType, Ret, Func, void, AA...>(switcher, GetPlaceHolder(), std::forward<Func>(func), std::forward<Ret>(r));
+            return detail::VisitorRet<EvalType, Ret, Func, void, AA...>(switcher, place_holder(), std::forward<Func>(func), std::forward<Ret>(r));
         } else {
             if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
-            return detail::VisitorRet<Ret, Ret, Func, void, AA...>(switcher, GetPlaceHolder(), std::forward<Func>(func), std::forward<Ret>(r));
+            return detail::VisitorRet<Ret, Ret, Func, void, AA...>(switcher, place_holder(), std::forward<Func>(func), std::forward<Ret>(r));
         }
     }
     template<typename Ret, typename Func>
@@ -1136,10 +1135,10 @@ public:
         if constexpr (std::is_base_of_v<Evaluable, RetType>) {
             using EvalType = typename RetType::EvalType;
             if (switcher >= argSize) return std::forward<Ret>(r).operator EvalType();
-            return detail::VisitorRet<EvalType, Ret, Func, void const, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func), std::forward<Ret>(r));
+            return detail::VisitorRet<EvalType, Ret, Func, void const, AA const &...>(switcher, place_holder(), std::forward<Func>(func), std::forward<Ret>(r));
         } else {
             if (switcher >= argSize) return Ret{std::forward<Ret>(r)};
-            return detail::VisitorRet<Ret, Ret, Func, void const, AA const &...>(switcher, GetPlaceHolder(), std::forward<Func>(func), std::forward<Ret>(r));
+            return detail::VisitorRet<Ret, Ret, Func, void const, AA const &...>(switcher, place_holder(), std::forward<Func>(func), std::forward<Ret>(r));
         }
     }
     void dispose() {
@@ -1171,14 +1170,14 @@ public:
     variant(variant const &v)
         : switcher(v.switcher) {
         auto copyFunc = [&]<typename T>(T const &value) {
-            new (GetPlaceHolder()) T(value);
+            new (place_holder()) T(value);
         };
         v.visit(copyFunc);
     }
     variant(variant &&v)
         : switcher(v.switcher) {
         auto moveFunc = [&]<typename T>(T &value) {
-            new (GetPlaceHolder()) T(std::move(value));
+            new (place_holder()) T(std::move(value));
         };
         v.visit(moveFunc);
     }
@@ -1277,7 +1276,7 @@ template<typename... T>
 struct compare<variant<T...>> {
     using type = variant<T...>;
     int32 operator()(type const &a, type const &b) const {
-        if (a.GetType() == b.GetType()) {
+        if (a.index() == b.index()) {
             return a.visit_or(
                 int32(0),
                 [&](auto &&v) {
@@ -1287,15 +1286,15 @@ struct compare<variant<T...>> {
                     return comp(v, b.template force_get<PureT>());
                 });
         } else
-            return (a.GetType() > b.GetType()) ? 1 : -1;
+            return (a.index() > b.index()) ? 1 : -1;
     }
     template<typename V>
     int32 operator()(type const &a, V const &v) {
         constexpr size_t idx = type::template IndexOf<V>;
-        if (a.GetType() == idx) {
+        if (a.index() == idx) {
             return compare<V>()(a.template get<idx>(), v);
         } else
-            return (a.GetType() > idx) ? 1 : -1;
+            return (a.index() > idx) ? 1 : -1;
     }
 };
 #define VSTD_TRIVIAL_COMPARABLE(T)               \

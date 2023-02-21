@@ -16,7 +16,7 @@ private:
 		function<void(Value*)> nextFunc;
 		bool isComplete = false;
 		~Value() {
-			data.Delete();
+			data.destroy();
 		}
 	};
 	ObjectPtr<Value> value;
@@ -25,7 +25,7 @@ private:
 	template<typename Func, typename Arg>
 	static void Execute(ObjectPtr<Value> const& value, Func&& func, Arg&& arg) {
 		Value* ptr = value;
-		ptr->data.New(func(std::forward<Arg>(arg)));
+		ptr->data.create(func(std::forward<Arg>(arg)));
 		{
 			std::lock_guard lck(ptr->mtx);
 			ptr->isComplete = true;
@@ -60,11 +60,11 @@ public:
 		ThreadPool* tPool,
 		Func&& func)
 		: ExecuteNode(tPool) {
-		handle.New(tPool->GetTask(
+		handle.create(tPool->GetTask(
 			[value = this->value,
 			 func = std::forward<Func>(func)]() mutable {
 				Value* ptr = value;
-				ptr->data.New(func());
+				ptr->data.create(func());
 				{
 					std::lock_guard lck(ptr->mtx);
 					ptr->isComplete = true;
@@ -79,14 +79,14 @@ public:
 	Ret const& operator*() const& {
 		if (handle) {
 			handle->Complete();
-			handle.Delete();
+			handle.destroy();
 		}
 		return *value->data;
 	}
 	Ret&& operator*() && {
 		if (handle) {
 			handle->Complete();
-			handle.Delete();
+			handle.destroy();
 		}
 		return std::move(*value->data);
 	}
