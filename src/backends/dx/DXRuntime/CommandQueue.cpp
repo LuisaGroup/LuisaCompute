@@ -41,6 +41,7 @@ CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
     }
     auto newPtr = allocatorPool.Pop();
     if (newPtr) {
+        (*newPtr)->GetBuffer()->UpdateCommandBuffer(device);
         return std::move(*newPtr);
     }
     return AllocatorPtr(new CommandAllocator(device, resourceAllocator, type));

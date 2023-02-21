@@ -21,7 +21,19 @@ ExternalTexture::ExternalTexture(
           depth,
           mip},
       resource{resource}, initState{initState}, allowUav{allowUav} {}
-ExternalTexture::~ExternalTexture() {}
+ExternalTexture::~ExternalTexture() {
+    auto &globalHeap = *device->globalHeap.get();
+    if (uavIdcs) {
+        for (auto &&i : *uavIdcs) {
+            globalHeap.ReturnIndex(i.second);
+        }
+    }
+    if (srvIdcs) {
+        for (auto &&i : *srvIdcs) {
+            globalHeap.ReturnIndex(i.second);
+        }
+    }
+}
 
 D3D12_SHADER_RESOURCE_VIEW_DESC ExternalTexture::GetColorSrvDesc(uint mipOffset) const {
     return GetColorSrvDescBase(mipOffset, resource);

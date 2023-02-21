@@ -58,5 +58,6 @@ D3D12_SHADER_RESOURCE_VIEW_DESC ExternalDepth::GetColorSrvDesc(uint mipOffset) c
     return srvDesc;
 }
 ExternalDepth::~ExternalDepth() {
+    if (srvIdx != ~0u) device->globalHeap->ReturnIndex(srvIdx);
 }
 }// namespace toolhub::directx

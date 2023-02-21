@@ -100,6 +100,7 @@ class CommandBuffer : public vstd::IOperatorNewBase {
     CommandAllocatorBase *alloc;
 
 public:
+    void UpdateCommandBuffer(Device *device);
     ID3D12GraphicsCommandList4 *CmdList() const { return cmdList.Get(); }
     bool ContainedCmdList() const { return cmdList.Contained(); }
     CommandBuffer(
