@@ -50,13 +50,13 @@ struct TypeOf {
 };
 
 template<typename T>
-struct funcPtr;
+struct func_ptr;
 template<typename Ret, typename... Args>
-struct funcPtr<Ret(Args...)> {
+struct func_ptr<Ret(Args...)> {
     using Type = Ret (*)(Args...);
 };
 template<typename T>
-using funcPtr_t = typename funcPtr<T>::Type;
+using func_ptr_t = typename func_ptr<T>::Type;
 
 template<typename T, uint32_t size = 1>
 class Storage {
@@ -612,7 +612,7 @@ decltype(auto) get_lvalue(T &&data) {
     return static_cast<std::remove_reference_t<T> &>(data);
 }
 template<typename T>
-T *get_rvalue_ptr(T &&v) {
+T *get_rval_ptr(T &&v) {
     static_assert(!std::is_lvalue_reference_v<T>, "only rvalue allowed!");
     return &v;
 }

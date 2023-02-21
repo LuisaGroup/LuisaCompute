@@ -8,8 +8,8 @@ using namespace luisa::compute;
 namespace toolhub::directx {
 class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
     struct Ext {
-        using Ctor = vstd::funcPtr_t<DeviceExtension *(LCDevice *)>;
-        using Dtor = vstd::funcPtr_t<void(DeviceExtension *)>;
+        using Ctor = vstd::func_ptr_t<DeviceExtension *(LCDevice *)>;
+        using Dtor = vstd::func_ptr_t<void(DeviceExtension *)>;
         DeviceExtension *ext;
         Ctor ctor;
         Dtor dtor;

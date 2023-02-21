@@ -1,6 +1,5 @@
 #pragma once
 #include <vstl/common.h>
-#include <span>
 namespace vstd {
 
 struct LC_VSTL_API CharSplitIterator {
@@ -55,8 +54,8 @@ public:
     static char ToLower(char c);
     static string ToLower(std::string_view str);
     static string ToUpper(std::string_view str);
-    static void EncodeToBase64(std::span<uint8_t const> binary, string &result);
-    static void EncodeToBase64(std::span<uint8_t const> binary, char *result);
+    static void EncodeToBase64(span<uint8_t const> binary, string &result);
+    static void EncodeToBase64(span<uint8_t const> binary, char *result);
     static void DecodeFromBase64(std::string_view str, vector<uint8_t> &result);
     static void DecodeFromBase64(std::string_view str, uint8_t *size);
     static void TransformWCharToChar(

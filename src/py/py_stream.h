@@ -11,7 +11,7 @@ namespace luisa::compute {
 class PyStream : public vstd::IOperatorNewBase {
     struct Disposer {
         void *ptr;
-        vstd::funcPtr_t<void(void *ptr)> dtor;
+        vstd::func_ptr_t<void(void *ptr)> dtor;
         Disposer() noexcept {}
         Disposer(Disposer &&d) noexcept {
             ptr = d.ptr;

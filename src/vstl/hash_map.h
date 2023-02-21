@@ -429,10 +429,10 @@ public:
     }
 
     using Index = typename decltype(IndexType())::Type;
-    Index GetIndex(Iterator const &ite) {
+    Index get_index(Iterator const &ite) {
         return Index(this, *ite.ii);
     }
-    Index GetIndex(MoveIterator const &ite) {
+    Index get_index(MoveIterator const &ite) {
         return Index(this, *ite.ii);
     }
 
@@ -486,7 +486,7 @@ private:
     static Index EmptyIndex() noexcept {
         return Index(nullptr, nullptr);
     }
-    void Remove(LinkNode *node) {
+    void remove(LinkNode *node) {
         size_t hashValue = GetHash(node->hashValue, mCapacity);
         Map *targetTree = reinterpret_cast<Map *>(nodeArray + mCapacity + hashValue);
         auto arrayIndex = node->arrayIndex;
@@ -502,9 +502,6 @@ private:
     }
 
 public:
-    size_t Size() const {
-        return mSize;
-    }
     decltype(auto) begin() const & {
         return Iterator(nodeArray);
     }
@@ -535,10 +532,10 @@ public:
     }
     HashMap(HashMap const &map) = delete;
 
-    template<typename Arg>
-    void operator=(Arg &&map) {
+    HashMap &operator=(HashMap &&map) {
         this->~HashMap();
-        new (this) HashMap(std::forward<Arg>(map));
+        new (this) HashMap(std::move(map));
+        return *this;
     }
     ~HashMap() noexcept {
         if (!nodeArray) return;
@@ -551,7 +548,7 @@ public:
     ///////////////////////
     template<typename Key, typename... ARGS>
         requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
-    Index ForceEmplace(Key &&key, ARGS &&...args) {
+    Index force_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
@@ -569,7 +566,7 @@ public:
 
     template<typename Key, typename... ARGS>
         requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
-    Index Emplace(Key &&key, ARGS &&...args) {
+    Index emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
@@ -587,7 +584,7 @@ public:
 
     template<typename Key, typename... ARGS>
         requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
-    std::pair<Index, bool> TryEmplace(Key &&key, ARGS &&...args) {
+    std::pair<Index, bool> try_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
@@ -603,15 +600,12 @@ public:
         return {Index(this, insertResult.first), insertResult.second};
     }
 
-    void Reserve(size_t capacity) noexcept {
+    void reserve(size_t capacity) noexcept {
         size_t newCapacity = GetPow2Size(capacity);
         Resize(newCapacity);
     }
-    void reserve(size_t capacity) noexcept {
-        Reserve(capacity);
-    }
     template<typename Key>
-    Index Find(Key &&key) const noexcept {
+    Index find(Key &&key) const noexcept {
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
         Map *map = reinterpret_cast<Map *>(nodeArray + mCapacity + hashValue);
@@ -622,7 +616,7 @@ public:
     }
 
     template<typename Key>
-    void Remove(Key &&key) noexcept {
+    void remove(Key &&key) noexcept {
         size_t hashOriginValue = hsFunc(key);
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
         Map *map = reinterpret_cast<Map *>(nodeArray + mCapacity + hashValue);
@@ -632,20 +626,14 @@ public:
         }
     }
 
-    void Remove(const Index &ite) noexcept {
-        Remove(ite.node);
+    void remove(const Index &ite) noexcept {
+        remove(ite.node);
     }
-    void Remove(Index &&ite) noexcept {
-        Remove(ite.node);
-    }
-    void Remove(Index &ite) noexcept {
-        Remove(ite.node);
-    }
-    void Remove(NodePair const &ite) noexcept {
-        Remove(const_cast<LinkNode *>(static_cast<LinkNode const *>(&ite)));
+    void remove(NodePair const &ite) noexcept {
+        remove(const_cast<LinkNode *>(static_cast<LinkNode const *>(&ite)));
     }
 
-    void Clear() noexcept {
+    void clear() noexcept {
         if (mSize == 0) return;
         auto nodeVec = nodeArray + mCapacity;
         memset(nodeVec, 0, mCapacity * sizeof(LinkNode *));
@@ -655,6 +643,6 @@ public:
         mSize = 0;
     }
     [[nodiscard]] size_t size() const noexcept { return mSize; }
-    [[nodiscard]] size_t GetCapacity() const noexcept { return mCapacity; }
+    [[nodiscard]] size_t capacity() const noexcept { return mCapacity; }
 };
 }// namespace vstd

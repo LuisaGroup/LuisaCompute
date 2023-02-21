@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <span>
 #include <atomic>
 #include <concepts>
 #include <type_traits>
@@ -34,10 +33,10 @@ concept string_viewable = requires(T v) {
     std::string_view{v};
 };
 
-template<typename T>
-concept span_convertible = requires(T v) {
-    std::span{v};
-};
+// template<typename T>
+// concept span_convertible = requires(T v) {
+//     std::span{v};
+// };
 
 template<typename T, typename... Args>
 concept constructible = requires(Args... args) {

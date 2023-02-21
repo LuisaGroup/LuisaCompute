@@ -11,7 +11,7 @@ class DeviceInterface;
 class RefCounter : public vstd::IOperatorNewBase {
 public:
     using Handle = uint64;
-    using Disposer = std::pair<vstd::funcPtr_t<void(DeviceInterface *, Handle)>, DeviceInterface *>;
+    using Disposer = std::pair<vstd::func_ptr_t<void(DeviceInterface *, Handle)>, DeviceInterface *>;
     vstd::spin_mutex mtx;
 
 private:

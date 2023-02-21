@@ -39,13 +39,13 @@ void BindlessArray::TryReturnIndex(MapIndex &index, uint32_t &originValue) {
         auto &&v = index.Value();
         v--;
         if (v == 0) {
-            ptrMap.Remove(index);
+            ptrMap.remove(index);
         }
     }
     index = {};
 }
 BindlessArray::MapIndex BindlessArray::AddIndex(size_t ptr) {
-    auto ite = ptrMap.Emplace(ptr, 0);
+    auto ite = ptrMap.emplace(ptr, 0);
     ite.Value()++;
     return ite;
 }

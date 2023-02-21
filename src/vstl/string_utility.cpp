@@ -232,13 +232,13 @@ size_t constexpr decoded_size(size_t n) {
 }
 
 }// namespace strutil_detail
-void StringUtil::EncodeToBase64(std::span<uint8_t const> binary, string &str) {
+void StringUtil::EncodeToBase64(span<uint8_t const> binary, string &str) {
     using namespace strutil_detail;
     size_t oriSize = str.size();
     str.resize(oriSize + encoded_size(binary.size()));
     encode(str.data() + oriSize, binary.data(), binary.size());
 }
-void StringUtil::EncodeToBase64(std::span<uint8_t const> binary, char *result) {
+void StringUtil::EncodeToBase64(span<uint8_t const> binary, char *result) {
     using namespace strutil_detail;
     encode(result, binary.data(), binary.size());
 }

@@ -43,8 +43,8 @@ template<typename T>
 struct DynamicObject {
     template<typename... Args>
     static constexpr T *CreateObject(
-        funcPtr_t<T *(
-            funcPtr_t<void *(size_t)> operatorNew,
+        func_ptr_t<T *(
+            func_ptr_t<void *(size_t)> operatorNew,
             Args...)>
             createFunc,
         Args... args) {

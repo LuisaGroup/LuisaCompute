@@ -1,7 +1,5 @@
 #pragma once
 
-#include <span>
-#include <variant>
 #include <numeric>
 
 #include <core/basic_types.h>
