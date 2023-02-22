@@ -55,6 +55,10 @@ public:
     Buffer(DeviceInterface *device, size_t size) noexcept
         : Buffer{device, device->create_buffer(Type::of<T>(), size)} {}
     Buffer() noexcept = default;
+    Buffer(Buffer &&) noexcept = default;
+    Buffer(Buffer const &) noexcept = delete;
+    Buffer &operator=(Buffer &&) noexcept = default;
+    Buffer &operator=(Buffer const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto stride() const noexcept { return _element_stride; }

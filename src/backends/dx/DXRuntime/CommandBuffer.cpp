@@ -1,4 +1,3 @@
-
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/Device.h>
@@ -12,7 +11,13 @@ CommandBuffer::CommandBuffer(CommandBuffer &&v)
     v.alloc = nullptr;
 }
 CommandAllocator *CommandBuffer::GetAlloc() const { return static_cast<CommandAllocator *>(alloc); }
-
+void CommandBuffer::UpdateCommandBuffer(Device *device) {
+    if (!device->deviceSettings) return;
+    auto newCmdList = static_cast<ID3D12GraphicsCommandList4 *>(device->deviceSettings->BorrowCommandList(alloc->Type()));
+    if (newCmdList) {
+        cmdList = {newCmdList, false};
+    }
+}
 CommandBuffer::CommandBuffer(
     Device *device,
     CommandAllocatorBase *alloc)
@@ -28,7 +33,8 @@ CommandBuffer::CommandBuffer(
             nullptr,           // Initial PipelineStateObject
             IID_PPV_ARGS(cmdList.GetAddressOf())));
     }
-    ThrowIfFailed(cmdList->Close());
+    if (cmdList.Contained())
+        ThrowIfFailed(cmdList->Close());
     isOpened = false;
 }
 void CommandBufferBuilder::SetComputeResources(
@@ -258,11 +264,13 @@ void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
 }
 void CommandBuffer::Reset() const {
     if (isOpened.exchange(true)) return;
-    ThrowIfFailed(cmdList->Reset(alloc->Allocator(), nullptr));
+    if (cmdList.Contained())
+        ThrowIfFailed(cmdList->Reset(alloc->Allocator(), nullptr));
 }
 void CommandBuffer::Close() const {
     if (!isOpened.exchange(false)) return;
-    ThrowIfFailed(cmdList->Close());
+    if (cmdList.Contained())
+        ThrowIfFailed(cmdList->Close());
 }
 CommandBufferBuilder::CommandBufferBuilder(CommandBuffer const *cb)
     : cb(cb) {

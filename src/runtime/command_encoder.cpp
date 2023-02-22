@@ -12,35 +12,40 @@ std::byte *ShaderDispatchCmdEncoder::_make_space(size_t size) noexcept {
     return _argument_buffer.data() + offset;
 }
 
-ShaderDispatchCmdEncoder::ShaderDispatchCmdEncoder(size_t arg_count) : _argument_count(arg_count) {
-    size_t size = arg_count * sizeof(Argument);
-    _argument_buffer.reserve(size + 256);
-    _argument_buffer.push_back_uninitialized(size);
+ShaderDispatchCmdEncoder::ShaderDispatchCmdEncoder(uint64_t handle,
+                                                   size_t arg_count,
+                                                   size_t uniform_size) noexcept
+    : _handle{handle}, _argument_count{arg_count} {
+    if (auto arg_size_bytes = luisa::align(arg_count * sizeof(Argument), 16u)) {
+        _argument_buffer.reserve(arg_size_bytes + uniform_size);
+        _argument_buffer.resize_uninitialized(arg_size_bytes);
+    }
 }
 
-ShaderDispatchCmdEncoder::Argument &ShaderDispatchCmdEncoder::create_arg() {
+ShaderDispatchCmdEncoder::Argument &ShaderDispatchCmdEncoder::_create_argument() noexcept {
     auto idx = _argument_idx;
     _argument_idx++;
     return *std::launder(reinterpret_cast<Argument *>(_argument_buffer.data()) + idx);
 }
 
 void ShaderDispatchCmdEncoder::_encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
-    auto &&arg = create_arg();
+    auto &&arg = _create_argument();
     arg.tag = Argument::Tag::BUFFER;
     arg.buffer = ShaderDispatchCommandBase::Argument::Buffer{handle, offset, size};
 }
 
 void ShaderDispatchCmdEncoder::_encode_texture(uint64_t handle, uint32_t level) noexcept {
-    auto &&arg = create_arg();
+    auto &&arg = _create_argument();
     arg.tag = Argument::Tag::TEXTURE;
     arg.texture = ShaderDispatchCommandBase::Argument::Texture{handle, level};
 }
 
 void ShaderDispatchCmdEncoder::_encode_uniform(const void *data, size_t size) noexcept {
     auto offset = _argument_buffer.size();
+    size = luisa::align(size, 16u);
     _argument_buffer.push_back_uninitialized(size);
     std::memcpy(_argument_buffer.data() + offset, data, size);
-    auto &&arg = create_arg();
+    auto &&arg = _create_argument();
     arg.tag = Argument::Tag::UNIFORM;
     arg.uniform.offset = offset;
     arg.uniform.size = size;
@@ -55,21 +60,22 @@ void ComputeDispatchCmdEncoder::set_dispatch_size(IndirectDispatchArg indirect_a
 }
 
 void ShaderDispatchCmdEncoder::_encode_bindless_array(uint64_t handle) noexcept {
-    auto &&arg = create_arg();
+    auto &&arg = _create_argument();
     arg.tag = Argument::Tag::BINDLESS_ARRAY;
     arg.bindless_array = Argument::BindlessArray{handle};
 }
 
 void ShaderDispatchCmdEncoder::_encode_accel(uint64_t handle) noexcept {
-    auto &&arg = create_arg();
+    auto &&arg = _create_argument();
     arg.tag = Argument::Tag::ACCEL;
     arg.accel = Argument::Accel{handle};
 }
 
 void ShaderDispatchCmdEncoder::_encode_pending_bindings(
     luisa::span<const Function::Binding> bindings) noexcept {
-    while (_argument_idx < _argument_count &&
+    while (_argument_idx < bindings.size() &&
            !luisa::holds_alternative<luisa::monostate>(bindings[_argument_idx])) {
+        auto &&binding = bindings[_argument_idx];
         luisa::visit(
             [&]<typename T>(T binding) noexcept {
                 if constexpr (std::is_same_v<T, Function::BufferBinding>) {
@@ -84,19 +90,30 @@ void ShaderDispatchCmdEncoder::_encode_pending_bindings(
                     LUISA_ERROR_WITH_LOCATION("Invalid argument binding type.");
                 }
             },
-            bindings[_argument_idx]);
+            binding);
     }
 }
 
-ComputeDispatchCmdEncoder::ComputeDispatchCmdEncoder(
-    size_t arg_size, uint64_t handle,
-    luisa::span<const Function::Binding> bindings) noexcept
-    : ShaderDispatchCmdEncoder{arg_size},
-      _handle{handle},
-      _bindings{std::move(bindings)} {
-    _argument_buffer.reserve(256u);
-    _encode_pending_bindings(_bindings);
+size_t ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span<const Variable> arguments) noexcept {
+    return std::accumulate(
+        arguments.cbegin(), arguments.cend(),
+        static_cast<size_t>(0u), [](auto size, auto arg) noexcept {
+            return size + luisa::align(arg.is_local() ? arg.type()->size() : 0u, 16u);
+        });
 }
+
+size_t ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span<const Type *const> arg_types) noexcept {
+    return std::accumulate(
+        arg_types.cbegin(), arg_types.cend(),
+        static_cast<size_t>(0u), [](auto size, auto arg) noexcept {
+            return size + luisa::align(arg->is_basic() || arg->is_array() || arg->is_structure() ? arg->size() : 0u, 16u);
+        });
+}
+
+ComputeDispatchCmdEncoder::ComputeDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
+                                                     luisa::span<const Function::Binding> bindings) noexcept
+    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size},
+      _bindings{bindings} { _encode_pending_bindings(_bindings); }
 
 void ComputeDispatchCmdEncoder::encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
     _encode_buffer(handle, offset, size);
@@ -157,7 +174,8 @@ void RasterDispatchCmdEncoder::update_arg() {
     if (_vertex_bindings.empty()) return;
     if (_argument_count >= _vertex_bindings.size()) {
         _current_bindings = _pixel_bindings;
-        _argument_count = 1;
+        _argument_count = _pixel_bindings.size();
+        _argument_idx = 1;
     }
 }
 
@@ -165,54 +183,55 @@ RasterDispatchCmdEncoder::~RasterDispatchCmdEncoder() noexcept = default;
 RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept = default;
 RasterDispatchCmdEncoder &RasterDispatchCmdEncoder::operator=(RasterDispatchCmdEncoder &&) noexcept = default;
 
-RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(
-    size_t arg_size, uint64_t handle,
-    luisa::span<const Function::Binding> vertex_bindings,
-    luisa::span<const Function::Binding> pixel_bindings) noexcept
-    : ShaderDispatchCmdEncoder{arg_size},
-      _handle{handle},
+RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
+                                                   luisa::span<const Function::Binding> vertex_bindings,
+                                                   luisa::span<const Function::Binding> pixel_bindings) noexcept
+    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size},
       _vertex_bindings{vertex_bindings},
       _pixel_bindings{pixel_bindings} {
     _current_bindings = _vertex_bindings;
-    _argument_count = 1;
+    _argument_idx = vertex_bindings.empty() ? 0 : 1;
 }
 
 luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&noexcept {
     if (_argument_idx != _argument_count) [[unlikely]] {
-        LUISA_ERROR("Required argument count {}, Actual argument count {}.", _argument_count, _argument_idx);
+        LUISA_ERROR("Required argument count {}. "
+                    "Actual argument count {}.",
+                    _argument_count, _argument_idx);
     }
-    auto args = luisa::span{std::launder(reinterpret_cast<const Argument *>(_argument_buffer.data())), _argument_count};
-    luisa::unique_ptr<ShaderDispatchCommand> cmd{
-        new (luisa::detail::allocator_allocate(sizeof(ShaderDispatchCommand), alignof(ShaderDispatchCommand))) ShaderDispatchCommand{
-            _handle,
-            std::move(_argument_buffer),
-            _argument_count}};
-    cmd->_dispatch_size = _dispatch_size;
-    return cmd;
+    return luisa::make_unique<ShaderDispatchCommand>(
+        _handle, std::move(_argument_buffer),
+        _argument_count, _dispatch_size);
 }
 
 luisa::unique_ptr<DrawRasterSceneCommand> RasterDispatchCmdEncoder::build() &&noexcept {
     if (_argument_idx != _argument_count) [[unlikely]] {
-        LUISA_ERROR("Required argument count {}, Actual argument count {}.", _argument_count, _argument_idx);
+        LUISA_ERROR("Required argument count {}. "
+                    "Actual argument count {}.",
+                    _argument_count, _argument_idx);
     }
-    // friend class
-    luisa::unique_ptr<DrawRasterSceneCommand> cmd{
-        new (luisa::detail::allocator_allocate(sizeof(DrawRasterSceneCommand), alignof(DrawRasterSceneCommand))) DrawRasterSceneCommand{
-            _handle,
-            std::move(_argument_buffer),
-            _argument_count}};
-    memcpy(cmd->_rtv_texs, _rtv_texs, sizeof(Argument::Texture) * _rtv_count);
-    cmd->_rtv_count = _rtv_count;
-    cmd->_dsv_tex = _dsv_tex;
-    cmd->_scene = std::move(scene);
-    cmd->_viewport = viewport;
-    return cmd;
+    return luisa::make_unique<DrawRasterSceneCommand>(
+        _handle, std::move(_argument_buffer),
+        _argument_count, _rtv_texs, _rtv_count,
+        _dsv_tex, std::move(_scene), _viewport);
 }
 
-DrawRasterSceneCommand::~DrawRasterSceneCommand() noexcept {}
-DrawRasterSceneCommand::DrawRasterSceneCommand(uint64_t shader_handle, luisa::vector<std::byte> &&argument_buffer, size_t argument_count) noexcept
-    : ShaderDispatchCommandBase{Tag::EDrawRasterSceneCommand, shader_handle, std::move(argument_buffer), argument_count} {}
-luisa::span<const RasterMesh> DrawRasterSceneCommand::scene() const noexcept { return luisa::span{_scene}; }
-DrawRasterSceneCommand::DrawRasterSceneCommand(DrawRasterSceneCommand &&) = default;
+void RasterDispatchCmdEncoder::set_rtv_texs(luisa::span<const ShaderDispatchCommandBase::Argument::Texture> tex) noexcept {
+    LUISA_ASSERT(tex.size() <= 8, "Too many render targets: {}.", tex.size());
+    _rtv_count = tex.size();
+    memcpy(_rtv_texs.data(), tex.data(), tex.size_bytes());
+}
+
+void RasterDispatchCmdEncoder::set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture tex) noexcept {
+    _dsv_tex = tex;
+}
+
+void RasterDispatchCmdEncoder::set_scene(luisa::vector<RasterMesh> &&scene) noexcept {
+    _scene = std::move(scene);
+}
+
+void RasterDispatchCmdEncoder::set_viewport(Viewport viewport) noexcept {
+    _viewport = viewport;
+}
 
 }// namespace luisa::compute

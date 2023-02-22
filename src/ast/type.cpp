@@ -513,4 +513,5 @@ const Type *Type::structure(std::initializer_list<const Type *> members) noexcep
 const Type *Type::custom(luisa::string_view name) noexcept {
     return detail::TypeRegistry::instance().custom_type(name);
 }
+
 }// namespace luisa::compute

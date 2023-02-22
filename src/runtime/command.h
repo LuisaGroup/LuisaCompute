@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <array>
+
 #include <core/macro.h>
 #include <core/basic_types.h>
 #include <core/stl/vector.h>
@@ -159,7 +161,8 @@ protected:
     ShaderDispatchCommandBase(Tag tag, uint64_t shader_handle,
                               luisa::vector<std::byte> &&argument_buffer,
                               size_t argument_count) noexcept
-        : Command{tag}, _handle{shader_handle},
+        : Command{tag},
+          _handle{shader_handle},
           _argument_buffer{std::move(argument_buffer)},
           _argument_count{argument_count} {}
 
@@ -175,16 +178,22 @@ public:
 
 class ShaderDispatchCommand final : public ShaderDispatchCommandBase {
 
+public:
+    using DispatchSize = luisa::variant<uint3, IndirectDispatchArg>;
+
 private:
-friend class ComputeDispatchCmdEncoder;
-    luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
+    DispatchSize _dispatch_size;
 
 public:
     ShaderDispatchCommand(uint64_t shader_handle,
                           luisa::vector<std::byte> &&argument_buffer,
-                          size_t argument_count) noexcept
-        : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand, shader_handle,
-                                    std::move(argument_buffer), argument_count} {}
+                          size_t argument_count,
+                          DispatchSize dispatch_size) noexcept
+        : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand,
+                                    shader_handle,
+                                    std::move(argument_buffer),
+                                    argument_count},
+          _dispatch_size{dispatch_size} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
     ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
     [[nodiscard]] auto is_indirect() const noexcept { return luisa::holds_alternative<IndirectDispatchArg>(_dispatch_size); }
@@ -196,21 +205,27 @@ public:
 class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommandBase {
 
 private:
-    friend class RasterDispatchCmdEncoder;
-    DrawRasterSceneCommand(uint64_t shader_handle,
-                           luisa::vector<std::byte> &&argument_buffer,
-                           size_t argument_count) noexcept;
-    Argument::Texture _rtv_texs[8];
+    std::array<Argument::Texture, 8u> _rtv_texs;
     size_t _rtv_count;
     Argument::Texture _dsv_tex;
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport;
 
 public:
-    DrawRasterSceneCommand(DrawRasterSceneCommand const &) = delete;
-    DrawRasterSceneCommand(DrawRasterSceneCommand &&);
-    ~DrawRasterSceneCommand() noexcept;
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span<const Argument::Texture>{_rtv_texs, _rtv_count}; }
+    DrawRasterSceneCommand(uint64_t shader_handle,
+                           luisa::vector<std::byte> &&argument_buffer,
+                           size_t argument_count,
+                           std::array<Argument::Texture, 8u> rtv_textures,
+                           size_t rtv_count,
+                           Argument::Texture dsv_texture,
+                           luisa::vector<RasterMesh> &&scene,
+                           Viewport viewport) noexcept;
+
+public:
+    DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
+    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
+    ~DrawRasterSceneCommand() noexcept override;
+    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs}.subspan(_rtv_count); }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }

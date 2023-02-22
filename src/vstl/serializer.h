@@ -153,7 +153,7 @@ struct SerDe<HashMap<K, V, Hash, Equal, alloc>, reverseBytes> {
         for (auto &&i : range(capa)) {
             auto key = SerDe<K, reverseBytes>::Get(sp);
             auto value = SerDe<V, reverseBytes>::Get(sp);
-            sz.Emplace(
+            sz.emplace(
                 std::move(key),
                 std::move(value));
         }
@@ -180,16 +180,16 @@ struct SerDe<variant<Args...>, reverseBytes> {
     }
     static Value Get(vstd::span<std::byte const> &sp) {
         auto type = SerDe<uint8_t, reverseBytes>::Get(sp);
-        funcPtr_t<void(void *, vstd::span<std::byte const> &)> ptrs[sizeof...(Args)] = {
+        func_ptr_t<void(void *, vstd::span<std::byte const> &)> ptrs[sizeof...(Args)] = {
             ExecuteGet<Args>...};
         Value v;
         v.reset_as(type);
-        ptrs[type](v.GetPlaceHolder(), sp);
+        ptrs[type](v.place_holder(), sp);
         return v;
     }
     static void Set(Value const &data, vector<std::byte> &arr) {
         SerDe<uint8_t, reverseBytes>::Set(data.GetType(), arr);
-        funcPtr_t<void(void const *, vector<std::byte> &)> ptrs[sizeof...(Args)] = {
+        func_ptr_t<void(void const *, vector<std::byte> &)> ptrs[sizeof...(Args)] = {
             ExecuteSet<Args>...};
         ptrs[data.GetType()](&data, arr);
     }

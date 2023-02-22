@@ -6,7 +6,8 @@ namespace luisa::compute {
 class NativeResourceExt : public DeviceExtension {
 protected:
     DeviceInterface *_device;
-    NativeResourceExt(DeviceInterface *device) : _device{device} {}
+    NativeResourceExt(DeviceInterface *device) noexcept : _device{device} {}
+    ~NativeResourceExt() noexcept = default;
 
 public:
     virtual BufferCreationInfo register_external_buffer(
@@ -22,12 +23,29 @@ public:
         uint mipmap_levels,
         // custom data see backends' header
         void *custom_data) noexcept = 0;
+    virtual ResourceCreationInfo register_external_depth_buffer(
+        void *external_ptr,
+        DepthFormat format,
+        uint width,
+        uint height,
+        // custom data see backends' header
+        void *custom_data) noexcept = 0;
     template<typename T>
     [[nodiscard]] Buffer<T> create_native_buffer(void *native_ptr, size_t elem_count, void *custom_data) noexcept {
         auto type = Type::of<T>();
         return ResourceGenerator::create_native_buffer<T>(
             register_external_buffer(native_ptr, type, elem_count, custom_data),
             _device);
+    }
+    [[nodiscard]] DepthBuffer create_native_depth_buffer(
+        void *native_ptr,
+        DepthFormat format,
+        uint width,
+        uint height,
+        void *custom_data) {
+        return ResourceGenerator::create_native_depth_buffer(
+            register_external_depth_buffer(native_ptr, format, width, height, custom_data),
+            _device, format, {width, height});
     }
     template<typename T>
     [[nodiscard]] Image<T> create_native_image(

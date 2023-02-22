@@ -122,7 +122,7 @@ private:
                 target_handle);
             auto &&value = tryResult.first->second;
             if (tryResult.second) {
-                value = pool.New();
+                value = pool.create();
                 value->handle = target_handle;
                 value->type = target_type;
             }
@@ -592,13 +592,13 @@ public:
     ~CommandReorderVisitor() noexcept = default;
     void clear() noexcept {
         for (auto &&i : resMap) {
-            rangePool.Delete(i.second);
+            rangePool.destroy(i.second);
         }
         for (auto &&i : noRangeResMap) {
-            noRangePool.Delete(i.second);
+            noRangePool.destroy(i.second);
         }
         for (auto &&i : bindlessMap) {
-            bindlessHandlePool.Delete(i.second);
+            bindlessHandlePool.destroy(i.second);
         }
 
         resMap.clear();

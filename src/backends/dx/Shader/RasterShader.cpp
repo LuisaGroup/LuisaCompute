@@ -346,12 +346,12 @@ RasterShader *RasterShader::CompileRaster(
             str.result.view(),
             true,
             shaderModel);
-        if (compResult.vertex.IsTypeOf<vstd::string>()) {
+        if (compResult.vertex.is_type_of<vstd::string>()) {
             std::cout << compResult.vertex.get<1>() << '\n';
             VSTL_ABORT();
             return nullptr;
         }
-        if (compResult.pixel.IsTypeOf<vstd::string>()) {
+        if (compResult.pixel.is_type_of<vstd::string>()) {
             std::cout << compResult.pixel.get<1>() << '\n';
             VSTL_ABORT();
             return nullptr;
@@ -425,12 +425,12 @@ void RasterShader::SaveRaster(
         true,
         shaderModel);
 
-    if (compResult.vertex.IsTypeOf<vstd::string>()) {
+    if (compResult.vertex.is_type_of<vstd::string>()) {
         std::cout << compResult.vertex.get<1>() << '\n';
         VSTL_ABORT();
         return;
     }
-    if (compResult.pixel.IsTypeOf<vstd::string>()) {
+    if (compResult.pixel.is_type_of<vstd::string>()) {
         std::cout << compResult.pixel.get<1>() << '\n';
         VSTL_ABORT();
         return;

@@ -46,7 +46,7 @@ private:
 
 public:
     bool IsPtrInBindless(size_t ptr) const {
-        return ptrMap.Find(ptr);
+        return ptrMap.find(ptr);
     }
     using Property = vstd::variant<
         BufferView,

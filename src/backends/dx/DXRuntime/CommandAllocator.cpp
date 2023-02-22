@@ -101,7 +101,7 @@ void CommandAllocatorBase::Complete(
     ID3D12Fence *fence,
     uint64 fenceIndex) {
     device->WaitFence(fence, fenceIndex);
-    while (auto evt = executeAfterComplete.Pop()) {
+    while (auto evt = executeAfterComplete.pop()) {
         (*evt)();
     }
 }
@@ -118,7 +118,7 @@ CommandAllocatorBase::CommandAllocatorBase(
       resourceAllocator(resourceAllocator) {
     ThrowIfFailed(
         device->device->CreateCommandAllocator(type, IID_PPV_ARGS(allocator.GetAddressOf())));
-    cbuffer.New(
+    cbuffer.create(
         device,
         this);
 }
@@ -141,7 +141,7 @@ CommandAllocator::CommandAllocator(
 }
 
 CommandAllocator::~CommandAllocator() {
-    cbuffer.Delete();
+    cbuffer.destroy();
 }
 void CommandAllocatorBase::Reset(CommandQueue *queue) {
     ThrowIfFailed(
@@ -164,7 +164,7 @@ DefaultBuffer const *CommandAllocator::AllocateScratchBuffer(size_t targetSize) 
             while (allocSize < targetSize) {
                 allocSize = std::max<size_t>(allocSize + 1, allocSize * 1.5f);
             }
-            executeAfterComplete.Push([s = std::move(scratchBuffer)]() {});
+            executeAfterComplete.push([s = std::move(scratchBuffer)]() {});
             allocSize = CalcAlign(allocSize, 65536);
             scratchBuffer = vstd::create_unique(new DefaultBuffer(device, allocSize, device->defaultAllocator.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
         }

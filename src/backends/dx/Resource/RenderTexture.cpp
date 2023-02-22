@@ -149,20 +149,19 @@ RenderTexture::RenderTexture(
 }
 
 D3D12_SHADER_RESOURCE_VIEW_DESC RenderTexture::GetColorSrvDesc(uint mipOffset) const {
-    return GetColorSrvDescBase(mipOffset, allocHandle.resource.Get());
+    return GetColorSrvDescBase(mipOffset);
 }
 D3D12_UNORDERED_ACCESS_VIEW_DESC RenderTexture::GetColorUavDesc(uint targetMipLevel) const {
-    return GetColorUavDescBase(targetMipLevel, allocHandle.resource.Get());
+    return GetColorUavDescBase(targetMipLevel);
 }
 D3D12_RENDER_TARGET_VIEW_DESC RenderTexture::GetRenderTargetDesc(uint mipOffset) const {
     return GetRenderTargetDescBase(mipOffset);
 }
 uint RenderTexture::GetGlobalSRVIndex(uint mipOffset) const {
     std::lock_guard lck(allocMtx);
-    srvIdcs.New();
-    auto ite = srvIdcs->Emplace(
+    auto ite = srvIdcs.try_emplace(
         mipOffset,
-        vstd::LazyEval([&]() -> uint {
+        vstd::lazy_eval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
             device->globalHeap->CreateSRV(
                 GetResource(),
@@ -170,16 +169,15 @@ uint RenderTexture::GetGlobalSRVIndex(uint mipOffset) const {
                 v);
             return v;
         }));
-    return ite.Value();
+    return ite.first->second;
 }
 uint RenderTexture::GetGlobalUAVIndex(uint mipLevel) const {
-    if (!allowUav) return std::numeric_limits<uint>::max();
+    assert(allowUav);
     mipLevel = std::min<uint>(mipLevel, mip - 1);
     std::lock_guard lck(allocMtx);
-    uavIdcs.New();
-    auto ite = uavIdcs->Emplace(
+    auto ite = uavIdcs.try_emplace(
         mipLevel,
-        vstd::LazyEval([&]() -> uint {
+        vstd::lazy_eval([&]() -> uint {
             auto v = device->globalHeap->AllocateIndex();
             device->globalHeap->CreateUAV(
                 GetResource(),
@@ -187,19 +185,15 @@ uint RenderTexture::GetGlobalUAVIndex(uint mipLevel) const {
                 v);
             return v;
         }));
-    return ite.Value();
+    return ite.first->second;
 }
 RenderTexture::~RenderTexture() {
     auto &globalHeap = *device->globalHeap.get();
-    if (uavIdcs) {
-        for (auto &&i : *uavIdcs) {
-            globalHeap.ReturnIndex(i.second);
-        }
+    for (auto &&i : uavIdcs) {
+        globalHeap.ReturnIndex(i.second);
     }
-    if (srvIdcs) {
-        for (auto &&i : *srvIdcs) {
-            globalHeap.ReturnIndex(i.second);
-        }
+    for (auto &&i : srvIdcs) {
+        globalHeap.ReturnIndex(i.second);
     }
 }
 TexView::TexView(

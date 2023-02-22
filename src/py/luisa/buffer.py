@@ -232,7 +232,7 @@ def from_bytes(dtype, packed):
 
 class DispatchIndirectBuffer:
     def __init__(self, size: int):
-        self.dtype = CustomType("IndirectKernelDispatch")
+        self.dtype = CustomType("DispatchArgs")
         self.bufferType = IndirectBufferType(self.dtype)
         self.clear = self.bufferType.clear
         self.emplace = self.bufferType.emplace

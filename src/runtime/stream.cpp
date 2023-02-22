@@ -41,17 +41,12 @@ Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
 
 void Stream::_synchronize() noexcept { device()->synchronize_stream(handle()); }
 
-Stream &Stream::operator<<(Event::Signal signal) noexcept {
+Stream &Stream::operator<<(Event::Signal &&signal) noexcept {
     device()->signal_event(signal.handle, handle());
     return *this;
 }
-Stream &Stream::operator<<(Event::Wait wait) noexcept {
+Stream &Stream::operator<<(Event::Wait &&wait) noexcept {
     device()->wait_event(wait.handle, handle());
-    return *this;
-}
-
-Stream &Stream::operator<<(CommandBuffer::Synchronize) noexcept {
-    _synchronize();
     return *this;
 }
 
@@ -76,32 +71,28 @@ Stream::Delegate &&Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(Event::Signal signal) &&noexcept {
-    _commit();
-    *_stream << signal;
+Stream::Delegate &&Stream::Delegate::operator<<(CommandList::Commit &&commit) &&noexcept {
+    if (!commit.cmd_list.empty()) [[likely]] {
+        _stream->_dispatch(std::move(commit.cmd_list));
+    }
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(Event::Wait wait) &&noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(Event::Signal &&signal) &&noexcept {
     _commit();
-    *_stream << wait;
+    *_stream << std::move(signal);
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Synchronize s) &&noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(Event::Wait &&wait) &&noexcept {
     _commit();
-    *_stream << s;
+    *_stream << std::move(wait);
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(SwapChain::Present p) &&noexcept {
+Stream::Delegate &&Stream::Delegate::operator<<(SwapChain::Present &&p) &&noexcept {
     _commit();
-    *_stream << p;
-    return std::move(*this);
-}
-
-Stream::Delegate &&Stream::Delegate::operator<<(CommandBuffer::Commit) &&noexcept {
-    _commit();
+    *_stream << std::move(p);
     return std::move(*this);
 }
 
@@ -110,7 +101,7 @@ Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()
     return std::move(*this);
 }
 
-Stream &Stream::operator<<(SwapChain::Present p) noexcept {
+Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
 #ifndef NDEBUG
     if (_stream_tag != StreamTag::GRAPHICS) {
         LUISA_ERROR("Present only allowed in stream of graphics type!");
@@ -122,6 +113,13 @@ Stream &Stream::operator<<(SwapChain::Present p) noexcept {
 
 Stream &Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {
     _callbacks.emplace_back(std::move(f));
+    return *this;
+}
+
+Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
+    if (!commit.cmd_list.empty()) [[likely]] {
+        _dispatch(std::move(commit.cmd_list));
+    }
     return *this;
 }
 

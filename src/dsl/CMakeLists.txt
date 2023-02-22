@@ -13,7 +13,8 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             rtx/triangle.h)
 
     set(LUISA_COMPUTE_DSL_RASTER_SOURCES
-            raster/draw_indirect.h)
+            raster/draw_indirect.h
+            raster/raster_kernel.h)
 
     set(LUISA_COMPUTE_DSL_SOURCES
             arg.h
@@ -41,8 +42,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             syntax.h
             var.h
             ${LUISA_COMPUTE_DSL_RTX_SOURCES}
-#            ${LUISA_COMPUTE_DSL_RASTER_SOURCES}
-            )
+            ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
 
     add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
     target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime)

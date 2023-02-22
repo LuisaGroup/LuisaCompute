@@ -2,7 +2,6 @@
 
 #include <vstl/common.h>
 #include <vstl/functional.h>
-#include <runtime/command_buffer.h>
 #include <runtime/stream.h>
 #include <runtime/device.h>
 
@@ -11,7 +10,7 @@ namespace luisa::compute {
 class PyStream : public vstd::IOperatorNewBase {
     struct Disposer {
         void *ptr;
-        vstd::funcPtr_t<void(void *ptr)> dtor;
+        vstd::func_ptr_t<void(void *ptr)> dtor;
         Disposer() noexcept {}
         Disposer(Disposer &&d) noexcept {
             ptr = d.ptr;
@@ -27,7 +26,7 @@ class PyStream : public vstd::IOperatorNewBase {
 
     struct Data : public vstd::IOperatorNewBase {
         Stream stream;
-        CommandBuffer buffer;
+        CommandList buffer;
         vstd::vector<Disposer> uploadDisposer;
         // vstd::vector<Disposer> readbackDisposer;
         Data(Device &device, bool support_window) noexcept;

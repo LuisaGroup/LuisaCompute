@@ -1,4 +1,4 @@
-#include <DXApi/ext.h>
+#include "../ext.h"
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/Device.h>
 #include <Resource/RenderTexture.h>
@@ -6,6 +6,7 @@
 #include <runtime/stream.h>
 #include <Resource/ExternalBuffer.h>
 #include <Resource/ExternalTexture.h>
+#include <Resource/ExternalDepth.h>
 namespace toolhub::directx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
@@ -62,6 +63,9 @@ TexCompressExt::Result DxTexCompressExt::check_builtin_shader() noexcept {
     if (!device->bc7EncodeBlock.Check(device)) return Result::Failed;
     return Result::Success;
 }
+DxNativeResourceExt::DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device)
+    : NativeResourceExt{lc_device}, dx_device{dx_device} {
+}
 BufferCreationInfo DxNativeResourceExt::register_external_buffer(
     void *external_ptr,
     const Type *element,
@@ -85,17 +89,41 @@ ResourceCreationInfo DxNativeResourceExt::register_external_image(
     uint mipmap_levels,
     void *custom_data) noexcept {
     auto desc = reinterpret_cast<NativeTextureDesc const *>(custom_data);
+    GFXFormat gfxFormat;
+    if (desc->custom_format == DXGI_FORMAT_UNKNOWN) {
+        gfxFormat = TextureBase::ToGFXFormat(format);
+    } else {
+        gfxFormat = static_cast<GFXFormat>(desc->custom_format);
+    }
     auto res = static_cast<TextureBase *>(new ExternalTexture(
         dx_device,
         reinterpret_cast<ID3D12Resource *>(external_ptr),
         desc->initState,
         width,
         height,
-        TextureBase::ToGFXFormat(format),
+        gfxFormat,
         (TextureDimension)dimension,
         depth,
         mipmap_levels,
         desc->allowUav));
+    return {
+        reinterpret_cast<uint64_t>(res),
+        external_ptr};
+}
+ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
+    void *external_ptr,
+    DepthFormat format,
+    uint width,
+    uint height,
+    // custom data see backends' header
+    void *custom_data) noexcept {
+    auto res = static_cast<TextureBase *>(new ExternalDepth(
+        reinterpret_cast<ID3D12Resource *>(external_ptr),
+        dx_device,
+        width,
+        height,
+        format,
+        *reinterpret_cast<D3D12_RESOURCE_STATES const *>(custom_data)));
     return {
         reinterpret_cast<uint64_t>(res),
         external_ptr};

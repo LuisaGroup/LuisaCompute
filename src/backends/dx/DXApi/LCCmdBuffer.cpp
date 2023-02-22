@@ -1,7 +1,7 @@
 #include <DXApi/LCCmdBuffer.h>
 #include <DXApi/LCDevice.h>
 #include <runtime/command.h>
-#include <runtime/command_buffer.h>
+#include <runtime/command_list.h>
 #include "HLSL/dx_codegen.h"
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
@@ -607,7 +607,7 @@ public:
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         vstd::optional<BufferView> scratch;
         if (cmd->build_accel()) {
-            scratch.New(BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second));
+            scratch.create(BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second));
             if (accel->RequireCompact()) {
                 updateAccel->emplace_back(ButtomCompactCmd{
                     .accel = accel,
@@ -619,7 +619,7 @@ public:
         accel->Build(
             *stateTracker,
             *bd,
-            scratch.has_value() ? scratch.GetPtr() : nullptr);
+            scratch.has_value() ? scratch.ptr() : nullptr);
     }
     void BottomBuild(uint64 handle) {
         auto accel = reinterpret_cast<BottomAccel *>(handle);
@@ -654,17 +654,7 @@ public:
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept override {
         bindProps->clear();
-        auto shader = reinterpret_cast<RasterShader const *>(cmd->handle());
-        auto &&tempBuffer = *bufferVec;
-        bufferVec++;
-        bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
-        if (tempBuffer.second > 0) {
-            bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
-        }
-        DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
-        vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
-        DecodeCmd(*cmd, Visitor{this, shader->Args().data()});
-        bd->SetRasterShader(shader, *bindProps);
+
         auto cmdList = bd->GetCB()->CmdList();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
@@ -734,6 +724,17 @@ public:
             }
             cmdList->OMSetRenderTargets(rtvs.size(), &rtvHandle, true, dsvHandlePtr);
         }
+        auto shader = reinterpret_cast<RasterShader const *>(cmd->handle());
+        auto &&tempBuffer = *bufferVec;
+        bufferVec++;
+        bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
+        if (tempBuffer.second > 0) {
+            bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
+        }
+        DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
+        vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
+        DecodeCmd(*cmd, Visitor{this, shader->Args().data()});
+        bd->SetRasterShader(shader, *bindProps);
         cmdList->IASetPrimitiveTopology([&] {
             switch (shader->TopoType()) {
                 case TopologyType::Line:
@@ -827,7 +828,7 @@ void LCCmdBuffer::Execute(
         visitor.bd = &cmdBuilder;
         ppVisitor.bd = &cmdBuilder;
 
-        auto commands = cmdList.steal_commands();
+        auto commands = std::move(cmdList).steal_commands();
         for (auto &&command : commands) {
             command->accept(reorder);
         }

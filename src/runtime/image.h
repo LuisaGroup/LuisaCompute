@@ -68,6 +68,10 @@ private:
 public:
     Image() noexcept = default;
     using Resource::operator bool;
+    Image(Image &&) noexcept = default;
+    Image(Image const &) noexcept = delete;
+    Image &operator=(Image &&) noexcept = default;
+    Image &operator=(Image const &) noexcept = delete;
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {
         size_t byte_size = 0;

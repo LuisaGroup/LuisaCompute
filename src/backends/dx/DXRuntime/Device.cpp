@@ -72,10 +72,10 @@ Device::LazyLoadShader::~LazyLoadShader() {}
 
 Device::LazyLoadShader::LazyLoadShader(LoadFunc loadFunc) : loadFunc(loadFunc) {}
 Device::~Device() {
-    //lcmdSig.Delete();
+    //lcmdSig.destroy();
     std::lock_guard lck(gDxcMutex);
     if (--gDxcRefCount == 0) {
-        gDxcCompiler.Delete();
+        gDxcCompiler.destroy();
     }
 }
 
@@ -216,7 +216,7 @@ Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settin
     {
         std::lock_guard lck(gDxcMutex);
         if (gDxcRefCount == 0)
-            gDxcCompiler.New(ctx.paths().runtime_directory());
+            gDxcCompiler.create(ctx.paths().runtime_directory());
         gDxcRefCount++;
     }
 }

@@ -30,7 +30,7 @@ static vstd::wstring GetSM(uint shaderModel) {
 IDxcCompiler3 *ShaderCompiler::Compiler() {
     std::lock_guard lck{moduleInstantiateMtx};
     if (module) return module->comp.Get();
-    module.New(path);
+    module.create(path);
     return module->comp.Get();
 }
 ShaderCompiler::~ShaderCompiler() {}

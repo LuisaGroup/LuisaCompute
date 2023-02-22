@@ -25,8 +25,8 @@ class Type;
 struct AccelOption;
 
 class DeviceExtension {
-public:
-    virtual ~DeviceExtension() noexcept = default;
+protected:
+    ~DeviceExtension() noexcept = default;
 };
 
 class DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {

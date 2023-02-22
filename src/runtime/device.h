@@ -106,7 +106,7 @@ public:
     template<typename Ext = DeviceExtension>
         requires std::derived_from<Ext, DeviceExtension>
     [[nodiscard]] auto extension(luisa::string_view name) const noexcept {
-        return dynamic_cast<Ext *>(_impl->extension(name));
+        return static_cast<Ext *>(_impl->extension(name));
     }
     // see definition in runtime/stream.cpp
     [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;

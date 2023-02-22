@@ -24,7 +24,7 @@ void ResourceStateTracker::RecordState(
     bool isWrite = detail::IsWriteState(state);
     auto ite = stateMap.try_emplace(
         resource,
-        vstd::LazyEval([&] {
+        vstd::lazy_eval([&] {
             newAdd = true;
             if (isWrite) {
                 writeStateMap.emplace(resource);

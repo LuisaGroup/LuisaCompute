@@ -54,7 +54,7 @@ public:
     Pool(Pool const &o) = delete;
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    T *New(Args &&...args) {
+    T *create(Args &&...args) {
         AllocateMemory();
         T *value = allPtrs.back();
         allPtrs.pop_back();
@@ -97,7 +97,7 @@ public:
         return value;
     }
 
-    void Delete(T *ptr) {
+    void destroy(T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
             destruct(ptr);
         allPtrs.push_back(ptr);
@@ -213,7 +213,7 @@ public:
 
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    T *New(Args &&...args) {
+    T *create(Args &&...args) {
         AllocateMemory();
         T *value = allPtrs.back();
         allPtrs.pop_back();
@@ -260,7 +260,7 @@ public:
         return value;
     }
 
-    void Delete(T *ptr) {
+    void destroy(T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
             destruct(ptr);
         RemoveAllocatedObject(ptr);
@@ -317,7 +317,7 @@ public:
         objectSwitcher = !objectSwitcher;
     }
 
-    inline void Delete(T *targetPtr) {
+    inline void destroy(T *targetPtr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
             destruct(targetPtr);
         Array *arr = unusedObjects + !objectSwitcher;
@@ -336,7 +336,7 @@ public:
         arr->objs[currentCount] = (StorageT *)targetPtr;
     }
     template<typename... Args>
-    T *New(Args &&...args) {
+    T *create(Args &&...args) {
         Array *arr = unusedObjects + objectSwitcher;
         int64_t currentCount = --arr->count;
         T *t;
@@ -407,7 +407,7 @@ public:
         switcher = !switcher;
     }
 
-    T *New() {
+    T *create() {
         vector<T *> &lst = list[switcher];
         if (lst.empty()) ReserveList(lst);
         T *value = lst.back();
@@ -416,7 +416,7 @@ public:
         return value;
     }
 
-    void Delete(T *value) {
+    void destroy(T *value) {
         vector<T *> &lst = list[!switcher];
         value->Dispose();
         std::lock_guard<spin_mutex> lck(mtx);

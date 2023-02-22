@@ -54,7 +54,7 @@ public:
     mutable SerializeVisitor serVisitor;
     struct LazyLoadShader {
     public:
-        using LoadFunc = vstd::funcPtr_t<ComputeShader *(Device *, luisa::compute::BinaryIO *)>;
+        using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::compute::BinaryIO *)>;
 
     private:
         vstd::unique_ptr<ComputeShader> shader;

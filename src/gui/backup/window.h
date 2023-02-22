@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include <span>
+// #include <span>
 #include <array>
-#include <functional>
+// #include <functional>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>

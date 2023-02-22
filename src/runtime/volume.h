@@ -59,6 +59,10 @@ private:
 public:
     Volume() noexcept = default;
     using Resource::operator bool;
+    Volume(Volume &&) noexcept = default;
+    Volume(Volume const &) noexcept = delete;
+    Volume &operator=(Volume &&) noexcept = default;
+    Volume &operator=(Volume const &) noexcept = delete;
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {

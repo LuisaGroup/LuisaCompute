@@ -24,23 +24,25 @@ private:
     luisa::vector<luisa::vector<VertexAttribute>> _streams;
 
 public:
-    MeshFormat() {}
-    MeshFormat(MeshFormat &&) = default;
-    MeshFormat(MeshFormat const &) = default;
-    size_t vertex_attribute_count() const {
+    MeshFormat() noexcept {}
+    MeshFormat(MeshFormat &&) noexcept = default;
+    MeshFormat(MeshFormat const &) noexcept = default;
+    MeshFormat &operator=(MeshFormat &&) noexcept = default;
+    MeshFormat &operator=(MeshFormat const &) noexcept = default;
+    size_t vertex_attribute_count() const noexcept {
         size_t count = 0;
         for (auto &&i : _streams) {
             count += i.size();
         }
         return count;
     }
-    size_t vertex_stream_count() const { return _streams.size(); }
-    void emplace_vertex_stream(luisa::span<VertexAttribute const> attributes) {
+    size_t vertex_stream_count() const noexcept { return _streams.size(); }
+    void emplace_vertex_stream(luisa::span<VertexAttribute const> attributes) noexcept {
         _streams.emplace_back(attributes.begin(), attributes.end());
     }
-    luisa::span<VertexAttribute const> attributes(size_t stream_index) const { return _streams[stream_index]; }
-    decltype(auto) begin() const { return _streams.begin(); }
-    decltype(auto) end() const { return _streams.end(); }
+    luisa::span<VertexAttribute const> attributes(size_t stream_index) const noexcept { return _streams[stream_index]; }
+    decltype(auto) begin() const noexcept { return _streams.begin(); }
+    decltype(auto) end() const noexcept { return _streams.end(); }
 };
 
 enum class FillMode : uint8_t {

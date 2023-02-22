@@ -18,6 +18,11 @@ private:
 
 public:
     ProceduralPrimitive() noexcept = default;
+    ProceduralPrimitive(ProceduralPrimitive &&) noexcept = default;
+    ProceduralPrimitive(ProceduralPrimitive const &) noexcept = delete;
+    ProceduralPrimitive &operator=(ProceduralPrimitive &&) noexcept = default;
+    ProceduralPrimitive &operator=(ProceduralPrimitive const &) noexcept = delete;
+
     using Resource::operator bool;
     [[nodiscard]] luisa::unique_ptr<Command> build(AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
     [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }

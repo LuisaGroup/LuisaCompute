@@ -52,7 +52,7 @@ StructGenerator *CodegenStackData::CreateStruct(Type const *t) {
     StructGenerator *newPtr;
     auto ite = customStruct.try_emplace(
         t,
-        vstd::LazyEval([&] {
+        vstd::lazy_eval([&] {
             newPtr = new StructGenerator(
                 t,
                 structCount++);
@@ -75,7 +75,7 @@ std::pair<uint64, bool> CodegenStackData::GetConstCount(uint64 data) {
     bool newValue = false;
     auto ite = constTypes.try_emplace(
         data,
-        vstd::LazyEval(
+        vstd::lazy_eval(
             [&] {
                 newValue = true;
                 return constCount++;
@@ -86,7 +86,7 @@ std::pair<uint64, bool> CodegenStackData::GetConstCount(uint64 data) {
 uint64 CodegenStackData::GetFuncCount(void const* data) {
     auto ite = funcTypes.try_emplace(
         data,
-        vstd::LazyEval(
+        vstd::lazy_eval(
             [&] {
                 return funcCount++;
             }));
@@ -95,7 +95,7 @@ uint64 CodegenStackData::GetFuncCount(void const* data) {
 uint64 CodegenStackData::GetTypeCount(Type const *t) {
     auto ite = structTypes.try_emplace(
         t,
-        vstd::LazyEval(
+        vstd::lazy_eval(
             [&] {
                 return count++;
             }));

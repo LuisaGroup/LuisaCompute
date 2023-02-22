@@ -4,8 +4,8 @@
 namespace toolhub::directx {
 class ExternalTexture final : public TextureBase {
 private:
-    mutable vstd::optional<vstd::HashMap<uint, uint>> uavIdcs;
-    mutable vstd::optional<vstd::HashMap<uint, uint>> srvIdcs;
+    mutable vstd::unordered_map<uint, uint> uavIdcs;
+    mutable vstd::unordered_map<uint, uint> srvIdcs;
     mutable std::mutex allocMtx;
     ID3D12Resource *resource;
     D3D12_RESOURCE_STATES initState;

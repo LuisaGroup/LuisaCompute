@@ -16,7 +16,7 @@
 #include <Resource/TopAccel.h>
 #include <vstl/binary_reader.h>
 #include <DXApi/LCSwapChain.h>
-#include <DXApi/ext.h>
+#include "../ext.h"
 #include "HLSL/dx_codegen.h"
 #include <ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
@@ -32,12 +32,22 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       shaderPaths{_ctx.paths().cache_directory(), _ctx.paths().data_directory() / "dx_builtin", _ctx.paths().runtime_directory()},
       nativeDevice(_ctx, shaderPaths, settings) {
-    exts.try_emplace("TexCompressExt"sv, [](LCDevice *device) -> DeviceExtension * {
-        return new DxTexCompressExt(&device->nativeDevice);
-    });
-    exts.try_emplace("NativeResourceExt"sv, [](LCDevice *device) -> DeviceExtension * {
-        return new DxNativeResourceExt(device, &device->nativeDevice);
-    });
+    exts.try_emplace(
+        "TexCompressExt"sv,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxTexCompressExt(&device->nativeDevice);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxTexCompressExt *>(ext);
+        });
+    exts.try_emplace(
+        "NativeResourceExt"sv,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxNativeResourceExt(device, &device->nativeDevice);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxNativeResourceExt *>(ext);
+        });
 }
 LCDevice::~LCDevice() {
 }
@@ -442,10 +452,10 @@ DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
     {
         std::lock_guard lck{extMtx};
         if (v.ext == nullptr) {
-            v.ext = vstd::create_unique(v.get_ext(this));
+            v.ext = v.ctor(this);
         }
     }
-    return v.ext.get();
+    return v.ext;
 }
 
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {

@@ -43,7 +43,7 @@ public:
         new (this) SelfType(std::move(v));
     }
     LockFreeArrayQueue() : LockFreeArrayQueue(64) {}
-    void Reserve(size_t newCapa) {
+    void reserve(size_t newCapa) {
         std::lock_guard<spin_mutex> lck(mtx);
         size_t index = head;
         if (newCapa > capacity) {
@@ -61,7 +61,7 @@ public:
         }
     }
     template<typename... Args>
-    void Push(Args &&...args) {
+    void push(Args &&...args) {
         std::lock_guard<spin_mutex> lck(mtx);
         size_t index = head++;
         if (head - tail > capacity) {
@@ -80,7 +80,7 @@ public:
         new (arr + GetIndex(index, capacity)) T{std::forward<Args>(args)...};
     }
     template<typename... Args>
-    bool TryPush(Args &&...args) {
+    bool try_push(Args &&...args) {
         std::unique_lock<spin_mutex> lck(mtx, std::try_to_lock);
         if (!lck.owns_lock()) return false;
         size_t index = head++;
@@ -100,7 +100,7 @@ public:
         new (arr + GetIndex(index, capacity)) T{std::forward<Args>(args)...};
         return true;
     }
-    bool Pop(T *ptr) {
+    bool pop(T *ptr) {
         vstd::destruct(ptr);
         std::lock_guard<spin_mutex> lck(mtx);
         if (head == tail)
@@ -114,7 +114,7 @@ public:
         vstd::destruct(&value);
         return true;
     }
-    optional<T> Pop() {
+    optional<T> pop() {
         mtx.lock();
         if (head == tail) {
             mtx.unlock();
@@ -127,7 +127,7 @@ public:
         });
         return optional<T>(std::move(*value));
     }
-    optional<T> TryPop() {
+    optional<T> try_pop() {
         std::unique_lock<spin_mutex> lck(mtx, std::try_to_lock);
         if (!lck.owns_lock() || head == tail) {
             return optional<T>();
@@ -144,7 +144,7 @@ public:
         }
         Allocator().Free(arr);
     }
-    size_t Length() const {
+    size_t length() const {
         std::lock_guard<spin_mutex> lck(mtx);
         return head - tail;
     }
@@ -164,7 +164,7 @@ class SingleThreadArrayQueue {
     using SelfType = SingleThreadArrayQueue<T, allocType>;
 
 public:
-    size_t Length() const {
+    size_t length() const {
         return tail - head;
     }
     SingleThreadArrayQueue(SelfType &&v)
@@ -187,7 +187,7 @@ public:
     SingleThreadArrayQueue() : SingleThreadArrayQueue(32) {}
 
     template<typename... Args>
-    void Push(Args &&...args) {
+    void push(Args &&...args) {
         size_t index = head++;
         if (head - tail > capacity) {
             auto newCapa = (capacity + 1) * 2;
@@ -204,7 +204,7 @@ public:
         }
         new (arr + GetIndex(index, capacity)) T{std::forward<Args>(args)...};
     }
-    bool Pop(T *ptr) {
+    bool pop(T *ptr) {
         vstd::destruct(ptr);
 
         if (head == tail)
