@@ -141,7 +141,19 @@ impl StreamImpl {
                         let data = cmd.data;
                         std::ptr::copy_nonoverlapping(buffer.data.add(offset), data, size);
                     }
-                    luisa_compute_api_types::Command::BufferCopy(_) => todo!(),
+                    luisa_compute_api_types::Command::BufferCopy(cmd) => {
+                        let src = &*(cmd.src.0 as *mut BufferImpl);
+                        let dst = &*(cmd.dst.0 as *mut BufferImpl);
+                        assert_ne!(src.data, dst.data);
+                        let src_offset = cmd.src_offset;
+                        let dst_offset = cmd.dst_offset;
+                        let size = cmd.size;
+                        std::ptr::copy_nonoverlapping(
+                            src.data.add(src_offset),
+                            dst.data.add(dst_offset),
+                            size,
+                        );
+                    },
                     luisa_compute_api_types::Command::BufferToTextureCopy(_) => todo!(),
                     luisa_compute_api_types::Command::TextureToBufferCopy(_) => todo!(),
                     luisa_compute_api_types::Command::TextureUpload(_) => todo!(),
