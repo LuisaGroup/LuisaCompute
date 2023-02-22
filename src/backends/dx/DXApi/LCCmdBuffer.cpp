@@ -1,7 +1,7 @@
 #include <DXApi/LCCmdBuffer.h>
 #include <DXApi/LCDevice.h>
 #include <runtime/command.h>
-#include <runtime/command_buffer.h>
+#include <runtime/command_list.h>
 #include "HLSL/dx_codegen.h"
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
@@ -828,7 +828,7 @@ void LCCmdBuffer::Execute(
         visitor.bd = &cmdBuilder;
         ppVisitor.bd = &cmdBuilder;
 
-        auto commands = cmdList.steal_commands();
+        auto commands = std::move(cmdList).steal_commands();
         for (auto &&command : commands) {
             command->accept(reorder);
         }
