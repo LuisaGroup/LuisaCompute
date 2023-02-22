@@ -75,6 +75,7 @@ Stream::Delegate &&Stream::Delegate::operator<<(CommandList::Commit &&commit) &&
     if (!commit.cmd_list.empty()) [[likely]] {
         _stream->_dispatch(std::move(commit.cmd_list));
     }
+    return std::move(*this);
 }
 
 Stream::Delegate &&Stream::Delegate::operator<<(Event::Signal &&signal) &&noexcept {
@@ -119,6 +120,7 @@ Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
     if (!commit.cmd_list.empty()) [[likely]] {
         _dispatch(std::move(commit.cmd_list));
     }
+    return *this;
 }
 
 }// namespace luisa::compute
