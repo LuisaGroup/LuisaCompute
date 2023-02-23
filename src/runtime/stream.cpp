@@ -53,7 +53,7 @@ Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 void Stream::Delegate::_commit() noexcept {
-    if (!_command_list.empty()) [[likely]] {
+    if (!_command_list.empty()) {
         _stream->_dispatch(std::move(_command_list));
     }
 }
@@ -91,6 +91,12 @@ Stream::Delegate &&Stream::Delegate::operator<<(SwapChain::Present &&p) &&noexce
     return std::move(*this);
 }
 
+Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) &&noexcept {
+    _commit();
+    *_stream << std::move(f);
+    return std::move(*this);
+}
+
 Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
 #ifndef NDEBUG
     if (_stream_tag != StreamTag::GRAPHICS) {
@@ -99,11 +105,6 @@ Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
 #endif
     device()->present_display_in_stream(handle(), p.chain->handle(), p.frame.handle());
     return *this;
-}
-
-Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) &&noexcept {
-    _command_list << std::move(f);
-    return std::move(*this);
 }
 
 Stream &Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {
