@@ -827,7 +827,7 @@ void LCCmdBuffer::Execute(
         visitor.bd = &cmdBuilder;
         ppVisitor.bd = &cmdBuilder;
 
-        auto commands = std::move(cmdList).steal_commands();
+        auto commands = std::move(cmdList).commands();
         for (auto &&command : commands) {
             command->accept(reorder);
         }

@@ -20,9 +20,11 @@ CommandList::~CommandList() noexcept {
 }
 CommandList &CommandList::operator<<(luisa::move_only_function<void()> &&callback) noexcept {
     _callbacks.emplace_back(std::move(callback));
+    return *this;
 }
-void CommandList::reserve(size_t size) noexcept {
-    _commands.reserve(size);
+void CommandList::reserve(size_t command_size, size_t callback_size) noexcept {
+    _commands.reserve(command_size);
+    _callbacks.reserve(callback_size);
 }
 void CommandList::clear() noexcept {
     _commands.clear();

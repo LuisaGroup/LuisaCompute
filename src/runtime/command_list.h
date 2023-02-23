@@ -44,11 +44,12 @@ public:
     ~CommandList() noexcept;
     CommandList(CommandList &&) noexcept = default;
     CommandList &operator=(CommandList &&rhs) noexcept = default;
-    void reserve(size_t size) noexcept;
+    void reserve(size_t command_size, size_t callback_size) noexcept;
     CommandList &operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
     CommandList &operator<<(luisa::move_only_function<void()> &&callback) noexcept;
     void clear() noexcept;
     [[nodiscard]] auto commands() const noexcept { return luisa::span<const luisa::unique_ptr<Command>>{_commands}; }
+    [[nodiscard]] auto callbacks() const noexcept { return luisa::span<const luisa::move_only_function<void()>>{_callbacks}; }
     [[nodiscard]] auto &&steal_commands() &&noexcept { return std::move(_commands); }
     [[nodiscard]] auto &&steal_callbacks() &&noexcept { return std::move(_callbacks); }
     [[nodiscard]] auto empty() const noexcept { return _commands.empty() && _callbacks.empty(); }
