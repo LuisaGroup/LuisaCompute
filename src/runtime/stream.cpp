@@ -29,6 +29,7 @@ void Stream::_dispatch(CommandList &&list) noexcept {
     }
 #endif
     device()->dispatch(handle(), std::move(list));
+    list.clear();
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
