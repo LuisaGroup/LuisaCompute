@@ -71,8 +71,8 @@ public:
     [[nodiscard]] virtual ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept = 0;
     virtual void destroy_stream(uint64_t handle) noexcept = 0;
     virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
-    virtual void dispatch(uint64_t stream_handle, CommandList &&list) noexcept = 0;
-    virtual void dispatch(uint64_t stream_handle, CommandList &&list, luisa::fixed_vector<luisa::move_only_function<void()>, 1> &&callback) noexcept = 0;
+    virtual void dispatch(
+        uint64_t stream_handle, CommandList &&list) noexcept = 0;
 
     // swap chain
 

@@ -53,7 +53,6 @@ public:
 
 private:
     //luisa::unique_ptr<CommandScheduler> _scheduler;
-    luisa::fixed_vector<luisa::move_only_function<void()>, 1> _callbacks;
     friend class Device;
     StreamTag _stream_tag;
     void _dispatch(CommandList &&command_buffer) noexcept;

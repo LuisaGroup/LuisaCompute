@@ -60,7 +60,6 @@ public:
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override;
-    void dispatch(uint64_t stream_handle, CommandList &&list, fixed_vector<move_only_function<void()>, 1> &&func) noexcept override;
 
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;

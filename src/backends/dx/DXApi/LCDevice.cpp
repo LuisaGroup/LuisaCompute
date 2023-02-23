@@ -167,13 +167,9 @@ void LCDevice::destroy_stream(uint64 handle) noexcept {
 void LCDevice::synchronize_stream(uint64 stream_handle) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)->Sync();
 }
-void LCDevice::dispatch(uint64 stream_handle, CommandList &&list, fixed_vector<move_only_function<void()>, 1> &&func) noexcept {
-    reinterpret_cast<LCCmdBuffer *>(stream_handle)
-        ->Execute(std::move(list), nativeDevice.maxAllocatorCount, &func);
-}
 void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
     reinterpret_cast<LCCmdBuffer *>(stream_handle)
-        ->Execute(std::move(list), nativeDevice.maxAllocatorCount, nullptr);
+        ->Execute(std::move(list), nativeDevice.maxAllocatorCount);
 }
 
 void LCDevice::set_io(BinaryIO *visitor) noexcept {

@@ -62,8 +62,7 @@ public:
         D3D12_COMMAND_LIST_TYPE type);
     void Execute(
         CommandList &&cmdList,
-        size_t maxAlloc,
-        luisa::fixed_vector<luisa::move_only_function<void()>, 1> *func);
+        size_t maxAlloc);
     void Sync();
     void Present(
         LCSwapChain *swapchain,

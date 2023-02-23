@@ -798,8 +798,7 @@ LCCmdBuffer::LCCmdBuffer(
 }
 void LCCmdBuffer::Execute(
     CommandList &&cmdList,
-    size_t maxAlloc,
-    luisa::fixed_vector<luisa::move_only_function<void()>, 1> *func) {
+    size_t maxAlloc) {
     auto allocator = queue.CreateAllocator(maxAlloc);
     tracker.listType = allocator->Type();
     bool cmdListIsEmpty = true;
@@ -919,16 +918,17 @@ void LCCmdBuffer::Execute(
         }
         tracker.RestoreState(cmdBuilder);
     }
-    if (func) {
-        if (cmdListIsEmpty)
-            queue.ExecuteEmptyCallbacks(std::move(allocator), std::move(*func));
-        else
-            lastFence = queue.ExecuteCallbacks(std::move(allocator), std::move(*func));
-    } else {
+    auto &&funcs = std::move(cmdList).steal_callbacks();
+    if (funcs.empty()) {
         if (cmdListIsEmpty)
             queue.ExecuteEmpty(std::move(allocator));
         else
             lastFence = queue.Execute(std::move(allocator));
+    } else {
+        if (cmdListIsEmpty)
+            queue.ExecuteEmptyCallbacks(std::move(allocator), std::move(funcs));
+        else
+            lastFence = queue.ExecuteCallbacks(std::move(allocator), std::move(funcs));
     }
 }
 void LCCmdBuffer::Sync() {

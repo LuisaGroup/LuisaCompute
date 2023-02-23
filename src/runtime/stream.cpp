@@ -15,7 +15,7 @@ Stream Device::create_stream(StreamTag stream_tag) noexcept {
 
 void Stream::_dispatch(CommandList &&list) noexcept {
 #ifndef NDEBUG
-    for (auto &&i : list) {
+    for (auto &&i : list.commands()) {
         if (static_cast<uint32_t>(i->stream_tag()) < static_cast<uint32_t>(_stream_tag)) {
             auto kNames = {
                 "graphics",
@@ -28,11 +28,7 @@ void Stream::_dispatch(CommandList &&list) noexcept {
         }
     }
 #endif
-    if (_callbacks.empty()) {
-        device()->dispatch(handle(), std::move(list));
-    } else {
-        device()->dispatch(handle(), std::move(list), std::move(_callbacks));
-    }
+    device()->dispatch(handle(), std::move(list));
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
@@ -67,14 +63,13 @@ Stream::Delegate::Delegate(Stream::Delegate &&s) noexcept
       _command_list{std::move(s._command_list)} { s._stream = nullptr; }
 
 Stream::Delegate &&Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd) &&noexcept {
-    _command_list.append(std::move(cmd));
+    _command_list << std::move(cmd);
     return std::move(*this);
 }
 
 Stream::Delegate &&Stream::Delegate::operator<<(CommandList::Commit &&commit) &&noexcept {
-    if (!commit.cmd_list.empty()) [[likely]] {
-        _stream->_dispatch(std::move(commit.cmd_list));
-    }
+    _commit();
+    *_stream << std::move(commit);
     return std::move(*this);
 }
 
@@ -96,11 +91,6 @@ Stream::Delegate &&Stream::Delegate::operator<<(SwapChain::Present &&p) &&noexce
     return std::move(*this);
 }
 
-Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) &&noexcept {
-    *_stream << std::move(f);
-    return std::move(*this);
-}
-
 Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
 #ifndef NDEBUG
     if (_stream_tag != StreamTag::GRAPHICS) {
@@ -111,8 +101,15 @@ Stream &Stream::operator<<(SwapChain::Present &&p) noexcept {
     return *this;
 }
 
+Stream::Delegate &&Stream::Delegate::operator<<(luisa::move_only_function<void()> &&f) &&noexcept {
+    _command_list << std::move(f);
+    return std::move(*this);
+}
+
 Stream &Stream::operator<<(luisa::move_only_function<void()> &&f) noexcept {
-    _callbacks.emplace_back(std::move(f));
+    CommandList cmd_list;
+    cmd_list << std::move(f);
+    _dispatch(std::move(cmd_list));
     return *this;
 }
 
