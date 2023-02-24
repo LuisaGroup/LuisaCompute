@@ -18,6 +18,9 @@ namespace luisa::compute {
 class LC_RUNTIME_API Stream final : public Resource {
 
 public:
+    struct Commit {};
+    struct Synchronize {};
+
     class LC_RUNTIME_API Delegate {
 
     private:
@@ -35,11 +38,13 @@ public:
         Delegate &&operator=(Delegate &&) noexcept = delete;
         Delegate &&operator=(const Delegate &) noexcept = delete;
         Delegate &&operator<<(luisa::unique_ptr<Command> &&cmd) &&noexcept;
-        Delegate &&operator<<(Event::Signal &&signal) &&noexcept;
-        Delegate &&operator<<(Event::Wait &&wait) &&noexcept;
         Delegate &&operator<<(luisa::move_only_function<void()> &&f) &&noexcept;
-        Delegate &&operator<<(SwapChain::Present &&present) &&noexcept;
-        Delegate &&operator<<(CommandList::Commit &&commit) &&noexcept;
+        Stream &operator<<(Event::Signal &&signal) &&noexcept;
+        Stream &operator<<(Event::Wait &&wait) &&noexcept;
+        Stream &operator<<(SwapChain::Present &&present) &&noexcept;
+        Stream &operator<<(CommandList::Commit &&commit) &&noexcept;
+        Stream &operator<<(Synchronize &&) &&noexcept;
+        Stream &operator<<(Commit &&) &&noexcept;
 
         // compound commands
         template<typename... T>
@@ -52,7 +57,6 @@ public:
     };
 
 private:
-    //luisa::unique_ptr<CommandScheduler> _scheduler;
     friend class Device;
     StreamTag _stream_tag;
     void _dispatch(CommandList &&command_buffer) noexcept;
@@ -66,13 +70,14 @@ public:
     Stream &operator=(Stream &&) noexcept = default;
     Stream &operator=(Stream const &) noexcept = delete;
     using Resource::operator bool;
+    Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
+    Delegate operator<<(luisa::move_only_function<void()> &&f) noexcept;
     Stream &operator<<(Event::Signal &&signal) noexcept;
     Stream &operator<<(Event::Wait &&wait) noexcept;
-    Stream &operator<<(luisa::move_only_function<void()> &&f) noexcept;
     Stream &operator<<(CommandList::Commit &&commit) noexcept;
-    Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
-    void synchronize() noexcept { _synchronize(); }
     Stream &operator<<(SwapChain::Present &&p) noexcept;
+    Stream &operator<<(Synchronize &&) noexcept;
+    void synchronize() noexcept { _synchronize(); }
     [[nodiscard]] auto stream_tag() const noexcept { return _stream_tag; }
 
     // compound commands
@@ -81,5 +86,8 @@ public:
         return Delegate{this} << std::move(args);
     }
 };
+
+[[nodiscard]] constexpr auto commit() noexcept { return Stream::Commit{}; }
+[[nodiscard]] constexpr auto synchronize() noexcept { return Stream::Synchronize{}; }
 
 }// namespace luisa::compute

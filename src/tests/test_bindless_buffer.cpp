@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
     // auto out_pixels = mipmaps.data();
 
     // generate mip-maps
-    auto cmd = stream.command_buffer();
+    auto cmd = CommandList::create();
     cmd << heap.emplace_on_update(0, texture).update()
         << texture.copy_from(image_pixels);
     // for (auto i = 1u; i < texture.mip_levels(); i++) {
@@ -95,10 +95,8 @@ int main(int argc, char *argv[]) {
     //     in_pixels = out_pixels;
     //     out_pixels += image_width * image_height * 4u;
     // }
-    cmd //<< event.signal()
-        << commit();
-    
-    stream << clear_image(device_image).dispatch(1024u, 1024u)
+    stream << cmd.commit()
+           << clear_image(device_image).dispatch(1024u, 1024u)
         //    << event.wait()
            << fill_image(heap, device_image).dispatch(1024u, 1024u)
            << device_image.copy_to(host_image.data())

@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
     auto out_pixels = mipmaps.data();
 
     // generate mip-maps
-    auto cmd = upload_stream.command_buffer();
+    auto cmd = CommandList::create();
     cmd << heap.emplace_on_update(0u, texture, Sampler::anisotropic_mirror()).update()
         << texture.copy_from(image_pixels);
 
@@ -93,14 +93,13 @@ int main(int argc, char *argv[]) {
         in_pixels = out_pixels;
         out_pixels += image_width * image_height * 4u;
     }
-    cmd << event.signal()
-        << commit();
+    upload_stream << cmd.commit()
+                  << event.signal();
 
     stream << clear_image(device_image).dispatch(1024u, 1024u)
            << event.wait()
            << fill_image(heap, device_image).dispatch(1024u, 1024u)
            << device_image.copy_to(host_image.data())
-           << event.signal()
            << synchronize();
 
     stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);

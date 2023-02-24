@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -453,30 +453,28 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     auto output_count = 0u;
     window.run([&] {
-        auto command_buffer = stream.command_buffer();
+        auto cmd_list = CommandList::create();
 
-        command_buffer << clear_shader(rendered_image).dispatch(resolution)
-                       << clear_shader(grad_image).dispatch(resolution)
-                       << copy_shader(seed_image, seed_bank_image).dispatch(resolution);
+        cmd_list << clear_shader(rendered_image).dispatch(resolution)
+                 << clear_shader(grad_image).dispatch(resolution)
+                 << copy_shader(seed_image, seed_bank_image).dispatch(resolution);
 
         // render
         for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
-            command_buffer << raytracing_shader_1(buffer_image, seed_image,
-                                                  accel, resolution)
-                                  .dispatch(resolution)
-                           << accumulate_shader(rendered_image, buffer_image).dispatch(resolution)
-                           << synchronize();
+            cmd_list << raytracing_shader_1(buffer_image, seed_image,
+                                            accel, resolution)
+                            .dispatch(resolution)
+                     << accumulate_shader(rendered_image, buffer_image).dispatch(resolution);
         }
 
         // bp
         for (auto spp = 0u; spp < spp_per_dispatch; ++spp) {
-            command_buffer << radiative_shader(rendered_image, target_image, buffer_image,
-                                               seed_bank_image, accel, resolution)
-                                  .dispatch(resolution)
-                           << accumulate_shader(grad_image, buffer_image).dispatch(resolution)
-                           << synchronize();
+            cmd_list << radiative_shader(rendered_image, target_image, buffer_image,
+                                         seed_bank_image, accel, resolution)
+                            .dispatch(resolution)
+                     << accumulate_shader(grad_image, buffer_image).dispatch(resolution);
         }
-        command_buffer << grad_image.copy_to(grad_vec.data());
+        cmd_list << grad_image.copy_to(grad_vec.data());
         // adjust material params
         float3 grad = make_float3(0.f);
         for (auto x = 0u; x < resolution.x; ++x)
@@ -489,8 +487,9 @@ int main(int argc, char *argv[]) {
         grad /= float(resolution.x * resolution.y);
         auto &albedo = materials[differentiable_index].albedo;
         albedo -= learning_rate * grad;
-        command_buffer << material_buffer[1].copy_from(materials.data())
-                       << printer.retrieve();
+        cmd_list << material_buffer[1].copy_from(materials.data());
+        stream << cmd_list.commit()
+               << printer.retrieve();
 
         LUISA_INFO("grad = ({}, {}, {}), "
                    "albedo = ({}, {}, {})",
@@ -498,10 +497,9 @@ int main(int argc, char *argv[]) {
                    albedo.x, albedo.y, albedo.z);
 
         // display
-        command_buffer << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution)
-                       << ldr_image.copy_to(host_image.data())
-                       << commit();
-        stream << synchronize();
+        cmd_list << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution)
+                 << ldr_image.copy_to(host_image.data());
+        stream << cmd_list.commit() << synchronize();
         auto file_name = output_dir / luisa::format("{:06}.png", output_count++);
         stbi_write_png(file_name.string().c_str(), resolution.x, resolution.y, 4, host_image.data(), 0);
         window.set_background(host_image.data(), resolution);

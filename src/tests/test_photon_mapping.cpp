@@ -571,19 +571,19 @@ int main(int argc, char *argv[]) {
 
     Clock clk;
     window.run([&] {
-        auto command_buffer = stream.command_buffer();
+        auto cmd_list = CommandList::create();
         static constexpr auto spp_per_dispatch = 1u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer
+            cmd_list
                 << photon_gathering_shader(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                 << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
         }
-        command_buffer
+        cmd_list
             << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
-            << ldr_image.copy_to(host_image.data())
-            << commit();
+            << ldr_image.copy_to(host_image.data());
 
-        stream << printer.retrieve()
+        stream << cmd_list.commit()
+               << printer.retrieve()
                << synchronize();
         window.set_background(host_image.data(), resolution);
 

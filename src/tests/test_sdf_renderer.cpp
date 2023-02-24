@@ -218,15 +218,16 @@ int main(int argc, char *argv[]) {
     for (auto spp = 0u; spp < total_spp; spp += interval) {
 
         // render
-        auto command_buffer = stream.command_buffer();
+        auto command_list = CommandList::create();
         for (auto frame = spp; frame < spp + interval && frame < total_spp; frame++) {
-            command_buffer << render(seed_image, accum_image, frame).dispatch(width, height);
+            command_list << render(seed_image, accum_image, frame).dispatch(width, height);
             spp_count++;
         }
 
 #if ENABLE_DISPLAY
-        command_buffer << accum_image.copy_to(pixels.data())
-                       << synchronize();
+        command_list << accum_image.copy_to(pixels.data());
+        stream << command_list.commit()
+               << synchronize();
 
         if (window.should_close()) { break; }
 
@@ -248,7 +249,7 @@ int main(int argc, char *argv[]) {
             last_t = t;
         });
 #else
-        command_buffer << commit();
+        stream << command_list.commit();
 #endif
     }
     stream << synchronize();

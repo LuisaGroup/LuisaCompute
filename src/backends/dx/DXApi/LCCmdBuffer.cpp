@@ -918,7 +918,7 @@ void LCCmdBuffer::Execute(
         }
         tracker.RestoreState(cmdBuilder);
     }
-    auto &&funcs = std::move(cmdList).steal_callbacks();
+    auto [_, funcs] = std::move(cmdList).steal();
     if (funcs.empty()) {
         if (cmdListIsEmpty)
             queue.ExecuteEmpty(std::move(allocator));
