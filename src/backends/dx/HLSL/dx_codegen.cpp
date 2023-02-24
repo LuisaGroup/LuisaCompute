@@ -451,9 +451,13 @@ void StringStateVisitor::VisitFunction(Function func) {
         } else
 #endif
         {
-            CodegenUtility::GetTypeName(*v.type(), str, f.variable_usage(v.uid()));
-            str << ' ';
+            vstd::StringBuilder typeName;
+            CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+            str << typeName << ' ';
             CodegenUtility::GetVariableName(v, str);
+            if (eastl::to_underlying(v.type()->tag()) < eastl::to_underlying(Type::Tag::BUFFER)) [[likely]] {
+                str << "=("sv << typeName << ")0"sv;
+            }
             str << ";\n";
         }
     }

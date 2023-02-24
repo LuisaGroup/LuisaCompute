@@ -141,8 +141,6 @@ bool _isinf(const float x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
 bool2 _isinf(const float2 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
 bool3 _isinf(const float3 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
 bool4 _isinf(const float4 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
-template<typename T,typename V>
-T _select(const T a,const T b,const V c){return select(c,b,a);}
 template<typename T>
 T copysign(const T a,const T b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
 template<typename T>

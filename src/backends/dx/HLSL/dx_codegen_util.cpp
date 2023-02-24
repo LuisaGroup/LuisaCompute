@@ -450,8 +450,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "any"sv;
             break;
         case CallOp::SELECT:
-            str << "_select"sv;
-            break;
+            str << "select"sv;
+            assert(args.size() == 3);
+            str << '(';
+            args[2]->accept(vis);
+            str << ',';
+            args[1]->accept(vis);
+            str << ',';
+            args[0]->accept(vis);
+            str << ')';
+            return;
         case CallOp::CLAMP:
             str << "clamp"sv;
             break;
