@@ -37,7 +37,7 @@ fn find_cxx_compiler() -> Option<String> {
     None
 }
 fn with_file_lock<T>(file: &str, f: impl FnOnce() -> T) -> T {
-    let file = File::open(file).unwrap();
+    let file = File::create(file).unwrap();
     file.lock_exclusive().unwrap();
     let ret = f();
     file.unlock().unwrap();
