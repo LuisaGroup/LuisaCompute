@@ -1,10 +1,11 @@
+use fs2::FileExt;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
 use luisa_compute_ir::codegen::sha256;
 use std::{
     env::{self, current_exe},
     ffi::OsStr,
-    fs::canonicalize,
+    fs::{canonicalize, File},
     mem::transmute,
     path::PathBuf,
     process::{Command, Stdio},
@@ -34,6 +35,13 @@ fn find_cxx_compiler() -> Option<String> {
         return Some("g++".into());
     }
     None
+}
+fn with_file_lock<T>(file: &str, f: impl FnOnce() -> T) -> T {
+    let file = File::open(file).unwrap();
+    file.lock_exclusive().unwrap();
+    let ret = f();
+    file.unlock().unwrap();
+    ret
 }
 pub(super) fn compile(source: String) -> std::io::Result<PathBuf> {
     let target = sha256(&source);
@@ -72,63 +80,65 @@ pub(super) fn compile(source: String) -> std::io::Result<PathBuf> {
         e
     })?;
     log::info!("compiling kernel {}", source_file);
-    let compiler = find_cxx_compiler().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, "no c++ compiler found")
-    })?;
-    // dbg!(&source_file);
-    let mut args: Vec<&str> = vec![];
-    if env::var("LUISA_DEBUG").is_ok() {
-        args.push("-g");
-    } else {
-        args.push("-O3");
-    }
-    args.push("-march=native");
-    args.push("-mavx2");
-    args.push("-std=c++20");
-    args.push("-fno-math-errno");
-    if cfg!(target_os = "linux") {
-        args.push("-fPIC");
-    }
-    if cfg!(target_arch = "x86_64") {
-        args.push("-DLUISA_ARCH_X86_64");
-    } else if cfg!(target_arch = "aarch64") {
-        args.push("-DLUISA_ARCH_ARM64");
-    } else {
-        panic!("unsupported target architecture");
-    }
-    args.push("-shared");
-    args.push(&source_file);
-    args.push("-o");
-    args.push(&target_lib);
+    with_file_lock(&format!("{}/lock", build_dir.display()), || {
+        let compiler = find_cxx_compiler().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "no c++ compiler found")
+        })?;
+        // dbg!(&source_file);
+        let mut args: Vec<&str> = vec![];
+        if env::var("LUISA_DEBUG").is_ok() {
+            args.push("-g");
+        } else {
+            args.push("-O3");
+        }
+        args.push("-march=native");
+        args.push("-mavx2");
+        args.push("-std=c++20");
+        args.push("-fno-math-errno");
+        if cfg!(target_os = "linux") {
+            args.push("-fPIC");
+        }
+        if cfg!(target_arch = "x86_64") {
+            args.push("-DLUISA_ARCH_X86_64");
+        } else if cfg!(target_arch = "aarch64") {
+            args.push("-DLUISA_ARCH_ARM64");
+        } else {
+            panic!("unsupported target architecture");
+        }
+        args.push("-shared");
+        args.push(&source_file);
+        args.push("-o");
+        args.push(&target_lib);
 
-    let tic = std::time::Instant::now();
-    match Command::new(compiler)
-        .args(args)
-        .current_dir(&build_dir)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("clang++ failed to start")
-        .wait_with_output()
-        .expect("clang++ failed")
-    {
-        output @ _ => match output.status.success() {
-            true => {
-                log::info!(
-                    "compilation completed in {}ms",
-                    (std::time::Instant::now() - tic).as_secs_f64() * 1e3
-                );
-            }
-            false => {
-                eprintln!(
-                    "clang++ output: {}",
-                    String::from_utf8(output.stdout).unwrap(),
-                );
-                panic!("compile failed")
-            }
-        },
-    }
+        let tic = std::time::Instant::now();
+        match Command::new(compiler)
+            .args(args)
+            .current_dir(&build_dir)
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("clang++ failed to start")
+            .wait_with_output()
+            .expect("clang++ failed")
+        {
+            output @ _ => match output.status.success() {
+                true => {
+                    log::info!(
+                        "compilation completed in {}ms",
+                        (std::time::Instant::now() - tic).as_secs_f64() * 1e3
+                    );
+                }
+                false => {
+                    eprintln!(
+                        "clang++ output: {}",
+                        String::from_utf8(output.stdout).unwrap(),
+                    );
+                    panic!("compile failed")
+                }
+            },
+        }
 
-    Ok(lib_path)
+        Ok(lib_path)
+    })
 }
 
 type KernelFn = unsafe extern "C" fn(*const KernelFnArgs);
