@@ -6,6 +6,7 @@ endfunction()
 
 
 luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)
+luisa_compute_add_executable(test_ast2ir_headless test_ast2ir_headless.cpp)
 luisa_compute_add_executable(test_type test_type.cpp)
 luisa_compute_add_executable(test_ast test_ast.cpp)
 luisa_compute_add_executable(test_dsl test_dsl.cpp)

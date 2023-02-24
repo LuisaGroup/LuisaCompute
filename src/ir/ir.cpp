@@ -4,14 +4,14 @@
 namespace luisa::compute {
 
 void luisa_compute_ir_initialize_context() {
-    // static std::once_flag flag;
-    // std::call_once(flag, [] {
-    //     using namespace luisa::compute::ir;
-    //     auto gc_ctx = luisa_compute_gc_create_context();
-    //     luisa_compute_gc_set_context(gc_ctx);
-    //     auto ir_ctx = luisa_compute_ir_new_context();
-    //     luisa_compute_ir_set_context(ir_ctx);
-    // });
+     static std::once_flag flag;
+     std::call_once(flag, [] {
+         using namespace luisa::compute::ir;
+         auto gc_ctx = luisa_compute_gc_create_context();
+         luisa_compute_gc_set_context(gc_ctx);
+         auto ir_ctx = luisa_compute_ir_new_context();
+         luisa_compute_ir_set_context(ir_ctx);
+     });
 }
 
 // TODO: is it good to go here?
