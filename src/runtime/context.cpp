@@ -64,6 +64,8 @@ Context::Context(string_view program_path) noexcept
              path.extension() == ".dylib")) {
             using namespace std::string_view_literals;
             constexpr std::array possible_prefixes{
+                "luisa-compute-backend-"sv,
+                "libluisa-compute-backend-"sv,
                 "lc-backend-"sv,
                 // Make Mingw happy
                 "liblc-backend-"sv};
@@ -72,7 +74,7 @@ Context::Context(string_view program_path) noexcept
                 if (filename.starts_with(prefix)) {
                     auto name = filename.substr(prefix.size());
                     for (auto &c : name) { c = static_cast<char>(std::tolower(c)); }
-                    LUISA_VERBOSE_WITH_LOCATION("Found backend: {}.", name);
+                    LUISA_INFO_WITH_LOCATION("Found backend: {}.", name);
                     _impl->installed_backends.emplace_back(std::move(name));
                     break;
                 }
