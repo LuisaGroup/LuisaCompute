@@ -42,7 +42,7 @@ public:
         Stream &operator<<(Event::Signal &&signal) &&noexcept;
         Stream &operator<<(Event::Wait &&wait) &&noexcept;
         Stream &operator<<(SwapChain::Present &&present) &&noexcept;
-        Stream &operator<<(CommandList::Commit &&commit) &&noexcept;
+        Stream &operator<<(CommandList::Commit commit) &&noexcept;
         Stream &operator<<(Synchronize &&) &&noexcept;
         Stream &operator<<(Commit &&) &&noexcept;
 
@@ -74,7 +74,7 @@ public:
     Delegate operator<<(luisa::move_only_function<void()> &&f) noexcept;
     Stream &operator<<(Event::Signal &&signal) noexcept;
     Stream &operator<<(Event::Wait &&wait) noexcept;
-    Stream &operator<<(CommandList::Commit &&commit) noexcept;
+    Stream &operator<<(CommandList::Commit commit) noexcept;
     Stream &operator<<(SwapChain::Present &&p) noexcept;
     Stream &operator<<(Synchronize &&) noexcept;
     void synchronize() noexcept { _synchronize(); }

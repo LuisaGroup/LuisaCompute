@@ -26,22 +26,22 @@ class LC_RUNTIME_API CommandList : concepts::Noncopyable {
     friend class detail::CommandListConverter;
 
 public:
-    using CommandContainer = luisa::vector<luisa::unique_ptr<Command>>;
-    using CallbackContainer = luisa::fixed_vector<luisa::move_only_function<void()>, 1>;
-
     class Commit {
-
-    private:
-        CommandList &&_list;
-
-    private:
+        friend class Stream;
         friend class CommandList;
-        explicit Commit(CommandList &&list) noexcept
-            : _list{std::move(list)} {}
+        CommandList &&_cmd_list;
+        explicit Commit(CommandList &&cmd_list) : _cmd_list{std::move(cmd_list)} {}
+        Commit(Commit &&rhs) noexcept = default;
 
     public:
-        [[nodiscard]] auto &&steal() &&noexcept { return std::move(_list); }
+        ~Commit() noexcept = default;
+        Commit(const Commit &) noexcept = delete;
+        Commit &operator=(Commit &&) noexcept = delete;
+        Commit &operator=(const Commit &) noexcept = delete;
     };
+
+    using CommandContainer = luisa::vector<luisa::unique_ptr<Command>>;
+    using CallbackContainer = luisa::fixed_vector<luisa::move_only_function<void()>, 1>;
 
 private:
     CommandContainer _commands;
@@ -69,7 +69,7 @@ public:
     void clear() noexcept;
     [[nodiscard]] auto commands() const noexcept { return luisa::span{_commands}; }
     [[nodiscard]] auto callbacks() const noexcept { return luisa::span{_callbacks}; }
-    [[nodiscard]] std::pair<CommandContainer, CallbackContainer> steal() &&noexcept;
+    [[nodiscard]] CallbackContainer steal_callbacks() &&noexcept;
     [[nodiscard]] auto empty() const noexcept { return _commands.empty() && _callbacks.empty(); }
     [[nodiscard]] auto commit() noexcept { return Commit{std::move(*this)}; }
 };

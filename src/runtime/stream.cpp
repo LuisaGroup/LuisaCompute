@@ -24,7 +24,8 @@ void Stream::_dispatch(CommandList &&list) noexcept {
                      tag_names[cmd_tag], tag_names[s_tag]);
     }
 #endif
-    device()->dispatch(handle(), std::exchange(list, {}));
+    device()->dispatch(handle(), std::move(list));
+    list.clear();
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
@@ -51,7 +52,7 @@ Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 void Stream::Delegate::_commit() noexcept {
     if (!_command_list.empty()) {
-        *_stream << _command_list.commit();
+        _stream->_dispatch(std::move(_command_list));
     }
 }
 
@@ -65,7 +66,7 @@ Stream::Delegate &&Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd
     return std::move(*this);
 }
 
-Stream &Stream::Delegate::operator<<(CommandList::Commit &&commit) &&noexcept {
+Stream &Stream::Delegate::operator<<(CommandList::Commit commit) &&noexcept {
     _commit();
     return *_stream << std::move(commit);
 }
@@ -114,10 +115,9 @@ Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexc
     return Delegate{this} << std::move(f);
 }
 
-Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
-    if (auto &&list = std::move(commit).steal(); !list.empty()) [[likely]] {
-        _dispatch(std::move(list));
-        list.clear();
+Stream &Stream::operator<<(CommandList::Commit commit) noexcept {
+    if (!commit._cmd_list.empty()) [[likely]] {
+        _dispatch(std::move(commit._cmd_list));
     }
     return *this;
 }
