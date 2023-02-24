@@ -27,7 +27,7 @@ Float3 offset_ray_origin(Expr<float3> p, Expr<float3> n) noexcept {
 }
 
 Float3 offset_ray_origin(Expr<float3> p, Expr<float3> n, Expr<float3> w) noexcept {
-    return offset_ray_origin(p, faceforward(n, -w, n));
+    return offset_ray_origin(p, ite(dot(n, w) < 0.f, -n, n));
 }
 
 }// namespace luisa::compute

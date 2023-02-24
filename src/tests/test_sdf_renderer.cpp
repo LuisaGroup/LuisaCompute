@@ -31,7 +31,7 @@ using namespace luisa::compute;
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 int main(int argc, char *argv[]) {
 
-    static constexpr auto max_ray_depth = 6;
+    static constexpr auto max_ray_depth = 2;
     static constexpr auto eps = 1e-4f;
     static constexpr auto inf = 1e10f;
     static constexpr auto fov = 0.23f;
