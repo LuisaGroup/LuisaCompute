@@ -26,8 +26,18 @@ class LC_RUNTIME_API CommandList : concepts::Noncopyable {
     friend class detail::CommandListConverter;
 
 public:
-    struct Commit {
-        CommandList &&cmd_list;
+    class Commit {
+        friend class Stream;
+        friend class CommandList;
+        CommandList &&_cmd_list;
+        Commit(CommandList &&cmd_list) : _cmd_list{std::move(cmd_list)} {}
+        Commit(const Commit &) noexcept = delete;
+        Commit(Commit &&rhs) noexcept = default;
+        Commit &operator=(Commit &&) noexcept = delete;
+        Commit &operator=(const Commit &) noexcept = delete;
+
+    public:
+        ~Commit() noexcept = default;
     };
 
     using CommandContainer = luisa::vector<luisa::unique_ptr<Command>>;
@@ -58,9 +68,9 @@ public:
     void clear() noexcept;
     [[nodiscard]] auto commands() const noexcept { return luisa::span{_commands}; }
     [[nodiscard]] auto callbacks() const noexcept { return luisa::span{_callbacks}; }
-    [[nodiscard]] std::pair<CommandContainer, CallbackContainer> steal() &&noexcept;
+    [[nodiscard]] CallbackContainer steal_callbacks() &&noexcept;
     [[nodiscard]] auto empty() const noexcept { return _commands.empty() && _callbacks.empty(); }
-    [[nodiscard]] auto commit() noexcept { return Commit{std::exchange(*this, create())}; }
+    [[nodiscard]] auto commit() noexcept { return Commit{std::move(*this)}; }
 };
 
 }// namespace luisa::compute

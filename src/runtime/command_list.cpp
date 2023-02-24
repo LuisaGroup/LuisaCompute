@@ -44,11 +44,8 @@ CommandList &CommandList::operator<<(luisa::move_only_function<void()> &&callbac
     return append(std::move(callback));
 }
 
-std::pair<CommandList::CommandContainer,
-          CommandList::CallbackContainer>
-CommandList::steal() &&noexcept {
-    return std::make_pair(std::exchange(_commands, {}),
-                          std::exchange(_callbacks, {}));
+CommandList::CallbackContainer CommandList::steal_callbacks() &&noexcept {
+    return std::move(_callbacks);
 }
 
 CommandList CommandList::create(size_t reserved_command_size, size_t reserved_callback_size) noexcept {
