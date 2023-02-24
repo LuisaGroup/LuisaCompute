@@ -40,6 +40,10 @@ public:
                                  device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity)} {
     }
     IndirectDispatchBuffer() noexcept = default;
+    IndirectDispatchBuffer(IndirectDispatchBuffer &&) noexcept = default;
+    IndirectDispatchBuffer(IndirectDispatchBuffer const &) noexcept = delete;
+    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer &&) noexcept = default;
+    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }
     [[nodiscard]] auto size_bytes() const noexcept { return _byte_size; }
