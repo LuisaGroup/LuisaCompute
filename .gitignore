@@ -308,7 +308,6 @@ doxygen_output
 src/rust/luisa-compute-ir/target/**
 src/rust/luisa_compute_api_types/target/**
 src/rust/target/**
-src/rust/Cargo.lock
 
 # XMake
 .xmake/**
