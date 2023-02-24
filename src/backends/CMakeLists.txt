@@ -5,7 +5,6 @@ function(luisa_compute_add_backend name)
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
             luisa-compute-ast
             luisa-compute-runtime
-            luisa-compute-compile
             luisa-compute-gui
             luisa-compute-vstl)
     if(LUISA_COMPUTE_ENABLE_DSL)
