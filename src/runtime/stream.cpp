@@ -14,18 +14,19 @@ Stream Device::create_stream(StreamTag stream_tag) noexcept {
 }
 
 void Stream::_dispatch(CommandList &&list) noexcept {
+    if (!list.empty()) {
 #ifndef NDEBUG
-    constexpr luisa::string_view tag_names[]{"graphics", "compute", "copy"};
-    for (auto &&i : list.commands()) {
-        auto cmd_tag = luisa::to_underlying(i->stream_tag());
-        auto s_tag = luisa::to_underlying(_stream_tag);
-        LUISA_ASSERT(cmd_tag >= s_tag,
-                     "Command of type {} in stream of type {} not allowed!",
-                     tag_names[cmd_tag], tag_names[s_tag]);
-    }
+        constexpr luisa::string_view tag_names[]{"graphics", "compute", "copy"};
+        for (auto &&i : list.commands()) {
+            auto cmd_tag = luisa::to_underlying(i->stream_tag());
+            auto s_tag = luisa::to_underlying(_stream_tag);
+            LUISA_ASSERT(cmd_tag >= s_tag,
+                         "Command of type {} in stream of type {} not allowed!",
+                         tag_names[cmd_tag], tag_names[s_tag]);
+        }
 #endif
-    device()->dispatch(handle(), std::move(list));
-    list.clear();
+        device()->dispatch(handle(), std::move(list));
+    }
 }
 
 Stream::Delegate Stream::operator<<(luisa::unique_ptr<Command> &&cmd) noexcept {
@@ -51,9 +52,7 @@ Stream::Delegate::Delegate(Stream *s) noexcept : _stream{s} {}
 Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 void Stream::Delegate::_commit() noexcept {
-    if (!_command_list.empty()) {
-        _stream->_dispatch(std::move(_command_list));
-    }
+    *_stream << _command_list.commit();
 }
 
 Stream::Delegate::Delegate(Stream::Delegate &&s) noexcept
@@ -66,7 +65,7 @@ Stream::Delegate &&Stream::Delegate::operator<<(luisa::unique_ptr<Command> &&cmd
     return std::move(*this);
 }
 
-Stream &Stream::Delegate::operator<<(CommandList::Commit commit) &&noexcept {
+Stream &Stream::Delegate::operator<<(CommandList::Commit &&commit) &&noexcept {
     _commit();
     return *_stream << std::move(commit);
 }
@@ -115,10 +114,8 @@ Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexc
     return Delegate{this} << std::move(f);
 }
 
-Stream &Stream::operator<<(CommandList::Commit commit) noexcept {
-    if (!commit._cmd_list.empty()) [[likely]] {
-        _dispatch(std::move(commit._cmd_list));
-    }
+Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
+    _dispatch(commit.steal());
     return *this;
 }
 

@@ -9,11 +9,9 @@
 namespace luisa::compute {
 
 CommandList::~CommandList() noexcept {
-    if (!empty()) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Destructing non-empty command list. "
-            "Did you forget to commit?");
-    }
+    LUISA_ASSERT(_committed || empty(),
+                 "Destructing non-empty command list. "
+                 "Did you forget to commit?");
 }
 
 void CommandList::reserve(size_t command_size, size_t callback_size) noexcept {
@@ -24,6 +22,7 @@ void CommandList::reserve(size_t command_size, size_t callback_size) noexcept {
 void CommandList::clear() noexcept {
     _commands.clear();
     _callbacks.clear();
+    _committed = false;
 }
 
 CommandList &CommandList::append(unique_ptr<Command> &&cmd) noexcept {
@@ -44,8 +43,12 @@ CommandList &CommandList::operator<<(luisa::move_only_function<void()> &&callbac
     return append(std::move(callback));
 }
 
-CommandList::CallbackContainer CommandList::steal_callbacks() &&noexcept {
+CommandList::CallbackContainer CommandList::steal_callbacks() noexcept {
     return std::move(_callbacks);
+}
+
+CommandList::CommandContainer CommandList::steal_commands() noexcept {
+    return std::move(_commands);
 }
 
 CommandList CommandList::create(size_t reserved_command_size, size_t reserved_callback_size) noexcept {
@@ -53,5 +56,15 @@ CommandList CommandList::create(size_t reserved_command_size, size_t reserved_ca
     list.reserve(reserved_command_size, reserved_callback_size);
     return list;
 }
+
+CommandList::Commit CommandList::commit() noexcept {
+    _committed = true;
+    return Commit{std::move(*this)};
+}
+
+CommandList::CommandList(CommandList &&another) noexcept
+    : _commands{std::move(another._commands)},
+      _callbacks{std::move(another._callbacks)},
+      _committed{another._committed} { another._committed = false; }
 
 }// namespace luisa::compute
