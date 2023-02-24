@@ -312,3 +312,5 @@ src/rust/target/**
 # XMake
 .xmake/**
 src/ext/python311/**
+
+src/rust/Cargo.lock
