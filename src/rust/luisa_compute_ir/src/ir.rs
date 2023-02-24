@@ -1421,6 +1421,7 @@ pub struct KernelModule {
     pub cpu_custom_ops: CBoxedSlice<CRc<CpuCustomOp>>,
     pub block_size: [u32; 3],
 }
+unsafe impl Send for KernelModule {}
 
 impl Trace for KernelModule {
     fn trace(&self) {
@@ -1694,7 +1695,10 @@ impl IrBuilder {
             let userdata0 = incoming[0].value.get_user_data();
             for i in 1..incoming.len() {
                 let userdata = incoming[i].value.get_user_data();
-                assert_eq!(userdata0.tag, userdata.tag, "Different UserData node found!");
+                assert_eq!(
+                    userdata0.tag, userdata.tag,
+                    "Different UserData node found!"
+                );
                 assert_eq!(userdata0.eq, userdata.eq, "Different UserData node found!");
                 assert!(
                     (userdata0.eq)(userdata0.data, userdata.data),
