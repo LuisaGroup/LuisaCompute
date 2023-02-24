@@ -115,7 +115,7 @@ Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexc
 }
 
 Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
-    _dispatch(commit.steal());
+    _dispatch(std::move(commit._list));
     return *this;
 }
 

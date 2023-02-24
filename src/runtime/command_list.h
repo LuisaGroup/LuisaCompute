@@ -69,14 +69,12 @@ private:
     CommandList _list;
 
 private:
+    friend class Stream;
     friend class CommandList;
     explicit Commit(CommandList &&list) noexcept
         : _list{std::move(list)} {}
-
-public:
-    [[nodiscard]] auto steal() noexcept {
-        return std::move(_list);
-    }
+    Commit(Commit &&) noexcept = default;
+    Commit &operator=(Commit &&) noexcept = delete;
 };
 
 }// namespace luisa::compute
