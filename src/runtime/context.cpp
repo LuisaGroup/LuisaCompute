@@ -64,8 +64,6 @@ Context::Context(string_view program_path) noexcept
              path.extension() == ".dylib")) {
             using namespace std::string_view_literals;
             constexpr std::array possible_prefixes{
-                "luisa-compute-backend-"sv,
-                "libluisa-compute-backend-"sv,
                 "lc-backend-"sv,
                 // Make Mingw happy
                 "liblc-backend-"sv};
@@ -130,6 +128,7 @@ Device Context::create_device(std::string_view backend_name_in, const DeviceConf
         GetDllDirectoryW(MAX_PATH, buffer);
         SetDllDirectoryW(impl->runtime_directory.c_str());
 #endif
+
         auto &&m = impl->loaded_modules.emplace_back(
             DynamicModule::load(
                 impl->runtime_directory,

@@ -51,7 +51,7 @@ Stream::Delegate::~Delegate() noexcept { _commit(); }
 
 void Stream::Delegate::_commit() noexcept {
     if (!_command_list.empty()) {
-        _stream->_dispatch(std::exchange(_command_list, {}));
+        *_stream << _command_list.commit();
     }
 }
 
@@ -115,8 +115,9 @@ Stream::Delegate Stream::operator<<(luisa::move_only_function<void()> &&f) noexc
 }
 
 Stream &Stream::operator<<(CommandList::Commit &&commit) noexcept {
-    if (!commit.cmd_list.empty()) [[likely]] {
-        _dispatch(std::move(commit.cmd_list));
+    if (auto &&list = std::move(commit).steal(); !list.empty()) [[likely]] {
+        _dispatch(std::move(list));
+        list.clear();
     }
     return *this;
 }

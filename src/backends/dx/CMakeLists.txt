@@ -95,16 +95,16 @@ if (WIN32)
             Shader/ShaderVariableType.h
             )
     luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
-    target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi)
-    target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
+    target_include_directories(lc-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(lc-backend-dx PRIVATE D3D12 d3dcompiler dxgi)
+    target_compile_definitions(lc-backend-dx PRIVATE UNICODE)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        target_compile_definitions(luisa-compute-backend-dx PRIVATE
+        target_compile_definitions(lc-backend-dx PRIVATE
                 _XM_NO_INTRINSICS_
                 m128_f32=vector4_f32
                 m128_u32=vector4_u32)
     endif ()
-    set_target_properties(luisa-compute-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+    set_target_properties(lc-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
     set(DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
     set(DX_BUILTIN_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
     mark_as_advanced(DX_SUPPORT_DIR)
@@ -117,15 +117,15 @@ if (WIN32)
         add_custom_target(lc-dx-copy-builtin ALL
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${DX_BUILTIN_SHADER_DIR}"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/.data/")
-        add_dependencies(luisa-compute-backend-dx
+                "$<TARGET_FILE_DIR:luisa-compute-core>/.data/dx_builtin")
+        add_dependencies(lc-backend-dx
                 lc-dx-copy-support
                 lc-dx-copy-builtin)
     endif ()
     install(DIRECTORY ${DX_SUPPORT_DIR}
             DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(DIRECTORY ${DX_BUILTIN_SHADER_DIR}
-            DESTINATION ${CMAKE_INSTALL_BINDIR}/.data)
+            DESTINATION ${CMAKE_INSTALL_BINDIR}/.data/dx_builtin)
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "The DirectX backend will not be built on non-Windows platforms.")
 else ()

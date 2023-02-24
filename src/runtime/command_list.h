@@ -17,7 +17,7 @@ class CmdSer;
 
 namespace detail {
 class CommandListConverter;
-}
+}// namespace detail
 
 class LC_RUNTIME_API CommandList : concepts::Noncopyable {
 
@@ -26,16 +26,27 @@ class LC_RUNTIME_API CommandList : concepts::Noncopyable {
     friend class detail::CommandListConverter;
 
 public:
-    struct Commit {
-        CommandList &&cmd_list;
-    };
-
     using CommandContainer = luisa::vector<luisa::unique_ptr<Command>>;
     using CallbackContainer = luisa::fixed_vector<luisa::move_only_function<void()>, 1>;
+
+    class Commit {
+
+    private:
+        CommandList &&_list;
+
+    private:
+        friend class CommandList;
+        explicit Commit(CommandList &&list) noexcept
+            : _list{std::move(list)} {}
+
+    public:
+        [[nodiscard]] auto &&steal() &&noexcept { return std::move(_list); }
+    };
 
 private:
     CommandContainer _commands;
     CallbackContainer _callbacks;
+
 #ifdef LC_ENABLE_API
     // For backends that use C API only
     // DO NOT USE THIS FIELD OTHERWISE
@@ -60,7 +71,7 @@ public:
     [[nodiscard]] auto callbacks() const noexcept { return luisa::span{_callbacks}; }
     [[nodiscard]] std::pair<CommandContainer, CallbackContainer> steal() &&noexcept;
     [[nodiscard]] auto empty() const noexcept { return _commands.empty() && _callbacks.empty(); }
-    [[nodiscard]] auto commit() noexcept { return Commit{std::exchange(*this, create())}; }
+    [[nodiscard]] auto commit() noexcept { return Commit{std::move(*this)}; }
 };
 
 }// namespace luisa::compute
