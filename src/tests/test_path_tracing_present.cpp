@@ -318,7 +318,7 @@ int main(int argc, char *argv[]) {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, true);
         }
-    };
+    }
     stream << synchronize();
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
