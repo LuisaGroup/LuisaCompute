@@ -28,7 +28,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         buffer_arena.h
         command.cpp command.h
         command_encoder.cpp command_encoder.h
-        command_buffer.cpp command_buffer.h
         command_list.cpp command_list.h
         context.cpp context.h
         context_paths.h

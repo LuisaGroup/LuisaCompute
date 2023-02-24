@@ -11,7 +11,6 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         hash.h
         hash_map.h
         lockfree_array_queue.h
-        lockfree_step_queue.h
         log.cpp log.h
         md5.cpp md5.h
         memory.h
