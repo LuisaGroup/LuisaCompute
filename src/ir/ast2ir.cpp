@@ -220,7 +220,7 @@ ir::IrBuilder *AST2IR::_current_builder() noexcept {
 
 ir::CArc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
     auto register_type = [](ir::Type t) noexcept {
-        return ir::luisa_compute_ir_register_type(t);
+        return ir::luisa_compute_ir_register_type(&t);
     };
     // special handling for void
     if (type == nullptr) { return register_type(ir::Type{

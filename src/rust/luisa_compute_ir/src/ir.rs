@@ -1704,8 +1704,8 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
     CArc::new(m)
 }
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_register_type(ty:Type)->CArc<Type>{
-    context::register_type(ty)
+pub extern "C" fn luisa_compute_ir_register_type(ty:&Type)->CArc<Type>{
+    context::register_type(ty.clone())
 }
 pub mod debug {
     use crate::display::DisplayIR;
