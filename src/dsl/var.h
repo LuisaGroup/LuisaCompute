@@ -39,7 +39,8 @@ struct Var : public detail::Ref<T> {
     /// Construct a local variable of basic or array types
     Var() noexcept
         : detail::Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {
-        detail::apply_default_initializer(detail::Ref{*this});
+        // No more necessary. Backends now guarantee variable initialization.
+        // detail::apply_default_initializer(detail::Ref{*this});
     }
 
     /// Assign from arg.
