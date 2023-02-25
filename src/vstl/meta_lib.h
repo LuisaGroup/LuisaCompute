@@ -37,7 +37,7 @@ template<typename T, typename... Args>
     requires(!std::is_const_v<T> && std::is_constructible_v<T, Args && ...>)
 void reset(T &v, Args &&...args) {
     v.~T();
-    new (&v) T(std::forward<Args>(args)...);
+    new (std::launder(&v)) T(std::forward<Args>(args)...);
 }
 template<typename T>
 void destruct(T *ptr) {
