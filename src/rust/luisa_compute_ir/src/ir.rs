@@ -736,7 +736,6 @@ pub struct CpuCustomOp {
     pub arg_type: CArc<Type>,
 }
 
-
 impl Serialize for CpuCustomOp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let state = serializer.serialize_struct("CpuCustomOp", 1)?;
@@ -851,13 +850,6 @@ extern "C" fn eq_impl<T: UserNodeData>(a: *const u8, b: *const u8) -> bool {
     let b = unsafe { &*(b as *const T) };
     a.equal(b)
 }
-extern "C" fn dtor_impl<T: UserNodeData>(a: *mut UserData) {
-    unsafe {
-        let data = Box::from_raw((*a).data as *mut T);
-        drop(data);
-        drop(Box::from_raw(a));
-    };
-}
 fn type_id_u64<T: UserNodeData>() -> u64 {
     unsafe { std::mem::transmute(TypeId::of::<T>()) }
 }
@@ -865,14 +857,11 @@ pub fn new_user_node<T: UserNodeData>(pools: &CArc<ModulePools>, data: T) -> Nod
     new_node(
         pools,
         Node::new(
-            CArc::new(Instruction::UserData(CArc::new_with_dtor(
-                UserData {
-                    tag: type_id_u64::<T>(),
-                    data: Box::into_raw(Box::new(data)) as *mut u8,
-                    eq: eq_impl::<T>,
-                },
-                dtor_impl::<T>,
-            ))),
+            CArc::new(Instruction::UserData(CArc::new(UserData {
+                tag: type_id_u64::<T>(),
+                data: Box::into_raw(Box::new(data)) as *mut u8,
+                eq: eq_impl::<T>,
+            }))),
             Type::userdata(),
         ),
     )

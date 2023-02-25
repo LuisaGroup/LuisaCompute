@@ -92,7 +92,7 @@ impl<'a, T: Debug> std::fmt::Debug for CSliceMut<'a, T> {
 pub struct CArcSharedBlock<T> {
     ptr: T,
     ref_count: AtomicUsize,
-    destructor: extern "C" fn(*mut T),
+    destructor: extern "C" fn(*mut CArcSharedBlock<T>),
 }
 impl<T> CArcSharedBlock<T> {
     pub fn retain(&self) {
@@ -104,7 +104,7 @@ impl<T> CArcSharedBlock<T> {
             .fetch_sub(1, std::sync::atomic::Ordering::Release);
         if self.ref_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
             std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
-            (self.destructor)(&self.ptr as *const T as *mut T);
+            (self.destructor)(self as *const _ as *mut _);
         }
     }
 }
@@ -146,6 +146,11 @@ extern "C" fn default_destructor<T>(ptr: *mut T) {
         std::mem::drop(Box::from_raw(ptr));
     }
 }
+extern "C" fn default_destructor_carc<T>(ptr: *mut CArcSharedBlock<T>) {
+    unsafe {
+        std::mem::drop(Box::from_raw(ptr));
+    }
+}
 impl<T: Debug> Debug for CArc<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.as_ref().fmt(f)
@@ -177,9 +182,9 @@ impl<T> CArc<T> {
         self.inner.is_null()
     }
     pub fn new(value: T) -> Self {
-        Self::new_with_dtor(value, default_destructor::<T>)
+        Self::new_with_dtor(value, default_destructor_carc::<T>)
     }
-    pub fn new_with_dtor(value: T, dtor: extern "C" fn(*mut T)) -> Self {
+    pub fn new_with_dtor(value: T, dtor: extern "C" fn(*mut CArcSharedBlock<T>)) -> Self {
         let inner = Box::into_raw(Box::new(CArcSharedBlock {
             ptr: value,
             ref_count: AtomicUsize::new(1),
@@ -347,3 +352,5 @@ impl From<CBoxedSlice<u8>> for CString {
         CString::new(bytes).unwrap()
     }
 }
+
+struct _TestSize(CArcSharedBlock<i32>);
