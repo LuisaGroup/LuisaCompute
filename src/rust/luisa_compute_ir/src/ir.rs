@@ -6,6 +6,7 @@ use crate::*;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
+use std::hash::Hasher;
 use std::ops::Deref;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -639,7 +640,7 @@ pub enum Func {
     // vector x 4 -> matrix
     Mat4,
 
-    Callable(CArc<CallableModule>),
+    Callable(CallableModuleRef),
 
     // ArgT -> ArgT
     CpuCustomOp(CArc<CpuCustomOp>),
@@ -1157,6 +1158,21 @@ pub struct CallableModule {
     pub args: CBoxedSlice<NodeRef>,
 }
 
+#[repr(C)]
+#[derive(Debug, Serialize, Clone)]
+pub struct CallableModuleRef(pub CArc<CallableModule>);
+
+impl PartialEq for CallableModuleRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_ptr() == other.0.as_ptr()
+    }
+}
+impl Eq for CallableModuleRef {}
+impl Hash for CallableModuleRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_ptr().hash(state);
+    }
+}
 // buffer binding
 #[repr(C)]
 #[derive(Debug, Serialize, Copy, Clone)]
