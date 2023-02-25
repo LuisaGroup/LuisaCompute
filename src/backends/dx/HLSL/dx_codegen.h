@@ -155,10 +155,10 @@ struct PrintValue;
 template<>
 struct PrintValue<float> {
     void operator()(float const &v, vstd::StringBuilder &str) {
-        if (std::isnan(v)) [[unlikely]] {
+        if (luisa::isnan(v)) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
         }
-        if (std::isinf(v)) [[unlikely]] {
+        if (luisa::isinf(v)) [[unlikely]] {
             str.append(v < 0.0f ? "(-INFINITY_f)" : "(INFINITY_f)");
         } else {
             vstd::to_string(v, str);
@@ -193,7 +193,7 @@ struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
     void PureRun(T const &v, vstd::StringBuilder &varName) {
         for (uint64 i = 0; i < N; ++i) {
-            vstd::to_string(v[i], varName);
+            PrintValue<float>{}(v[i], varName);
             varName += ',';
         }
         auto &&last = varName.end() - 1;

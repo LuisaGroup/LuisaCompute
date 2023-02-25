@@ -61,18 +61,20 @@ inline void _float_str_resize(size_t lastSize, string &str) noexcept {
     str.append(".0"sv);
 }
 inline void to_string(double Val, string &str) noexcept {
-    const size_t len = snprintf(nullptr, 0, "%f", Val);
+    const size_t len = snprintf(nullptr, 0, "%a", Val);
     auto lastLen = str.size();
     str.resize(lastLen + len);
-    snprintf(str.data() + lastLen, len + 1, "%f", Val);
+    snprintf(str.data() + lastLen, len + 1, "%a", Val);
     _float_str_resize(lastLen, str);
+    str += "f";
 }
 
 inline string to_string(double Val) noexcept {
-    const size_t len = snprintf(nullptr, 0, "%f", Val);
+    const size_t len = snprintf(nullptr, 0, "%a", Val);
     string str(len, '\0');
-    snprintf(str.data(), len + 1, "%f", Val);
+    snprintf(str.data(), len + 1, "%a", Val);
     _float_str_resize(0, str);
+    str += "f";
     return str;
 }
 
