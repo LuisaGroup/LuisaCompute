@@ -13,7 +13,7 @@ StringBuilder &StringBuilder::append(vstd::string const &str) {
     vstd::push_back_all(vec, str.data(), str.size());
     return *this;
 }
-StringBuilder::StringBuilder(){}
+StringBuilder::StringBuilder() {}
 inline void _float_str_resize(size_t lastSize, StringBuilder &str) noexcept {
     for (int64_t i = str.size() - 1; i >= lastSize; --i) {
         if (str[i] == '.') [[unlikely]] {
@@ -30,16 +30,23 @@ inline void _float_str_resize(size_t lastSize, StringBuilder &str) noexcept {
     }
     str << ".0"sv;
 }
-
-LC_VSTL_API void to_string(double Val, StringBuilder &str) noexcept {
-    const size_t len = snprintf(nullptr, 0, "%f", Val);
+LC_VSTL_API void to_string(float Val, StringBuilder &str) noexcept {
+    const size_t len = snprintf(nullptr, 0, "%a", Val);
     auto lastLen = str.size();
     str.push_back(len + 1);
     auto iter = str.end() - 1;
     *iter = 0;
-    snprintf(str.data() + lastLen, len + 1, "%f", Val);
-    str.erase(iter);
-    _float_str_resize(lastLen, str);
+    snprintf(str.data() + lastLen, len + 1, "%a", Val);
+    *iter = 'f';
+}
+LC_VSTL_API void to_string(double Val, StringBuilder &str) noexcept {
+    const size_t len = snprintf(nullptr, 0, "%a", Val);
+    auto lastLen = str.size();
+    str.push_back(len + 1);
+    auto iter = str.end() - 1;
+    *iter = 0;
+    snprintf(str.data() + lastLen, len + 1, "%a", Val);
+    *iter = 'f';
 }
 
 }// namespace vstd

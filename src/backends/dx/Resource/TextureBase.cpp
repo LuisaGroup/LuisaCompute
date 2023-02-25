@@ -29,7 +29,9 @@ TextureBase::TextureBase(
         case TextureDimension::Cubemap:
             this->depth = 6;
             break;
-        default: assert(false); break;
+        default:
+            assert(dimension == TextureDimension::Tex3D);
+            break;
     }
     //layouts = vstd::create_unique(vengine_new_array<std::atomic<D3D12_BARRIER_LAYOUT>>(mip, D3D12_BARRIER_LAYOUT_COMMON));
 }

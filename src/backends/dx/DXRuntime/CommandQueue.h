@@ -16,7 +16,7 @@ private:
     using CallbackEvent = vstd::variant<
         std::pair<AllocatorPtr, uint64>,
         std::pair<vstd::function<void()>, uint64>,
-        std::pair<vstd::fixed_vector<vstd::function<void()>, 1>, uint64>,
+        std::pair<vstd::vector<vstd::function<void()>>, uint64>,
         std::pair<LCEvent const *, uint64>>;
     Device *device;
     GpuAllocator *resourceAllocator;
@@ -51,9 +51,9 @@ public:
     void AddEvent(LCEvent const *evt);
     uint64 Execute(AllocatorPtr &&alloc);
     uint64 ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback);
-    uint64 ExecuteCallbacks(AllocatorPtr &&alloc, vstd::fixed_vector<vstd::function<void()>, 1> &&callbacks);
+    uint64 ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
 	void ExecuteEmpty(AllocatorPtr &&alloc);
-    void ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::fixed_vector<vstd::function<void()>, 1> &&callbacks);
+    void ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks);
     uint64 ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swapChain, bool vsync);
     void Complete(uint64 fence);
     void Complete();

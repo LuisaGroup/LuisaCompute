@@ -125,14 +125,14 @@ int main(int argc, char *argv[]) {
         C->write(p, new_C);
     });
 
-    auto substep = [&](CommandBuffer &command_buffer) noexcept {
-        command_buffer << clear_grid().dispatch(n_grid, n_grid)
-                       << point_to_grid().dispatch(n_particles)
-                       << simulate_grid().dispatch(n_grid, n_grid)
-                       << grid_to_point().dispatch(n_particles);
+    auto substep = [&](Stream &stream) noexcept {
+        stream << clear_grid().dispatch(n_grid, n_grid)
+               << point_to_grid().dispatch(n_particles)
+               << simulate_grid().dispatch(n_grid, n_grid)
+               << grid_to_point().dispatch(n_particles);
     };
 
-    auto init = [&](CommandBuffer &command_buffer) noexcept {
+    auto init = [&](Stream &stream) noexcept {
         luisa::vector<float2> x_init(n_particles);
         std::default_random_engine random{std::random_device{}()};
         std::uniform_real_distribution<float> uniform;
@@ -144,11 +144,11 @@ int main(int argc, char *argv[]) {
         luisa::vector<float2> v_init(n_particles, make_float2(0.f, -1.f));
         luisa::vector<float> J_init(n_particles, 1.f);
         luisa::vector<float2x2> C_init(n_particles, make_float2x2(0.f));
-        command_buffer << x.copy_from(x_init.data())
-                       << v.copy_from(v_init.data())
-                       << J.copy_from(J_init.data())
-                       << C.copy_from(C_init.data())
-                       << synchronize();
+        stream << x.copy_from(x_init.data())
+               << v.copy_from(v_init.data())
+               << J.copy_from(J_init.data())
+               << C.copy_from(C_init.data())
+               << synchronize();
     };
 
     auto clear_display = device.compile<2>([&] {
@@ -169,17 +169,16 @@ int main(int argc, char *argv[]) {
     });
 
     auto stream = device.create_stream();
-    auto command_buffer = stream.command_buffer();
-    init(command_buffer);
+    init(stream);
     Framerate framerate;
     Window window{"MPM88", make_uint2(resolution)};
     luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
     window.run([&] {
-        for (auto i = 0u; i < n_steps; i++) { substep(command_buffer); }
-        command_buffer << clear_display().dispatch(resolution, resolution)
-                       << draw_particles().dispatch(n_particles)
-                       << display.copy_to(display_buffer.data())
-                       << synchronize();
+        for (auto i = 0u; i < n_steps; i++) { substep(stream); }
+        stream << clear_display().dispatch(resolution, resolution)
+               << draw_particles().dispatch(n_particles)
+               << display.copy_to(display_buffer.data())
+               << synchronize();
         window.set_background(display_buffer.data(), make_uint2(resolution));
         framerate.record();
         auto fps = framerate.report();

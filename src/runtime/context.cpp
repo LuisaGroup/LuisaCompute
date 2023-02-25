@@ -72,7 +72,7 @@ Context::Context(string_view program_path) noexcept
                 if (filename.starts_with(prefix)) {
                     auto name = filename.substr(prefix.size());
                     for (auto &c : name) { c = static_cast<char>(std::tolower(c)); }
-                    LUISA_VERBOSE_WITH_LOCATION("Found backend: {}.", name);
+                    LUISA_INFO_WITH_LOCATION("Found backend: {}.", name);
                     _impl->installed_backends.emplace_back(std::move(name));
                     break;
                 }
@@ -128,6 +128,7 @@ Device Context::create_device(std::string_view backend_name_in, const DeviceConf
         GetDllDirectoryW(MAX_PATH, buffer);
         SetDllDirectoryW(impl->runtime_directory.c_str());
 #endif
+
         auto &&m = impl->loaded_modules.emplace_back(
             DynamicModule::load(
                 impl->runtime_directory,

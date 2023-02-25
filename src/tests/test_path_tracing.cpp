@@ -294,10 +294,10 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
-//        Shared<float> s1{13u};
-//        Shared<float> s2{1024u};
-//        s2[thread_x()] = 1.f;
-//        sync_block();
+        //        Shared<float> s1{13u};
+        //        Shared<float> s2{1024u};
+        //        s2[thread_x()] = 1.f;
+        //        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
         auto ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
@@ -331,19 +331,18 @@ int main(int argc, char *argv[]) {
     });
     auto frame_count = 0u;
     window.run([&] {
-        auto command_buffer = stream.command_buffer();
+        auto cmd_list = CommandList::create();
         static constexpr auto spp_per_dispatch = 64u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
-            command_buffer << raytracing_shader(framebuffer, seed_image, accel, resolution)
-                                  .dispatch(resolution)
-                           << accumulate_shader(accum_image, framebuffer)
-                                  .dispatch(resolution);
+            cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
+                            .dispatch(resolution)
+                     << accumulate_shader(accum_image, framebuffer)
+                            .dispatch(resolution);
         }
-        command_buffer// << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
+        cmd_list// << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
             << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
-            << ldr_image.copy_to(host_image.data())
-            << commit();
-        stream << synchronize();
+            << ldr_image.copy_to(host_image.data());
+        stream << cmd_list.commit() << synchronize();
         window.set_background(host_image.data(), resolution);
         framerate.record(spp_per_dispatch);
         frame_count += spp_per_dispatch;

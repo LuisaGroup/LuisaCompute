@@ -67,12 +67,12 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     stream << buffer.copy_from(data.data());
-    auto command_buffer = stream.command_buffer();
+    auto command_list = CommandList::create();
     for (auto i = 0; i < 10; i++) {
-        command_buffer << kernel(buffer, result_buffer, 3).dispatch(n);
+        command_list << kernel(buffer, result_buffer, 3).dispatch(n);
     }
-    command_buffer << commit();
-    stream << result_buffer.copy_to(results.data());
+    stream << command_list.commit()
+           << result_buffer.copy_to(results.data());
     auto t1 = clock.toc();
     stream << synchronize();
     auto t2 = clock.toc();

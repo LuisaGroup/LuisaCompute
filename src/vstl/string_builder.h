@@ -58,9 +58,7 @@ public:
     void erase(auto &&iter) { vec.erase(iter); }
 };
 LC_VSTL_API void to_string(double val, StringBuilder &builder) noexcept;
-inline void to_string(float val, StringBuilder &builder) noexcept {
-    to_string((double)val, builder);
-}
+LC_VSTL_API void to_string(float val, StringBuilder &builder) noexcept;
 template<class Ty>
 inline void IntegerToString(const Ty Val, StringBuilder &str) noexcept {// convert Val to string
     static_assert(std::is_integral_v<Ty>, "_Ty must be integral");

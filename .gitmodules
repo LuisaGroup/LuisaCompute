@@ -18,7 +18,7 @@
 	url = https://github.com/LuisaGroup/EASTL.git
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
-	url = https://github.com/LuisaGroup/pybind11
+	url = https://github.com/LuisaGroup/pybind11.git
 [submodule "src/ext/parallel-hashmap"]
 	path = src/ext/parallel-hashmap
 	url = https://github.com/greg7mdp/parallel-hashmap.git

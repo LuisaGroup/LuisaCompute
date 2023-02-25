@@ -1,20 +1,20 @@
 add_library(luisa-compute-backends INTERFACE)
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "" "SOURCES" ${ARGN})
-    add_library(luisa-compute-backend-${name} MODULE ${BACKEND_SOURCES})
-    target_link_libraries(luisa-compute-backend-${name} PRIVATE
+    add_library(lc-backend-${name} MODULE ${BACKEND_SOURCES})
+    target_link_libraries(lc-backend-${name} PRIVATE
             luisa-compute-ast
             luisa-compute-runtime
             luisa-compute-gui
             luisa-compute-vstl)
     if(LUISA_COMPUTE_ENABLE_DSL)
-        target_link_libraries(luisa-compute-backend-${name} PRIVATE luisa-compute-dsl)
+        target_link_libraries(lc-backend-${name} PRIVATE luisa-compute-dsl)
     endif()
-    add_dependencies(luisa-compute-backends luisa-compute-backend-${name})
-    set_target_properties(luisa-compute-backend-${name} PROPERTIES
+    add_dependencies(luisa-compute-backends lc-backend-${name})
+    set_target_properties(lc-backend-${name} PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             DEBUG_POSTFIX "")
-    install(TARGETS luisa-compute-backend-${name}
+    install(TARGETS lc-backend-${name}
             LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR}
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

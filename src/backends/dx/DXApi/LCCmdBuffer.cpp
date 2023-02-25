@@ -799,6 +799,8 @@ LCCmdBuffer::LCCmdBuffer(
 void LCCmdBuffer::Execute(
     CommandList &&cmdList,
     size_t maxAlloc) {
+    auto commands = cmdList.commands();
+    auto funcs = std::move(cmdList).steal_callbacks();
     auto allocator = queue.CreateAllocator(maxAlloc);
     tracker.listType = allocator->Type();
     bool cmdListIsEmpty = true;
@@ -826,8 +828,6 @@ void LCCmdBuffer::Execute(
         auto cmdBuilder = cmdBuffer->Build();
         visitor.bd = &cmdBuilder;
         ppVisitor.bd = &cmdBuilder;
-
-        auto commands = std::move(cmdList).commands();
         for (auto &&command : commands) {
             command->accept(reorder);
         }
@@ -918,7 +918,6 @@ void LCCmdBuffer::Execute(
         }
         tracker.RestoreState(cmdBuilder);
     }
-    auto &&funcs = std::move(cmdList).steal_callbacks();
     if (funcs.empty()) {
         if (cmdListIsEmpty)
             queue.ExecuteEmpty(std::move(allocator));

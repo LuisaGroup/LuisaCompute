@@ -455,7 +455,7 @@ luisa::string_view Type::description() const noexcept {
 }
 
 uint Type::dimension() const noexcept {
-    assert(is_array() || is_vector() || is_matrix() || is_texture());
+    assert(is_scalar() || is_array() || is_vector() || is_matrix() || is_texture());
     return static_cast<const detail::TypeImpl *>(this)->dimension;
 }
 

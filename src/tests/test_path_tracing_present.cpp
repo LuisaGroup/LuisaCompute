@@ -303,21 +303,22 @@ int main(int argc, char *argv[]) {
     Framerate framerate;
     auto frame_count = 0u;
     while (!glfwWindowShouldClose(window)) {
-        auto command_buffer = stream.command_buffer();
+        auto cmd_list = CommandList::create();
         constexpr auto spp_per_present = 1u;
         for (auto i = 0u; i < spp_per_present; i++) {
-            command_buffer << raytracing_shader(accum_image, seed_image, accel,
+            cmd_list << raytracing_shader(accum_image, seed_image, accel,
                                                 resolution, frame_count++)
                                   .dispatch(resolution);
         }
-        command_buffer << swap_chain.present(accum_image);
+        stream << cmd_list.commit()
+               << swap_chain.present(accum_image);
         framerate.record(spp_per_present);
         LUISA_INFO("FPS: {}", framerate.report());
         glfwPollEvents();
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, true);
         }
-    };
+    }
     stream << synchronize();
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }

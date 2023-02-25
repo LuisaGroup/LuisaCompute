@@ -28,12 +28,11 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
     auto device = context.create_device(argv[1]);
-    Printer printer{device};
 
     static constexpr auto resolution = make_uint2(1024u);
     auto image_byte4 = device.create_image<float>(PixelStorage::BYTE4, resolution);
@@ -42,29 +41,22 @@ int main(int argc, char *argv[]) {
     std::vector<std::array<float, 4u>> array_float4(resolution.x * resolution.y);
 
     auto stream = device.create_stream();
-    stream << printer.reset();
-
-    for (auto i = 0u; i < resolution.x * resolution.y; ++i) {
-        array_byte4[i] = {12, 34, 56, 78};
-        array_float4[i] = {-12.0f, 43.121f, -89.1f, 0.f};
-    }
-
-    auto command_buffer = stream.command_buffer();
-
-    command_buffer << image_byte4.copy_from(array_byte4.data())
-                   << image_float4.copy_from(array_float4.data());
 
     Kernel2D display_kernel = [&](ImageFloat image) {
         auto coord = dispatch_id().xy();
-        auto num = image.read(coord);
-        printer.info_with_location("color = ({}, {}, {}, {})", num.x, num.y, num.z, num.w);
+        auto uv = make_float2(coord) / make_float2(resolution);
+        image.write(coord, make_float4(uv, .5f, 1.f));
     };
 
     auto display_shader = device.compile(display_kernel);
 
     Clock clock;
-    command_buffer << display_shader(image_byte4).dispatch(resolution)
-                   << printer.retrieve()
-                   << synchronize();
+
+    auto cmd_list = CommandList::create();
+    cmd_list << image_byte4.copy_from(array_byte4.data())
+             << image_float4.copy_from(array_float4.data())
+             << display_shader(image_byte4).dispatch(resolution);
+    stream << cmd_list.commit()
+           << synchronize();
     LUISA_INFO("Finished in {} ms.", clock.toc());
 }

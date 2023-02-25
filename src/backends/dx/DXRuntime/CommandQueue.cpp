@@ -167,7 +167,7 @@ uint64 CommandQueue::Execute(AllocatorPtr &&alloc) {
 uint64 CommandQueue::ExecuteCallback(AllocatorPtr &&alloc, vstd::function<void()> &&callback) {
     return _Execute(std::move(alloc), std::move(callback));
 }
-uint64 CommandQueue::ExecuteCallbacks(AllocatorPtr &&alloc, vstd::fixed_vector<vstd::function<void()>, 1> &&callbacks) {
+uint64 CommandQueue::ExecuteCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks) {
     return _Execute(std::move(alloc), std::move(callbacks));
 }
 void CommandQueue::ExecuteEmpty(AllocatorPtr &&alloc) {
@@ -175,7 +175,7 @@ void CommandQueue::ExecuteEmpty(AllocatorPtr &&alloc) {
     allocatorPool.push(std::move(alloc));
 }
 
-void CommandQueue::ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::fixed_vector<vstd::function<void()>, 1> &&callbacks) {
+void CommandQueue::ExecuteEmptyCallbacks(AllocatorPtr &&alloc, vstd::vector<vstd::function<void()>> &&callbacks) {
     alloc->Reset(this);
     allocatorPool.push(std::move(alloc));
     auto curFrame = ++lastFrame;
