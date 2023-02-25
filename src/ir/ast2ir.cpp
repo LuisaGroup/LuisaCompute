@@ -56,7 +56,7 @@ ir::Module AST2IR::_convert_body() noexcept {
                       .entry = bb};
 }
 
-luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function function) noexcept {
+luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::KERNEL,
                  "Invalid function tag.");
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
@@ -128,7 +128,7 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
             shared.ptr[i] = _convert_shared_variable(_function.shared_variables()[i]);
         }
         auto module = _convert_body();
-        return ir::Gc<ir::KernelModule>::from_raw(
+        return ir::CArc<ir::KernelModule>::from_raw(
             ir::luisa_compute_ir_new_kernel_module(
                 ir::KernelModule{.module = module,
                                  .captures = captures,
@@ -139,18 +139,18 @@ luisa::shared_ptr<ir::Gc<ir::KernelModule>> AST2IR::convert_kernel(Function func
                                                 _function.block_size().z}}));
     });
     m.set_root(true);
-    return {luisa::new_with_allocator<ir::Gc<ir::KernelModule>>(m),
+    return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(m),
             [](auto p) noexcept {
                 p->set_root(false);
                 luisa::delete_with_allocator(p);
             }};
 }
 
-ir::Gc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept {
+ir::CArc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept {
     LUISA_ASSERT(function.tag() == Function::Tag::CALLABLE,
                  "Invalid function tag.");
     if (auto m = ir::luisa_compute_ir_get_symbol(function.hash())) {
-        return ir::Gc<ir::CallableModule>::from_raw(m);
+        return ir::CArc<ir::CallableModule>::from_raw(m);
     }
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
                      _variables.empty() && _builder_stack.empty() &&
@@ -163,7 +163,7 @@ ir::Gc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept 
         for (auto i = 0u; i < arg_count; i++) {
             args.ptr[i] = _convert_argument(_function.arguments()[i]);
         }
-        return ir::Gc<ir::CallableModule>::from_raw(
+        return ir::CArc<ir::CallableModule>::from_raw(
             ir::luisa_compute_ir_new_callable_module(
                 ir::CallableModule{.module = _convert_body(),
                                    .args = args}));
@@ -213,9 +213,9 @@ ir::IrBuilder *AST2IR::_current_builder() noexcept {
     return _builder_stack.back();
 }
 
-ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
+ir::CArc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
     auto register_type = [](ir::Type t) noexcept {
-        return ir::Gc<ir::Type>::from_raw(
+        return ir::CArc<ir::Type>::from_raw(
             ir::luisa_compute_ir_register_type(t));
     };
     // special handling for void
@@ -278,7 +278,7 @@ ir::Gc<ir::Type> AST2IR::_convert_type(const Type *type) noexcept {
             if (auto iter = _struct_types.find(type->hash());
                 iter != _struct_types.end()) { return iter->second; }
             auto m = type->members();
-            auto members = _boxed_slice<ir::Gc<ir::Type>>(m.size());
+            auto members = _boxed_slice<ir::CArc<ir::Type>>(m.size());
             for (auto i = 0u; i < m.size(); i++) {
                 members.ptr[i] = _convert_type(m[i]);
             }
@@ -831,7 +831,7 @@ ir::NodeRef AST2IR::_convert(const SwitchStmt *stmt) noexcept {
     ir::Instruction switch_instr{.tag = ir::Instruction::Tag::Switch,
                                  .switch_ = {.value = value}};
     luisa::vector<ir::SwitchCase> case_blocks;
-    luisa::optional<ir::Gc<ir::BasicBlock>> default_block;
+    luisa::optional<ir::Pooled<ir::BasicBlock>> default_block;
     case_blocks.reserve(stmt->body()->statements().size());
     for (auto s : stmt->body()->statements()) {
         LUISA_ASSERT(s->tag() == Statement::Tag::SWITCH_CASE ||

@@ -48,7 +48,7 @@ struct CArc {
         return CArc(inner);
     }
     template<class... Args>
-    friend CArc<T> make_arc<T>(Args &&...args) {
+    friend CArc<T> make_arc(Args &&...args) {
         auto *block = new CArcSharedBlock<T>{T(std::forward<Args>(args)...), 1, [](CArcSharedBlock<T> *block) {
                                                  delete block;
                                              }};
@@ -60,12 +60,24 @@ struct CArc {
     ~CArc() {
         if (inner) inner->release();
     }
+    T* get() const noexcept { return &inner->ptr; }
 
 private:
     CArcSharedBlock<T> *inner;
     explicit CArc(CArcSharedBlock<T> *inner) : inner(inner) {}
 };
 
+template<typename T>
+struct Pooled {
+    
+    Pooled()=delete;
+    Pooled(const Pooled &) = default;
+    T* get() const noexcept { return ptr; }
+    T* operator->() const noexcept { return ptr; }
+    T& operator*() const noexcept { return *ptr; }
+private:
+    T *ptr;
+};
 }// namespace luisa::compute::ir
 
 #else

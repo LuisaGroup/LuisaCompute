@@ -3,23 +3,6 @@
 
 namespace luisa::compute {
 
-void luisa_compute_ir_initialize_context() {
-     static std::once_flag flag;
-     std::call_once(flag, [] {
-         using namespace luisa::compute::ir;
-         auto gc_ctx = luisa_compute_gc_create_context();
-         luisa_compute_gc_set_context(gc_ctx);
-         auto ir_ctx = luisa_compute_ir_new_context();
-         luisa_compute_ir_set_context(ir_ctx);
-     });
-}
-
-// TODO: is it good to go here?
-// comment: Nope
-// static auto context_initializer = []() noexcept {
-//     luisa_compute_ir_initialize_context();
-//     return 0;
-// }();
 
 using ir::Func;
 using ir::Instruction;
@@ -147,13 +130,13 @@ void convert_to_ast(const ir::Module *module, detail::FunctionBuilder *builder) 
 struct ToIR {
     const ScopeStmt *stmt;
     luisa::unordered_map<const Expression *, ir::NodeRef> expr_map;
-    luisa::unordered_map<const Type *, ir::Gc<ir::Type>> type_map;
+    luisa::unordered_map<const Type *, ir::CArc<ir::Type>> type_map;
     luisa::unordered_map<uint32_t, ir::NodeRef> var_map;
     ir::IrBuilder *var_def_builder = nullptr;
-    ir::Gc<ir::Type> _build_type(const Type *ty) noexcept {
+    ir::CArc<ir::Type> _build_type(const Type *ty) noexcept {
         return {};
     }
-    ir::Gc<ir::Type> build_type(const Type *ty) noexcept {
+    ir::CArc<ir::Type> build_type(const Type *ty) noexcept {
         auto it = type_map.find(ty);
         if (it != type_map.end()) {
             return it->second;
@@ -246,7 +229,7 @@ struct ToIR {
                 value);
         }
     }
-    ir::Gc<ir::BasicBlock> build_block(const ScopeStmt *stmt) {
+    ir::Pooled<ir::BasicBLock> build_block(const ScopeStmt *stmt) {
         auto builder = ir::luisa_compute_ir_new_builder();
         for (auto s : stmt->statements()) {
             if (auto expr = dynamic_cast<const ExprStmt *>(s)) {

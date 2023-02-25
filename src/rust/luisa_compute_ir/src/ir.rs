@@ -639,7 +639,7 @@ pub enum Func {
     // vector x 4 -> matrix
     Mat4,
 
-    Callable(u64),
+    Callable(CArc<CallableModule>),
 
     // ArgT -> ArgT
     CpuCustomOp(CArc<CpuCustomOp>),
