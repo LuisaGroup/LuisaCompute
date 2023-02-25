@@ -57,7 +57,7 @@ usize_is_size_t = true
 
 
 [export]
-include = ["Node", "CRc", "CBox", "CSlice", "CBoxedSlice", "Instruction", "BasicBlock", "CallableModule", "KernelModule"]
+include = ["Node", "CArc", "CBox", "CSlice", "CBoxedSlice", "Instruction", "BasicBlock", "CallableModule", "KernelModule"]
 exclude = []
 # prefix = "CAPI_"
 item_types = []

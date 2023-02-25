@@ -3,13 +3,13 @@ use std::{
     ffi::CString,
 };
 
-use gc::Gc;
 use indexmap::{IndexMap, IndexSet};
 
 use crate::{
+    context::is_type_equal,
     ir::{self, *},
     transform::autodiff::grad_type_of,
-    CBox, CBoxedSlice, CRc,
+    CArc, CBox, CBoxedSlice, Pooled,
 };
 
 use super::{sha256, CodeGen};
@@ -17,7 +17,7 @@ use crate::ir::Instruction::Invalid;
 use std::fmt::Write;
 
 pub(crate) struct TypeGen {
-    cache: HashMap<Gc<Type>, String>,
+    cache: HashMap<CArc<Type>, String>,
     struct_typedefs: String,
 }
 
@@ -28,7 +28,7 @@ impl TypeGen {
             struct_typedefs: String::new(),
         }
     }
-    fn to_c_type_(&mut self, t: Gc<Type>) -> String {
+    fn to_c_type_(&mut self, t: &CArc<Type>) -> String {
         match t.as_ref() {
             Type::Primitive(t) => match t {
                 ir::Primitive::Bool => "bool".to_string(),
@@ -47,25 +47,25 @@ impl TypeGen {
                     .fields
                     .as_ref()
                     .iter()
-                    .map(|f| self.to_c_type(*f))
+                    .map(|f| self.to_c_type(f))
                     .collect();
                 let field_types_str = field_types.join(", ");
                 let hash = sha256(&format!("{}_alignas({})", field_types_str, st.alignment));
                 let hash = hash.replace("-", "x_");
                 let name = format!("s_{}", hash);
 
-                self.cache.insert(t, name.clone());
+                self.cache.insert(t.clone(), name.clone());
                 let mut tmp = String::new();
                 writeln!(tmp, "struct alignas({0}) {1} {{", st.alignment, name).unwrap();
                 for (i, field) in st.fields.as_ref().iter().enumerate() {
                     let field_name = format!("f{}", i);
-                    let field_type = self.to_c_type(*field);
+                    let field_type = self.to_c_type(field);
                     writeln!(tmp, "    {} {};", field_type, field_name).unwrap();
                 }
                 writeln!(tmp, "    __device__ constexpr static auto one() {{").unwrap();
                 writeln!(tmp, "        return {0} {{", name).unwrap();
                 for (_, field) in st.fields.as_ref().iter().enumerate() {
-                    let field_type = self.to_c_type(*field);
+                    let field_type = self.to_c_type(field);
                     writeln!(tmp, "        lc_one<{}>(),", field_type).unwrap();
                 }
                 writeln!(tmp, "        }};").unwrap();
@@ -73,7 +73,7 @@ impl TypeGen {
                 writeln!(tmp, "    __device__ constexpr static auto zero() {{").unwrap();
                 writeln!(tmp, "        return {0} {{", name).unwrap();
                 for (_, field) in st.fields.as_ref().iter().enumerate() {
-                    let field_type = self.to_c_type(*field);
+                    let field_type = self.to_c_type(field);
                     writeln!(tmp, "        lc_zero<{}>(),", field_type).unwrap();
                 }
                 writeln!(tmp, "        }};").unwrap();
@@ -87,7 +87,7 @@ impl TypeGen {
                 )
                 .unwrap();
                 for (i, t) in st.fields.as_ref().iter().enumerate() {
-                    if grad_type_of(*t).is_none() {
+                    if grad_type_of(t.clone()).is_none() {
                         continue;
                     }
                     let field_name = format!("f{}", i);
@@ -129,17 +129,17 @@ impl TypeGen {
                 }
             }
             Type::Array(at) => {
-                let element_type = self.to_c_type(at.element);
+                let element_type = self.to_c_type(&at.element);
                 format!("lc_array<{}, {}>", element_type, at.length)
             }
         }
     }
-    fn to_c_type(&mut self, t: Gc<Type>) -> String {
-        if let Some(t) = self.cache.get(&t) {
+    fn to_c_type(&mut self, t: &CArc<Type>) -> String {
+        if let Some(t) = self.cache.get(t) {
             return t.clone();
         } else {
             let t_ = self.to_c_type_(t);
-            self.cache.insert(t, t_.clone());
+            self.cache.insert(t.clone(), t_.clone());
             return t_;
         }
     }
@@ -157,12 +157,12 @@ impl PhiCollector {
             phis_per_block: IndexMap::new(),
         }
     }
-    pub fn visit_block(&mut self, block: Gc<BasicBlock>) {
+    pub fn visit_block(&mut self, block: Pooled<BasicBlock>) {
         for phi in block.phis() {
             self.phis.insert(phi);
             if let Instruction::Phi(incomings) = phi.get().instruction.as_ref() {
                 for incoming in incomings.as_ref() {
-                    let ptr = Gc::into_raw(incoming.block) as *const _;
+                    let ptr = Pooled::into_raw(incoming.block) as *const _;
                     self.phis_per_block
                         .entry(ptr)
                         .or_insert_with(Vec::new)
@@ -173,7 +173,7 @@ impl PhiCollector {
             }
         }
         for node in block.iter() {
-            let inst = node.get().instruction;
+            let inst = &node.get().instruction;
             match inst.as_ref() {
                 Instruction::If {
                     cond: _,
@@ -273,7 +273,7 @@ impl GenericCppCodeGen {
                 Instruction::UserData(_) => format!("_lc_user_data"),
                 Instruction::Const(_) => format!("c{}", index),
                 Instruction::Call(_, _) => {
-                    if node.type_() == Type::void() {
+                    if is_type_equal(&node.type_(), &Type::void()) {
                         "".to_string()
                     } else {
                         format!("f{}", index)
@@ -485,7 +485,7 @@ impl GenericCppCodeGen {
             }
             Func::BindlessBufferSize(t) => {
                 self.gen_instr(args[0]);
-                let buffer_ty = self.type_gen.to_c_type(*t);
+                let buffer_ty = self.type_gen.to_c_type(t);
                 writeln!(
                     &mut self.body,
                     "const {} {} = lc_bindless_buffer_size<{}>({}, {});",
@@ -512,7 +512,7 @@ impl GenericCppCodeGen {
         var: &String,
         node: NodeRef,
         node_ty_s: &String,
-        node_ty: Gc<Type>,
+        node_ty: &CArc<Type>,
         f: &Func,
         args: &[NodeRef],
         args_v: &Vec<String>,
@@ -528,7 +528,7 @@ impl GenericCppCodeGen {
                 true
             }
             Func::Unreachable => {
-                if node_ty != Type::void() {
+                if !is_type_equal(node_ty, &Type::void()) {
                     writeln!(&mut self.body, "{} {};", node_ty_s, var).unwrap();
                 }
                 writeln!(&mut self.body, "lc_unreachable({});", args_v.join(", ")).unwrap();
@@ -861,7 +861,7 @@ impl GenericCppCodeGen {
             Func::CpuCustomOp(op) => {
                 let i = *self
                     .cpu_custom_ops
-                    .get(&(CRc::as_ptr(op) as usize))
+                    .get(&(CArc::as_ptr(op) as usize))
                     .unwrap();
                 writeln!(
                     self.body,
@@ -1013,7 +1013,7 @@ impl GenericCppCodeGen {
             return;
         }
         self.visited.insert(node);
-        let inst = node.get().instruction;
+        let inst = &node.get().instruction;
         let node_ty = node.type_();
         let node_ty_s = self.type_gen.to_c_type(node_ty);
         match inst.as_ref() {
@@ -1214,13 +1214,13 @@ impl GenericCppCodeGen {
             Instruction::Debug(_) => todo!(),
         }
     }
-    fn gen_block_(&mut self, block: Gc<ir::BasicBlock>) {
+    fn gen_block_(&mut self, block: Pooled<ir::BasicBlock>) {
         for n in block.iter() {
             self.gen_instr(n);
         }
         let phis = self
             .phis_per_block
-            .get(&(Gc::into_raw(block) as *const _))
+            .get(&(Pooled::into_raw(block) as *const _))
             .cloned()
             .unwrap_or(vec![]);
         for phi in &phis {
@@ -1230,7 +1230,8 @@ impl GenericCppCodeGen {
                     .as_ref()
                     .iter()
                     .find(|incoming| {
-                        Gc::into_raw(incoming.block) as *const _ == Gc::into_raw(block) as *const _
+                        Pooled::into_raw(incoming.block) as *const _
+                            == Pooled::into_raw(block) as *const _
                     })
                     .unwrap()
                     .value;
@@ -1242,7 +1243,7 @@ impl GenericCppCodeGen {
             }
         }
     }
-    fn gen_block(&mut self, block: Gc<ir::BasicBlock>) {
+    fn gen_block(&mut self, block: Pooled<ir::BasicBlock>) {
         self.write_ident();
         writeln!(&mut self.body, "{{").unwrap();
         self.indent += 1;
@@ -1329,7 +1330,7 @@ impl GenericCppCodeGen {
             self.gen_arg(*arg, i, false);
         }
         for (i, op) in module.cpu_custom_ops.as_ref().iter().enumerate() {
-            self.cpu_custom_ops.insert(CRc::as_ptr(op) as usize, i);
+            self.cpu_custom_ops.insert(CArc::as_ptr(op) as usize, i);
         }
         self.gen_block(module.module.entry);
     }

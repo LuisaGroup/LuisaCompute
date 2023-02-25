@@ -1,12 +1,11 @@
 use super::autodiff::grad_type_of;
 use super::Transform;
-use crate::{context, ir::*, TypeOf};
-use gc::Gc;
+use crate::{context::{self, is_type_equal}, ir::*, TypeOf, CArc};
 struct Validator {}
-fn check_types_equal(types: &[Gc<Type>]) -> bool {
+fn check_types_equal(types: &[&CArc<Type>]) -> bool {
     let mut iter = types.iter();
     let first = iter.next().unwrap();
-    iter.all(|t| t == first && *t != Type::void())
+    iter.all(|t| is_type_equal(*t, *first) && !is_type_equal(*t, &Type::void()))
 }
 fn _vector_compatible(a: &VectorType, b: &VectorType) -> bool {
     if a.length != b.length {
@@ -28,7 +27,7 @@ fn _matrix_compatible(a: &MatrixType, b: &MatrixType) -> bool {
         _ => false,
     }
 }
-fn vector_compatible(a: Gc<Type>, b: Gc<Type>) -> bool {
+fn vector_compatible(a: &CArc<Type>, b: &CArc<Type>) -> bool {
     match (a.as_ref(), b.as_ref()) {
         (Type::Vector(a), Type::Vector(b)) => _vector_compatible(a, b),
         (Type::Matrix(a), Type::Matrix(b)) => _matrix_compatible(a, b),
@@ -48,7 +47,7 @@ impl Validator {
     }
     fn check_node(&mut self, node: NodeRef) {
         let node = node.get();
-        let type_ = node.type_;
+        let type_ = node.type_.clone();
         let uvec3_ty = context::register_type(Type::Vector(VectorType {
             element: VectorElementType::Scalar(Primitive::Uint32),
             length: 3,
@@ -62,10 +61,10 @@ impl Validator {
             Instruction::Shared => todo!(),
             Instruction::Uniform => todo!(),
             Instruction::Local { init } => {
-                assert!(check_types_equal(&[type_, init.type_()]));
+                assert!(check_types_equal(&[&type_, init.type_()]));
             }
             Instruction::Argument { by_value: _ } => {
-                assert!(check_types_equal(&[type_]));
+                assert!(check_types_equal(&[&type_]));
             }
             Instruction::UserData(_) => {}
             Instruction::Invalid => {
@@ -73,8 +72,8 @@ impl Validator {
             }
             Instruction::Const(c) => {
                 let const_type = match c {
-                    Const::Zero(t) => *t,
-                    Const::One(t) => *t,
+                    Const::Zero(t) => t.clone(),
+                    Const::One(t) => t.clone(),
                     Const::Bool(_) => <bool as TypeOf>::type_(),
                     Const::Int32(_) => <i32 as TypeOf>::type_(),
                     Const::Uint32(_) => <u32 as TypeOf>::type_(),
@@ -82,12 +81,12 @@ impl Validator {
                     Const::Uint64(_) => <u64 as TypeOf>::type_(),
                     Const::Float32(_) => <f32 as TypeOf>::type_(),
                     Const::Float64(_) => <f64 as TypeOf>::type_(),
-                    Const::Generic(_, t) => *t,
+                    Const::Generic(_, t) => t.clone(),
                 };
                 assert_eq!(type_, const_type);
             }
             Instruction::Update { var, value } => {
-                assert_eq!(type_, Type::void());
+                assert!(is_type_equal(&type_, &Type::void()));
                 assert_eq!(value.type_(), var.type_());
             }
             Instruction::Call(func, args) => {
@@ -95,14 +94,14 @@ impl Validator {
                 macro_rules! check_binop_float_int {
                     () => {{
                         assert_eq!(args.len(), 2);
-                        check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
+                        check_types_equal(&[&type_, args[0].type_(), args[1].type_()]);
                         assert!(!type_.is_bool());
                     }};
                 }
                 macro_rules! check_binop_same {
                     () => {{
                         assert_eq!(args.len(), 2);
-                        check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
+                        check_types_equal(&[&type_, args[0].type_(), args[1].type_()]);
                     }};
                 }
                 macro_rules! check_binop_bitwise {
@@ -110,7 +109,7 @@ impl Validator {
                         assert_eq!(args.len(), 2);
                         assert!(args[0].type_().is_int());
                         assert!(args[1].type_().is_int());
-                        check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
+                        check_types_equal(&[&type_, args[0].type_(), args[1].type_()]);
                         assert!(!type_.is_bool());
                     }};
                 }
@@ -119,7 +118,7 @@ impl Validator {
                         assert_eq!(args.len(), 2);
                         assert!(args[0].type_().is_int() || args[0].type_().is_bool());
                         assert!(args[1].type_().is_int() || args[1].type_().is_bool());
-                        check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
+                        check_types_equal(&[&type_, args[0].type_(), args[1].type_()]);
                     }};
                 }
                 macro_rules! check_cmp {
@@ -133,7 +132,7 @@ impl Validator {
                     () => {{
                         assert_eq!(args.len(), 1);
                         assert!(args[0].type_().is_float());
-                        assert_eq!(type_, args[0].type_());
+                        assert_eq!(&type_, args[0].type_());
                     }};
                 }
                 match func {
@@ -142,14 +141,14 @@ impl Validator {
                     }
                     Func::Assume => {
                         assert_eq!(args.len(), 1);
-                        assert_eq!(args[0].type_(), <bool as TypeOf>::type_());
+                        assert!(is_type_equal(args[0].type_(), &<bool as TypeOf>::type_()))
                     }
                     Func::Unreachable => {
                         assert!(args.is_empty());
                     }
                     Func::Assert => {
                         assert_eq!(args.len(), 1);
-                        assert_eq!(args[0].type_(), <bool as TypeOf>::type_());
+                        assert!(is_type_equal(args[0].type_(), &<bool as TypeOf>::type_()))
                     }
                     Func::ThreadId => {
                         assert!(args.is_empty());
@@ -194,7 +193,7 @@ impl Validator {
                             Type::Struct(_) => panic!("cannt cast from struct"),
                             _ => {}
                         }
-                        assert!(vector_compatible(type_, args[0].type_()));
+                        assert!(vector_compatible(&type_, args[0].type_()));
                     }
                     Func::Bitcast => {
                         assert_eq!(args.len(), 1);
@@ -207,7 +206,7 @@ impl Validator {
                             Type::Struct(_) => panic!("cannt cast from struct"),
                             _ => {}
                         }
-                        assert!(vector_compatible(type_, args[0].type_()));
+                        assert!(vector_compatible(&type_, args[0].type_()));
                     }
                     Func::Load => {
                         assert!(args[0].is_lvalue());
@@ -271,17 +270,17 @@ impl Validator {
                     }
                     Func::Neg => {
                         assert_eq!(args.len(), 1);
-                        check_types_equal(&[type_, args[0].type_()]);
+                        check_types_equal(&[&type_, args[0].type_()]);
                         assert!(type_.is_float() || type_.is_int());
                     }
                     Func::Not => {
                         assert_eq!(args.len(), 1);
-                        check_types_equal(&[type_, args[0].type_()]);
+                        check_types_equal(&[&type_, args[0].type_()]);
                         assert!(type_.is_bool() || type_.is_int());
                     }
                     Func::BitNot => {
                         assert_eq!(args.len(), 1);
-                        check_types_equal(&[type_, args[0].type_()]);
+                        check_types_equal(&[&type_, args[0].type_()]);
                         assert!(type_.is_bool() || type_.is_int());
                     }
                     Func::All => {
@@ -298,14 +297,14 @@ impl Validator {
                         assert_eq!(args.len(), 3);
                         assert!(args[0].type_().is_bool());
                         check_types_equal(&[args[1].type_(), args[2].type_()]);
-                        check_types_equal(&[type_, args[1].type_()]);
-                        assert!(vector_compatible(type_, args[0].type_()));
-                        assert!(vector_compatible(type_, args[1].type_()));
+                        check_types_equal(&[&type_, args[1].type_()]);
+                        assert!(vector_compatible(&type_, args[0].type_()));
+                        assert!(vector_compatible(&type_, args[1].type_()));
                     }
                     Func::Clamp => {
                         assert_eq!(args.len(), 3);
                         check_types_equal(&[
-                            type_,
+                            &type_,
                             args[0].type_(),
                             args[1].type_(),
                             args[2].type_(),
@@ -315,7 +314,7 @@ impl Validator {
                     Func::Lerp => {
                         assert_eq!(args.len(), 3);
                         check_types_equal(&[
-                            type_,
+                            &type_,
                             args[0].type_(),
                             args[1].type_(),
                             args[2].type_(),
@@ -324,22 +323,22 @@ impl Validator {
                     }
                     Func::Step => {
                         assert_eq!(args.len(), 2);
-                        check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
+                        check_types_equal(&[&type_, args[0].type_(), args[1].type_()]);
                         assert!(type_.is_float());
                     }
                     Func::Abs => {
                         assert_eq!(args.len(), 1);
-                        check_types_equal(&[type_, args[0].type_()]);
+                        check_types_equal(&[&type_, args[0].type_()]);
                         assert!(type_.is_float() || type_.is_int());
                     }
                     Func::Min => {
                         assert_eq!(args.len(), 2);
-                        check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
+                        check_types_equal(&[&type_, args[0].type_(), args[1].type_()]);
                         assert!(type_.is_float() || type_.is_int());
                     }
                     Func::Max => {
                         assert_eq!(args.len(), 2);
-                        check_types_equal(&[type_, args[0].type_(), args[1].type_()]);
+                        check_types_equal(&[&type_, args[0].type_(), args[1].type_()]);
                         assert!(type_.is_float() || type_.is_int());
                     }
                     Func::ReduceSum => {
@@ -464,13 +463,14 @@ impl Validator {
             }
             Instruction::Phi(incomings) => {
                 for incoming in incomings.as_ref() {
-                    assert_eq!(incoming.value.type_(), type_);
+                    assert!(is_type_equal(incoming.value.type_(), &type_));
                 }
             }
             Instruction::Return(_) => todo!(),
             Instruction::Loop { body, cond } => {
-                assert_eq!(type_, Type::void());
-                assert_eq!(cond.type_(), <bool as TypeOf>::type_());
+                // assert!(is_type_equal(&type_, &Type::void()));
+                // assert_eq!(cond.type_(), <bool as TypeOf>::type_());
+                assert!(is_type_equal(&type_, &Type::void()));
                 self.check_block(body);
             }
             Instruction::GenericLoop {
@@ -479,27 +479,27 @@ impl Validator {
                 body,
                 update,
             } => {
-                assert_eq!(type_, Type::void());
+                assert!(is_type_equal(&type_, &Type::void()));
                 self.check_block(prepare);
-                assert_eq!(cond.type_(), <bool as TypeOf>::type_());
+                assert!(is_type_equal(cond.type_(), &<bool as TypeOf>::type_()));
                 self.check_block(body);
                 self.check_block(update);
             }
             Instruction::AdScope { .. } => todo!(),
             Instruction::AdDetach(_) => todo!(),
             Instruction::Break => {
-                assert_eq!(type_, Type::void());
+                assert!(is_type_equal(&type_, &Type::void()));
             }
             Instruction::Continue => {
-                assert_eq!(type_, Type::void());
+                assert!(is_type_equal(&type_, &Type::void()));
             }
             Instruction::If {
                 cond,
                 true_branch,
                 false_branch,
             } => {
-                assert_eq!(type_, Type::void());
-                assert_eq!(cond.type_(), <bool as TypeOf>::type_());
+                assert!(is_type_equal(&type_, &Type::void()));
+                assert!(is_type_equal(cond.type_(), &<bool as TypeOf>::type_()));
                 self.check_block(true_branch);
                 self.check_block(false_branch);
             }
@@ -508,15 +508,15 @@ impl Validator {
                 default,
                 cases,
             } => {
-                assert_eq!(type_, Type::void());
-                assert_eq!(value.type_(), <i32 as TypeOf>::type_());
+                assert!(is_type_equal(&type_, &Type::void()));
+                assert!(is_type_equal(value.type_(), &<i32 as TypeOf>::type_()));
                 self.check_block(default);
                 for case in cases.as_ref() {
                     self.check_block(&case.block);
                 }
             }
             Instruction::Comment(_) => {
-                assert_eq!(type_, Type::void());
+                assert!(is_type_equal(&type_, &Type::void()));
             }
             crate::ir::Instruction::Debug { .. } => {}
         }

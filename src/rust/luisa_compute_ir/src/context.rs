@@ -1,108 +1,74 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ffi::c_void,
-};
+use std::collections::{HashMap, HashSet};
 
-use gc::{Gc, GcObject, Trace};
+use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
-use crate::ir::{CallableModule, Node, NodeRef, Type};
+use crate::{
+    ir::{CallableModule, Node, NodeRef, Type},
+    CArc, CArcSharedBlock,
+};
 
 pub struct Context {
-    pub(crate) types: RwLock<HashSet<Gc<Type>>>,
-    pub(crate) symbols: RwLock<HashMap<u64, Gc<CallableModule>>>,
+    pub(crate) types: RwLock<HashSet<CArc<Type>>>,
+    pub(crate) type_equivalences: RwLock<HashMap<(*const Type, *const Type), bool>>,
 }
+unsafe impl Sync for Context {}
+unsafe impl Send for Context {}
 
 impl Context {
-    pub fn add_symbol(&self, id: u64, symbol: Gc<CallableModule>) {
-        self.symbols.write().insert(id, symbol);
-    }
-    pub fn get_symbol(&self, id: u64) -> Option<Gc<CallableModule>> {
-        self.symbols.read().get(&id).cloned()
-    }
-    pub fn register_type(&self, type_: Type) -> Gc<Type> {
-        let type_ = Gc::new(type_);
+    pub fn register_type(&self, type_: Type) -> CArc<Type> {
+        let type_ = CArc::new(type_);
         let types = self.types.read();
         if let Some(type_) = types.get(&type_) {
-            *type_
+            type_.clone()
         } else {
             drop(types);
             let mut types = self.types.write();
-            // let r = unsafe { std::mem::transmute(&*type_) };
-            types.insert(type_);
+            types.insert(type_.clone());
             type_
         }
     }
+    pub fn is_type_equal(&self, a: &CArc<Type>, b: &CArc<Type>) -> bool {
+        if CArc::as_ptr(a) == CArc::as_ptr(b) {
+            return true;
+        }
+        let type_equivalences = self.type_equivalences.read();
+        if let Some(&equal) = type_equivalences.get(&(CArc::as_ptr(a), CArc::as_ptr(b))) {
+            return equal;
+        }
+        drop(type_equivalences);
+        let mut type_equivalences = self.type_equivalences.write();
+        let equal = *a == *b;
+        type_equivalences.insert((CArc::as_ptr(a), CArc::as_ptr(b)), equal);
+        equal
+    }
+    pub fn new() -> Self {
+        Self {
+            types: RwLock::new(HashSet::new()),
+            type_equivalences: RwLock::new(HashMap::new()),
+        }
+    }
+}
 
-    pub fn alloc_node(&self, node: Node) -> NodeRef {
-        let node = Gc::new(node);
-        unsafe { NodeRef(std::mem::transmute(node)) }
-    }
+lazy_static! {
+    static ref CONTEXT: Context = Context::new();
 }
-impl Trace for Context {
-    fn trace(&self) {
-        for t in self.types.read().iter() {
-            t.trace();
-        }
-        for c in self.symbols.read().values() {
-            c.trace();
-        }
-    }
-}
-static CONTEXT: RwLock<Option<Gc<Context>>> = RwLock::new(None);
 
 pub fn with_context<T>(f: impl FnOnce(&Context) -> T) -> T {
-    let ctx = CONTEXT.read();
-    f(ctx.as_ref().unwrap())
+    f(&CONTEXT)
 }
-
-pub unsafe fn reset_context() {
-    let mut ctx = CONTEXT.write();
-    *ctx = None;
+pub fn reset_context() {
+    with_context(|context| {
+        context.types.write().clear();
+        context.type_equivalences.write().clear();
+    });
 }
-
-pub fn register_type(type_: Type) -> Gc<Type> {
+pub fn register_type(type_: Type) -> CArc<Type> {
     with_context(|context| context.register_type(type_))
 }
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_register_type(type_: Type) -> *mut GcObject<Type> {
-    Gc::into_raw(register_type(type_))
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_add_symbol(id: u64, m: Gc<CallableModule>) {
-    with_context(|context| context.add_symbol(id, m));
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn luisa_compute_ir_get_symbol(id: u64) -> *mut GcObject<CallableModule> {
-    Gc::into_raw(with_context(|context| {
-        context.get_symbol(id).unwrap_or(Gc::null())
-    }))
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_context() -> *mut c_void {
-    Gc::into_raw(CONTEXT.read().unwrap()) as *mut c_void
-}
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_context() -> *mut c_void {
-    Gc::into_raw(Gc::new(Context {
-        types: RwLock::new(HashSet::new()),
-        symbols: RwLock::new(HashMap::new()),
-    })) as *mut c_void
-}
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_set_context(ctx: *mut c_void) {
-    assert_ne!(ctx, std::ptr::null_mut());
-    if CONTEXT.read().is_some() && ctx == luisa_compute_ir_context() {
-        return;
+pub fn is_type_equal(a: &CArc<Type>, b: &CArc<Type>) -> bool {
+    if CArc::as_ptr(a) == CArc::as_ptr(b) {
+        return true;
     }
-    let ctx = ctx as *mut GcObject<Context>;
-    let ctx = unsafe { Gc::from_raw(ctx) };
-    let mut context = CONTEXT.write();
-    assert!(context.is_none());
-    Gc::set_root(ctx);
-    *context = Some(ctx)
+    with_context(|context| context.is_type_equal(a, b))
 }

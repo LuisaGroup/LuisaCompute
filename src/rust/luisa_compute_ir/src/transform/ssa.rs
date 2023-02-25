@@ -56,8 +56,8 @@ impl ToSSA {
         if let Some(v) = record.stored.get(&node) {
             return *v;
         }
-        let instruction = node.get().instruction;
-        let type_ = node.get().type_;
+        let instruction = &node.get().instruction;
+        let type_ = &node.get().type_;
         match instruction.as_ref() {
             Instruction::Buffer => return node,
             Instruction::Bindless => return node,
@@ -89,7 +89,7 @@ impl ToSSA {
                     .iter()
                     .map(|a| promote(*a, &record.stored))
                     .collect::<Vec<_>>();
-                let v = builder.call(func.clone(), &promoted_args, type_);
+                let v = builder.call(func.clone(), &promoted_args, type_.clone());
                 record.stored.insert(node, v);
                 return v;
             }
@@ -111,10 +111,17 @@ impl ToSSA {
             } => {
                 let cond = self.promote(*cond, builder, record);
                 let mut true_record = SSABlockRecord::from_parent(record);
-                let true_branch = self.promote_bb(*true_branch, IrBuilder::new(), &mut true_record);
+                let true_branch = self.promote_bb(
+                    *true_branch,
+                    IrBuilder::new(builder.pools.clone()),
+                    &mut true_record,
+                );
                 let mut false_record = SSABlockRecord::from_parent(record);
-                let false_branch =
-                    self.promote_bb(*false_branch, IrBuilder::new(), &mut false_record);
+                let false_branch = self.promote_bb(
+                    *false_branch,
+                    IrBuilder::new(builder.pools.clone()),
+                    &mut false_record,
+                );
                 let phis = true_record
                     .phis
                     .union(&false_record.phis)
@@ -135,7 +142,7 @@ impl ToSSA {
                     if incomings[0].value == incomings[1].value {
                         continue;
                     }
-                    let new_phi = builder.phi(&incomings, phi.get().type_);
+                    let new_phi = builder.phi(&incomings, phi.get().type_.clone());
                     new_phis.push(new_phi);
                     if record.defined.contains(phi) {
                         record.stored.insert(*phi, new_phi);
@@ -150,7 +157,11 @@ impl ToSSA {
             Instruction::Switch { .. } => todo!(),
             Instruction::Loop { body, cond } => {
                 let mut body_record = SSABlockRecord::from_parent(record);
-                let body = self.promote_bb(*body, IrBuilder::new(), &mut body_record);
+                let body = self.promote_bb(
+                    *body,
+                    IrBuilder::new(builder.pools.clone()),
+                    &mut body_record,
+                );
                 let cond = self.promote(*cond, builder, record);
                 builder.loop_(body, cond)
             }
@@ -166,10 +177,10 @@ impl ToSSA {
     }
     fn promote_bb(
         &self,
-        bb: Gc<BasicBlock>,
+        bb: Pooled<BasicBlock>,
         mut builder: IrBuilder,
         record: &mut SSABlockRecord,
-    ) -> Gc<BasicBlock> {
+    ) -> Pooled<BasicBlock> {
         for node in bb.nodes().iter() {
             self.promote(*node, &mut builder, record);
         }
@@ -179,10 +190,15 @@ impl ToSSA {
 
 impl Transform for ToSSA {
     fn transform(&self, module: Module) -> Module {
-        let new_bb = self.promote_bb(module.entry, IrBuilder::new(), &mut SSABlockRecord::new());
+        let new_bb = self.promote_bb(
+            module.entry,
+            IrBuilder::new(module.pools.clone()),
+            &mut SSABlockRecord::new(),
+        );
         Module {
             kind: module.kind,
             entry: new_bb,
+            pools: module.pools,
         }
     }
 }

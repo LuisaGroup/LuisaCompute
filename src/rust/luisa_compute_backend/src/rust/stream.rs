@@ -6,10 +6,7 @@ use std::{
 };
 
 use luisa_compute_api_types::Argument;
-use luisa_compute_ir::{
-    ir::{Binding, Capture},
-    Gc,
-};
+use luisa_compute_ir::{ir::{Binding, Capture}, CArc};
 use parking_lot::{Condvar, Mutex};
 use rayon;
 
@@ -153,7 +150,7 @@ impl StreamImpl {
                             dst.data.add(dst_offset),
                             size,
                         );
-                    },
+                    }
                     luisa_compute_api_types::Command::BufferToTextureCopy(_) => todo!(),
                     luisa_compute_api_types::Command::TextureToBufferCopy(_) => todo!(),
                     luisa_compute_api_types::Command::TextureUpload(_) => todo!(),
@@ -256,7 +253,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.map(|t| Gc::as_ptr(t) as u64).unwrap_or(0),
+                ty: buffer.ty.as_ref().map(|t| CArc::as_ptr(t) as u64).unwrap_or(0),
             })
         }
         luisa_compute_api_types::Argument::Texture(_) => todo!(),
@@ -290,11 +287,11 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
             let buffer = &*(buffer_arg.handle as *mut BufferImpl);
             let offset = buffer_arg.offset as usize;
             let size = buffer_arg.size;
-            assert!(offset + size <= buffer.size);
+            assert!(offset + size <= buffer.size, "offset: {}, size: {}, buffer.size: {}", offset, size, buffer.size);
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.map(|t| Gc::as_ptr(t) as u64).unwrap_or(0),
+                ty: buffer.ty.as_ref().map(|t| CArc::as_ptr(t) as u64).unwrap_or(0),
             })
         }
         Binding::Texture(_) => todo!(),

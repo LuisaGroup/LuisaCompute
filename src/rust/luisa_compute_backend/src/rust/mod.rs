@@ -11,7 +11,7 @@ use super::Backend;
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{codegen::CodeGen, ir::Type, Gc};
+use luisa_compute_ir::{codegen::CodeGen, ir::Type, CArc};
 use rayon::ThreadPool;
 use sha2::{Digest, Sha256};
 mod accel;
@@ -25,7 +25,7 @@ pub struct RustBackend {
 impl RustBackend {
     #[inline]
     fn create_shader_impl(
-        kernel: Gc<luisa_compute_ir::ir::KernelModule>,
+        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
     ) -> super::Result<luisa_compute_api_types::Shader> {
         // let debug =
         //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
@@ -69,7 +69,7 @@ impl Backend for RustBackend {
             _ => None,
         }
     }
-    fn set_buffer_type(&self, buffer: luisa_compute_api_types::Buffer, ty: Gc<Type>) {
+    fn set_buffer_type(&self, buffer: luisa_compute_api_types::Buffer, ty: CArc<Type>) {
         unsafe {
             let buffer = &mut *(buffer.0 as *mut BufferImpl);
             buffer.ty = Some(ty);
@@ -170,7 +170,7 @@ impl Backend for RustBackend {
             view.size = buffer.size;
             view.data = view.data.add(offset_bytes);
             view.size -= offset_bytes;
-            view.ty = buffer.ty.map(|t| Gc::as_ptr(t) as u64).unwrap_or(0);
+            view.ty = buffer.ty.as_ref().map(|t| CArc::as_ptr(t) as u64).unwrap_or(0);
             array.buffers[index] = *view;
         }
     }
@@ -266,13 +266,13 @@ impl Backend for RustBackend {
     }
     fn create_shader_async(
         &self,
-        kernel: Gc<luisa_compute_ir::ir::KernelModule>,
+        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
     ) -> super::Result<luisa_compute_api_types::Shader> {
         Self::create_shader_impl(kernel)
     }
     fn create_shader(
         &self,
-        kernel: Gc<luisa_compute_ir::ir::KernelModule>,
+        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
     ) -> super::Result<luisa_compute_api_types::Shader> {
         Self::create_shader_impl(kernel)
     }

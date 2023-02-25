@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Index;
+use std::sync::atomic::AtomicUsize;
 
-use gc::Trace;
 use serde::Serialize;
 
 #[derive(Clone, Copy)]
@@ -89,37 +89,69 @@ impl<'a, T: Debug> std::fmt::Debug for CSliceMut<'a, T> {
     }
 }
 #[repr(C)]
-pub struct CRcSharedBlock<T> {
+pub struct CArcSharedBlock<T> {
     ptr: T,
-    ref_count: usize,
+    ref_count: AtomicUsize,
     destructor: extern "C" fn(*mut T),
 }
+impl<T> CArcSharedBlock<T> {
+    pub fn retain(&self) {
+        self.ref_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    pub fn release(&self) {
+        self.ref_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Release);
+        if self.ref_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
+            std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+            (self.destructor)(&self.ptr as *const T as *mut T);
+        }
+    }
+}
 #[repr(C)]
-pub struct CRc<T> {
-    inner: *mut CRcSharedBlock<T>,
+pub struct CArc<T> {
+    inner: *mut CArcSharedBlock<T>,
 }
-impl<T> PartialEq for CRc<T> {
+unsafe impl<T: Send> Send for CArc<T> {}
+unsafe impl<T: Sync> Sync for CArc<T> {}
+impl<T: PartialEq> PartialEq for CArc<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        if self.is_null() && other.is_null() {
+            return true;
+        }
+        if self.is_null() || other.is_null() {
+            return false;
+        }
+        let lhs: &T = self.as_ref();
+        let rhs: &T = other.as_ref();
+        lhs == rhs
     }
 }
-impl<T> Hash for CRc<T> {
+impl<T: Eq> Eq for CArc<T> {}
+impl<T: std::fmt::Display> std::fmt::Display for CArc<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_ref().fmt(f)
+    }
+}
+
+impl<T: Hash> Hash for CArc<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.inner.hash(state);
+        assert!(!self.is_null());
+        let data: &T = self.as_ref();
+        data.hash(state);
     }
 }
-impl<T> Eq for CRc<T> {}
 extern "C" fn default_destructor<T>(ptr: *mut T) {
     unsafe {
         std::mem::drop(Box::from_raw(ptr));
     }
 }
-impl<T: Debug> Debug for CRc<T> {
+impl<T: Debug> Debug for CArc<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.as_ref().fmt(f)
     }
 }
-impl<T: Serialize> Serialize for CRc<T> {
+impl<T: Serialize> Serialize for CArc<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -127,55 +159,71 @@ impl<T: Serialize> Serialize for CRc<T> {
         self.as_ref().serialize(serializer)
     }
 }
-impl<T> CRc<T> {
-    pub fn new(value: T) -> Self {
-        let inner = Box::into_raw(Box::new(CRcSharedBlock {
-            ptr: value,
-            ref_count: 1,
-            destructor: default_destructor::<T>,
-        }));
+impl<T> CArc<T> {
+    pub unsafe fn from_raw(inner: *mut CArcSharedBlock<T>) -> Self {
         Self { inner }
     }
+    pub fn into_raw(ptr: CArc<T>) -> *mut CArcSharedBlock<T> {
+        let inner = ptr.inner;
+        std::mem::forget(ptr);
+        inner
+    }
+    pub fn null() -> Self {
+        Self {
+            inner: std::ptr::null_mut(),
+        }
+    }
+    pub fn is_null(&self) -> bool {
+        self.inner.is_null()
+    }
+    pub fn new(value: T) -> Self {
+        Self::new_with_dtor(value, default_destructor::<T>)
+    }
     pub fn new_with_dtor(value: T, dtor: extern "C" fn(*mut T)) -> Self {
-        let inner = Box::into_raw(Box::new(CRcSharedBlock {
+        let inner = Box::into_raw(Box::new(CArcSharedBlock {
             ptr: value,
-            ref_count: 1,
+            ref_count: AtomicUsize::new(1),
             destructor: dtor,
         }));
         Self { inner }
     }
 }
-impl<T> Clone for CRc<T> {
+impl<T> Clone for CArc<T> {
     fn clone(&self) -> Self {
+        if self.is_null() {
+            return Self::null();
+        }
         unsafe {
-            (*self.inner).ref_count += 1;
+            (*self.inner).retain();
         }
         Self { inner: self.inner }
     }
 }
-impl<T> Drop for CRc<T> {
+impl<T> Drop for CArc<T> {
     fn drop(&mut self) {
+        if self.is_null() {
+            return;
+        }
         unsafe {
-            (*self.inner).ref_count -= 1;
-            if (*self.inner).ref_count == 0 {
-                std::mem::drop(Box::from_raw(self.inner));
-            }
+            (*self.inner).release();
         }
     }
 }
-impl<T> CRc<T> {
+impl<T> CArc<T> {
     pub fn as_ptr(&self) -> *const T {
         unsafe { &(*self.inner).ptr }
     }
 }
-impl<T> std::ops::Deref for CRc<T> {
+impl<T> std::ops::Deref for CArc<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
+        assert!(!self.is_null());
         unsafe { &(*self.inner).ptr }
     }
 }
-impl<T> AsRef<T> for CRc<T> {
+impl<T> AsRef<T> for CArc<T> {
     fn as_ref(&self) -> &T {
+        assert!(!self.is_null());
         unsafe { &(*self.inner).ptr }
     }
 }
@@ -227,16 +275,7 @@ impl<T: Hash> Hash for CBoxedSlice<T> {
         self.as_ref().hash(state);
     }
 }
-impl<T: Trace> Trace for CBoxedSlice<T> {
-    fn trace(&self) {
-        self.as_ref().trace();
-    }
-}
-impl<'a, T: Trace> Trace for CSlice<'a, T> {
-    fn trace(&self) {
-        self.as_ref().trace();
-    }
-}
+
 impl<T: Serialize> Serialize for CBoxedSlice<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
