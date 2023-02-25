@@ -32,8 +32,17 @@ static_assert(sizeof(CArcSharedBlock<int32_t>) == 24);
 template<typename T>
 struct CArc {
     CArc() : inner(nullptr) {}
-    CArc(const CArc &) = delete;
-    CArc &operator=(const CArc &) = delete;
+    CArc(const CArc &other) noexcept : inner(other.inner) {
+        if (inner) inner->retain();
+    }
+    CArc &operator=(const CArc & other) noexcept {
+        if (this != &other) {
+            if (inner) inner->release();
+            inner = other.inner;
+            if (inner) inner->retain();
+        }
+        return *this;
+    }
     CArc(CArc &&other) noexcept : inner(other.inner) { other.inner = nullptr; }
     CArc &operator=(CArc &&other) noexcept {
         if (this != &other) {
@@ -69,7 +78,7 @@ private:
 
 template<typename T>
 struct Pooled {
-    
+
     Pooled()=delete;
     Pooled(const Pooled &) = default;
     T* get() const noexcept { return ptr; }
