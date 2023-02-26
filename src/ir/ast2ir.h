@@ -37,7 +37,7 @@ private:
     luisa::unordered_map<uint32_t, ir::NodeRef> _variables;        // maps Variable::uid to ir::NodeRef
     luisa::vector<ir::IrBuilder *> _builder_stack;
     Function _function;
-    ir::CArc<ir::ModulePools> _pools;
+    ir::CppOwnedCArc<ir::ModulePools> _pools;
 
 private:
     template<typename T>

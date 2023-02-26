@@ -154,6 +154,7 @@ void CommandAllocator::Reset(CommandQueue *queue) {
     defaultAllocator.Clear();
     rtvAllocator.Clear();
     dsvAllocator.Clear();
+    allScratchBuffer.clear();
     CommandAllocatorBase::Reset(queue);
 }
 
@@ -167,11 +168,13 @@ DefaultBuffer const *CommandAllocator::AllocateScratchBuffer(size_t targetSize) 
             executeAfterComplete.push([s = std::move(scratchBuffer)]() {});
             allocSize = CalcAlign(allocSize, 65536);
             scratchBuffer = vstd::create_unique(new DefaultBuffer(device, allocSize, device->defaultAllocator.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+            allScratchBuffer.emplace_back(scratchBuffer.get());
         }
         return scratchBuffer.get();
     } else {
         targetSize = CalcAlign(targetSize, 65536);
         scratchBuffer = vstd::create_unique(new DefaultBuffer(device, targetSize, device->defaultAllocator.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+        allScratchBuffer.emplace_back(scratchBuffer.get());
         return scratchBuffer.get();
     }
 }

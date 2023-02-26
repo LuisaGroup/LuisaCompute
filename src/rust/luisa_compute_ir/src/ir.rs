@@ -1,7 +1,6 @@
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
-use crate::context::with_context;
 use crate::*;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
@@ -40,6 +39,8 @@ impl std::fmt::Display for Primitive {
     }
 }
 
+//cbindgen:derive-tagged-enum-destructor
+//cbindgen:derive-tagged-enum-copy-constructor
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub enum VectorElementType {
@@ -1616,7 +1617,7 @@ impl IrBuilder {
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_node(pools: &CArc<ModulePools>, node: Node) -> NodeRef {
+pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node) -> NodeRef {
     new_node(&pools, node)
 }
 
@@ -1675,7 +1676,7 @@ pub extern "C" fn luisa_compute_ir_new_module_pools() -> CArc<ModulePools> {
 pub extern "C" fn luisa_compute_ir_new_builder(
     pools: CArc<ModulePools>,
 ) -> IrBuilder {
-    unsafe { IrBuilder::new(pools) }
+    unsafe { IrBuilder::new(pools.clone()) }
 }
 
 #[no_mangle]
