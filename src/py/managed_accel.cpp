@@ -27,7 +27,7 @@ uint64 ManagedAccel::set_mesh(size_t index, MeshUpdateCmd const &mesh) noexcept 
     temp.option.allow_update = mesh.option.allow_update;
     temp.option.hint = mesh.option.hint;
     auto &last_mesh = data->meshes[index];
-    vstd::MD5 md5({reinterpret_cast<uint8_t *>(&md5), sizeof(MeshUpdateCmd)});
+    vstd::MD5 md5({reinterpret_cast<uint8_t *>(&temp), sizeof(MeshUpdateCmd)});
     if (last_mesh.first != invalid_resource_handle) {
         if (last_mesh.second == md5) {
             return last_mesh.first;

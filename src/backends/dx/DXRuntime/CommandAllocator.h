@@ -43,7 +43,7 @@ private:
     BufferAllocator<UploadBuffer> uploadAllocator;
     BufferAllocator<DefaultBuffer> defaultAllocator;
     BufferAllocator<ReadbackBuffer> readbackAllocator;
-
+    vstd::vector<DefaultBuffer *> allScratchBuffer;
     vstd::unique_ptr<DefaultBuffer> scratchBuffer;
     //TODO: allocate commandbuffer
     CommandAllocator(Device *device, GpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);
@@ -52,6 +52,7 @@ public:
     vstd::StackAllocator rtvAllocator;
     vstd::StackAllocator dsvAllocator;
     ~CommandAllocator();
+    vstd::span<DefaultBuffer *const> AllScratchBuffer() const { return allScratchBuffer; }
     DefaultBuffer const *AllocateScratchBuffer(size_t targetSize);
     BufferView GetTempReadbackBuffer(uint64 size, size_t align = 0);
     BufferView GetTempUploadBuffer(uint64 size, size_t align = 0);

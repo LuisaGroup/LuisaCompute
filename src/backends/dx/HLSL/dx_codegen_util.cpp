@@ -812,10 +812,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "TraceAll"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
-            bool isFloat = opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT32;
-            if (isFloat) {
-                str << "asfloat("sv;
-            }
             str << "READ_BUFFER"sv;
             opt->AddBindlessType(expr->type());
             str << '(';
@@ -827,9 +823,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ',';
             GetTypeName(*expr->type(), str, Usage::READ, true);
             str << ",bdls)"sv;
-            if (isFloat) {
-                str << ')';
-            }
             return;
         }
         case CallOp::ASSUME:

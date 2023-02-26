@@ -48,6 +48,7 @@ public:
     vstd::vector<BottomAccelData> *bottomAccelDatas;
     vstd::fixed_vector<std::pair<size_t, size_t>, 4> *accelOffset;
     size_t buildAccelSize = 0;
+    bool buildTopAccel = false;
     void AddBuildAccel(size_t size) {
         size = CalcAlign(size, 256);
         accelOffset->emplace_back(buildAccelSize, size);
@@ -231,6 +232,7 @@ public:
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         if (cmd->build_accel()) {
+            buildTopAccel = true;
             AddBuildAccel(
                 accel->PreProcess(
                     *stateTracker,
@@ -849,6 +851,7 @@ void LCCmdBuffer::Execute(
             ppVisitor.accelOffset->clear();
             ppVisitor.bottomAccelDatas->clear();
             ppVisitor.buildAccelSize = 0;
+            ppVisitor.buildTopAccel = false;
             // Preprocess: record resources' states
             for (auto &&i : lst)
                 i->accept(ppVisitor);
@@ -856,9 +859,17 @@ void LCCmdBuffer::Execute(
             DefaultBuffer const *accelScratchBuffer;
             if (ppVisitor.buildAccelSize) {
                 accelScratchBuffer = allocator->AllocateScratchBuffer(ppVisitor.buildAccelSize);
-                tracker.RecordState(
-                    accelScratchBuffer,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                if (ppVisitor.buildTopAccel) {
+                    for (auto &&i : allocator->AllScratchBuffer()) {
+                        tracker.RecordState(
+                            i,
+                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    }
+                } else {
+                    tracker.RecordState(
+                        accelScratchBuffer,
+                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                }
                 visitor.accelScratchOffsets = ppVisitor.accelOffset->data();
                 visitor.accelScratchBuffer = accelScratchBuffer;
             }
