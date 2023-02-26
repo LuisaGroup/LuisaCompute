@@ -311,6 +311,7 @@ extern "C" fn default_destructor_slice<T>(ptr: *mut T, len: usize) {
 }
 impl<T> CBoxedSlice<T> {
     pub fn new(value: Vec<T>) -> Self {
+        let mut value = value;
         let len = value.len();
         unsafe {
             let layout = std::alloc::Layout::array::<T>(len).unwrap();
@@ -318,6 +319,7 @@ impl<T> CBoxedSlice<T> {
             for i in 0..len {
                 std::ptr::write(ptr.add(i), std::ptr::read(&value[i]));
             }
+            value.set_len(0);
             Self {
                 ptr,
                 len,
