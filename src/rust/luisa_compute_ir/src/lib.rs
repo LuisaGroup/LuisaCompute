@@ -149,7 +149,7 @@ pub struct Pooled<T> {
 }
 impl<T: Serialize> Serialize for Pooled<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        unsafe { self.get().serialize(serializer) }
+        self.get().serialize(serializer)
     }
 }
 impl<T> Copy for Pooled<T> {}
@@ -195,7 +195,8 @@ impl<T> Pool<T> {
     pub fn alloc(&self, node: T) -> Pooled<T> {
         loop {
             let mut chunks = self.chunks.borrow_mut();
-            for (chunk, offset, size) in chunks.iter_mut() {
+            if !chunks.is_empty() {
+                let (chunk, offset, size) = chunks.last_mut().unwrap();
                 if *offset + 1 < *size {
                     unsafe {
                         let ptr = chunk.add(*offset);
@@ -205,6 +206,7 @@ impl<T> Pool<T> {
                     }
                 }
             }
+            drop(chunks);
             self.alloc_chunk(1024);
         }
     }

@@ -13,7 +13,8 @@ pub struct BufferImpl {
 #[repr(C)]
 pub struct BindlessArrayImpl {
     pub buffers: Vec<defs::BufferView>,
-    pub textures: Vec<defs::Texture>,
+    pub tex2ds: Vec<defs::Texture>,
+    pub tex3ds: Vec<defs::Texture>,
 }
 
 impl BufferImpl {
