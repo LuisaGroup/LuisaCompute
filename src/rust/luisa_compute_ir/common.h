@@ -12,11 +12,12 @@ const static inline size_t usize_MAX = (size_t)-1;
 namespace luisa::compute::ir {
 struct VectorType;
 struct Type;
+using AtomicUsize = std::atomic<size_t>;
 
 template<typename T>
 struct CArcSharedBlock {
-    T ptr;
-    std::atomic<size_t> ref_count;
+    T* ptr;
+    AtomicUsize ref_count;
     void (*destructor)(CArcSharedBlock<T> *);
 
     void release() {
@@ -28,63 +29,71 @@ struct CArcSharedBlock {
     void retain() { ref_count.fetch_add(1, std::memory_order_release); }
 };
 static_assert(sizeof(CArcSharedBlock<int32_t>) == 24);
-
 template<typename T>
 struct CArc {
-    CArc() : inner(nullptr) {}
-    CArc(const CArc &other) noexcept : inner(other.inner) {
-        if (inner) inner->retain();
+    CArcSharedBlock<T> *inner;
+    [[nodiscard]] bool is_null() const noexcept { return inner == nullptr; }
+    [[nodiscard]] T *operator->() const noexcept { return inner->ptr; }
+    [[nodiscard]] T &operator*() const noexcept { return *inner->ptr; }
+    [[nodiscard]] T* get() const noexcept { return this->inner->ptr; }
+    [[nodiscard]] CArc<T> clone() const noexcept {
+        retain();
+        return CArc<T>{this->inner};
     }
-    CArc &operator=(const CArc & other) noexcept {
+    void retain() const noexcept {
+        if (this->inner) this->inner->retain();
+    }
+    void release() noexcept {
+        if (this->inner) {
+            this->inner->release();
+            this->inner = nullptr;
+        }
+    }
+};
+
+template<typename T>
+struct CppOwnedCArc : CArc<T> {
+    CppOwnedCArc() : CArc<T>{nullptr} {}
+    CppOwnedCArc(CArc<T>&& other) noexcept : CArc<T>{other.inner} { other.inner = nullptr; }
+    explicit CppOwnedCArc(CArcSharedBlock<T> *inner) noexcept : CArc<T>{inner} {}
+    CppOwnedCArc(const CppOwnedCArc &other) noexcept : CArc<T>{other.inner} {
+        if (this->inner) this->retain();
+    }
+    CppOwnedCArc &operator=(const CppOwnedCArc & other) noexcept {
         if (this != &other) {
-            if (inner) inner->release();
-            inner = other.inner;
-            if (inner) inner->retain();
+            if (this->inner) this->release();
+            this->inner = other.inner;
+            if (this->inner) this->retain();
         }
         return *this;
     }
-    CArc(CArc &&other) noexcept : inner(other.inner) { other.inner = nullptr; }
-    CArc &operator=(CArc &&other) noexcept {
+    CppOwnedCArc(CppOwnedCArc &&other) noexcept : CArc<T>{other.inner} { other.inner = nullptr; }
+    CppOwnedCArc &operator=(CppOwnedCArc &&other) noexcept {
         if (this != &other) {
-            if (inner) inner->release();
-            inner = other.inner;
+            if (this->inner) this->inner->release();
+            this->inner = other.inner;
             other.inner = nullptr;
         }
         return *this;
     }
-    CArc clone() const noexcept {
-        if (inner) inner->retain();
-        return CArc(inner);
-    }
     template<class... Args>
-    friend CArc<T> make_arc(Args &&...args) {
+    [[nodiscard]] friend CppOwnedCArc<T> make_arc(Args &&...args) {
         auto *block = new CArcSharedBlock<T>{T(std::forward<Args>(args)...), 1, [](CArcSharedBlock<T> *block) {
                                                  delete block;
                                              }};
-        return CArc<T>(block);
+        return CppOwnedCArc<T>(block);
     }
-    bool is_null() const noexcept { return inner == nullptr; }
-    T *operator->() const noexcept { return &inner->ptr; }
-    T &operator*() const noexcept { return inner->ptr; }
-    ~CArc() {
-        if (inner) inner->release();
-    }
-    T* get() const noexcept { return &inner->ptr; }
 
-private:
-    CArcSharedBlock<T> *inner;
-    explicit CArc(CArcSharedBlock<T> *inner) : inner(inner) {}
+    ~CppOwnedCArc() {
+        if (this->inner) this->release();
+    }
+
 };
-
 template<typename T>
 struct Pooled {
-
-    Pooled()=delete;
-    Pooled(const Pooled &) = default;
     T* get() const noexcept { return ptr; }
     T* operator->() const noexcept { return ptr; }
     T& operator*() const noexcept { return *ptr; }
-private:
     T *ptr;
 };
 }// namespace luisa::compute::ir

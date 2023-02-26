@@ -11,7 +11,7 @@ use super::Backend;
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{codegen::CodeGen, ir::Type, CArc};
+use luisa_compute_ir::{codegen::CodeGen, ir::Type, CArc, context::type_hash};
 use rayon::ThreadPool;
 use sha2::{Digest, Sha256};
 mod accel;
@@ -170,7 +170,7 @@ impl Backend for RustBackend {
             view.size = buffer.size;
             view.data = view.data.add(offset_bytes);
             view.size -= offset_bytes;
-            view.ty = buffer.ty.as_ref().map(|t| CArc::as_ptr(t) as u64).unwrap_or(0);
+            view.ty = buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0);
             array.buffers[index] = *view;
         }
     }
