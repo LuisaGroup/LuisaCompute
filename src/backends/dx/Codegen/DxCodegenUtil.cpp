@@ -729,24 +729,23 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::string &str, St
             str << "TraceAny"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
-            if (expr->type()->tag() == Type::Tag::FLOAT) {
-                str << "READ_BUFFER_FLOAT"sv;
-            } else {
-                str << "READ_BUFFER"sv;
-            }
-            if (IsNumVec3(*expr->type())) {
-                str << "Vec3"sv;
-            }
-            auto index = opt->AddBindlessType(expr->type());
-            str << '(';
+            //            if (expr->type()->tag() == Type::Tag::FLOAT) {
+            //                str << "READ_BUFFER_FLOAT"sv;
+            //            } else {
+            //                str << "READ_BUFFER"sv;
+            //            }
+            //            if (IsNumVec3(*expr->type())) {
+            //                str << "Vec3"sv;
+            //            }
+            //            auto index = opt->AddBindlessType(expr->type());
+            str << "READ_BUFFER(";
             auto args = expr->arguments();
             for (auto &&i : args) {
                 i->accept(vis);
                 str << ',';
             }
-            str << "bdls"sv
-                << vstd::to_string(index)
-                << ')';
+            GetTypeName(*expr->type(), str, Usage::READ);
+            str.append(luisa::format(",{},bdls)", expr->type()->size()));
             return;
         }
         case CallOp::ASSUME:
@@ -1094,31 +1093,7 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
     opt->isKernel = false;
     GenerateCBuffer(kernel, kernel.arguments(), varData);
     CodegenResult::Properties properties;
-    properties.reserve(kernel.arguments().size() + opt->bindlessBufferCount + 4);
-    // Bindless Buffers;
-    for (auto &&i : opt->bindlessBufferTypes) {
-        varData << "StructuredBuffer<"sv;
-        if (i.first->is_matrix()) {
-            auto n = i.first->dimension();
-            varData << luisa::format("WrappedFloat{}x{}", n, n);
-        } else if (i.first->is_vector() && i.first->dimension() == 3) {
-            varData << "float4"sv;
-        } else {
-            GetTypeName(*i.first, varData, Usage::READ);
-        }
-        vstd::string instName("bdls"sv);
-        vstd::to_string(i.second, instName);
-        varData << "> " << instName << "[]:register(t0,space"sv;
-        vstd::to_string(i.second + 3, varData);
-        varData << ");\n"sv;
-
-        properties.emplace_back(
-            std::move(instName),
-            Shader::Property{
-                ShaderVariableType::SRVDescriptorHeap,
-                static_cast<uint>(i.second + 3u),
-                0u, 0u});
-    }
+    properties.reserve(kernel.arguments().size() + 4);
     properties.emplace_back(
         "_Global"sv,
         Shader::Property{
@@ -1140,6 +1115,13 @@ vstd::optional<CodegenResult> CodegenUtility::Codegen(
             2,
             0,
             0});
+    properties.emplace_back(
+        "bdls",
+        Shader::Property{
+            ShaderVariableType::SRVDescriptorHeap,
+            3u,
+            0u,
+            0u});
     properties.emplace_back(
         "samplers"sv,
         Shader::Property{

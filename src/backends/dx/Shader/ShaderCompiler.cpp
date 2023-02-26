@@ -83,11 +83,16 @@ CompileResult DXShaderCompiler::CompileCompute(
     args.push_back(L"/T");
     args.push_back(smStr.c_str());
     args.push_back_all(
-        {L"-Qstrip_debug",
-         L"-Qstrip_reflect",
+        {L"-Gfa",
          L"-all-resources-bound",
-         L"-Gfa",
-         L"-HV 2021"});
+         L"-no-warnings",
+         L"-HV 2021",
+         L"-opt-enable",
+         L"-funsafe-math-optimizations",
+         L"-opt-enable",
+         L"-fassociative-math",
+         L"-opt-enable",
+         L"-freciprocal-math"});
     if (optimize) {
         args.push_back(L"/O3");
     }

@@ -336,6 +336,7 @@ uint samp3D : 8;
 #define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
 Texture2D<float4> _BindlessTex[] : register(t0, space1);
 Texture3D<float4> _BindlessTex3D[] : register(t0, space2);
+ByteAddressBuffer bdls[]: register(t0,space3);
 template<typename T>
 T fract(T x) { return x - floor(x); }
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float level) {
@@ -392,9 +393,7 @@ return max(Tex2DSize(arr, index) >> level, 1u);
 uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level) {
 return max(Tex3DSize(arr, index) >> level, 1u);
 }
-#define READ_BUFFER_FLOAT(arr, arrIdx, idx, bf) (asfloat(bf[arr[arrIdx].buffer][idx]))
-#define READ_BUFFER(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx])
-#define READ_BUFFERVec3(arr, arrIdx, idx, bf) (bf[arr[arrIdx].buffer][idx].xyz)
+#define READ_BUFFER(arr,arrIdx,idx,type,size,bf) (bf[(arr)[arrIdx].buffer].Load<type>((size)*(idx)))
 struct MeshInst {
 float4 p0;
 float4 p1;

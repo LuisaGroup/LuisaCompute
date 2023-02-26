@@ -371,9 +371,7 @@ public:
         DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
         bindProps.emplace_back("_BindlessTex"sv, globalHeapView);
         bindProps.emplace_back("_BindlessTex3D"sv, globalHeapView);
-        for (auto i : vstd::range(shader->BindlessCount())) {
-            bindProps.emplace_back(std::move(vstd::string("bdls") + vstd::to_string(i)), globalHeapView);
-        }
+        bindProps.emplace_back("bdls", globalHeapView);
         bindProps.emplace_back("samplers"sv, DescriptorHeapView(device->samplerHeap.get()));
         switch (shader->GetTag()) {
             case Shader::Tag::ComputeShader: {
