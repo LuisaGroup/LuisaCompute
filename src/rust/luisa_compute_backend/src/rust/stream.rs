@@ -1,12 +1,11 @@
 use std::{
     collections::VecDeque,
-    ptr::null,
     sync::{atomic::AtomicUsize, Arc},
-    thread::{self, JoinHandle, Thread},
+    thread::{self, JoinHandle},
 };
 
 use luisa_compute_api_types::Argument;
-use luisa_compute_ir::{ir::{Binding, Capture}, CArc, context::type_hash};
+use luisa_compute_ir::{ir::{Binding, Capture}, context::type_hash};
 use parking_lot::{Condvar, Mutex};
 use rayon;
 

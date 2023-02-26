@@ -31,7 +31,7 @@ impl Context {
     }
     pub fn register_arc_type(&self, type_: &CArc<Type>) {
         let types = self.types.read();
-        if let Some(type_) = types.get(&type_) {
+        if let Some(_type_) = types.get(&type_) {
             return;
         } else {
             drop(types);

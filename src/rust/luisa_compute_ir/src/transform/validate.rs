@@ -1,4 +1,4 @@
-use super::autodiff::grad_type_of;
+
 use super::Transform;
 use crate::{context::{self, is_type_equal}, ir::*, TypeOf, CArc};
 struct Validator {}
@@ -467,7 +467,7 @@ impl Validator {
                 }
             }
             Instruction::Return(_) => todo!(),
-            Instruction::Loop { body, cond } => {
+            Instruction::Loop { body, cond: _ } => {
                 // assert!(is_type_equal(&type_, &Type::void()));
                 // assert_eq!(cond.type_(), <bool as TypeOf>::type_());
                 assert!(is_type_equal(&type_, &Type::void()));

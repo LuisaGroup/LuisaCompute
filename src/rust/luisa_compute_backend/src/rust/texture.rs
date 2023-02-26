@@ -1,5 +1,5 @@
-use luisa_compute_api_types::{PixelFormat, PixelStorage};
-use luisa_compute_cpu_kernel_defs as defs;
+use luisa_compute_api_types::{PixelStorage};
+
 const BLOCK_SIZE: usize = 4;
 pub struct TextureImpl {
     data: Vec<u32>,
