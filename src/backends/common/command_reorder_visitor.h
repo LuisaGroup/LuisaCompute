@@ -578,6 +578,7 @@ private:
             bindlessMaxLayer = std::max<int64_t>(bindlessMaxLayer, dispatchLayer);
         }
         if (useAccelInPass) {
+            dispatchLayer = std::max<int64_t>(maxAccelWriteLevel + 1, dispatchLayer);
             maxAccelReadLevel = std::max<int64_t>(maxAccelReadLevel, dispatchLayer);
         }
     }
