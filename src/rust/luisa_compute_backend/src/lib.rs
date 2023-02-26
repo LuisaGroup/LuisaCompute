@@ -1,4 +1,4 @@
-use std::{future::Future, path::PathBuf};
+use std::{path::PathBuf};
 
 use api::PixelFormat;
 use libc::c_void;

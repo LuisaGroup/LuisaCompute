@@ -1,6 +1,6 @@
 // A Rust implementation of LuisaCompute backend.
 
-use std::{future::Future, ptr::null, sync::Arc};
+use std::{sync::Arc};
 
 use self::{
     accel::{AccelImpl, MeshImpl},
@@ -11,9 +11,9 @@ use super::Backend;
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{codegen::CodeGen, ir::Type, CArc};
-use rayon::ThreadPool;
-use sha2::{Digest, Sha256};
+use luisa_compute_ir::{codegen::CodeGen, ir::Type, CArc, context::type_hash};
+
+use sha2::{Digest};
 mod accel;
 mod resource;
 mod shader;
@@ -101,23 +101,23 @@ impl Backend for RustBackend {
 
     fn create_texture(
         &self,
-        format: luisa_compute_api_types::PixelFormat,
-        dimension: u32,
-        width: u32,
-        height: u32,
-        depth: u32,
-        mipmap_levels: u32,
+        _format: luisa_compute_api_types::PixelFormat,
+        _dimension: u32,
+        _width: u32,
+        _height: u32,
+        _depth: u32,
+        _mipmap_levels: u32,
     ) -> super::Result<luisa_compute_api_types::Texture> {
         todo!()
     }
 
-    fn destroy_texture(&self, texture: luisa_compute_api_types::Texture) {
+    fn destroy_texture(&self, _texture: luisa_compute_api_types::Texture) {
         todo!()
     }
 
     fn texture_native_handle(
         &self,
-        texture: luisa_compute_api_types::Texture,
+        _texture: luisa_compute_api_types::Texture,
     ) -> *mut libc::c_void {
         todo!()
     }
@@ -170,17 +170,17 @@ impl Backend for RustBackend {
             view.size = buffer.size;
             view.data = view.data.add(offset_bytes);
             view.size -= offset_bytes;
-            view.ty = buffer.ty.as_ref().map(|t| CArc::as_ptr(t) as u64).unwrap_or(0);
+            view.ty = buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0);
             array.buffers[index] = *view;
         }
     }
 
     fn emplace_tex2d_in_bindless_array(
         &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-        handle: luisa_compute_api_types::Texture,
-        sampler: luisa_compute_api_types::Sampler,
+        _array: luisa_compute_api_types::BindlessArray,
+        _index: usize,
+        _handle: luisa_compute_api_types::Texture,
+        _sampler: luisa_compute_api_types::Sampler,
     ) {
         // unsafe{
         //     let array = &mut *(array.0 as *mut BindlessArrayImpl);
@@ -190,10 +190,10 @@ impl Backend for RustBackend {
 
     fn emplace_tex3d_in_bindless_array(
         &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-        handle: luisa_compute_api_types::Texture,
-        sampler: luisa_compute_api_types::Sampler,
+        _array: luisa_compute_api_types::BindlessArray,
+        _index: usize,
+        _handle: luisa_compute_api_types::Texture,
+        _sampler: luisa_compute_api_types::Sampler,
     ) {
         todo!()
     }
@@ -211,16 +211,16 @@ impl Backend for RustBackend {
 
     fn remove_tex2d_from_bindless_array(
         &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
+        _array: luisa_compute_api_types::BindlessArray,
+        _index: usize,
     ) {
         todo!()
     }
 
     fn remove_tex3d_from_bindless_array(
         &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
+        _array: luisa_compute_api_types::BindlessArray,
+        _index: usize,
     ) {
         todo!()
     }
@@ -296,19 +296,19 @@ impl Backend for RustBackend {
         todo!()
     }
 
-    fn destroy_event(&self, event: luisa_compute_api_types::Event) {
+    fn destroy_event(&self, _event: luisa_compute_api_types::Event) {
         todo!()
     }
 
-    fn signal_event(&self, event: luisa_compute_api_types::Event) {
+    fn signal_event(&self, _event: luisa_compute_api_types::Event) {
         todo!()
     }
 
-    fn wait_event(&self, event: luisa_compute_api_types::Event) -> super::Result<()> {
+    fn wait_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
         todo!()
     }
 
-    fn synchronize_event(&self, event: luisa_compute_api_types::Event) -> super::Result<()> {
+    fn synchronize_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
         todo!()
     }
     fn create_mesh(

@@ -1,12 +1,10 @@
 use indexmap::{IndexMap, IndexSet};
-use std::any::Any;
+
 use std::ops::Deref;
 use std::{
-    any::TypeId,
     borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
-    hash::Hash,
 };
 
 use crate::context::is_type_equal;
@@ -17,9 +15,9 @@ use crate::{
         ArrayType, BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef,
         StructType, Type, VectorElementType, VectorType,
     },
-    CBoxedSlice, CSlice, TypeOf,
+    CBoxedSlice, TypeOf,
 };
-use crate::{display, CArc, Pooled};
+use crate::{CArc, Pooled};
 
 use super::Transform;
 // Simple backward autodiff

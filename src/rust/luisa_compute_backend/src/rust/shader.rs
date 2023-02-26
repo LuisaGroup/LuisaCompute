@@ -4,7 +4,6 @@ use luisa_compute_cpu_kernel_defs::KernelFnArgs;
 use luisa_compute_ir::codegen::sha256;
 use std::{
     env::{self, current_exe},
-    ffi::OsStr,
     fs::{canonicalize, File},
     mem::transmute,
     path::PathBuf,

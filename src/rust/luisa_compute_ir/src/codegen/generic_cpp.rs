@@ -9,11 +9,11 @@ use crate::{
     context::is_type_equal,
     ir::{self, *},
     transform::autodiff::grad_type_of,
-    CArc, CBox, CBoxedSlice, Pooled,
+    CArc, CBoxedSlice, Pooled,
 };
 
 use super::{sha256, CodeGen};
-use crate::ir::Instruction::Invalid;
+
 use std::fmt::Write;
 
 pub(crate) struct TypeGen {
@@ -1030,7 +1030,7 @@ impl GenericCppCodeGen {
                 let init_v = self.gen_node(*init);
                 writeln!(&mut self.body, "{0} {1} = {2};", node_ty_s, var, init_v).unwrap();
             }
-            Instruction::Argument { by_value } => todo!(),
+            Instruction::Argument { by_value: _ } => todo!(),
             Instruction::UserData(_) => {}
             Instruction::Invalid => todo!(),
             Instruction::Const(cst) => {
@@ -1390,7 +1390,7 @@ pub extern "C" fn luisa_compute_codegen_cpp(module: KernelModule) -> CBoxedSlice
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_codegen_cuda(module: KernelModule) -> CBoxedSlice<u8> {
+pub extern "C" fn luisa_compute_ir_codegen_cuda(_module: KernelModule) -> CBoxedSlice<u8> {
     todo!();
     // let src = "";
     // let c_string = CString::new(src).unwrap();

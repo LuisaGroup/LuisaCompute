@@ -1,12 +1,11 @@
 use std::{
     collections::VecDeque,
-    ptr::null,
     sync::{atomic::AtomicUsize, Arc},
-    thread::{self, JoinHandle, Thread},
+    thread::{self, JoinHandle},
 };
 
 use luisa_compute_api_types::Argument;
-use luisa_compute_ir::{ir::{Binding, Capture}, CArc};
+use luisa_compute_ir::{ir::{Binding, Capture}, context::type_hash};
 use parking_lot::{Condvar, Mutex};
 use rayon;
 
@@ -253,7 +252,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.as_ref().map(|t| CArc::as_ptr(t) as u64).unwrap_or(0),
+                ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
             })
         }
         luisa_compute_api_types::Argument::Texture(_) => todo!(),
@@ -291,7 +290,7 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.as_ref().map(|t| CArc::as_ptr(t) as u64).unwrap_or(0),
+                ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
             })
         }
         Binding::Texture(_) => todo!(),

@@ -90,7 +90,7 @@ impl<'a, T: Debug> std::fmt::Debug for CSliceMut<'a, T> {
 }
 #[repr(C)]
 pub struct CArcSharedBlock<T> {
-    ptr: T,
+    ptr: *mut T,
     ref_count: AtomicUsize,
     destructor: extern "C" fn(*mut CArcSharedBlock<T>),
 }
@@ -148,6 +148,7 @@ extern "C" fn default_destructor<T>(ptr: *mut T) {
 }
 extern "C" fn default_destructor_carc<T>(ptr: *mut CArcSharedBlock<T>) {
     unsafe {
+        std::mem::drop(Box::from_raw((*ptr).ptr));
         std::mem::drop(Box::from_raw(ptr));
     }
 }
@@ -182,9 +183,9 @@ impl<T> CArc<T> {
         self.inner.is_null()
     }
     pub fn new(value: T) -> Self {
-        Self::new_with_dtor(value, default_destructor_carc::<T>)
+        Self::new_with_dtor(Box::into_raw(Box::new(value)), default_destructor_carc::<T>)
     }
-    pub fn new_with_dtor(value: T, dtor: extern "C" fn(*mut CArcSharedBlock<T>)) -> Self {
+    pub fn new_with_dtor(value: *mut T, dtor: extern "C" fn(*mut CArcSharedBlock<T>)) -> Self {
         let inner = Box::into_raw(Box::new(CArcSharedBlock {
             ptr: value,
             ref_count: AtomicUsize::new(1),
@@ -216,20 +217,20 @@ impl<T> Drop for CArc<T> {
 }
 impl<T> CArc<T> {
     pub fn as_ptr(&self) -> *const T {
-        unsafe { &(*self.inner).ptr }
+        unsafe { (*self.inner).ptr }
     }
 }
 impl<T> std::ops::Deref for CArc<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         assert!(!self.is_null());
-        unsafe { &(*self.inner).ptr }
+        unsafe { &*(*self.inner).ptr }
     }
 }
 impl<T> AsRef<T> for CArc<T> {
     fn as_ref(&self) -> &T {
         assert!(!self.is_null());
-        unsafe { &(*self.inner).ptr }
+        unsafe { &mut *(*self.inner).ptr }
     }
 }
 #[repr(C)]
