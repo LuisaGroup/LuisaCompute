@@ -1,19 +1,20 @@
 // A Rust implementation of LuisaCompute backend.
 
-use std::{future::Future, ptr::null, sync::Arc};
+use std::sync::Arc;
 
 use self::{
     accel::{AccelImpl, MeshImpl},
     resource::{BindlessArrayImpl, BufferImpl},
     stream::{convert_capture, StreamImpl},
+    texture::TextureImpl,
 };
 use super::Backend;
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{codegen::CodeGen, ir::Type, Gc};
-use rayon::ThreadPool;
-use sha2::{Digest, Sha256};
+use luisa_compute_ir::{codegen::CodeGen, context::type_hash, ir::Type, CArc};
+
+use sha2::Digest;
 mod accel;
 mod resource;
 mod shader;
@@ -25,7 +26,7 @@ pub struct RustBackend {
 impl RustBackend {
     #[inline]
     fn create_shader_impl(
-        kernel: Gc<luisa_compute_ir::ir::KernelModule>,
+        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
     ) -> super::Result<luisa_compute_api_types::Shader> {
         // let debug =
         //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
@@ -69,7 +70,7 @@ impl Backend for RustBackend {
             _ => None,
         }
     }
-    fn set_buffer_type(&self, buffer: luisa_compute_api_types::Buffer, ty: Gc<Type>) {
+    fn set_buffer_type(&self, buffer: luisa_compute_api_types::Buffer, ty: CArc<Type>) {
         unsafe {
             let buffer = &mut *(buffer.0 as *mut BufferImpl);
             buffer.ty = Some(ty);
@@ -108,18 +109,33 @@ impl Backend for RustBackend {
         depth: u32,
         mipmap_levels: u32,
     ) -> super::Result<luisa_compute_api_types::Texture> {
-        todo!()
+        let storage = format.storage();
+
+        let texture = TextureImpl::new(
+            dimension as u8,
+            [width, height, depth],
+            storage,
+            mipmap_levels as u8,
+        );
+        let ptr = Box::into_raw(Box::new(texture));
+        Ok(luisa_compute_api_types::Texture(ptr as u64))
     }
 
     fn destroy_texture(&self, texture: luisa_compute_api_types::Texture) {
-        todo!()
+        unsafe {
+            let texture = texture.0 as *mut TextureImpl;
+            drop(Box::from_raw(texture));
+        }
     }
 
     fn texture_native_handle(
         &self,
         texture: luisa_compute_api_types::Texture,
     ) -> *mut libc::c_void {
-        todo!()
+        unsafe {
+            let texture = texture.0 as *mut TextureImpl;
+            (*texture).data as *mut libc::c_void
+        }
     }
 
     fn create_bindless_array(
@@ -128,21 +144,8 @@ impl Backend for RustBackend {
     ) -> super::Result<luisa_compute_api_types::BindlessArray> {
         let bindless_array = BindlessArrayImpl {
             buffers: vec![defs::BufferView::default(); size],
-            textures: vec![
-                defs::Texture {
-                    data: std::ptr::null_mut(),
-                    width: 0,
-                    height: 0,
-                    depth: 0,
-                    mip_levels: 0,
-                    sampler: 0,
-                    storage: 0,
-                    pixel_stride_shift: 0,
-                    dimension: 0,
-                    mip_offsets: [0; 16]
-                };
-                size
-            ],
+            tex2ds: vec![defs::Texture::default(); size],
+            tex3ds: vec![defs::Texture::default(); size],
         };
         let ptr = Box::into_raw(Box::new(bindless_array));
         Ok(luisa_compute_api_types::BindlessArray(ptr as u64))
@@ -170,7 +173,7 @@ impl Backend for RustBackend {
             view.size = buffer.size;
             view.data = view.data.add(offset_bytes);
             view.size -= offset_bytes;
-            view.ty = buffer.ty.map(|t| Gc::as_ptr(t) as u64).unwrap_or(0);
+            view.ty = buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0);
             array.buffers[index] = *view;
         }
     }
@@ -182,10 +185,11 @@ impl Backend for RustBackend {
         handle: luisa_compute_api_types::Texture,
         sampler: luisa_compute_api_types::Sampler,
     ) {
-        // unsafe{
-        //     let array = &mut *(array.0 as *mut BindlessArrayImpl);
-        //     let
-        // }
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            let texture = &*(handle.0 as *mut TextureImpl);
+            array.tex2ds[index] = texture.into_c_texture(sampler);
+        }
     }
 
     fn emplace_tex3d_in_bindless_array(
@@ -195,7 +199,11 @@ impl Backend for RustBackend {
         handle: luisa_compute_api_types::Texture,
         sampler: luisa_compute_api_types::Sampler,
     ) {
-        todo!()
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            let texture = &*(handle.0 as *mut TextureImpl);
+            array.tex3ds[index] = texture.into_c_texture(sampler);
+        }
     }
 
     fn remove_buffer_from_bindless_array(
@@ -214,7 +222,10 @@ impl Backend for RustBackend {
         array: luisa_compute_api_types::BindlessArray,
         index: usize,
     ) {
-        todo!()
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            array.tex2ds[index] = defs::Texture::default();
+        }
     }
 
     fn remove_tex3d_from_bindless_array(
@@ -222,7 +233,10 @@ impl Backend for RustBackend {
         array: luisa_compute_api_types::BindlessArray,
         index: usize,
     ) {
-        todo!()
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            array.tex3ds[index] = defs::Texture::default();
+        }
     }
 
     fn create_stream(&self) -> super::Result<luisa_compute_api_types::Stream> {
@@ -266,13 +280,13 @@ impl Backend for RustBackend {
     }
     fn create_shader_async(
         &self,
-        kernel: Gc<luisa_compute_ir::ir::KernelModule>,
+        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
     ) -> super::Result<luisa_compute_api_types::Shader> {
         Self::create_shader_impl(kernel)
     }
     fn create_shader(
         &self,
-        kernel: Gc<luisa_compute_ir::ir::KernelModule>,
+        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
     ) -> super::Result<luisa_compute_api_types::Shader> {
         Self::create_shader_impl(kernel)
     }
@@ -296,19 +310,19 @@ impl Backend for RustBackend {
         todo!()
     }
 
-    fn destroy_event(&self, event: luisa_compute_api_types::Event) {
+    fn destroy_event(&self, _event: luisa_compute_api_types::Event) {
         todo!()
     }
 
-    fn signal_event(&self, event: luisa_compute_api_types::Event) {
+    fn signal_event(&self, _event: luisa_compute_api_types::Event) {
         todo!()
     }
 
-    fn wait_event(&self, event: luisa_compute_api_types::Event) -> super::Result<()> {
+    fn wait_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
         todo!()
     }
 
-    fn synchronize_event(&self, event: luisa_compute_api_types::Event) -> super::Result<()> {
+    fn synchronize_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
         todo!()
     }
     fn create_mesh(

@@ -1,14 +1,13 @@
 use std::{
     collections::VecDeque,
-    ptr::null,
     sync::{atomic::AtomicUsize, Arc},
-    thread::{self, JoinHandle, Thread},
+    thread::{self, JoinHandle},
 };
 
-use luisa_compute_api_types::Argument;
+use luisa_compute_api_types::{Argument, Sampler};
 use luisa_compute_ir::{
+    context::type_hash,
     ir::{Binding, Capture},
-    Gc,
 };
 use parking_lot::{Condvar, Mutex};
 use rayon;
@@ -19,6 +18,7 @@ use super::{
     accel::{AccelImpl, MeshImpl},
     resource::{BindlessArrayImpl, BufferImpl},
     shader::ShaderImpl,
+    texture::TextureImpl,
 };
 struct StreamContext {
     queue: Mutex<VecDeque<Arc<dyn Fn() + Send + Sync>>>,
@@ -153,7 +153,7 @@ impl StreamImpl {
                             dst.data.add(dst_offset),
                             size,
                         );
-                    },
+                    }
                     luisa_compute_api_types::Command::BufferToTextureCopy(_) => todo!(),
                     luisa_compute_api_types::Command::TextureToBufferCopy(_) => todo!(),
                     luisa_compute_api_types::Command::TextureUpload(_) => todo!(),
@@ -256,10 +256,20 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.map(|t| Gc::as_ptr(t) as u64).unwrap_or(0),
+                ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
             })
         }
-        luisa_compute_api_types::Argument::Texture(_) => todo!(),
+        luisa_compute_api_types::Argument::Texture(t) => {
+            let texture = &*(t.texture.0 as *mut TextureImpl);
+            let level = t.level as usize;
+            defs::KernelFnArg::Texture(
+                texture.into_c_texture(Sampler {
+                    address: luisa_compute_api_types::SamplerAddress::Edge,
+                    filter: luisa_compute_api_types::SamplerFilter::Point,
+                }),
+                level as u8,
+            )
+        }
         luisa_compute_api_types::Argument::Uniform(_) => todo!(),
         luisa_compute_api_types::Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
@@ -277,8 +287,10 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
                 buffers_count: a.buffers.len(),
-                textures: a.textures.as_ptr(),
-                textures_count: a.textures.len(),
+                texture2ds: a.tex2ds.as_ptr(),
+                texture2ds_count: a.tex2ds.len(),
+                texture3ds: a.tex3ds.as_ptr(),
+                texture3ds_count: a.tex3ds.len(),
             })
         }
     }
@@ -290,21 +302,39 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
             let buffer = &*(buffer_arg.handle as *mut BufferImpl);
             let offset = buffer_arg.offset as usize;
             let size = buffer_arg.size;
-            assert!(offset + size <= buffer.size);
+            assert!(
+                offset + size <= buffer.size,
+                "offset: {}, size: {}, buffer.size: {}",
+                offset,
+                size,
+                buffer.size
+            );
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.map(|t| Gc::as_ptr(t) as u64).unwrap_or(0),
+                ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
             })
         }
-        Binding::Texture(_) => todo!(),
+        Binding::Texture(t) => {
+            let texture = &*(t.handle as *mut TextureImpl);
+            let level = t.level as usize;
+            defs::KernelFnArg::Texture(
+                texture.into_c_texture(Sampler {
+                    address: luisa_compute_api_types::SamplerAddress::Edge,
+                    filter: luisa_compute_api_types::SamplerFilter::Point,
+                }),
+                level as u8,
+            )
+        }
         Binding::BindlessArray(a) => {
             let a = &*(a.handle as *mut BindlessArrayImpl);
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
                 buffers_count: a.buffers.len(),
-                textures: a.textures.as_ptr(),
-                textures_count: a.textures.len(),
+                texture2ds: a.tex2ds.as_ptr(),
+                texture2ds_count: a.tex2ds.len(),
+                texture3ds: a.tex3ds.as_ptr(),
+                texture3ds_count: a.tex3ds.len(),
             })
         }
         Binding::Accel(accel) => {

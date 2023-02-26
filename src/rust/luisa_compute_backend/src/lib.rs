@@ -1,11 +1,10 @@
-use std::{future::Future, path::PathBuf};
+use std::{path::PathBuf};
 
 use api::PixelFormat;
 use libc::c_void;
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
-    ir::{KernelModule, Type},
-    Gc,
+    ir::{KernelModule, Type}, CArc,
 };
 pub mod remote;
 pub mod rust;
@@ -76,8 +75,8 @@ pub trait Backend: Sync + Send {
     //     swapchain_handle: u64,
     //     image_handle: u64,
     // );
-    fn create_shader(&self, kernel: Gc<KernelModule>) -> Result<api::Shader>;
-    fn create_shader_async(&self, kernel: Gc<KernelModule>) -> Result<api::Shader>;
+    fn create_shader(&self, kernel: CArc<KernelModule>) -> Result<api::Shader>;
+    fn create_shader_async(&self, kernel: CArc<KernelModule>) -> Result<api::Shader>;
     fn shader_cache_dir(&self, shader: api::Shader) -> Option<PathBuf>;
     fn destroy_shader(&self, shader: api::Shader);
     fn create_event(&self) -> Result<api::Event>;
@@ -103,7 +102,7 @@ pub trait Backend: Sync + Send {
     fn mesh_native_handle(&self, mesh: api::Mesh) -> *mut c_void;
     fn accel_native_handle(&self, accel: api::Accel) -> *mut c_void;
     fn query(&self, property: &str) -> Option<String>;
-    fn set_buffer_type(&self, buffer: api::Buffer, ty: Gc<Type>);
+    fn set_buffer_type(&self, buffer: api::Buffer, ty: CArc<Type>);
 }
 
 // pub struct BackendWrapper<B: Backend> {

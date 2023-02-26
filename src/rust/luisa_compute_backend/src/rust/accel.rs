@@ -9,7 +9,7 @@ use embree_sys as sys;
 use lazy_static::lazy_static;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_cpu_kernel_defs::BufferView;
+
 use parking_lot::{Mutex, RwLock};
 struct Device(sys::RTCDevice);
 unsafe impl Send for Device {}

@@ -54,7 +54,7 @@ pub struct NodeRef(pub u64);
 pub enum AccelUsageHint {
     FastTrace,
     FastBuild,
-    FastUpdate
+    FastUpdate,
 }
 
 #[repr(C)]
@@ -182,6 +182,35 @@ pub enum PixelFormat {
     Rg32f,
     Rgba32f,
 }
+impl PixelFormat {
+    pub fn storage(&self) -> PixelStorage {
+        match self {
+            PixelFormat::R8Sint | PixelFormat::R8Uint | PixelFormat::R8Unorm => PixelStorage::Byte1,
+            PixelFormat::Rgb8Sint
+            | PixelFormat::Rgb8Uint
+            | PixelFormat::Rgb8Unorm
+            | PixelFormat::Rgba8Sint
+            | PixelFormat::Rgba8Uint
+            | PixelFormat::Rgba8Unorm => PixelStorage::Byte4,
+            PixelFormat::R16Sint |
+            PixelFormat::R16Uint |
+            PixelFormat::R16Unorm => PixelStorage::Short1,
+            PixelFormat::Rg16Sint |
+            PixelFormat::Rg16Uint |
+            PixelFormat::Rg16Unorm => PixelStorage::Short2,
+            PixelFormat::Rgba16Sint |
+            PixelFormat::Rgba16Uint |
+            PixelFormat::Rgba16Unorm => PixelStorage::Short4,
+            PixelFormat::R32Sint |
+            PixelFormat::R32Uint => PixelStorage::Int1,
+            PixelFormat::Rg32Sint |
+            PixelFormat::Rg32Uint => PixelStorage::Int2,
+            PixelFormat::R16f => PixelStorage::Half1,
+            PixelFormat::Rg32f => PixelStorage::Float2,
+            PixelFormat::Rgba32f => PixelStorage::Float4,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
@@ -206,6 +235,11 @@ pub enum SamplerAddress {
 pub struct Sampler {
     pub filter: SamplerFilter,
     pub address: SamplerAddress,
+}
+impl Sampler {
+    pub fn encode(&self) -> u8 {
+        (self.filter as u8) | ((self.address as u8) << 2)
+    }
 }
 
 #[repr(C)]
@@ -249,15 +283,14 @@ pub struct Capture {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct KernelModule {
-    pub ptr: u64
-    // pub ir_module: IrModule,
-    // pub captured: *const Capture,
-    // pub captured_count: usize,
-    // pub args: *const NodeRef,
-    // pub args_count: usize,
-    // pub shared: *const NodeRef,
-    // pub shared_count: usize,
-    // pub block_size: [u32; 3],
+    pub ptr: u64, // pub ir_module: IrModule,
+                  // pub captured: *const Capture,
+                  // pub captured_count: usize,
+                  // pub args: *const NodeRef,
+                  // pub args_count: usize,
+                  // pub shared: *const NodeRef,
+                  // pub shared_count: usize,
+                  // pub block_size: [u32; 3],
 }
 
 #[repr(C)]
@@ -370,7 +403,7 @@ pub struct AccelBuildCommand {
     pub instance_count: u32,
     pub modifications: *const AccelBuildModification,
     pub modifications_count: usize,
-    pub build_accel: bool
+    pub build_accel: bool,
 }
 
 #[repr(C)]

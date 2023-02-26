@@ -1,4 +1,4 @@
-use crate::ir::{Instruction, Module, NodeRef, SwitchCase, Type};
+use crate::{ir::{Instruction, Module, NodeRef, SwitchCase, Type}, context::is_type_equal};
 use std::collections::HashMap;
 
 pub struct DisplayIR {
@@ -44,8 +44,8 @@ impl DisplayIR {
     }
 
     fn display(&mut self, node: NodeRef, ident: usize, no_new_line: bool) {
-        let instruction = node.get().instruction;
-        let type_ = node.get().type_;
+        let instruction = &node.get().instruction;
+        let type_ = &node.get().type_;
         self.add_ident(ident);
         match instruction.as_ref() {
             Instruction::Buffer => {
@@ -97,7 +97,7 @@ impl DisplayIR {
                 self.output += temp.as_str();
             }
             Instruction::Call(func, args) => {
-                if type_ != Type::void() {
+                if !is_type_equal(type_, &Type::void()) {
                     let tmp = format!("${}: {} = ", self.get(&node), type_,);
                     self.output += tmp.as_str();
                 }

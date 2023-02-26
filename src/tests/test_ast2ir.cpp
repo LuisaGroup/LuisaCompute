@@ -16,7 +16,6 @@
 #include <dsl/syntax.h>
 
 #include <ir/ast2ir.h>
-#include <ir/ir.hpp>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -33,7 +32,6 @@ int main(int argc, char *argv[]) {
     constexpr auto f = 10;
 
     luisa::log_level_verbose();
-    luisa_compute_ir_initialize_context();
 
     Context context{argv[0]};
     if (argc <= 1) {

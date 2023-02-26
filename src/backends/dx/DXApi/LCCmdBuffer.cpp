@@ -913,6 +913,10 @@ void LCCmdBuffer::Execute(
                     });
                 }
                 updateAccel.clear();
+            } else if (ppVisitor.buildAccelSize) {
+                tracker.RecordState(
+                    accelScratchBuffer,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             }
             tracker.ClearFence();
         }

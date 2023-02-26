@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstddef>// size_t
 #include <core/stl.h>
+#include <atomic>
 
 const static inline size_t usize_MAX = (size_t)-1;
 
@@ -11,80 +12,90 @@ const static inline size_t usize_MAX = (size_t)-1;
 namespace luisa::compute::ir {
 struct VectorType;
 struct Type;
+using AtomicI64 = std::atomic<int64_t>;
 
-using GcTraceFunc = void (*)(uint8_t *);
-using GcDeleteFunc = void (*)(uint8_t *);
+template<typename T>
+struct CArcSharedBlock {
+    T* ptr;
+    AtomicI64 ref_count;
+    void (*destructor)(CArcSharedBlock<T> *);
 
-struct GcHeader {
-    uint8_t *data;
-    GcHeader *next;
-    GcTraceFunc trace;
-    GcDeleteFunc del;
-    bool mark;
-    bool root;
+    void release() {
+        ref_count.fetch_sub(1, std::memory_order_release);
+        if (ref_count.load(std::memory_order_acquire) == 0) {
+            destructor(this);
+        }
+    }
+    void retain() { ref_count.fetch_add(1, std::memory_order_release); }
 };
-
-template<class T>
-struct GcObject {
-    GcHeader header;
-    T data;
-};
-
-template<class T>
-class Gc {
-    GcObject<T> *object;
-
-public:
-    Gc() noexcept = default;
-    static Gc<T> from_raw(GcObject<T> *object) noexcept {
-        Gc<T> gc;
-        gc.object = object;
-        return gc;
+static_assert(sizeof(CArcSharedBlock<int32_t>) == 24);
+template<typename T>
+struct CArc {
+    CArcSharedBlock<T> *inner;
+    [[nodiscard]] bool is_null() const noexcept { return inner == nullptr; }
+    [[nodiscard]] T *operator->() const noexcept { return inner->ptr; }
+    [[nodiscard]] T &operator*() const noexcept { return *inner->ptr; }
+    [[nodiscard]] T* get() const noexcept { return this->inner->ptr; }
+    [[nodiscard]] CArc<T> clone() const noexcept {
+        retain();
+        return CArc<T>{this->inner};
     }
-    [[nodiscard]] auto get() noexcept { return &object->data; }
-    [[nodiscard]] auto get() const noexcept { return const_cast<const T *>(&object->data); }
-    [[nodiscard]] T *operator->() noexcept { return get(); }
-    [[nodiscard]] const T *operator->() const noexcept { return get(); }
-    [[nodiscard]] auto &operator*() noexcept { return *get(); }
-    [[nodiscard]] const auto &operator*() const noexcept { return *get(); }
-    void set_root(bool root) const noexcept {
-        object->header.root = root;
+    void retain() const noexcept {
+        if (this->inner) this->inner->retain();
     }
-    [[nodiscard]] bool is_root() const noexcept {
-        return object->header.root;
-    }
-    [[nodiscard]] operator bool() const noexcept {
-        return object != nullptr;
+    void release() noexcept {
+        if (this->inner) {
+            this->inner->release();
+            this->inner = nullptr;
+        }
     }
 };
 
-template<class T, class... Args>
-inline Gc<T> make_gc(Args &&...args) {
-    auto *object = new_with_allocator<GcObject<T>>();
-    new (&object->data) T(std::forward<Args>(args)...);
-    object->header.data = (uint8_t *)&object->data;
-    object->header.trace = [](uint8_t *data) {
-        auto object = reinterpret_cast<GcObject<T> *>(data);
-        trace(object->data);// luisa fix this pls
-    };
-    object->header.del = [](uint8_t *data) {
-        auto object = reinterpret_cast<GcObject<T> *>(data);
-        delete_with_allocator(object);
-    };
-    luisa_compute_gc_append_object(&object->header);
-    return Gc<T>{object};
-}
+template<typename T>
+struct CppOwnedCArc : CArc<T> {
+    CppOwnedCArc() : CArc<T>{nullptr} {}
+    CppOwnedCArc(CArc<T>&& other) noexcept : CArc<T>{other.inner} { other.inner = nullptr; }
+    explicit CppOwnedCArc(CArcSharedBlock<T> *inner) noexcept : CArc<T>{inner} {}
+    CppOwnedCArc(const CppOwnedCArc &other) noexcept : CArc<T>{other.inner} {
+        if (this->inner) this->retain();
+    }
+    CppOwnedCArc &operator=(const CppOwnedCArc & other) noexcept {
+        if (this != &other) {
+            if (this->inner) this->release();
+            this->inner = other.inner;
+            if (this->inner) this->retain();
+        }
+        return *this;
+    }
+    CppOwnedCArc(CppOwnedCArc &&other) noexcept : CArc<T>{other.inner} { other.inner = nullptr; }
+    CppOwnedCArc &operator=(CppOwnedCArc &&other) noexcept {
+        if (this != &other) {
+            if (this->inner) this->inner->release();
+            this->inner = other.inner;
+            other.inner = nullptr;
+        }
+        return *this;
+    }
+    template<class... Args>
+    [[nodiscard]] friend CppOwnedCArc<T> make_arc(Args &&...args) {
+        auto *block = new CArcSharedBlock<T>{T(std::forward<Args>(args)...), 1, [](CArcSharedBlock<T> *block) {
+                                                 delete block;
+                                             }};
+        return CppOwnedCArc<T>(block);
+    }
 
-extern "C" {
-void luisa_compute_gc_collect();
-}
+    ~CppOwnedCArc() {
+        if (this->inner) this->release();
+    }
 
-class GcContext;
-
-inline void collect() {
-    void luisa_compute_gc_collect();
-}
-
+};
+template<typename T>
+struct Pooled {
+    T* get() const noexcept { return ptr; }
+    T* operator->() const noexcept { return ptr; }
+    T& operator*() const noexcept { return *ptr; }
+    T *ptr;
+};
 }// namespace luisa::compute::ir
 
 #else

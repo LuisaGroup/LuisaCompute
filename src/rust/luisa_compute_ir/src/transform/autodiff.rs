@@ -1,38 +1,35 @@
-use std::any::Any;
+use indexmap::{IndexMap, IndexSet};
+
 use std::ops::Deref;
 use std::{
-    any::TypeId,
     borrow::BorrowMut,
     cell::RefCell,
     collections::{HashMap, HashSet},
-    hash::Hash,
 };
 
-use gc::Gc;
-use indexmap::{IndexMap, IndexSet};
-
-use crate::display;
-use crate::ir::{new_node, Const, Instruction, PhiIncoming, Primitive, SwitchCase};
+use crate::context::is_type_equal;
+use crate::ir::{new_node, Const, Instruction, ModulePools, PhiIncoming, Primitive, SwitchCase};
 use crate::{
     context,
     ir::{
         ArrayType, BasicBlock, Func, IrBuilder, MatrixType, Module, ModuleKind, Node, NodeRef,
         StructType, Type, VectorElementType, VectorType,
     },
-    CBoxedSlice, CSlice, TypeOf,
+    CBoxedSlice, TypeOf,
 };
+use crate::{CArc, Pooled};
 
 use super::Transform;
 // Simple backward autodiff
 // Loop is not supported since users would use path replay[https://rgl.epfl.ch/publications/Vicini2021PathReplay] anyway
 struct GradTypeRecord {
-    grad_type: Gc<Type>,
+    grad_type: CArc<Type>,
     primal_field_to_grad_field: HashMap<usize, usize>,
     grad_field_to_primal_field: HashMap<usize, usize>,
 }
 
 thread_local! {
-    static GRAD_TYPES: RefCell<HashMap<Gc<Type>, Option<GradTypeRecord>>> =
+    static GRAD_TYPES: RefCell<HashMap<CArc<Type>, Option<GradTypeRecord>>> =
     RefCell::new(HashMap::new());
 }
 fn grad_type_of_ve(t: &VectorElementType) -> Option<VectorElementType> {
@@ -47,14 +44,14 @@ fn grad_type_of_ve(t: &VectorElementType) -> Option<VectorElementType> {
         VectorElementType::Vector(v) => {
             let v = grad_type_of(context::register_type(Type::Vector((**v).clone())))?;
             Some(VectorElementType::Vector(match v.as_ref() {
-                Type::Vector(vt) => Gc::new(vt.clone()),
+                Type::Vector(vt) => CArc::new(vt.clone()),
                 _ => unreachable!(),
             }))
         }
     }
 }
 
-pub fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
+pub fn grad_type_of(type_: CArc<Type>) -> Option<CArc<Type>> {
     GRAD_TYPES.with(|grad_types| loop {
         if let Some(record) = grad_types.borrow().get(&type_) {
             if let Some(record) = record {
@@ -63,12 +60,12 @@ pub fn grad_type_of(type_: Gc<Type>) -> Option<Gc<Type>> {
                 return None;
             }
         }
-        let t = _grad_type_of(type_);
-        grad_types.borrow_mut().insert(type_, t);
+        let t = _grad_type_of(type_.clone());
+        grad_types.borrow_mut().insert(type_.clone(), t);
     })
 }
 
-fn _grad_type_of(type_: Gc<Type>) -> Option<GradTypeRecord> {
+fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
     let record = match type_.as_ref() {
         Type::Void | Type::UserData => None,
         Type::Primitive(p) => match p {
@@ -119,11 +116,11 @@ fn _grad_type_of(type_: Gc<Type>) -> Option<GradTypeRecord> {
             })
         }
         Type::Struct(st) => {
-            let fields: Vec<(usize, Gc<Type>)> = st
+            let fields: Vec<(usize, CArc<Type>)> = st
                 .fields
                 .as_ref()
                 .iter()
-                .map(|f| grad_type_of(*f))
+                .map(|f| grad_type_of(f.clone()))
                 .enumerate()
                 .filter(|(_, f)| f.is_some())
                 .map(|(i, f)| (i, f.unwrap()))
@@ -150,7 +147,7 @@ fn _grad_type_of(type_: Gc<Type>) -> Option<GradTypeRecord> {
             })
         }
         Type::Array(a) => {
-            let element = grad_type_of(a.element)?;
+            let element = grad_type_of(a.element.clone())?;
             let at = Type::Array(ArrayType {
                 element,
                 length: a.length,
@@ -185,7 +182,7 @@ struct StoreIntermediate<'a> {
 
 impl<'a> StoreIntermediate<'a> {
     fn new(module: &'a Module) -> Self {
-        let mut builder = IrBuilder::new();
+        let mut builder = IrBuilder::new(module.pools.clone());
         builder.set_insert_point(module.entry.first);
         let locally_defined_nodes = HashSet::from_iter(module.collect_nodes());
         Self {
@@ -209,7 +206,9 @@ impl<'a> StoreIntermediate<'a> {
             match n.get().instruction.as_ref() {
                 Instruction::Call(_, args) => {
                     for a in args.as_ref() {
-                        if a.type_() != Type::void() && a.get().instruction.has_value() {
+                        if !is_type_equal(&a.type_(), &Type::void())
+                            && a.get().instruction.has_value()
+                        {
                             assert!(a.is_linked(), "{:?}", a.get().instruction);
                             self.create_intermediate(*a);
                         }
@@ -222,7 +221,9 @@ impl<'a> StoreIntermediate<'a> {
             .set_insert_point(self.module.entry.last.get().prev);
         for (n, local) in &mut self.intermediate {
             if local.is_local() {
-                let l = self.builder.call(Func::Load, &[local.clone()], n.type_());
+                let l = self
+                    .builder
+                    .call(Func::Load, &[local.clone()], n.type_().clone());
                 *local = l;
                 self.intermediate_to_node.insert(l, *n);
             } else {
@@ -239,7 +240,7 @@ impl<'a> StoreIntermediate<'a> {
         if self.grads.contains_key(&node) {
             return;
         }
-        let grad = self.builder.local_zero_init(node.type_());
+        let grad = self.builder.local_zero_init(node.type_().clone());
         self.grads.insert(node, grad);
     }
     fn create_intermediate(&mut self, node: NodeRef) {
@@ -253,23 +254,23 @@ impl<'a> StoreIntermediate<'a> {
         //     println!("{}", debug.to_str().unwrap());
         // }
         if self.locally_defined_nodes.contains(&node) {
-            let local = self.builder.local_zero_init(node.type_());
+            let local = self.builder.local_zero_init(node.type_().clone());
 
             let st = Node::new(
-                Gc::new(Instruction::Update {
+                CArc::new(Instruction::Update {
                     var: local,
                     value: node,
                 }),
                 Type::void(),
             );
-            let st = new_node(st);
+            let st = new_node(&self.module.pools, st);
             node.insert_after(st);
             self.intermediate.insert(node, local);
         } else {
             self.intermediate.insert(node, node);
         }
     }
-    fn forward_sweep_block(&mut self, block: Gc<BasicBlock>) {
+    fn forward_sweep_block(&mut self, block: Pooled<BasicBlock>) {
         for node in block.iter() {
             self.forward_sweep(node);
         }
@@ -277,10 +278,10 @@ impl<'a> StoreIntermediate<'a> {
     // forward sweep marks all nodes that (might) require gradient
     // in other words, nodes that are reachable from a RequiresGradient call
     fn forward_sweep(&mut self, node: NodeRef) {
-        let instruction = node.get().instruction;
-        let type_ = node.get().type_;
+        let instruction = &node.get().instruction;
+        let type_ = &node.get().type_;
 
-        let grad_type = grad_type_of(type_);
+        let grad_type = grad_type_of(type_.clone());
         match instruction.as_ref() {
             Instruction::Call(func, args) => {
                 if args
@@ -339,10 +340,10 @@ impl<'a> StoreIntermediate<'a> {
         }
     }
     fn backward_sweep(&mut self, node: NodeRef) {
-        let instruction = node.get().instruction;
-        let type_ = node.get().type_;
+        let instruction = &node.get().instruction;
+        let type_ = &node.get().type_;
 
-        let grad_type = grad_type_of(type_);
+        let grad_type = grad_type_of(type_.clone());
         match instruction.as_ref() {
             Instruction::Call(func, args) => {
                 if *func == Func::GradientMarker {
@@ -387,7 +388,7 @@ impl<'a> StoreIntermediate<'a> {
             _ => {}
         }
     }
-    fn backward_sweep_block(&mut self, block: Gc<BasicBlock>) {
+    fn backward_sweep_block(&mut self, block: Pooled<BasicBlock>) {
         for node in block.nodes().iter().rev() {
             self.backward_sweep(*node);
         }
@@ -395,6 +396,7 @@ impl<'a> StoreIntermediate<'a> {
 }
 
 struct Backward {
+    pools: CArc<ModulePools>,
     grads: IndexMap<NodeRef, NodeRef>,
     intermediate: IndexMap<NodeRef, NodeRef>,
     intermediate_to_node: IndexMap<NodeRef, NodeRef>,
@@ -411,7 +413,7 @@ impl Backward {
             node = self.intermediate_to_node[&node];
         }
         if let Some(grad_var) = self.grad(node) {
-            builder.call(Func::AccGrad, &[grad_var, grad], grad_var.type_());
+            builder.call(Func::AccGrad, &[grad_var, grad], grad_var.type_().clone());
         }
         // } else {
         //     self.grads.insert(node, grad);
@@ -426,8 +428,8 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), in_.type_());
-        let neg_out_grad = builder.call(Func::Neg, &[out_grad], out_grad.type_());
+        assert!(is_type_equal(out_grad.type_(), in_.type_()));
+        let neg_out_grad = builder.call(Func::Neg, &[out_grad], out_grad.type_().clone());
         return neg_out_grad;
     }
 
@@ -441,8 +443,8 @@ impl Backward {
         out_grad: NodeRef,
         _: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), lhs.type_());
-        assert_eq!(out_grad.type_(), rhs.type_());
+        assert!(is_type_equal(out_grad.type_(), lhs.type_()));
+        assert!(is_type_equal(out_grad.type_(), rhs.type_()));
         return (out_grad, out_grad);
     }
 
@@ -456,8 +458,8 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), lhs.type_());
-        assert_eq!(out_grad.type_(), rhs.type_());
+        assert!(is_type_equal(out_grad.type_(), lhs.type_()));
+        assert!(is_type_equal(out_grad.type_(), rhs.type_()));
         return (out_grad, self.backward_neg(rhs, out_grad, builder));
     }
 
@@ -471,10 +473,10 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), lhs.type_());
-        assert_eq!(out_grad.type_(), rhs.type_());
-        let lhs_grad = builder.call(Func::Mul, &[out_grad, rhs], out_grad.type_());
-        let rhs_grad = builder.call(Func::Mul, &[out_grad, lhs], out_grad.type_());
+        assert!(is_type_equal(out_grad.type_(), lhs.type_()));
+        assert!(is_type_equal(out_grad.type_(), rhs.type_()));
+        let lhs_grad = builder.call(Func::Mul, &[out_grad, rhs], out_grad.type_().clone());
+        let rhs_grad = builder.call(Func::Mul, &[out_grad, lhs], out_grad.type_().clone());
         return (lhs_grad, rhs_grad);
     }
 
@@ -488,11 +490,11 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), rhs.type_());
-        let lhs_grad = builder.call(Func::OuterProduct, &[out_grad, rhs], lhs.type_());
+        assert!(is_type_equal(out_grad.type_(), rhs.type_()));
+        let lhs_grad = builder.call(Func::OuterProduct, &[out_grad, rhs], lhs.type_().clone());
         // let out_grad_t = builder.call(Func::Transpose, &[out_grad], out_grad.type_());
-        let lhs_t = builder.call(Func::Transpose, &[lhs], lhs.type_());
-        let rhs_grad = builder.call(Func::Mul, &[lhs_t, out_grad], rhs.type_());
+        let lhs_t = builder.call(Func::Transpose, &[lhs], lhs.type_().clone());
+        let rhs_grad = builder.call(Func::Mul, &[lhs_t, out_grad], rhs.type_().clone());
         return (lhs_grad, rhs_grad);
     }
 
@@ -506,12 +508,12 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), lhs.type_());
-        assert_eq!(out_grad.type_(), rhs.type_());
-        let rhs_t = builder.call(Func::Transpose, &[rhs], rhs.type_());
-        let lhs_grad = builder.call(Func::Mul, &[out_grad, rhs_t], lhs.type_());
-        let lhs_t = builder.call(Func::Transpose, &[lhs], lhs.type_());
-        let rhs_grad = builder.call(Func::Mul, &[lhs_t, out_grad], rhs.type_());
+        assert!(is_type_equal(out_grad.type_(), lhs.type_()));
+        assert!(is_type_equal(out_grad.type_(), rhs.type_()));
+        let rhs_t = builder.call(Func::Transpose, &[rhs], rhs.type_().clone());
+        let lhs_grad = builder.call(Func::Mul, &[out_grad, rhs_t], lhs.type_().clone());
+        let lhs_t = builder.call(Func::Transpose, &[lhs], lhs.type_().clone());
+        let rhs_grad = builder.call(Func::Mul, &[lhs_t, out_grad], rhs.type_().clone());
         return (lhs_grad, rhs_grad);
     }
 
@@ -556,13 +558,13 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), lhs.type_());
-        assert_eq!(out_grad.type_(), rhs.type_());
-        let lhs_grad = builder.call(Func::Div, &[out_grad, rhs], out_grad.type_());
-        let neg_lhs = builder.call(Func::Neg, &[lhs], lhs.type_());
-        let sqr_rhs = builder.call(Func::Mul, &[rhs, rhs], rhs.type_());
-        let out_rhs = builder.call(Func::Div, &[neg_lhs, sqr_rhs], rhs.type_());
-        let rhs_grad = builder.call(Func::Mul, &[out_grad, out_rhs], out_grad.type_());
+        assert!(is_type_equal(out_grad.type_(), lhs.type_()));
+        assert!(is_type_equal(out_grad.type_(), rhs.type_()));
+        let lhs_grad = builder.call(Func::Div, &[out_grad, rhs], out_grad.type_().clone());
+        let neg_lhs = builder.call(Func::Neg, &[lhs], lhs.type_().clone());
+        let sqr_rhs = builder.call(Func::Mul, &[rhs, rhs], rhs.type_().clone());
+        let out_rhs = builder.call(Func::Div, &[neg_lhs, sqr_rhs], rhs.type_().clone());
+        let rhs_grad = builder.call(Func::Mul, &[out_grad, out_rhs], out_grad.type_().clone());
         return (lhs_grad, rhs_grad);
     }
 
@@ -577,11 +579,11 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), a.type_());
-        assert_eq!(out_grad.type_(), b.type_());
-        let zero = builder.const_(Const::Zero(a.type_()));
-        let a_grad = builder.call(Func::Select, &[p, out_grad, zero], out_grad.type_());
-        let b_grad = builder.call(Func::Select, &[p, zero, out_grad], out_grad.type_());
+        assert!(is_type_equal(out_grad.type_(), a.type_()));
+        assert!(is_type_equal(out_grad.type_(), b.type_()));
+        let zero = builder.const_(Const::Zero(a.type_().clone()));
+        let a_grad = builder.call(Func::Select, &[p, out_grad, zero], out_grad.type_().clone());
+        let b_grad = builder.call(Func::Select, &[p, zero, out_grad], out_grad.type_().clone());
         return (a_grad, b_grad);
     }
 
@@ -595,9 +597,9 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), a.type_());
-        assert_eq!(out_grad.type_(), b.type_());
-        let a_lt_b = builder.call(Func::Lt, &[a, b], Type::bool(a.type_()));
+        assert!(is_type_equal(out_grad.type_(), a.type_()));
+        assert!(is_type_equal(out_grad.type_(), b.type_()));
+        let a_lt_b = builder.call(Func::Lt, &[a, b], Type::bool(a.type_().clone()));
         let (a_grad, b_grad) = self.backward_select(a_lt_b, a, b, out_grad, builder);
         return (a_grad, b_grad);
     }
@@ -612,9 +614,9 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), a.type_());
-        assert_eq!(out_grad.type_(), b.type_());
-        let a_gt_b = builder.call(Func::Gt, &[a, b], Type::bool(a.type_()));
+        assert!(is_type_equal(out_grad.type_(), a.type_()));
+        assert!(is_type_equal(out_grad.type_(), b.type_()));
+        let a_gt_b = builder.call(Func::Gt, &[a, b], Type::bool(a.type_().clone()));
         let (a_grad, b_grad) = self.backward_select(a_gt_b, a, b, out_grad, builder);
         return (a_grad, b_grad);
     }
@@ -627,11 +629,11 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_().element());
+        assert!(is_type_equal(&out_grad.type_(), &x.type_().element()));
         if x.type_().is_vector() {
-            return builder.call(Func::Vec, &[out_grad], x.type_());
+            return builder.call(Func::Vec, &[out_grad], x.type_().clone());
         } else if x.type_().is_matrix() {
-            return builder.call(Func::Mat, &[out_grad], x.type_());
+            return builder.call(Func::Mat, &[out_grad], x.type_().clone());
         } else {
             return out_grad;
         }
@@ -648,11 +650,11 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(a.type_(), a.type_());
-        let ab = builder.call(Func::Mul, &[a, b], a.type_());
+        assert!(is_type_equal(a.type_(), b.type_()));
+        let ab = builder.call(Func::Mul, &[a, b], a.type_().clone());
         let d_ab = self.backward_reduce_sum(ab, out_grad, builder);
-        let d_a = builder.call(Func::Mul, &[d_ab, b], a.type_());
-        let d_b = builder.call(Func::Mul, &[d_ab, a], b.type_());
+        let d_a = builder.call(Func::Mul, &[d_ab, b], a.type_().clone());
+        let d_b = builder.call(Func::Mul, &[d_ab, a], b.type_().clone());
         (d_a, d_b)
     }
     // out = cross(a, b)
@@ -665,10 +667,10 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(a.type_(), out_grad.type_());
-        assert_eq!(b.type_(), out_grad.type_());
-        let d_a = builder.call(Func::Cross, &[b, out_grad], a.type_());
-        let d_b = builder.call(Func::Cross, &[out_grad, a], b.type_());
+        assert!(is_type_equal(a.type_(), out_grad.type_()));
+        assert!(is_type_equal(b.type_(), out_grad.type_()));
+        let d_a = builder.call(Func::Cross, &[b, out_grad], a.type_().clone());
+        let d_b = builder.call(Func::Cross, &[out_grad, a], b.type_().clone());
         (d_a, d_b)
     }
     // out = inv(m)
@@ -679,12 +681,13 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(m.type_(), out_grad.type_());
-        let m_t = builder.call(Func::Transpose, &[m], m.type_());
-        let m_t_mul_out_grad = builder.call(Func::Mul, &[m_t, out_grad], m.type_());
-        let m_t_mul_out_grad_mul_m_t = builder.call(Func::Mul, &[m_t_mul_out_grad, m_t], m.type_());
+        assert!(is_type_equal(m.type_(), out_grad.type_()));
+        let m_t = builder.call(Func::Transpose, &[m], m.type_().clone());
+        let m_t_mul_out_grad = builder.call(Func::Mul, &[m_t, out_grad], m.type_().clone());
+        let m_t_mul_out_grad_mul_m_t =
+            builder.call(Func::Mul, &[m_t_mul_out_grad, m_t], m.type_().clone());
         let neg_m_t_mul_out_grad_mul_m_t =
-            builder.call(Func::Neg, &[m_t_mul_out_grad_mul_m_t], m.type_());
+            builder.call(Func::Neg, &[m_t_mul_out_grad_mul_m_t], m.type_().clone());
         neg_m_t_mul_out_grad_mul_m_t
     }
     // out = transpose(m)
@@ -695,8 +698,8 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(m.type_(), out_grad.type_());
-        builder.call(Func::Transpose, &[out_grad], m.type_())
+        assert!(is_type_equal(m.type_(), out_grad.type_()));
+        builder.call(Func::Transpose, &[out_grad], m.type_().clone())
     }
     // out = det(m)
     // => δm = δ(out) * det(m) * m^(-1)^T
@@ -707,25 +710,28 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        let dout_mul_det = builder.call(Func::Mul, &[out_grad, out], out.type_());
-        let m_inv = builder.call(Func::Inverse, &[m], m.type_());
-        let m_inv_t = builder.call(Func::Transpose, &[m_inv], m.type_());
-        let dout_mul_det = builder.call(Func::Mat, &[dout_mul_det], m.type_());
-        let dout_mul_det_mul_m_inv_t =
-            builder.call(Func::MatCompMul, &[dout_mul_det, m_inv_t], m.type_());
+        let dout_mul_det = builder.call(Func::Mul, &[out_grad, out], out.type_().clone());
+        let m_inv = builder.call(Func::Inverse, &[m], m.type_().clone());
+        let m_inv_t = builder.call(Func::Transpose, &[m_inv], m.type_().clone());
+        let dout_mul_det = builder.call(Func::Mat, &[dout_mul_det], m.type_().clone());
+        let dout_mul_det_mul_m_inv_t = builder.call(
+            Func::MatCompMul,
+            &[dout_mul_det, m_inv_t],
+            m.type_().clone(),
+        );
         dout_mul_det_mul_m_inv_t
     }
     // out = acos(x)
     // => δ(x) = -1 / sqrt(1 - x^2)
     fn backward_acos(&mut self, x: NodeRef, out_grad: NodeRef, builder: &mut IrBuilder) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let x2 = builder.call(Func::Mul, &[x, x], x.type_());
-        let one = builder.const_(Const::One(x.type_()));
-        let one_minus_x2 = builder.call(Func::Sub, &[one, x2], x.type_());
-        let sqrt = builder.call(Func::Sqrt, &[one_minus_x2], x.type_());
-        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_());
-        let neg_one_over_sqrt = builder.call(Func::Neg, &[one_over_sqrt], x.type_());
-        let x_grad = builder.call(Func::Mul, &[out_grad, neg_one_over_sqrt], x.type_());
+        assert!(is_type_equal(x.type_(), out_grad.type_()));
+        let x2 = builder.call(Func::Mul, &[x, x], x.type_().clone());
+        let one = builder.const_(Const::One(x.type_().clone()));
+        let one_minus_x2 = builder.call(Func::Sub, &[one, x2], x.type_().clone());
+        let sqrt = builder.call(Func::Sqrt, &[one_minus_x2], x.type_().clone());
+        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_().clone());
+        let neg_one_over_sqrt = builder.call(Func::Neg, &[one_over_sqrt], x.type_().clone());
+        let x_grad = builder.call(Func::Mul, &[out_grad, neg_one_over_sqrt], x.type_().clone());
         return x_grad;
     }
 
@@ -737,26 +743,26 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let x2 = builder.call(Func::Mul, &[x, x], x.type_());
-        let one = builder.const_(Const::One(x.type_()));
-        let x2_minus_one = builder.call(Func::Sub, &[x2, one], x.type_());
-        let sqrt = builder.call(Func::Sqrt, &[x2_minus_one], x.type_());
-        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_());
-        let x_grad = builder.call(Func::Mul, &[out_grad, one_over_sqrt], x.type_());
+        assert!(is_type_equal(x.type_(), out_grad.type_()));
+        let x2 = builder.call(Func::Mul, &[x, x], x.type_().clone());
+        let one = builder.const_(Const::One(x.type_().clone()));
+        let x2_minus_one = builder.call(Func::Sub, &[x2, one], x.type_().clone());
+        let sqrt = builder.call(Func::Sqrt, &[x2_minus_one], x.type_().clone());
+        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_().clone());
+        let x_grad = builder.call(Func::Mul, &[out_grad, one_over_sqrt], x.type_().clone());
         return x_grad;
     }
 
     // out = asin(x)
     // => δ(x) = 1 / sqrt(1 - x^2)
     fn backward_asin(&mut self, x: NodeRef, out_grad: NodeRef, builder: &mut IrBuilder) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let x2 = builder.call(Func::Mul, &[x, x], x.type_());
-        let one = builder.const_(Const::One(x.type_()));
-        let one_minus_x2 = builder.call(Func::Sub, &[one, x2], x.type_());
-        let sqrt = builder.call(Func::Sqrt, &[one_minus_x2], x.type_());
-        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_());
-        let x_grad = builder.call(Func::Mul, &[out_grad, one_over_sqrt], x.type_());
+        assert!(is_type_equal(x.type_(), out_grad.type_()));
+        let x2 = builder.call(Func::Mul, &[x, x], x.type_().clone());
+        let one = builder.const_(Const::One(x.type_().clone()));
+        let one_minus_x2 = builder.call(Func::Sub, &[one, x2], x.type_().clone());
+        let sqrt = builder.call(Func::Sqrt, &[one_minus_x2], x.type_().clone());
+        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_().clone());
+        let x_grad = builder.call(Func::Mul, &[out_grad, one_over_sqrt], x.type_().clone());
         return x_grad;
     }
 
@@ -768,13 +774,13 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let x2 = builder.call(Func::Mul, &[x, x], x.type_());
-        let one = builder.const_(Const::One(x.type_()));
-        let one_plus_x2 = builder.call(Func::Add, &[one, x2], x.type_());
-        let sqrt = builder.call(Func::Sqrt, &[one_plus_x2], x.type_());
-        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_());
-        let x_grad = builder.call(Func::Mul, &[out_grad, one_over_sqrt], x.type_());
+        assert!(is_type_equal(x.type_(), out_grad.type_()));
+        let x2 = builder.call(Func::Mul, &[x, x], x.type_().clone());
+        let one = builder.const_(Const::One(x.type_().clone()));
+        let one_plus_x2 = builder.call(Func::Add, &[one, x2], x.type_().clone());
+        let sqrt = builder.call(Func::Sqrt, &[one_plus_x2], x.type_().clone());
+        let one_over_sqrt = builder.call(Func::Div, &[one, sqrt], x.type_().clone());
+        let x_grad = builder.call(Func::Mul, &[out_grad, one_over_sqrt], x.type_().clone());
         return x_grad;
     }
 
@@ -786,10 +792,10 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_().element());
-        let twice_x = builder.call(Func::Add, &[x, x], x.type_());
-        let out_grad = builder.call(Func::Vec, &[out_grad], x.type_());
-        let x_grad = builder.call(Func::Mul, &[twice_x, out_grad], x.type_());
+        assert!(is_type_equal(out_grad.type_(), &x.type_().element()));
+        let twice_x = builder.call(Func::Add, &[x, x], x.type_().clone());
+        let out_grad = builder.call(Func::Vec, &[out_grad], x.type_().clone());
+        let x_grad = builder.call(Func::Mul, &[twice_x, out_grad], x.type_().clone());
         return x_grad;
     }
 
@@ -802,9 +808,9 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let twice_sqrt_x = builder.call(Func::Add, &[out, out], x.type_());
-        let x_grad = builder.call(Func::Div, &[out_grad, twice_sqrt_x], x.type_());
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let twice_sqrt_x = builder.call(Func::Add, &[out, out], x.type_().clone());
+        let x_grad = builder.call(Func::Div, &[out_grad, twice_sqrt_x], x.type_().clone());
         return x_grad;
     }
 
@@ -816,23 +822,27 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let sqrt_x = builder.call(Func::Sqrt, &[x], x.type_());
-        let twice_x = builder.call(Func::Add, &[x, x], x.type_());
-        let twice_x_times_sqrt_x = builder.call(Func::Mul, &[twice_x, sqrt_x], x.type_());
-        let neg_out_grad = builder.call(Func::Neg, &[out_grad], x.type_());
-        let x_grad = builder.call(Func::Div, &[neg_out_grad, twice_x_times_sqrt_x], x.type_());
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let sqrt_x = builder.call(Func::Sqrt, &[x], x.type_().clone());
+        let twice_x = builder.call(Func::Add, &[x, x], x.type_().clone());
+        let twice_x_times_sqrt_x = builder.call(Func::Mul, &[twice_x, sqrt_x], x.type_().clone());
+        let neg_out_grad = builder.call(Func::Neg, &[out_grad], x.type_().clone());
+        let x_grad = builder.call(
+            Func::Div,
+            &[neg_out_grad, twice_x_times_sqrt_x],
+            x.type_().clone(),
+        );
         return x_grad;
     }
 
     // out = atan(x)
     // => δ(x) = 1 / (1 + x^2) * δ(out)
     fn backward_atan(&mut self, x: NodeRef, out_grad: NodeRef, builder: &mut IrBuilder) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let xx = builder.call(Func::Mul, &[x, x], x.type_());
-        let one = builder.const_(Const::One(x.type_()));
-        let one_plus_xx = builder.call(Func::Add, &[one, xx], x.type_());
-        let x_grad = builder.call(Func::Div, &[out_grad, one_plus_xx], x.type_());
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let xx = builder.call(Func::Mul, &[x, x], x.type_().clone());
+        let one = builder.const_(Const::One(x.type_().clone()));
+        let one_plus_xx = builder.call(Func::Add, &[one, xx], x.type_().clone());
+        let x_grad = builder.call(Func::Div, &[out_grad, one_plus_xx], x.type_().clone());
         return x_grad;
     }
 
@@ -846,14 +856,19 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        let xx = builder.call(Func::Mul, &[x, x], x.type_());
-        let yy = builder.call(Func::Mul, &[y, y], y.type_());
-        let xx_plus_yy = builder.call(Func::Add, &[xx, yy], x.type_());
-        let x_over_xx_plus_yy = builder.call(Func::Div, &[x, xx_plus_yy], x.type_());
-        let neg_y = builder.call(Func::Neg, &[y], y.type_());
-        let neg_y_over_xx_plus_yy = builder.call(Func::Div, &[neg_y, xx_plus_yy], y.type_());
-        let y_grad = builder.call(Func::Mul, &[x_over_xx_plus_yy, out_grad], y.type_());
-        let x_grad = builder.call(Func::Mul, &[neg_y_over_xx_plus_yy, out_grad], x.type_());
+        let xx = builder.call(Func::Mul, &[x, x], x.type_().clone());
+        let yy = builder.call(Func::Mul, &[y, y], y.type_().clone());
+        let xx_plus_yy = builder.call(Func::Add, &[xx, yy], x.type_().clone());
+        let x_over_xx_plus_yy = builder.call(Func::Div, &[x, xx_plus_yy], x.type_().clone());
+        let neg_y = builder.call(Func::Neg, &[y], y.type_().clone());
+        let neg_y_over_xx_plus_yy =
+            builder.call(Func::Div, &[neg_y, xx_plus_yy], y.type_().clone());
+        let y_grad = builder.call(Func::Mul, &[x_over_xx_plus_yy, out_grad], y.type_().clone());
+        let x_grad = builder.call(
+            Func::Mul,
+            &[neg_y_over_xx_plus_yy, out_grad],
+            x.type_().clone(),
+        );
         return (y_grad, x_grad);
     }
 
@@ -865,23 +880,23 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let xx = builder.call(Func::Mul, &[x, x], x.type_());
-        let one = builder.const_(Const::One(x.type_()));
-        let one_minus_xx = builder.call(Func::Sub, &[one, xx], x.type_());
-        let x_grad = builder.call(Func::Div, &[out_grad, one_minus_xx], x.type_());
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let xx = builder.call(Func::Mul, &[x, x], x.type_().clone());
+        let one = builder.const_(Const::One(x.type_().clone()));
+        let one_minus_xx = builder.call(Func::Sub, &[one, xx], x.type_().clone());
+        let x_grad = builder.call(Func::Div, &[out_grad, one_minus_xx], x.type_().clone());
         return x_grad;
     }
 
     // out = log(x)
     // => δ(x) = 1 / x * δ(out)
     fn backward_log(&mut self, x: NodeRef, out_grad: NodeRef, builder: &mut IrBuilder) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let x_grad = builder.call(Func::Div, &[out_grad, x], x.type_());
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let x_grad = builder.call(Func::Div, &[out_grad, x], x.type_().clone());
         return x_grad;
     }
 
-    fn fp_constant(&mut self, t: Gc<Type>, x: f64, builder: &mut IrBuilder) -> NodeRef {
+    fn fp_constant(&mut self, t: CArc<Type>, x: f64, builder: &mut IrBuilder) -> NodeRef {
         return match t.deref() {
             Type::Primitive(p) => match p {
                 Primitive::Float32 => builder.const_(Const::Float32(x as f32)),
@@ -909,11 +924,11 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let inv_log = self.fp_constant(out_grad.type_(), 1.0 / base.ln(), builder);
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let inv_log = self.fp_constant(out_grad.type_().clone(), 1.0 / base.ln(), builder);
         let out_grad_times_inv_log =
-            builder.call(Func::Mul, &[out_grad, inv_log], out_grad.type_());
-        let x_grad = builder.call(Func::Div, &[out_grad_times_inv_log, x], x.type_());
+            builder.call(Func::Mul, &[out_grad, inv_log], out_grad.type_().clone());
+        let x_grad = builder.call(Func::Div, &[out_grad_times_inv_log, x], x.type_().clone());
         return x_grad;
     }
 
@@ -926,8 +941,8 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let x_grad = builder.call(Func::Mul, &[out, out_grad], x.type_());
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let x_grad = builder.call(Func::Mul, &[out, out_grad], x.type_().clone());
         return x_grad;
     }
 
@@ -940,11 +955,11 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let log2 = self.fp_constant(out_grad.type_(), 2.0f64.ln(), builder);
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let log2 = self.fp_constant(out_grad.type_().clone(), 2.0f64.ln(), builder);
         let exp2_x = out;
-        let log2_times_exp2_x = builder.call(Func::Mul, &[log2, exp2_x], x.type_());
-        let x_grad = builder.call(Func::Mul, &[log2_times_exp2_x, out_grad], x.type_());
+        let log2_times_exp2_x = builder.call(Func::Mul, &[log2, exp2_x], x.type_().clone());
+        let x_grad = builder.call(Func::Mul, &[log2_times_exp2_x, out_grad], x.type_().clone());
         return x_grad;
     }
 
@@ -957,11 +972,15 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_());
-        let log10 = self.fp_constant(out_grad.type_(), 10.0f64.ln(), builder);
+        assert!(is_type_equal(out_grad.type_(), x.type_()));
+        let log10 = self.fp_constant(out_grad.type_().clone(), 10.0f64.ln(), builder);
         let exp10_x = out;
-        let log10_times_exp10_x = builder.call(Func::Mul, &[log10, exp10_x], x.type_());
-        let x_grad = builder.call(Func::Mul, &[log10_times_exp10_x, out_grad], x.type_());
+        let log10_times_exp10_x = builder.call(Func::Mul, &[log10, exp10_x], x.type_().clone());
+        let x_grad = builder.call(
+            Func::Mul,
+            &[log10_times_exp10_x, out_grad],
+            x.type_().clone(),
+        );
         return x_grad;
     }
 
@@ -975,17 +994,17 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> (NodeRef, NodeRef) {
-        assert_eq!(out_grad.type_(), a.type_());
-        assert_eq!(out_grad.type_(), b.type_());
-        let one = builder.const_(Const::One(b.type_()));
-        let b_minus_one = builder.call(Func::Sub, &[b, one], b.type_());
-        let pow = builder.call(Func::Powf, &[a, b_minus_one], a.type_());
-        let b_times_pow = builder.call(Func::Mul, &[b, pow], a.type_());
-        let a_grad = builder.call(Func::Mul, &[b_times_pow, out_grad], a.type_());
-        let log_a = builder.call(Func::Log, &[a], a.type_());
-        let pow = builder.call(Func::Powf, &[a, b], a.type_());
-        let pow_times_log_a = builder.call(Func::Mul, &[pow, log_a], a.type_());
-        let b_grad = builder.call(Func::Mul, &[pow_times_log_a, out_grad], b.type_());
+        assert!(is_type_equal(out_grad.type_(), a.type_()));
+        assert!(is_type_equal(out_grad.type_(), b.type_()));
+        let one = builder.const_(Const::One(b.type_().clone()));
+        let b_minus_one = builder.call(Func::Sub, &[b, one], b.type_().clone());
+        let pow = builder.call(Func::Powf, &[a, b_minus_one], a.type_().clone());
+        let b_times_pow = builder.call(Func::Mul, &[b, pow], a.type_().clone());
+        let a_grad = builder.call(Func::Mul, &[b_times_pow, out_grad], a.type_().clone());
+        let log_a = builder.call(Func::Log, &[a], a.type_().clone());
+        let pow = builder.call(Func::Powf, &[a, b], a.type_().clone());
+        let pow_times_log_a = builder.call(Func::Mul, &[pow, log_a], a.type_().clone());
+        let b_grad = builder.call(Func::Mul, &[pow_times_log_a, out_grad], b.type_().clone());
         return (a_grad, b_grad);
     }
 
@@ -998,13 +1017,13 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), a.type_());
-        let one = builder.const_(Const::One(n.type_()));
-        let n_minus_one = builder.call(Func::Sub, &[n, one], n.type_());
-        let pow = builder.call(Func::Powi, &[a, n_minus_one], a.type_());
-        let n = builder.call(Func::Cast, &[n], a.type_());
-        let n_times_pow = builder.call(Func::Mul, &[n, pow], a.type_());
-        let a_grad = builder.call(Func::Mul, &[n_times_pow, out_grad], a.type_());
+        assert!(is_type_equal(out_grad.type_(), a.type_()));
+        let one = builder.const_(Const::One(n.type_().clone()));
+        let n_minus_one = builder.call(Func::Sub, &[n, one], n.type_().clone());
+        let pow = builder.call(Func::Powi, &[a, n_minus_one], a.type_().clone());
+        let n = builder.call(Func::Cast, &[n], a.type_().clone());
+        let n_times_pow = builder.call(Func::Mul, &[n, pow], a.type_().clone());
+        let a_grad = builder.call(Func::Mul, &[n_times_pow, out_grad], a.type_().clone());
         return a_grad;
     }
 
@@ -1016,10 +1035,10 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), x.type_().element());
-        let n = builder.call(Func::Normalize, &[x], x.type_());
-        let out_grad = builder.call(Func::Vec, &[out_grad], x.type_());
-        let x_grad = builder.call(Func::Mul, &[n, out_grad], x.type_());
+        assert!(is_type_equal(out_grad.type_(), &x.type_().element()));
+        let n = builder.call(Func::Normalize, &[x], x.type_().clone());
+        let out_grad = builder.call(Func::Vec, &[out_grad], x.type_().clone());
+        let x_grad = builder.call(Func::Mul, &[n, out_grad], x.type_().clone());
         return x_grad;
     }
 
@@ -1031,15 +1050,15 @@ impl Backward {
         out_grad: NodeRef,
         builder: &mut IrBuilder,
     ) -> NodeRef {
-        assert_eq!(out_grad.type_(), v.type_());
-        let n = builder.call(Func::Normalize, &[v], v.type_());
+        assert!(is_type_equal(out_grad.type_(), v.type_()));
+        let n = builder.call(Func::Normalize, &[v], v.type_().clone());
         let dot = builder.call(Func::Dot, &[n, out_grad], v.type_().element());
-        let dot = builder.call(Func::Vec, &[dot], v.type_());
-        let dot_times_n = builder.call(Func::Mul, &[dot, n], v.type_());
-        let minus = builder.call(Func::Sub, &[out_grad, dot_times_n], v.type_());
+        let dot = builder.call(Func::Vec, &[dot], v.type_().clone());
+        let dot_times_n = builder.call(Func::Mul, &[dot, n], v.type_().clone());
+        let minus = builder.call(Func::Sub, &[out_grad, dot_times_n], v.type_().clone());
         let l = builder.call(Func::Length, &[v], v.type_().element());
-        let l = builder.call(Func::Vec, &[l], v.type_());
-        let v_grad = builder.call(Func::Div, &[minus, l], v.type_());
+        let l = builder.call(Func::Vec, &[l], v.type_().clone());
+        let v_grad = builder.call(Func::Div, &[minus, l], v.type_().clone());
         return v_grad;
     }
 
@@ -1057,9 +1076,9 @@ impl Backward {
         assert_eq!(out_grad.type_().element(), b.type_().element());
         assert_eq!(out_grad.type_().dimension(), a.type_().dimension());
         assert_eq!(out_grad.type_().dimension(), b.type_().dimension());
-        let a_grad = builder.call(Func::Mul, &[out_grad, b], a.type_());
-        let out_grad_t = builder.call(Func::Transpose, &[out_grad], out_grad.type_());
-        let b_grad = builder.call(Func::Mul, &[out_grad_t, a], b.type_());
+        let a_grad = builder.call(Func::Mul, &[out_grad, b], a.type_().clone());
+        let out_grad_t = builder.call(Func::Transpose, &[out_grad], out_grad.type_().clone());
+        let b_grad = builder.call(Func::Mul, &[out_grad_t, a], b.type_().clone());
         return (a_grad, b_grad);
     }
     fn get_intermediate(&self, node: NodeRef) -> NodeRef {
@@ -1069,9 +1088,9 @@ impl Backward {
             .unwrap_or_else(|| panic!("{:?}", node.get().instruction))
     }
     fn backward(&mut self, node: NodeRef, builder: &mut IrBuilder) {
-        let instruction = node.get().instruction;
-        let type_ = node.get().type_;
-        let grad_type = grad_type_of(type_);
+        let instruction = &node.get().instruction;
+        let type_ = &node.get().type_;
+        let grad_type = grad_type_of(type_.clone());
 
         match instruction.as_ref() {
             crate::ir::Instruction::Buffer => {}
@@ -1152,7 +1171,7 @@ impl Backward {
                     }
                     Func::Clamp => {
                         // clamp(x, a, b) = min(max(x, a), b)
-                        let min_x_a = builder.call(Func::Min, &[args[0], args[1]], type_);
+                        let min_x_a = builder.call(Func::Min, &[args[0], args[1]], type_.clone());
                         let (max_grad, b_grad) =
                             self.backward_min(min_x_a, args[2], out_grad, builder);
                         let (x_grad, a_grad) =
@@ -1163,23 +1182,23 @@ impl Backward {
                     }
                     Func::Lerp => {
                         // lerp(a, b, t) = (b - a) * t + a
-                        let b_minus_a = builder.call(Func::Sub, &[args[1], args[0]], type_);
+                        let b_minus_a = builder.call(Func::Sub, &[args[1], args[0]], type_.clone());
                         let (b_minus_a_grad, t_grad) =
                             self.backward_comp_mul(b_minus_a, args[2], out_grad, builder);
                         let (b_grad, a_grad) =
                             self.backward_sub(args[1], args[0], b_minus_a_grad, builder);
-                        let a_grad = builder.call(Func::Add, &[a_grad, out_grad], type_);
+                        let a_grad = builder.call(Func::Add, &[a_grad, out_grad], type_.clone());
                         self.accumulate_grad(args[0], a_grad, builder);
                         self.accumulate_grad(args[1], b_grad, builder);
                         self.accumulate_grad(args[2], t_grad, builder);
                     }
                     Func::Abs => {
                         // abs(x) = x >= 0 ? x : -x
-                        let zero = builder.const_(Const::Zero(type_));
-                        let cond = builder.call(Func::Ge, &[args[0], zero], Type::bool(type_));
-                        let neg_out_grad = builder.call(Func::Neg, &[out_grad], type_);
+                        let zero = builder.const_(Const::Zero(type_.clone()));
+                        let cond = builder.call(Func::Ge, &[args[0], zero], Type::bool(type_.clone()));
+                        let neg_out_grad = builder.call(Func::Neg, &[out_grad], type_.clone());
                         let x_grad =
-                            builder.call(Func::Select, &[cond, out_grad, neg_out_grad], type_);
+                            builder.call(Func::Select, &[cond, out_grad, neg_out_grad], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Min => {
@@ -1201,7 +1220,7 @@ impl Backward {
                     Func::ReduceProd => match args[0].type_().as_ref() {
                         Type::Vector(vec_type) => {
                             let elem_type = vec_type.element.to_type();
-                            let mut x_grad = builder.const_(Const::Zero(args[0].type_()));
+                            let mut x_grad = builder.const_(Const::Zero(args[0].type_().clone()));
                             for i in 0..vec_type.length {
                                 let mut elem_grad = out_grad;
                                 for j in 0..vec_type.length {
@@ -1210,12 +1229,12 @@ impl Backward {
                                         let other_elem = builder.call(
                                             Func::ExtractElement,
                                             &[args[0], index],
-                                            elem_type,
+                                            elem_type.clone(),
                                         );
                                         elem_grad = builder.call(
                                             Func::Mul,
                                             &[elem_grad, other_elem],
-                                            elem_type,
+                                            elem_type.clone(),
                                         );
                                     }
                                 }
@@ -1223,7 +1242,7 @@ impl Backward {
                                 x_grad = builder.call(
                                     Func::InsertElement,
                                     &[x_grad, elem_grad, index],
-                                    args[0].type_(),
+                                    args[0].type_().clone(),
                                 );
                             }
                             self.accumulate_grad(args[0], x_grad, builder);
@@ -1231,33 +1250,45 @@ impl Backward {
                         _ => unreachable!(),
                     },
                     Func::ReduceMin => {
-                        let min = builder.call(Func::ReduceMin, &[args[0]], type_);
-                        let is_min =
-                            builder.call(Func::Eq, &[min, args[0]], Type::bool(args[0].type_()));
-                        let zero = builder.const_(Const::Zero(args[0].type_()));
+                        let min = builder.call(Func::ReduceMin, &[args[0]], type_.clone());
+                        let is_min = builder.call(
+                            Func::Eq,
+                            &[min, args[0]],
+                            Type::bool(args[0].type_().clone()),
+                        );
+                        let zero = builder.const_(Const::Zero(args[0].type_().clone()));
                         let out_grad = if args[0].type_().is_vector() {
-                            builder.call(Func::Vec, &[out_grad], args[0].type_())
+                            builder.call(Func::Vec, &[out_grad], args[0].type_().clone())
                         } else {
                             assert!(args[0].type_().is_matrix());
-                            builder.call(Func::Mat, &[out_grad], args[0].type_())
+                            builder.call(Func::Mat, &[out_grad], args[0].type_().clone())
                         };
-                        let x_grad =
-                            builder.call(Func::Select, &[is_min, out_grad, zero], args[0].type_());
+                        let x_grad = builder.call(
+                            Func::Select,
+                            &[is_min, out_grad, zero],
+                            args[0].type_().clone(),
+                        );
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::ReduceMax => {
-                        let max = builder.call(Func::ReduceMax, &[args[0]], type_);
-                        let is_max =
-                            builder.call(Func::Eq, &[max, args[0]], Type::bool(args[0].type_()));
-                        let zero = builder.const_(Const::Zero(args[0].type_()));
+                        let max = builder.call(Func::ReduceMax, &[args[0]], type_.clone());
+                        let is_max = builder.call(
+                            Func::Eq,
+                            &[max, args[0]],
+                            Type::bool(args[0].type_().clone()),
+                        );
+                        let zero = builder.const_(Const::Zero(args[0].type_().clone()));
                         let out_grad = if args[0].type_().is_vector() {
-                            builder.call(Func::Vec, &[out_grad], args[0].type_())
+                            builder.call(Func::Vec, &[out_grad], args[0].type_().clone())
                         } else {
                             assert!(args[0].type_().is_matrix());
-                            builder.call(Func::Mat, &[out_grad], args[0].type_())
+                            builder.call(Func::Mat, &[out_grad], args[0].type_().clone())
                         };
-                        let x_grad =
-                            builder.call(Func::Select, &[is_max, out_grad, zero], args[0].type_());
+                        let x_grad = builder.call(
+                            Func::Select,
+                            &[is_max, out_grad, zero],
+                            args[0].type_().clone(),
+                        );
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Acos => {
@@ -1291,36 +1322,36 @@ impl Backward {
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Cos => {
-                        let sin_x = builder.call(Func::Sin, &[args[0]], type_);
-                        let neg_sin_x = builder.call(Func::Neg, &[sin_x], type_);
-                        let x_grad = builder.call(Func::Mul, &[neg_sin_x, out_grad], type_);
+                        let sin_x = builder.call(Func::Sin, &[args[0]], type_.clone());
+                        let neg_sin_x = builder.call(Func::Neg, &[sin_x], type_.clone());
+                        let x_grad = builder.call(Func::Mul, &[neg_sin_x, out_grad], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Cosh => {
-                        let sinh_x = builder.call(Func::Sinh, &[args[0]], type_);
-                        let x_grad = builder.call(Func::Mul, &[sinh_x, out_grad], type_);
+                        let sinh_x = builder.call(Func::Sinh, &[args[0]], type_.clone());
+                        let x_grad = builder.call(Func::Mul, &[sinh_x, out_grad], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Sin => {
-                        let cos_x = builder.call(Func::Cos, &[args[0]], type_);
-                        let x_grad = builder.call(Func::Mul, &[cos_x, out_grad], type_);
+                        let cos_x = builder.call(Func::Cos, &[args[0]], type_.clone());
+                        let x_grad = builder.call(Func::Mul, &[cos_x, out_grad], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Sinh => {
-                        let cosh_x = builder.call(Func::Cosh, &[args[0]], type_);
-                        let x_grad = builder.call(Func::Mul, &[cosh_x, out_grad], type_);
+                        let cosh_x = builder.call(Func::Cosh, &[args[0]], type_.clone());
+                        let x_grad = builder.call(Func::Mul, &[cosh_x, out_grad], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Tan => {
-                        let cos_x = builder.call(Func::Cos, &[args[0]], type_);
-                        let sqr_cos_x = builder.call(Func::Mul, &[cos_x, cos_x], type_);
-                        let x_grad = builder.call(Func::Div, &[out_grad, sqr_cos_x], type_);
+                        let cos_x = builder.call(Func::Cos, &[args[0]], type_.clone());
+                        let sqr_cos_x = builder.call(Func::Mul, &[cos_x, cos_x], type_.clone());
+                        let x_grad = builder.call(Func::Div, &[out_grad, sqr_cos_x], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Tanh => {
-                        let cosh_x = builder.call(Func::Cosh, &[args[0]], type_);
-                        let sqr_cosh_x = builder.call(Func::Mul, &[cosh_x, cosh_x], type_);
-                        let x_grad = builder.call(Func::Div, &[out_grad, sqr_cosh_x], type_);
+                        let cosh_x = builder.call(Func::Cosh, &[args[0]], type_.clone());
+                        let sqr_cosh_x = builder.call(Func::Mul, &[cosh_x, cosh_x], type_.clone());
+                        let x_grad = builder.call(Func::Div, &[out_grad, sqr_cosh_x], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
                     Func::Exp => {
@@ -1370,8 +1401,8 @@ impl Backward {
                     }
                     Func::Fma => {
                         // a * b + c
-                        let a_grad = builder.call(Func::Mul, &[args[1], out_grad], type_);
-                        let b_grad = builder.call(Func::Mul, &[args[0], out_grad], type_);
+                        let a_grad = builder.call(Func::Mul, &[args[1], out_grad], type_.clone());
+                        let b_grad = builder.call(Func::Mul, &[args[0], out_grad], type_.clone());
                         let c_grad = out_grad;
                         self.accumulate_grad(args[0], a_grad, builder);
                         self.accumulate_grad(args[1], b_grad, builder);
@@ -1380,16 +1411,16 @@ impl Backward {
 
                     Func::Copysign => {
                         // copysign(x, y) = y >= 0 ? abs(x) : -abs(x) = (y < 0) == (x < 0) ? x : -x
-                        let zero = builder.const_(Const::Zero(type_));
+                        let zero = builder.const_(Const::Zero(type_.clone()));
                         let x_negative =
-                            builder.call(Func::Lt, &[args[0], zero], Type::bool(type_));
+                            builder.call(Func::Lt, &[args[0], zero], Type::bool(type_.clone()));
                         let y_negative =
-                            builder.call(Func::Lt, &[args[1], zero], Type::bool(type_));
+                            builder.call(Func::Lt, &[args[1], zero], Type::bool(type_.clone()));
                         let same_sign =
-                            builder.call(Func::Eq, &[x_negative, y_negative], Type::bool(type_));
-                        let neg_out_grad = builder.call(Func::Neg, &[out_grad], type_);
+                            builder.call(Func::Eq, &[x_negative, y_negative], Type::bool(type_.clone()));
+                        let neg_out_grad = builder.call(Func::Neg, &[out_grad], type_.clone());
                         let x_grad =
-                            builder.call(Func::Select, &[same_sign, out_grad, neg_out_grad], type_);
+                            builder.call(Func::Select, &[same_sign, out_grad, neg_out_grad], type_.clone());
                         self.accumulate_grad(args[0], x_grad, builder);
                     }
 
@@ -1432,10 +1463,13 @@ impl Backward {
                         let dot = builder.call(Func::Dot, &[nref, i], n.type_().element());
                         let zero = builder.const_(Const::Zero(n.type_().element()));
                         let cond = builder.call(Func::Lt, &[dot, zero], n.type_().element());
-                        let cond = builder.call(Func::Vec, &[cond], n.type_());
-                        let neg_out_grad = builder.call(Func::Neg, &[out_grad], n.type_());
-                        let n_grad =
-                            builder.call(Func::Select, &[cond, out_grad, neg_out_grad], n.type_());
+                        let cond = builder.call(Func::Vec, &[cond], n.type_().clone());
+                        let neg_out_grad = builder.call(Func::Neg, &[out_grad], n.type_().clone());
+                        let n_grad = builder.call(
+                            Func::Select,
+                            &[cond, out_grad, neg_out_grad],
+                            n.type_().clone(),
+                        );
                         self.accumulate_grad(n, n_grad, builder);
                     }
                     // Matrix operations
@@ -1471,7 +1505,7 @@ impl Backward {
                     }
                     Func::Permute => {
                         // permute(v, i...) => [v[i0], v[i1], ...]
-                        let mut v_grad = builder.const_(Const::Zero(args[0].type_()));
+                        let mut v_grad = builder.const_(Const::Zero(args[0].type_().clone()));
                         for (out_idx, in_idx) in original_args[1..].iter().enumerate() {
                             let in_idx = *in_idx;
                             let out_idx = builder.const_(Const::Uint32(out_idx as u32));
@@ -1493,31 +1527,31 @@ impl Backward {
                             v_grad = builder.call(
                                 Func::InsertElement,
                                 &[v_grad, v_grad_elem, in_idx],
-                                v_grad.type_(),
+                                v_grad.type_().clone(),
                             );
                         }
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::ExtractElement => {
-                        let v_grad = builder.const_(Const::Zero(args[0].type_()));
+                        let v_grad = builder.const_(Const::Zero(args[0].type_().clone()));
                         let v_grad = builder.call(
                             Func::InsertElement,
                             &[v_grad, out_grad, original_args[1]],
-                            v_grad.type_(),
+                            v_grad.type_().clone(),
                         );
                         self.accumulate_grad(args[0], v_grad, builder);
                     }
                     Func::InsertElement => {
-                        let zero = builder.const_(Const::Zero(args[1].type_()));
+                        let zero = builder.const_(Const::Zero(args[1].type_().clone()));
                         let v_grad = builder.call(
                             Func::InsertElement,
                             &[out_grad, zero, original_args[2]],
-                            args[0].type_(),
+                            args[0].type_().clone(),
                         );
                         let x_grad = builder.call(
                             Func::ExtractElement,
                             &[out_grad, original_args[2]],
-                            args[1].type_(),
+                            args[1].type_().clone()
                         );
                         self.accumulate_grad(args[0], v_grad, builder);
                         self.accumulate_grad(args[1], x_grad, builder);
@@ -1527,13 +1561,13 @@ impl Backward {
                             Type::Matrix(t) => t.column(),
                             _ => unreachable!(),
                         };
-                        let mut sum = builder.const_(Const::Zero(args[0].type_()));
+                        let mut sum = builder.const_(Const::Zero(args[0].type_().clone()));
                         for i in 0..out_grad.type_().dimension() {
                             let idx = builder.const_(Const::Uint32(i as u32));
                             let col =
-                                builder.call(Func::ExtractElement, &[out_grad, idx], col_type);
+                                builder.call(Func::ExtractElement, &[out_grad, idx], col_type.clone());
                             let col_sum = builder.call(Func::ReduceSum, &[col], col_type.element());
-                            sum = builder.call(Func::Add, &[sum, col_sum], sum.type_());
+                            sum = builder.call(Func::Add, &[sum, col_sum], sum.type_().clone());
                         }
                         self.accumulate_grad(args[0], sum, builder);
                     }
@@ -1547,7 +1581,7 @@ impl Backward {
                         for i in 0..n {
                             let col = builder.const_(Const::Uint32(i as u32));
                             let col_grad =
-                                builder.call(Func::ExtractElement, &[out_grad, col], col_type);
+                                builder.call(Func::ExtractElement, &[out_grad, col], col_type.clone());
                             // for j in 0..n {
                             //     let row = builder.const_(Const::Uint32(j as u32));
                             //     let elem_grad = builder.call(
@@ -1567,7 +1601,7 @@ impl Backward {
                             let member_grad = builder.call(
                                 Func::ExtractElement,
                                 &[out_grad, idx],
-                                member.type_(),
+                                member.type_().clone(),
                             );
                             self.accumulate_grad(*member, member_grad, builder);
                         }
@@ -1594,8 +1628,10 @@ impl Backward {
                 false_branch,
             } => {
                 let cond = self.get_intermediate(*cond);
-                let true_branch = self.backward_block(true_branch, IrBuilder::new());
-                let false_branch = self.backward_block(false_branch, IrBuilder::new());
+                let true_branch =
+                    self.backward_block(true_branch, IrBuilder::new(self.pools.clone()));
+                let false_branch =
+                    self.backward_block(false_branch, IrBuilder::new(self.pools.clone()));
                 builder.if_(cond, true_branch, false_branch);
             }
             crate::ir::Instruction::Switch {
@@ -1608,14 +1644,14 @@ impl Backward {
                     .as_ref()
                     .iter()
                     .map(|SwitchCase { value, block }| {
-                        let block = self.backward_block(block, IrBuilder::new());
+                        let block = self.backward_block(block, IrBuilder::new(self.pools.clone()));
                         SwitchCase {
                             value: *value,
                             block,
                         }
                     })
                     .collect::<Vec<_>>();
-                let default = self.backward_block(default, IrBuilder::new());
+                let default = self.backward_block(default, IrBuilder::new(self.pools.clone()));
                 builder.switch(value, &cases, default);
             }
             crate::ir::Instruction::Comment { .. } => {}
@@ -1625,15 +1661,15 @@ impl Backward {
             }
         }
     }
-    fn backward_block(&mut self, block: &BasicBlock, mut builder: IrBuilder) -> Gc<BasicBlock> {
+    fn backward_block(&mut self, block: &BasicBlock, mut builder: IrBuilder) -> Pooled<BasicBlock> {
         for node in block.nodes().iter().rev() {
             self.backward(*node, &mut builder);
         }
 
         builder.finish()
     }
-    fn run(&mut self, block: &BasicBlock) -> Gc<BasicBlock> {
-        let mut builder = IrBuilder::new();
+    fn run(&mut self, block: &BasicBlock) -> Pooled<BasicBlock> {
+        let mut builder = IrBuilder::new(self.pools.clone());
         for node in block.nodes().iter().rev() {
             self.backward(*node, &mut builder);
         }
@@ -1648,11 +1684,11 @@ impl Backward {
                 .grads
                 .get(&n)
                 .cloned()
-                .unwrap_or_else(|| builder.zero_initializer(n.type_()));
+                .unwrap_or_else(|| builder.zero_initializer(n.type_().clone()));
             if grad.is_local() {
-                grad = builder.call(Func::Load, &[grad], grad.type_());
+                grad = builder.call(Func::Load, &[grad], grad.type_().clone());
             }
-            builder.call(Func::GradientMarker, &[n, grad], n.type_());
+            builder.call(Func::GradientMarker, &[n, grad], n.type_().clone());
         }
         builder.finish()
     }
@@ -1684,6 +1720,7 @@ impl Transform for Autodiff {
             final_grad,
             intermediate,
             intermediate_to_node,
+            pools: module.pools.clone(),
         };
         // dbg!(&backward.intermediate);
         // dbg!(&backward.grads);
@@ -1699,6 +1736,7 @@ impl Transform for Autodiff {
         Module {
             kind: ModuleKind::Block,
             entry: fwd,
+            pools: module.pools,
         }
     }
 }

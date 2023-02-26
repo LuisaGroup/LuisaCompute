@@ -1,15 +1,11 @@
-use gc::{GcHeader, GcObject, Trace};
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
-use crate::context::with_context;
 use crate::*;
 use std::any::{Any, TypeId};
-use std::cell::RefCell;
-use std::collections::binary_heap::Iter;
 use std::collections::HashSet;
-use std::ffi::CString;
 use std::fmt::{Debug, Formatter};
+use std::hash::Hasher;
 use std::ops::Deref;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -43,11 +39,13 @@ impl std::fmt::Display for Primitive {
     }
 }
 
+//cbindgen:derive-tagged-enum-destructor
+//cbindgen:derive-tagged-enum-copy-constructor
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub enum VectorElementType {
     Scalar(Primitive),
-    Vector(Gc<VectorType>),
+    Vector(CArc<VectorType>),
 }
 
 impl VectorElementType {
@@ -76,7 +74,7 @@ impl VectorElementType {
             _ => false,
         }
     }
-    pub fn to_type(&self) -> Gc<Type> {
+    pub fn to_type(&self) -> CArc<Type> {
         match self {
             VectorElementType::Scalar(p) => context::register_type(Type::Primitive(*p)),
             VectorElementType::Vector(v) => context::register_type(Type::Vector(v.deref().clone())),
@@ -122,7 +120,7 @@ impl std::fmt::Display for MatrixType {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct StructType {
-    pub fields: CBoxedSlice<Gc<Type>>,
+    pub fields: CBoxedSlice<CArc<Type>>,
     pub alignment: usize,
     pub size: usize,
     // pub id: u64,
@@ -142,7 +140,7 @@ impl std::fmt::Display for StructType {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[repr(C)]
 pub struct ArrayType {
-    pub element: Gc<Type>,
+    pub element: CArc<Type>,
     pub length: usize,
 }
 
@@ -175,53 +173,6 @@ impl std::fmt::Display for Type {
             Self::Struct(struct_type) => std::fmt::Display::fmt(struct_type, f),
             Self::Array(arr) => std::fmt::Display::fmt(arr, f),
         }
-    }
-}
-
-impl Trace for Type {
-    fn trace(&self) {
-        match self {
-            Type::Void => {}
-            Type::UserData => {}
-            Type::Primitive(_) => {}
-            Type::Vector(v) => v.trace(),
-            Type::Matrix(m) => m.trace(),
-            Type::Struct(s) => s.trace(),
-            Type::Array(a) => a.trace(),
-        }
-    }
-}
-
-impl Trace for VectorElementType {
-    fn trace(&self) {
-        match self {
-            VectorElementType::Scalar(_) => {}
-            VectorElementType::Vector(v) => v.trace(),
-        }
-    }
-}
-
-impl Trace for VectorType {
-    fn trace(&self) {
-        self.element.trace();
-    }
-}
-
-impl Trace for MatrixType {
-    fn trace(&self) {
-        self.element.trace();
-    }
-}
-
-impl Trace for StructType {
-    fn trace(&self) {
-        self.fields.trace();
-    }
-}
-
-impl Trace for ArrayType {
-    fn trace(&self) {
-        self.element.trace();
     }
 }
 
@@ -258,19 +209,19 @@ impl MatrixType {
     pub fn size(&self) -> usize {
         self.element.size() * self.dimension as usize * self.dimension as usize
     }
-    pub fn column(&self) -> Gc<Type> {
-        match self.element {
-            VectorElementType::Scalar(t) => Type::vector(t, self.dimension),
-            VectorElementType::Vector(t) => Type::vector_vector(t, self.dimension),
+    pub fn column(&self) -> CArc<Type> {
+        match &self.element {
+            VectorElementType::Scalar(t) => Type::vector(t.clone(), self.dimension),
+            VectorElementType::Vector(t) => Type::vector_vector(t.clone(), self.dimension),
         }
     }
 }
 
 impl Type {
-    pub fn void() -> Gc<Type> {
+    pub fn void() -> CArc<Type> {
         context::register_type(Type::Void)
     }
-    pub fn userdata() -> Gc<Type> {
+    pub fn userdata() -> CArc<Type> {
         context::register_type(Type::UserData)
     }
     pub fn size(&self) -> usize {
@@ -283,15 +234,15 @@ impl Type {
             Type::Array(t) => t.element.size() * t.length,
         }
     }
-    pub fn element(&self) -> Gc<Type> {
+    pub fn element(&self) -> CArc<Type> {
         match self {
             Type::Void | Type::Primitive(_) | Type::UserData => {
                 context::register_type(self.clone())
             }
             Type::Vector(vec_type) => vec_type.element.to_type(),
             Type::Matrix(mat_type) => mat_type.element.to_type(),
-            Type::Struct(_) => Gc::null(),
-            Type::Array(arr_type) => arr_type.element,
+            Type::Struct(_) => CArc::null(),
+            Type::Array(arr_type) => arr_type.element.clone(),
         }
     }
     pub fn dimension(&self) -> usize {
@@ -314,19 +265,19 @@ impl Type {
             Type::Array(t) => t.element.alignment(),
         }
     }
-    pub fn vector_to_bool(from: &VectorType) -> Gc<VectorType> {
-        match from.element {
-            VectorElementType::Scalar(_) => Gc::new(VectorType {
+    pub fn vector_to_bool(from: &VectorType) -> CArc<VectorType> {
+        match &from.element {
+            VectorElementType::Scalar(_) => CArc::new(VectorType {
                 element: VectorElementType::Scalar(Primitive::Bool),
                 length: from.length,
             }),
             VectorElementType::Vector(v) => Type::vector_to_bool(v.deref()),
         }
     }
-    pub fn bool(from: Gc<Type>) -> Gc<Type> {
+    pub fn bool(from: CArc<Type>) -> CArc<Type> {
         match from.deref() {
             Type::Primitive(_) => context::register_type(Type::Primitive(Primitive::Bool)),
-            Type::Vector(vec_type) => match vec_type.element {
+            Type::Vector(vec_type) => match &vec_type.element {
                 VectorElementType::Scalar(_) => Type::vector(Primitive::Bool, vec_type.length),
                 VectorElementType::Vector(v) => {
                     Type::vector_vector(Type::vector_to_bool(v.deref()), vec_type.length)
@@ -335,25 +286,25 @@ impl Type {
             _ => panic!("Cannot convert to bool"),
         }
     }
-    pub fn vector(element: Primitive, length: u32) -> Gc<Type> {
+    pub fn vector(element: Primitive, length: u32) -> CArc<Type> {
         context::register_type(Type::Vector(VectorType {
             element: VectorElementType::Scalar(element),
             length,
         }))
     }
-    pub fn vector_vector(element: Gc<VectorType>, length: u32) -> Gc<Type> {
+    pub fn vector_vector(element: CArc<VectorType>, length: u32) -> CArc<Type> {
         context::register_type(Type::Vector(VectorType {
             element: VectorElementType::Vector(element),
             length,
         }))
     }
-    pub fn matrix(element: Primitive, dimension: u32) -> Gc<Type> {
+    pub fn matrix(element: Primitive, dimension: u32) -> CArc<Type> {
         context::register_type(Type::Matrix(MatrixType {
             element: VectorElementType::Scalar(element),
             dimension,
         }))
     }
-    pub fn matrix_vector(element: Gc<VectorType>, dimension: u32) -> Gc<Type> {
+    pub fn matrix_vector(element: CArc<VectorType>, dimension: u32) -> CArc<Type> {
         context::register_type(Type::Matrix(MatrixType {
             element: VectorElementType::Vector(element),
             dimension,
@@ -418,105 +369,19 @@ impl Type {
     }
 }
 
-#[derive(Clone, Debug, Copy, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[repr(C)]
 pub struct Node {
-    pub type_: Gc<Type>,
+    pub type_: CArc<Type>,
     pub next: NodeRef,
     pub prev: NodeRef,
-    pub instruction: Gc<Instruction>,
-}
-
-impl Trace for Node {
-    fn trace(&self) {
-        self.type_.trace();
-        self.instruction.trace();
-        self.next.trace();
-        self.prev.trace();
-    }
-}
-
-impl Trace for NodeRef {
-    fn trace(&self) {
-        unsafe {
-            let ptr: Gc<Node> = std::mem::transmute(self.0);
-            ptr.trace();
-        }
-    }
-}
-
-impl Trace for Instruction {
-    fn trace(&self) {
-        match self {
-            Instruction::Buffer => {}
-            Instruction::Bindless => {}
-            Instruction::Texture2D => {}
-            Instruction::Texture3D => {}
-            Instruction::Accel => {}
-            Instruction::Shared => {}
-            Instruction::Uniform => {}
-            Instruction::Local { init } => init.trace(),
-            Instruction::Argument { .. } => todo!(),
-            Instruction::UserData(_) => {}
-            Instruction::Invalid => {}
-            Instruction::Const(c) => c.trace(),
-            Instruction::Update { var, value } => {
-                var.trace();
-                value.trace();
-            }
-            Instruction::Call(f, args) => {
-                f.trace();
-                args.trace();
-            }
-            Instruction::Phi(incomings) => {
-                incomings.trace();
-            }
-            Instruction::Return(v) => v.trace(),
-            Instruction::Loop { body, cond } => {
-                body.trace();
-                cond.trace();
-            }
-            Instruction::GenericLoop { .. } => todo!(),
-            Instruction::Break => {}
-            Instruction::Continue => {}
-            Instruction::If {
-                cond,
-                true_branch,
-                false_branch,
-            } => {
-                cond.trace();
-                true_branch.trace();
-                false_branch.trace();
-            }
-            Instruction::Switch {
-                value,
-                default,
-                cases,
-            } => {
-                value.trace();
-                default.trace();
-                cases.trace();
-            }
-            Instruction::AdScope {
-                forward,
-                backward,
-                epilogue,
-            } => {
-                forward.trace();
-                backward.trace();
-                epilogue.trace();
-            }
-            Instruction::AdDetach(bb) => bb.trace(),
-            Instruction::Comment(_) => todo!(),
-            crate::ir::Instruction::Debug { .. } => {}
-        }
-    }
+    pub instruction: CArc<Instruction>,
 }
 
 pub const INVALID_REF: NodeRef = NodeRef(0);
 
 impl Node {
-    pub fn new(instruction: Gc<Instruction>, type_: Gc<Type>) -> Node {
+    pub fn new(instruction: CArc<Instruction>, type_: CArc<Type>) -> Node {
         Node {
             instruction,
             type_,
@@ -743,7 +608,7 @@ pub enum Func {
     /// (bindless_array, index: uint, element: uint) -> T
     BindlessBufferRead,
     /// (bindless_array, index: uint) -> uint: returns the size of the buffer in *elements*
-    BindlessBufferSize(Gc<Type>),
+    BindlessBufferSize(CArc<Type>),
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
 
@@ -776,21 +641,17 @@ pub enum Func {
     // vector x 4 -> matrix
     Mat4,
 
-    Callable(u64),
+    Callable(CallableModuleRef),
 
     // ArgT -> ArgT
-    CpuCustomOp(CRc<CpuCustomOp>),
-}
-
-impl Trace for Func {
-    fn trace(&self) {}
+    CpuCustomOp(CArc<CpuCustomOp>),
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[repr(C)]
 pub enum Const {
-    Zero(Gc<Type>),
-    One(Gc<Type>),
+    Zero(CArc<Type>),
+    One(CArc<Type>),
     Bool(bool),
     Int32(i32),
     Uint32(u32),
@@ -798,7 +659,7 @@ pub enum Const {
     Uint64(u64),
     Float32(f32),
     Float64(f64),
-    Generic(CBoxedSlice<u8>, Gc<Type>),
+    Generic(CBoxedSlice<u8>, CArc<Type>),
 }
 
 impl std::fmt::Display for Const {
@@ -817,17 +678,6 @@ impl std::fmt::Display for Const {
         }
     }
 }
-
-impl Trace for Const {
-    fn trace(&self) {
-        match self {
-            Const::Zero(ty) => ty.trace(),
-            Const::Generic(_, ty) => ty.trace(),
-            _ => {}
-        }
-    }
-}
-
 impl Const {
     pub fn get_i32(&self) -> i32 {
         match self {
@@ -836,7 +686,7 @@ impl Const {
             _ => panic!("cannot convert to i32"),
         }
     }
-    pub fn type_(&self) -> Gc<Type> {
+    pub fn type_(&self) -> CArc<Type> {
         match self {
             Const::Zero(ty) => ty.clone(),
             Const::One(ty) => ty.clone(),
@@ -847,7 +697,7 @@ impl Const {
             Const::Uint64(_) => <u64 as TypeOf>::type_(),
             Const::Float32(_) => <f32 as TypeOf>::type_(),
             Const::Float64(_) => <f64 as TypeOf>::type_(),
-            Const::Generic(_, t) => *t,
+            Const::Generic(_, t) => t.clone(),
         }
     }
 }
@@ -875,23 +725,17 @@ impl Serialize for UserData {
 #[repr(C)]
 pub struct PhiIncoming {
     pub value: NodeRef,
-    pub block: Gc<BasicBlock>,
-}
-
-impl Trace for PhiIncoming {
-    fn trace(&self) {
-        self.block.trace();
-        self.value.trace();
-    }
+    pub block: Pooled<BasicBlock>,
 }
 
 #[repr(C)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct CpuCustomOp {
     pub data: *mut u8,
     /// func(data, args); func should modify args in place
     pub func: extern "C" fn(*mut u8, *mut u8),
     pub destructor: extern "C" fn(*mut u8),
-    pub arg_type: Gc<Type>,
+    pub arg_type: CArc<Type>,
 }
 
 impl Serialize for CpuCustomOp {
@@ -911,14 +755,7 @@ impl Debug for CpuCustomOp {
 #[derive(Clone, Debug, Serialize)]
 pub struct SwitchCase {
     pub value: i32,
-    pub block: Gc<BasicBlock>,
-}
-
-impl Trace for SwitchCase {
-    fn trace(&self) {
-        self.value.trace();
-        self.block.trace();
-    }
+    pub block: Pooled<BasicBlock>,
 }
 
 #[repr(C)]
@@ -940,7 +777,7 @@ pub enum Instruction {
     Argument {
         by_value: bool,
     },
-    UserData(CRc<UserData>),
+    UserData(CArc<UserData>),
     Invalid,
     Const(Const),
 
@@ -964,7 +801,7 @@ pub enum Instruction {
     */
     Return(NodeRef),
     Loop {
-        body: Gc<BasicBlock>,
+        body: Pooled<BasicBlock>,
         cond: NodeRef,
     },
     /* represent a loop in the form of
@@ -984,29 +821,29 @@ pub enum Instruction {
     }
     */
     GenericLoop {
-        prepare: Gc<BasicBlock>,
+        prepare: Pooled<BasicBlock>,
         cond: NodeRef,
-        body: Gc<BasicBlock>,
-        update: Gc<BasicBlock>,
+        body: Pooled<BasicBlock>,
+        update: Pooled<BasicBlock>,
     },
     Break,
     Continue,
     If {
         cond: NodeRef,
-        true_branch: Gc<BasicBlock>,
-        false_branch: Gc<BasicBlock>,
+        true_branch: Pooled<BasicBlock>,
+        false_branch: Pooled<BasicBlock>,
     },
     Switch {
         value: NodeRef,
-        default: Gc<BasicBlock>,
+        default: Pooled<BasicBlock>,
         cases: CBoxedSlice<SwitchCase>,
     },
     AdScope {
-        forward: Gc<BasicBlock>,
-        backward: Gc<BasicBlock>,
-        epilogue: Gc<BasicBlock>,
+        forward: Pooled<BasicBlock>,
+        backward: Pooled<BasicBlock>,
+        epilogue: Pooled<BasicBlock>,
     },
-    AdDetach(Gc<BasicBlock>),
+    AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
     Debug(CBoxedSlice<u8>), // for CPU only, would print the message if executed
 }
@@ -1015,28 +852,21 @@ extern "C" fn eq_impl<T: UserNodeData>(a: *const u8, b: *const u8) -> bool {
     let b = unsafe { &*(b as *const T) };
     a.equal(b)
 }
-extern "C" fn dtor_impl<T: UserNodeData>(a: *mut UserData) {
-    unsafe {
-        let data = Box::from_raw((*a).data as *mut T);
-        drop(data);
-        drop(Box::from_raw(a));
-    };
-}
 fn type_id_u64<T: UserNodeData>() -> u64 {
     unsafe { std::mem::transmute(TypeId::of::<T>()) }
 }
-pub fn new_user_node<T: UserNodeData>(data: T) -> NodeRef {
-    new_node(Node::new(
-        Gc::new(Instruction::UserData(CRc::new_with_dtor(
-            UserData {
+pub fn new_user_node<T: UserNodeData>(pools: &CArc<ModulePools>, data: T) -> NodeRef {
+    new_node(
+        pools,
+        Node::new(
+            CArc::new(Instruction::UserData(CArc::new(UserData {
                 tag: type_id_u64::<T>(),
                 data: Box::into_raw(Box::new(data)) as *mut u8,
                 eq: eq_impl::<T>,
-            },
-            dtor_impl::<T>,
-        ))),
-        Type::userdata(),
-    ))
+            }))),
+            Type::userdata(),
+        ),
+    )
 }
 impl Instruction {
     pub fn is_call(&self) -> bool {
@@ -1063,8 +893,9 @@ impl Instruction {
 }
 pub const INVALID_INST: Instruction = Instruction::Invalid;
 
-pub fn new_node(node: Node) -> NodeRef {
-    with_context(|ctx| ctx.alloc_node(node))
+pub fn new_node(pools: &CArc<ModulePools>, node: Node) -> NodeRef {
+    let ptr = pools.node_pool.alloc(node);
+    NodeRef(ptr.ptr as usize)
 }
 
 pub trait UserNodeData: Any + Debug {
@@ -1098,21 +929,10 @@ pub struct BasicBlock {
     pub(crate) last: NodeRef,
 }
 
-impl Trace for BasicBlock {
-    fn trace(&self) {
-        let mut cur = self.first;
-        while cur != INVALID_REF {
-            let node = cur.get();
-            node.trace();
-            cur = node.next;
-        }
-    }
-}
-
 #[derive(Serialize)]
-struct NodeRefAndNode {
+struct NodeRefAndNode<'a> {
     id: NodeRef,
-    data: Node,
+    data: &'a Node,
 }
 
 impl Serialize for BasicBlock {
@@ -1123,7 +943,7 @@ impl Serialize for BasicBlock {
             .iter()
             .map(|n| NodeRefAndNode {
                 id: *n,
-                data: *n.get(),
+                data: n.get(),
             })
             .collect::<Vec<_>>();
         state.serialize_field("nodes", &nodes)?;
@@ -1180,9 +1000,15 @@ impl BasicBlock {
         }
         vec
     }
-    pub fn new() -> Self {
-        let first = new_node(Node::new(Gc::new(Instruction::Invalid), Type::void()));
-        let last = new_node(Node::new(Gc::new(Instruction::Invalid), Type::void()));
+    pub fn new(pools: &CArc<ModulePools>) -> Self {
+        let first = new_node(
+            pools,
+            Node::new(CArc::new(Instruction::Invalid), Type::void()),
+        );
+        let last = new_node(
+            pools,
+            Node::new(CArc::new(Instruction::Invalid), Type::void()),
+        );
         first.update(|node| node.next = last);
         last.update(|node| node.prev = first);
         Self { first, last }
@@ -1204,7 +1030,7 @@ impl BasicBlock {
         }
         len
     }
-    pub fn merge(&self, other: Gc<BasicBlock>) {
+    pub fn merge(&self, other: Pooled<BasicBlock>) {
         let nodes = other.into_vec();
         for node in nodes {
             self.push(node);
@@ -1243,34 +1069,25 @@ impl NodeRef {
             _ => false,
         }
     }
-    pub fn get_gc_node(&self) -> Gc<Node> {
-        assert!(self.valid());
-        unsafe { std::mem::transmute(self.0) }
-    }
     pub fn get<'a>(&'a self) -> &'a Node {
-        // assert!(self.valid());
-        // with_node_pool(|pool| unsafe { std::mem::transmute(pool[self.0]) })
-        let gc = self.get_gc_node();
-        unsafe { std::mem::transmute(gc.as_ref()) }
+        assert!(self.valid());
+        unsafe { &*(self.0 as *const Node) }
+    }
+    pub fn get_mut(&self) -> &mut Node {
+        assert!(self.valid());
+        unsafe { &mut *(self.0 as *mut Node) }
     }
     pub fn valid(&self) -> bool {
         self.0 != INVALID_REF.0
     }
     pub fn set(&self, node: Node) {
-        let gc = self.get_gc_node();
-        unsafe {
-            *Gc::get_mut(&gc) = node;
-        }
+        *self.get_mut() = node;
     }
     pub fn update<T>(&self, f: impl FnOnce(&mut Node) -> T) -> T {
-        let gc = self.get_gc_node();
-        unsafe {
-            let node = Gc::get_mut(&gc);
-            f(node)
-        }
+        f(self.get_mut())
     }
-    pub fn type_(&self) -> Gc<Type> {
-        self.get().type_
+    pub fn type_(&self) -> &CArc<Type> {
+        &self.get().type_
     }
     pub fn is_linked(&self) -> bool {
         assert!(self.valid());
@@ -1330,13 +1147,9 @@ pub enum ModuleKind {
 #[derive(Debug, Serialize)]
 pub struct Module {
     pub kind: ModuleKind,
-    pub entry: Gc<BasicBlock>,
-}
-
-impl Trace for Module {
-    fn trace(&self) {
-        self.entry.trace();
-    }
+    pub entry: Pooled<BasicBlock>,
+    #[serde(skip)]
+    pub pools: CArc<ModulePools>,
 }
 
 #[repr(C)]
@@ -1346,13 +1159,21 @@ pub struct CallableModule {
     pub args: CBoxedSlice<NodeRef>,
 }
 
-impl Trace for CallableModule {
-    fn trace(&self) {
-        self.module.trace();
-        self.args.trace();
+#[repr(C)]
+#[derive(Debug, Serialize, Clone)]
+pub struct CallableModuleRef(pub CArc<CallableModule>);
+
+impl PartialEq for CallableModuleRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_ptr() == other.0.as_ptr()
     }
 }
-
+impl Eq for CallableModuleRef {}
+impl Hash for CallableModuleRef {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_ptr().hash(state);
+    }
+}
 // buffer binding
 #[repr(C)]
 #[derive(Debug, Serialize, Copy, Clone)]
@@ -1393,21 +1214,23 @@ pub enum Binding {
     Accel(AccelBinding),
 }
 
-impl Trace for Binding {
-    fn trace(&self) {}
-}
-
 #[derive(Debug, Serialize, Copy, Clone)]
 #[repr(C)]
 pub struct Capture {
     pub node: NodeRef,
     pub binding: Binding,
 }
-
-impl Trace for Capture {
-    fn trace(&self) {
-        self.node.trace();
-        self.binding.trace();
+#[derive(Debug)]
+pub struct ModulePools {
+    pub node_pool: Pool<Node>,
+    pub bb_pool: Pool<BasicBlock>,
+}
+impl ModulePools {
+    pub fn new() -> Self {
+        Self {
+            node_pool: Pool::new(),
+            bb_pool: Pool::new(),
+        }
     }
 }
 
@@ -1418,25 +1241,18 @@ pub struct KernelModule {
     pub captures: CBoxedSlice<Capture>,
     pub args: CBoxedSlice<NodeRef>,
     pub shared: CBoxedSlice<NodeRef>,
-    pub cpu_custom_ops: CBoxedSlice<CRc<CpuCustomOp>>,
+    pub cpu_custom_ops: CBoxedSlice<CArc<CpuCustomOp>>,
     pub block_size: [u32; 3],
+    #[serde(skip)]
+    pub pools: CArc<ModulePools>,
 }
 unsafe impl Send for KernelModule {}
-
-impl Trace for KernelModule {
-    fn trace(&self) {
-        self.module.trace();
-        self.captures.trace();
-        self.args.trace();
-        self.shared.trace();
-    }
-}
-
 impl Module {
-    pub fn from_fragment(entry: Gc<BasicBlock>) -> Self {
+    pub fn from_fragment(entry: Pooled<BasicBlock>, pools: CArc<ModulePools>) -> Self {
         Self {
             kind: ModuleKind::Block,
             entry,
+            pools,
         }
     }
 }
@@ -1451,7 +1267,7 @@ impl NodeCollector {
             unique: HashSet::new(),
         }
     }
-    fn visit_block(&mut self, block: Gc<BasicBlock>) {
+    fn visit_block(&mut self, block: Pooled<BasicBlock>) {
         for node in block.iter() {
             self.visit_node(node);
         }
@@ -1515,87 +1331,99 @@ impl Module {
         collector.nodes
     }
 }
-struct ModuleCloner {
-    node_map: HashMap<NodeRef, NodeRef>,
-}
+// struct ModuleCloner {
+//     node_map: HashMap<NodeRef, NodeRef>,
+// }
 
-impl ModuleCloner {
-    fn new() -> Self {
-        Self {
-            node_map: HashMap::new(),
-        }
-    }
-    fn clone_node(&mut self, node: NodeRef, builder: &mut IrBuilder) -> NodeRef {
-        if let Some(&node) = self.node_map.get(&node) {
-            return node;
-        }
-        let new_node = match node.get().instruction.as_ref() {
-            Instruction::Buffer => node,
-            Instruction::Bindless => node,
-            Instruction::Texture2D => node,
-            Instruction::Texture3D => node,
-            Instruction::Accel => node,
-            Instruction::Shared => node,
-            Instruction::Uniform => node,
-            Instruction::Local { .. } => todo!(),
-            Instruction::Argument { .. } => todo!(),
-            Instruction::UserData(_) => node,
-            Instruction::Invalid => node,
-            Instruction::Const(_) => todo!(),
-            Instruction::Update { var, value } => todo!(),
-            Instruction::Call(_, _) => todo!(),
-            Instruction::Phi(_) => todo!(),
-            Instruction::Loop { body, cond } => todo!(),
-            Instruction::GenericLoop { .. } => todo!(),
-            Instruction::Break => builder.break_(),
-            Instruction::Continue => builder.continue_(),
-            Instruction::Return(_) => todo!(),
-            Instruction::If { .. } => todo!(),
-            Instruction::Switch { .. } => todo!(),
-            Instruction::AdScope { .. } => todo!(),
-            Instruction::AdDetach(_) => todo!(),
-            Instruction::Comment(_) => builder.clone_node(node),
-            crate::ir::Instruction::Debug { .. } => builder.clone_node(node),
-        };
-        self.node_map.insert(node, new_node);
-        new_node
-    }
-    fn clone_block(&mut self, block: Gc<BasicBlock>, mut builder: IrBuilder) -> Gc<BasicBlock> {
-        let mut cur = block.first.get().next;
-        while cur != block.last {
-            let _ = self.clone_node(cur, &mut builder);
-            cur = cur.get().next;
-        }
-        builder.finish()
-    }
-    fn clone_module(&mut self, module: &Module) -> Module {
-        Module {
-            kind: module.kind,
-            entry: self.clone_block(module.entry, IrBuilder::new()),
-        }
-    }
-}
+// impl ModuleCloner {
+//     fn new() -> Self {
+//         Self {
+//             node_map: HashMap::new(),
+//         }
+//     }
+//     fn clone_node(&mut self, node: NodeRef, builder: &mut IrBuilder) -> NodeRef {
+//         if let Some(&node) = self.node_map.get(&node) {
+//             return node;
+//         }
+//         let new_node = match node.get().instruction.as_ref() {
+//             Instruction::Buffer => node,
+//             Instruction::Bindless => node,
+//             Instruction::Texture2D => node,
+//             Instruction::Texture3D => node,
+//             Instruction::Accel => node,
+//             Instruction::Shared => node,
+//             Instruction::Uniform => node,
+//             Instruction::Local { .. } => todo!(),
+//             Instruction::Argument { .. } => todo!(),
+//             Instruction::UserData(_) => node,
+//             Instruction::Invalid => node,
+//             Instruction::Const(_) => todo!(),
+//             Instruction::Update { var, value } => todo!(),
+//             Instruction::Call(_, _) => todo!(),
+//             Instruction::Phi(_) => todo!(),
+//             Instruction::Loop { body, cond } => todo!(),
+//             Instruction::GenericLoop { .. } => todo!(),
+//             Instruction::Break => builder.break_(),
+//             Instruction::Continue => builder.continue_(),
+//             Instruction::Return(_) => todo!(),
+//             Instruction::If { .. } => todo!(),
+//             Instruction::Switch { .. } => todo!(),
+//             Instruction::AdScope { .. } => todo!(),
+//             Instruction::AdDetach(_) => todo!(),
+//             Instruction::Comment(_) => builder.clone_node(node),
+//             crate::ir::Instruction::Debug { .. } => builder.clone_node(node),
+//         };
+//         self.node_map.insert(node, new_node);
+//         new_node
+//     }
+//     fn clone_block(
+//         &mut self,
+//         block: Pooled<BasicBlock>,
+//         mut builder: IrBuilder,
+//     ) -> Pooled<BasicBlock> {
+//         let mut cur = block.first.get().next;
+//         while cur != block.last {
+//             let _ = self.clone_node(cur, &mut builder);
+//             cur = cur.get().next;
+//         }
+//         builder.finish()
+//     }
+//     fn clone_module(&mut self, module: &Module) -> Module {
+//         Module {
+//             kind: module.kind,
+//             entry: self.clone_block(module.entry, IrBuilder::new()),
+//         }
+//     }
+// }
 
-impl Clone for Module {
-    fn clone(&self) -> Self {
-        Self {
-            kind: self.kind,
-            entry: self.entry,
-        }
-    }
-}
+// impl Clone for Module {
+//     fn clone(&self) -> Self {
+//         Self {
+//             kind: self.kind,
+//             entry: self.entry,
+//         }
+//     }
+// }
 
 #[repr(C)]
 pub struct IrBuilder {
-    bb: Gc<BasicBlock>,
+    bb: Pooled<BasicBlock>,
+    pub(crate) pools: CArc<ModulePools>,
     pub(crate) insert_point: NodeRef,
 }
 
 impl IrBuilder {
-    pub fn new() -> Self {
-        let bb = Gc::new(BasicBlock::new());
+    pub fn pools(&self) -> &CArc<ModulePools> {
+        &self.pools
+    }
+    pub fn new(pools: CArc<ModulePools>) -> Self {
+        let bb = pools.bb_pool.alloc(BasicBlock::new(&pools));
         let insert_point = bb.first;
-        Self { bb, insert_point }
+        Self {
+            bb,
+            insert_point,
+            pools,
+        }
     }
     pub fn set_insert_point(&mut self, node: NodeRef) {
         self.insert_point = node;
@@ -1604,77 +1432,89 @@ impl IrBuilder {
         self.insert_point.insert_after(node);
         self.insert_point = node;
     }
-    pub fn append_block(&mut self, block: Gc<BasicBlock>) {
+    pub fn append_block(&mut self, block: Pooled<BasicBlock>) {
         self.bb.merge(block);
         self.insert_point = self.bb.last.get().prev;
     }
     pub fn break_(&mut self) -> NodeRef {
-        let new_node = new_node(Node::new(Gc::new(Instruction::Break), Type::void()));
+        let new_node = new_node(
+            &self.pools,
+            Node::new(CArc::new(Instruction::Break), Type::void()),
+        );
         self.append(new_node);
         new_node
     }
     pub fn continue_(&mut self) -> NodeRef {
-        let new_node = new_node(Node::new(Gc::new(Instruction::Continue), Type::void()));
+        let new_node = new_node(
+            &self.pools,
+            Node::new(CArc::new(Instruction::Continue), Type::void()),
+        );
         self.append(new_node);
         new_node
     }
     pub fn return_(&mut self, node: NodeRef) {
-        let new_node = new_node(Node::new(Gc::new(Instruction::Return(node)), Type::void()));
+        let new_node = new_node(
+            &self.pools,
+            Node::new(CArc::new(Instruction::Return(node)), Type::void()),
+        );
         self.append(new_node);
     }
-    pub fn zero_initializer(&mut self, ty: Gc<Type>) -> NodeRef {
+    pub fn zero_initializer(&mut self, ty: CArc<Type>) -> NodeRef {
         self.call(Func::ZeroInitializer, &[], ty)
     }
     pub fn requires_gradient(&mut self, node: NodeRef) -> NodeRef {
         self.call(Func::RequiresGradient, &[node], Type::void())
     }
     pub fn gradient(&mut self, node: NodeRef) -> NodeRef {
-        self.call(Func::Gradient, &[node], node.type_())
+        self.call(Func::Gradient, &[node], node.type_().clone())
     }
     pub fn clone_node(&mut self, node: NodeRef) -> NodeRef {
         let node = node.get();
-        let new_node = new_node(Node::new(node.instruction, node.type_));
+        let new_node = new_node(
+            &self.pools,
+            Node::new(node.instruction.clone(), node.type_.clone()),
+        );
         self.append(new_node);
         new_node
     }
     pub fn const_(&mut self, const_: Const) -> NodeRef {
         let t = const_.type_();
-        let node = Node::new(Gc::new(Instruction::Const(const_)), t);
-        let node = new_node(node);
+        let node = Node::new(CArc::new(Instruction::Const(const_)), t);
+        let node = new_node(&self.pools, node);
         self.append(node.clone());
         node
     }
-    pub fn local_zero_init(&mut self, ty: Gc<Type>) -> NodeRef {
+    pub fn local_zero_init(&mut self, ty: CArc<Type>) -> NodeRef {
         let node = self.zero_initializer(ty);
         let local = self.local(node);
         local
     }
     pub fn local(&mut self, init: NodeRef) -> NodeRef {
         let t = init.type_();
-        let node = Node::new(Gc::new(Instruction::Local { init }), t);
-        let node = new_node(node);
+        let node = Node::new(CArc::new(Instruction::Local { init }), t.clone());
+        let node = new_node(&self.pools, node);
         self.append(node.clone());
         node
     }
     pub fn store(&mut self, var: NodeRef, value: NodeRef) {
         assert!(var.is_lvalue());
-        let node = Node::new(Gc::new(Instruction::Update { var, value }), Type::void());
-        let node = new_node(node);
+        let node = Node::new(CArc::new(Instruction::Update { var, value }), Type::void());
+        let node = new_node(&self.pools, node);
         self.append(node);
     }
-    pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: Gc<Type>) -> NodeRef {
+    pub fn call(&mut self, func: Func, args: &[NodeRef], ret_type: CArc<Type>) -> NodeRef {
         let node = Node::new(
-            Gc::new(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
+            CArc::new(Instruction::Call(func, CBoxedSlice::new(args.to_vec()))),
             ret_type,
         );
-        let node = new_node(node);
+        let node = new_node(&self.pools, node);
         self.append(node.clone());
         node
     }
-    pub fn cast(&mut self, node: NodeRef, t: Gc<Type>) -> NodeRef {
+    pub fn cast(&mut self, node: NodeRef, t: CArc<Type>) -> NodeRef {
         self.call(Func::Cast, &[node], t)
     }
-    pub fn bitcast(&mut self, node: NodeRef, t: Gc<Type>) -> NodeRef {
+    pub fn bitcast(&mut self, node: NodeRef, t: CArc<Type>) -> NodeRef {
         self.call(Func::Bitcast, &[node], t)
     }
     pub fn update(&mut self, var: NodeRef, value: NodeRef) {
@@ -1686,11 +1526,11 @@ impl IrBuilder {
             },
             _ => panic!("not a var"),
         }
-        let node = Node::new(Gc::new(Instruction::Update { var, value }), Type::void());
-        let node = new_node(node);
+        let node = Node::new(CArc::new(Instruction::Update { var, value }), Type::void());
+        let node = new_node(&self.pools, node);
         self.append(node);
     }
-    pub fn phi(&mut self, incoming: &[PhiIncoming], t: Gc<Type>) -> NodeRef {
+    pub fn phi(&mut self, incoming: &[PhiIncoming], t: CArc<Type>) -> NodeRef {
         if t == Type::userdata() {
             let userdata0 = incoming[0].value.get_user_data();
             for i in 1..incoming.len() {
@@ -1708,58 +1548,58 @@ impl IrBuilder {
             return incoming[0].value;
         }
         let node = Node::new(
-            Gc::new(Instruction::Phi(CBoxedSlice::new(incoming.to_vec()))),
+            CArc::new(Instruction::Phi(CBoxedSlice::new(incoming.to_vec()))),
             t,
         );
-        let node = new_node(node);
+        let node = new_node(&self.pools, node);
         self.append(node.clone());
         node
     }
-    pub fn switch(&mut self, value: NodeRef, cases: &[SwitchCase], default: Gc<BasicBlock>) {
+    pub fn switch(&mut self, value: NodeRef, cases: &[SwitchCase], default: Pooled<BasicBlock>) {
         let node = Node::new(
-            Gc::new(Instruction::Switch {
+            CArc::new(Instruction::Switch {
                 value,
                 default,
                 cases: CBoxedSlice::new(cases.to_vec()),
             }),
             Type::void(),
         );
-        let node = new_node(node);
+        let node = new_node(&self.pools, node);
         self.append(node);
     }
     pub fn if_(
         &mut self,
         cond: NodeRef,
-        true_branch: Gc<BasicBlock>,
-        false_branch: Gc<BasicBlock>,
+        true_branch: Pooled<BasicBlock>,
+        false_branch: Pooled<BasicBlock>,
     ) -> NodeRef {
         let node = Node::new(
-            Gc::new(Instruction::If {
+            CArc::new(Instruction::If {
                 cond,
                 true_branch,
                 false_branch,
             }),
             Type::void(),
         );
-        let node = new_node(node);
+        let node = new_node(&self.pools, node);
         self.append(node);
         node
     }
-    pub fn loop_(&mut self, body: Gc<BasicBlock>, cond: NodeRef) -> NodeRef {
-        let node = Node::new(Gc::new(Instruction::Loop { body, cond }), Type::void());
-        let node = new_node(node);
+    pub fn loop_(&mut self, body: Pooled<BasicBlock>, cond: NodeRef) -> NodeRef {
+        let node = Node::new(CArc::new(Instruction::Loop { body, cond }), Type::void());
+        let node = new_node(&self.pools, node);
         self.append(node);
         node
     }
     pub fn generic_loop(
         &mut self,
-        prepare: Gc<BasicBlock>,
+        prepare: Pooled<BasicBlock>,
         cond: NodeRef,
-        body: Gc<BasicBlock>,
-        update: Gc<BasicBlock>,
+        body: Pooled<BasicBlock>,
+        update: Pooled<BasicBlock>,
     ) -> NodeRef {
         let node = Node::new(
-            Gc::new(Instruction::GenericLoop {
+            CArc::new(Instruction::GenericLoop {
                 prepare,
                 cond,
                 body,
@@ -1767,32 +1607,23 @@ impl IrBuilder {
             }),
             Type::void(),
         );
-        let node = new_node(node);
+        let node = new_node(&self.pools, node);
         self.append(node);
         node
     }
-    pub fn finish(self) -> Gc<BasicBlock> {
+    pub fn finish(self) -> Pooled<BasicBlock> {
         self.bb
     }
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_node(node: Node) -> NodeRef {
-    new_node(node)
+pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node) -> NodeRef {
+    new_node(&pools, node)
 }
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_node_get(node_ref: NodeRef) -> *const Node {
     node_ref.get()
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_node_set_root(node_ref: NodeRef, flag: bool) {
-    if flag {
-        Gc::set_root(node_ref.get_gc_node());
-    } else {
-        Gc::unset_root(node_ref.get_gc_node());
-    }
 }
 
 #[no_mangle]
@@ -1805,7 +1636,7 @@ pub extern "C" fn luisa_compute_ir_build_call(
     builder: &mut IrBuilder,
     func: Func,
     args: CSlice<NodeRef>,
-    ret_type: Gc<Type>,
+    ret_type: CArc<Type>,
 ) -> NodeRef {
     let args = args.as_ref();
     builder.call(func, args, ret_type)
@@ -1833,72 +1664,49 @@ pub extern "C" fn luisa_compute_ir_build_local(builder: &mut IrBuilder, init: No
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder: &mut IrBuilder,
-    ty: Gc<Type>,
+    ty: CArc<Type>,
 ) -> NodeRef {
     builder.local_zero_init(ty)
 }
-
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_builder() -> IrBuilder {
-    IrBuilder::new()
+pub extern "C" fn luisa_compute_ir_new_module_pools() -> CArc<ModulePools> {
+    CArc::new(ModulePools::new())
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_new_builder(
+    pools: CArc<ModulePools>,
+) -> IrBuilder {
+    unsafe { IrBuilder::new(pools.clone()) }
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Gc<BasicBlock> {
+pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Pooled<BasicBlock> {
     builder.finish()
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_gc_create_context() -> *mut gc::GcContext {
-    gc::create_context()
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_gc_set_context(ctx: *mut gc::GcContext) {
-    assert_ne!(ctx, std::ptr::null_mut());
-    if ctx == gc::context() {
-        return;
-    }
-    gc::set_context(ctx)
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_gc_context() -> *mut gc::GcContext {
-    gc::context()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn luisa_compute_gc_destroy_context() {
-    gc::destroy_context()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn luisa_compute_gc_collect() {
-    gc::collect()
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_gc_append_object(object: *mut GcHeader) {
-    gc::gc_append_object(object)
-}
-
-#[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_instruction(inst: Instruction) -> Gc<Instruction> {
-    Gc::new(inst)
+pub extern "C" fn luisa_compute_ir_new_instruction(
+    inst: Instruction,
+) -> CArc<Instruction> {
+    CArc::new(inst)
 }
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_callable_module(
     m: CallableModule,
-) -> *mut GcObject<CallableModule> {
-    Gc::into_raw(Gc::new(m))
+) -> CallableModuleRef{
+    CallableModuleRef(CArc::new(m))
 }
 
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_kernel_module(
     m: KernelModule,
-) -> *mut GcObject<KernelModule> {
-    Gc::into_raw(Gc::new(m))
+) -> CArc<KernelModule> {
+    CArc::new(m)
+}
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_register_type(ty:&Type)->CArc<Type>{
+    context::register_type(ty.clone())
 }
 pub mod debug {
     use crate::display::DisplayIR;

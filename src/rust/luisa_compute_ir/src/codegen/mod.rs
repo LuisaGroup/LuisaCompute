@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use sha2::{Digest, Sha256};
 use std::ffi::{c_char, CString};
 
-use crate::{ir, CBoxedSlice};
+use crate::{ir};
 
 pub mod generic_cpp;
 

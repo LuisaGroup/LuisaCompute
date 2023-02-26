@@ -43,7 +43,6 @@ private:
     BufferAllocator<UploadBuffer> uploadAllocator;
     BufferAllocator<DefaultBuffer> defaultAllocator;
     BufferAllocator<ReadbackBuffer> readbackAllocator;
-
     vstd::unique_ptr<DefaultBuffer> scratchBuffer;
     //TODO: allocate commandbuffer
     CommandAllocator(Device *device, GpuAllocator *resourceAllocator, D3D12_COMMAND_LIST_TYPE type);

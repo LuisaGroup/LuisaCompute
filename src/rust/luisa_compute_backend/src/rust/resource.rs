@@ -1,19 +1,20 @@
 use std::alloc::Layout;
 
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{ir::Type, Gc};
+use luisa_compute_ir::{ir::Type, CArc};
 
 #[repr(C)]
 pub struct BufferImpl {
     pub data: *mut u8,
     pub size: usize,
     pub align: usize,
-    pub ty: Option<Gc<Type>>,
+    pub ty: Option<CArc<Type>>,
 }
 #[repr(C)]
 pub struct BindlessArrayImpl {
     pub buffers: Vec<defs::BufferView>,
-    pub textures: Vec<defs::Texture>,
+    pub tex2ds: Vec<defs::Texture>,
+    pub tex3ds: Vec<defs::Texture>,
 }
 
 impl BufferImpl {
