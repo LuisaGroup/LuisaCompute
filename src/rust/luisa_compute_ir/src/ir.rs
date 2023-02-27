@@ -13,6 +13,8 @@ use std::ops::Deref;
 #[derive(Serialize)]
 pub enum Primitive {
     Bool,
+    Int16,
+    Uint16,
     Int32,
     Uint32,
     Int64,
@@ -28,6 +30,8 @@ impl std::fmt::Display for Primitive {
             "{}",
             match self {
                 Self::Bool => "bool",
+                Self::Int16 => "i16",
+                Self::Uint16 => "u16",
                 Self::Int32 => "i32",
                 Self::Uint32 => "u32",
                 Self::Int64 => "i64",
@@ -189,6 +193,8 @@ impl Primitive {
     pub fn size(&self) -> usize {
         match self {
             Primitive::Bool => 1,
+            Primitive::Int16=> 2,
+            Primitive::Uint16 => 2,
             Primitive::Int32 => 4,
             Primitive::Uint32 => 4,
             Primitive::Int64 => 8,
@@ -574,9 +580,13 @@ pub enum Func {
     /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
     /// (texture, coord) -> value
-    TextureRead,
+    Texture2dRead,
     /// (texture, coord, value) -> void
-    TextureWrite,
+    Texture2dWrite,
+    /// (texture, coord) -> value
+    Texture3dRead,
+    /// (texture, coord, value) -> void
+    Texture3dWrite,
     ///(bindless_array, index: uint, uv: float2) -> float4
     BindlessTexture2dSample,
     ///(bindless_array, index: uint, uv: float2, level: float) -> float4

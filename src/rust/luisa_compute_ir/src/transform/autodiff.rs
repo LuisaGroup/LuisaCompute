@@ -70,6 +70,8 @@ fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
         Type::Void | Type::UserData => None,
         Type::Primitive(p) => match p {
             crate::ir::Primitive::Bool => None,
+            crate::ir::Primitive::Int16 => None,
+            crate::ir::Primitive::Uint16 => None,
             crate::ir::Primitive::Int32 => None,
             crate::ir::Primitive::Uint32 => None,
             crate::ir::Primitive::Int64 => None,

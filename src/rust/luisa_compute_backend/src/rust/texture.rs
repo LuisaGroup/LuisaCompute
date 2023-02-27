@@ -1,14 +1,16 @@
 use luisa_compute_api_types::PixelStorage;
+use parking_lot::RwLock;
 
 const BLOCK_SIZE: usize = 4;
 pub struct TextureImpl {
     pub(crate) data: *mut u8,
-    size: [u32; 3],
-    dimension: u8,
-    pixel_stride_shift: usize,
+    pub(crate) size: [u32; 3],
+    pub(crate) dimension: u8,
+    pub(crate) pixel_stride_shift: usize,
     mip_levels: u8,
     mip_offsets: [usize; 16],
-    storage: PixelStorage,
+    pub(crate) locks: Vec<RwLock<()>>,
+    pub(crate) storage: PixelStorage,
     layout: std::alloc::Layout,
 }
 unsafe impl Send for TextureImpl {}
@@ -31,9 +33,9 @@ impl TextureImpl {
         let mut mip_offsets = [0; 16];
         for level in 0..levels {
             let blocks = [
-                ((size[0] as usize >> level) + BLOCK_SIZE - 1) / BLOCK_SIZE,
-                ((size[1] as usize >> level) + BLOCK_SIZE - 1) / BLOCK_SIZE,
-                ((size[2] as usize >> level) + BLOCK_SIZE - 1) / BLOCK_SIZE,
+                (((size[0] as usize >> level).max(1)) + BLOCK_SIZE - 1) / BLOCK_SIZE,
+                (((size[1] as usize >> level).max(1)) + BLOCK_SIZE - 1) / BLOCK_SIZE,
+                (((size[2] as usize >> level).max(1)) + BLOCK_SIZE - 1) / BLOCK_SIZE,
             ];
             data_size += if dimension == 2 {
                 blocks[0] * blocks[1] * blocks[2] * BLOCK_SIZE * BLOCK_SIZE * pixel_size
@@ -59,14 +61,15 @@ impl TextureImpl {
             mip_offsets,
             storage,
             layout,
+            locks: (0..levels).map(|_| RwLock::new(())).collect(),
         }
     }
     pub(crate) fn view(&self, level: u8) -> TextureView {
         let offset = self.mip_offsets[level as usize];
         let size = [
-            self.size[0] >> level,
-            self.size[1] >> level,
-            self.size[2] >> level,
+            (self.size[0] >> level).max(1),
+            (self.size[1] >> level).max(1),
+            (self.size[2] >> level).max(1),
         ];
         unsafe {
             TextureView {
@@ -95,12 +98,18 @@ impl TextureImpl {
     }
 }
 pub(crate) struct TextureView {
-    data: *mut u8,
-    size: [u32; 3],
-    pixel_stride_shift: usize,
+    pub(crate) data: *mut u8,
+    pub(crate) size: [u32; 3],
+    pub(crate) pixel_stride_shift: usize,
 }
 
 impl TextureView {
+    pub(crate) fn data_size(&self) -> usize {
+        self.size[0] as usize
+            * self.size[1] as usize
+            * self.size[2] as usize
+            * (1 << self.pixel_stride_shift)
+    }
     #[inline]
     pub(crate) fn get_pixel_2d(&self, x: u32, y: u32) -> *mut u8 {
         let block_x = x / BLOCK_SIZE as u32;

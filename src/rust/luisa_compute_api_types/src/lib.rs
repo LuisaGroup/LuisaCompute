@@ -192,19 +192,17 @@ impl PixelFormat {
             | PixelFormat::Rgba8Sint
             | PixelFormat::Rgba8Uint
             | PixelFormat::Rgba8Unorm => PixelStorage::Byte4,
-            PixelFormat::R16Sint |
-            PixelFormat::R16Uint |
-            PixelFormat::R16Unorm => PixelStorage::Short1,
-            PixelFormat::Rg16Sint |
-            PixelFormat::Rg16Uint |
-            PixelFormat::Rg16Unorm => PixelStorage::Short2,
-            PixelFormat::Rgba16Sint |
-            PixelFormat::Rgba16Uint |
-            PixelFormat::Rgba16Unorm => PixelStorage::Short4,
-            PixelFormat::R32Sint |
-            PixelFormat::R32Uint => PixelStorage::Int1,
-            PixelFormat::Rg32Sint |
-            PixelFormat::Rg32Uint => PixelStorage::Int2,
+            PixelFormat::R16Sint | PixelFormat::R16Uint | PixelFormat::R16Unorm => {
+                PixelStorage::Short1
+            }
+            PixelFormat::Rg16Sint | PixelFormat::Rg16Uint | PixelFormat::Rg16Unorm => {
+                PixelStorage::Short2
+            }
+            PixelFormat::Rgba16Sint | PixelFormat::Rgba16Uint | PixelFormat::Rgba16Unorm => {
+                PixelStorage::Short4
+            }
+            PixelFormat::R32Sint | PixelFormat::R32Uint => PixelStorage::Int1,
+            PixelFormat::Rg32Sint | PixelFormat::Rg32Uint => PixelStorage::Int2,
             PixelFormat::R16f => PixelStorage::Half1,
             PixelFormat::Rg32f => PixelStorage::Float2,
             PixelFormat::Rgba32f => PixelStorage::Float4,
@@ -373,6 +371,16 @@ pub struct TextureDownloadCommand {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct TextureCopyCommand {
+    pub storage: PixelStorage,
+    pub src: Texture,
+    pub dst: Texture,
+    pub size: [u32; 3],
+    pub src_level: u32,
+    pub dst_level: u32,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ShaderDispatchCommand {
     pub shader: Shader,
     pub dispatch_size: [u32; 3],
@@ -416,6 +424,7 @@ pub enum Command {
     TextureToBufferCopy(TextureToBufferCopyCommand),
     TextureUpload(TextureUploadCommand),
     TextureDownload(TextureDownloadCommand),
+    TextureCopy(TextureCopyCommand),
     ShaderDispatch(ShaderDispatchCommand),
     MeshBuild(MeshBuildCommand),
     AccelBuild(AccelBuildCommand),

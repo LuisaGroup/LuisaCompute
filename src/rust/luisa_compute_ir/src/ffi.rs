@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Index;
-use std::sync::atomic::{AtomicI64};
+use std::sync::atomic::AtomicUsize;
 
 use serde::Serialize;
 
@@ -91,22 +91,20 @@ impl<'a, T: Debug> std::fmt::Debug for CSliceMut<'a, T> {
 #[repr(C)]
 pub struct CArcSharedBlock<T> {
     ptr: *mut T,
-    ref_count: AtomicI64,
+    ref_count: AtomicUsize,
     destructor: extern "C" fn(*mut CArcSharedBlock<T>),
 }
 impl<T> CArcSharedBlock<T> {
     pub fn retain(&self) {
-        let old = self.ref_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        assert!(old > 0);
+        self.ref_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     pub fn release(&self) {
-        let old = self
+        if self
             .ref_count
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        assert!(old > 0, "old: {}", old);
-        let cur = self.ref_count.load(std::sync::atomic::Ordering::SeqCst);
-        if cur == 0 {
+            .fetch_sub(1, std::sync::atomic::Ordering::Release)
+            == 1
+        {
             (self.destructor)(self as *const _ as *mut _);
         }
     }
@@ -191,7 +189,7 @@ impl<T> CArc<T> {
     pub fn new_with_dtor(value: *mut T, dtor: extern "C" fn(*mut CArcSharedBlock<T>)) -> Self {
         let inner = Box::into_raw(Box::new(CArcSharedBlock {
             ptr: value,
-            ref_count: AtomicI64::new(1),
+            ref_count: AtomicUsize::new(1),
             destructor: dtor,
         }));
         Self { inner }

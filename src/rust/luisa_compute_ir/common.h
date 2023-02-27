@@ -12,12 +12,12 @@ const static inline size_t usize_MAX = (size_t)-1;
 namespace luisa::compute::ir {
 struct VectorType;
 struct Type;
-using AtomicI64 = std::atomic<int64_t>;
+using AtomicUsize = std::atomic<size_t>;
 
 template<typename T>
 struct CArcSharedBlock {
     T* ptr;
-    AtomicI64 ref_count;
+    AtomicUsize ref_count;
     void (*destructor)(CArcSharedBlock<T> *);
 
     void release() {
