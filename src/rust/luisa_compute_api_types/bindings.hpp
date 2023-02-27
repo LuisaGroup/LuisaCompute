@@ -218,6 +218,15 @@ struct TextureDownloadCommand {
     uint8_t *data;
 };
 
+struct TextureCopyCommand {
+    PixelStorage storage;
+    Texture src;
+    Texture dst;
+    uint32_t size[3];
+    uint32_t src_level;
+    uint32_t dst_level;
+};
+
 struct BufferArgument {
     Buffer buffer;
     size_t offset;
@@ -323,6 +332,7 @@ struct Command {
         TEXTURE_TO_BUFFER_COPY,
         TEXTURE_UPLOAD,
         TEXTURE_DOWNLOAD,
+        TEXTURE_COPY,
         SHADER_DISPATCH,
         MESH_BUILD,
         ACCEL_BUILD,
@@ -357,6 +367,10 @@ struct Command {
         TextureDownloadCommand _0;
     };
 
+    struct TextureCopy_Body {
+        TextureCopyCommand _0;
+    };
+
     struct ShaderDispatch_Body {
         ShaderDispatchCommand _0;
     };
@@ -382,6 +396,7 @@ struct Command {
         TextureToBufferCopy_Body TEXTURE_TO_BUFFER_COPY;
         TextureUpload_Body TEXTURE_UPLOAD;
         TextureDownload_Body TEXTURE_DOWNLOAD;
+        TextureCopy_Body TEXTURE_COPY;
         ShaderDispatch_Body SHADER_DISPATCH;
         MeshBuild_Body MESH_BUILD;
         AccelBuild_Body ACCEL_BUILD;

@@ -65,11 +65,11 @@ float16_t float_to_half(float f) noexcept {
     auto ph = _mm_cvtps_ph(ss, 0);
     return static_cast<float16_t>(_mm_cvtsi128_si32(ph));
 #else
-    auto bits = lc_bit_cast<uint>(f);
+    auto bits = lc_bit_cast<lc_uint>(f);
     auto fp32_sign = bits >> 31u;
     auto fp32_exponent = (bits >> 23u) & 0xffu;
     auto fp32_mantissa = bits & ((1u << 23u) - 1u);
-    auto make_fp16 = [](uint sign, uint exponent, uint mantissa) noexcept {
+    auto make_fp16 = [](lc_uint sign, lc_uint exponent, lc_uint mantissa) noexcept {
         return static_cast<float16_t>((sign << 15u) | (exponent << 10u) | mantissa);
     };
     // Signed zero/denormal (which will underflow)
@@ -110,7 +110,7 @@ float half_to_float(float16_t half) noexcept {
 #else
     static_assert(std::endian::native == std::endian::little,
                   "Only little endian is supported");
-    auto h = static_cast<uint>(half);
+    auto h = static_cast<lc_uint>(half);
     union FP32 {
         unsigned int u;
         float f;
@@ -170,16 +170,16 @@ template<typename T>
 }
 
 template<typename T>
-[[nodiscard]] inline uint scalar_to_int(T x) noexcept {
-    return static_cast<uint>(x);
+[[nodiscard]] inline lc_uint scalar_to_int(T x) noexcept {
+    return static_cast<lc_uint>(x);
 }
 
 template<typename T>
-[[nodiscard]] inline T int_to_scalar(uint x) noexcept {
+[[nodiscard]] inline T int_to_scalar(lc_uint x) noexcept {
     return static_cast<T>(x);
 }
 
-template<typename T, uint dim>
+template<typename T, lc_uint dim>
 [[nodiscard]] inline lc_float4 pixel_to_float4(const uint8_t *pixel) noexcept {
     auto value = reinterpret_cast<const T *>(pixel);
     if constexpr (dim == 1u) {
@@ -202,7 +202,7 @@ template<typename T, uint dim>
     }
 }
 
-template<typename T, uint dim>
+template<typename T, lc_uint dim>
 inline void float4_to_pixel(uint8_t *pixel, lc_float4 v) noexcept {
     auto value = reinterpret_cast<T *>(pixel);
     if constexpr (dim == 1u) {
@@ -218,7 +218,7 @@ inline void float4_to_pixel(uint8_t *pixel, lc_float4 v) noexcept {
     }
 }
 
-template<typename T, uint dim>
+template<typename T, lc_uint dim>
 [[nodiscard]] inline lc_uint4 pixel_to_int4(const uint8_t *pixel) noexcept {
     auto value = reinterpret_cast<const T *>(pixel);
     if constexpr (dim == 1u) {
@@ -241,7 +241,7 @@ template<typename T, uint dim>
     }
 }
 
-template<typename T, uint dim>
+template<typename T, lc_uint dim>
 inline void int4_to_pixel(uint8_t *pixel, lc_uint4 v) noexcept {
     auto value = reinterpret_cast<T *>(pixel);
     if constexpr (dim == 1u) {
@@ -257,25 +257,25 @@ inline void int4_to_pixel(uint8_t *pixel, lc_uint4 v) noexcept {
     }
 }
 
-template<class V, typename Dst, typename Src, uint dim>
+template<class V, typename Dst, typename Src, lc_uint dim>
 [[nodiscard]] inline auto read_pixel(const uint8_t *p) noexcept {
     if constexpr (std::is_same_v<Dst, float>) {
         return pixel_to_float4<Src, dim>(p);
     } else {
         static_assert(std::is_same_v<Dst, int> ||
-                      std::is_same_v<Dst, uint>);
+                      std::is_same_v<Dst, lc_uint>);
         return lc_bit_cast<V>(
             pixel_to_int4<Src, dim>(p));
     }
 }
 
-template<typename V, typename Dst, typename Src, uint dim>
+template<typename V, typename Dst, typename Src, lc_uint dim>
 [[nodiscard]] inline auto write_pixel(uint8_t *p, V value) noexcept {
     if constexpr (std::is_same_v<Dst, float>) {
         float4_to_pixel<Src, dim>(p, value);
     } else {
         static_assert(std::is_same_v<Dst, int> ||
-                      std::is_same_v<Dst, uint>);
+                      std::is_same_v<Dst, lc_uint>);
         int4_to_pixel<Src, dim>(
             p, lc_bit_cast<lc_uint4>(value));
     }
@@ -411,18 +411,18 @@ struct TextureView {
 
 #define LUISA_MAKE_TEXTURE_RW(dim, type)                               \
     [[nodiscard]] inline lc_##type##4 texture_read_##dim##d_##type(    \
-        TextureView view, lc_##uint##dim c) noexcept {                 \
+        TextureView view, lc_##lc_uint##dim c) noexcept {                 \
         return view.read##dim##d<type>(c);                             \
     }                                                                  \
     inline void texture_write_##dim##d_##type(                         \
-        TextureView view, lc_##uint##dim c, lc_##type##4 v) noexcept { \
+        TextureView view, lc_##lc_uint##dim c, lc_##type##4 v) noexcept { \
         view.write##dim##d<type>(c, v);                                \
     }
 // LUISA_MAKE_TEXTURE_RW(2, int)
-// LUISA_MAKE_TEXTURE_RW(2, uint)
+// LUISA_MAKE_TEXTURE_RW(2, lc_uint)
 // LUISA_MAKE_TEXTURE_RW(2, float)
 // LUISA_MAKE_TEXTURE_RW(3, int)
-// LUISA_MAKE_TEXTURE_RW(3, uint)
+// LUISA_MAKE_TEXTURE_RW(3, lc_uint)
 // LUISA_MAKE_TEXTURE_RW(3, float)
 #undef LUISA_MAKE_TEXTURE_RW
 
@@ -607,7 +607,7 @@ struct LCSampler {
     if (lod <= 0.0f || tex->mip_levels == 0 || filter == LC_SAMPLER_FILTER_POINT) {
         return lc_texture_2d_sample(tex, sampler, uv);
     }
-    auto level0 = std::min<uint>(static_cast<uint>(lod), tex->mip_levels - 1u);
+    auto level0 = lc_min(static_cast<lc_uint>(lod), tex->mip_levels - 1u);
     auto v0 = texture_sample_linear(lc_texture_view(tex, level0), sampler.address, uv);
     if (level0 == tex->mip_levels - 1u || filter == LC_SAMPLER_FILTER_LINEAR_POINT) { return v0; }
     auto v1 = texture_sample_linear(lc_texture_view(tex, level0 + 1u), sampler.address, uv);
@@ -620,7 +620,7 @@ struct LCSampler {
     if (lod <= 0.0f || tex->mip_levels == 0 || filter == LC_SAMPLER_FILTER_POINT) {
         return lc_texture_3d_sample(tex, sampler, uvw);
     }
-    auto level0 = std::min<uint>(static_cast<uint>(lod), tex->mip_levels - 1u);
+    auto level0 = lc_min(static_cast<lc_uint>(lod), tex->mip_levels - 1u);
     auto v0 = texture_sample_linear(lc_texture_view(tex, level0), sampler.address, uvw);
     if (level0 == tex->mip_levels - 1u || filter == LC_SAMPLER_FILTER_LINEAR_POINT) { return v0; }
     auto v1 = texture_sample_linear(lc_texture_view(tex, level0 + 1u), sampler.address, uvw);
@@ -652,7 +652,7 @@ struct LCSampler {
     }
     auto last_level = static_cast<float>(tex->mip_levels - 1u);
     auto level = lc_clamp(last_level + log2f(shorter), 0.f, last_level);
-    auto level_uint = static_cast<uint>(level);
+    auto level_uint = static_cast<lc_uint>(level);
     auto v0 = texture_sample_ewa(lc_texture_view(tex, level_uint), sampler.address, uv, dpdx, dpdy);
     if (level == 0.0 || level == last_level) { return v0; }
     auto v1 = texture_sample_ewa(lc_texture_view(tex, level_uint + 1u), sampler.address, uv, dpdx, dpdy);
@@ -684,7 +684,7 @@ struct LCSampler {
     }
     auto last_level = static_cast<float>(tex->mip_levels - 1u);
     auto level = lc_clamp(last_level + log2f(shorter), 0.f, last_level);
-    auto level_uint = static_cast<uint>(level);
+    auto level_uint = static_cast<lc_uint>(level);
     auto v0 = texture_sample_ewa(lc_texture_view(tex, level_uint), sampler.address, uvw, dpdx, dpdy);
     if (level == 0.0 || level == last_level) { return v0; }
     auto v1 = texture_sample_ewa(lc_texture_view(tex, level_uint + 1u), sampler.address, uvw, dpdx, dpdy);

@@ -53,8 +53,10 @@ struct Texture {
 struct BindlessArray {
     const BufferView *buffers;
     size_t buffers_count;
-    const Texture *textures;
-    size_t textures_count;
+    const Texture *texture2ds;
+    size_t texture2ds_count;
+    const Texture *texture3ds;
+    size_t texture3ds_count;
 };
 
 struct KernelFnArg {
@@ -79,6 +81,7 @@ struct KernelFnArg {
 
     struct Texture_Body {
         Texture _0;
+        uint8_t _1;
     };
 
     Tag tag;

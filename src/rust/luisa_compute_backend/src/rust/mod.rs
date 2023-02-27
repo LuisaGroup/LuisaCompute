@@ -1,19 +1,20 @@
 // A Rust implementation of LuisaCompute backend.
 
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use self::{
     accel::{AccelImpl, MeshImpl},
     resource::{BindlessArrayImpl, BufferImpl},
     stream::{convert_capture, StreamImpl},
+    texture::TextureImpl,
 };
 use super::Backend;
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{codegen::CodeGen, ir::Type, CArc, context::type_hash};
+use luisa_compute_ir::{codegen::CodeGen, context::type_hash, ir::Type, CArc};
 
-use sha2::{Digest};
+use sha2::Digest;
 mod accel;
 mod resource;
 mod shader;
@@ -101,25 +102,40 @@ impl Backend for RustBackend {
 
     fn create_texture(
         &self,
-        _format: luisa_compute_api_types::PixelFormat,
-        _dimension: u32,
-        _width: u32,
-        _height: u32,
-        _depth: u32,
-        _mipmap_levels: u32,
+        format: luisa_compute_api_types::PixelFormat,
+        dimension: u32,
+        width: u32,
+        height: u32,
+        depth: u32,
+        mipmap_levels: u32,
     ) -> super::Result<luisa_compute_api_types::Texture> {
-        todo!()
+        let storage = format.storage();
+
+        let texture = TextureImpl::new(
+            dimension as u8,
+            [width, height, depth],
+            storage,
+            mipmap_levels as u8,
+        );
+        let ptr = Box::into_raw(Box::new(texture));
+        Ok(luisa_compute_api_types::Texture(ptr as u64))
     }
 
-    fn destroy_texture(&self, _texture: luisa_compute_api_types::Texture) {
-        todo!()
+    fn destroy_texture(&self, texture: luisa_compute_api_types::Texture) {
+        unsafe {
+            let texture = texture.0 as *mut TextureImpl;
+            drop(Box::from_raw(texture));
+        }
     }
 
     fn texture_native_handle(
         &self,
-        _texture: luisa_compute_api_types::Texture,
+        texture: luisa_compute_api_types::Texture,
     ) -> *mut libc::c_void {
-        todo!()
+        unsafe {
+            let texture = texture.0 as *mut TextureImpl;
+            (*texture).data as *mut libc::c_void
+        }
     }
 
     fn create_bindless_array(
@@ -128,21 +144,8 @@ impl Backend for RustBackend {
     ) -> super::Result<luisa_compute_api_types::BindlessArray> {
         let bindless_array = BindlessArrayImpl {
             buffers: vec![defs::BufferView::default(); size],
-            textures: vec![
-                defs::Texture {
-                    data: std::ptr::null_mut(),
-                    width: 0,
-                    height: 0,
-                    depth: 0,
-                    mip_levels: 0,
-                    sampler: 0,
-                    storage: 0,
-                    pixel_stride_shift: 0,
-                    dimension: 0,
-                    mip_offsets: [0; 16]
-                };
-                size
-            ],
+            tex2ds: vec![defs::Texture::default(); size],
+            tex3ds: vec![defs::Texture::default(); size],
         };
         let ptr = Box::into_raw(Box::new(bindless_array));
         Ok(luisa_compute_api_types::BindlessArray(ptr as u64))
@@ -177,25 +180,30 @@ impl Backend for RustBackend {
 
     fn emplace_tex2d_in_bindless_array(
         &self,
-        _array: luisa_compute_api_types::BindlessArray,
-        _index: usize,
-        _handle: luisa_compute_api_types::Texture,
-        _sampler: luisa_compute_api_types::Sampler,
+        array: luisa_compute_api_types::BindlessArray,
+        index: usize,
+        handle: luisa_compute_api_types::Texture,
+        sampler: luisa_compute_api_types::Sampler,
     ) {
-        // unsafe{
-        //     let array = &mut *(array.0 as *mut BindlessArrayImpl);
-        //     let
-        // }
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            let texture = &*(handle.0 as *mut TextureImpl);
+            array.tex2ds[index] = texture.into_c_texture(sampler);
+        }
     }
 
     fn emplace_tex3d_in_bindless_array(
         &self,
-        _array: luisa_compute_api_types::BindlessArray,
-        _index: usize,
-        _handle: luisa_compute_api_types::Texture,
-        _sampler: luisa_compute_api_types::Sampler,
+        array: luisa_compute_api_types::BindlessArray,
+        index: usize,
+        handle: luisa_compute_api_types::Texture,
+        sampler: luisa_compute_api_types::Sampler,
     ) {
-        todo!()
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            let texture = &*(handle.0 as *mut TextureImpl);
+            array.tex3ds[index] = texture.into_c_texture(sampler);
+        }
     }
 
     fn remove_buffer_from_bindless_array(
@@ -211,18 +219,24 @@ impl Backend for RustBackend {
 
     fn remove_tex2d_from_bindless_array(
         &self,
-        _array: luisa_compute_api_types::BindlessArray,
-        _index: usize,
+        array: luisa_compute_api_types::BindlessArray,
+        index: usize,
     ) {
-        todo!()
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            array.tex2ds[index] = defs::Texture::default();
+        }
     }
 
     fn remove_tex3d_from_bindless_array(
         &self,
-        _array: luisa_compute_api_types::BindlessArray,
-        _index: usize,
+        array: luisa_compute_api_types::BindlessArray,
+        index: usize,
     ) {
-        todo!()
+        unsafe {
+            let array = &mut *(array.0 as *mut BindlessArrayImpl);
+            array.tex3ds[index] = defs::Texture::default();
+        }
     }
 
     fn create_stream(&self) -> super::Result<luisa_compute_api_types::Stream> {

@@ -91,13 +91,13 @@ pub(super) fn compile(source: String) -> std::io::Result<PathBuf> {
             args.push("-O3");
         }
         args.push("-march=native");
-        args.push("-mavx2");
         args.push("-std=c++20");
         args.push("-fno-math-errno");
         if cfg!(target_os = "linux") {
             args.push("-fPIC");
         }
         if cfg!(target_arch = "x86_64") {
+            args.push("-mavx2");
             args.push("-DLUISA_ARCH_X86_64");
         } else if cfg!(target_arch = "aarch64") {
             args.push("-DLUISA_ARCH_ARM64");

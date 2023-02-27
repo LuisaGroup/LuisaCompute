@@ -13,6 +13,8 @@ use std::ops::Deref;
 #[derive(Serialize)]
 pub enum Primitive {
     Bool,
+    Int16,
+    Uint16,
     Int32,
     Uint32,
     Int64,
@@ -28,6 +30,8 @@ impl std::fmt::Display for Primitive {
             "{}",
             match self {
                 Self::Bool => "bool",
+                Self::Int16 => "i16",
+                Self::Uint16 => "u16",
                 Self::Int32 => "i32",
                 Self::Uint32 => "u32",
                 Self::Int64 => "i64",
@@ -189,6 +193,8 @@ impl Primitive {
     pub fn size(&self) -> usize {
         match self {
             Primitive::Bool => 1,
+            Primitive::Int16=> 2,
+            Primitive::Uint16 => 2,
             Primitive::Int32 => 4,
             Primitive::Uint32 => 4,
             Primitive::Int64 => 8,
@@ -574,9 +580,13 @@ pub enum Func {
     /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
     /// (texture, coord) -> value
-    TextureRead,
+    Texture2dRead,
     /// (texture, coord, value) -> void
-    TextureWrite,
+    Texture2dWrite,
+    /// (texture, coord) -> value
+    Texture3dRead,
+    /// (texture, coord, value) -> void
+    Texture3dWrite,
     ///(bindless_array, index: uint, uv: float2) -> float4
     BindlessTexture2dSample,
     ///(bindless_array, index: uint, uv: float2, level: float) -> float4
@@ -1669,8 +1679,8 @@ pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder.local_zero_init(ty)
 }
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_module_pools() -> CArc<ModulePools> {
-    CArc::new(ModulePools::new())
+pub extern "C" fn luisa_compute_ir_new_module_pools() -> *mut CArcSharedBlock<ModulePools> {
+    CArc::into_raw(CArc::new(ModulePools::new()))
 }
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_builder(
@@ -1687,8 +1697,8 @@ pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Pooled<Ba
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_instruction(
     inst: Instruction,
-) -> CArc<Instruction> {
-    CArc::new(inst)
+) -> *mut CArcSharedBlock<Instruction> {
+    CArc::into_raw(CArc::new(inst))
 }
 
 #[no_mangle]
@@ -1701,12 +1711,12 @@ pub extern "C" fn luisa_compute_ir_new_callable_module(
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_kernel_module(
     m: KernelModule,
-) -> CArc<KernelModule> {
-    CArc::new(m)
+) -> *mut CArcSharedBlock<KernelModule> {
+    CArc::into_raw(CArc::new(m))
 }
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_register_type(ty:&Type)->CArc<Type>{
-    context::register_type(ty.clone())
+pub extern "C" fn luisa_compute_ir_register_type(ty:&Type)->*mut CArcSharedBlock<Type>{
+    CArc::into_raw(context::register_type(ty.clone()))
 }
 pub mod debug {
     use crate::display::DisplayIR;

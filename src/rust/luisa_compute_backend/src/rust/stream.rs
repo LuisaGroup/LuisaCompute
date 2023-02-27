@@ -4,8 +4,11 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use luisa_compute_api_types::Argument;
-use luisa_compute_ir::{ir::{Binding, Capture}, context::type_hash};
+use luisa_compute_api_types::{Argument, Sampler};
+use luisa_compute_ir::{
+    context::type_hash,
+    ir::{Binding, Capture},
+};
 use parking_lot::{Condvar, Mutex};
 use rayon;
 
@@ -15,6 +18,7 @@ use super::{
     accel::{AccelImpl, MeshImpl},
     resource::{BindlessArrayImpl, BufferImpl},
     shader::ShaderImpl,
+    texture::TextureImpl,
 };
 struct StreamContext {
     queue: Mutex<VecDeque<Arc<dyn Fn() + Send + Sync>>>,
@@ -124,6 +128,7 @@ impl StreamImpl {
                 match cmd {
                     luisa_compute_api_types::Command::BufferUpload(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
+                        let _lk = buffer.lock.try_write().unwrap();
                         let offset = cmd.offset;
                         let size = cmd.size;
                         let data = cmd.data;
@@ -132,6 +137,7 @@ impl StreamImpl {
                     }
                     luisa_compute_api_types::Command::BufferDownload(cmd) => {
                         let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
+                        let _lk = buffer.lock.try_read().unwrap();
                         let offset = cmd.offset;
                         let size = cmd.size;
                         let data = cmd.data;
@@ -140,6 +146,8 @@ impl StreamImpl {
                     luisa_compute_api_types::Command::BufferCopy(cmd) => {
                         let src = &*(cmd.src.0 as *mut BufferImpl);
                         let dst = &*(cmd.dst.0 as *mut BufferImpl);
+                        let _src_lk = src.lock.try_read().unwrap();
+                        let _dst_lk = dst.lock.try_write().unwrap();
                         assert_ne!(src.data, dst.data);
                         let src_offset = cmd.src_offset;
                         let dst_offset = cmd.dst_offset;
@@ -150,10 +158,89 @@ impl StreamImpl {
                             size,
                         );
                     }
-                    luisa_compute_api_types::Command::BufferToTextureCopy(_) => todo!(),
-                    luisa_compute_api_types::Command::TextureToBufferCopy(_) => todo!(),
-                    luisa_compute_api_types::Command::TextureUpload(_) => todo!(),
-                    luisa_compute_api_types::Command::TextureDownload(_) => todo!(),
+                    luisa_compute_api_types::Command::BufferToTextureCopy(cmd) => {
+                        let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
+                        let texture = &*(cmd.texture.0 as *mut TextureImpl);
+                        let _buffer_lk = buffer.lock.try_read().unwrap();
+                        let level: u8 = cmd.texture_level.try_into().unwrap();
+                        let _texture_lk = texture.locks[level as usize].try_write().unwrap();
+                        let dim = texture.dimension;
+                        let view = texture.view(level);
+                        assert_eq!(cmd.storage, texture.storage);
+                        assert!(buffer.size >= cmd.buffer_offset + view.data_size());
+                        if dim == 2 {
+                            assert_eq!(cmd.texture_size, view.size);
+                            view.copy_from_2d(buffer.data.add(cmd.buffer_offset))
+                        } else {
+                            view.copy_from_3d(buffer.data.add(cmd.buffer_offset))
+                        }
+                    }
+                    luisa_compute_api_types::Command::TextureToBufferCopy(cmd) => {
+                        let buffer = &*(cmd.buffer.0 as *mut BufferImpl);
+                        let texture = &*(cmd.texture.0 as *mut TextureImpl);
+                        let level: u8 = cmd.texture_level.try_into().unwrap();
+                        let _texture_lk = texture.locks[level as usize].try_read().unwrap();
+                        let _buffer_lk = buffer.lock.try_write().unwrap();
+                        let dim = texture.dimension;
+                        let view = texture.view(level);
+                        assert_eq!(cmd.storage, texture.storage);
+                        assert!(buffer.size >= cmd.buffer_offset + view.data_size());
+                        if dim == 2 {
+                            assert_eq!(cmd.texture_size, view.size);
+                            view.copy_to_2d(buffer.data.add(cmd.buffer_offset))
+                        } else {
+                            view.copy_to_3d(buffer.data.add(cmd.buffer_offset))
+                        }
+                    }
+                    luisa_compute_api_types::Command::TextureUpload(cmd) => {
+                        let texture = &*(cmd.texture.0 as *mut TextureImpl);
+                        let level: u8 = cmd.level.try_into().unwrap();
+                        let _lk = texture.locks[level as usize].try_write().unwrap();
+                        let dim = texture.dimension;
+                        let view = texture.view(level);
+                        assert_eq!(cmd.storage, texture.storage);
+                        if dim == 2 {
+                            assert_eq!(cmd.size, view.size);
+                            view.copy_from_2d(cmd.data)
+                        } else {
+                            view.copy_from_3d(cmd.data)
+                        }
+                    }
+                    luisa_compute_api_types::Command::TextureDownload(cmd) => {
+                        let texture = &*(cmd.texture.0 as *mut TextureImpl);
+                        let level: u8 = cmd.level.try_into().unwrap();
+                        let _lk = texture.locks[level as usize].try_read().unwrap();
+                        let dim = texture.dimension;
+                        assert_eq!(cmd.storage, texture.storage);
+                        let view = texture.view(level);
+                        if dim == 2 {
+                            view.copy_to_2d(cmd.data)
+                        } else {
+                            view.copy_to_3d(cmd.data)
+                        }
+                    }
+                    luisa_compute_api_types::Command::TextureCopy(cmd) => {
+                        let src = &*(cmd.src.0 as *mut TextureImpl);
+                        let dst = &*(cmd.dst.0 as *mut TextureImpl);
+                        let src_level: u8 = cmd.src_level.try_into().unwrap();
+                        let dst_level: u8 = cmd.dst_level.try_into().unwrap();
+                        let src_view = src.view(src_level);
+                        let dst_view = dst.view(dst_level);
+                        let _src_lk = src.locks[src_level as usize].try_read().unwrap();
+                        let _dst_lk = dst.locks[dst_level as usize].try_write().unwrap();
+                        assert_eq!(cmd.storage, src.storage);
+                        assert_eq!(cmd.storage, dst.storage);
+                        assert_eq!(src_view.size, cmd.size);
+                        assert_eq!(src_view.size, cmd.size);
+                        if src_view.data == dst_view.data {
+                            return;
+                        }
+                        std::ptr::copy_nonoverlapping(
+                            src_view.data,
+                            dst_view.data,
+                            src_view.data_size(),
+                        );
+                    }
                     luisa_compute_api_types::Command::ShaderDispatch(cmd) => {
                         let shader = &*(cmd.shader.0 as *mut ShaderImpl);
                         let dispatch_size = cmd.dispatch_size;
@@ -255,7 +342,17 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
                 ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
             })
         }
-        luisa_compute_api_types::Argument::Texture(_) => todo!(),
+        luisa_compute_api_types::Argument::Texture(t) => {
+            let texture = &*(t.texture.0 as *mut TextureImpl);
+            let level = t.level as usize;
+            defs::KernelFnArg::Texture(
+                texture.into_c_texture(Sampler {
+                    address: luisa_compute_api_types::SamplerAddress::Edge,
+                    filter: luisa_compute_api_types::SamplerFilter::Point,
+                }),
+                level as u8,
+            )
+        }
         luisa_compute_api_types::Argument::Uniform(_) => todo!(),
         luisa_compute_api_types::Argument::Accel(accel) => {
             let accel = &*(accel.0 as *mut AccelImpl);
@@ -273,8 +370,10 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
                 buffers_count: a.buffers.len(),
-                textures: a.textures.as_ptr(),
-                textures_count: a.textures.len(),
+                texture2ds: a.tex2ds.as_ptr(),
+                texture2ds_count: a.tex2ds.len(),
+                texture3ds: a.tex3ds.as_ptr(),
+                texture3ds_count: a.tex3ds.len(),
             })
         }
     }
@@ -286,21 +385,39 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
             let buffer = &*(buffer_arg.handle as *mut BufferImpl);
             let offset = buffer_arg.offset as usize;
             let size = buffer_arg.size;
-            assert!(offset + size <= buffer.size, "offset: {}, size: {}, buffer.size: {}", offset, size, buffer.size);
+            assert!(
+                offset + size <= buffer.size,
+                "offset: {}, size: {}, buffer.size: {}",
+                offset,
+                size,
+                buffer.size
+            );
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
                 ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
             })
         }
-        Binding::Texture(_) => todo!(),
+        Binding::Texture(t) => {
+            let texture = &*(t.handle as *mut TextureImpl);
+            let level = t.level as usize;
+            defs::KernelFnArg::Texture(
+                texture.into_c_texture(Sampler {
+                    address: luisa_compute_api_types::SamplerAddress::Edge,
+                    filter: luisa_compute_api_types::SamplerFilter::Point,
+                }),
+                level as u8,
+            )
+        }
         Binding::BindlessArray(a) => {
             let a = &*(a.handle as *mut BindlessArrayImpl);
             defs::KernelFnArg::BindlessArray(defs::BindlessArray {
                 buffers: a.buffers.as_ptr(),
                 buffers_count: a.buffers.len(),
-                textures: a.textures.as_ptr(),
-                textures_count: a.textures.len(),
+                texture2ds: a.tex2ds.as_ptr(),
+                texture2ds_count: a.tex2ds.len(),
+                texture3ds: a.tex3ds.as_ptr(),
+                texture3ds_count: a.tex3ds.len(),
             })
         }
         Binding::Accel(accel) => {

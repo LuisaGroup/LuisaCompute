@@ -76,8 +76,10 @@ pub struct Accel {
 pub struct BindlessArray {
     pub buffers: *const BufferView,
     pub buffers_count: usize,
-    pub textures: *const Texture,
-    pub textures_count: usize,
+    pub texture2ds: *const Texture,
+    pub texture2ds_count: usize,
+    pub texture3ds: *const Texture,
+    pub texture3ds_count: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -94,11 +96,27 @@ pub struct Texture {
     pub mip_offsets: [usize; 16],
     pub sampler: u8,
 }
+impl Default for Texture {
+    fn default() -> Self {
+        Self {
+            data: std::ptr::null_mut(),
+            width: 0,
+            height: 0,
+            depth: 0,
+            storage: 0,
+            dimension: 0,
+            mip_levels: 0,
+            pixel_stride_shift: 0,
+            mip_offsets: [0; 16],
+            sampler: 0,
+        }
+    }
+}
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub enum KernelFnArg {
     Buffer(BufferView),
     BindlessArray(BindlessArray),
     Accel(Accel),
-    Texture(Texture),
+    Texture(Texture, u8),
 }

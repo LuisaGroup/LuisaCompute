@@ -100,10 +100,11 @@ impl<T> CArcSharedBlock<T> {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     pub fn release(&self) {
-        self.ref_count
-            .fetch_sub(1, std::sync::atomic::Ordering::Release);
-        if self.ref_count.load(std::sync::atomic::Ordering::Acquire) == 0 {
-            std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+        if self
+            .ref_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Release)
+            == 1
+        {
             (self.destructor)(self as *const _ as *mut _);
         }
     }
@@ -308,6 +309,7 @@ extern "C" fn default_destructor_slice<T>(ptr: *mut T, len: usize) {
 }
 impl<T> CBoxedSlice<T> {
     pub fn new(value: Vec<T>) -> Self {
+        let mut value = value;
         let len = value.len();
         unsafe {
             let layout = std::alloc::Layout::array::<T>(len).unwrap();
@@ -315,6 +317,7 @@ impl<T> CBoxedSlice<T> {
             for i in 0..len {
                 std::ptr::write(ptr.add(i), std::ptr::read(&value[i]));
             }
+            value.set_len(0);
             Self {
                 ptr,
                 len,

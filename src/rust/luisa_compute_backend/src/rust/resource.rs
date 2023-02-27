@@ -2,9 +2,11 @@ use std::alloc::Layout;
 
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_ir::{ir::Type, CArc};
+use parking_lot::RwLock;
 
 #[repr(C)]
 pub struct BufferImpl {
+    pub lock: RwLock<()>,
     pub data: *mut u8,
     pub size: usize,
     pub align: usize,
@@ -13,7 +15,8 @@ pub struct BufferImpl {
 #[repr(C)]
 pub struct BindlessArrayImpl {
     pub buffers: Vec<defs::BufferView>,
-    pub textures: Vec<defs::Texture>,
+    pub tex2ds: Vec<defs::Texture>,
+    pub tex3ds: Vec<defs::Texture>,
 }
 
 impl BufferImpl {
@@ -21,6 +24,7 @@ impl BufferImpl {
         let layout = Layout::from_size_align(size, align).unwrap();
         let data = unsafe { std::alloc::alloc_zeroed(layout) };
         Self {
+            lock: RwLock::new(()),
             data,
             size,
             align,
