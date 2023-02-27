@@ -187,6 +187,15 @@ typedef struct LCTextureDownloadCommand {
     uint8_t *data;
 } LCTextureDownloadCommand;
 
+typedef struct LCTextureCopyCommand {
+    enum LCPixelStorage storage;
+    struct LCTexture src;
+    struct LCTexture dst;
+    uint32_t size[3];
+    uint32_t src_level;
+    uint32_t dst_level;
+} LCTextureCopyCommand;
+
 typedef struct LCBufferArgument {
     struct LCBuffer buffer;
     size_t offset;
@@ -281,6 +290,7 @@ typedef enum LCCommand_Tag {
     LC_COMMAND_TEXTURE_TO_BUFFER_COPY,
     LC_COMMAND_TEXTURE_UPLOAD,
     LC_COMMAND_TEXTURE_DOWNLOAD,
+    LC_COMMAND_TEXTURE_COPY,
     LC_COMMAND_SHADER_DISPATCH,
     LC_COMMAND_MESH_BUILD,
     LC_COMMAND_ACCEL_BUILD,
@@ -310,6 +320,9 @@ typedef struct LCCommand {
         };
         struct {
             struct LCTextureDownloadCommand texture_download;
+        };
+        struct {
+            struct LCTextureCopyCommand texture_copy;
         };
         struct {
             struct LCShaderDispatchCommand shader_dispatch;

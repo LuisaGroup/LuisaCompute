@@ -574,9 +574,13 @@ pub enum Func {
     /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
     /// (texture, coord) -> value
-    TextureRead,
+    Texture2dRead,
     /// (texture, coord, value) -> void
-    TextureWrite,
+    Texture2dWrite,
+    /// (texture, coord) -> value
+    Texture3dRead,
+    /// (texture, coord, value) -> void
+    Texture3dWrite,
     ///(bindless_array, index: uint, uv: float2) -> float4
     BindlessTexture2dSample,
     ///(bindless_array, index: uint, uv: float2, level: float) -> float4
