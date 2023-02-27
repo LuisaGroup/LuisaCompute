@@ -32,6 +32,7 @@ static_assert(sizeof(CArcSharedBlock<int32_t>) == 24);
 template<typename T>
 struct CArc {
     CArcSharedBlock<T> *inner;
+    CArc(CArcSharedBlock<T> *block = nullptr) noexcept: inner{block} {}
     [[nodiscard]] bool is_null() const noexcept { return inner == nullptr; }
     [[nodiscard]] T *operator->() const noexcept { return inner->ptr; }
     [[nodiscard]] T &operator*() const noexcept { return *inner->ptr; }

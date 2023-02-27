@@ -18,9 +18,9 @@ inline auto AST2IR::_boxed_slice(size_t n) noexcept -> ir::CBoxedSlice<T> {
                 .len = 0u,
                 .destructor = [](T *, size_t) noexcept {}};
     }
-    return {.ptr = new T[n], // FIXME: use allocate
+    return {.ptr = new T[n],// FIXME: use allocate
             .len = n,
-            .destructor = [](T *ptr, size_t) noexcept { delete [] ptr; }};
+            .destructor = [](T *ptr, size_t) noexcept { delete[] ptr; }};
 }
 
 template<typename Fn>
@@ -49,7 +49,7 @@ ir::Module AST2IR::_convert_body() noexcept {
     // process body scope
     static_cast<void>(_convert(_function.body()));
     // finalize
-    auto bb = ir::luisa_compute_ir_build_finish(std::move(*_current_builder()));
+    auto bb = ir::luisa_compute_ir_build_finish(*_current_builder());
     return ir::Module{.kind = _function.tag() == Function::Tag::KERNEL ?
                                   ir::ModuleKind::Kernel :
                                   ir::ModuleKind::Function,
@@ -130,14 +130,14 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
         }
         auto module = _convert_body();
         return ir::luisa_compute_ir_new_kernel_module(
-                ir::KernelModule{.module = module,
-                                 .captures = captures,
-                                 .args = non_captures,
-                                 .shared = shared,
-                                 .block_size = {_function.block_size().x,
-                                                _function.block_size().y,
-                                                _function.block_size().z},
-                                .pools = _pools.clone()});
+            ir::KernelModule{.module = module,
+                             .captures = captures,
+                             .args = non_captures,
+                             .shared = shared,
+                             .block_size = {_function.block_size().x,
+                                            _function.block_size().y,
+                                            _function.block_size().z},
+                             .pools = _pools.clone()});
     });
     return {luisa::new_with_allocator<ir::CArc<ir::KernelModule>>(m),
             [](auto p) noexcept {
@@ -356,7 +356,7 @@ ir::NodeRef AST2IR::_convert(const LiteralExpr *expr) noexcept {
                 auto b = _current_builder();
                 return ir::luisa_compute_ir_build_const(b, c);
             } else {
-                auto salt = luisa::hash_value("__ast2ir_literal"); // FIXME: use which hash??
+                auto salt = luisa::hash_value("__ast2ir_literal");// FIXME: use which hash??
                 auto hash = luisa::hash_value(x, luisa::hash_value(expr->type()->hash(), salt));
                 if (auto iter = _constants.find(hash); iter != _constants.end()) { return iter->second; }
                 auto slice = _boxed_slice<uint8_t>(sizeof(T));
@@ -573,8 +573,20 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::ATOMIC_FETCH_MAX: return ir::Func::Tag::AtomicFetchMax;
             case CallOp::BUFFER_READ: return ir::Func::Tag::BufferRead;
             case CallOp::BUFFER_WRITE: return ir::Func::Tag::BufferWrite;
-            case CallOp::TEXTURE_READ: return ir::Func::Tag::TextureRead;
-            case CallOp::TEXTURE_WRITE: return ir::Func::Tag::TextureWrite;
+            case CallOp::TEXTURE_READ: {
+                LUISA_ASSERT(expr->arguments().size() == 2u,
+                             "Invalid texture read expression");
+                auto dim = expr->arguments()[1]->type()->dimension();
+                return dim == 2u ? ir::Func::Tag::Texture2dRead :
+                                   ir::Func::Tag::Texture3dRead;
+            }
+            case CallOp::TEXTURE_WRITE: {
+                LUISA_ASSERT(expr->arguments().size() == 3u,
+                             "Invalid texture read expression");
+                auto dim = expr->arguments()[1]->type()->dimension();
+                return dim == 2u ? ir::Func::Tag::Texture2dWrite :
+                                   ir::Func::Tag::Texture3dWrite;
+            }
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE: return ir::Func::Tag::BindlessTexture2dSample;
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL: return ir::Func::Tag::BindlessTexture2dSampleLevel;
             case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD: return ir::Func::Tag::BindlessTexture2dSampleGrad;
