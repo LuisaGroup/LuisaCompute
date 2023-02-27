@@ -19,6 +19,16 @@ impl TypeOf for bool {
         context::register_type(Type::Primitive(Primitive::Bool))
     }
 }
+impl TypeOf for u16 {
+    fn type_() -> CArc<Type> {
+        context::register_type(Type::Primitive(Primitive::Uint16))
+    }
+}
+impl TypeOf for i16 {
+    fn type_() -> CArc<Type> {
+        context::register_type(Type::Primitive(Primitive::Int16))
+    }
+}
 impl TypeOf for u32 {
     fn type_() -> CArc<Type> {
         context::register_type(Type::Primitive(Primitive::Uint32))
