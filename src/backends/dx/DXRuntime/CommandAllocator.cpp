@@ -66,13 +66,20 @@ void CommandAllocatorBase::Execute(
     ID3D12Fence *fence,
     uint64 fenceIndex) {
     ID3D12CommandList *cmdList = cbuffer->CmdList();
-    if (cbuffer->ContainedCmdList()) {
-        queue->Queue()->ExecuteCommandLists(
+    auto cmdQueue = queue->Queue();
+    if (!device->deviceSettings) {
+        cmdQueue->ExecuteCommandLists(
             1,
             &cmdList);
-        ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
+        ThrowIfFailed(cmdQueue->Signal(fence, fenceIndex));
     } else {
-        device->deviceSettings->SignalAfterCmdDispatchFence(fence, fenceIndex);
+        if (!device->deviceSettings->ExecuteCommandList(cmdQueue, static_cast<ID3D12GraphicsCommandList *>(cmdList)))
+            cmdQueue->ExecuteCommandLists(
+                1,
+                &cmdList);
+        if (!device->deviceSettings->SignalFence(cmdQueue, fence, fenceIndex)) {
+            ThrowIfFailed(cmdQueue->Signal(fence, fenceIndex));
+        }
     }
 }
 void CommandAllocatorBase::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain, bool vsync) {
@@ -84,15 +91,22 @@ void CommandAllocatorBase::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *f
         }
     };
     ID3D12CommandList *cmdList = cbuffer->CmdList();
-    if (cbuffer->ContainedCmdList()) {
-        queue->Queue()->ExecuteCommandLists(
+    auto cmdQueue = queue->Queue();
+    if (!device->deviceSettings) {
+        cmdQueue->ExecuteCommandLists(
             1,
             &cmdList);
         present();
-        ThrowIfFailed(queue->Queue()->Signal(fence, fenceIndex));
+        ThrowIfFailed(cmdQueue->Signal(fence, fenceIndex));
     } else {
+        if (!device->deviceSettings->ExecuteCommandList(cmdQueue, static_cast<ID3D12GraphicsCommandList *>(cmdList)))
+            cmdQueue->ExecuteCommandLists(
+                1,
+                &cmdList);
         present();
-        device->deviceSettings->SignalAfterCmdDispatchFence(fence, fenceIndex);
+        if (!device->deviceSettings->SignalFence(cmdQueue, fence, fenceIndex)) {
+            ThrowIfFailed(cmdQueue->Signal(fence, fenceIndex));
+        }
     }
 }
 
