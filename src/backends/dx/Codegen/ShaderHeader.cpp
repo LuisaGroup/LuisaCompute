@@ -60,7 +60,7 @@ _InstBuffer[v.index] = r;
 )"sv;
 }
 vstd::string_view GetHeader() {
-    return R"(
+    static const char header[] = R"(
 #pragma pack_matrix(row_major)
 #define INFINITY_f 3.40282347e+37
 SamplerState samplers[16] : register(s0, space1);
@@ -255,7 +255,6 @@ m00, m01, m02, 0.f,
 m10, m11, m12, 0.f,
 m20, m21, m22, 0.f);
 }
-
 float4x4 make_float4x4(float m00, float m01, float m02, float m03,
 float m10, float m11, float m12, float m13,
 float m20, float m21, float m22, float m23,
@@ -266,7 +265,6 @@ m10, m11, m12, m13,
 m20, m21, m22, m23,
 m30, m31, m32, m33);
 }
-
 float4x4 make_float4x4(float s) {
 return float4x4(
 s, 0.f, 0.f, 0.f,
@@ -274,25 +272,20 @@ s, 0.f, 0.f, 0.f,
 0.f, 0.f, s, 0.f,
 0.f, 0.f, 0.f, s);
 }
-
 float3x4 make_float3x3(float3 c0, float3 c1, float3 c2) {
 return float3x4(float4(c0, 0.f), float4(c1, 0.f), float4(c2, 0.f));
 }
-
 float3x4 make_float3x3(float s) {
 return float3x4(float4(s, 0.f, 0.f, 0.f), float4(0.f, s, 0.f, 0.f), float4(0.f, 0.f, s, 0.f));
 }
-
 float2x2 make_float2x2(float2 c0, float2 c1) { return float2x2(c0, c1); }
 float4x4 make_float4x4(float4 c0, float4 c1, float4 c2, float4 c3) { return float4x4(c0, c1, c2, c3); }
-
 float2x2 my_transpose(float2x2 m) { return transpose(m); }
 float3x4 my_transpose(float3x4 m) {
 float4x3 mm = transpose(m);
 return make_float3x3(mm[0], mm[1], mm[2]);
 }
 float4x4 my_transpose(float4x4 m) { return transpose(m); }
-
 float4x4 Mul(float4x4 a, float4x4 b) { return mul(a, b); }
 float3x4 Mul(float3x4 a, float3x4 b) { return mul(a, float4x4(b, 0.f, 0.f, 0.f, 0.f)); }
 float2x2 Mul(float2x2 a, float2x2 b) { return mul(a, b); }
@@ -334,6 +327,7 @@ uint samp3D : 8;
 #define Smptx(tex, uv) (tex[uv])
 #define Writetx(tex, uv, value) (tex[uv] = value)
 #define BINDLESS_ARRAY StructuredBuffer<BdlsStruct>
+#define BAID(x) NonUniformResourceIndex(x)
 Texture2D<float4> _BindlessTex[] : register(t0, space1);
 Texture3D<float4> _BindlessTex3D[] : register(t0, space2);
 ByteAddressBuffer bdls[]: register(t0,space3);
@@ -341,37 +335,37 @@ template<typename T>
 T fract(T x) { return x - floor(x); }
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float level) {
 BdlsStruct s = arr[index];
-SamplerState samp = samplers[s.samp2D];
-return _BindlessTex[s.tex2D].SampleLevel(samp, uv, level);
+SamplerState samp = samplers[BAID(s.samp2D)];
+return _BindlessTex[BAID(s.tex2D)].SampleLevel(samp, uv, level);
 }
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv) {
 return SampleTex2D(arr, index, uv, 0);
 }
 float4 SampleTex2D(BINDLESS_ARRAY arr, uint index, float2 uv, float2 ddx, float2 ddy) {
 BdlsStruct s = arr[index];
-SamplerState samp = samplers[s.samp2D];
-return _BindlessTex[s.tex2D].SampleGrad(samp, uv, ddx, ddy);
+SamplerState samp = samplers[BAID(s.samp2D)];
+return _BindlessTex[BAID(s.tex2D)].SampleGrad(samp, uv, ddx, ddy);
 }
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv, float level) {
 BdlsStruct s = arr[index];
-SamplerState samp = samplers[s.samp3D];
-return _BindlessTex3D[s.tex3D].SampleLevel(samp, uv, level);
+SamplerState samp = samplers[BAID(s.samp3D)];
+return _BindlessTex3D[BAID(s.tex3D)].SampleLevel(samp, uv, level);
 }
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv) {
 return SampleTex3D(arr, index, uv, 0);
 }
 float4 SampleTex3D(BINDLESS_ARRAY arr, uint index, float3 uv, float3 ddx, float3 ddy) {
 BdlsStruct s = arr[index];
-SamplerState samp = samplers[s.samp3D];
-return _BindlessTex3D[s.tex3D].SampleGrad(samp, uv, ddx, ddy);
+SamplerState samp = samplers[BAID(s.samp3D)];
+return _BindlessTex3D[BAID(s.tex3D)].SampleGrad(samp, uv, ddx, ddy);
 }
 float4 ReadTex2D(BINDLESS_ARRAY arr, uint index, uint2 coord, uint level) {
 BdlsStruct s = arr[index];
-return _BindlessTex[s.tex2D].Load(uint3(coord, level));
+return _BindlessTex[BAID(s.tex2D)].Load(uint3(coord, level));
 }
 float4 ReadTex3D(BINDLESS_ARRAY arr, uint index, uint3 coord, uint level) {
 BdlsStruct s = arr[index];
-return _BindlessTex3D[s.tex3D].Load(uint4(coord, level));
+return _BindlessTex3D[BAID(s.tex3D)].Load(uint4(coord, level));
 }
 float4 ReadTex2D(BINDLESS_ARRAY arr, uint index, uint2 coord) {
 return ReadTex2D(arr, index, coord, 0);
@@ -393,7 +387,7 @@ return max(Tex2DSize(arr, index) >> level, 1u);
 uint3 Tex3DSize(BINDLESS_ARRAY arr, uint index, uint level) {
 return max(Tex3DSize(arr, index) >> level, 1u);
 }
-#define READ_BUFFER(arr,arrIdx,idx,type,size,bf) (bf[(arr)[arrIdx].buffer].Load<type>((size)*(idx)))
+#define READ_BUFFER(arr,arrIdx,idx,type,size,bf) (bf[BAID((arr)[arrIdx].buffer)].Load<type>((size)*(idx)))
 struct MeshInst {
 float4 p0;
 float4 p1;
@@ -535,6 +529,7 @@ uint v1;
 float2 v2;
 };
 )";
+    return header;
 }
 vstd::string_view GetRayTracingHeader() {
     return R"(
