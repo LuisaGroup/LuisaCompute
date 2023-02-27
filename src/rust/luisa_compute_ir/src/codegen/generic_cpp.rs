@@ -32,6 +32,8 @@ impl TypeGen {
         match t.as_ref() {
             Type::Primitive(t) => match t {
                 ir::Primitive::Bool => "bool".to_string(),
+                ir::Primitive::Int16 => "int16_t".to_string(),
+                ir::Primitive::Uint16 => "uint16_t".to_string(),
                 ir::Primitive::Int32 => "int32_t".to_string(),
                 ir::Primitive::Uint32 => "uint32_t".to_string(),
                 ir::Primitive::Int64 => "int64_t".to_string(),
@@ -107,6 +109,8 @@ impl TypeGen {
                 match vt.element {
                     VectorElementType::Scalar(s) => match s {
                         Primitive::Bool => format!("lc_bool{}", n),
+                        Primitive::Int16 => format!("lc_short{}", n),
+                        Primitive::Uint16 => format!("lc_ushort{}", n),
                         Primitive::Int32 => format!("lc_int{}", n),
                         Primitive::Uint32 => format!("lc_uint{}", n),
                         Primitive::Int64 => format!("lc_long{}", n),
