@@ -49,7 +49,7 @@ ir::Module AST2IR::_convert_body() noexcept {
     // process body scope
     static_cast<void>(_convert(_function.body()));
     // finalize
-    auto bb = ir::luisa_compute_ir_build_finish(std::move(*_current_builder()));
+    auto bb = ir::luisa_compute_ir_build_finish(*_current_builder());
     return ir::Module{.kind = _function.tag() == Function::Tag::KERNEL ?
                                   ir::ModuleKind::Kernel :
                                   ir::ModuleKind::Function,

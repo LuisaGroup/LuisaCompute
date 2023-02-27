@@ -1679,8 +1679,8 @@ pub extern "C" fn luisa_compute_ir_build_local_zero_init(
     builder.local_zero_init(ty)
 }
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_module_pools() -> CArc<ModulePools> {
-    CArc::new(ModulePools::new())
+pub extern "C" fn luisa_compute_ir_new_module_pools() -> *mut CArcSharedBlock<ModulePools> {
+    CArc::into_raw(CArc::new(ModulePools::new()))
 }
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_builder(
@@ -1697,8 +1697,8 @@ pub extern "C" fn luisa_compute_ir_build_finish(builder: IrBuilder) -> Pooled<Ba
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_instruction(
     inst: Instruction,
-) -> CArc<Instruction> {
-    CArc::new(inst)
+) -> *mut CArcSharedBlock<Instruction> {
+    CArc::into_raw(CArc::new(inst))
 }
 
 #[no_mangle]
@@ -1711,12 +1711,12 @@ pub extern "C" fn luisa_compute_ir_new_callable_module(
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_kernel_module(
     m: KernelModule,
-) -> CArc<KernelModule> {
-    CArc::new(m)
+) -> *mut CArcSharedBlock<KernelModule> {
+    CArc::into_raw(CArc::new(m))
 }
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_register_type(ty:&Type)->CArc<Type>{
-    context::register_type(ty.clone())
+pub extern "C" fn luisa_compute_ir_register_type(ty:&Type)->*mut CArcSharedBlock<Type>{
+    CArc::into_raw(context::register_type(ty.clone()))
 }
 pub mod debug {
     use crate::display::DisplayIR;
