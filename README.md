@@ -16,6 +16,7 @@ See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rende
     + [Unified Runtime with Resource Wrappers](#unified-runtime-with-resource-wrappers)
     + [Multiple Backends](#multiple-backends)
     + [Python Frontend](#python-frontend)
+    + [Rust Frontend](#rust-frontend)
     + [C API and Frontends in Other Languages](#c-api-and-frontends-in-other-languages)
 * [Building](#building)
 * [Usage](#usage)
