@@ -205,25 +205,25 @@ Texture3D<float4> _BindlessTex3D[]:register(t0,space2);
 template<typename T>
 T fract(const T x){return x-floor(x);}
 template<typename Idx>
-float4 SampleTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[s.tex2D].SampleLevel(samp,uv,level);}
+float4 SampleTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].SampleLevel(samp,uv,level);}
 template<typename Idx>
 float4 SampleTex2D(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){return SampleTex2DLevel(arr,index,uv,0);}
 template<typename Idx>
-float4 SampleTex2DGrad(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float2 ddx,const float2 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[s.tex2D].SampleGrad(samp,uv,ddx,ddy);}
+float4 SampleTex2DGrad(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float2 ddx,const float2 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].SampleGrad(samp,uv,ddx,ddy);}
 #ifdef PS
 template<typename Idx>
-float4 SampleTex2DPixel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[s.tex2D].Sample(samp,uv);}
+float4 SampleTex2DPixel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp2D];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].Sample(samp,uv);}
 #endif
 template<typename Idx>
-float4 SampleTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp3D];return _BindlessTex3D[s.tex3D].SampleLevel(samp,uv,level);}
+float4 SampleTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp3D];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].SampleLevel(samp,uv,level);}
 template<typename Idx>
 float4 SampleTex3D(const BINDLESS_ARRAY arr,const Idx index,const float3 uv){return SampleTex3DLevel(arr,index,uv,0);}
 template<typename Idx>
-float4 SampleTex3DGrad(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float3 ddx,const float3 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp3D];return _BindlessTex3D[s.tex3D].SampleGrad(samp,uv,ddx,ddy);}
+float4 SampleTex3DGrad(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float3 ddx,const float3 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[s.samp3D];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].SampleGrad(samp,uv,ddx,ddy);}
 template<typename Idx,typename Lvl,typename Coord>
-float4 ReadTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex[s.tex2D].Load(uint3(coord,level));}
+float4 ReadTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].Load(uint3(coord,level));}
 template<typename Idx,typename Lvl,typename Coord>
-float4 ReadTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex3D[s.tex3D].Load(uint4(coord,level));}
+float4 ReadTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].Load(uint4(coord,level));}
 template<typename Idx,typename Coord>
 float4 ReadTex2D(const BINDLESS_ARRAY arr,const Idx index,const Coord coord){return ReadTex2DLevel(arr,index,coord,0);}
 template<typename Idx,typename Coord>
@@ -236,7 +236,7 @@ template<typename Idx,typename Lvl>
 uint2 Tex2DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex2DSize(arr,index)>>level,1u);}
 template<typename Idx,typename Lvl>
 uint3 Tex3DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex3DSize(arr,index)>>level,1u);}
-#define READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[arr[arrIdx].buffer].Load<type>(size*idx)
+#define READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(arr[arrIdx].buffer)].Load<type>(size*idx)
 struct MeshInst {
 float4 p0;
 float4 p1;
