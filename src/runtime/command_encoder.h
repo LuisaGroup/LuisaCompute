@@ -30,10 +30,6 @@ protected:
     [[nodiscard]] Argument &_create_argument() noexcept;
 
 public:
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto argument_count() const noexcept { return static_cast<size_t>(_argument_count); }
-
-public:
     [[nodiscard]] static size_t compute_uniform_size(luisa::span<const Variable> arguments) noexcept;
     [[nodiscard]] static size_t compute_uniform_size(luisa::span<const Type *const> arg_types) noexcept;
 };
@@ -52,7 +48,6 @@ public:
     ~ComputeDispatchCmdEncoder() noexcept = default;
     void set_dispatch_size(uint3 launch_size) noexcept;
     void set_dispatch_size(IndirectDispatchArg indirect_arg) noexcept;
-    [[nodiscard]] auto const &dispatch_size() const noexcept { return _dispatch_size; }
 
     void encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
     void encode_texture(uint64_t handle, uint32_t level) noexcept;
@@ -86,8 +81,6 @@ public:
     ~RasterDispatchCmdEncoder() noexcept;
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept;
     RasterDispatchCmdEncoder &operator=(RasterDispatchCmdEncoder &&) noexcept;
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
-    [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
     void set_rtv_texs(luisa::span<const ShaderDispatchCommandBase::Argument::Texture> tex) noexcept;
     void set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture tex) noexcept;
     void set_scene(luisa::vector<RasterMesh> &&scene) noexcept;
