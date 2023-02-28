@@ -86,7 +86,7 @@ public:
     ~RasterDispatchCmdEncoder() noexcept;
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept;
     RasterDispatchCmdEncoder &operator=(RasterDispatchCmdEncoder &&) noexcept;
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs}.subspan(_rtv_count); }
+    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
     void set_rtv_texs(luisa::span<const ShaderDispatchCommandBase::Argument::Texture> tex) noexcept;
     void set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture tex) noexcept;
