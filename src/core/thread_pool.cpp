@@ -159,11 +159,6 @@ ThreadPool::~ThreadPool() noexcept {
     for (auto &&t : _impl->threads) { t.join(); }
 }
 
-ThreadPool &ThreadPool::global() noexcept {
-    static ThreadPool pool;
-    return pool;
-}
-
 uint ThreadPool::size() const noexcept {
     return static_cast<uint>(_impl->threads.size());
 }

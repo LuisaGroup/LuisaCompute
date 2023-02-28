@@ -38,7 +38,6 @@ public:
     ThreadPool &operator=(ThreadPool &&) noexcept = delete;
     ThreadPool &operator=(const ThreadPool &) noexcept = delete;
     /// Return global static ThreadPool instance
-    [[nodiscard]] static ThreadPool &global() noexcept;
     [[nodiscard]] static uint worker_thread_index() noexcept;
 
 public:
@@ -107,12 +106,5 @@ public:
         });
     }
 };
-
-/// Run a function async using global ThreadPool
-template<typename F>
-    requires std::is_invocable_v<F>
-inline auto async(F &&f) noexcept {
-    return ThreadPool::global().async(std::forward<F>(f));
-}
 
 }// namespace luisa
