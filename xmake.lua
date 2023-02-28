@@ -2,13 +2,13 @@ add_rules("mode.release", "mode.debug")
 -- in case bug from version control
 set_policy("build.ccache", false)
 -- options
-option("use_mimalloc")
+option("enable_mimalloc")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
 
-option("use_unity_build")
+option("enable_unity_build")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
@@ -85,6 +85,12 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+
+option("enable_unity3d_plugin")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
 -- options
 
 option("legal_env")
@@ -104,8 +110,8 @@ end)
 rule_end()
 add_rules("check_env")
 if has_config("legal_env") then
-	UseMimalloc = get_config("use_mimalloc")
-	UseUnityBuild = get_config("use_unity_build")
+	UseMimalloc = get_config("enable_mimalloc")
+	UseUnityBuild = get_config("enable_unity_build")
 	ExportConfig = (get_config("export_config"))
 	UseSIMD = get_config("enable_simd")
 	-- test require dsl
