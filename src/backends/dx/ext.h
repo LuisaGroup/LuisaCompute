@@ -47,7 +47,7 @@ public:
         DepthFormat format,
         uint width,
         uint height,
-        // custom data see backends' header
+        // D3D12_RESOURCE_STATES const*
         void *custom_data) noexcept override;
     static PixelFormat ToPixelFormat(GFXFormat f) {
         switch (f) {
