@@ -18,6 +18,8 @@ public:
 };
 struct NativeTextureDesc {
     D3D12_RESOURCE_STATES initState;
+    // custom_format only for LC's non-supported format, like DXGI_FORMAT_R10G10B10A2_UNORM
+    // DXGI_FORMAT_UNKNOWN for default
     DXGI_FORMAT custom_format;
     bool allowUav;
 };
