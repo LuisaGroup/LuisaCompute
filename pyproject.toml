@@ -1,5 +1,6 @@
 [build-system]
 requires = [
+    "ninja",
     "pybind11",
     "scikit-build-core",
     "distlib",
@@ -10,7 +11,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "luisa"
-version = "0.1.5"
+version = "0.1.6"
 description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
 readme = "README_Python_en.md"
 authors = [
