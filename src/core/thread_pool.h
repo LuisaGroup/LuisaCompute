@@ -11,6 +11,7 @@
 #include <core/stl/functional.h>
 #include <core/stl/memory.h>
 #include <core/basic_types.h>
+#include <core/shared_function.h>
 
 namespace luisa {
 
@@ -25,8 +26,8 @@ private:
     std::atomic_uint _task_count;
 
 private:
-    void _dispatch(luisa::function<void()> task) noexcept;
-    void _dispatch_all(luisa::function<void()> task, size_t max_threads = std::numeric_limits<size_t>::max()) noexcept;
+    void _dispatch(luisa::SharedFunction<void()> &&task) noexcept;
+    void _dispatch_all(luisa::SharedFunction<void()> &&task, size_t max_threads = std::numeric_limits<size_t>::max()) noexcept;
 
 public:
     /// Create a thread pool with num_threads threads
@@ -37,7 +38,6 @@ public:
     ThreadPool &operator=(ThreadPool &&) noexcept = delete;
     ThreadPool &operator=(const ThreadPool &) noexcept = delete;
     /// Return global static ThreadPool instance
-    [[nodiscard]] static ThreadPool &global() noexcept;
     [[nodiscard]] static uint worker_thread_index() noexcept;
 
 public:
@@ -53,9 +53,9 @@ public:
     /// Run a function async and return future of return value
     template<typename F>
         requires std::is_invocable_v<F>
-    auto async(F f) noexcept {
+    auto async(F &&f) noexcept {
         using R = std::invoke_result_t<F>;
-        auto promise = luisa::make_shared<std::promise<R>>(
+        auto promise = luisa::make_unique<std::promise<R>>(
             std::allocator_arg, luisa::allocator{});
         auto future = promise->get_future().share();
         _task_count.fetch_add(1u);
@@ -74,10 +74,10 @@ public:
     /// Run a function parallel
     template<typename F>
         requires std::is_invocable_v<F, uint>
-    void parallel(uint n, F f) noexcept {
+    void parallel(uint n, F &&f) noexcept {
         if (n > 0u) {
             _task_count.fetch_add(1u);
-            auto counter = luisa::make_shared<std::atomic_uint>(0u);
+            auto counter = luisa::make_unique<std::atomic_uint>(0u);
             _dispatch_all(
                 [=, this]() mutable noexcept {
                     auto i = 0u;
@@ -91,7 +91,7 @@ public:
     /// Run a function 2D parallel
     template<typename F>
         requires std::is_invocable_v<F, uint, uint>
-    void parallel(uint nx, uint ny, F f) noexcept {
+    void parallel(uint nx, uint ny, F &&f) noexcept {
         parallel(nx * ny, [=, f = std::move(f)](auto i) mutable noexcept {
             f(i % nx, i / nx);
         });
@@ -100,18 +100,11 @@ public:
     /// Run a function 3D parallel
     template<typename F>
         requires std::is_invocable_v<F, uint, uint, uint>
-    void parallel(uint nx, uint ny, uint nz, F f) noexcept {
+    void parallel(uint nx, uint ny, uint nz, F &&f) noexcept {
         parallel(nx * ny * nz, [=, f = std::move(f)](auto i) mutable noexcept {
             f(i % nx, i / nx % ny, i / nx / ny);
         });
     }
 };
-
-/// Run a function async using global ThreadPool
-template<typename F>
-    requires std::is_invocable_v<F>
-inline auto async(F &&f) noexcept {
-    return ThreadPool::global().async(std::forward<F>(f));
-}
 
 }// namespace luisa

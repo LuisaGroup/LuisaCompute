@@ -18,6 +18,8 @@ public:
 };
 struct NativeTextureDesc {
     D3D12_RESOURCE_STATES initState;
+    // custom_format only for LC's non-supported format, like DXGI_FORMAT_R10G10B10A2_UNORM
+    // DXGI_FORMAT_UNKNOWN for default
     DXGI_FORMAT custom_format;
     bool allowUav;
 };
@@ -45,7 +47,7 @@ public:
         DepthFormat format,
         uint width,
         uint height,
-        // custom data see backends' header
+        // D3D12_RESOURCE_STATES const*
         void *custom_data) noexcept override;
     static PixelFormat ToPixelFormat(GFXFormat f) {
         switch (f) {

@@ -5,7 +5,7 @@ _config_project({
 add_includedirs("../ext/stb")
 -- add_files("test_dsl.cpp")
 -- add_files("test_dynamic_buffer.cpp")
-add_files("test_path_tracing.cpp")
+add_files("test_path_tracing.cpp", "../ext/stb/stb.c")
 -- add_files("test_texture_compress.cpp", "../ext/stb/stb.c")
 -- add_files("test_raster.cpp", "../ext/stb/stb.c")
 -- add_files("test_dispatch_indirect.cpp")

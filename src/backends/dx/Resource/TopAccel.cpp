@@ -92,7 +92,7 @@ bool TopAccel::GenerateNewBuffer(
         if (needCopy) {
             tracker.RecordState(
                 oldBuffer.get(),
-                tracker.BufferReadState());
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
             tracker.RecordState(
                 newBuffer,
                 D3D12_RESOURCE_STATE_COPY_DEST);
@@ -159,7 +159,8 @@ void TopAccel::PreProcessInst(
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     auto &&input = topLevelBuildDesc.Inputs;
-    if (GenerateNewBuffer(tracker, builder, instBuffer, instanceByteCount, true, tracker.BufferReadState())) {
+    if (GenerateNewBuffer(
+            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
     }
 }
@@ -214,7 +215,8 @@ size_t TopAccel::PreProcess(
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     auto &&input = topLevelBuildDesc.Inputs;
-    if (GenerateNewBuffer(tracker, builder, instBuffer, instanceByteCount, true, tracker.BufferReadState())) {
+    if (GenerateNewBuffer(
+            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
     }
     device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
@@ -230,7 +232,14 @@ size_t TopAccel::PreProcess(
         topLevelBuildDesc.Inputs.Flags =
             (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS)(((uint)topLevelBuildDesc.Inputs.Flags) & (~((uint)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE)));
     }
-
+    tracker.RecordState(
+        GetAccelBuffer(),
+        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
+    if (!setDesc.empty()) {
+        tracker.RecordState(
+            instBuffer.get(),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
     return (update ? topLevelPrebuildInfo.UpdateScratchDataSizeInBytes : topLevelPrebuildInfo.ScratchDataSizeInBytes) + sizeof(size_t);
 }
 void TopAccel::Build(
@@ -241,10 +250,6 @@ void TopAccel::Build(
     auto alloc = builder.GetCB()->GetAlloc();
     // Update
     if (!setDesc.empty()) {
-        tracker.RecordState(
-            instBuffer.get(),
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        tracker.UpdateState(builder);
         auto cs = device->setAccelKernel.Get(device);
         auto setBuffer = alloc->GetTempUploadBuffer(setDesc.size_bytes());
         auto cbuffer = alloc->GetTempUploadBuffer(sizeof(size_t), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
@@ -273,9 +278,11 @@ void TopAccel::Build(
         setDesc.clear();
     }
     if (scratchBuffer) {
-        tracker.RecordState(
-            instBuffer.get());
-        tracker.UpdateState(builder);
+        auto readState = tracker.ReadState(ResourceReadUsage::AccelBuildSrc);
+        if ((eastl::to_underlying(tracker.GetState(instBuffer.get())) & eastl::to_underlying(readState)) == 0) {
+            tracker.RecordState(instBuffer.get(), readState);
+            tracker.UpdateState(builder);
+        }
         topLevelBuildDesc.ScratchAccelerationStructureData = scratchBuffer->buffer->GetAddress() + scratchBuffer->offset;
         if (RequireCompact()) {
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postInfo;

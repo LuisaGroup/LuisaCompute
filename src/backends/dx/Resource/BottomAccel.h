@@ -71,6 +71,7 @@ public:
         vstd::variant<MeshOptions, AABBOptions> const &options,
         BottomAccelData &bottomData);
     void UpdateStates(
+        ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
         BufferView const &scratchBuffer,
         BottomAccelData &accelData);

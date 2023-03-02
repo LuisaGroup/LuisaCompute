@@ -3,16 +3,48 @@
 #include <Resource/TextureBase.h>
 namespace toolhub::directx {
 namespace detail {
-static bool IsWriteState(D3D12_RESOURCE_STATES state) {
+static bool IsReadState(D3D12_RESOURCE_STATES state) {
+    switch (state) {
+        case D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER:
+        case D3D12_RESOURCE_STATE_INDEX_BUFFER:
+        case D3D12_RESOURCE_STATE_DEPTH_READ:
+        case D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:
+        case D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT:
+        case D3D12_RESOURCE_STATE_COPY_SOURCE:
+        case D3D12_RESOURCE_STATE_RESOLVE_SOURCE:
+            return true;
+        default:
+            return false;
+    }
+}
+static bool IsUAV(D3D12_RESOURCE_STATES state) {
     switch (state) {
         case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
+        case D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE:
+            return true;
+        default:
+            return false;
+    }
+}
+static bool IsWriteState(D3D12_RESOURCE_STATES state) {
+    switch (state) {
+        case 7:
         case D3D12_RESOURCE_STATE_COPY_DEST:
             return true;
         default:
             return false;
     }
 }
+static bool ShouldIgnoreState(D3D12_RESOURCE_STATES lastState, D3D12_RESOURCE_STATES curState) {
+    return ((lastState & curState) == curState);
+}
 }// namespace detail
+D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const {
+    auto iter = stateMap.find(res);
+    if (iter == stateMap.end()) return res->GetInitState();
+    return iter->second.curState;
+}
 ResourceStateTracker::ResourceStateTracker() {}
 ResourceStateTracker::~ResourceStateTracker() = default;
 void ResourceStateTracker::RecordState(
@@ -20,12 +52,10 @@ void ResourceStateTracker::RecordState(
     D3D12_RESOURCE_STATES state,
     bool lock) {
     auto initState = resource->GetInitState();
-    bool newAdd = false;
     bool isWrite = detail::IsWriteState(state);
     auto ite = stateMap.try_emplace(
         resource,
         vstd::lazy_eval([&] {
-            newAdd = true;
             if (isWrite) {
                 writeStateMap.emplace(resource);
             }
@@ -33,18 +63,25 @@ void ResourceStateTracker::RecordState(
                 .fence = lock ? fenceCount : 0,
                 .lastState = initState,
                 .curState = state,
-                .uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && initState == state),
+                .uavBarrier = (detail::IsUAV(state) && initState == state),
                 .isWrite = isWrite};
         }));
-    if (!newAdd) {
+    if (!ite.second) {
         auto &&st = ite.first->second;
         if (lock) {
             st.fence = fenceCount;
         } else if (st.fence >= fenceCount)
             return;
 
-        st.uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && ite.first->second.lastState == state);
-        st.curState = state;
+        st.uavBarrier = (detail::IsUAV(state) && st.lastState == state);
+        if (!st.uavBarrier && detail::IsReadState(st.curState) && detail::IsReadState(state)) {
+            st.curState |= state;
+        } else {
+            st.curState = state;
+        }
+        if (detail::ShouldIgnoreState(st.lastState, st.curState)) {
+            st.curState = st.lastState;
+        }
         if (isWrite != st.isWrite) {
             st.isWrite = isWrite;
             MarkWritable(resource, isWrite);
@@ -84,8 +121,9 @@ void ResourceStateTracker::RestoreStateMap() {
             MarkWritable(i.first, isWrite);
         }
         bool useUavBarrier =
-            (i.second.lastState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
-             i.second.curState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            (i.second.lastState == i.second.curState) &&
+            (detail::IsUAV(i.second.lastState) &&
+             detail::IsUAV(i.second.curState));
 
         if (useUavBarrier) {
             D3D12_RESOURCE_BARRIER &uavBarrier = states.emplace_back();
@@ -132,32 +170,48 @@ void ResourceStateTracker::MarkWritable(Resource const *res, bool writable) {
         writeStateMap.erase(res);
     }
 }
-D3D12_RESOURCE_STATES ResourceStateTracker::BufferReadState() const {
-    switch (listType) {
-        case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-            return D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER |
-                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
-                   D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT |
-                   D3D12_RESOURCE_STATE_COPY_SOURCE;
-        case D3D12_COMMAND_LIST_TYPE_COPY:
-            return D3D12_RESOURCE_STATE_COPY_SOURCE;
-        default:
-            return D3D12_RESOURCE_STATE_GENERIC_READ;
-    }
-}
-D3D12_RESOURCE_STATES ResourceStateTracker::TextureReadState(TextureBase const *tex) const {
-    if (tex->GetTag() == Resource::Tag::DepthBuffer) {
-        return D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_COPY_SOURCE;
-    } else {
-        switch (listType) {
-            case D3D12_COMMAND_LIST_TYPE_COMPUTE:
-                return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_COPY_SOURCE;
-            case D3D12_COMMAND_LIST_TYPE_COPY:
+D3D12_RESOURCE_STATES ResourceStateTracker::ReadState(ResourceReadUsage usage, Resource const *res) const {
+    if (res && res->GetTag() == Resource::Tag::DepthBuffer) {
+        switch (usage) {
+            case ResourceReadUsage::Srv:
+                return D3D12_RESOURCE_STATE_DEPTH_READ;
+            case ResourceReadUsage::CopySource:
                 return D3D12_RESOURCE_STATE_COPY_SOURCE;
             default:
-                return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
-                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
-                       D3D12_RESOURCE_STATE_COPY_SOURCE;
+                assert(false);
+        }
+    } else {
+        static constexpr D3D12_RESOURCE_STATES computeStates[] = {
+            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_INDEX_BUFFER,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+            D3D12_RESOURCE_STATE_COPY_SOURCE};
+        static constexpr D3D12_RESOURCE_STATES copyStates[] = {
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COPY_SOURCE};
+        static constexpr D3D12_RESOURCE_STATES graphicsStates[] = {
+            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+            D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_INDEX_BUFFER,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+            D3D12_RESOURCE_STATE_COPY_SOURCE};
+        switch (listType) {
+            case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+                return computeStates[eastl::to_underlying(usage)];
+            case D3D12_COMMAND_LIST_TYPE_COPY:
+                return copyStates[eastl::to_underlying(usage)];
+            default:
+                return graphicsStates[eastl::to_underlying(usage)];
         }
     }
 }

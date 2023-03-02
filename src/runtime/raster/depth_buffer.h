@@ -23,6 +23,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto format() const noexcept { return _format; }
     [[nodiscard]] luisa::unique_ptr<Command> clear(float value) const noexcept;
+    // to regular image type, try to write to this image in compute-kernel is illegal.
     [[nodiscard]] ImageView<float> to_img() noexcept;
 };
 

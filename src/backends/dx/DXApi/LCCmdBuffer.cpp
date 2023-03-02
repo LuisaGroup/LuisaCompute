@@ -85,7 +85,7 @@ public:
             } else {
                 self->stateTracker->RecordState(
                     res,
-                    self->stateTracker->BufferReadState());
+                    self->stateTracker->ReadState(ResourceReadUsage::Srv));
             }
             ++arg;
         }
@@ -102,7 +102,7 @@ public:
             else {
                 self->stateTracker->RecordState(
                     rt,
-                    self->stateTracker->TextureReadState(rt));
+                    self->stateTracker->ReadState(ResourceReadUsage::Srv, rt));
             }
             ++arg;
         }
@@ -140,7 +140,10 @@ public:
                 } else {
                     self->stateTracker->RecordState(
                         accel->GetInstBuffer(),
-                        self->stateTracker->BufferReadState());
+                        self->stateTracker->ReadState(ResourceReadUsage::Srv));
+                    self->stateTracker->RecordState(
+                        accel->GetAccelBuffer(),
+                        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
                 }
             }
             ++arg;
@@ -159,12 +162,12 @@ public:
             reinterpret_cast<Buffer const *>(cmd->handle()),
             cmd->offset(),
             cmd->size());
-        stateTracker->RecordState(bf.buffer, stateTracker->BufferReadState());
+        stateTracker->RecordState(bf.buffer, stateTracker->ReadState(ResourceReadUsage::CopySource));
     }
     void visit(const BufferCopyCommand *cmd) noexcept override {
         auto srcBf = reinterpret_cast<Buffer const *>(cmd->src_handle());
         auto dstBf = reinterpret_cast<Buffer const *>(cmd->dst_handle());
-        stateTracker->RecordState(srcBf, stateTracker->BufferReadState());
+        stateTracker->RecordState(srcBf, stateTracker->ReadState(ResourceReadUsage::CopySource));
         stateTracker->RecordState(dstBf, D3D12_RESOURCE_STATE_COPY_DEST);
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
@@ -176,7 +179,7 @@ public:
 
         stateTracker->RecordState(
             bf,
-            stateTracker->BufferReadState());
+            stateTracker->ReadState(ResourceReadUsage::CopySource));
     }
     void visit(const TextureUploadCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
@@ -194,14 +197,14 @@ public:
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         stateTracker->RecordState(
             rt,
-            stateTracker->TextureReadState(rt));
+            stateTracker->ReadState(ResourceReadUsage::CopySource, rt));
     }
     void visit(const TextureCopyCommand *cmd) noexcept override {
         auto src = reinterpret_cast<TextureBase *>(cmd->src_handle());
         auto dst = reinterpret_cast<TextureBase *>(cmd->dst_handle());
         stateTracker->RecordState(
             src,
-            stateTracker->TextureReadState(src));
+            stateTracker->ReadState(ResourceReadUsage::CopySource, src));
         stateTracker->RecordState(
             dst,
             D3D12_RESOURCE_STATE_COPY_DEST);
@@ -211,7 +214,7 @@ public:
         auto bf = reinterpret_cast<Buffer *>(cmd->buffer());
         stateTracker->RecordState(
             rt,
-            stateTracker->TextureReadState(rt));
+            stateTracker->ReadState(ResourceReadUsage::CopySource, rt));
         stateTracker->RecordState(
             bf,
             D3D12_RESOURCE_STATE_COPY_DEST);
@@ -225,7 +228,7 @@ public:
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
         if (cmd->is_indirect()) {
             auto buffer = reinterpret_cast<Buffer *>(cmd->indirect_dispatch_size().handle);
-            stateTracker->RecordState(buffer, stateTracker->BufferReadState());
+            stateTracker->RecordState(buffer, stateTracker->ReadState(ResourceReadUsage::IndirectArgs));
         }
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
@@ -303,13 +306,13 @@ public:
             for (auto &&v : mesh.vertex_buffers()) {
                 stateTracker->RecordState(
                     reinterpret_cast<Buffer *>(v.handle()),
-                    stateTracker->BufferReadState());
+                    stateTracker->ReadState(ResourceReadUsage::VertexBufferForGraphics));
             }
             auto &&i = mesh.index();
             if (i.index() == 0) {
                 stateTracker->RecordState(
                     reinterpret_cast<Buffer *>(luisa::get<0>(i).handle()),
-                    stateTracker->BufferReadState());
+                    stateTracker->ReadState(ResourceReadUsage::IndexBufferForGraphics));
             }
         }
         for (auto &&i : rtvs) {
@@ -346,7 +349,7 @@ public:
         bd->Upload(bf, cmd->data());
         stateTracker->RecordState(
             bf.buffer,
-            stateTracker->BufferReadState());
+            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const BufferDownloadCommand *cmd) noexcept override {
         BufferView bf(
@@ -368,7 +371,7 @@ public:
             cmd->size());
         stateTracker->RecordState(
             dstBf,
-            stateTracker->BufferReadState());
+            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
@@ -380,7 +383,7 @@ public:
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
         stateTracker->RecordState(
             rt,
-            stateTracker->TextureReadState(rt));
+            stateTracker->ReadState(ResourceReadUsage::Srv, rt));
     }
     struct Visitor {
         LCCmdVisitor *self;
@@ -514,7 +517,7 @@ public:
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
         stateTracker->RecordState(
             rt,
-            stateTracker->TextureReadState(rt));
+            stateTracker->ReadState(ResourceReadUsage::Srv, rt));
     }
     void visit(const ClearDepthCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
@@ -589,7 +592,7 @@ public:
             cmd->dst_level());
         stateTracker->RecordState(
             dst,
-            stateTracker->TextureReadState(dst));
+            stateTracker->ReadState(ResourceReadUsage::Srv, dst));
     }
     void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
@@ -601,7 +604,7 @@ public:
             CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
         stateTracker->RecordState(
             bf,
-            stateTracker->BufferReadState());
+            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
@@ -624,6 +627,7 @@ public:
     void BottomBuild(uint64 handle) {
         auto accel = reinterpret_cast<BottomAccel *>(handle);
         accel->UpdateStates(
+            *stateTracker,
             *bd,
             BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second),
             *bottomAccelData);
@@ -856,9 +860,6 @@ void LCCmdBuffer::Execute(
             DefaultBuffer const *accelScratchBuffer;
             if (ppVisitor.buildAccelSize) {
                 accelScratchBuffer = allocator->AllocateScratchBuffer(ppVisitor.buildAccelSize);
-                tracker.RecordState(
-                    accelScratchBuffer,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                 visitor.accelScratchOffsets = ppVisitor.accelOffset->data();
                 visitor.accelScratchBuffer = accelScratchBuffer;
             }
@@ -878,7 +879,7 @@ void LCCmdBuffer::Execute(
                     ppVisitor.argBuffer->data());
                 tracker.RecordState(
                     uploadBuffer.buffer,
-                    tracker.BufferReadState());
+                    tracker.ReadState(ResourceReadUsage::Srv));
                 visitor.argBuffer = uploadBuffer;
             }
             tracker.UpdateState(
@@ -913,10 +914,6 @@ void LCCmdBuffer::Execute(
                     });
                 }
                 updateAccel.clear();
-            } else if (ppVisitor.buildAccelSize) {
-                tracker.RecordState(
-                    accelScratchBuffer,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             }
             tracker.ClearFence();
         }
@@ -953,7 +950,7 @@ void LCCmdBuffer::Present(
             rt, D3D12_RESOURCE_STATE_COPY_DEST);
         tracker.RecordState(
             img,
-            tracker.TextureReadState(img));
+            tracker.ReadState(ResourceReadUsage::CopySource, img));
         tracker.UpdateState(bd);
         D3D12_TEXTURE_COPY_LOCATION sourceLocation;
         sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
@@ -996,16 +993,17 @@ void LCCmdBuffer::CompressBC(
     uint numBlocks = xBlocks * yBlocks;
     uint numTotalBlocks = numBlocks;
     static constexpr size_t BLOCK_SIZE = 16;
+    auto bufferReadState = tracker.ReadState(ResourceReadUsage::Srv);
     DefaultBuffer err1Buffer(
         device,
         BLOCK_SIZE * numBlocks,
         allocator,
-        D3D12_RESOURCE_STATE_COMMON);
+        bufferReadState);
     DefaultBuffer err2Buffer(
         device,
         BLOCK_SIZE * numBlocks,
         allocator,
-        D3D12_RESOURCE_STATE_COMMON);
+        bufferReadState);
     ReadbackBuffer readbackBuffer(
         device,
         BLOCK_SIZE * numBlocks,
@@ -1021,13 +1019,13 @@ void LCCmdBuffer::CompressBC(
         cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
 
         BCCBuffer cbData;
-        tracker.RecordState(rt, tracker.TextureReadState(rt));
+        tracker.RecordState(rt, tracker.ReadState(ResourceReadUsage::Srv, rt));
         auto RunComputeShader = [&](ComputeShader const *cs, uint dispatchCount, DefaultBuffer const &inBuffer, DefaultBuffer const &outBuffer) {
             auto cbuffer = alloc->GetTempUploadBuffer(sizeof(BCCBuffer), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
             static_cast<UploadBuffer const *>(cbuffer.buffer)->CopyData(cbuffer.offset, {reinterpret_cast<uint8_t const *>(&cbData), sizeof(BCCBuffer)});
             tracker.RecordState(
                 &inBuffer,
-                tracker.BufferReadState());
+                bufferReadState);
             tracker.RecordState(
                 &outBuffer,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

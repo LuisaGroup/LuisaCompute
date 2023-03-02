@@ -1,9 +1,9 @@
 includes("build_proj.lua")
 if UseMimalloc then
-	_configs.use_mimalloc = true
+	_configs.enable_mimalloc = true
 end
 includes("ext/EASTL")
-_configs.use_mimalloc = nil
+_configs.enable_mimalloc = nil
 includes("ext/spdlog")
 includes("core")
 includes("vstl")
@@ -40,4 +40,7 @@ if EnableRust then
 	includes("api")
 	includes("ir")
 	includes("rust")
+end
+if get_config("enable_unity3d_plugin") then
+	includes("unity3d")
 end

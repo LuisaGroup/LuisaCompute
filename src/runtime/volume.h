@@ -63,6 +63,7 @@ public:
     Volume(Volume const &) noexcept = delete;
     Volume &operator=(Volume &&) noexcept = default;
     Volume &operator=(Volume const &) noexcept = delete;
+    // properties
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {
@@ -76,7 +77,6 @@ public:
     }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
-
     [[nodiscard]] auto view(uint32_t level) const noexcept {
         if (level >= _mip_levels) [[unlikely]] {
             detail::error_volume_invalid_mip_levels(level, _mip_levels);
@@ -84,20 +84,22 @@ public:
         auto mip_size = luisa::max(_size >> level, 1u);
         return VolumeView<T>{handle(), _storage, level, mip_size};
     }
-
     [[nodiscard]] auto view() const noexcept { return view(0u); }
 
-    [[nodiscard]] auto operator->() const noexcept {
-        return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
-    }
-
+    // commands
+    // copy image's data to pointer or another image
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept {
         return this->view(0).copy_to(std::forward<U>(dst));
     }
+    // copy pointer or another image's data to image
     template<typename U>
     [[nodiscard]] auto copy_from(U &&dst) const noexcept {
         return this->view(0).copy_from(std::forward<U>(dst));
+    }
+    // DSL interface
+    [[nodiscard]] auto operator->() const noexcept {
+        return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
     }
 };
 
@@ -126,7 +128,7 @@ private:
 
 public:
     VolumeView(const Volume<T> &volume) noexcept : VolumeView{volume.view(0u)} {}
-
+    // properties
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {
@@ -135,11 +137,14 @@ public:
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
-
+    // commands
+    // copy image's data to pointer or another image
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept { return _as_mipmap().copy_to(std::forward<U>(dst)); }
+    // copy pointer or another image's data to image
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
+    // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::VolumeExprProxy<VolumeView<T>> *>(this);
     }

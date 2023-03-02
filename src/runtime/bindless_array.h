@@ -64,8 +64,9 @@ public:
     BindlessArray(BindlessArray const &) noexcept = delete;
     BindlessArray &operator=(BindlessArray &&) noexcept = default;
     BindlessArray &operator=(BindlessArray const &) noexcept = delete;
-
+    // properties
     [[nodiscard]] auto size() const noexcept { return _size; }
+    // on-update functions' operations will be committed by update()
     void emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
     void emplace_tex2d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
     void emplace_tex3d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;

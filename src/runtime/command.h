@@ -225,7 +225,7 @@ public:
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
     DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
     ~DrawRasterSceneCommand() noexcept override;
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs}.subspan(_rtv_count); }
+    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }

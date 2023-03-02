@@ -197,7 +197,7 @@ public:
 
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &ForceNew(Args &&...args) &noexcept {
+    inline SelfType &force_create(Args &&...args) &noexcept {
         if (mInitialized) { destroy(); }
         mInitialized = true;
         stackObj.create(std::forward<Args>(args)...);
@@ -205,8 +205,8 @@ public:
     }
 
     template<typename... Args>
-    inline SelfType &&ForceNew(Args &&...args) &&noexcept {
-        return std::move(ForceNew(std::forward<Args>(args)...));
+    inline SelfType &&force_create(Args &&...args) &&noexcept {
+        return std::move(force_create(std::forward<Args>(args)...));
     }
 
     bool has_value() const noexcept {

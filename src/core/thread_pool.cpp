@@ -82,7 +82,7 @@ public:
 
 struct ThreadPool::Impl {
     luisa::vector<std::thread> threads;
-    luisa::queue<luisa::function<void()>> tasks;
+    luisa::queue<luisa::SharedFunction<void()>> tasks;
     std::mutex mutex;
     luisa::unique_ptr<Barrier> synchronize_barrier;
     luisa::unique_ptr<Barrier> dispatch_barrier;
@@ -131,7 +131,7 @@ void ThreadPool::synchronize() noexcept {
     }
 }
 
-void ThreadPool::_dispatch(luisa::function<void()> task) noexcept {
+void ThreadPool::_dispatch(luisa::SharedFunction<void()> &&task) noexcept {
     {
         std::scoped_lock lock{_impl->mutex};
         _impl->tasks.emplace(std::move(task));
@@ -139,7 +139,7 @@ void ThreadPool::_dispatch(luisa::function<void()> task) noexcept {
     _impl->cv.notify_one();
 }
 
-void ThreadPool::_dispatch_all(luisa::function<void()> task, size_t max_threads) noexcept {
+void ThreadPool::_dispatch_all(luisa::SharedFunction<void()> &&task, size_t max_threads) noexcept {
     {
         std::scoped_lock lock{_impl->mutex};
         for (auto i = 0u; i < std::min(_impl->threads.size(), max_threads) - 1u; i++) {
@@ -157,11 +157,6 @@ ThreadPool::~ThreadPool() noexcept {
     }
     _impl->cv.notify_all();
     for (auto &&t : _impl->threads) { t.join(); }
-}
-
-ThreadPool &ThreadPool::global() noexcept {
-    static ThreadPool pool;
-    return pool;
 }
 
 uint ThreadPool::size() const noexcept {

@@ -9,19 +9,20 @@ void MeshPreprocess(
     Buffer const *vHandle,
     Buffer const *iHandle,
     ResourceStateTracker &tracker) {
+    auto buildAccelState = tracker.ReadState(ResourceReadUsage::AccelBuildSrc);
     tracker.RecordState(
         vHandle,
-        tracker.BufferReadState());
+        buildAccelState);
     tracker.RecordState(
         iHandle,
-        tracker.BufferReadState());
+        buildAccelState);
 }
 void AABBPreprocess(
     Buffer const *aabbHandle,
     ResourceStateTracker &tracker) {
     tracker.RecordState(
         aabbHandle,
-        tracker.BufferReadState());
+        tracker.ReadState(ResourceReadUsage::AccelBuildSrc));
 }
 void GetStaticTriangleGeometryDesc(
     D3D12_RAYTRACING_GEOMETRY_DESC &geometryDesc,
@@ -44,8 +45,8 @@ void GetStaticAABBGeometryDesc(
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
     geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
     geometryDesc.AABBs.AABBCount = aabbObjectCount;
-    geometryDesc.AABBs.AABBs.StartAddress = aabbBuffer->GetAddress() + aabbObjectOffset * 32;
-    geometryDesc.AABBs.AABBs.StrideInBytes = 32;
+    geometryDesc.AABBs.AABBs.StartAddress = aabbBuffer->GetAddress() + aabbObjectOffset * 24;
+    geometryDesc.AABBs.AABBs.StrideInBytes = 24;
 }
 }// namespace detail
 bool BottomAccel::RequireCompact() const {
@@ -169,6 +170,7 @@ bool BottomAccel::CheckAccel(
     return true;
 }
 void BottomAccel::UpdateStates(
+    ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
     BufferView const &scratchBuffer,
     BottomAccelData &accelData) {
@@ -188,6 +190,7 @@ void BottomAccel::UpdateStates(
             &accelData.bottomStruct,
             0,
             nullptr);
+        tracker.RecordState(GetAccelBuffer(), D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
     }
 }
 void BottomAccel::FinalCopy(

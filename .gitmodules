@@ -25,3 +25,6 @@
 [submodule "src/ext/corrosion"]
 	path = src/ext/corrosion
 	url = https://github.com/corrosion-rs/corrosion.git
+[submodule "src/unity3d"]
+	path = src/unity3d
+	url = https://github.com/LuisaGroup/LuisaCompute_Unity3D

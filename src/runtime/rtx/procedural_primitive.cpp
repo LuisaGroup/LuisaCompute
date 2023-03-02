@@ -5,10 +5,10 @@ namespace luisa::compute {
 ProceduralPrimitive::ProceduralPrimitive(DeviceInterface *device,  BufferView<AABB> aabb, const AccelOption &option) noexcept
     : 
     // TODO
-    // _aabb_buffer(buffer.handle()),
-    //   _aabb_count(aabb_count),
-    //   _aabb_offset(aabb_offset),
-      Resource(device, Resource::Tag::PROCEDURAL_PRIMITIVE,
+    _aabb_buffer(aabb.handle()),
+    _aabb_count(aabb.size()),
+    _aabb_offset(aabb.offset()),
+    Resource(device, Resource::Tag::PROCEDURAL_PRIMITIVE,
                device->create_procedural_primitive(option)) {
 }
 
