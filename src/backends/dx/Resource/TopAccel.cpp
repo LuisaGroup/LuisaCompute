@@ -92,7 +92,7 @@ bool TopAccel::GenerateNewBuffer(
         if (needCopy) {
             tracker.RecordState(
                 oldBuffer.get(),
-                tracker.BufferReadState());
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
             tracker.RecordState(
                 newBuffer,
                 D3D12_RESOURCE_STATE_COPY_DEST);
@@ -159,7 +159,8 @@ void TopAccel::PreProcessInst(
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     auto &&input = topLevelBuildDesc.Inputs;
-    if (GenerateNewBuffer(tracker, builder, instBuffer, instanceByteCount, true, tracker.BufferReadState())) {
+    if (GenerateNewBuffer(
+            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
     }
 }
@@ -214,7 +215,8 @@ size_t TopAccel::PreProcess(
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     auto &&input = topLevelBuildDesc.Inputs;
-    if (GenerateNewBuffer(tracker, builder, instBuffer, instanceByteCount, true, tracker.BufferReadState())) {
+    if (GenerateNewBuffer(
+            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         topLevelBuildDesc.Inputs.InstanceDescs = instBuffer->GetAddress();
     }
     device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
@@ -276,9 +278,9 @@ void TopAccel::Build(
         setDesc.clear();
     }
     if (scratchBuffer) {
-        if (tracker.GetState(instBuffer.get()) != instBuffer->GetInitState()) {
-            tracker.RecordState(
-                instBuffer.get());
+        auto readState = tracker.ReadState(ResourceReadUsage::AccelBuildSrc);
+        if ((eastl::to_underlying(tracker.GetState(instBuffer.get())) & eastl::to_underlying(readState)) == 0) {
+            tracker.RecordState(instBuffer.get(), readState);
             tracker.UpdateState(builder);
         }
         topLevelBuildDesc.ScratchAccelerationStructureData = scratchBuffer->buffer->GetAddress() + scratchBuffer->offset;

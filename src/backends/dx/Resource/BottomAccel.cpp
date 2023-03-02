@@ -9,19 +9,20 @@ void MeshPreprocess(
     Buffer const *vHandle,
     Buffer const *iHandle,
     ResourceStateTracker &tracker) {
+    auto buildAccelState = tracker.ReadState(ResourceReadUsage::AccelBuildSrc);
     tracker.RecordState(
         vHandle,
-        tracker.BufferReadState());
+        buildAccelState);
     tracker.RecordState(
         iHandle,
-        tracker.BufferReadState());
+        buildAccelState);
 }
 void AABBPreprocess(
     Buffer const *aabbHandle,
     ResourceStateTracker &tracker) {
     tracker.RecordState(
         aabbHandle,
-        tracker.BufferReadState());
+        tracker.ReadState(ResourceReadUsage::AccelBuildSrc));
 }
 void GetStaticTriangleGeometryDesc(
     D3D12_RAYTRACING_GEOMETRY_DESC &geometryDesc,

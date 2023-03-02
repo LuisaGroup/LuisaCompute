@@ -4,6 +4,15 @@ namespace toolhub::directx {
 class CommandBufferBuilder;
 class Resource;
 class TextureBase;
+enum class ResourceReadUsage : uint16_t {
+    VertexBufferForGraphics,
+    ConstantBuffer,
+    AccelBuildSrc,
+    IndexBufferForGraphics,
+    Srv,
+    IndirectArgs,
+    CopySource
+};
 class ResourceStateTracker : public vstd::IOperatorNewBase {
 private:
     struct State {
@@ -23,9 +32,8 @@ private:
 
 public:
     D3D12_COMMAND_LIST_TYPE listType = D3D12_COMMAND_LIST_TYPE_COMPUTE;
-    D3D12_RESOURCE_STATES GetState(Resource const* res) const;
-    D3D12_RESOURCE_STATES BufferReadState() const ;
-    D3D12_RESOURCE_STATES TextureReadState(TextureBase const* tex) const;
+    D3D12_RESOURCE_STATES GetState(Resource const *res) const;
+    D3D12_RESOURCE_STATES ReadState(ResourceReadUsage usage, Resource const *res = nullptr) const;
     void ClearFence() { fenceCount++; }
     vstd::unordered_set<Resource const *> const &WriteStateMap() const { return writeStateMap; }
     ResourceStateTracker();
