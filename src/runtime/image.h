@@ -72,6 +72,7 @@ public:
     Image(Image const &) noexcept = delete;
     Image &operator=(Image &&) noexcept = default;
     Image &operator=(Image const &) noexcept = delete;
+    // properties
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {
         size_t byte_size = 0;
@@ -95,15 +96,18 @@ public:
     }
 
     [[nodiscard]] auto view() const noexcept { return view(0u); }
-
+    // commands
+    // copy image's data to pointer or another image
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept {
         return this->view(0).copy_to(std::forward<U>(dst));
     }
+    // copy pointer or another image's data to image
     template<typename U>
     [[nodiscard]] auto copy_from(U &&dst) const noexcept {
         return this->view(0).copy_from(std::forward<U>(dst));
     }
+    // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
@@ -138,6 +142,7 @@ private:
 
 public:
     ImageView(const Image<T> &image) noexcept : ImageView{image.view(0u)} {}
+    // properties
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {
@@ -146,11 +151,14 @@ public:
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }
     [[nodiscard]] auto level() const noexcept { return _level; }
+    // commands
+    // copy image's data to pointer or another image
     template<typename U>
     [[nodiscard]] auto copy_to(U &&dst) const noexcept { return _as_mipmap().copy_to(std::forward<U>(dst)); }
+    // copy pointer or another image's data to image
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
-
+    // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::ImageExprProxy<ImageView<T>> *>(this);
     }

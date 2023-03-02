@@ -15,7 +15,7 @@ private:
 public:
     explicit BufferArena(Device &device, size_t capacity = 4_mb) noexcept
         : _device{device}, _capacity{std::max(next_pow2(capacity), 64_kb) / sizeof(float4)} {}
-
+    // Allocate sub buffer by stack-allocator
     template<typename T>
     [[nodiscard]] BufferView<T> allocate(size_t n) noexcept {
         static_assert(alignof(T) <= 16u);

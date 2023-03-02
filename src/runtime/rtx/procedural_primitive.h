@@ -24,6 +24,7 @@ public:
     ProceduralPrimitive &operator=(ProceduralPrimitive const &) noexcept = delete;
 
     using Resource::operator bool;
+    // build procedural primitives' based bottom-level acceleration structure
     [[nodiscard]] luisa::unique_ptr<Command> build(AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
     [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
     [[nodiscard]] auto aabb_count() const noexcept { return _aabb_count; }

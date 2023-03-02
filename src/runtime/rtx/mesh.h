@@ -62,6 +62,7 @@ public:
     Mesh &operator=(Mesh &&) noexcept = default;
     Mesh &operator=(Mesh const &) noexcept = delete;
     using Resource::operator bool;
+    // build triangle based bottom-level acceleration structure
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
     [[nodiscard]] auto triangle_count() const noexcept { return _triangle_count; }
 };

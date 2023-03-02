@@ -50,31 +50,30 @@ private:
         : Resource{device, Tag::BUFFER, info},
           _size{info.total_size_bytes / info.element_stride},
           _element_stride{info.element_stride} {}
-
-public:
     Buffer(DeviceInterface *device, size_t size) noexcept
         : Buffer{device, device->create_buffer(Type::of<T>(), size)} {}
+
+public:
     Buffer() noexcept = default;
     Buffer(Buffer &&) noexcept = default;
     Buffer(Buffer const &) noexcept = delete;
     Buffer &operator=(Buffer &&) noexcept = default;
     Buffer &operator=(Buffer const &) noexcept = delete;
     using Resource::operator bool;
+    // properties
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] constexpr auto stride() const noexcept { return _element_stride; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * _element_stride; }
     [[nodiscard]] auto view() const noexcept { return BufferView<T>{this->handle(), _element_stride, 0u, _size, _size}; }
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept { return view().subview(offset, count); }
-
+    // commands
+    // copy buffer's data to pointer
     [[nodiscard]] auto copy_to(void *data) const noexcept { return this->view().copy_to(data); }
+    // copy pointer's data to buffer
     [[nodiscard]] auto copy_from(const void *data) noexcept { return this->view().copy_from(data); }
+    // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept { return this->view().copy_from(source); }
-
-    template<typename I>
-    [[nodiscard]] decltype(auto) atomic(I &&i) const noexcept {
-        return this->view().atomic(std::forward<I>(i));
-    }
-
+    // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::BufferExprProxy<Buffer<T>> *>(this);
     }
@@ -108,7 +107,7 @@ public:
     BufferView() noexcept : BufferView{invalid_resource_handle, 0, 0, 0} {}
     [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
-
+    // properties
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] constexpr auto stride() const noexcept { return _element_stride; }
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -119,14 +118,13 @@ public:
     [[nodiscard]] auto original() const noexcept {
         return BufferView{_handle, _element_stride, 0u, _total_size, _total_size};
     }
-
     [[nodiscard]] auto subview(size_t offset_elements, size_t size_elements) const noexcept {
         if (size_elements + offset_elements > _size) [[unlikely]] {
             detail::error_buffer_subview_overflow(offset_elements, size_elements, _size);
         }
         return BufferView{_handle, _element_stride, _offset_bytes + offset_elements * _element_stride, size_elements, _total_size};
     }
-
+    // reinterpret cast buffer to another type U
     template<typename U>
         requires(!is_custom_struct_v<U>())
     [[nodiscard]] auto as() const noexcept {
@@ -135,15 +133,16 @@ public:
         }
         return BufferView<U>{_handle, _offset_bytes, this->size_bytes() / sizeof(U), _total_size};
     }
-
+    // commands
+    // copy buffer's data to pointer
     [[nodiscard]] auto copy_to(void *data) const noexcept {
         return BufferDownloadCommand::create(_handle, offset_bytes(), size_bytes(), data);
     }
-
+    // copy pointer's data to buffer
     [[nodiscard]] auto copy_from(const void *data) noexcept {
         return BufferUploadCommand::create(this->handle(), this->offset_bytes(), this->size_bytes(), data);
     }
-
+    // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         if (source.size() != this->size()) [[unlikely]] {
             detail::error_buffer_copy_sizes_mismatch(source.size(), this->size());
@@ -153,7 +152,7 @@ public:
             source.offset_bytes(), this->offset_bytes(),
             this->size_bytes());
     }
-
+    // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::BufferExprProxy<BufferView<T>> *>(this);
     }

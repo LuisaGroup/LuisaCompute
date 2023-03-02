@@ -44,6 +44,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _mesh_handles.size(); }
 
     // host interfaces
+    // operations is committed by update_instance() or build()
     void emplace_back(const Mesh &mesh, float4x4 transform = make_float4x4(1.f), bool visible = true, bool opaque = true) noexcept {
         emplace_back_handle(mesh.handle(), transform, visible, opaque);
     }
@@ -63,10 +64,11 @@ public:
     void set_visibility_on_update(size_t index, bool visible) noexcept;
     void set_opaque_on_update(size_t index, bool opaque) noexcept;
 
-    // update top-level accel, build or only update instance data
+    // update top-level acceleration structure's instance data without build
     [[nodiscard]] luisa::unique_ptr<Command> update_instance() noexcept {
         return update(false, Accel::BuildRequest::PREFER_UPDATE);
     }
+    // update top-level acceleration structure's instance data and build
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept {
         return update(true, request);
     }
