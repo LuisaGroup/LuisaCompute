@@ -141,6 +141,9 @@ public:
                     self->stateTracker->RecordState(
                         accel->GetInstBuffer(),
                         self->stateTracker->BufferReadState());
+                    self->stateTracker->RecordState(
+                        accel->GetAccelBuffer(),
+                        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
                 }
             }
             ++arg;
@@ -624,6 +627,7 @@ public:
     void BottomBuild(uint64 handle) {
         auto accel = reinterpret_cast<BottomAccel *>(handle);
         accel->UpdateStates(
+            *stateTracker,
             *bd,
             BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second),
             *bottomAccelData);
@@ -856,9 +860,6 @@ void LCCmdBuffer::Execute(
             DefaultBuffer const *accelScratchBuffer;
             if (ppVisitor.buildAccelSize) {
                 accelScratchBuffer = allocator->AllocateScratchBuffer(ppVisitor.buildAccelSize);
-                tracker.RecordState(
-                    accelScratchBuffer,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                 visitor.accelScratchOffsets = ppVisitor.accelOffset->data();
                 visitor.accelScratchBuffer = accelScratchBuffer;
             }
@@ -913,10 +914,6 @@ void LCCmdBuffer::Execute(
                     });
                 }
                 updateAccel.clear();
-            } else if (ppVisitor.buildAccelSize) {
-                tracker.RecordState(
-                    accelScratchBuffer,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             }
             tracker.ClearFence();
         }

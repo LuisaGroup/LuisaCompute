@@ -3,9 +3,18 @@
 #include <Resource/TextureBase.h>
 namespace toolhub::directx {
 namespace detail {
-static bool IsWriteState(D3D12_RESOURCE_STATES state) {
+static bool IsUAV(D3D12_RESOURCE_STATES state) {
     switch (state) {
         case D3D12_RESOURCE_STATE_UNORDERED_ACCESS:
+        case D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE:
+            return true;
+        default:
+            return false;
+    }
+}
+static bool IsWriteState(D3D12_RESOURCE_STATES state) {
+    switch (state) {
+        case 7:
         case D3D12_RESOURCE_STATE_COPY_DEST:
             return true;
         default:
@@ -13,6 +22,11 @@ static bool IsWriteState(D3D12_RESOURCE_STATES state) {
     }
 }
 }// namespace detail
+D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const {
+    auto iter = stateMap.find(res);
+    if (iter == stateMap.end()) return res->GetInitState();
+    return iter->second.curState;
+}
 ResourceStateTracker::ResourceStateTracker() {}
 ResourceStateTracker::~ResourceStateTracker() = default;
 void ResourceStateTracker::RecordState(
@@ -33,7 +47,7 @@ void ResourceStateTracker::RecordState(
                 .fence = lock ? fenceCount : 0,
                 .lastState = initState,
                 .curState = state,
-                .uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && initState == state),
+                .uavBarrier = (detail::IsUAV(state) && initState == state),
                 .isWrite = isWrite};
         }));
     if (!newAdd) {
@@ -43,7 +57,7 @@ void ResourceStateTracker::RecordState(
         } else if (st.fence >= fenceCount)
             return;
 
-        st.uavBarrier = (state == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && ite.first->second.lastState == state);
+        st.uavBarrier = (detail::IsUAV(state) && ite.first->second.lastState == state);
         st.curState = state;
         if (isWrite != st.isWrite) {
             st.isWrite = isWrite;
@@ -84,8 +98,9 @@ void ResourceStateTracker::RestoreStateMap() {
             MarkWritable(i.first, isWrite);
         }
         bool useUavBarrier =
-            (i.second.lastState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS &&
-             i.second.curState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            (i.second.lastState == i.second.curState) &&
+            (detail::IsUAV(i.second.lastState) &&
+             detail::IsUAV(i.second.curState));
 
         if (useUavBarrier) {
             D3D12_RESOURCE_BARRIER &uavBarrier = states.emplace_back();

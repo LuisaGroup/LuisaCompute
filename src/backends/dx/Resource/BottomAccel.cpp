@@ -169,6 +169,7 @@ bool BottomAccel::CheckAccel(
     return true;
 }
 void BottomAccel::UpdateStates(
+    ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
     BufferView const &scratchBuffer,
     BottomAccelData &accelData) {
@@ -188,6 +189,7 @@ void BottomAccel::UpdateStates(
             &accelData.bottomStruct,
             0,
             nullptr);
+        tracker.RecordState(GetAccelBuffer(), D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
     }
 }
 void BottomAccel::FinalCopy(
