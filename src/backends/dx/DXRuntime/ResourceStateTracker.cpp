@@ -36,6 +36,9 @@ static bool IsWriteState(D3D12_RESOURCE_STATES state) {
             return false;
     }
 }
+static bool ShouldIgnoreState(D3D12_RESOURCE_STATES lastState, D3D12_RESOURCE_STATES curState) {
+    return ((lastState & curState) == curState);
+}
 }// namespace detail
 D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const {
     auto iter = stateMap.find(res);
@@ -75,6 +78,9 @@ void ResourceStateTracker::RecordState(
             st.curState |= state;
         } else {
             st.curState = state;
+        }
+        if (detail::ShouldIgnoreState(st.lastState, st.curState)) {
+            st.curState = st.lastState;
         }
         if (isWrite != st.isWrite) {
             st.isWrite = isWrite;
