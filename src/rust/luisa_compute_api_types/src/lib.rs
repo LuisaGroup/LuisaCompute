@@ -178,7 +178,14 @@ pub enum PixelFormat {
     Rg32Sint,
     Rg32Uint,
 
+    Rgba32Sint,
+    Rgba32Uint,
+
     R16f,
+    Rg16f,
+    Rgba16f,
+
+    R32f,
     Rg32f,
     Rgba32f,
 }
@@ -204,8 +211,14 @@ impl PixelFormat {
             PixelFormat::R32Sint | PixelFormat::R32Uint => PixelStorage::Int1,
             PixelFormat::Rg32Sint | PixelFormat::Rg32Uint => PixelStorage::Int2,
             PixelFormat::R16f => PixelStorage::Half1,
+            PixelFormat::Rg16f => PixelStorage::Half2,
+            PixelFormat::Rgba16f => PixelStorage::Half4,
+            PixelFormat::R32f => PixelStorage::Float1,
             PixelFormat::Rg32f => PixelStorage::Float2,
-            PixelFormat::Rgba32f => PixelStorage::Float4,
+            PixelFormat::Rgba32Sint | PixelFormat::Rgba32Uint=> PixelStorage::Int4,
+            PixelFormat::Rgba32f => {
+                PixelStorage::Float4
+            }
         }
     }
 }

@@ -44,7 +44,12 @@ enum class PixelFormat {
     R32_UINT,
     RG32_SINT,
     RG32_UINT,
+    RGBA32_SINT,
+    RGBA32_UINT,
     R16F,
+    RG16F,
+    RGBA16F,
+    R32F,
     RG32F,
     RGBA32F,
 };
