@@ -1,6 +1,6 @@
 find_package(LLVM CONFIG)
 
-if (LLVM_FOUND) # link with llvm for jit
+if (LLVM_FOUND AND LLVM_VERSION_MAJOR GREATER_EQUAL 13) # link with llvm for jit
     set(LC_BACKEND_LLVM_SRC
             llvm_abi.h
             llvm_device.cpp llvm_device.h
