@@ -25,6 +25,7 @@ luisa_compute_add_executable(test_rtx test_rtx.cpp)
 luisa_compute_add_executable(test_ispc_101 test_ispc_101.cpp)
 luisa_compute_add_executable(test_thread_pool test_thread_pool.cpp)
 luisa_compute_add_executable(test_sdf_renderer test_sdf_renderer.cpp)
+luisa_compute_add_executable(test_procedural test_procedural.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_game_of_life test_game_of_life.cpp)

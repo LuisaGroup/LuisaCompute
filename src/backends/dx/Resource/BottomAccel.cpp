@@ -45,8 +45,8 @@ void GetStaticAABBGeometryDesc(
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
     geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
     geometryDesc.AABBs.AABBCount = aabbObjectCount;
-    geometryDesc.AABBs.AABBs.StartAddress = aabbBuffer->GetAddress() + aabbObjectOffset * 32;
-    geometryDesc.AABBs.AABBs.StrideInBytes = 32;
+    geometryDesc.AABBs.AABBs.StartAddress = aabbBuffer->GetAddress() + aabbObjectOffset * 24;
+    geometryDesc.AABBs.AABBs.StrideInBytes = 24;
 }
 }// namespace detail
 bool BottomAccel::RequireCompact() const {
