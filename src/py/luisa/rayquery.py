@@ -24,8 +24,11 @@ class RayQueryType:
     def proceed(self):
         return _builtin_call(bool, "RAY_QUERY_PROCEED", self)
     @func
-    def is_triangle(self):
+    def is_candidate_triangle(self):
         return _builtin_call(bool, "RAY_QUERY_IS_CANDIDATE_TRIANGLE", self)
+    @func
+    def is_candidate_procedural(self):
+        return not _builtin_call(bool, "RAY_QUERY_IS_CANDIDATE_TRIANGLE", self)
     @func
     def procedural_candidate(self):
         return _builtin_call(Hit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)

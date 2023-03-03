@@ -1,6 +1,7 @@
 #define CLOSEST_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
 #define ALL_HIT_RAY_FLAG (RAY_FLAG_NONE)
 #define ANY_HIT_RAY_FLAG (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
+typedef RayQuery<ALL_HIT_RAY_FLAG> LC_RayQuery;
 template<typename T>
 RayPayload TraceClosest(RaytracingAccelerationStructure accel,T rayDesc){
 RayDesc ray;
@@ -24,17 +25,17 @@ pl.v3=0;
 return pl;
 }
 template<typename T>
-RayQuery<ALL_HIT_RAY_FLAG> TraceAll(RaytracingAccelerationStructure accel,T rayDesc){
+LC_RayQuery TraceAll(RaytracingAccelerationStructure accel,T rayDesc){
 RayDesc ray;
 ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2])  ;
 ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
 ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
-RayQuery<ALL_HIT_RAY_FLAG> q;
+LC_RayQuery q;
 q.TraceRayInline(accel,ALL_HIT_RAY_FLAG,~0,ray);
 return q;
 }
-RayPayload GetCommitedHit(const RayQuery<ALL_HIT_RAY_FLAG> q){
+RayPayload GetCommitedHit(const LC_RayQuery q){
 RayPayload pl;
 switch(q.CommittedStatus()){
 case COMMITTED_TRIANGLE_HIT:
@@ -57,7 +58,7 @@ break;
 }
 return pl;
 }
-RayPayload GetTriangleCandidateHit(const RayQuery<ALL_HIT_RAY_FLAG> q){
+RayPayload GetTriangleCandidateHit(const LC_RayQuery q){
 RayPayload pl;
 pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
@@ -66,7 +67,7 @@ pl.v3=1;
 pl.v4=q.CandidateTriangleRayT();
 return pl;
 }
-RayPayload GetProceduralCandidateHit(const RayQuery<ALL_HIT_RAY_FLAG> q){
+RayPayload GetProceduralCandidateHit(const LC_RayQuery q){
 RayPayload pl;
 pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
