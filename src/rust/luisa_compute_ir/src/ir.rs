@@ -424,7 +424,7 @@ pub enum Func {
     RayTracingInstanceOpacity,
     RayTracingSetInstanceAabb,
     RayTracingSetInstanceTransform,
-    RayTracingSetInstanceOpactiy,
+    RayTracingSetInstanceOpacity,
     RayTracingSetInstanceVisibility,
     // (handle, Ray) -> Hit
     // struct Ray alignas(16) { float origin[3], tmin; float direction[3], tmax; };
