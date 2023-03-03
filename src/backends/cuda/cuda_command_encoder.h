@@ -19,12 +19,10 @@ class CUDAStream;
 class CUDACommandEncoder : public CommandVisitor {
 
 private:
-    CUDADevice *_device;
     CUDAStream *_stream;
 
 public:
-    explicit CUDACommandEncoder(CUDADevice *device, CUDAStream *stream) noexcept
-        : _device{device}, _stream{stream} {}
+    explicit CUDACommandEncoder(CUDAStream *stream) noexcept: _stream{stream} {}
     void visit(const BufferUploadCommand *command) noexcept override;
     void visit(const BufferDownloadCommand *command) noexcept override;
     void visit(const BufferCopyCommand *command) noexcept override;
@@ -37,9 +35,10 @@ public:
     void visit(const AccelBuildCommand *command) noexcept override;
     void visit(const MeshBuildCommand *command) noexcept override;
     void visit(const BindlessArrayUpdateCommand *command) noexcept override;
-
-    template<typename F>
-    void with_upload_buffer(size_t size, F &&f) noexcept;
+    void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override;
+    void visit(const CustomCommand *command) noexcept override;
+    void visit(const DrawRasterSceneCommand *command) noexcept override;
+    void visit(const ClearDepthCommand *command) noexcept override;
 };
 
 }// namespace luisa::compute::cuda

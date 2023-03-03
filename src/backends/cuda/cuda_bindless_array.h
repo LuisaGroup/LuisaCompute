@@ -10,7 +10,7 @@
 #include <core/stl.h>
 #include <core/dirty_range.h>
 #include <runtime/sampler.h>
-#include <runtime/resource_tracker.h>
+#include <runtime/command.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 
@@ -48,7 +48,6 @@ private:
     luisa::vector<CUtexObject> _tex3d_slots;
     luisa::vector<std::array<uint16_t, 2u>> _tex2d_sizes;
     luisa::vector<std::array<uint16_t, 4u>> _tex3d_sizes;
-    ResourceTracker _resource_tracker;
     luisa::vector<uint64_t> _buffer_resources;
     luisa::unordered_map<CUtexObject, uint64_t> _texture_resources;
 
@@ -122,6 +121,8 @@ public:
      * @param stream CUDAStream
      */
     void upload(CUDAStream *stream) noexcept;
+
+    void update(CUDAStream *stream, luisa::span<const BindlessArrayUpdateCommand::Modification> mods) noexcept;
 };
 
 }// namespace luisa::compute::cuda

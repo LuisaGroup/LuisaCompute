@@ -32,7 +32,7 @@ CUDAHostBufferPool::View *CUDAHostBufferPool::allocate(size_t size) noexcept {
             "CUDAHostBufferPool. Falling back "
             "to ad-hoc allocation.",
             size);
-        view = View::create(luisa::allocate<std::byte>(size));
+        view = View::create(luisa::allocate_with_allocator<std::byte>(size));
     }
     return view;
 }
@@ -63,9 +63,9 @@ void CUDAHostBufferPool::View::recycle() noexcept {
     if (is_pooled()) [[likely]] {
         _pool->recycle(node());
     } else {
-        luisa::deallocate(static_cast<std::byte *>(_handle));
+        luisa::deallocate_with_allocator(static_cast<std::byte *>(_handle));
     }
-    host_buffer_recycle_context_pool().recycle(this);
+    host_buffer_recycle_context_pool().destroy(this);
 }
 
 CUDAHostBufferPool::View *CUDAHostBufferPool::View::create(std::byte *handle) noexcept {

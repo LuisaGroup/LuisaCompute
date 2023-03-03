@@ -101,7 +101,6 @@ private:
     Handle _handle;
     CUmodule _accel_update_module{nullptr};
     CUfunction _accel_update_function{nullptr};
-    CUfunction _stream_wait_value_function{nullptr};
     BinaryIO *_io{nullptr};
 
 public:

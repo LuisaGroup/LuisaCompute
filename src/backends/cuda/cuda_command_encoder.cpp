@@ -15,18 +15,11 @@
 
 namespace luisa::compute::cuda {
 
-template<typename F>
-inline void CUDACommandEncoder::with_upload_buffer(size_t size, F &&f) noexcept {
-    auto upload_buffer = _stream->upload_pool()->allocate(size);
-    f(upload_buffer);
-    _stream->emplace_callback(upload_buffer);
-}
-
 void CUDACommandEncoder::visit(const BufferUploadCommand *command) noexcept {
     auto buffer = command->handle() + command->offset();
     auto data = command->data();
     auto size = command->size();
-    with_upload_buffer(size, [&](auto upload_buffer) noexcept {
+    _stream->with_upload_buffer(size, [&](auto upload_buffer) noexcept {
         std::memcpy(upload_buffer->address(), data, size);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
             buffer, upload_buffer->address(),
@@ -48,46 +41,46 @@ void CUDACommandEncoder::visit(const BufferCopyCommand *command) noexcept {
     LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dst_buffer, src_buffer, size, _stream->handle()));
 }
 
+void CUDACommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
+    reinterpret_cast<CUDAShader *>(command->handle())->launch(_stream, command);
+}
+
 void CUDACommandEncoder::visit(const BufferToTextureCopyCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->texture());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
-    auto pixel_size = pixel_storage_size(command->storage());
-    auto pitch = pixel_size * command->size().x;
+    auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
+    auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
     copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
     copy.srcDevice = command->buffer() + command->buffer_offset();
     copy.srcPitch = pitch;
-    copy.srcHeight = command->size().y;
+    copy.srcHeight = height;
     copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.dstArray = array;
     copy.WidthInBytes = pitch;
-    copy.Height = command->size().y;
+    copy.Height = height;
     copy.Depth = command->size().z;
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
-}
-
-void CUDACommandEncoder::visit(const ShaderDispatchCommand *command) noexcept {
-    reinterpret_cast<CUDAShader *>(command->handle())->launch(_stream, command);
 }
 
 void CUDACommandEncoder::visit(const TextureUploadCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->handle());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
-    auto pixel_size = pixel_storage_size(command->storage());
-    auto pitch = pixel_size * command->size().x;
+    auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
+    auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
+    auto size_bytes = pixel_storage_size(command->storage(), command->size());
     auto data = command->data();
-    auto size_bytes = pitch * command->size().y * command->size().z;
-    with_upload_buffer(size_bytes, [&](auto upload_buffer) noexcept {
+    _stream->with_upload_buffer(size_bytes, [&](auto upload_buffer) noexcept {
         std::memcpy(upload_buffer->address(), data, size_bytes);
         copy.srcMemoryType = CU_MEMORYTYPE_HOST;
         copy.srcHost = upload_buffer->address();
         copy.srcPitch = pitch;
-        copy.srcHeight = command->size().y;
+        copy.srcHeight = height;
         copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
         copy.dstArray = array;
         copy.WidthInBytes = pitch;
-        copy.Height = command->size().y;
+        copy.Height = height;
         copy.Depth = command->size().z;
         LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
     });
@@ -97,17 +90,17 @@ void CUDACommandEncoder::visit(const TextureDownloadCommand *command) noexcept {
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->handle());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
-    auto pixel_size = pixel_storage_size(command->storage());
-    auto pitch = pixel_size * command->size().x;
+    auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
+    auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = array;
     copy.WidthInBytes = pitch;
-    copy.Height = command->size().y;
+    copy.Height = height;
     copy.Depth = command->size().z;
     copy.dstMemoryType = CU_MEMORYTYPE_HOST;
     copy.dstHost = command->data();
     copy.dstPitch = pitch;
-    copy.dstHeight = command->size().y;
+    copy.dstHeight = height;
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
 }
 
@@ -116,14 +109,15 @@ void CUDACommandEncoder::visit(const TextureCopyCommand *command) noexcept {
     auto dst_mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->dst_handle());
     auto src_array = src_mipmap_array->level(command->src_level());
     auto dst_array = dst_mipmap_array->level(command->dst_level());
-    auto pixel_size = pixel_format_size(src_mipmap_array->format());
+    auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
+    auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
     CUDA_MEMCPY3D copy{};
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = src_array;
     copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.dstArray = dst_array;
-    copy.WidthInBytes = command->size().x * pixel_size;
-    copy.Height = command->size().y;
+    copy.WidthInBytes = pitch;
+    copy.Height = height;
     copy.Depth = command->size().z;
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
 }
@@ -132,33 +126,50 @@ void CUDACommandEncoder::visit(const TextureToBufferCopyCommand *command) noexce
     auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->texture());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
-    auto pixel_size = pixel_storage_size(command->storage());
-    auto pitch = pixel_size * command->size().x;
+    auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
+    auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = array;
     copy.dstMemoryType = CU_MEMORYTYPE_DEVICE;
     copy.dstDevice = command->buffer() + command->buffer_offset();
     copy.dstPitch = pitch;
-    copy.dstHeight = command->size().y;
+    copy.dstHeight = height;
     copy.WidthInBytes = pitch;
-    copy.Height = command->size().y;
+    copy.Height = height;
     copy.Depth = command->size().z;
     LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, _stream->handle()));
 }
 
 void CUDACommandEncoder::visit(const AccelBuildCommand *command) noexcept {
     auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
-    accel->build(_device, _stream, command);
+    accel->build(_stream, command);
 }
 
 void CUDACommandEncoder::visit(const MeshBuildCommand *command) noexcept {
     auto mesh = reinterpret_cast<CUDAMesh *>(command->handle());
-    mesh->build(_device, _stream, command);
+    mesh->build(_stream, command);
 }
 
 void CUDACommandEncoder::visit(const BindlessArrayUpdateCommand *command) noexcept {
     auto bindless_array = reinterpret_cast<CUDABindlessArray *>(command->handle());
-    bindless_array->upload(_stream);
+    bindless_array->update(_stream, command->modifications());
+}
+
+void CUDACommandEncoder::visit(const ProceduralPrimitiveBuildCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void CUDACommandEncoder::visit(const CustomCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Custom command '{}' is not supported on CUDA.",
+                              command->name());
+}
+
+void CUDACommandEncoder::visit(const DrawRasterSceneCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
+}
+
+void CUDACommandEncoder::visit(const ClearDepthCommand *command) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Depth clear is not supported on CUDA.");
 }
 
 }// namespace luisa::compute::cuda

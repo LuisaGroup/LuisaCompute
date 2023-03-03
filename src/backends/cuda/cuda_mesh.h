@@ -13,7 +13,6 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 class CUDAStream;
-class CUDAHeap;
 
 /**
  * @brief Mesh of CUDA
@@ -31,8 +30,7 @@ private:
     size_t _vertex_count;
     CUdeviceptr _triangle_buffer;
     size_t _triangle_count;
-    AccelUsageHint _build_hint;
-    CUDAHeap *_heap{nullptr};
+    AccelOption _build_hint;
 
 private:
     [[nodiscard]] optix::BuildInput _make_build_input() const noexcept;
@@ -50,8 +48,7 @@ public:
      * @param t_count count of triangles
      * @param hint build hint
      */
-    CUDAMesh(CUdeviceptr v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-             CUdeviceptr t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept;
+    CUDAMesh(const AccelOption &option) noexcept;
     /**
      * @brief Destruct the CUDAMesh object
      */
@@ -63,7 +60,7 @@ public:
      * @param stream CUDAStream
      * @param command command to build the mesh
      */
-    void build(CUDADevice *device, CUDAStream *stream, const MeshBuildCommand *command) noexcept;
+    void build(CUDAStream *stream, const MeshBuildCommand *command) noexcept;
     /**
      * @brief Return Optix handle
      * 

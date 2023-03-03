@@ -11,7 +11,6 @@ namespace luisa::compute {
 
 namespace detail {
 [[noreturn]] LC_RUNTIME_API void error_pixel_invalid_format(const char *name) noexcept;
-[[noreturn]] LC_RUNTIME_API void error_pixel_invalid_bc_volume() noexcept;
 }
 
 enum struct PixelStorage : uint8_t {
@@ -100,6 +99,11 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
 [[nodiscard]] constexpr auto is_block_compressed(PixelStorage s) noexcept {
     return s == PixelStorage::BC4 || s == PixelStorage::BC5 ||
            s == PixelStorage::BC6 || s == PixelStorage::BC7;
+}
+
+[[nodiscard]] constexpr auto is_block_compressed(PixelFormat f) noexcept {
+    return f == PixelFormat::BC4UNorm || f == PixelFormat::BC5UNorm ||
+           f == PixelFormat::BC6HUF16 || f == PixelFormat::BC7UNorm;
 }
 
 [[nodiscard]] constexpr auto pixel_format_to_storage(PixelFormat format) noexcept {

@@ -44,7 +44,7 @@ private:
     size_t _update_buffer_size{};
     luisa::vector<const CUDAMesh *> _meshes;
     luisa::vector<uint64_t> _mesh_handles;
-    AccelUsageHint _build_hint;
+    AccelOption _build_hint;
 
 private:
     void _build(CUDADevice *device, CUDAStream *stream, CUstream cuda_stream) noexcept;
@@ -56,7 +56,7 @@ public:
      * 
      * @param hint build hint
      */
-    explicit CUDAAccel(AccelUsageHint hint) noexcept;
+    explicit CUDAAccel(const AccelOption &option) noexcept;
     ~CUDAAccel() noexcept;
 
     /**
@@ -66,7 +66,7 @@ public:
      * @param stream pointer to the CUDA stream
      * @param command command to build the acceleration structure
      */
-    void build(CUDADevice *device, CUDAStream *stream, const AccelBuildCommand *command) noexcept;
+    void build(CUDAStream *stream, const AccelBuildCommand *command) noexcept;
     /**
      * @brief Return OptixTraversableHandle
      * 

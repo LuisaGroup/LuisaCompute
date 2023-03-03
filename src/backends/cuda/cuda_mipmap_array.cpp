@@ -37,6 +37,8 @@ CUarray CUDAMipmapArray::level(uint32_t i) const noexcept {
 }
 
 CUDASurface CUDAMipmapArray::surface(uint32_t level) const noexcept {
+    LUISA_ASSERT(!is_block_compressed(format()),
+                 "Block compressed textures cannot be used as CUDA surfaces.");
     auto handle = [this, level] {
         std::scoped_lock lock{_mutex};
         if (auto s = _surfaces[level]; s != 0u) { return s; }

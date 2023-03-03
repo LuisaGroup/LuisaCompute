@@ -39,122 +39,46 @@ namespace luisa::compute::cuda {
 //    });
 //}
 
-[[nodiscard]] static auto cuda_array_format_and_channels(PixelFormat format) noexcept {
-    CUarray_format array_format = CU_AD_FORMAT_UNSIGNED_INT8;
-    auto num_channels = 0;
+[[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
     switch (format) {
-        case PixelFormat::R8SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT8;
-            num_channels = 1;
-            break;
-        case PixelFormat::R8UInt:
-        case PixelFormat::R8UNorm:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT8;
-            num_channels = 1;
-            break;
-        case PixelFormat::RG8SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT8;
-            num_channels = 2;
-            break;
-        case PixelFormat::RG8UInt:
-        case PixelFormat::RG8UNorm:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT8;
-            num_channels = 2;
-            break;
-        case PixelFormat::RGBA8SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT8;
-            num_channels = 4;
-            break;
-        case PixelFormat::RGBA8UInt:
-        case PixelFormat::RGBA8UNorm:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT8;
-            num_channels = 4;
-            break;
-        case PixelFormat::R16SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT16;
-            num_channels = 1;
-            break;
-        case PixelFormat::R16UInt:
-        case PixelFormat::R16UNorm:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT16;
-            num_channels = 1;
-            break;
-        case PixelFormat::RG16SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT16;
-            num_channels = 2;
-            break;
-        case PixelFormat::RG16UInt:
-        case PixelFormat::RG16UNorm:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT16;
-            num_channels = 2;
-            break;
-        case PixelFormat::RGBA16SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT16;
-            num_channels = 4;
-            break;
-        case PixelFormat::RGBA16UInt:
-        case PixelFormat::RGBA16UNorm:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT16;
-            num_channels = 4;
-            break;
-        case PixelFormat::R32SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT32;
-            num_channels = 1;
-            break;
-        case PixelFormat::R32UInt:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT32;
-            num_channels = 1;
-            break;
-        case PixelFormat::RG32SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT32;
-            num_channels = 2;
-            break;
-        case PixelFormat::RG32UInt:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT32;
-            num_channels = 2;
-            break;
-        case PixelFormat::RGBA32SInt:
-            array_format = CU_AD_FORMAT_SIGNED_INT32;
-            num_channels = 4;
-            break;
-        case PixelFormat::RGBA32UInt:
-            array_format = CU_AD_FORMAT_UNSIGNED_INT32;
-            num_channels = 4;
-            break;
-        case PixelFormat::R16F:
-            array_format = CU_AD_FORMAT_HALF;
-            num_channels = 1;
-            break;
-        case PixelFormat::RG16F:
-            array_format = CU_AD_FORMAT_HALF;
-            num_channels = 2;
-            break;
-        case PixelFormat::RGBA16F:
-            array_format = CU_AD_FORMAT_HALF;
-            num_channels = 4;
-            break;
-        case PixelFormat::R32F:
-            array_format = CU_AD_FORMAT_FLOAT;
-            num_channels = 1;
-            break;
-        case PixelFormat::RG32F:
-            array_format = CU_AD_FORMAT_FLOAT;
-            num_channels = 2;
-            break;
-        case PixelFormat::RGBA32F:
-            array_format = CU_AD_FORMAT_FLOAT;
-            num_channels = 4;
-            break;
-        case PixelFormat::BC4UNorm:
-            array_format = CU_AD_FORMAT_BC4_UNORM;
-            num_channels =
-        case PixelFormat::BC5UNorm:
-        case PixelFormat::BC6HUF16:
-        case PixelFormat::BC7UNorm:
-        default:
-            LUISA_ERROR_WITH_LOCATION("Invalid pixel format.");
+        case PixelFormat::R8SInt: return CU_AD_FORMAT_SIGNED_INT8;
+        case PixelFormat::R8UInt: [[fallthrough]];
+        case PixelFormat::R8UNorm: return CU_AD_FORMAT_UNSIGNED_INT8;
+        case PixelFormat::RG8SInt: return CU_AD_FORMAT_SIGNED_INT8;
+        case PixelFormat::RG8UInt: [[fallthrough]];
+        case PixelFormat::RG8UNorm: return CU_AD_FORMAT_UNSIGNED_INT8;
+        case PixelFormat::RGBA8SInt: return CU_AD_FORMAT_SIGNED_INT8;
+        case PixelFormat::RGBA8UInt: [[fallthrough]];
+        case PixelFormat::RGBA8UNorm: return CU_AD_FORMAT_UNSIGNED_INT8;
+        case PixelFormat::R16SInt: return CU_AD_FORMAT_SIGNED_INT16;
+        case PixelFormat::R16UInt: [[fallthrough]];
+        case PixelFormat::R16UNorm: return CU_AD_FORMAT_UNSIGNED_INT16;
+        case PixelFormat::RG16SInt: return CU_AD_FORMAT_SIGNED_INT16;
+        case PixelFormat::RG16UInt: [[fallthrough]];
+        case PixelFormat::RG16UNorm: return CU_AD_FORMAT_UNSIGNED_INT16;
+        case PixelFormat::RGBA16SInt: return CU_AD_FORMAT_SIGNED_INT16;
+        case PixelFormat::RGBA16UInt: [[fallthrough]];
+        case PixelFormat::RGBA16UNorm: return CU_AD_FORMAT_UNSIGNED_INT16;
+        case PixelFormat::R32SInt: return CU_AD_FORMAT_SIGNED_INT32;
+        case PixelFormat::R32UInt: return CU_AD_FORMAT_UNSIGNED_INT32;
+        case PixelFormat::RG32SInt: return CU_AD_FORMAT_SIGNED_INT32;
+        case PixelFormat::RG32UInt: return CU_AD_FORMAT_UNSIGNED_INT32;
+        case PixelFormat::RGBA32SInt: return CU_AD_FORMAT_SIGNED_INT32;
+        case PixelFormat::RGBA32UInt: return CU_AD_FORMAT_UNSIGNED_INT32;
+        case PixelFormat::R16F: return CU_AD_FORMAT_HALF;
+        case PixelFormat::RG16F: return CU_AD_FORMAT_HALF;
+        case PixelFormat::RGBA16F: return CU_AD_FORMAT_HALF;
+        case PixelFormat::R32F: return CU_AD_FORMAT_FLOAT;
+        case PixelFormat::RG32F: return CU_AD_FORMAT_FLOAT;
+        case PixelFormat::RGBA32F: return CU_AD_FORMAT_FLOAT;
+        case PixelFormat::BC4UNorm: return CU_AD_FORMAT_BC4_UNORM;
+        case PixelFormat::BC5UNorm: return CU_AD_FORMAT_BC5_UNORM;
+        case PixelFormat::BC6HUF16: return CU_AD_FORMAT_BC6H_UF16;
+        case PixelFormat::BC7UNorm: return CU_AD_FORMAT_BC7_UNORM;
+        default: break;
     }
-    return std::make_pair(array_format, num_channels);
+    LUISA_ERROR_WITH_LOCATION("Invalid pixel format 0x{:02x}.",
+                              luisa::to_underlying(format));
 }
 //
 //uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
@@ -324,68 +248,12 @@ CUDADevice::CUDADevice(Context &&ctx, uint device_id) noexcept
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_accel_update_function, _accel_update_module,
             "update_instances"));
-        LUISA_CHECK_CUDA(cuModuleGetFunction(
-            &_stream_wait_value_function, _accel_update_module,
-            "wait_value"));
         // warm up memory allocator
         auto preallocated = 0ull;
         LUISA_CHECK_CUDA(cuMemAllocAsync(&preallocated, 64_mb, nullptr));
         LUISA_CHECK_CUDA(cuMemFreeAsync(preallocated, nullptr));
     });
 }
-//
-//uint64_t CUDADevice::create_bindless_array(size_t size) noexcept {
-//    return with_handle([size] {
-//        return reinterpret_cast<uint64_t>(
-//            new_with_allocator<CUDABindlessArray>(size));
-//    });
-//}
-//
-//void CUDADevice::destroy_bindless_array(uint64_t handle) noexcept {
-//    with_handle([array = reinterpret_cast<CUDABindlessArray *>(handle)] {
-//        delete_with_allocator(array);
-//    });
-//}
-//
-//void CUDADevice::emplace_buffer_in_bindless_array(uint64_t array, size_t index, uint64_t handle, size_t offset_bytes) noexcept {
-//    with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index, buffer = handle, offset_bytes] {
-//        array->emplace_buffer(index, buffer, offset_bytes);
-//    });
-//}
-//
-//void CUDADevice::emplace_tex2d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
-//    with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index, tex = reinterpret_cast<CUDAMipmapArray *>(handle), sampler] {
-//        array->emplace_tex2d(index, tex, sampler);
-//    });
-//}
-//
-//void CUDADevice::emplace_tex3d_in_bindless_array(uint64_t array, size_t index, uint64_t handle, Sampler sampler) noexcept {
-//    with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index, tex = reinterpret_cast<CUDAMipmapArray *>(handle), sampler] {
-//        array->emplace_tex3d(index, tex, sampler);
-//    });
-//}
-//
-//bool CUDADevice::is_resource_in_bindless_array(uint64_t array, uint64_t handle) const noexcept {
-//    return reinterpret_cast<const CUDABindlessArray *>(array)->uses_resource(handle);
-//}
-//
-//void CUDADevice::remove_buffer_in_bindless_array(uint64_t array, size_t index) noexcept {
-//    with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index] {
-//        array->remove_buffer(index);
-//    });
-//}
-//
-//void CUDADevice::remove_tex2d_in_bindless_array(uint64_t array, size_t index) noexcept {
-//    with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index] {
-//        array->remove_tex2d(index);
-//    });
-//}
-//
-//void CUDADevice::remove_tex3d_in_bindless_array(uint64_t array, size_t index) noexcept {
-//    with_handle([array = reinterpret_cast<CUDABindlessArray *>(array), index] {
-//        array->remove_tex3d(index);
-//    });
-//}
 
 CUDADevice::~CUDADevice() noexcept {
     with_handle([this] {
@@ -417,125 +285,227 @@ void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
-    return ResourceCreationInfo();
+    auto p = with_handle([=] {
+        auto array_format = cuda_array_format(format);
+        auto channels = pixel_format_channel_count(format);
+        CUDA_ARRAY3D_DESCRIPTOR array_desc{};
+        array_desc.Width = width;
+        array_desc.Height = height;
+        array_desc.Depth = dimension == 2u ? 0u : depth;
+        array_desc.Format = array_format;
+        array_desc.NumChannels = channels;
+        if (!is_block_compressed(format)) {
+            array_desc.Flags = CUDA_ARRAY3D_SURFACE_LDST;
+        }
+        auto array_handle = [&] {
+            if (mipmap_levels == 1u) {
+                CUarray handle{nullptr};
+                LUISA_CHECK_CUDA(cuArray3DCreate(&handle, &array_desc));
+                return reinterpret_cast<uint64_t>(handle);
+            }
+            CUmipmappedArray handle{nullptr};
+            LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&handle, &array_desc, mipmap_levels));
+            return reinterpret_cast<uint64_t>(handle);
+        }();
+        return new_with_allocator<CUDAMipmapArray>(array_handle, format, mipmap_levels);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
 }
 
 void CUDADevice::destroy_texture(uint64_t handle) noexcept {
+    with_handle([array = reinterpret_cast<CUDAMipmapArray *>(handle)] {
+        delete_with_allocator(array);
+    });
 }
 
 ResourceCreationInfo CUDADevice::create_bindless_array(size_t size) noexcept {
-    return ResourceCreationInfo();
+    auto p = with_handle([size] { return new_with_allocator<CUDABindlessArray>(size); });
+    return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
 }
 
 void CUDADevice::destroy_bindless_array(uint64_t handle) noexcept {
+    with_handle([array = reinterpret_cast<CUDABindlessArray *>(handle)] {
+        delete_with_allocator(array);
+    });
 }
 
 ResourceCreationInfo CUDADevice::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
-    return ResourceCreationInfo();
+    LUISA_ERROR_WITH_LOCATION("Depth buffers are not supported on CUDA.");
 }
 
 void CUDADevice::destroy_depth_buffer(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Depth buffers are not supported on CUDA.");
 }
 
 ResourceCreationInfo CUDADevice::create_stream(StreamTag stream_tag) noexcept {
-    return ResourceCreationInfo();
+    LUISA_ASSERT(stream_tag != StreamTag::GRAPHICS,
+                 "Graphics streams are not supported by CUDA.");
+    auto p = with_handle([&] { return new_with_allocator<CUDAStream>(this); });
+    return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
 }
 
 void CUDADevice::destroy_stream(uint64_t handle) noexcept {
+    with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
+        delete_with_allocator(stream);
+    });
 }
 
 void CUDADevice::synchronize_stream(uint64_t stream_handle) noexcept {
+    with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
+        stream->synchronize();
+    });
 }
 
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
+    with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle), &list] {
+        stream->dispatch(std::move(list));
+    });
 }
 
-SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept {
-    return SwapChainCreationInfo();
+SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle,
+                                                    uint width, uint height,
+                                                    bool allow_hdr, bool vsync,
+                                                    uint back_buffer_size) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Swap chains are not supported on CUDA.");
 }
 
 void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Swap chains are not supported on CUDA.");
 }
 
 void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Swap chains are not supported on CUDA.");
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
-    return ShaderCreationInfo();
-}
-ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    return ShaderCreationInfo();
-}
-ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {
-    return ShaderCreationInfo();
-}
-void CUDADevice::destroy_shader(uint64_t handle) noexcept {
-}
-ResourceCreationInfo CUDADevice::create_raster_shader(const MeshFormat &mesh_format, const RasterState &raster_state, luisa::span<const PixelFormat> rtv_format, DepthFormat dsv_format, Function vert, Function pixel, ShaderOption shader_option) noexcept {
-    return DeviceInterface::create_raster_shader(mesh_format, raster_state, rtv_format, dsv_format, vert, pixel, shader_option);
-}
-void CUDADevice::save_raster_shader(const MeshFormat &mesh_format, Function vert, Function pixel, luisa::string_view name, bool enable_debug_info, bool enable_fast_math) noexcept {
-    DeviceInterface::save_raster_shader(mesh_format, vert, pixel, name, enable_debug_info, enable_fast_math);
-}
-ResourceCreationInfo CUDADevice::load_raster_shader(const MeshFormat &mesh_format, const RasterState &raster_state, luisa::span<const PixelFormat> rtv_format, DepthFormat dsv_format, luisa::span<const Type *const> types, luisa::string_view ser_path) noexcept {
-    return DeviceInterface::load_raster_shader(mesh_format, raster_state, rtv_format, dsv_format, types, ser_path);
-}
-void CUDADevice::destroy_raster_shader(uint64_t handle) noexcept {
-    DeviceInterface::destroy_raster_shader(handle);
-}
-ResourceCreationInfo CUDADevice::create_event() noexcept {
-    return ResourceCreationInfo();
-}
-void CUDADevice::destroy_event(uint64_t handle) noexcept {
-}
-void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
-}
-void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
-}
-void CUDADevice::synchronize_event(uint64_t handle) noexcept {
-}
-ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept {
-    return ResourceCreationInfo();
-}
-void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
-}
-ResourceCreationInfo CUDADevice::create_procedural_primitive(const AccelOption &option) noexcept {
-    return ResourceCreationInfo();
-}
-void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
-}
-ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcept {
-    return ResourceCreationInfo();
-}
-void CUDADevice::destroy_accel(uint64_t handle) noexcept {
-}
-string CUDADevice::query(luisa::string_view property) noexcept {
-    return DeviceInterface::query(property);
-}
-DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
-    return DeviceInterface::extension(name);
+    LUISA_ERROR_WITH_LOCATION("TODO");
 }
 
-//
-//uint64_t CUDADevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, uint back_buffer_size) noexcept {
-//    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-//}
-//
-//void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
-//    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-//}
-//
-//PixelStorage CUDADevice::swap_chain_pixel_storage(uint64_t handle) noexcept {
-//    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-//}
-//
-//void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-//    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-//}
-//
-//bool CUDADevice::requires_command_reordering() const noexcept {
-//    return CUDAStream::backed_cuda_stream_count > 1u;
-//}
+ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
+    LUISA_ERROR_WITH_LOCATION("TODO");
+}
+
+ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
+                                           luisa::span<const Type *const> arg_types) noexcept {
+    LUISA_ERROR_WITH_LOCATION("TODO");
+}
+
+void CUDADevice::destroy_shader(uint64_t handle) noexcept {
+    with_handle([shader = reinterpret_cast<CUDAShader *>(handle)] {
+        CUDAShader::destroy(shader);
+    });
+}
+
+ResourceCreationInfo CUDADevice::create_raster_shader(const MeshFormat &mesh_format,
+                                                      const RasterState &raster_state,
+                                                      luisa::span<const PixelFormat> rtv_format,
+                                                      DepthFormat dsv_format,
+                                                      Function vert, Function pixel,
+                                                      ShaderOption shader_option) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
+}
+
+void CUDADevice::save_raster_shader(const MeshFormat &mesh_format,
+                                    Function vert, Function pixel,
+                                    luisa::string_view name,
+                                    bool enable_debug_info,
+                                    bool enable_fast_math) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
+}
+
+ResourceCreationInfo CUDADevice::load_raster_shader(const MeshFormat &mesh_format,
+                                                    const RasterState &raster_state,
+                                                    luisa::span<const PixelFormat> rtv_format,
+                                                    DepthFormat dsv_format,
+                                                    luisa::span<const Type *const> types,
+                                                    luisa::string_view ser_path) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
+}
+
+void CUDADevice::destroy_raster_shader(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
+}
+
+ResourceCreationInfo CUDADevice::create_event() noexcept {
+    auto event_handle = with_handle([] {
+        CUevent event = nullptr;
+        LUISA_CHECK_CUDA(cuEventCreate(
+            &event, CU_EVENT_BLOCKING_SYNC | CU_EVENT_DISABLE_TIMING));
+        return event;
+    });
+    return {.handle = reinterpret_cast<uint64_t>(event_handle), .native_handle = event_handle};
+}
+
+void CUDADevice::destroy_event(uint64_t handle) noexcept {
+    with_handle([event = reinterpret_cast<CUevent>(handle)] {
+        LUISA_CHECK_CUDA(cuEventDestroy(event));
+    });
+}
+
+void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    with_handle([=] {
+        auto event = reinterpret_cast<CUevent>(handle);
+        auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
+        stream->signal(event);
+    });
+}
+
+void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    with_handle([=] {
+        auto event = reinterpret_cast<CUevent>(handle);
+        auto stream = reinterpret_cast<CUDAStream *>(stream_handle);
+        stream->wait(event);
+    });
+}
+
+void CUDADevice::synchronize_event(uint64_t handle) noexcept {
+    with_handle([=] {
+        auto event = reinterpret_cast<CUevent>(handle);
+        LUISA_CHECK_CUDA(cuEventSynchronize(event));
+    });
+}
+
+ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept {
+    LUISA_ERROR_WITH_LOCATION("TODO");
+}
+
+void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
+    with_handle([=] {
+        auto mesh = reinterpret_cast<CUDAMesh *>(handle);
+        delete_with_allocator(mesh);
+    });
+}
+
+ResourceCreationInfo CUDADevice::create_procedural_primitive(const AccelOption &option) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
+
+ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcept {
+    auto accel_handle = with_handle([&option]{
+        return new_with_allocator<CUDAAccel>(option);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(accel_handle), .native_handle = accel_handle};
+}
+
+void CUDADevice::destroy_accel(uint64_t handle) noexcept {
+    with_handle([accel = reinterpret_cast<CUDAAccel *>(handle)] {
+        delete_with_allocator(accel);
+    });
+}
+
+string CUDADevice::query(luisa::string_view property) noexcept {
+    LUISA_WARNING_WITH_LOCATION("Unknown device property '{}'.", property);
+    return {};
+}
+
+DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
+    LUISA_WARNING_WITH_LOCATION("Device extension '{}' is not implemented.", name);
+    return nullptr;
+}
 
 CUDADevice::Handle::Handle(uint index) noexcept {
     // global init
