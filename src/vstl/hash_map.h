@@ -417,10 +417,10 @@ public:
 
             public:
                 IndexKeyValue() {}
-                K const &Key() const noexcept {
+                K const &key() const noexcept {
                     return Map::GetFirst(this->node->data);
                 }
-                inline V &Value() const noexcept {
+                inline V &value() const noexcept {
                     return this->node->data.second;
                 }
             };

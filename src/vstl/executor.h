@@ -15,7 +15,7 @@ private:
 		spin_mutex mtx;
 		function<void(Value*)> nextFunc;
 		bool isComplete = false;
-		~Value() {
+		~value() {
 			data.destroy();
 		}
 	};
@@ -36,22 +36,22 @@ private:
 	}
 	ExecuteNode(
 		ThreadPool* tPool)
-		: value(MakeObjectPtr(new Value())), tPool(tPool) {
+		: value(MakeObjectPtr(new value())), tPool(tPool) {
 	}
 	ExecuteNode(
 		ThreadPool* tPool,
 		ThreadTaskHandle const& handle)
-		: value(MakeObjectPtr(new Value())), tPool(tPool), handle(handle) {
+		: value(MakeObjectPtr(new value())), tPool(tPool), handle(handle) {
 	}
 	ExecuteNode(
 		ThreadPool* tPool,
 		ThreadTaskHandle& handle)
-		: value(MakeObjectPtr(new Value())), tPool(tPool), handle(handle) {
+		: value(MakeObjectPtr(new value())), tPool(tPool), handle(handle) {
 	}
 	ExecuteNode(
 		ThreadPool* tPool,
 		ThreadTaskHandle&& handle)
-		: value(MakeObjectPtr(new Value())), tPool(tPool), handle(std::move(handle)) {
+		: value(MakeObjectPtr(new value())), tPool(tPool), handle(std::move(handle)) {
 	}
 
 public:

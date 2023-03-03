@@ -27,7 +27,7 @@ public:
         return allocHandle.resource.Get();
     }
     D3D12_RESOURCE_STATES GetInitState() const override {
-        return D3D12_RESOURCE_STATE_COMMON;
+        return D3D12_RESOURCE_STATE_COPY_SOURCE;
     }
     D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDesc(uint targetMipLevel) const override;
     D3D12_RENDER_TARGET_VIEW_DESC GetRenderTargetDesc(uint mipOffset) const override;

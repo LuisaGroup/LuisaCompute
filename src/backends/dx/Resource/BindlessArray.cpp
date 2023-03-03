@@ -36,7 +36,7 @@ void BindlessArray::TryReturnIndex(MapIndex &index, uint32_t &originValue) {
         freeQueue.push(originValue);
         originValue = BindlessStruct::n_pos;
         // device->globalHeap->ReturnIndex(originValue);
-        auto &&v = index.Value();
+        auto &&v = index.value();
         v--;
         if (v == 0) {
             ptrMap.remove(index);
@@ -46,7 +46,7 @@ void BindlessArray::TryReturnIndex(MapIndex &index, uint32_t &originValue) {
 }
 BindlessArray::MapIndex BindlessArray::AddIndex(size_t ptr) {
     auto ite = ptrMap.emplace(ptr, 0);
-    ite.Value()++;
+    ite.value()++;
     return ite;
 }
 void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modification> mods) {

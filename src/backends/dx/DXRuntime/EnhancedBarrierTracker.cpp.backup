@@ -70,7 +70,7 @@ void EnhancedBarrierTracker::Record(
 			return {buffer, Range{}};
 		});
 	auto ite = frameStates.Emplace(resRange.first, type, d3d12Res);
-	auto& vec = ite.Value().layerStates;
+	auto& vec = ite.value().layerStates;
 	for (size_t i = 0; i < vec.size(); ++i) {
 		auto& localValue = vec[i];
 		if (!localValue.range.Collide(resRange.second)) continue;

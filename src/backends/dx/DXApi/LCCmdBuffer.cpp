@@ -136,7 +136,8 @@ public:
                 if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
                     self->stateTracker->RecordState(
                         accel->GetInstBuffer(),
-                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                        true);
                 } else {
                     self->stateTracker->RecordState(
                         accel->GetInstBuffer(),

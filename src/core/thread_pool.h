@@ -53,6 +53,7 @@ public:
     /// Run a function async and return future of return value
     template<typename F>
         requires std::is_invocable_v<F>
+    // std::shared_future<R>
     auto async(F &&f) noexcept {
         using R = std::invoke_result_t<F>;
         auto promise = luisa::make_unique<std::promise<R>>(
