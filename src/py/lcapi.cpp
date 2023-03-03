@@ -784,8 +784,7 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("pixel_storage_channel_count", pixel_storage_channel_count);
     m.def("pixel_storage_to_format_int", pixel_storage_to_format<int>);
     m.def("pixel_storage_to_format_float", pixel_storage_to_format<float>);
-    auto _pixel_storage_size = [](PixelStorage storage) { return pixel_storage_size(storage); };
-    m.def("pixel_storage_size", _pixel_storage_size);
+    m.def("pixel_storage_size", [](PixelStorage storage, uint w, uint h, uint d) { return pixel_storage_size(storage, make_uint3(w, h, d)); });
 
     // sampler
     auto m_sampler = py::class_<Sampler>(m, "Sampler")

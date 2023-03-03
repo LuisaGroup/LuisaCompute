@@ -78,7 +78,7 @@ public:
         size_t byte_size = 0;
         auto size = _size;
         for (size_t i = 0; i < _mip_levels; ++i) {
-            byte_size += pixel_storage_size(_storage, size.x, size.y, 1);
+            byte_size += pixel_storage_size(_storage, make_uint3(size, 1u));
             size >>= uint2(1);
         }
         return byte_size;
@@ -146,7 +146,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {
-        return pixel_storage_size(_storage, _size.x, _size.y, 1);
+        return pixel_storage_size(_storage, make_uint3(_size, 1u));
     }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto format() const noexcept { return pixel_storage_to_format<T>(_storage); }

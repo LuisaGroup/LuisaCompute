@@ -34,8 +34,6 @@ public:
     LCDevice(Context &&ctx, DeviceConfig const *settings);
     ~LCDevice();
     void *native_handle() const noexcept override;
-    Hash128 device_hash() const noexcept;
-    string cache_name(string_view file_name) const noexcept override;
     // buffer
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

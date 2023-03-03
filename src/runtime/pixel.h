@@ -9,6 +9,11 @@
 
 namespace luisa::compute {
 
+namespace detail {
+[[noreturn]] LC_RUNTIME_API void error_pixel_invalid_format(const char *name) noexcept;
+[[noreturn]] LC_RUNTIME_API void error_pixel_invalid_bc_volume() noexcept;
+}
+
 enum struct PixelStorage : uint8_t {
 
     BYTE1,
@@ -158,41 +163,40 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
     return PixelStorage{};
 }
 
-[[nodiscard]] constexpr auto pixel_storage_size(PixelStorage storage) noexcept {
+[[nodiscard]] constexpr size_t pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
+    if (is_block_compressed(storage)) {
+        auto block_width = (size.x + 3u) / 4u;
+        auto block_height = (size.y + 3u) / 4u;
+        auto block_count = block_width * block_height * std::max(size.z, 1u);
+        switch (storage) {
+            case PixelStorage::BC4: return block_count * 8u;
+            case PixelStorage::BC5: return block_count * 16u;
+            case PixelStorage::BC6: return block_count * 16u;
+            case PixelStorage::BC7: return block_count * 16u;
+            default: break;
+        }
+        detail::error_pixel_invalid_format("unknown.");
+    }
+    auto pixel_count = size.x * size.y * size.z;
     switch (storage) {
-        case PixelStorage::BYTE1: return sizeof(std::byte) * 1u;
-        case PixelStorage::BYTE2: return sizeof(std::byte) * 2u;
-        case PixelStorage::BYTE4: return sizeof(std::byte) * 4u;
-        case PixelStorage::SHORT1: return sizeof(short) * 1u;
-        case PixelStorage::SHORT2: return sizeof(short) * 2u;
-        case PixelStorage::SHORT4: return sizeof(short) * 4u;
-        case PixelStorage::INT1: return sizeof(int) * 1u;
-        case PixelStorage::INT2: return sizeof(int) * 2u;
-        case PixelStorage::INT4: return sizeof(int) * 4u;
-        case PixelStorage::HALF1: return sizeof(short) * 1u;
-        case PixelStorage::HALF2: return sizeof(short) * 2u;
-        case PixelStorage::HALF4: return sizeof(short) * 4u;
-        case PixelStorage::FLOAT1: return sizeof(float) * 1u;
-        case PixelStorage::FLOAT2: return sizeof(float) * 2u;
-        case PixelStorage::FLOAT4: return sizeof(float) * 4u;
-        case PixelStorage::BC4: return static_cast<size_t>(8u);
-        case PixelStorage::BC5: [[fallthrough]];
-        case PixelStorage::BC6: [[fallthrough]];
-        case PixelStorage::BC7: return static_cast<size_t>(16u);
+        case PixelStorage::BYTE1: return pixel_count * sizeof(std::byte) * 1u;
+        case PixelStorage::BYTE2: return pixel_count * sizeof(std::byte) * 2u;
+        case PixelStorage::BYTE4: return pixel_count * sizeof(std::byte) * 4u;
+        case PixelStorage::SHORT1: return pixel_count * sizeof(short) * 1u;
+        case PixelStorage::SHORT2: return pixel_count * sizeof(short) * 2u;
+        case PixelStorage::SHORT4: return pixel_count * sizeof(short) * 4u;
+        case PixelStorage::INT1: return pixel_count * sizeof(int) * 1u;
+        case PixelStorage::INT2: return pixel_count * sizeof(int) * 2u;
+        case PixelStorage::INT4: return pixel_count * sizeof(int) * 4u;
+        case PixelStorage::HALF1: return pixel_count * sizeof(short) * 1u;
+        case PixelStorage::HALF2: return pixel_count * sizeof(short) * 2u;
+        case PixelStorage::HALF4: return pixel_count * sizeof(short) * 4u;
+        case PixelStorage::FLOAT1: return pixel_count * sizeof(float) * 1u;
+        case PixelStorage::FLOAT2: return pixel_count * sizeof(float) * 2u;
+        case PixelStorage::FLOAT4: return pixel_count * sizeof(float) * 4u;
         default: break;
     }
-    return static_cast<size_t>(0u);
-}
-
-[[nodiscard]] constexpr auto pixel_storage_size(PixelStorage storage, uint width, uint height, uint volume) noexcept {
-    if (is_block_compressed(storage)) {
-        auto block_width = (width + 3u) / 4u;
-        auto block_height = (height + 3u) / 4u;
-        return block_width * block_height *
-               pixel_storage_size(storage);
-    }
-    return pixel_storage_size(storage) *
-           width * height * volume;
+    detail::error_pixel_invalid_format("unknown");
 }
 
 [[nodiscard]] constexpr auto pixel_storage_channel_count(PixelStorage storage) noexcept {
@@ -219,10 +223,6 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
         default: break;
     }
     return 0u;
-}
-
-namespace detail {
-LC_RUNTIME_API void error_pixel_invalid_format(const char *name) noexcept;
 }
 
 template<typename T>
@@ -276,11 +276,12 @@ template<typename T>
     } else {
         static_assert(always_false_v<T>);
     }
+    // unreachable
     return PixelFormat{};
 }
 
-[[nodiscard]] constexpr auto pixel_format_size(PixelFormat format) noexcept {
-    return pixel_storage_size(pixel_format_to_storage(format));
+[[nodiscard]] constexpr auto pixel_format_size(PixelFormat format, uint3 size) noexcept {
+    return pixel_storage_size(pixel_format_to_storage(format), size);
 }
 
 [[nodiscard]] constexpr auto pixel_format_channel_count(PixelFormat format) noexcept {

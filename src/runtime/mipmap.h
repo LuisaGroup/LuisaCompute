@@ -39,7 +39,7 @@ private:
 public:
     MipmapView(uint64_t handle, uint3 size, uint32_t level, PixelStorage storage) noexcept;
     [[nodiscard]] constexpr auto size_bytes() const noexcept {
-        return _size.x * _size.y * _size.z * pixel_storage_size(_storage);
+        return pixel_storage_size(_storage, _size);
     }
 
     [[nodiscard]] auto copy_from(const void *data) const noexcept {

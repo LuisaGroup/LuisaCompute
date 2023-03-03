@@ -16,7 +16,7 @@ project(LuisaCompute LANGUAGES C CXX VERSION 0.3.1)
 option(LUISA_COMPUTE_ENABLE_DSL "Enable C++ DSL" ON)
 option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
 option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" OFF)
-option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" OFF)
+option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
 option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" OFF)
 

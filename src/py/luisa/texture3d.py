@@ -33,7 +33,7 @@ class Texture3D:
         self.storage = getattr(lcapi.PixelStorage, self.storage_name + str(channel))
         self.format = getattr(lcapi, "pixel_storage_to_format_" + dtype.__name__)(self.storage)
 
-        self.bytesize = lcapi.pixel_storage_size(self.storage) * width * height
+        self.bytesize = lcapi.pixel_storage_size(self.storage, width, height, volume)
         self.texture3DType = Texture3DType(dtype, channel)
         self.read = self.texture3DType.read
         self.write = self.texture3DType.write

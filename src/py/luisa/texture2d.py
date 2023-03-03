@@ -33,7 +33,7 @@ class Texture2D:
         self.storage = getattr(lcapi.PixelStorage, self.storage_name + str(channel))
         self.format = getattr(lcapi, "pixel_storage_to_format_" + dtype.__name__)(self.storage)
 
-        self.bytesize = lcapi.pixel_storage_size(self.storage) * width * height
+        self.bytesize = lcapi.pixel_storage_size(self.storage, width, height, 1)
         self.texture2DType = Texture2DType(dtype, channel)
         self.read = self.texture2DType.read
         self.write = self.texture2DType.write

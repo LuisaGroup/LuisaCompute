@@ -626,7 +626,7 @@ public:
     }
     void visit(const BufferToTextureCopyCommand *command) noexcept override {
         auto sz = command->size();
-        auto binSize = pixel_storage_size(command->storage(), sz.x, sz.y, sz.z);
+        auto binSize = pixel_storage_size(command->storage(), sz);
         add_command(command, set_rw(command->buffer(), copy_range(command->buffer_offset(), binSize), ResourceType::Buffer, command->texture(), copy_range(command->level(), 1), ResourceType::Texture));
     }
 
@@ -693,7 +693,7 @@ public:
     }
     void visit(const TextureToBufferCopyCommand *command) noexcept override {
         auto sz = command->size();
-        auto binSize = pixel_storage_size(command->storage(), sz.x, sz.y, sz.z);
+        auto binSize = pixel_storage_size(command->storage(), sz);
         add_command(command, set_rw(command->texture(), copy_range(command->level(), 1), ResourceType::Texture, command->buffer(), copy_range(command->buffer_offset(), binSize), ResourceType::Buffer));
     }
     void visit(const ClearDepthCommand *command) noexcept override {

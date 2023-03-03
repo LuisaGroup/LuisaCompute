@@ -49,6 +49,8 @@ public:
      * @return compile result
      */
     [[nodiscard]] luisa::string compile(const Context &ctx, Function function, uint32_t sm) noexcept;
+
+    [[nodiscard]] size_t type_size(const Type *type) const noexcept;
 };
 
 }// namespace luisa::compute::cuda

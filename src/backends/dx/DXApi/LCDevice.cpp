@@ -51,13 +51,13 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
 }
 LCDevice::~LCDevice() {
 }
-Hash128 LCDevice::device_hash() const noexcept {
-    vstd::MD5::MD5Data const &md5 = nativeDevice.adapterID.ToBinary();
-    Hash128 r;
-    static_assert(sizeof(Hash128) == sizeof(vstd::MD5::MD5Data));
-    memcpy(&r, &md5, sizeof(Hash128));
-    return r;
-}
+//Hash128 LCDevice::device_hash() const noexcept {
+//    vstd::MD5::MD5Data const &md5 = nativeDevice.adapterID.ToBinary();
+//    Hash128 r;
+//    static_assert(sizeof(Hash128) == sizeof(vstd::MD5::MD5Data));
+//    memcpy(&r, &md5, sizeof(Hash128));
+//    return r;
+//}
 void *LCDevice::native_handle() const noexcept {
     return nativeDevice.device;
 }
@@ -125,9 +125,9 @@ ResourceCreationInfo LCDevice::create_texture(
     info.native_handle = res->GetResource();
     return info;
 }
-string LCDevice::cache_name(string_view file_name) const noexcept {
-    return Shader::PSOName(&nativeDevice, file_name);
-}
+//string LCDevice::cache_name(string_view file_name) const noexcept {
+//    return Shader::PSOName(&nativeDevice, file_name);
+//}
 void LCDevice::destroy_texture(uint64 handle) noexcept {
     delete reinterpret_cast<TextureBase *>(handle);
 }

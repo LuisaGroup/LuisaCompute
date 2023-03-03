@@ -94,10 +94,6 @@ private:
 public:
     // Device construct from backend handle, use Context::create_device for convenient usage
     explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
-    // Return a 128-bit device local unique identity hash-code, this code transformed after backend device's configure(hardware like GPU, drivers, etc.) changed
-    [[nodiscard]] decltype(auto) device_hash() const noexcept { return _impl->device_hash(); }
-    // Shader may generate cache file for runtime loading performance, cache_name return this name from backend
-    [[nodiscard]] decltype(auto) cache_name(luisa::string_view file_name) const noexcept { return _impl->cache_name(file_name); }
     // see definition in runtime/context.h
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     // The backend implementation, can be used by other frontend language

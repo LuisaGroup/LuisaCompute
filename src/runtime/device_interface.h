@@ -37,8 +37,6 @@ protected:
 public:
     explicit DeviceInterface(Context &&ctx) noexcept : _ctx{std::move(ctx)} {}
     virtual ~DeviceInterface() noexcept = default;
-    [[nodiscard]] virtual Hash128 device_hash() const noexcept = 0;
-    [[nodiscard]] virtual luisa::string cache_name(luisa::string_view file_name) const noexcept = 0;
 
     [[nodiscard]] const Context &context() const noexcept { return _ctx; }
 
@@ -46,7 +44,7 @@ public:
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
     [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
 
-    virtual void set_io(BinaryIO *visitor) noexcept = 0;
+    virtual void set_io(BinaryIO *binary_io) noexcept = 0;
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
