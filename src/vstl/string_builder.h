@@ -6,6 +6,7 @@ class LC_VSTL_API StringBuilder final {
     vstd::fixed_vector<char, 32> vec;
 
 public:
+    void clear() { vec.clear(); }
     bool operator==(StringBuilder const &rhs) const {
         return view() == rhs.view();
     }
