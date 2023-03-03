@@ -67,6 +67,8 @@ int main(int argc, char *argv[]) {
 
         auto q = accel->trace_all(ray);
         // traversal aceeleration structure with ray-query
+        Var sphere_dist = 1e30f;
+        Var<float3> sphere_color;
         $while(q.proceed()) {
             $if(q.is_candidate_triangle()) {
                 q.commit_triangle();
@@ -77,16 +79,24 @@ int main(int argc, char *argv[]) {
 
                 //ray-sphere intersection
                 auto origin = (aabb->min() + aabb->max()) * .5f;
-                auto rayOrigin = ray->origin();
-                auto L = origin - rayOrigin;
-                auto cosTheta = dot(ray->direction(), normalize(L));
-                $if(cosTheta > 0.f) {
+                auto ray_origin = ray->origin();
+                auto L = origin - ray_origin;
+                auto dir = ray->direction();
+                auto cos_theta = dot(dir, normalize(L));
+                $if(cos_theta > 0.f) {
                     auto d_oc = length(L);
-                    auto tc = d_oc * cosTheta;
+                    auto tc = d_oc * cos_theta;
                     auto d = sqrt(d_oc * d_oc - tc * tc);
                     $if(d <= radius) {
                         auto t1c = sqrt(radius * radius - d * d);
-                        q.commit_procedural(tc - t1c);
+                        auto dist = tc - t1c;
+                        // save normal as color
+                        $if(dist <= sphere_dist){
+                            sphere_dist = dist;
+                            auto normal = normalize(ray_origin + dir * dist - origin);
+                            sphere_color = normal * 0.5f + 0.5f;
+                        };
+                        q.commit_procedural(dist);
                     };
                 };
             };
@@ -94,11 +104,13 @@ int main(int argc, char *argv[]) {
         auto hit = q.committed_hit();
         $if(hit->hit_procedural()) {
             // write depth as color
-            device_image1->write(coord, make_float4(make_float3(1.f / log(hit->committed_ray_t)), 1.f));
+            // device_image1->write(coord, make_float4(make_float3(1.f / log(hit->committed_ray_t)), 1.f));
+            // write normal
+            device_image1->write(coord, make_float4(sphere_color, 1.f));
         }
         $elif(hit->hit_triangle()) {
             // write bary-centric
-            device_image1->write(coord, make_float4(hit.bary, 0.5f, 1.0f));
+            device_image1->write(coord, make_float4(hit.bary, 0.f, 1.f));
         }$else{
             device_image1->write(coord, make_float4(0.f, 0.f, 0.f, 1.f));
         };
