@@ -116,7 +116,7 @@ if has_config("legal_env") then
 	UseSIMD = get_config("enable_simd")
 	-- test require dsl
 	EnableTest = get_config("enable_tests")
-	EnableDSL = get_config("enable_dsl")
+	EnableDSL = get_config("enable_dsl") or EnableTest
 	DxBackend = get_config("dx_backend") and is_plat("windows")
 	-- TODO: require environment check
 	CudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux")) and false
@@ -124,7 +124,8 @@ if has_config("legal_env") then
 	CpuBackend = get_config("cpu_backend")
 	-- TODO: rust condition
 	EnableRust = get_config("enable_rust") or CudaBackend or MetalBackend or CpuBackend
-	EnableGUI = get_config("enable_gui")
+	EnablePython = get_config("enable_py")
+	EnableGUI = get_config("enable_gui") or EnableTest or EnablePython
 
 	if is_mode("debug") then
 		set_targetdir("bin/debug")

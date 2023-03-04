@@ -15,7 +15,7 @@ end
 if EnableGUI then
 	includes("gui")
 end
-if get_config("enable_py") then
+if EnablePython then
 	includes("py")
 end
 if DxBackend then
