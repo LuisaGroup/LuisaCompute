@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
                         auto t1c = sqrt(radius * radius - d * d);
                         auto dist = tc - t1c;
                         // save normal as color
-                        $if(dist <= sphere_dist) {
+                        $if(dist <= sphere_dist){
                             sphere_dist = dist;
                             auto normal = normalize(ray_origin + dir * dist - origin);
                             sphere_color = normal * 0.5f + 0.5f;
@@ -111,8 +111,7 @@ int main(int argc, char *argv[]) {
         $elif(hit->hit_triangle()) {
             // write bary-centric
             device_image1->write(coord, make_float4(hit.bary, 0.f, 1.f));
-        }
-        $else {
+        }$else{
             device_image1->write(coord, make_float4(0.f, 0.f, 0.f, 1.f));
         };
     };
