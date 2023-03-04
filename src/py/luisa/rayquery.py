@@ -50,7 +50,8 @@ class RayQuery:
     def __init__(self):
         self.queryType = rayQueryType
         self.proceed = self.queryType.proceed
-        self.is_triangle = self.queryType.is_triangle
+        self.is_candidate_triangle = self.queryType.is_candidate_triangle
+        self.is_candidate_procedural = self.queryType.is_candidate_procedural
         self.procedural_candidate = self.queryType.procedural_candidate
         self.triangle_candidate = self.queryType.triangle_candidate
         self.get_commit_hit = self.queryType.get_commit_hit
