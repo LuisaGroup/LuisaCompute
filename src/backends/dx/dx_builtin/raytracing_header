@@ -3,14 +3,14 @@
 #define ANY_HIT_RAY_FLAG (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
 typedef RayQuery<ALL_HIT_RAY_FLAG> LC_RayQuery;
 template<typename T>
-RayPayload TraceClosest(RaytracingAccelerationStructure accel,T rayDesc){
+RayPayload TraceClosest(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
 ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
 ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
 ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
 RayQuery<CLOSEST_HIT_RAY_FLAG> q;
-q.TraceRayInline(accel,CLOSEST_HIT_RAY_FLAG,~0,ray);
+q.TraceRayInline(accel,CLOSEST_HIT_RAY_FLAG,mask,ray);
 RayPayload pl;
 q.Proceed();
 if(q.CommittedStatus()==COMMITTED_TRIANGLE_HIT){
@@ -25,14 +25,14 @@ pl.v3=0;
 return pl;
 }
 template<typename T>
-LC_RayQuery TraceAll(RaytracingAccelerationStructure accel,T rayDesc){
+LC_RayQuery TraceAll(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
 ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2])  ;
 ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
 ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
 LC_RayQuery q;
-q.TraceRayInline(accel,ALL_HIT_RAY_FLAG,~0,ray);
+q.TraceRayInline(accel,ALL_HIT_RAY_FLAG,mask,ray);
 return q;
 }
 RayPayload GetCommitedHit(const LC_RayQuery q){
@@ -77,14 +77,14 @@ pl.v4=0;
 return pl;
 }
 template<typename T>
-bool TraceAny(RaytracingAccelerationStructure accel,T rayDesc){
+bool TraceAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
 ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
 ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
 ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
 RayQuery<ANY_HIT_RAY_FLAG> q;
-q.TraceRayInline(accel,ANY_HIT_RAY_FLAG,~0,ray);
+q.TraceRayInline(accel,ANY_HIT_RAY_FLAG,mask,ray);
 q.Proceed();
 return q.CommittedStatus()!=COMMITTED_NOTHING;
 }

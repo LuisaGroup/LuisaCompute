@@ -25,13 +25,11 @@ uint count;
 [numthreads(64,1,1)]
 void main(uint id:SV_DISPATCHTHREADID){
 if(id >= dsp) return;
-const uint flag_visibility_on=1u << 2u;
-const uint flag_visibility_off=1u << 3u;
-const uint flag_visibility=flag_visibility_on | flag_visibility_off;
-const uint flag_transform=1u << 1u;
 const uint flag_mesh=1u << 0u;
-const uint flag_opaque_on = 1u << 4u;
-const uint flag_opaque_off = 1u << 5u;
+const uint flag_transform=1u << 1u;
+const uint flag_opaque_on = 1u << 2u;
+const uint flag_opaque_off = 1u << 3u;
+const uint flag_visibility = 1u << 4u;
 const uint flag_opaque = flag_opaque_on | flag_opaque_off;
 InputInst v=_SetBuffer[id];
 if(v.index >= count) return;
@@ -43,10 +41,7 @@ r.p2=v.p2;
 }
 r.InstanceID=v.index;
 if((v.flags&flag_visibility)!=0){
-if((v.flags&flag_visibility_on)!=0)
-r.InstanceMask=255;
-else
-r.InstanceMask=0;
+r.InstanceMask=(v.flags >> 24);
 }
 r.InstanceContributionToHitGroupIndex=0;
 if((v.flags&flag_opaque)!=0){

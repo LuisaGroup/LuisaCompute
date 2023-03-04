@@ -527,12 +527,11 @@ public:
         // flags
         static constexpr auto flag_mesh = 1u << 0u;
         static constexpr auto flag_transform = 1u << 1u;
-        static constexpr auto flag_visibility_on = 1u << 2u;
-        static constexpr auto flag_visibility_off = 1u << 3u;
-        static constexpr auto flag_opaque_on = 1u << 4u;
-        static constexpr auto flag_opaque_off = 1u << 5u;
-        static constexpr auto flag_visibility = flag_visibility_on | flag_visibility_off;
+        static constexpr auto flag_opaque_on = 1u << 2u;
+        static constexpr auto flag_opaque_off = 1u << 3u;
+        static constexpr auto flag_visibility = 1u << 4u;
         static constexpr auto flag_opaque = flag_opaque_on | flag_opaque_off;
+        static constexpr auto flag_vis_mask_offset = 24u;
 
         // members
         uint index{};
@@ -560,9 +559,12 @@ public:
             affine[11] = m[3][2];
             flags |= flag_transform;
         }
-        void set_visibility(bool vis) noexcept {
-            flags &= ~flag_visibility;// clear old visibility flags
-            flags |= vis ? flag_visibility_on : flag_visibility_off;
+        void set_visibility(uint8_t mask) noexcept {
+            flags |= flag_visibility;
+            flags &= (1u << flag_vis_mask_offset) - 1;
+            uint32_t int_mask = mask;
+            int_mask <<= flag_vis_mask_offset;
+            flags |= int_mask;
         }
         void set_opaque(bool opaque) noexcept {
             flags &= ~flag_opaque;// clear old visibility flags

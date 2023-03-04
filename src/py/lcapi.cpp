@@ -55,8 +55,8 @@ struct VertexData {
     float4 tangent;
     float4 color;
     std::array<float2, 4> uv;
-    uint vertex_id;
-    uint instance_id;
+    uint32_t vertex_id;
+    uint32_t instance_id;
 };
 
 template<typename T>
@@ -146,7 +146,7 @@ PYBIND11_MODULE(lcapi, m) {
             return accel.GetAccel().size();
         })
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
-        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
+        .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
             MeshUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
                           .allow_compaction = allow_compact,
@@ -158,10 +158,10 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            accel.emplace(cmd, transform, visible, opaque);
+            accel.emplace(cmd, transform, visibility_mask, opaque);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
-        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, bool visible, bool opaque) {
+        .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
             MeshUpdateCmd cmd;
             cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
                           .allow_compaction = allow_compact,
@@ -173,10 +173,10 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
-            accel.set(index, cmd, transform, visible, opaque);
+            accel.set(index, cmd, transform, visibility_mask, opaque);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })
-        .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, bool visible) { a.GetAccel().set_visibility_on_update(index, visible); });
+        .def("set_visibility_on_update", [](ManagedAccel &a, size_t index, int visibility_mask) { a.GetAccel().set_visibility_on_update(index, visibility_mask); });
     py::class_<ManagedDevice>(m, "Device")
         .def(
             "create_stream", [](ManagedDevice &self, bool support_window) { return PyStream(self.device, support_window); })
@@ -335,7 +335,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("destroy_buffer", [](DeviceInterface &d, uint64_t handle) {
             RefCounter::current->DeRef(handle);
         })
-        .def("create_texture", [](DeviceInterface &d, PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) {
+        .def("create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
             auto ptr = d.create_texture(format, dimension, width, height, depth, mipmap_levels).handle;
             RefCounter::current->AddObject(ptr, {[](DeviceInterface *d, uint64 handle) { d->destroy_texture(handle); }, &d});
             return ptr;
@@ -397,7 +397,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<FunctionBuilder, eastl::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
         .def("define_kernel", &FunctionBuilder::define_kernel<const luisa::function<void()> &>)
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
-        .def("set_block_size", [](FunctionBuilder &self, uint sx, uint sy, uint sz) { self.set_block_size(uint3(sx, sy, sz)); })
+        .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
         .def("try_eval_int", [](FunctionBuilder &self, Expression const *expr) {
             auto eval = analyzer.back().try_eval(expr);
             return visit(
@@ -613,7 +613,7 @@ PYBIND11_MODULE(lcapi, m) {
                 return make_unique<ComputeDispatchCmdEncoder>(handle, arg_size, uniform_size, func.argument_bindings()).release();
             },
             pyref)
-        .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint sx, uint sy, uint sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
+        .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })
         .def("set_dispatch_buffer", [](ComputeDispatchCmdEncoder &self, uint64_t handle) { self.set_dispatch_size(IndirectDispatchArg{handle}); })
         .def("encode_buffer", &ComputeDispatchCmdEncoder::encode_buffer)
         .def("encode_texture", &ComputeDispatchCmdEncoder::encode_texture)
@@ -645,31 +645,31 @@ PYBIND11_MODULE(lcapi, m) {
     // texture operation commands
     py::class_<TextureUploadCommand, Command>(m, "TextureUploadCommand")
         .def_static(
-            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const &buf) {
+            "create", [](uint64_t handle, PixelStorage storage, uint32_t level, uint3 size, py::buffer const &buf) {
                 return TextureUploadCommand::create(handle, storage, level, size, buf.request().ptr).release();
             },
             pyref);
     py::class_<TextureDownloadCommand, Command>(m, "TextureDownloadCommand")
         .def_static(
-            "create", [](uint64_t handle, PixelStorage storage, uint level, uint3 size, py::buffer const &buf) {
+            "create", [](uint64_t handle, PixelStorage storage, uint32_t level, uint3 size, py::buffer const &buf) {
                 return TextureDownloadCommand::create(handle, storage, level, size, buf.request().ptr).release();
             },
             pyref);
     py::class_<TextureCopyCommand, Command>(m, "TextureCopyCommand")
         .def_static(
-            "create", [](PixelStorage storage, uint64_t src_handle, uint64_t dst_handle, uint src_level, uint dst_level, uint3 size) {
+            "create", [](PixelStorage storage, uint64_t src_handle, uint64_t dst_handle, uint32_t src_level, uint32_t dst_level, uint3 size) {
                 return TextureCopyCommand::create(storage, src_handle, dst_handle, src_level, dst_level, size).release();
             },
             pyref);
     py::class_<BufferToTextureCopyCommand, Command>(m, "BufferToTextureCopyCommand")
         .def_static(
-            "create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size) {
+            "create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint32_t level, uint3 size) {
                 return BufferToTextureCopyCommand::create(buffer, buffer_offset, texture, storage, level, size).release();
             },
             pyref);
     py::class_<TextureToBufferCopyCommand, Command>(m, "TextureToBufferCopyCommand")
         .def_static(
-            "create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint level, uint3 size) {
+            "create", [](uint64_t buffer, size_t buffer_offset, uint64_t texture, PixelStorage storage, uint32_t level, uint3 size) {
                 return TextureToBufferCopyCommand::create(buffer, buffer_offset, texture, storage, level, size).release();
             },
             pyref);
@@ -691,12 +691,12 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<AccelWrapper>(m, "Accel")
         .def("size", [](AccelWrapper &a) { return a.accel.size(); })
         .def("handle", [](AccelWrapper &self) { return self.accel.handle(); })
-        .def("emplace_back", [](AccelWrapper &accel, uint64_t mesh_handle, float4x4 transform, bool visible) {
+        .def("emplace_back", [](AccelWrapper &accel, uint64_t mesh_handle, float4x4 transform, uint32_t visibility_mask) {
             auto sz = accel.accel.size();
             accel.accel.emplace_back_handle(mesh_handle, transform, visible);
             RefCounter::current->SetAccelRef(accel.accel.handle(), sz, mesh_handle);
         })
-        .def("set", [](AccelWrapper &accel, size_t index, uint64_t mesh, float4x4 transform, bool visible) {
+        .def("set", [](AccelWrapper &accel, size_t index, uint64_t mesh, float4x4 transform, uint32_t visibility_mask) {
             accel.accel.set_handle(index, mesh, transform, visible);
             RefCounter::current->SetAccelRef(accel.accel.handle(), index, mesh);
         })
@@ -706,7 +706,7 @@ PYBIND11_MODULE(lcapi, m) {
             RefCounter::current->SetAccelRef(accel.accel.handle(), sz, 0);
         })
         .def("set_transform_on_update", [](AccelWrapper &a, size_t index, float4x4 transform) { a.accel.set_transform_on_update(index, transform); })
-        .def("set_visibility_on_update", [](AccelWrapper &a, size_t index, bool visible) { a.accel.set_visibility_on_update(index, visible); })
+        .def("set_visibility_on_update", [](AccelWrapper &a, size_t index, uint32_t visibility_mask) { a.accel.set_visibility_on_update(index, visible); })
         .def(
             "build_command", [](AccelWrapper &self, Accel::BuildRequest request) { return self.accel.build(request).release(); }, pyref);
 */
@@ -784,7 +784,7 @@ PYBIND11_MODULE(lcapi, m) {
     m.def("pixel_storage_channel_count", pixel_storage_channel_count);
     m.def("pixel_storage_to_format_int", pixel_storage_to_format<int>);
     m.def("pixel_storage_to_format_float", pixel_storage_to_format<float>);
-    m.def("pixel_storage_size", [](PixelStorage storage, uint w, uint h, uint d) { return pixel_storage_size(storage, make_uint3(w, h, d)); });
+    m.def("pixel_storage_size", [](PixelStorage storage, uint32_t w, uint32_t h, uint32_t d) { return pixel_storage_size(storage, make_uint3(w, h, d)); });
 
     // sampler
     auto m_sampler = py::class_<Sampler>(m, "Sampler")

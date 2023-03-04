@@ -64,11 +64,11 @@ void ManagedAccel::remove_mesh(size_t index) noexcept {
         data->created_mesh.erase(iter);
     }
 }
-void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
+void ManagedAccel::emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept {
     auto sz = data->meshes.size();
     data->meshes.emplace_back(invalid_resource_handle, vstd::MD5{});
     auto new_mesh = set_mesh(sz, mesh);
-    data->accel.emplace_back_handle(new_mesh, transform, visible, opaque);
+    data->accel.emplace_back_handle(new_mesh, transform, visibility_mask, opaque);
 }
 
 void ManagedAccel::pop_back() noexcept {
@@ -77,10 +77,10 @@ void ManagedAccel::pop_back() noexcept {
     data->meshes.pop_back();
 }
 
-void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
+void ManagedAccel::set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept {
     auto &last_mesh = data->meshes[idx];
     auto new_mesh = set_mesh(idx, mesh);
-    data->accel.set_handle(idx, new_mesh, transform, visible, opaque);
+    data->accel.set_handle(idx, new_mesh, transform, visibility_mask, opaque);
 }
 
 void ManagedAccel::update(PyStream &stream) noexcept {

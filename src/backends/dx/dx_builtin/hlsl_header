@@ -266,8 +266,8 @@ void SetAccelTransform(RWStructuredBuffer<MeshInst> buffer,const Idx index,const
 SetInstTransform(buffer[index],mat);
 }
 template<typename Idx>
-void SetAccelVis(RWStructuredBuffer<MeshInst> buffer,const Idx index,const bool vis){
-buffer[index].InstanceMask=select(vis,255,0);
+void SetAccelVis(RWStructuredBuffer<MeshInst> buffer,const Idx index,const uint mask){
+buffer[index].InstanceMask=mask;
 }
 template<typename Idx>
 void SetAccelOpaque(RWStructuredBuffer<MeshInst> buffer,const Idx index,const bool opaque){

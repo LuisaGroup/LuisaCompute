@@ -49,12 +49,12 @@ luisa::unique_ptr<Command> Accel::update(bool build_accel, Accel::BuildRequest r
                                      request, std::move(modifications), build_accel);
 }
 
-void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
+void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
     auto index = static_cast<uint>(_mesh_handles.size());
     Modification modification{index};
     modification.set_mesh(mesh);
     modification.set_transform(transform);
-    modification.set_visibility(visible);
+    modification.set_visibility(visibility_mask);
     modification.set_opaque(opaque);
     _modifications[index] = modification;
     _mesh_handles.emplace_back(mesh);
@@ -70,7 +70,7 @@ void Accel::pop_back() noexcept {
     }
 }
 
-void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, bool visible, bool opaque) noexcept {
+void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -78,7 +78,7 @@ void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, b
     } else {
         Modification modification{static_cast<uint>(index)};
         modification.set_transform(transform);
-        modification.set_visibility(visible);
+        modification.set_visibility(visibility_mask);
         modification.set_opaque(opaque);
         if (mesh != _mesh_handles[index]) [[likely]] {
             modification.set_mesh(mesh);
@@ -112,7 +112,7 @@ void Accel::set_opaque_on_update(size_t index, bool opaque) noexcept {
     }
 }
 
-void Accel::set_visibility_on_update(size_t index, bool visible) noexcept {
+void Accel::set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept {
     if (index >= size()) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
@@ -120,7 +120,7 @@ void Accel::set_visibility_on_update(size_t index, bool visible) noexcept {
     } else {
         auto [iter, _] = _modifications.try_emplace(
             index, Modification{static_cast<uint>(index)});
-        iter->second.set_visibility(visible);
+        iter->second.set_visibility(visibility_mask);
     }
 }
 }// namespace luisa::compute

@@ -56,9 +56,9 @@ public:
     ManagedAccel &operator=(ManagedAccel &&) = default;
     ManagedAccel &operator=(ManagedAccel const &) = delete;
     ManagedAccel() = delete;
-    void emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept;
+    void emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
     void pop_back() noexcept;
-    void set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, bool visible, bool opaque) noexcept;
+    void set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
     void update(PyStream &stream) noexcept;
 };
 

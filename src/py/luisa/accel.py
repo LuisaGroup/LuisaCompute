@@ -5,7 +5,7 @@ from .struct import StructType
 from .array import ArrayType
 from .mathtypes import *
 from .func import func
-from .types import uint, to_lctype
+from .types import to_lctype
 from .builtin import _builtin_call, bitwise_cast
 from .hit import Hit
 from .rayquery import rayQueryType, rayQuery
@@ -100,21 +100,21 @@ class Accel:
     def empty():
         return Accel()
 
-    def add(self, vertex_buffer, triangle_buffer, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visible:bool = True, opaque:bool = True):
-        self._accel.emplace_back(vertex_buffer.handle, 0, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(), triangle_buffer.handle, 0, triangle_buffer.bytesize, transform, allow_compact, allow_update, visible, opaque)
+    def add(self, vertex_buffer, triangle_buffer, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visibility_mask:int=-1, opaque:bool = True):
+        self._accel.emplace_back(vertex_buffer.handle, 0, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(), triangle_buffer.handle, 0, triangle_buffer.bytesize, transform, allow_compact, allow_update, visibility_mask, opaque)
 
-    def set(self, index, vertex_buffer, triangle_buffer, transform = float4x4(1),allow_compact:bool = True, allow_update:bool = False, visible = True, opaque:bool = True):
-        self._accel.set(index, vertex_buffer.handle, 0, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(), triangle_buffer.handle, 0, triangle_buffer.bytesize, transform, allow_compact, allow_update, visible, opaque)
+    def set(self, index, vertex_buffer, triangle_buffer, transform = float4x4(1),allow_compact:bool = True, allow_update:bool = False, visibility_mask:int = -1, opaque:bool = True):
+        self._accel.set(index, vertex_buffer.handle, 0, vertex_buffer.bytesize, to_lctype(vertex_buffer.dtype).size(), triangle_buffer.handle, 0, triangle_buffer.bytesize, transform, allow_compact, allow_update, visibility_mask, opaque)
 
-    def add_buffer_view(self, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer, triangle_byteoffset, triangle_bytesize, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visible:bool = True, opaque:bool = True):
+    def add_buffer_view(self, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer, triangle_byteoffset, triangle_bytesize, transform = float4x4(1), allow_compact:bool = True, allow_update:bool = False, visibility_mask:int=-1, opaque:bool = True):
         assert (triangle_byteoffset & 15) == 0 and (vertex_byteoffset & 15) == 0
         assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
         assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
-        self._accel.emplace_back(vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform, allow_compact, allow_update, visible, opaque)
-    def set_buffer_view(self, index, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer, triangle_byteoffset, triangle_bytesize, transform = float4x4(1),allow_compact:bool = True, allow_update:bool = False, visible = True, opaque:bool = True):
+        self._accel.emplace_back(vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform, allow_compact, allow_update, visibility_mask, opaque)
+    def set_buffer_view(self, index, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer, triangle_byteoffset, triangle_bytesize, transform = float4x4(1),allow_compact:bool = True, allow_update:bool = False, visibility_mask:int = -1, opaque:bool = True):
         assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
         assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
-        self._accel.set(index, vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform, allow_compact, allow_update, visible, opaque)
+        self._accel.set(index, vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer.handle, triangle_byteoffset, triangle_bytesize, transform, allow_compact, allow_update, visibility_mask, opaque)
     def pop(self):
         self._accel.pop_back()
 
@@ -124,8 +124,8 @@ class Accel:
     def set_transform_on_update(self, index, transform: float4x4):
         self._accel.set_transform_on_update(index, transform)
 
-    def set_visibility_on_update(self, index, visible: bool):
-        self._accel.set_visibility_on_update(index, visible)
+    def set_visibility_on_update(self, index, visibility_mask: int):
+        self._accel.set_visibility_on_update(index, visibility_mask)
 
     def update(self, sync = False, stream = None):
         if stream is None:
@@ -135,12 +135,12 @@ class Accel:
             stream.synchronize()
 
     @func
-    def trace_closest(self, ray: Ray):
-        return _builtin_call(Hit, "RAY_TRACING_TRACE_CLOSEST", self, ray)
+    def trace_closest(self, ray: Ray, vis_mask: int):
+        return _builtin_call(Hit, "RAY_TRACING_TRACE_CLOSEST", self, ray, vis_mask)
 
     @func
-    def trace_any(self, ray: Ray):
-        return _builtin_call(bool, "RAY_TRACING_TRACE_ANY", self, ray)
+    def trace_any(self, ray: Ray, vis_mask: int):
+        return _builtin_call(bool, "RAY_TRACING_TRACE_ANY", self, ray, vis_mask)
 
     @func
     def instance_transform(self, index: int):
@@ -151,11 +151,11 @@ class Accel:
         _builtin_call("RAY_TRACING_SET_INSTANCE_TRANSFORM", self, index, transform)
 
     @func
-    def set_instance_visibility(self, index: int, visible: bool):
-        _builtin_call("RAY_TRACING_SET_INSTANCE_VISIBILITY", self, index, visible)
+    def set_instance_visibility(self, index: int, visibility_mask: int):
+        _builtin_call("RAY_TRACING_SET_INSTANCE_VISIBILITY", self, index, visibility_mask)
     @func
-    def set_instance_visibility(self, index: int, opaque: bool):
-        _builtin_call("RAY_TRACING_SET_INSTANCE_OPACITY", self, index, opaque)
+    def set_instance_visibility(self, index: int, visibility_mask: int):
+        _builtin_call("RAY_TRACING_SET_INSTANCE_OPACITY", self, index, visibility_mask)
     @func
-    def trace_all(self, ray: Ray):
-        return _builtin_call(rayQueryType, "RAY_TRACING_TRACE_ALL", self, ray)
+    def trace_all(self, ray: Ray, vis_mask: int):
+        return _builtin_call(rayQueryType, "RAY_TRACING_TRACE_ALL", self, ray, vis_mask)
