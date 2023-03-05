@@ -40,9 +40,7 @@ void export_vector3(py::module &m);
 void export_vector4(py::module &m);
 void export_matrix(py::module &m);
 void export_img(py::module &m);
-#ifdef LC_PY_ENABLE_GUI
 void export_gui(py::module &m);
-#endif
 class ManagedMeshFormat {
 public:
     MeshFormat format;
@@ -830,7 +828,5 @@ PYBIND11_MODULE(lcapi, m) {
             fmt.format.emplace_vertex_stream(fmt.attributes);
             fmt.attributes.clear();
         });
-#ifdef LC_PY_ENABLE_GUI
     export_gui(m);
-#endif
 }

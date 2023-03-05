@@ -1,4 +1,3 @@
-#ifdef LC_PY_ENABLE_GUI
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
@@ -128,4 +127,3 @@ void export_gui(py::module &m) {
             return clock.toc();
         });
 }
-#endif

@@ -1,7 +1,7 @@
 add_rules("mode.release", "mode.debug")
 -- in case bug from version control
 set_policy("build.ccache", false)
--- options
+-- pre-defined options
 option("enable_mimalloc")
 set_values(true, false)
 set_default(true)
@@ -62,9 +62,13 @@ set_default(false)
 set_showmenu(true)
 option_end()
 
-option("enable_py")
-set_values(true, false)
-set_default(false)
+option("py_path")
+set_default("")
+set_showmenu(true)
+option_end()
+
+option("py_version")
+set_default("")
 set_showmenu(true)
 option_end()
 
@@ -91,7 +95,7 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
--- options
+-- pre-defined options end
 
 option("legal_env")
 set_showmenu(false)
@@ -99,16 +103,6 @@ add_csnippets("legal_env", "return ((sizeof(void*)==8)&&(sizeof(int)==4)&&(sizeo
 	tryrun = true
 })
 option_end()
-rule("check_env")
-set_kind("project")
-before_build(function()
-	if not has_config("legal_env") then
-		utils.error("Illegal environment! Please check your compiler, architecture or platform!")
-		return
-	end
-end)
-rule_end()
-add_rules("check_env")
 if has_config("legal_env") then
 	UseMimalloc = get_config("enable_mimalloc")
 	UseUnityBuild = get_config("enable_unity_build")
@@ -124,7 +118,9 @@ if has_config("legal_env") then
 	CpuBackend = get_config("cpu_backend")
 	-- TODO: rust condition
 	EnableRust = get_config("enable_rust") or CudaBackend or MetalBackend or CpuBackend
-	EnablePython = get_config("enable_py")
+	PythonVersion = get_config("py_version")
+	PythonPath = get_config("py_path")
+	EnablePython = PythonPath:len() > 0 and PythonVersion:len() > 0
 	EnableGUI = get_config("enable_gui") or EnableTest or EnablePython
 
 	if is_mode("debug") then
@@ -138,4 +134,10 @@ if has_config("legal_env") then
 	if ExportConfig then
 		add_rules("export_define_project")
 	end
+else
+	target("_lc_phony_proj")
+	set_kind("phony")
+	before_build(function(target)
+		utils.error("Illegal environment. Please check your compiler, architecture or platform.")
+	end)
 end

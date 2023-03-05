@@ -1,5 +1,4 @@
 import ast
-import astpretty
 import inspect
 import sys
 from types import SimpleNamespace, ModuleType
@@ -35,7 +34,6 @@ class ASTVisitor:
         if method is None:
             raise NotImplementedError(f'Unsupported syntax node {node}')
         try:
-            # print(astpretty.pformat(node))
             self.comment_source(node)
             return method(node)
         except Exception as e:

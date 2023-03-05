@@ -1,34 +1,40 @@
-function CompilePython(version)
-	local versionName = "3" .. tostring(version)
-	local pyName = "python" .. versionName
-	local projectName = "lcapi" .. versionName
+local version_table = {}
+local split_size = 0
+for str in string.gmatch(PythonVersion, "([^_]+)") do
+	table.insert(version_table, str)
+	split_size = split_size + 1
+end
+local legal_version = (split_size == 2) and version_table[1] == '3'
+if legal_version then
+	local num = tonumber(version_table[2])
+	if num == nil then
+		legal_version = false
+	end
+end
+if legal_version then
 	_config_project({
-		project_name = projectName,
+		project_name = "lcapi",
 		project_kind = "shared",
 		enable_exception = true
 	})
+	local pyName = "python" .. version_table[1] .. version_table[2]
 	add_links("python3", pyName)
-	add_linkdirs("../ext/" .. pyName .. "/libs")
-	add_includedirs("../ext/pybind11/include", "../ext/" .. pyName .. "/include", "../ext/stb/")
+	add_linkdirs(PythonPath .. "/libs")
+	add_includedirs("../ext/pybind11/include", PythonPath .. "/include", "../ext/stb/")
 	add_files("*.cpp")
 	add_deps("lc-runtime")
 	add_defines("LC_AST_EXCEPTION")
-	set_values("projectName", projectName)
-	if EnableGUI then
-		add_deps("lc-gui")
-		add_defines("LC_PY_ENABLE_GUI")
-	end
+	add_deps("lc-gui")
 	after_build(function(target)
-		local projectName = target:values("projectName")
 		local bdPath = target:targetdir()
 		if is_plat("windows") then
-			os.cp(bdPath .. "/" .. projectName .. ".dll", bdPath .. "/lcapi.pyd")
+			os.cp(bdPath .. "/lcapi.dll", bdPath .. "/lcapi.pyd")
 		end
 	end)
+else
+	target("_lc_phony_py")
+	set_kind("phony")
+	before_build(function(target)
+		utils.error("Illegal python version argument. please use argument like 3_9(for python 3.9) or 3_10(for python 3.10)")
+	end)
 end
-CompilePython(11)
---[[
-for version = 1, 11, 1 do
-	CompilePython(version)
-end
-]]
