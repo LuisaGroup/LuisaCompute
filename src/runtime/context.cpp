@@ -11,11 +11,6 @@
 #include <core/binary_io.h>
 #include <vstl/pdqsort.h>
 #include <core/stl/filesystem.h>
-
-#ifdef LUISA_PLATFORM_WINDOWS
-#include <windows.h>
-#endif
-
 namespace luisa::compute {
 
 // Make context global, so dynamic modules cannot be over-loaded
@@ -111,7 +106,7 @@ Device Context::create_device(std::string_view backend_name_in, const DeviceConf
         LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
     }
     LUISA_ASSERT(impl->device_identifiers.size() == impl->device_creators.size() &&
-                 impl->device_identifiers.size() == impl->device_deleters.size(),
+                     impl->device_identifiers.size() == impl->device_deleters.size(),
                  "Internal error.");
     Device::Creator *creator;
     Device::Deleter *deleter;
@@ -123,19 +118,10 @@ Device Context::create_device(std::string_view backend_name_in, const DeviceConf
         creator = impl->device_creators[index];
         deleter = impl->device_deleters[index];
     } else {
-#ifdef LUISA_PLATFORM_WINDOWS
-        WCHAR buffer[MAX_PATH];
-        GetDllDirectoryW(MAX_PATH, buffer);
-        SetDllDirectoryW(impl->runtime_directory.c_str());
-#endif
-
         auto &&m = impl->loaded_modules.emplace_back(
             DynamicModule::load(
                 impl->runtime_directory,
                 fmt::format("lc-backend-{}", backend_name)));
-#ifdef LUISA_PLATFORM_WINDOWS
-        SetDllDirectoryW(buffer);
-#endif
         creator = m.function<Device::Creator>("create");
         deleter = m.function<Device::Deleter>("destroy");
         impl->device_identifiers.emplace_back(backend_name);

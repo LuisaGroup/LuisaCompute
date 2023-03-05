@@ -53,6 +53,10 @@ size_t pagesize() noexcept {
 }
 
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
+    bool has_parent_path = path.has_parent_path();
+    if (has_parent_path) {
+        SetDllDirectoryW(path.parent_path().c_str());
+    }
     auto path_string = path.string();
     auto module = LoadLibraryA(path_string.c_str());
     if (module == nullptr) [[unlikely]] {
@@ -60,6 +64,7 @@ void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
             "Failed to load dynamic module '{}', reason: {}.",
             path_string, detail::win32_last_error_message());
     }
+    SetDllDirectoryW(nullptr);
     return module;
 }
 
