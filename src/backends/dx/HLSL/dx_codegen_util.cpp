@@ -790,7 +790,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_WRITE: {
             assert(!opt->isRaster);
-            if (opt->kernel.requires_atomic_float()) {
+            if (opt->kernel.requires_atomic_float() && args[2]->type()->tag() == Type::Tag::FLOAT32) {
                 str << "bfwrite_float"sv;
             } else {
                 str << "bfwrite"sv;
