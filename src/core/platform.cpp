@@ -64,7 +64,9 @@ void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
             "Failed to load dynamic module '{}', reason: {}.",
             path_string, detail::win32_last_error_message());
     }
-    SetDllDirectoryW(nullptr);
+    if (has_parent_path) {
+        SetDllDirectoryW(nullptr);
+    }
     return module;
 }
 
