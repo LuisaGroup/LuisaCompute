@@ -12,7 +12,8 @@ if is_plat("windows") then
 	add_syslinks("Ws2_32", "Advapi32", "Bcrypt", "Userenv")
 end
 function add_rs_link(str)
-	add_links("src/rust/target/" .. str .. "/luisa_compute_api_types", "src/rust/target/" .. str .. "/luisa_compute_ir")
+	add_links(path.join(path.join("src/rust/target", str), "luisa_compute_api_types"),
+					path.join(path.join("src/rust/target", str), "luisa_compute_ir"))
 end
 if is_mode("debug") then
 	add_rs_link("debug")

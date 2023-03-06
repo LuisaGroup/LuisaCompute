@@ -5,7 +5,7 @@ _config_project({
 })
 on_load(function(target)
 	local version_table = {}
-	for str in string.gmatch(get_config("py_version"), "([^_]+)") do
+	for str in string.gmatch(get_config("py_version"), "([^.]+)") do
 		table.insert(version_table, str)
 	end
 	local legal_version = (table.getn(version_table) == 2) and version_table[1] == '3'
@@ -19,21 +19,21 @@ on_load(function(target)
 		local py_name = "python" .. version_table[1] .. version_table[2]
 		local py_path = get_config("py_path")
 		target:add("links", "python3", py_name)
-		target:add("linkdirs", py_path .. "/libs")
-		target:add("includedirs", "src/ext/pybind11/include", py_path .. "/include", "src/ext/stb/")
-		target:add("deps", "lc-runtime", "lc-gui")
-		target:add("defines", "LC_AST_EXCEPTION")
+		target:add("linkdirs", path.join(py_path, "libs"))
+		target:add("includedirs", path.join(py_path, "include"))
 	else
 		target:set("enabled", false)
-		utils.error("Illegal python version argument. please use argument like 3_9(for python 3.9) or 3_10(for python 3.10)")
+		utils.error("Illegal python version argument. please use argument like 3.9(for python 3.9) or 3.10(for python 3.10)")
 		return
 	end
 end)
 add_files("*.cpp")
-
+add_defines("LC_AST_EXCEPTION")
+add_includedirs("../ext/stb/", "../ext/pybind11/include")
+add_deps("lc-runtime", "lc-gui")
 after_build(function(target)
 	local bdPath = target:targetdir()
 	if is_plat("windows") then
-		os.cp(bdPath .. "/lcapi.dll", bdPath .. "/lcapi.pyd")
+		os.cp(path.join(bdPath, "lcapi.dll"), path.join(bdPath, "lcapi.pyd"))
 	end
 end)

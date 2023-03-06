@@ -12,7 +12,7 @@ add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp"
 add_includedirs("./")
 add_syslinks("D3D12", "dxgi")
 after_build(function(target)
-	local binDir = target:targetdir() .. '/'
-	os.cp("src/backends/dx/dx_builtin", binDir .. ".data/")
+	local binDir = target:targetdir()
+	os.cp("src/backends/dx/dx_builtin", path.join(binDir, ".data/"))
 	os.cp("src/backends/dx/dx_support/*.dll", binDir)
 end)

@@ -4,14 +4,14 @@ function add_lc_includes(rootDir, isPublic)
 					"FMT_SHARED", "SPDLOG_SHARED_LIB", "FMT_CONSTEVAL=constexpr", "FMT_USE_CONSTEXPR=1", "FMT_EXCEPTIONS=0", {
 						public = isPublic
 					})
-	add_includedirs(rootDir .. "/src/ext/spdlog/include", {
+	add_includedirs(path.join(rootDir, "src/ext/spdlog/include"), {
 		public = isPublic
 	})
 	-- mimalloc
 	add_defines("MI_SHARED_LIB", {
 		public = isPublic
 	})
-	add_includedirs(rootDir .. "/src/ext/EASTL/packages/mimalloc/include", {
+	add_includedirs(path.join(rootDir, "src/ext/EASTL/packages/mimalloc/include"), {
 		public = isPublic
 	})
 	-- eastl
@@ -25,15 +25,17 @@ function add_lc_includes(rootDir, isPublic)
 					"EASTL_INLINE_NAMESPACES_ENABLED", "EASTL_ALLOCATOR_EXPLICIT_ENABLED", "EA_DLL", "EASTL_USER_DEFINED_ALLOCATOR", {
 						public = isPublic
 					})
-	add_includedirs(rootDir .. "/src/ext/EASTL/include", rootDir .. "/src/ext/EASTL/packages/EABase/include/Common", {
-		public = isPublic
-	})
+	add_includedirs(path.join(rootDir, "src/ext/EASTL/include"),
+					path.join(rootDir, "src/ext/EASTL/packages/EABase/include/Common"), {
+						public = isPublic
+					})
 	-- lc-core
 	add_defines("UNICODE=1", "NOMINMAX=1", "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS=1", "_CRT_SECURE_NO_WARNINGS=1",
 					"_ENABLE_EXTENDED_ALIGNED_STORAGE=1", {
 						public = isPublic
 					})
-	add_includedirs(rootDir .. "/src", rootDir .. "/src/ext/xxHash", rootDir .. "/src/ext/parallel-hashmap", {
-		public = isPublic
-	})
+	add_includedirs(path.join(rootDir, "src"), path.join(rootDir, "src/ext/xxHash"),
+					path.join(rootDir, "src/ext/parallel-hashmap"), {
+						public = isPublic
+					})
 end
