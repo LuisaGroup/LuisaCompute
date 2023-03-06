@@ -211,7 +211,7 @@ tags
 
 ### VisualStudioCode template
 .vscode/*
-!.vscode/settings.json
+!.vscode/settings.json.for_xmake
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
