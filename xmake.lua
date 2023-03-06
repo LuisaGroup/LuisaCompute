@@ -44,12 +44,6 @@ set_default(false)
 set_showmenu(true)
 option_end()
 
-option("export_config")
-set_values(true, false)
-set_default(false)
-set_showmenu(true)
-option_end()
-
 option("enable_tools")
 set_values(true, false)
 set_default(false)
@@ -106,7 +100,6 @@ option_end()
 if has_config("legal_env") then
 	UseMimalloc = get_config("enable_mimalloc")
 	UseUnityBuild = get_config("enable_unity_build")
-	ExportConfig = (get_config("export_config"))
 	UseSIMD = get_config("enable_simd")
 	-- test require dsl
 	EnableTest = get_config("enable_tests")
@@ -132,9 +125,6 @@ if has_config("legal_env") then
 
 	includes("xmake_func.lua")
 	includes("src")
-	if ExportConfig then
-		add_rules("export_define_project")
-	end
 else
 	target("_lc_illegal_env")
 	set_kind("phony")

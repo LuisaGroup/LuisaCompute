@@ -59,12 +59,6 @@ function _config_project(config)
 		end
 	end
 end
-function _get_add_defines()
-	return _get_or("override_add_defines", add_defines)
-end
-function _get_add_includedirs()
-	return _get_or("override_add_includedirs", add_includedirs)
-end
 
 --[[
 _configs = {
