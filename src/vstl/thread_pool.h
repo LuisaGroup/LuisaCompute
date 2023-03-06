@@ -41,9 +41,9 @@ struct LC_VSTL_API NodeAlloc {
     NodeAlloc();
 };
 struct LC_VSTL_API Event : public IOperatorNewBase {
-    friend class ThreadPool;
-    friend class ThreadBarrier;
-    friend class DeferredThreadBarrier;
+    friend class ::vstd::ThreadPool;
+    friend class ::vstd::ThreadBarrier;
+    friend class ::vstd::DeferredThreadBarrier;
     bool Valid() const { return node; }
     ~Event() {
         if (node) node->Deref();
