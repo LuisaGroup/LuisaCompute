@@ -11,7 +11,8 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/sugar.h>
-#include <gui/backup/window.h>
+#include <gui/window.h>
+#include <runtime/swap_chain.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -40,6 +41,7 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D kernel = [&](ImageUInt prev, ImageUInt curr) noexcept {
+        set_block_size(16, 16, 1);
         auto count = def(0u);
         auto uv = dispatch_id().xy();
         auto size = dispatch_size().xy();
@@ -59,50 +61,40 @@ int main(int argc, char *argv[]) {
         curr.write(uv, make_uint4(make_uint3(ite((state & c0) | c1, 255u, 0u)), 255u));
     };
     auto shader = device.compile(kernel);
-
+    Kernel2D display_kernel = [&](ImageUInt in_tex, ImageFloat out_tex) noexcept {
+        set_block_size(16, 16, 1);
+        auto uv = dispatch_id().xy();
+        auto coord = uv / 4u;
+        auto value = in_tex.read(coord);
+        out_tex.write(uv, make_float4(value) / 255.0f);
+    };
+    auto display_shader = device.compile(display_kernel);
     static constexpr auto width = 128u;
     static constexpr auto height = 128u;
     ImagePair image_pair{device, PixelStorage::BYTE4, width, height};
-    auto stream = device.create_stream();
 
-    auto should_start = false;
-    luisa::vector<uint> host_image(width * height);
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     std::mt19937 rng{std::random_device{}()};
+    Window window{"Game of Life", width * 4u, height * 4u, false};
+    auto swap_chain = device.create_swapchain(window.window_native_handle(), stream, window.size());
+    auto display = device.create_image<float>(PixelStorage::BYTE4, window.size());
+
     auto reset = [&] {
+        luisa::vector<uint> host_image;
+        host_image.push_back_uninitialized(width * height);
         for (auto &v : host_image) {
             auto x = (rng() % 4u == 0u) * 255u;
             v = x * 0x00010101u | 0xff000000u;
         }
-        stream << image_pair.prev.copy_from(host_image.data());
-        should_start = false;
+        stream << image_pair.prev.copy_from(host_image.data()) << synchronize();
     };
-
-    Window window{"Game of Life", make_uint2(width, height) * 4u};
-    window.set_key_callback([&](int key, int action) noexcept {
-        if (action == GLFW_PRESS && (key == GLFW_KEY_ESCAPE || key == GLFW_KEY_Q)) {
-            window.set_should_close();
-        }
-        if (action == GLFW_PRESS && key == GLFW_KEY_SPACE) {
-            should_start = !should_start;
-        }
-        if (action == GLFW_PRESS && key == GLFW_KEY_R) {
-            reset();
-        }
-    });
-
     reset();
     while (!window.should_close()) {
-        if (should_start) {
-            stream << shader(image_pair.prev, image_pair.curr).dispatch(width, height)
-                   << image_pair.curr.copy_to(host_image.data())
-                   << synchronize();
-            image_pair.swap();
-        }
-        window.run_one_frame([&] {
-            using Pixel = std::array<uint8_t, 4>;
-            auto p = reinterpret_cast<const Pixel *>(host_image.data());
-            window.set_background(p, make_uint2(width, height), false);
-        });
+        stream << shader(image_pair.prev, image_pair.curr).dispatch(width, height)
+               << display_shader(image_pair.curr, display).dispatch(width * 4u, height * 4u)
+               << swap_chain.present(display);
+        image_pair.swap();
         std::this_thread::sleep_for(std::chrono::milliseconds{30});
+        window.pool_event();
     }
 }

@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/6/23.
 //
 
-#include <iostream>
-
 #include <core/clock.h>
 #include <core/logging.h>
 #include <runtime/context.h>
@@ -60,5 +58,5 @@ int main(int argc, char *argv[]) {
            << add_shader(atomic_float_buffer).dispatch(1024u)
            << atomic_float_buffer.copy_to(&result)
            << synchronize();
-    LUISA_INFO("Result: {}.", result);
+    LUISA_INFO("Atomic float result: {}.", result);
 }

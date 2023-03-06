@@ -11,8 +11,7 @@
 #include <runtime/stream.h>
 #include <runtime/event.h>
 #include <dsl/syntax.h>
-#include <gui/backup/window.h>
-#include <gui/backup/framerate.h>
+#include <gui/window.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -21,7 +20,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
 
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -95,30 +94,22 @@ int main(int argc, char *argv[]) {
     static constexpr auto width = 1024u;
     static constexpr auto height = 1024u;
     auto device_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    std::vector<std::array<uint8_t, 4u>> host_image(width * height);
 
-    auto stream = device.create_stream();
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     stream << clear(device_image).dispatch(width, height);
 
-    Window window{"Display", make_uint2(width, height)};
-    window.set_key_callback([&](int key, int action) noexcept {
-        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
-            window.set_should_close();
-        }
-    });
-
+    Window window{"Display", make_uint2(width, height), false};
+    auto swap_chain{device.create_swapchain(
+        window.window_native_handle(),
+        stream,
+        window.size(),
+        true, false, 2)};
     Clock clock;
-    Framerate framerate{32};
-    window.run([&] {
-        framerate.record();
+    while (!window.should_close()) {
         auto time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)
-               << device_image.copy_to(host_image.data())
-               << synchronize();
-        window.set_background(host_image.data(), make_uint2(width, height));
-
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("FPS: %.1f", framerate.report());
-        ImGui::End();
-    });
+               << swap_chain.present(device_image);
+        window.pool_event();
+    }
+    stream << synchronize();
 }

@@ -11,10 +11,8 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <dsl/sugar.h>
-#include <dsl/printer.h>
 #include <runtime/rtx/accel.h>
-#include <gui/backup/window.h>
-#include <gui/backup/framerate.h>
+#include <gui/window.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
 
@@ -142,7 +140,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     auto heap = device.create_bindless_array();
-    auto stream = device.create_stream();
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
 
@@ -219,9 +217,7 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("grid_len = {}", grid_len);
 
-    Printer printer{device};
-    stream << printer.reset()
-           << seed_buffer.copy_from(seeds.data());
+    stream << seed_buffer.copy_from(seeds.data());
 
     Kernel1D clear_grid_kernel = [&]() noexcept {
         auto index = static_cast<UInt>(dispatch_x());
@@ -555,22 +551,19 @@ int main(int argc, char *argv[]) {
            << make_sampler_shader(seed_image).dispatch(resolution)
            << clear_grid_shader().dispatch(grid_size.x * grid_size.y * grid_size.z)
            << photon_tracing_shader(accel).dispatch(photon_number)
-           << printer.retrieve()
            << synchronize();
     LUISA_INFO("Photon tracing done");
 
-    Framerate framerate;
     auto frame_count = 0;
 
-    Window window{"Display", resolution};
-    window.set_key_callback([&](int key, int action) noexcept {
-        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
-            window.set_should_close();
-        }
-    });
-
+    Window window{"Display", resolution.x, resolution.y, false};
+    auto swap_chain{device.create_swapchain(
+        window.window_native_handle(),
+        stream,
+        resolution,
+        true, false, 2)};
     Clock clk;
-    window.run([&] {
+    while (!window.should_close()) {
         auto cmd_list = CommandList::create();
         static constexpr auto spp_per_dispatch = 1u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
@@ -579,21 +572,14 @@ int main(int argc, char *argv[]) {
                 << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
         }
         cmd_list
-            << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
-            << ldr_image.copy_to(host_image.data());
-
+            << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution);
         stream << cmd_list.commit()
-               << printer.retrieve()
-               << synchronize();
-        window.set_background(host_image.data(), resolution);
-
-        framerate.record(spp_per_dispatch);
+               << swap_chain.present(ldr_image);
         frame_count += spp_per_dispatch;
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("Frames: %u", frame_count);
-        ImGui::Text("FPS: %.1f", framerate.report());
-        ImGui::End();
-    });
+
+        window.pool_event();
+    }
+    stream << ldr_image.copy_to(host_image.data()) << synchronize();
 
     stbi_write_png("test_photon_mapping.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }

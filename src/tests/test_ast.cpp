@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/2/27.
 //
 
-#include <iostream>
-
 #include <luisa-compute.h>
 
 using namespace luisa;
@@ -27,7 +25,7 @@ int main(int argc, char *argv[]) {
 
     // auto shader = device.impl()->create_shader(_builder->function(), {});
 
-    std::cout << Type::of<Buffer<int>>()->description() << "\n";
+    LUISA_INFO("Buffer<int> description: {}", Type::of<Buffer<int>>()->description());
 
     auto buf = device.create_buffer<int>(100);
 

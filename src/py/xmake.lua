@@ -32,9 +32,10 @@ if legal_version then
 		end
 	end)
 else
-	target("_lc_phony_py")
+	target("_lc_illegal_py")
 	set_kind("phony")
-	before_build(function(target)
+	on_load(function(target)
 		utils.error("Illegal python version argument. please use argument like 3_9(for python 3.9) or 3_10(for python 3.10)")
 	end)
+	target_end()
 end

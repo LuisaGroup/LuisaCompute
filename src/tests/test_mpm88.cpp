@@ -3,7 +3,15 @@
 //
 
 #include <random>
-#include <luisa-compute.h>
+#include <fstream>
+#include <chrono>
+#include <dsl/syntax.h>
+#include <dsl/sugar.h>
+#include <runtime/buffer.h>
+#include <runtime/device.h>
+#include <runtime/stream.h>
+#include <core/logging.h>
+#include <gui/window.h>
 
 int main(int argc, char *argv[]) {
 
@@ -125,11 +133,11 @@ int main(int argc, char *argv[]) {
         C->write(p, new_C);
     });
 
-    auto substep = [&](Stream &stream) noexcept {
-        stream << clear_grid().dispatch(n_grid, n_grid)
-               << point_to_grid().dispatch(n_particles)
-               << simulate_grid().dispatch(n_grid, n_grid)
-               << grid_to_point().dispatch(n_particles);
+    auto substep = [&](CommandList &cmd_list) noexcept {
+        cmd_list << clear_grid().dispatch(n_grid, n_grid)
+                 << point_to_grid().dispatch(n_particles)
+                 << simulate_grid().dispatch(n_grid, n_grid)
+                 << grid_to_point().dispatch(n_particles);
     };
 
     auto init = [&](Stream &stream) noexcept {
@@ -168,22 +176,20 @@ int main(int argc, char *argv[]) {
         }
     });
 
-    auto stream = device.create_stream();
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     init(stream);
-    Framerate framerate;
-    Window window{"MPM88", make_uint2(resolution)};
-    luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
-    window.run([&] {
-        for (auto i = 0u; i < n_steps; i++) { substep(stream); }
-        stream << clear_display().dispatch(resolution, resolution)
-               << draw_particles().dispatch(n_particles)
-               << display.copy_to(display_buffer.data())
-               << synchronize();
-        window.set_background(display_buffer.data(), make_uint2(resolution));
-        framerate.record();
-        auto fps = framerate.report();
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("FPS: %.1f", fps);
-        ImGui::End();
-    });
+    Window window{"MPM88", resolution, resolution, false};
+    auto swap_chain{device.create_swapchain(
+        window.window_native_handle(),
+        stream,
+        make_uint2(resolution),
+        true, false, 2)};
+    while (!window.should_close()) {
+        CommandList cmd_list;
+        for (auto i = 0u; i < n_steps; i++) { substep(cmd_list); }
+        cmd_list << clear_display().dispatch(resolution, resolution)
+                 << draw_particles().dispatch(n_particles);
+        stream << cmd_list.commit() << swap_chain.present(display);
+        window.pool_event();
+    }
 }

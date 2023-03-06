@@ -12,10 +12,10 @@
 #include <runtime/event.h>
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>
-#include <gui/backup/window.h>
-#include <gui/backup/framerate.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
+#include <core/thread_pool.h>
+#include <gui/window.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/tiny_obj_loader.h>
@@ -49,11 +49,7 @@ int main(int argc, char *argv[]) {
     log_level_info();
 
     Context context{argv[0]};
-    if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
-        exit(1);
-    }
-    auto device = context.create_device(argv[1]);
+    auto device = context.create_device("dx");
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -83,7 +79,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     auto heap = device.create_bindless_array();
-    auto stream = device.create_stream();
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
     std::vector<Mesh> meshes;
@@ -311,45 +307,40 @@ int main(int argc, char *argv[]) {
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
     static constexpr auto resolution = make_uint2(1024u);
-    auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
-
+    CommandList cmd_list;
+    auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     Clock clock;
-    stream << clear_shader(accum_image).dispatch(resolution)
-           << make_sampler_shader(seed_image).dispatch(resolution)
-           << synchronize();
+    cmd_list << clear_shader(accum_image).dispatch(resolution)
+             << make_sampler_shader(seed_image).dispatch(resolution);
 
-    Framerate framerate;
-    Window window{"Display", resolution};
-    window.set_key_callback([&](int key, int action) noexcept {
-        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
-            window.set_should_close();
-        }
-    });
     auto frame_count = 0u;
-    window.run([&] {
-        auto cmd_list = CommandList::create();
-        static constexpr auto spp_per_dispatch = 64u;
+    Window window{"path tracing", resolution.x, resolution.x, false};
+    auto swap_chain{device.create_swapchain(
+        window.window_native_handle(),
+        stream,
+        resolution,
+        true, false, 2)};
+    while (!window.should_close()) {
+
+        static constexpr auto spp_per_dispatch = 1u;
         for (auto i = 0u; i < spp_per_dispatch; i++) {
             cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
                             .dispatch(resolution)
                      << accumulate_shader(accum_image, framebuffer)
                             .dispatch(resolution);
         }
-        cmd_list// << hdr2ldr_shader(framebuffer, ldr_image, 1.0f).dispatch(resolution)
-            << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution)
-            << ldr_image.copy_to(host_image.data());
-        stream << cmd_list.commit() << synchronize();
-        window.set_background(host_image.data(), resolution);
-        framerate.record(spp_per_dispatch);
+        cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution);
         frame_count += spp_per_dispatch;
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("Frames: %u", frame_count);
-        ImGui::Text("FPS: %.1f", framerate.report());
-        ImGui::End();
-    });
+        stream << cmd_list.commit() << swap_chain.present(ldr_image);
+        window.pool_event();
+    }
+
+    stream
+        << ldr_image.copy_to(host_image.data())
+        << synchronize();
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }

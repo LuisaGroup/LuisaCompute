@@ -2,20 +2,13 @@
 // Created by Mike Smith on 2021/6/25.
 //
 
-#include <iostream>
-
-#define GLFW_INCLUDE_NONE
-#define GLFW_EXPOSE_NATIVE_COCOA
-#import <GLFW/glfw3.h>
-#import <GLFW/glfw3native.h>
-
 #include <core/clock.h>
 #include <core/logging.h>
 #include <runtime/context.h>
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <dsl/sugar.h>
-#include <gui/backup/framerate.h>
+#include <gui/window.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -23,7 +16,7 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -154,28 +147,22 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
-    auto device_image = device.create_image<float>(PixelStorage::HALF4, width, height);
-    auto stream = device.create_stream();
+    auto device_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     stream << clear(device_image).dispatch(width, height);
-
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    auto window = glfwCreateWindow(width, height, "@Party Concert Visuals 2020", nullptr, nullptr);
-    auto window_handle = reinterpret_cast<uint64_t>(glfwGetCocoaWindow(window));
-    auto swap_chain = device.create_swapchain(window_handle, stream, make_uint2(width, height));
+    Window window{"Display", make_uint2(width, height), false};
+    auto swap_chain{device.create_swapchain(
+        window.window_native_handle(),
+        stream,
+        window.size(),
+        true, false, 2)};
 
     Clock clock;
-    Framerate framerate{32};
-    while (!glfwWindowShouldClose(window)) {
-        framerate.record();
-        LUISA_INFO("FPS: {}", framerate.report());
+    while (!window.should_close()) {
         auto time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)
                << swap_chain.present(device_image);
-        glfwPollEvents();
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            glfwSetWindowShouldClose(window, true);
-        }
+        window.pool_event();
     }
     stream << synchronize();
 }

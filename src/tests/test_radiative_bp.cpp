@@ -11,13 +11,11 @@
 #include <runtime/event.h>
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>
-#include <gui/backup/window.h>
-#include <gui/backup/framerate.h>
+#include <gui/window.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
 #include <stb/stb_image.h>
-
-#include <dsl/printer.h>
+#include <core/logging.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/tiny_obj_loader.h>
@@ -54,7 +52,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     auto device = context.create_device(argv[1]);
-    Printer printer{device};
 
     std::filesystem::path output_dir{"frames"};
     std::filesystem::remove_all(output_dir);
@@ -94,8 +91,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     auto heap = device.create_bindless_array();
-    auto stream = device.create_stream();
-    stream << printer.reset();
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
     std::vector<Mesh> meshes;
@@ -443,16 +439,13 @@ int main(int argc, char *argv[]) {
                << synchronize();
     }
 
-    Framerate framerate;
-    Window window{"Display", resolution};
-    window.set_key_callback([&](int key, int action) noexcept {
-        if (action == GLFW_PRESS && key == GLFW_KEY_ESCAPE) {
-            window.set_should_close();
-        }
-    });
-    auto frame_count = 0u;
-    auto output_count = 0u;
-    window.run([&] {
+    Window window{"path tracing", resolution.x, resolution.x, false};
+    auto swap_chain{device.create_swapchain(
+        window.window_native_handle(),
+        stream,
+        resolution,
+        true, false, 2)};
+    while (!window.should_close()) {
         auto cmd_list = CommandList::create();
 
         cmd_list << clear_shader(rendered_image).dispatch(resolution)
@@ -488,8 +481,7 @@ int main(int argc, char *argv[]) {
         auto &albedo = materials[differentiable_index].albedo;
         albedo -= learning_rate * grad;
         cmd_list << material_buffer[1].copy_from(materials.data());
-        stream << cmd_list.commit()
-               << printer.retrieve();
+        stream << cmd_list.commit() << synchronize();
 
         LUISA_INFO("grad = ({}, {}, {}), "
                    "albedo = ({}, {}, {})",
@@ -497,19 +489,12 @@ int main(int argc, char *argv[]) {
                    albedo.x, albedo.y, albedo.z);
 
         // display
-        cmd_list << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution)
-                 << ldr_image.copy_to(host_image.data());
-        stream << cmd_list.commit() << synchronize();
-        auto file_name = output_dir / luisa::format("{:06}.png", output_count++);
-        stbi_write_png(file_name.string().c_str(), resolution.x, resolution.y, 4, host_image.data(), 0);
-        window.set_background(host_image.data(), resolution);
-        framerate.record(spp_per_dispatch);
-        frame_count += spp_per_dispatch;
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("Frames: %u", frame_count);
-        ImGui::Text("FPS: %.1f", framerate.report());
-        ImGui::End();
-    });
-
+        cmd_list << hdr2ldr_shader(rendered_image, ldr_image, 1.0f).dispatch(resolution);
+        stream << cmd_list.commit() << swap_chain.present(ldr_image);
+        window.pool_event();
+    }
+    stream
+        << ldr_image.copy_to(host_image.data())
+        << synchronize();
     stbi_write_png("test_radiative_bp.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }

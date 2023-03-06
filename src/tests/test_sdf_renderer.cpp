@@ -13,6 +13,7 @@
 #include <runtime/device.h>
 #include <runtime/stream.h>
 #include <runtime/event.h>
+#include <runtime/image.h>
 #include <dsl/sugar.h>
 
 using namespace luisa;
@@ -25,7 +26,7 @@ using namespace luisa::compute;
 #endif
 
 #if ENABLE_DISPLAY
-#include <gui/backup/window.h>
+#include <gui/window.h>
 #endif
 
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
@@ -138,20 +139,19 @@ int main(int argc, char *argv[]) {
         };
     };
 
-    Kernel2D render_kernel = [&](BufferUInt seed_image, BufferFloat4 accum_image, UInt frame_index) noexcept {
+    Kernel2D render_kernel = [&](ImageUInt seed_image, ImageFloat accum_image, UInt frame_index) noexcept {
         set_block_size(16u, 8u, 1u);
 
         auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
-        auto global_id = coord.x + coord.y * dispatch_size_x();
         $if(frame_index == 0u) {
-            seed_image.write(global_id, tea(coord.x, coord.y));
-            accum_image.write(global_id, make_float4(make_float3(0.0f), 1.0f));
+            seed_image.write(coord, make_uint4(tea(coord.x, coord.y)));
+            accum_image.write(coord, make_float4(make_float3(0.0f), 1.0f));
         };
 
         auto aspect_ratio = resolution.x / resolution.y;
         auto pos = def(camera_pos);
-        auto seed = seed_image.read(global_id);
+        auto seed = seed_image.read(coord).x;
         auto ux = rand(seed);
         auto uy = rand(seed);
         auto uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1u - dispatch_id().y + uy);
@@ -176,9 +176,9 @@ int main(int argc, char *argv[]) {
             pos = hit_pos + 1e-4f * d;
             throughput *= c;
         };
-        auto accum_color = accum_image.read(global_id).xyz() + throughput.xyz() * hit_light;
-        accum_image.write(global_id, make_float4(accum_color, 1.0f));
-        seed_image.write(global_id, seed);
+        auto accum_color = lerp(accum_image.read(coord).xyz(), throughput.xyz() * hit_light, 1.0f / (frame_index + 1.0f));
+        accum_image.write(coord, make_float4(accum_color, 1.0f));
+        seed_image.write(coord, make_uint4(seed));
     };
 
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
@@ -193,18 +193,35 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
-    auto seed_image = device.create_buffer<uint>(width * height);
-    auto accum_image = device.create_buffer<float4>(width * height);
-    auto stream = device.create_stream();
+    auto seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
+    auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
+    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    Callable linear_to_srgb = [](Var<float3> x) noexcept {
+        return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                            12.92f * x,
+                            x <= 0.00031308f),
+                     0.0f, 1.0f);
+    };
+    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
+        //        Shared<float> s1{13u};
+        //        Shared<float> s2{1024u};
+        //        s2[thread_x()] = 1.f;
+        //        sync_block();
+        auto coord = dispatch_id().xy();
+        auto hdr = hdr_image.read(coord);
+        auto ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
+        ldr_image.write(coord, make_float4(ldr, 1.0f));
+    };
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
 
 #if ENABLE_DISPLAY
-    luisa::vector<float4> pixels(width * height);
-    Window window{"SDF Renderer", make_uint2(width, height)};
-    window.set_key_callback([&](int key, int action) {
-        if (action == GLFW_PRESS && (key == GLFW_KEY_ESCAPE || key == GLFW_KEY_Q)) {
-            window.set_should_close();
-        }
-    });
+    Window window{"SDF Renderer", width, height, false};
+    auto swap_chain{device.create_swapchain(
+        window.window_native_handle(),
+        stream,
+        make_uint2(width, height),
+        true, false, 2)};
     static constexpr auto interval = 4u;
     static constexpr auto total_spp = 16384u;
 #else
@@ -225,29 +242,10 @@ int main(int argc, char *argv[]) {
         }
 
 #if ENABLE_DISPLAY
-        command_list << accum_image.copy_to(pixels.data());
-        stream << command_list.commit()
-               << synchronize();
-
+        command_list << hdr2ldr_shader(accum_image, ldr_image, 2.0).dispatch(width, height);
+        stream << command_list.commit() << swap_chain.present(ldr_image);
         if (window.should_close()) { break; }
-
-        // display
-        auto sum = 0.;
-        for (auto p : pixels) { sum += p.x + p.y + p.z; }
-        auto mean = sum / (width * height);
-        auto scale = static_cast<float>(.24 / mean);
-        for (auto &p : pixels) { p = make_float4(sqrt(make_float3(p) * scale), 1.f); }
-        window.run_one_frame([&] {
-            window.set_background(pixels.data(), make_uint2(width, height));
-            auto t = clock.toc();
-            auto fps = interval * 1000.0 / (t - last_t);
-            auto frames = spp + interval;
-            ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-            ImGui::Text("Samples: %u", frames);
-            ImGui::Text("FPS: %.2f", fps);
-            ImGui::End();
-            last_t = t;
-        });
+        window.pool_event();
 #else
         stream << command_list.commit();
 #endif
@@ -255,13 +253,4 @@ int main(int argc, char *argv[]) {
     stream << synchronize();
     auto average_fps = spp_count / (clock.toc() - t0) * 1000;
     LUISA_INFO("{} samples/s", average_fps);
-
-#if ENABLE_DISPLAY
-    window.run([average_fps] {
-        ImGui::Begin("Console", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-        ImGui::Text("Samples: %u", total_spp);
-        ImGui::Text("FPS: %.2f", average_fps);
-        ImGui::End();
-    });
-#endif
 }

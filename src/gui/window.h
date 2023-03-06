@@ -26,6 +26,10 @@ public:
         string name,
         uint width, uint height,
         bool vsync);
+    Window(
+        string name,
+        uint2 size,
+        bool vsync) : Window{std::move(name), size.x, size.y, vsync} {}
     ~Window();
     Window(const Window &) = delete;
     Window(Window &&) = default;
