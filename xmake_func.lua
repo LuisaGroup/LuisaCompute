@@ -1,29 +1,25 @@
 -- export config.h and xmake_config.lua
 if ExportConfig then
 	function lc_add_defines(...)
-		if ExportConfig then
-			local args = {...};
-			local lastArg = args[table.getn(args)]
-			if type(lastArg) == "table" and lastArg.public then
-				for i, v in ipairs(args) do
-					if type(v) == "string" then
-						add_values("lc_defines", v)
-					end
+		local args = {...};
+		local lastArg = args[table.getn(args)]
+		if type(lastArg) == "table" and lastArg.public then
+			for i, v in ipairs(args) do
+				if type(v) == "string" then
+					add_values("lc_defines", v)
 				end
 			end
 		end
 		add_defines(...)
 	end
 	function lc_add_includedirs(...)
-		if ExportConfig then
-			local args = {...};
-			local lastArg = args[table.getn(args)]
-			if type(lastArg) == "table" and lastArg.public then
-				for i, v in ipairs(args) do
-					if type(v) == "string" then
-						local absPath = path.relative(v, os.projectdir()):gsub('\\', '/')
-						add_values("lc_includedir", absPath)
-					end
+		local args = {...};
+		local lastArg = args[table.getn(args)]
+		if type(lastArg) == "table" and lastArg.public then
+			for i, v in ipairs(args) do
+				if type(v) == "string" then
+					local absPath = path.relative(v, os.projectdir()):gsub('\\', '/')
+					add_values("lc_includedir", absPath)
 				end
 			end
 		end

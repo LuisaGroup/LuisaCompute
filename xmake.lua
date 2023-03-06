@@ -103,7 +103,6 @@ add_csnippets("legal_env", "return ((sizeof(void*)==8)&&(sizeof(int)==4)&&(sizeo
 	tryrun = true
 })
 option_end()
-
 if has_config("legal_env") then
 	UseMimalloc = get_config("enable_mimalloc")
 	UseUnityBuild = get_config("enable_unity_build")
