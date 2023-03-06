@@ -99,7 +99,7 @@ Note: On Windows, please remember to replace the backslashes `\\` in the paths w
 - `LUISA_COMPUTE_ENABLE_CUDA`: Enable CUDA backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_DX`: Enable DirectX backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_METAL`: Enable Metal backend (Default: `ON`)
-- `LUISA_COMPUTE_ENABLE_LLVM`: Enable LLVM backend (Default: `ON`)
+- `LUISA_COMPUTE_ENABLE_CPU`: Enable CPU backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
   
