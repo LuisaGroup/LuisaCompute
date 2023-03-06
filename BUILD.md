@@ -1,4 +1,4 @@
-# Build Instructions
+# Build
 
 ## Requirements
 ### C++ with XMake

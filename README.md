@@ -11,26 +11,28 @@ See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rende
 
 ## Table of Contents
 
-* [Overview](#overview)
-    + [Embedded Domain-Specific Language](#embedded-domain-specific-language)
-    + [Unified Runtime with Resource Wrappers](#unified-runtime-with-resource-wrappers)
-    + [Multiple Backends](#multiple-backends)
-    + [Python Frontend](#python-frontend)
-    + [C API and Frontends in Other Languages](#c-api-and-frontends-in-other-languages)
-* [Building](#building)
-* [Usage](#usage)
-    + [A Minimal Example](#a-minimal-example)
-    + [Basic Types](#basic-types)
-    + [Structures](#structures)
-    + [Built-in Functions](#built-in-functions)
-    + [Control Flows](#control-flows)
-    + [Callable and Kernels](#callable-and-kernels)
-    + [Backends, Context, Devices, and Resources](#devices-and-resources)
-    + [Command Submission and Synchronization](#command-submission-and-synchronization)
-* [Applications](#applications)
-* [Documentation and Tutorials](#documentation-and-tutorials)
-* [Roadmap](#roadmap)
-* [Citation](#citation)
+- [LuisaCompute](#luisacompute)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+    - [Embedded Domain-Specific Language](#embedded-domain-specific-language)
+    - [Unified Runtime with Resource Wrappers](#unified-runtime-with-resource-wrappers)
+    - [Multiple Backends](#multiple-backends)
+    - [Python Frontend](#python-frontend)
+    - [C API and Frontends in Other Languages](#c-api-and-frontends-in-other-languages)
+  - [Building](#building)
+  - [Usage](#usage)
+    - [A Minimal Example](#a-minimal-example)
+    - [Basic Types](#basic-types)
+    - [Structures](#structures)
+    - [Built-in Functions](#built-in-functions)
+    - [Control Flows](#control-flows)
+    - [Callable and Kernels](#callable-and-kernels)
+    - [Backends, Context, Devices and Resources](#backends-context-devices-and-resources)
+    - [Command Submission and Synchronization](#command-submission-and-synchronization)
+  - [Applications](#applications)
+  - [Documentation and Tutorials](#documentation-and-tutorials)
+  - [Roadmap](#roadmap)
+  - [Citation](#citation)
 
 
 ## Overview
@@ -82,33 +84,7 @@ Currently, we have 4 backends, including 3 GPU backends based on CUDA, Metal, an
 
 ### Python Frontend
 
-Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend. See [README_Python.md](README_Python.md) (in Chinese; we are translating it to English) for more information. Examples using the Python frontend can be found under `src/py`.
-
-Example program with the Python frontend:
-```python
-import luisa
-from luisa.mathtypes import *
-from cv2 import imwrite
-
-n = 2048
-luisa.init()
-image = luisa.Texture2D.zeros((2 * n, n), 4, float)
-
-@luisa.func # makes LuisaRender handle the function
-def draw(max_iter):
-    p = dispatch_id().xy
-    z, c = float2(0), 2 * p / n - float2(2, 1)
-    for itr in range(max_iter):
-        z = float2(z.x**2 - z.y**2, 2 * z.x * z.y) + c
-        if length(z) > 20:
-            break
-    image.write(p, float4(float3(1 - itr/max_iter), 1))
-
-draw(50, dispatch_size=(2*n, n)) # parallelize
-imwrite("mandelbrot.exr", image.numpy())
-```
-
-> ⚠️ The Python frontend is mostly functional but still under active development, possibly with regressions and breaking changes from time to time.
+Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend. Examples using the Python frontend can be found under `src/tests/python`.
 
 ### C API and Frontends in Other Languages
 
@@ -118,27 +94,17 @@ We are also making a C API for creating other language bindings and frontends (e
 
 > Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is designed to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try out a Monte Carlo renderer out of the box rather than building one from the scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
 
-LuisaCompute follows the standard CMake build process. Basically these steps:
+LuisaCompute follows the standard [xmake](xmake.io) and [CMake](cmake.org/) build process. Basically these steps:
 
-- Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and LLVM on all the major platforms. For CUDA and DirectX, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required.
+- Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and LLVM on all the major platforms. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
 
-- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+. For some tests like the toy path tracer, [OpenCV](opencv.org) is also required.
+- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, xmake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+.
 
 - Clone the repo with the `--recursive` option:
     ```bash
-    git clone --recursive https://github.com/LuisaGroup/LuisaCompute.git
+    git clone -b next https://github.com/LuisaGroup/LuisaCompute.git/ --recursive
     ```
   Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required.
-
-- Configure the project using CMake. E.g., for command line, `cd` into the project folder and type `cmake -S . -B <build-folder>`. You might also want to specify your favorite generators and build types using options like `-G Ninja` and `-D CMAKE_BUILD_TYPE=Release`. A typical, full command sequence for this would be like
-    ```bash
-    cd LuisaCompute
-    cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
-    ```
-
-- If the configuration succeeds, you are now able to build the project. Type `cmake --build <build-folder>` in the command line, or push the build button if you generated, e.g., a VS project. (And in case the configuration step unluckily failed :-(, please file an [issue](https://github.com/LuisaGroup/LuisaCompute/issues)).
-
-- After building, you will find the binaries under `<build-folder>/bin`. You can now play around with them, for example type `<build-folder>/bin/test_texture_io cuda` to generate a gradient color texture with the CUDA backend.
 
 See also [BUILD.md](BUILD.md) for details on platform requirements, configuration options, and other precautions.
 
@@ -446,92 +412,6 @@ Devices are also responsible for
 - Creating `Stream`s and `Event`s (the former are for command submission and the latter are for host-stream and stream-stream synchronization); and
 - Compiling kernels into shaders, as introduced before.
 
-Synopsis of the public interfaces in `class Device`:
-```cpp
-class Device {
-/* ... */
-public:
-    [[nodiscard]] Stream create_stream(bool for_present = false) noexcept;// see definition in runtime/stream.cpp
-    [[nodiscard]] Event create_event() noexcept;                          // see definition in runtime/event.cpp
-
-    [[nodiscard]] SwapChain create_swapchain(
-        uint64_t window_handle, const Stream &stream, uint2 resolution,
-        bool allow_hdr = true, uint back_buffer_count = 1) noexcept;
-
-    template<typename VBuffer, typename TBuffer>
-    [[nodiscard]] Mesh create_mesh(
-        VBuffer &&vertices, TBuffer &&triangles,
-        AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;                             // see definition in rtx/mesh.h
-        
-    [[nodiscard]] Accel create_accel(AccelUsageHint hint = AccelUsageHint::FAST_TRACE) noexcept;// see definition in rtx/accel.cpp
-    [[nodiscard]] BindlessArray create_bindless_array(size_t slots = 65536u) noexcept;          // see definition in runtime/bindless_array.cpp
-
-    template<typename T>
-    [[nodiscard]] auto create_image(PixelStorage pixel, uint width, uint height, uint mip_levels = 1u) noexcept {
-        return _create<Image<T>>(pixel, make_uint2(width, height), mip_levels);
-    }
-
-    template<typename T>
-    [[nodiscard]] auto create_image(PixelStorage pixel, uint2 size, uint mip_levels = 1u) noexcept {
-        return _create<Image<T>>(pixel, size, mip_levels);
-    }
-
-    template<typename T>
-    [[nodiscard]] auto create_volume(PixelStorage pixel, uint width, uint height, uint depth, uint mip_levels = 1u) noexcept {
-        return _create<Volume<T>>(pixel, make_uint3(width, height, depth), mip_levels);
-    }
-
-    template<typename T>
-    [[nodiscard]] auto create_volume(PixelStorage pixel, uint3 size, uint mip_levels = 1u) noexcept {
-        return _create<Volume<T>>(pixel, size, mip_levels);
-    }
-
-    template<typename T>
-    [[nodiscard]] auto create_buffer(size_t size) noexcept {
-        return _create<Buffer<T>>(size);
-    }
-
-    template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
-        return _create<Shader<N, Args...>>(kernel.function(), meta_options);
-    }
-
-    template<size_t N, typename... Args>
-    [[nodiscard]] auto compile_async(const Kernel<N, Args...> &kernel, luisa::string_view meta_options = {}) noexcept {
-        return ThreadPool::global().async([this, f = kernel.function(), opt = luisa::string{meta_options}] {
-            return _create<Shader<N, Args...>>(f, opt);
-        });
-    }
-
-    // clang-format off
-    template<size_t N, typename Func>
-        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
-    [[nodiscard]] auto compile(Func &&f, std::string_view meta_options = {}) noexcept {
-        if constexpr (N == 1u) {
-            return compile(Kernel1D{std::forward<Func>(f)});
-        } else if constexpr (N == 2u) {
-            return compile(Kernel2D{std::forward<Func>(f)});
-        } else if constexpr (N == 3u) {
-            return compile(Kernel3D{std::forward<Func>(f)});
-        } else {
-            static_assert(always_false_v<Func>, "Invalid kernel dimension.");
-        }
-    }
-    template<size_t N, typename Func>
-        requires std::negation_v<detail::is_dsl_kernel<std::remove_cvref_t<Func>>>
-    [[nodiscard]] auto compile_async(Func &&f, std::string_view meta_options = {}) noexcept {
-        if constexpr (N == 1u) {
-            return compile_async(Kernel1D{std::forward<Func>(f)});
-        } else if constexpr (N == 2u) {
-            return compile_async(Kernel2D{std::forward<Func>(f)});
-        } else if constexpr (N == 3u) {
-            return compile_async(Kernel3D{std::forward<Func>(f)});
-        } else {
-            static_assert(always_false_v<Func>, "Invalid kernel dimension.");
-        }
-    }
-};
-```
 
 All resources, shaders, streams, and events are C++ objects with *move* contrutors/assignments and following the *RAII* idiom, i.e., automatically calling the `Device::destroy_*` interfaces when destructed.
 
