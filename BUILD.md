@@ -23,7 +23,7 @@
 - For Python Module (Python 3.9+): if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
 
 ### Rust (IR module / Rust frontend)
-- Rust 1.56+ (latest stable version is recommended)
+- Rust 1.64+ (latest stable version is recommended)
 
 ### Backends
 
