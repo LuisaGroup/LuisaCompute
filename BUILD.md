@@ -64,7 +64,6 @@ xmake
 - cuda_backend: Enable CUDA backend (Default: true, CUDA toolchain required)
 - metal_backend: Enable Metal backend (Default: true, Mac-OS platform only)
 - cpu_backend: Enable CPU backend (Default: true)
-- export_config: Export xmake config file to ./config/xmake_config.lua, can make LuisaCompute used by others xmake project easily (Default: false)
 - enable_tools: Additional tools (Default: false)
 - enable_tests: Enable Tests (Default: false)
 - py_path: Python's path for Python Module (Default: empty string, example: --py_path="C:/python")
@@ -73,6 +72,10 @@ xmake
 - enable_dsl: C++ DSL module (Default: false)
 - enable_gui: Backend-native window and GUI support (Default: false)
 - enable_unity3d_plugin: Unity3D native rendering plugin example (Default: false)
+
+### XMake Config
+
+When LuisaCompute is required by other xmake projects, include config/xmake_config.lua and call methods to add includedirs, linkdirs and defines to other projects.
 
 ### CMake Build Commands
 

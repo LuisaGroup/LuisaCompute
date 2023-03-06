@@ -1,4 +1,33 @@
-function add_lc_includes(rootDir, isPublic)
+-- Add project's include directories
+function add_lc_includedirs(lc_dir, is_public)
+	add_includedirs(
+	--[[spdlog]]
+		path.join(lc_dir, "src/ext/spdlog/include"),
+	--[[mimalloc]]
+		path.join(lc_dir, "src/ext/EASTL/packages/mimalloc/include"),
+	--[[eastl]]
+		path.join(lc_dir, "src/ext/EASTL/include"), path.join(lc_dir, "src/ext/EASTL/packages/EABase/include/Common"),
+	--[[lc-core]]
+		path.join(lc_dir, "src"), path.join(lc_dir, "src/ext/xxHash"), path.join(lc_dir, "src/ext/parallel-hashmap"), 
+		
+	{
+		public = is_public
+	})
+end
+-- Add project's link dir
+function add_lc_linkdirs(lc_dir, is_public)
+	if is_mode("debug") then
+		add_linkdirs(path.join(lc_dir, "bin/debug"), {
+			public = true
+		})
+	else
+		add_linkdirs(path.join(lc_dir, "bin/release"), {
+			public = true
+		})
+	end
+end
+-- Add project's defines
+function add_lc_defines(lc_dir, is_public)
 	add_defines(
 	--[[spdlog]]
 		"SPDLOG_NO_EXCEPTIONS", "SPDLOG_NO_THREAD_ID", "SPDLOG_DISABLE_DEFAULT_LOGGER",
@@ -21,19 +50,6 @@ function add_lc_includes(rootDir, isPublic)
 		"_ENABLE_EXTENDED_ALIGNED_STORAGE=1", 
 		
 	{
-		public = isPublic
-	})
-	add_includedirs(
-	--[[spdlog]]
-		path.join(rootDir, "src/ext/spdlog/include"),
-	--[[mimalloc]]
-		path.join(rootDir, "src/ext/EASTL/packages/mimalloc/include"),
-	--[[eastl]]
-		path.join(rootDir, "src/ext/EASTL/include"), path.join(rootDir, "src/ext/EASTL/packages/EABase/include/Common"),
-	--[[lc-core]]
-		path.join(rootDir, "src"), path.join(rootDir, "src/ext/xxHash"), path.join(rootDir, "src/ext/parallel-hashmap"), 
-		
-	{
-		public = isPublic
+		public = is_public
 	})
 end
