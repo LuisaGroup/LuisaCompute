@@ -192,4 +192,5 @@ int main(int argc, char *argv[]) {
         stream << cmd_list.commit() << swap_chain.present(display);
         window.pool_event();
     }
+    stream << synchronize();
 }
