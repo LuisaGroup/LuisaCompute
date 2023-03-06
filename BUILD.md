@@ -3,14 +3,14 @@
 ## Requirements
 ### C++ with XMake
 
-- [xmake](xmake.io) 2.7.3+
+- [xmake](https://xmake.io/) 2.7.3+
 - 64-bit OS supported only.
 - C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
     - MSVC and Clang-CL (Clang with CL-style command-line options) are recommended and tested on Windows
 
 ### C++ with CMake
 
-- [CMake](cmake.org/) 3.20+
+- [CMake](https://cmake.org/) 3.20+
 - C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
     - MSVC and Clang-CL (Clang with CL-style command-line options) are recommended and tested on Windows
 - On Linux, `uuid-dev` is required to build the core libraries and the following libraries are required for the GUI module:
