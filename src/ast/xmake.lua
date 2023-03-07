@@ -1,5 +1,5 @@
+target("lc-ast")
 _config_project({
-    project_name = "lc-ast",
     project_kind = "shared",
     batch_size = 4
 })

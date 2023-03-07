@@ -1,5 +1,5 @@
+target("lc-runtime")
 _config_project({
-	project_name = "lc-runtime",
 	project_kind = "shared",
 	batch_size = 4
 })

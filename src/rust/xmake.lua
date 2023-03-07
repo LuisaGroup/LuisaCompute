@@ -1,5 +1,5 @@
+target("lc-rust")
 _config_project({
-    project_name = "lc-rust",
     project_kind = "object"
 })
 rule("build_cargo")

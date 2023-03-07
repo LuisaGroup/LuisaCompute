@@ -1,8 +1,7 @@
+target("lc-backend-dx")
 _config_project({
-	project_name = "lc-backend-dx",
 	project_kind = "shared",
-	batch_size = 8,
-	is_backend = true
+	batch_size = 8
 })
 if is_mode("debug") then
 	add_defines("SHADER_COMPILER_TEST")

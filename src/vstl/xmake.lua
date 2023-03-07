@@ -1,5 +1,5 @@
+target("lc-vstl")
 _config_project({
-	project_name = "lc-vstl",
 	project_kind = "shared",
 	batch_size = 4
 })

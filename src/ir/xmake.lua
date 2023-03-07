@@ -1,5 +1,5 @@
+target("lc-ir")
 _config_project({
-	project_name = "lc-ir",
 	project_kind = "shared"
 })
 add_defines("LC_IR_EXPORT_DLL")

@@ -1,14 +1,15 @@
+target("stb-image")
 _config_project({
-	project_name = "stb-image",
 	project_kind = "static"
 })
 add_files("../ext/stb/stb.c")
 add_includedirs("../ext/stb", {
 	public = true
 })
+target_end()
 local function test_proj(name)
+	target(name)
 	_config_project({
-		project_name = name,
 		project_kind = "binary"
 	})
 	add_files(name .. ".cpp")
@@ -16,6 +17,7 @@ local function test_proj(name)
 	if EnableDSL then
 		add_deps("lc-dsl")
 	end
+	target_end()
 end
 test_proj("test_ast")
 test_proj("test_atomic")

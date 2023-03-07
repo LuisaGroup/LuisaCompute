@@ -1,5 +1,5 @@
+target("lc-api")
 _config_project({
-	project_name = "lc-api",
 	project_kind = "shared"
 })
 add_deps("lc-ir")

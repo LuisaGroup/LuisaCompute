@@ -1,5 +1,5 @@
+target("lc-dsl")
 _config_project({
-	project_name = "lc-dsl",
 	project_kind = "shared"
 })
 add_defines("LC_DSL_EXPORT_DLL")

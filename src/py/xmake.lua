@@ -1,8 +1,9 @@
-_config_project({
-	project_name = "lcapi",
+target("lcapi")
+local my_table = {
 	project_kind = "shared",
 	enable_exception = true
-})
+}
+_config_project(my_table)
 on_load(function(target)
 	local version_table = {}
 	for str in string.gmatch(get_config("py_version"), "([^.]+)") do
