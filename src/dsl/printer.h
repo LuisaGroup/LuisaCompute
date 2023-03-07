@@ -72,6 +72,8 @@ public:
                              Command * /* reset */>
     retrieve() noexcept;
 
+    [[nodiscard]] auto empty() const noexcept { return _items.empty(); }
+
     /// Log in kernel at debug level.
     template<typename... Args>
     void verbose(luisa::string fmt, Args &&...args) noexcept {
