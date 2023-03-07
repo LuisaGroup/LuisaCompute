@@ -1,6 +1,8 @@
 function _config_project(config)
-	if type(_configs) == "function" then
-		_configs()
+	if type(_configs) == "table" then
+		for k, v in pairs(_configs) do
+			set_values(k, v)
+		end
 	end
 	if type(_config_rules) == "table" then
 		add_rules(_config_rules)

@@ -3,7 +3,6 @@ local my_table = {
 	project_kind = "shared",
 	enable_exception = true
 }
-_config_project(my_table)
 on_load(function(target)
 	local version_table = {}
 	for str in string.gmatch(get_config("py_version"), "([^.]+)") do
@@ -28,6 +27,8 @@ on_load(function(target)
 		return
 	end
 end)
+
+_config_project(my_table)
 add_files("*.cpp")
 add_defines("LC_AST_EXCEPTION")
 add_includedirs("../ext/stb/", "../ext/pybind11/include")
