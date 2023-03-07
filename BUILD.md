@@ -23,7 +23,7 @@
 - For Python Module (Python 3.9+): if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
 
 ### Rust (IR module / Rust frontend)
-- Rust 1.56+ (latest stable version is recommended)
+- Rust 1.64+ (latest stable version is recommended)
 
 ### Backends
 
@@ -99,7 +99,7 @@ Note: On Windows, please remember to replace the backslashes `\\` in the paths w
 - `LUISA_COMPUTE_ENABLE_CUDA`: Enable CUDA backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_DX`: Enable DirectX backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_METAL`: Enable Metal backend (Default: `ON`)
-- `LUISA_COMPUTE_ENABLE_LLVM`: Enable LLVM backend (Default: `ON`)
+- `LUISA_COMPUTE_ENABLE_CPU`: Enable CPU backend (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_PYTHON`: Enable LuisaCompute Python (Default: `ON`)
 - `LUISA_COMPUTE_ENABLE_GUI`: Enable GUI display in C++ tests (Default: `ON`)
   
