@@ -1,7 +1,7 @@
 target("lc-runtime")
 _config_project({
 	project_kind = "shared",
-	batch_size = 4
+	batch_size = 8
 })
 add_deps("lc-ast")
 add_defines("LC_RUNTIME_EXPORT_DLL")

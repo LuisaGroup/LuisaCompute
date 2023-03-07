@@ -2,7 +2,7 @@ target("lc-core")
 if _config_project ~= nil then
 _config_project({
 	project_kind = "shared",
-	batch_size = 8
+	batch_size = 4
 })	
 end
 if is_mode("debug") and is_plat("windows") then
