@@ -46,7 +46,7 @@ LC_VSTL_API void to_string(double Val, StringBuilder &str) noexcept {
     auto iter = str.end() - 1;
     *iter = 0;
     snprintf(str.data() + lastLen, len + 1, "%a", Val);
-    *iter = 'f';
+    str.erase(str.end() - 1);
 }
 
 }// namespace vstd

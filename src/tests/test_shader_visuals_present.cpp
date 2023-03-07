@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
 
         auto norm = [&](Float3 p) noexcept {
             auto precis = ite(length(p) < 1.f, .005f, .01f);
-            auto k = make_float3x3(p, p, p) - make_float3x3(precis);
+            auto k = make_float3x3(p, p, p) - make_float3x3(precis, 0.f, 0.f, 0.f, precis, 0.f, 0.f, 0.f, precis);
             return normalize(scene(p) - make_float3(scene(k[0]), scene(k[1]), scene(k[2])));
         };
 

@@ -82,7 +82,10 @@ int main(int argc, char *argv[]) {
                      0.75f - sqr(fx - 1.0f),
                      0.5f * sqr(fx - 0.5f)};
         auto stress = -4.f * dt * E * p_vol * (J->read(p) - 1.f) / sqr(dx);
-        auto affine = make_float3x3(stress) + p_mass * C->read(p);
+        auto affine = make_float3x3(
+            stress, 0.f, 0.f,
+            0.f, stress, 0.f,
+            0.f, 0.f, stress) + p_mass * C->read(p);
         auto vp = v->read(p);
         for (auto ii = 0; ii < 27; ii++) {
             auto offset = make_int3(ii % 3, ii / 3 % 3, ii / 3 / 3);

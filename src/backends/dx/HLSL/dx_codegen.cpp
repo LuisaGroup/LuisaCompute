@@ -4,6 +4,8 @@
 namespace toolhub::directx {
 
 void StringStateVisitor::visit(const UnaryExpr *expr) {
+    literalBrace = true;
+    auto fallBackLiteral = vstd::scope_exit([this]() { literalBrace = false; });
     str << "(";
     switch (expr->op()) {
         case UnaryOp::PLUS://+x
@@ -23,6 +25,8 @@ void StringStateVisitor::visit(const UnaryExpr *expr) {
     str << ")";
 }
 void StringStateVisitor::visit(const BinaryExpr *expr) {
+    literalBrace = true;
+    auto fallBackLiteral = vstd::scope_exit([this]() { literalBrace = false; });
     auto op = expr->op();
     auto IsMulFuncCall = [&]() -> bool {
         if (op == BinaryOp::MUL) [[unlikely]] {
@@ -207,14 +211,18 @@ void StringStateVisitor::visit(const RefExpr *expr) {
 }
 
 void StringStateVisitor::visit(const LiteralExpr *expr) {
-    str << '(';
+    if (literalBrace) {
+        str << '(';
+    }
     luisa::visit(
         [&]<typename T>(T const &value) -> void {
             PrintValue<T> prt;
             prt(value, str);
         },
         expr->value());
-    str << ')';
+    if (literalBrace) {
+        str << ')';
+    }
 }
 void StringStateVisitor::visit(const CallExpr *expr) {
     CodegenUtility::GetFunctionName(expr, str, *this);

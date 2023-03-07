@@ -763,15 +763,6 @@ template<typename C0, typename C1>
             {LUISA_EXPR(c0), LUISA_EXPR(c1)}));
 }
 
-/// Make float2x2 sI
-template<typename S>
-    requires is_dsl_v<S> && is_floating_point_expr_v<S>
-[[nodiscard]] inline auto make_float2x2(S &&s) noexcept {
-    return make_float2x2(
-        make_float2(s, 0.f),
-        make_float2(0.f, s));
-}
-
 /// Make float2x2 [ [M00, M10], [M01, M11] ]
 template<typename M00, typename M01, typename M10, typename M11>
     requires any_dsl_v<M00, M01, M10, M11> &&
@@ -808,16 +799,6 @@ template<typename C0, typename C1, typename C2>
         detail::FunctionBuilder::current()->call(
             Type::of<float3x3>(), CallOp::MAKE_FLOAT3X3,
             {LUISA_EXPR(c0), LUISA_EXPR(c1), LUISA_EXPR(c2)}));
-}
-
-/// Make float3x3 sI
-template<typename S>
-    requires is_dsl_v<S> && is_same_expr_v<S, float>
-[[nodiscard]] inline auto make_float3x3(S &&s) noexcept {
-    return make_float3x3(
-        make_float3(s, 0.f, 0.f),
-        make_float3(0.f, s, 0.f),
-        make_float3(0.f, 0.f, s));
 }
 
 /// Make float3x3 [ [M00, M10, M20], [M01, M11, M21], [M02, M12, M22] ]
@@ -872,17 +853,6 @@ template<typename C0, typename C1, typename C2, typename C3>
         detail::FunctionBuilder::current()->call(
             Type::of<float4x4>(), CallOp::MAKE_FLOAT4X4,
             {LUISA_EXPR(c0), LUISA_EXPR(c1), LUISA_EXPR(c2), LUISA_EXPR(c3)}));
-}
-
-/// Make float4x4 sI
-template<typename S>
-    requires is_dsl_v<S> && is_same_expr_v<S, float>
-[[nodiscard]] inline auto make_float4x4(S &&s) noexcept {
-    return make_float4x4(
-        make_float4(s, 0.0f, 0.f, 0.f),
-        make_float4(0.0f, s, 0.f, 0.f),
-        make_float4(0.0f, 0.f, s, 0.f),
-        make_float4(0.0f, 0.f, 0.f, s));
 }
 
 /// Make float4x4 [ [M00, M10, M20, M30], [M01, M11, M21, M31], [M02, M12, M22, M32], [M03, M13, M23, M33] ]

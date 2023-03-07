@@ -288,9 +288,6 @@ def bitwise_cast(*args):
     dtype = args[0].expr
     assert dtype in (int, float, uint)
     op = lcapi.CastOp.BITWISE
-    # create temporary variable
-    if args[1].lr == 'r':
-        wrap_with_tmp_var(args[1])
     return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[1].expr)
 
 
@@ -384,7 +381,7 @@ def builtin_func(name, *args, **kwargs):
             #         raise TypeError(f"Can't make {T}{N}x{N} from {x.dtype} (must be of same element type)")
             try:
                 if len(args) == 1:
-                    assert args[0].dtype in {float, int, uint, float2x2, float3x3, float4x4}
+                    assert args[0].dtype in {float2x2, float3x3, float4x4}
                 elif len(args) == N:
                     for arg in args:
                         assert arg.dtype == vector(float,N)
@@ -643,6 +640,11 @@ def callable_call(func, *args):
     shared_dict={}
     exprs = []
     idx = 0
+    for node in args:
+        if node.lr == "r":
+            lctype = to_lctype(node.dtype)
+            if lctype.is_array() or lctype.is_structure() or lctype.is_custom():
+                wrap_with_tmp_var(node)
     for i in args:
         if hasattr(i, "id") and str(i.dtype).find("SharedArrayType") == 0:
             shared_dict[idx]={"var":globalvars.current_context.local_variable[i.id]}
@@ -657,9 +659,6 @@ def callable_call(func, *args):
     f = func.get_compiled(call_from_host=False, allow_ref=True, argtypes=arg_list, arg_info=shared_dict)
     globalvars.current_context.uses_printer |= f.uses_printer
     # create temporary var for each r-value argument
-    for node in args:
-        if node.lr == "r":
-            wrap_with_tmp_var(node)
     # call
     if getattr(f, "return_type", None) == None:
         return None, lcapi.builder().call(f.function, exprs)

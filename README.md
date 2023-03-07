@@ -85,6 +85,7 @@ Currently, we have 4 backends, including 3 GPU backends based on CUDA, Metal, an
 ### Python Frontend
 
 Besides the native C++ DSL and runtime interfaces, we are also working on a Python frontend. Examples using the Python frontend can be found under `src/tests/python`.
+> Note: Due to the differences between native Python syntax and C++, some by-design difference may occur. For instance, there is no "reference" concept in Python's method argument, so we mark "structure" and "array" type as reference-argument and scalar type as value-argument defaultly.
 
 ### C API and Frontends in Other Languages
 

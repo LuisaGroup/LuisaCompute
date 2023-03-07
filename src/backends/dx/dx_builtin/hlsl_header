@@ -145,21 +145,18 @@ template<typename T>
 T copysign(const T a,const T b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
 template<typename T>
 T _fma(const T a,const T b,const T c){return a*b+c;}
-float2x2 make_float2x2(const float m){return (float2x2)m;}
-float3x4 make_float3x3(const float m){return (float3x4)m;}
-float4x4 make_float4x4(const float m){return (float4x4)m;}
-float2x2 make_float2x2(const float m00,const float m01,const float m10,const float m11){return float2x2(m00,m01,m10,m11);}
-float3x4 make_float3x3(const float m00,const float m01,const float m02,const float m10,const float m11,const float m12,const float m20,const float m21,const float m22){return float3x4(m00,m01,m02,0.0,m10,m11,m12,0.0,m20,m21,m22,0.0);}
-float4x4 make_float4x4(const float m00,const float m01,const float m02,const float m03,const float m10,const float m11,const float m12,const float m13,const float m20,const float m21,const float m22,const float m23,const float m30,const float m31,const float m32,const float m33){return float4x4(m00,m01,m02,m03,m10,m11,m12,m13,m20,m21,m22,m23,m30,m31,m32,m33);}
-float2x2 make_float2x2(const float2 c0,const float2 c1){return float2x2(c0,c1);}
-float3x4 make_float3x3(const float3 c0,const float3 c1,const float3 c2){return float3x4(float4(c0,0.0),float4(c1,0.0),float4(c2,0.0));}
-float4x4 make_float4x4(const float4 c0,const float4 c1,const float4 c2,const float4 c3){return float4x4(c0,c1,c2,c3);}
-float2x2 my_transpose(const float2x2 m){return transpose(m);}
-float3x4 my_transpose(const float3x4 m){
+float2x2 _float2x2(const float m00,const float m01,const float m10,const float m11){return float2x2(m00,m01,m10,m11);}
+float3x4 _float3x3(const float m00,const float m01,const float m02,const float m10,const float m11,const float m12,const float m20,const float m21,const float m22){return float3x4(m00,m01,m02,0.0,m10,m11,m12,0.0,m20,m21,m22,0.0);}
+float4x4 _float4x4(const float m00,const float m01,const float m02,const float m03,const float m10,const float m11,const float m12,const float m13,const float m20,const float m21,const float m22,const float m23,const float m30,const float m31,const float m32,const float m33){return float4x4(m00,m01,m02,m03,m10,m11,m12,m13,m20,m21,m22,m23,m30,m31,m32,m33);}
+float2x2 _float2x2(const float2 c0,const float2 c1){return float2x2(c0,c1);}
+float3x4 _float3x3(const float3 c0,const float3 c1,const float3 c2){return float3x4(float4(c0,0.0),float4(c1,0.0),float4(c2,0.0));}
+float4x4 _float4x4(const float4 c0,const float4 c1,const float4 c2,const float4 c3){return float4x4(c0,c1,c2,c3);}
+float2x2 _transpose(const float2x2 m){return transpose(m);}
+float3x4 _transpose(const float3x4 m){
 const float4x3 mm=transpose(m);
-return make_float3x3(mm[0],mm[1],mm[2]);
+return _float3x3(mm[0],mm[1],mm[2]);
 }
-float4x4 my_transpose(const float4x4 m){return transpose(m);}
+float4x4 _transpose(const float4x4 m){return transpose(m);}
 float4x4 Mul(const float4x4 a,const float4x4 b){return mul(a,b);}
 float3x4 Mul(const float3x4 a,const float3x4 b){return mul(a,float4x4(b,0.0,0.0,0.0,0.0));}
 float2x2 Mul(const float2x2 a,const float2x2 b){return mul(a,b);}

@@ -464,33 +464,12 @@ PYBIND11_MODULE(lcapi, m) {
         .def(
             "assign", [](FunctionBuilder &self, Expression const *l, Expression const *r) {
                 auto result = analyzer.back().assign(l, r);
-                // FIXME: the following checks are not reliable
-                auto is_initialized = [&self](const Expression *expr) noexcept {
-                    if (expr->tag() == Expression::Tag::REF) {
-                        auto v = static_cast<const RefExpr *>(expr)->variable();
-                        return v.externally_initialized() ||
-                               (to_underlying(self.variable_usage(v.uid())) &
-                                to_underlying(Usage::WRITE)) != 0u;
-                    }
-                    return true;
-                };
-                auto assign = [&](const Expression *lhs, const Expression *rhs) noexcept {
-                    // FIXME: the following checks are not reliable
-                    if (!is_initialized(rhs)) [[unlikely]] {
-                        if (!is_initialized(lhs)) {
-                            return;
-                        }
-                        LUISA_ERROR_WITH_LOCATION("Cannot assign the value of "
-                                                  "an uninitialized variable.");
-                    }
-                    self.assign(lhs, rhs);
-                };
                 visit(
                     [&]<typename T>(T const &t) {
                         if constexpr (std::is_same_v<T, monostate>) {
-                            assign(l, r);
+                            self.assign(l, r);
                         } else {
-                            assign(l, self.literal(Type::of<T>(), t));
+                            self.assign(l, self.literal(Type::of<T>(), t));
                         }
                     },
                     result);

@@ -23,9 +23,9 @@ def create_arg_expr(dtype, allow_ref):
     #       vectors/matrices/arrays/structs are passed by reference if (allow_ref==True)
     #       resources are always passed by reference (without specifying ref)
     lctype = to_lctype(dtype) # also checking that it's valid data dtype
-    if lctype.is_scalar():
+    if lctype.is_scalar() or lctype.is_vector() or lctype.is_matrix():
         return lcapi.builder().argument(lctype)
-    if lctype.is_vector() or lctype.is_matrix() or lctype.is_array() or lctype.is_structure() or lctype.is_custom():
+    if lctype.is_array() or lctype.is_structure() or lctype.is_custom():
         if allow_ref:
             return lcapi.builder().reference(lctype)
         else:
