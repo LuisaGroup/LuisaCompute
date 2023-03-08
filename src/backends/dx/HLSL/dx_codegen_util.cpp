@@ -1746,7 +1746,7 @@ uint iid:SV_INSTANCEID;
     codegenData << "#endif\n"sv;
     finalResult << detail::HLSLHeader(internalDataPath);
     if (vertFunc.requires_raytracing() || pixelFunc.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(internalDataPath);
+        finalResult << "\n" << detail::RayTracingHeader(internalDataPath);
     }
     opt->funcType = CodegenStackData::FuncType::Callable;
     if (nonEmptyCbuffer) {
