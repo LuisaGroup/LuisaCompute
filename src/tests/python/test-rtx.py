@@ -7,7 +7,6 @@ init()
 
 res = 1024, 1024
 image = Texture2D(*res, 4, float, storage="BYTE")
-arr = np.zeros([*res, 4], dtype=np.float32)
 
 vertices = [
     float3(-0.5, -0.5, -2.0),
@@ -69,6 +68,7 @@ def raytracing_kernel(image, accel, frame_index):
         float3(0.0, 0.0, -1.0),  # direction
         0.0,  # start distance
         1000.0)  # end distance
+    q = accel.trace_all(ray, -1)
     hit = accel.trace_closest(ray, -1)
     # if hit.hit_type == 1:
     # if not hit.miss():

@@ -93,7 +93,7 @@ def raytracing_kernel(image, accel, heap, resolution, vertex_buffer, material_bu
         #     else:
         #         # no procedural in corner box
         #         continue
-        #hit = query.get_commit_hit()
+        #hit = query.committed_hit()
         if hit.miss():
             break
         i0 = heap.buffer_read(int, hit.inst, hit.prim * 3 + 0)
@@ -244,7 +244,6 @@ res = 1024, 1024
 image = Texture2D(*res, 4, float)
 accum_image = Texture2D(*res, 4, float)
 ldr_image = Texture2D(*res, 4, float, storage="BYTE")
-arr = np.zeros([*res, 4], dtype=np.float32)
 
 clear_kernel(accum_image, dispatch_size=[*res, 1])
 

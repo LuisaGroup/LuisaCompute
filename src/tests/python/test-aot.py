@@ -1,7 +1,6 @@
 from luisa import *
 # use headless mode, no runtime available
-init_headless("dx")
-
+init_headless()
 
 @func
 def out_kernel(tex):
@@ -11,7 +10,7 @@ def out_kernel(tex):
     uv = (float2(index) + 0.5) / float2(size)
     tex.write(index, float4(uv, 0.5, 1.))
 
-
+# save this kernel as "out_kernel.bytes"
 out_kernel.save(
     (Texture2DType(float, 4), ),
     "out_kernel.bytes",

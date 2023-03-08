@@ -19,18 +19,31 @@ struct MeshUpdateCmd {
     size_t triangle_buffer_offset;
     size_t triangle_buffer_size;
 };
+struct ProceduralUpdateCmd {
+    AccelOption option;
+    uint64_t aabb_buffer;
+    size_t aabb_offset;
+    size_t aabb_count;
+};
+enum class MeshRefType {
+    Mesh,
+    Procedural
+};
 
 class ManagedAccel final {
+    struct MeshValue {
+        uint64 mesh;
+        vstd::MD5 md5;
+        MeshRefType ref_type;
+    };
     struct Data : public vstd::IOperatorNewBase {
         ManagedCollector collector;
         Accel accel;
-        struct MeshValue {
-            uint64 mesh;
-        };
-        vstd::vector<std::pair<uint64, vstd::MD5>> meshes;
+        vstd::vector<MeshValue> meshes;
         struct MeshRef {
             uint64 mesh;
             uint64 ref_count;
+            MeshRefType type;
         };
         struct MD5Hash {
             uint64 operator()(vstd::MD5 const &md5) const noexcept {
@@ -38,13 +51,13 @@ class ManagedAccel final {
             }
         };
         luisa::unordered_map<vstd::MD5, MeshRef, MD5Hash> created_mesh;
-
-        luisa::unordered_map<uint64, MeshUpdateCmd> requireUpdateMesh;
-        vstd::vector<uint64> meshDisposeList;
+        luisa::unordered_map<uint64, vstd::variant<MeshUpdateCmd, ProceduralUpdateCmd>> require_update_mesh;
+        vstd::vector<std::pair<uint64_t, MeshRefType>> mesh_dispose_list;
         Data(Accel &&accel) noexcept;
     };
     vstd::unique_ptr<Data> data;
-    uint64 set_mesh(size_t index, MeshUpdateCmd const &mesh) noexcept;
+    template <typename T>
+    uint64 set_mesh(size_t index, T const &mesh) noexcept;
     void remove_mesh(size_t index) noexcept;
 
 public:
@@ -57,8 +70,10 @@ public:
     ManagedAccel &operator=(ManagedAccel const &) = delete;
     ManagedAccel() = delete;
     void emplace(MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
+    void emplace(ProceduralUpdateCmd const &procedural, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
     void pop_back() noexcept;
     void set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
+    void set(size_t idx, ProceduralUpdateCmd const &procedural, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
     void update(PyStream &stream) noexcept;
 };
 

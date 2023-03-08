@@ -1,7 +1,6 @@
 from luisa import *
 from luisa.builtin import *
 from luisa.types import *
-import numpy as np
 init()
 
 texture = Texture2D.from_ldr_image("logo.png")

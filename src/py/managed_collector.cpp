@@ -12,15 +12,9 @@ uint64 ManagedCollector::Allocate() noexcept {
     }
     auto lastSize = handles.size();
     auto lastEleSize = lastSize / objPerEle;
-    handles.resize((lastEleSize + allocCapa) * objPerEle);
-    handlePool.reserve(allocCapa);
-    for (auto i : vstd::range(lastEleSize, lastEleSize + allocCapa)) {
-        handlePool.emplace_back(i);
-    }
-    allocCapa *= 1.5;
-    auto ite = handlePool.back();
-    handlePool.pop_back();
-    return ite;
+    handles.push_back_uninitialized(objPerEle);
+    memset(handles.data() + lastSize, -1, sizeof(decltype(handles)::value_type) * objPerEle);
+    return lastEleSize;
 }
 
 ManagedCollector::ManagedCollector(size_t objPerEle) noexcept : objPerEle(objPerEle) {}
@@ -28,7 +22,7 @@ ManagedCollector::ManagedCollector(size_t objPerEle) noexcept : objPerEle(objPer
 ManagedCollector::~ManagedCollector() noexcept {
     auto ref = RefCounter::current.get();
     for (auto &&i : handles) {
-        if (i != 0) {
+        if (i != invalid_resource_handle) {
             ref->DeRef(i);
         }
     }
@@ -41,11 +35,11 @@ void ManagedCollector::InRef(size_t element, vstd::span<uint64> handles) noexcep
     for (auto i : vstd::range(eleArr.size())) {
         auto &ele = eleArr[i];
         auto &handle = handles[i];
-        if (ele != 0) {
+        if (ele != invalid_resource_handle) {
             deferredDisposeList.emplace_back(ele);
         }
         ele = handle;
-        if (handle != 0) {
+        if (handle != invalid_resource_handle) {
             RefCounter::current->InRef(handle);
         }
     }
@@ -55,11 +49,11 @@ void ManagedCollector::InRef(size_t element, size_t subElement, uint64 handle) n
     auto ite = handleMap.try_emplace(element, vstd::lazy_eval([this] { return Allocate(); }));
     auto eleArr = Sample(ite.first->second);
     auto &ele = eleArr[subElement];
-    if (ele != 0) {
+    if (ele != invalid_resource_handle) {
         deferredDisposeList.emplace_back(ele);
     }
     ele = handle;
-    if (handle != 0) {
+    if (handle != invalid_resource_handle) {
         RefCounter::current->InRef(handle);
     }
 }
@@ -69,9 +63,9 @@ void ManagedCollector::DeRef(size_t element) noexcept {
     if (ite == handleMap.end()) return;
     auto eleArr = Sample(ite->second);
     for (auto &&i : eleArr) {
-        if (i != 0) {
+        if (i != invalid_resource_handle) {
             deferredDisposeList.emplace_back(i);
-            i = 0;
+            i = invalid_resource_handle;
         }
     }
     handlePool.emplace_back(ite->second);

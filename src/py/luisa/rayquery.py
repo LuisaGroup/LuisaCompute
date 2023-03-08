@@ -37,7 +37,7 @@ class RayQueryType:
     def triangle_candidate(self):
         return _builtin_call(Hit, "RAY_QUERY_TRIANGLE_CANDIDATE_HIT", self)
     @func
-    def get_commit_hit(self):
+    def committed_hit(self):
         return _builtin_call(Hit, "RAY_QUERY_COMMITTED_HIT", self)
     @func
     def commit_triangle(self):
@@ -54,7 +54,7 @@ class RayQuery:
         self.is_candidate_procedural = self.queryType.is_candidate_procedural
         self.procedural_candidate = self.queryType.procedural_candidate
         self.triangle_candidate = self.queryType.triangle_candidate
-        self.get_commit_hit = self.queryType.get_commit_hit
+        self.committed_hit = self.queryType.committed_hit
         self.commit_triangle = self.queryType.commit_triangle
         self.commit_procedural = self.queryType.commit_procedural
 rayQuery = RayQuery()

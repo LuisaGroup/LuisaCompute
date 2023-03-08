@@ -146,7 +146,7 @@ PYBIND11_MODULE(lcapi, m) {
         .def("handle", [](ManagedAccel &accel) { return accel.GetAccel().handle(); })
         .def("emplace_back", [](ManagedAccel &accel, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
@@ -158,10 +158,20 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.triangle_buffer_size = triangle_buffer_size;
             accel.emplace(cmd, transform, visibility_mask, opaque);
         })
+        .def("emplace_procedural", [](ManagedAccel &accel, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+            ProceduralUpdateCmd cmd;
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
+                          .allow_compaction = allow_compact,
+                          .allow_update = allow_update};
+            cmd.aabb_buffer = aabb_buffer;
+            cmd.aabb_offset = aabb_offset;
+            cmd.aabb_count = aabb_count;
+            accel.emplace(cmd, transform, visibility_mask, opaque);
+        })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
         .def("set", [](ManagedAccel &accel, size_t index, uint64_t vertex_buffer, size_t vertex_buffer_offset, size_t vertex_buffer_size, size_t vertex_stride, uint64_t triangle_buffer, size_t triangle_buffer_offset, size_t triangle_buffer_size, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
             MeshUpdateCmd cmd;
-            cmd.option = {.hint = AccelOption::UsageHint::FAST_BUILD,
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.vertex_buffer = vertex_buffer;
@@ -171,6 +181,16 @@ PYBIND11_MODULE(lcapi, m) {
             cmd.vertex_stride = vertex_stride;
             cmd.triangle_buffer = triangle_buffer;
             cmd.triangle_buffer_size = triangle_buffer_size;
+            accel.set(index, cmd, transform, visibility_mask, opaque);
+        })
+        .def("set_procedural", [](ManagedAccel &accel, size_t index, uint64_t aabb_buffer, size_t aabb_offset, size_t aabb_count, float4x4 transform, bool allow_compact, bool allow_update, int visibility_mask, bool opaque) {
+            ProceduralUpdateCmd cmd;
+            cmd.option = {.hint = AccelOption::UsageHint::FAST_TRACE,
+                          .allow_compaction = allow_compact,
+                          .allow_update = allow_update};
+            cmd.aabb_buffer = aabb_buffer;
+            cmd.aabb_offset = aabb_offset;
+            cmd.aabb_count = aabb_count;
             accel.set(index, cmd, transform, visibility_mask, opaque);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })

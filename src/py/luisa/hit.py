@@ -15,11 +15,11 @@ def miss(self):
 def hit_triangle(self):
     return self.hit_type==1
 @func
-def hit_primitive(self):
+def hit_procedural(self):
     return self.hit_type==2
 Hit.add_method(miss)
 Hit.add_method(hit_triangle)
-Hit.add_method(hit_primitive)
+Hit.add_method(hit_procedural)
 
 @func
 def interpolate(self, a, b, c):

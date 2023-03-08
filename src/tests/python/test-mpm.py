@@ -4,7 +4,7 @@ from luisa.builtin import *
 import numpy as np
 import random as rand
 import math
-init("dx")
+init()
 n_grid = 32
 n_steps = 25
 
@@ -76,7 +76,8 @@ def point_to_grid():
     w[1] = float3(0.75) - sqr(fx - float3(1.0))
     w[2] = float3(0.5) * sqr(fx - float3(0.5))
     stress = -4. * dt * E * p_vol * (J.read(p) - 1.) / sqr(dx)
-    affine = float3x3(stress, 0, 0, 0, stress, 0, 0, 0, stress) + p_mass * C.read(p)
+    affine = float3x3(stress, 0, 0, 0, stress, 0, 0,
+                      0, stress) + p_mass * C.read(p)
     vp = v.read(p)
     for ii in range(27):
         offset = int3(ii % 3, (ii // 3) % 3, ii // 3 // 3)

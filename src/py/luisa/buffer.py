@@ -24,7 +24,8 @@ class Buffer:
         self.dtype = dtype
         self.size = size
         lc_type = to_lctype(self.dtype)
-        self.bytesize = size * lc_type.size()
+        self.stride = lc_type.size()
+        self.bytesize = size * self.stride
         # instantiate buffer on device
         self.handle = get_global_device().impl().create_buffer(lc_type, size)
 

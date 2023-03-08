@@ -13,7 +13,6 @@ class ManagedCollector : public vstd::IOperatorNewBase{
     vstd::vector<size_t> handlePool;
     vstd::unordered_map<size_t, size_t> handleMap;
     vstd::vector<uint64> deferredDisposeList;
-    size_t allocCapa = 64;
     uint64 Allocate() noexcept;
     vstd::span<uint64> Sample(size_t index) noexcept {
         return {handles.data() + index * objPerEle, objPerEle};

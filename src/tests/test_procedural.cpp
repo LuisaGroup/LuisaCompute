@@ -64,6 +64,7 @@ int main(int argc, char *argv[]) {
         auto origin = pos;
         auto direction = normalize(make_float3(p * tan(0.5f * fov) * make_float2(aspect, 1.0f), -1.0f));
         auto ray = make_ray(origin, direction);
+        device_image1->write(coord, make_float4(make_float3(p, 0.5f), 1.0f));
 
         auto q = accel->trace_all(ray);
         // traversal aceeleration structure with ray-query

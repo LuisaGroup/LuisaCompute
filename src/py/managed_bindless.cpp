@@ -22,17 +22,17 @@ void ManagedBindless::emplace_tex3d(size_t index, uint64 handle, Sampler sampler
 }
 
 void ManagedBindless::remove_buffer(size_t index) noexcept {
-    collector.InRef(index, 0, 0);
+    collector.InRef(index, 0, invalid_resource_handle);
     array.remove_buffer_on_update(index);
 }
 
 void ManagedBindless::remove_tex2d(size_t index) noexcept {
-    collector.InRef(index, 1, 0);
+    collector.InRef(index, 1, invalid_resource_handle);
     array.remove_tex2d_on_update(index);
 }
 
 void ManagedBindless::remove_tex3d(size_t index) noexcept {
-    collector.InRef(index, 2, 0);
+    collector.InRef(index, 2, invalid_resource_handle);
     array.remove_tex3d_on_update(index);
 }
 

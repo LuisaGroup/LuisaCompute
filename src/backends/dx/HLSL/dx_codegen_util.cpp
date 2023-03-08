@@ -713,43 +713,19 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                             return 1;
                     }
                 }();
-                auto n = luisa::format("{}", expr->type()->dimension());
-                if (args.size() == 1 && args[0]->type()->is_scalar()) {
+                if (args.size() == 1) {//  && args[0]->type()->is_scalar()
                     str << "(("sv;
                     GetTypeName(*expr->type(), str, Usage::READ);
                     str << ")("sv;
-                    for (auto &&i : args) {
-                        i->accept(vis);
-                        str << ',';
-                    }
-                    *(str.end() - 1) = ')';
-                    str << ')';
+                    args[0]->accept(vis);
+                    str << "))"sv;
                 } else {
                     GetTypeName(*expr->type(), str, Usage::READ);
                     str << '(';
                     uint count = 0;
                     for (auto &&i : args) {
                         i->accept(vis);
-                        if (i->type()->is_vector()) {
-                            auto dim = i->type()->dimension();
-                            auto leftEle = tarDim - count;
-                            //More lefted
-                            if (dim > leftEle) {
-                                constexpr auto swizzle = "xyzw";
-                                str << '.' << vstd::string_view(swizzle, leftEle);
-                                break;
-                            }
-                            count += dim;
-                        } else if (i->type()->is_scalar()) {
-                            count++;
-                        }
                         str << ',';
-                        if (count >= tarDim) break;
-                    }
-                    if (count < tarDim) {
-                        for (auto i : vstd::range(tarDim - count)) {
-                            str << "0,"sv;
-                        }
                     }
                     *(str.end() - 1) = ')';
                 }
@@ -764,10 +740,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args[0]->accept(vis);
                 return;
             } else {
-                str << "_float"sv;
-                vstd::to_string(dim, str);
-                str << 'x';
-                vstd::to_string(dim, str);
+                auto n = vstd::to_string(dim);
+                str << "_float"sv << n << 'x' << n;
             }
         } break;
         case CallOp::BUFFER_READ: {
