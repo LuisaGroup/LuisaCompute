@@ -8,10 +8,11 @@
 #define GLFW_EXPOSE_NATIVE_X11 // TODO: other window compositors
 #endif
 
-#include <gui/window.h>
 #include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
+
 #include <core/logging.h>
-#include <glfw/glfw3native.h>
+#include <gui/window.h>
 
 namespace luisa::compute {
 
