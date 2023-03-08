@@ -116,7 +116,7 @@ def kernel(pos):
         image.write(coord, make_float4(0, 0, 0, 1.))
 
 
-gui = GUI("Test ray tracing", res)
+gui = GUI("Test procedural", res)
 pos = float3(0., 0., 18.0)
 while gui.running():
     kernel(pos, dispatch_size=(*res, 1))

@@ -1,9 +1,11 @@
 from luisa import *
 from luisa.types import *
 from luisa.builtin import *
+from luisa.util import *
 import numpy as np
 import random as rand
 import math
+
 init()
 n_grid = 32
 n_steps = 25
@@ -92,11 +94,6 @@ def point_to_grid():
         old = grid_v.atomic_fetch_add(idx * 4 + 1, vadd.y)
         old = grid_v.atomic_fetch_add(idx * 4 + 2, vadd.z)
         old = grid_m.atomic_fetch_add(idx, weight * p_mass)
-
-
-@func
-def ite(a, b, c):
-    return select(c, b, a)
 
 
 @func

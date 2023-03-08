@@ -45,7 +45,6 @@ def _rm(ro: float3, rd: float3, time: float):
 @func
 def clear_kernel(image):
     coord = dispatch_id().xy
-    rg = float2(coord) / float2(dispatch_size().xy)
     image.write(coord, float4(0.3, 0.4, 0.5, 1.))
 
 
@@ -71,7 +70,7 @@ def main_kernel(image, time):
 res = 1024, 1024
 image = Texture2D(*res, 4, float, storage="BYTE")
 
-gui = GUI("Test ray tracing", res)
+gui = GUI("Test shadertoy", res)
 clear_kernel(image, dispatch_size=(*res, 1))
 time = 0.0
 while gui.running():
