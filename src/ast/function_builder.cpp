@@ -126,6 +126,19 @@ void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexc
 }
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {
+    value = luisa::visit([type](auto x) noexcept -> LiteralExpr::Value {
+        if constexpr (luisa::is_scalar_v<decltype(x)>) {
+            switch (type->tag()) {
+                case Type::Tag::BOOL: return bool(x);
+                case Type::Tag::FLOAT32: return float(x);
+                case Type::Tag::INT32: return int(x);
+                case Type::Tag::UINT32: return uint(x);
+                default: LUISA_ERROR_WITH_LOCATION("Invalid type for LiteralExpr: {}", type->description());
+            }
+        } else {
+            return x;
+        }
+    }, value);
     return _create_expression<LiteralExpr>(type, value);
 }
 

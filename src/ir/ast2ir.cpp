@@ -146,34 +146,26 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
 }
 
 ir::CArc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcept {
-    // TODO: fix this
+    LUISA_ASSERT(function.tag() == Function::Tag::CALLABLE,
+                 "Invalid function tag.");
 
-    LUISA_ASSERT(false, "fix pls");
-
-    // LUISA_ASSERT(function.tag() == Function::Tag::CALLABLE,
-    //              "Invalid function tag.");
-    // if (auto m = ir::luisa_compute_ir_get_symbol(function.hash())) {
-    //     return ir::CArc<ir::CallableModule>::from_raw(m);
-    // }
-    // LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
-    //                  _variables.empty() && _builder_stack.empty() &&
-    //                  !_function,
-    //              "Invalid state.");
-    // _function = function;
-    // _pools = ir::luisa_compute_ir_new_module_pools();
-    // auto m = _with_builder([this](auto builder) noexcept {
-    //     auto arg_count = _function.arguments().size();
-    //     auto args = _boxed_slice<ir::NodeRef>(arg_count);
-    //     for (auto i = 0u; i < arg_count; i++) {
-    //         args.ptr[i] = _convert_argument(_function.arguments()[i]);
-    //     }
-    //     return ir::CArc<ir::CallableModule>::from_raw(
-    //         ir::luisa_compute_ir_new_callable_module(
-    //             ir::CallableModule{.module = _convert_body(),
-    //                                .args = args}));
-    // });
-    // ir::luisa_compute_ir_add_symbol(function.hash(), m);
-    // return m;
+    LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
+                    _variables.empty() && _builder_stack.empty() &&
+                    !_function,
+                "Invalid state.");
+    _function = function;
+    _pools = ir::CppOwnedCArc{ir::luisa_compute_ir_new_module_pools()};
+    auto m = _with_builder([this](auto builder) noexcept {
+        auto arg_count = _function.arguments().size();
+        auto args = _boxed_slice<ir::NodeRef>(arg_count);
+        for (auto i = 0u; i < arg_count; i++) {
+            args.ptr[i] = _convert_argument(_function.arguments()[i]);
+        }
+        return ir::luisa_compute_ir_new_callable_module(
+                ir::CallableModule{.module = _convert_body(),
+                                   .args = args});
+    });
+    return m._0;
 }
 
 ir::NodeRef AST2IR::_convert_expr(const Expression *expr) noexcept {

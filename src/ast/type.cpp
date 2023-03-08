@@ -463,6 +463,10 @@ bool Type::is_scalar() const noexcept {
     return to_underlying(tag()) < to_underlying(Tag::VECTOR);
 }
 
+bool Type::is_arithmetic() const noexcept {
+    return to_underlying(tag()) > to_underlying(Tag::BOOL) && to_underlying(tag()) < to_underlying(Tag::VECTOR);
+}
+
 bool Type::is_basic() const noexcept {
     return is_scalar() || is_vector() || is_matrix();
 }
@@ -490,6 +494,35 @@ const Type *Type::vector(const Type *elem, size_t n) noexcept {
 const Type *Type::matrix(size_t n) noexcept {
     LUISA_ASSERT(n >= 2 && n <= 4, "Invalid matrix dimension.");
     return from(luisa::format("matrix<{}>", n));
+}
+
+const Type *Type::buffer(const Type *elem) noexcept {
+    LUISA_ASSERT(!elem->is_buffer() && !elem->is_texture(), "Buffer cannot hold buffers or images.");
+    return from(luisa::format("buffer<{}>", elem->description()));
+}
+
+const Type *Type::texture(const Type *elem, size_t dimension) noexcept {
+    LUISA_ASSERT(elem->is_arithmetic(), "Texture element must be an arithmetic.");
+    LUISA_ASSERT(dimension >= 2 && dimension <= 4, "Texture dimension must 2, 3 or 4");
+    return from(luisa::format("vector<{},{}>", elem->description(), dimension));
+}
+
+const Type *Type::structure(size_t alignment, luisa::span<const Type *> members) noexcept {
+    LUISA_ASSERT(alignment == 4u || alignment == 8u || alignment == 16u,
+                 "Invalid structure alignment {} (must be 4, 8, or 16).",
+                 alignment);
+    auto desc = luisa::format("struct<{}", alignment);
+    for (auto member : members) {
+        desc.append(",").append(member->description());
+    }
+    desc.append(">");
+    return from(desc);
+}
+
+const Type *Type::structure(luisa::span<const Type *> members) noexcept {
+    auto alignment = 4u;
+    for (auto m : members) { alignment = std::max<size_t>(m->alignment(), alignment); }
+    return structure(alignment, members);
 }
 
 const Type *Type::structure(size_t alignment, std::initializer_list<const Type *> members) noexcept {

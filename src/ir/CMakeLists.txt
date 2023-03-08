@@ -1,6 +1,7 @@
  set(LUISA_COMPUTE_IR_SOURCES
          ast2ir.cpp ast2ir.h
-        #  codegen.cpp codegen.h
+         ir2ast.cpp ir2ast.h
+         codegen.cpp codegen.h
          )
 
  add_library(luisa-compute-ir SHARED ${LUISA_COMPUTE_IR_SOURCES})

@@ -297,6 +297,14 @@ public:
     [[nodiscard]] static const Type *vector(const Type *elem, size_t n) noexcept;
     /// Return matrix type of type T
     [[nodiscard]] static const Type *matrix(size_t n) noexcept;
+    /// Return buffer type of type T
+    [[nodiscard]] static const Type *buffer(const Type *elem) noexcept;
+    /// Return texture type of type T
+    [[nodiscard]] static const Type *texture(const Type *elem, size_t dimension) noexcept;
+    /// Return struct type of type T
+    [[nodiscard]] static const Type *structure(luisa::span<const Type *> members) noexcept;
+    /// Return struct type of type T
+    [[nodiscard]] static const Type *structure(size_t alignment, luisa::span<const Type *> members) noexcept;
     /// Return struct type of type T
     [[nodiscard]] static const Type *structure(std::initializer_list<const Type *> members) noexcept;
     /// Return struct type of type T
@@ -366,6 +374,8 @@ public:
 
     /// Scalar = bool || float || int || uint
     [[nodiscard]] bool is_scalar() const noexcept;
+    /// Arithmetic = float || int || uint
+    [[nodiscard]] bool is_arithmetic() const noexcept;
 
     /// Basic = scalar || vector || matrix
     [[nodiscard]] bool is_basic() const noexcept;

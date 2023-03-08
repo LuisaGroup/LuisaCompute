@@ -148,6 +148,13 @@ enum struct CallOp : uint32_t {
     FACEFORWARD,   // (floatN, floatN, floatN)
     REFLECT,       // (floatN, floatN)
 
+    REDUCE_SUM,     // (floatN)
+    REDUCE_PRODUCT, // (floatN)
+    REDUCE_MIN,     // (floatN)
+    REDUCE_MAX,     // (floatN)
+
+    OUTER_PRODUCT, // (floatN | floatNxN)
+    MATRIX_COMPONENT_WISE_MULTIPLICATION, // (floatNxN)
     DETERMINANT,// (floatNxN)
     TRANSPOSE,  // (floatNxN)
     INVERSE,    // (floatNxN)
@@ -166,6 +173,7 @@ enum struct CallOp : uint32_t {
 
     BUFFER_READ,  /// [(buffer, index) -> value]: reads the index-th element in buffer
     BUFFER_WRITE, /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+    BUFFER_SIZE,  /// [(buffer) -> size]
     TEXTURE_READ, /// [(texture, coord) -> value]
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
 
@@ -184,7 +192,9 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE2D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint2
     BINDLESS_TEXTURE3D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,// (bindless_array, index: uint): expr->type()
+    BINDLESS_BUFFER_READ, // (bindless_array, index: uint): expr->type()
+    BINDLESS_BUFFER_SIZE, // (bindless_array) -> size
+    BINDLESS_BUFFER_TYPE, // (bindless_array) -> type
 
     MAKE_BOOL2, // (bool, bool2)
     MAKE_BOOL3, // (bool, bool3)
@@ -206,6 +216,13 @@ enum struct CallOp : uint32_t {
     // optimization hints
     ASSUME,     // ()
     UNREACHABLE,// ()
+
+    // autodiff ops
+    REQUIRES_GRADIENT,
+    GRADIENT,
+    GRADIENT_MARKER,
+    ACCUMULATE_GRADIENT,
+    DETACH,
 
     // ray tracing
     RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)

@@ -296,18 +296,18 @@ void CppSourceBuilder::_collect_phis(const ir::BasicBlock *bb) noexcept {
     });
 }
 
-luisa::string CppSourceBuilder::_generate_callable(const ir::CallableModule &callable) noexcept {
-    if (auto iter = _callable_names.find(callable.module.entry.get());
+luisa::string CppSourceBuilder::_generate_callable(const ir::CallableModule *callable) noexcept {
+    if (auto iter = _callable_names.find(callable->module.entry.get());
         iter != _callable_names.end()) { return iter->second; }
-    Context ctx{.module = callable.module};
+    Context ctx{.module = callable->module};
     auto old_ctx = _ctx;
     _ctx = &ctx;
-    auto entry = callable.module.entry.get();
+    auto entry = callable->module.entry.get();
     _collect_phis(entry);
     auto name = luisa::format("lc_callable_{}", _callable_names.size());
     _callable_names.emplace(entry, name);
     ctx.signature = luisa::format("__device__ auto {}(", name);
-    auto args = callable.args;
+    auto args = callable->args;
     for (auto i = 0u; i < args.len; i++) {
         auto node = ir::luisa_compute_ir_node_get(args.ptr[i]);
         _generate_argument(node, i == args.len - 1u);
@@ -1089,7 +1089,8 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
             case ir::Func::Tag::BufferSize:
                 LUISA_ASSERT(args.size() == 1u, "BufferSize takes 1 argument.");
                 return luisa::format("lc_buffer_size({});", _generate_node(args[0]));
-            case ir::Func::Tag::TextureRead: {
+            case ir::Func::Tag::Texture2dRead: [[fallthrough]];
+            case ir::Func::Tag::Texture3dRead: {
                 LUISA_ASSERT(args.size() == 2u, "TextureRead takes 2 arguments.");
                 auto tex = ir::luisa_compute_ir_node_get(args[0]);
                 return luisa::format("lc_texture_read({}, {});",
@@ -1097,7 +1098,8 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
                                      _generate_node(tex),
                                      _generate_node(args[1]));
             }
-            case ir::Func::Tag::TextureWrite: {
+            case ir::Func::Tag::Texture2dWrite: [[fallthrough]];
+            case ir::Func::Tag::Texture3dWrite: {
                 LUISA_ASSERT(args.size() == 3u, "TextureWrite takes 3 arguments.");
                 auto tex = ir::luisa_compute_ir_node_get(args[0]);
                 return luisa::format("lc_texture_write({}, {}, {});",
@@ -1332,9 +1334,9 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
                                      _generate_node(args[3]));
             }
             case ir::Func::Tag::Callable: {
-                auto p_callable = ir::luisa_compute_ir_get_symbol(func.callable._0);
-                LUISA_ASSERT(p_callable != nullptr, "Invalid callable.");
-                auto callable = _generate_callable(p_callable->data);
+                auto p_callable = func.callable._0._0;
+                LUISA_ASSERT(!p_callable.is_null(), "Invalid callable.");
+                auto callable = _generate_callable(p_callable.get());
                 auto invoke = luisa::format("{}(", callable);
                 for (auto i = 0u; i < args.size(); i++) {
                     invoke.append(_generate_node(args[i]));
