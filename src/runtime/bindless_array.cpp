@@ -4,7 +4,7 @@
 
 #include <runtime/device.h>
 #include <runtime/shader.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/bindless_array.h>
 #include <core/logging.h>
 

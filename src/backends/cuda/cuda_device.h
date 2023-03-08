@@ -6,7 +6,7 @@
 
 #include <cuda.h>
 
-#include <runtime/device_interface.h>
+#include <runtime/rhi/device_interface.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_stream.h>

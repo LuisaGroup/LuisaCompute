@@ -1,6 +1,6 @@
 #include <core/logging.h>
 #include <ast/function_builder.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/command_encoder.h>
 #include <runtime/raster/raster_scene.h>
 

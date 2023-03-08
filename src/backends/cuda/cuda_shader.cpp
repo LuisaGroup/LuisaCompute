@@ -9,7 +9,7 @@
 
 #include <core/spin_mutex.h>
 #include <ast/function.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_stream.h>

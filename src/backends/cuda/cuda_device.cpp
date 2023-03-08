@@ -7,7 +7,7 @@
 #include <future>
 #include <thread>
 
-#include <runtime/sampler.h>
+#include <runtime/rhi/sampler.h>
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>

@@ -1,6 +1,6 @@
 #pragma once
 #include <ast/type_registry.h>
-#include <runtime/device_interface.h>
+#include <runtime/rhi/device_interface.h>
 #include <backends/common/resource_generator.h>
 namespace luisa::compute {
 class NativeResourceExt : public DeviceExtension {

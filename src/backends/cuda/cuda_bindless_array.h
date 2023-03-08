@@ -9,8 +9,8 @@
 #include <core/spin_mutex.h>
 #include <core/stl.h>
 #include <core/dirty_range.h>
-#include <runtime/sampler.h>
-#include <runtime/command.h>
+#include <runtime/rhi/sampler.h>
+#include <runtime/rhi/command.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 

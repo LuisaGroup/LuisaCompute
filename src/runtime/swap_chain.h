@@ -3,7 +3,7 @@
 #include <utility>
 
 #include <core/spin_mutex.h>
-#include <runtime/resource.h>
+#include <runtime/rhi/resource.h>
 #include <runtime/event.h>
 #include <runtime/command_list.h>
 #include <runtime/image.h>

@@ -6,7 +6,7 @@
 
 #include <core/concepts.h>
 #include <core/stl/optional.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <api/common.h>
 #include <core/stl/functional.h>
 

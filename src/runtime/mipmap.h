@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 
 namespace luisa::compute {
 

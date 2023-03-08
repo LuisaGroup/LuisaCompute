@@ -1,7 +1,7 @@
 #pragma once
 #include <Shader/Shader.h>
 #include <runtime/raster/raster_state.h>
-#include <runtime/pixel.h>
+#include <runtime/rhi/pixel.h>
 #include <core/binary_io.h>
 #include <core/stl/unordered_map.h>
 #include <vstl/hash.h>

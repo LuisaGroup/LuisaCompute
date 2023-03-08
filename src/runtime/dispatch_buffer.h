@@ -1,7 +1,7 @@
 #pragma once
 
-#include <runtime/resource.h>
-#include <runtime/device_interface.h>
+#include <runtime/rhi/resource.h>
+#include <runtime/rhi/device_interface.h>
 #include <ast/type_registry.h>
 
 namespace luisa::compute {

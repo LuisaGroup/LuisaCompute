@@ -6,7 +6,7 @@
 #include <runtime/device.h>
 #include <runtime/context.h>
 #include <runtime/stream.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/image.h>
 #include <runtime/rtx/accel.h>
 #include <runtime/rtx/mesh.h>

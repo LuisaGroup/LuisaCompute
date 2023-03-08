@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ast/type.h>
-#include <runtime/pixel.h>
+#include <runtime/rhi/pixel.h>
 #include <core/stl/vector.h>
 
 namespace luisa::compute {

@@ -1,6 +1,6 @@
 #include <DXApi/LCCmdBuffer.h>
 #include <DXApi/LCDevice.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
 #include "HLSL/dx_codegen.h"
 #include <Shader/ComputeShader.h>

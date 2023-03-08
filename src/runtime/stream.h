@@ -7,11 +7,11 @@
 #include <utility>
 
 #include <core/spin_mutex.h>
-#include <runtime/resource.h>
+#include <runtime/rhi/resource.h>
 #include <runtime/event.h>
 #include <runtime/command_list.h>
 #include <runtime/swap_chain.h>
-#include <runtime/stream_tag.h>
+#include <runtime/rhi/stream_tag.h>
 
 namespace luisa::compute {
 

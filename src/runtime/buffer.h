@@ -6,9 +6,9 @@
 
 #include <core/concepts.h>
 #include <core/mathematics.h>
-#include <runtime/command.h>
-#include <runtime/resource.h>
-#include <runtime/device_interface.h>
+#include <runtime/rhi/command.h>
+#include <runtime/rhi/resource.h>
+#include <runtime/rhi/device_interface.h>
 
 namespace luisa::compute {
 

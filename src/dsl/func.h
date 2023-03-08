@@ -5,7 +5,7 @@
 #pragma once
 
 #include <type_traits>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/device.h>
 #include <runtime/shader.h>
 #include <dsl/arg.h>

@@ -1,7 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 namespace toolhub::directx {
 class CommandBufferBuilder;
 class ResourceStateTracker;

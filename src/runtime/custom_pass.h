@@ -2,7 +2,7 @@
 
 #include <runtime/device.h>
 #include <runtime/buffer.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/buffer.h>
 #include <runtime/image.h>
 #include <runtime/bindless_array.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ast/function.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/raster/viewport.h>
 
 namespace luisa::compute {

@@ -5,9 +5,9 @@
 #pragma once
 
 #include <core/stl/unordered_map.h>
-#include <runtime/sampler.h>
+#include <runtime/rhi/sampler.h>
 #include <runtime/mipmap.h>
-#include <runtime/resource.h>
+#include <runtime/rhi/resource.h>
 #include <runtime/buffer.h>
 #include <runtime/image.h>
 #include <runtime/volume.h>

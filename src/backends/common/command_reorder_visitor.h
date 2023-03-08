@@ -4,7 +4,7 @@
 #include <core/stl/hash.h>
 #include <cstdint>
 #include <vstl/common.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/buffer.h>
 #include <runtime/raster/raster_scene.h>
 namespace luisa::compute {

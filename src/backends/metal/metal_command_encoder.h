@@ -4,7 +4,7 @@
 
 #pragma once
 
-#import <runtime/command.h>
+#import <runtime/rhi/command.h>
 
 namespace luisa::compute::metal {
 

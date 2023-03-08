@@ -42,7 +42,7 @@
 
 #include <runtime/bindless_array.h>
 #include <runtime/buffer.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
 #include <runtime/context.h>
 #include <runtime/context_paths.h>
@@ -51,12 +51,12 @@
 #include <runtime/event.h>
 #include <runtime/image.h>
 #include <runtime/mipmap.h>
-#include <runtime/pixel.h>
-#include <runtime/resource.h>
-#include <runtime/sampler.h>
+#include <runtime/rhi/pixel.h>
+#include <runtime/rhi/resource.h>
+#include <runtime/rhi/sampler.h>
 #include <runtime/shader.h>
 #include <runtime/stream.h>
-#include <runtime/stream_tag.h>
+#include <runtime/rhi/stream_tag.h>
 #include <runtime/swap_chain.h>
 #include <runtime/volume.h>
 

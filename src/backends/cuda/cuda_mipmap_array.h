@@ -8,7 +8,7 @@
 #include <cuda.h>
 
 #include <core/spin_mutex.h>
-#include <runtime/pixel.h>
+#include <runtime/rhi/pixel.h>
 
 namespace luisa::compute::cuda {
 

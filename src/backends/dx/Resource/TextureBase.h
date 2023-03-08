@@ -1,7 +1,7 @@
 #pragma once
 #include <Resource/Resource.h>
 #include <Resource/GpuAllocator.h>
-#include <runtime/pixel.h>
+#include <runtime/rhi/pixel.h>
 #include <core/logging.h>
 using namespace luisa::compute;
 namespace toolhub::directx {

@@ -2,7 +2,7 @@
 #include <Resource/Resource.h>
 #include <Resource/DefaultBuffer.h>
 #include <vstl/lockfree_array_queue.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class TextureBase;

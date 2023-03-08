@@ -6,7 +6,7 @@
 
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
-#include <runtime/resource.h>
+#include <runtime/rhi/resource.h>
 #include <runtime/device.h>
 #include <runtime/bindless_array.h>
 #include <runtime/dispatch_buffer.h>

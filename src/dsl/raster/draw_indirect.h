@@ -3,7 +3,7 @@
 #include <dsl/expr.h>
 #include <dsl/var.h>
 #include <dsl/struct.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 
 namespace luisa::compute {
 struct DrawIndirectArgs {};

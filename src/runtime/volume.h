@@ -4,11 +4,11 @@
 
 #pragma once
 
-#include <runtime/pixel.h>
-#include <runtime/resource.h>
+#include <runtime/rhi/pixel.h>
+#include <runtime/rhi/resource.h>
 #include <runtime/mipmap.h>
-#include <runtime/sampler.h>
-#include <runtime/device_interface.h>
+#include <runtime/rhi/sampler.h>
+#include <runtime/rhi/device_interface.h>
 
 namespace luisa::compute {
 

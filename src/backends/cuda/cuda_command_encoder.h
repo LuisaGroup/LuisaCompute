@@ -5,7 +5,7 @@
 #pragma once
 
 #include <cuda.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 
 namespace luisa::compute::cuda {
 

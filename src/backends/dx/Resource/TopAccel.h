@@ -1,7 +1,7 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <EASTL/shared_ptr.h>
-#include <runtime/command.h>
+#include <runtime/rhi/command.h>
 #include <runtime/device.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
