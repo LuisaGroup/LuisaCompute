@@ -1,9 +1,22 @@
+#include <core/platform.h>
+
+#if defined(LUISA_PLATFORM_WINDOWS)
+#define GLFW_EXPOSE_NATIVE_WIN32
+#elif defined(LUISA_PLATFORM_APPLE)
+#define GLFW_EXPOSE_NATIVE_COCOA
+#else
+#define GLFW_EXPOSE_NATIVE_X11 // TODO: other window compositors
+#endif
+
 #include <gui/window.h>
 #include <GLFW/glfw3.h>
 #include <core/logging.h>
 #include <glfw/glfw3native.h>
+
 namespace luisa::compute {
+
 namespace detail {
+
 struct WindowImpl : public Window::IWindowImpl {
     GLFWwindow *window;
     Window::MouseButtonCallback _mouse_button_callback;
@@ -67,25 +80,30 @@ struct WindowImpl : public Window::IWindowImpl {
         });
         // glfwSetCharCallback(window, ImGui_ImplGlfw_CharCallback);
     }
-    ~WindowImpl() {
+    ~WindowImpl() noexcept override {
         glfwDestroyWindow(window);
         glfwTerminate();
     }
 };
+
 }// namespace detail
+
 Window::Window(
     string name,
     uint width, uint height,
-    bool vsync)
+    bool vsync) noexcept
     : _size{width, height},
       _vsync{vsync},
-      _name{std::move(name)}{
+      _name{std::move(name)} {
     _impl = make_unique<detail::WindowImpl>(_size, _name.c_str(), vsync);
 }
-Window::~Window() {}
+
+Window::~Window() noexcept = default;
+
 uint64_t Window::window_native_handle() const noexcept {
     return static_cast<detail::WindowImpl *>(_impl.get())->window_handle;
 }
+
 bool Window::should_close() const noexcept {
     return glfwWindowShouldClose(static_cast<detail::WindowImpl *>(_impl.get())->window);
 }
@@ -114,7 +132,9 @@ Window &Window::set_scroll_callback(Window::ScrollCallback cb) noexcept {
     static_cast<detail::WindowImpl *>(_impl.get())->_scroll_callback = std::move(cb);
     return *this;
 }
-void Window::pool_event() noexcept{
+
+void Window::pool_event() noexcept {
     glfwPollEvents();
 }
+
 }// namespace luisa::compute

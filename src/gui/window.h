@@ -1,10 +1,14 @@
 #pragma once
+
 #include <core/dll_export.h>
 #include <core/stl/string.h>
 #include <core/basic_types.h>
 #include <core/stl/functional.h>
+
 namespace luisa::compute {
+
 class LC_GUI_API Window {
+
 public:
     using MouseButtonCallback = luisa::function<void(int button, int action, float2 xy)>;
     using CursorPositionCallback = luisa::function<void(float2 xy)>;
@@ -22,15 +26,14 @@ private:
     bool _vsync;
 
 public:
-    Window(
-        string name,
-        uint width, uint height,
-        bool vsync);
-    Window(
-        string name,
-        uint2 size,
-        bool vsync) : Window{std::move(name), size.x, size.y, vsync} {}
-    ~Window();
+    Window(string name,
+           uint width, uint height,
+           bool vsync) noexcept;
+    Window(string name,
+           uint2 size,
+           bool vsync) noexcept
+        : Window{std::move(name), size.x, size.y, vsync} {}
+    ~Window() noexcept;
     Window(const Window &) = delete;
     Window(Window &&) = default;
     Window &operator=(Window &&) noexcept;
@@ -50,4 +53,5 @@ public:
 
     [[nodiscard]] explicit operator bool() const noexcept { return !should_close(); }
 };
+
 }// namespace luisa::compute

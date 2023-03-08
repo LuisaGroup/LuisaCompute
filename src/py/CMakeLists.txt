@@ -1,4 +1,5 @@
 set(LUISA_PYTHON_SOURCES
+        export_gui.cpp
         export_matrix.cpp
         export_op.cpp
         export_vector2.cpp

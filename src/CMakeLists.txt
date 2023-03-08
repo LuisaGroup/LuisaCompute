@@ -59,7 +59,7 @@ add_subdirectory(rust)
 add_subdirectory(runtime)
 add_subdirectory(ir)
 add_subdirectory(dsl)
-add_subdirectory(gui/backup)
+add_subdirectory(gui)
 add_subdirectory(backends)
 
 add_library(compute INTERFACE luisa-compute.h)

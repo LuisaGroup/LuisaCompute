@@ -55,7 +55,7 @@ size_t pagesize() noexcept {
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     bool has_parent_path = path.has_parent_path();
     if (has_parent_path) {
-        SetDllDirectory(path.parent_path().c_str());
+        SetDllDirectory(path.parent_path().string().c_str());
     }
     auto path_string = path.string();
     auto module = LoadLibraryA(path_string.c_str());
