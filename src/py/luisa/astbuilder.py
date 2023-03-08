@@ -305,9 +305,6 @@ class ASTVisitor:
         # allows left hand side to be undefined
         if type(lhs) is ast.Name:
             build.build_Name(lhs, allow_none=True)
-            if getattr(lhs, "is_arg", False): # is argument
-                if lhs.dtype not in (uint, int, float, bool): # not scalar; therefore passed by reference
-                    raise TypeError("Assignment to non-scalar argument is not allowed. Please create a local variable.")
         else:
             build(lhs)
         # create local variable if it doesn't exist yet
