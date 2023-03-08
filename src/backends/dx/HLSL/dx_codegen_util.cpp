@@ -699,9 +699,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_INT4:
         case CallOp::MAKE_FLOAT2:
         case CallOp::MAKE_FLOAT3:
-        case CallOp::MAKE_FLOAT4:
-        case CallOp::MAKE_FLOAT2X2:
-        case CallOp::MAKE_FLOAT4X4: {
+        case CallOp::MAKE_FLOAT4: {
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
             } else {
@@ -715,15 +713,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                             return 1;
                     }
                 }();
-                auto is_make_matrix = expr->type()->is_matrix();
                 auto n = luisa::format("{}", expr->type()->dimension());
                 if (args.size() == 1 && args[0]->type()->is_scalar()) {
                     str << "(("sv;
-                    if (is_make_matrix) {
-                        str << "_float" << n << "x" << n;
-                    } else {
-                        GetTypeName(*expr->type(), str, Usage::READ);
-                    }
+                    GetTypeName(*expr->type(), str, Usage::READ);
                     str << ")("sv;
                     for (auto &&i : args) {
                         i->accept(vis);
@@ -732,11 +725,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     *(str.end() - 1) = ')';
                     str << ')';
                 } else {
-                    if (is_make_matrix) {
-                        str << "_float" << n << "x" << n;
-                    } else {
-                        GetTypeName(*expr->type(), str, Usage::READ);
-                    }
+                    GetTypeName(*expr->type(), str, Usage::READ);
                     str << '(';
                     uint count = 0;
                     for (auto &&i : args) {
@@ -745,10 +734,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                             auto dim = i->type()->dimension();
                             auto leftEle = tarDim - count;
                             //More lefted
-                            if (dim <= leftEle) {
-                            } else {
-                                auto swizzle = "xyzw";
+                            if (dim > leftEle) {
+                                constexpr auto swizzle = "xyzw";
                                 str << '.' << vstd::string_view(swizzle, leftEle);
+                                break;
                             }
                             count += dim;
                         } else if (i->type()->is_scalar()) {
@@ -767,12 +756,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             return;
         }
+        case CallOp::MAKE_FLOAT2X2:
+        case CallOp::MAKE_FLOAT4X4:
         case CallOp::MAKE_FLOAT3X3: {
+            auto dim = expr->type()->dimension();
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
                 return;
             } else {
-                str << "_float3x3";
+                str << "_float"sv;
+                vstd::to_string(dim, str);
+                str << 'x';
+                vstd::to_string(dim, str);
             }
         } break;
         case CallOp::BUFFER_READ: {
