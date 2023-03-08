@@ -44,7 +44,6 @@ void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         if (_op == CallOp::BUFFER_WRITE ||
             _op == CallOp::TEXTURE_WRITE ||
-            _op == CallOp::RAY_TRACING_SET_INSTANCE_AABB ||
             _op == CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
             _op == CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY ||
             _op == CallOp::RAY_TRACING_SET_INSTANCE_OPACITY ||

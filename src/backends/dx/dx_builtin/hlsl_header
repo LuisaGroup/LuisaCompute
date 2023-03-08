@@ -382,11 +382,3 @@ buffer[idx+4]=dispSize;
 buffer[idx+5]=1;
 buffer[idx+6]=1;
 }
-struct AABB{float3 bmin;float3 bmax;};
-template<typename Idx>
-void SetAABB(RWStructuredBuffer<AABB> buffer,const Idx idx,const float3 bmin,const float3 bmax){
-AABB b;
-b.bmin=bmin;
-b.bmax=bmax;
-buffer[idx]=b;
-}

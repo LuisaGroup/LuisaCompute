@@ -66,7 +66,7 @@ struct TypePromotion {
 [[nodiscard]] constexpr auto is_relational(BinaryOp op) noexcept {
     return op == BinaryOp::LESS ||
            op == BinaryOp::GREATER ||
-           op == BinaryOp::LESS_EQUAL ||    
+           op == BinaryOp::LESS_EQUAL ||
            op == BinaryOp::GREATER_EQUAL ||
            op == BinaryOp::EQUAL ||
            op == BinaryOp::NOT_EQUAL;
@@ -84,75 +84,75 @@ enum struct CallOp : uint32_t {
 
     CUSTOM,
 
-    ALL,
-    ANY,
+    ALL,// (boolN)
+    ANY,// (boolN)
 
-    SELECT,
-    CLAMP,
-    SATURATE,
-    LERP,
-    STEP,
+    SELECT,  // (vecN, vecN, boolN)
+    CLAMP,   // (vecN, vecN,vecN)
+    SATURATE,// (vecN)
+    LERP,    // (vecN, vecN,vecN)
+    STEP,    // (x, y): (x >= y) ? 1 : 0
 
-    ABS,
-    MIN,
-    MAX,
+    ABS,// (vecN)
+    MIN,// (vecN)
+    MAX,// (vecN)
 
-    CLZ,
-    CTZ,
-    POPCOUNT,
-    REVERSE,
+    CLZ,     // (int/uint)
+    CTZ,     // (int/uint)
+    POPCOUNT,// (int/uint)
+    REVERSE, // (int/uint)
 
-    ISINF,
-    ISNAN,
+    ISINF,// (floatN)
+    ISNAN,// (floatN)
 
-    ACOS,
-    ACOSH,
-    ASIN,
-    ASINH,
-    ATAN,
-    ATAN2,
-    ATANH,
+    ACOS, // (float)
+    ACOSH,// (float)
+    ASIN, // (float)
+    ASINH,// (float)
+    ATAN, // (float)
+    ATAN2,// (float)
+    ATANH,// (float)
 
-    COS,
-    COSH,
-    SIN,
-    SINH,
-    TAN,
-    TANH,
+    COS, // (float)
+    COSH,// (float)
+    SIN, // (float)
+    SINH,// (float)
+    TAN, // (float)
+    TANH,// (float)
 
-    EXP,
-    EXP2,
-    EXP10,
-    LOG,
-    LOG2,
-    LOG10,
-    POW,
+    EXP,  // (floatN)
+    EXP2, // (floatN)
+    EXP10,// (floatN)
+    LOG,  // (floatN)
+    LOG2, // (floatN)
+    LOG10,// (floatN)
+    POW,  // (floatN)
 
-    SQRT,
-    RSQRT,
+    SQRT, // (floatN)
+    RSQRT,// (floatN)
 
-    CEIL,
-    FLOOR,
-    FRACT,
-    TRUNC,
-    ROUND,
+    CEIL, // (floatN)
+    FLOOR,// (floatN)
+    FRACT,// (floatN)
+    TRUNC,// (floatN)
+    ROUND,// (floatN)
 
-    FMA,
-    COPYSIGN,
+    FMA,     // (a, b): return a * b + c
+    COPYSIGN,// (float, float)
 
-    CROSS,
-    DOT,
-    LENGTH,
-    LENGTH_SQUARED,
-    NORMALIZE,
-    FACEFORWARD,
-    REFLECT,
+    CROSS,         // (floatN, floatN)
+    DOT,           // (floatN, floatN)
+    LENGTH,        // (floatN)
+    LENGTH_SQUARED,// (floatN)
+    NORMALIZE,     // (floatN)
+    FACEFORWARD,   // (floatN, floatN, floatN)
+    REFLECT,       // (floatN, floatN)
 
-    DETERMINANT,
-    TRANSPOSE,
-    INVERSE,
+    DETERMINANT,// (floatNxN)
+    TRANSPOSE,  // (floatNxN)
+    INVERSE,    // (floatNxN)
 
-    SYNCHRONIZE_BLOCK,
+    SYNCHRONIZE_BLOCK,// ()
 
     ATOMIC_EXCHANGE,        /// [(atomic_ref, desired) -> old]: stores desired, returns old.
     ATOMIC_COMPARE_EXCHANGE,/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
@@ -169,72 +169,69 @@ enum struct CallOp : uint32_t {
     TEXTURE_READ, /// [(texture, coord) -> value]
     TEXTURE_WRITE,/// [(texture, coord, value) -> void]
 
-    BINDLESS_TEXTURE2D_SAMPLE,      //(bindless_array, index: uint, uv: float2): float4
-    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float2, level: float): float4
-    BINDLESS_TEXTURE2D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
-    BINDLESS_TEXTURE3D_SAMPLE,      //(bindless_array, index: uint, uv: float3): float4
-    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,//(bindless_array, index: uint, uv: float3, level: float): float4
-    BINDLESS_TEXTURE3D_SAMPLE_GRAD, //(bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
-    BINDLESS_TEXTURE2D_READ,        //(bindless_array, index: uint, coord: uint2): float4
-    BINDLESS_TEXTURE3D_READ,        //(bindless_array, index: uint, coord: uint3): float4
-    BINDLESS_TEXTURE2D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint2, level: uint): float4
-    BINDLESS_TEXTURE3D_READ_LEVEL,  //(bindless_array, index: uint, coord: uint3, level: uint): float4
-    BINDLESS_TEXTURE2D_SIZE,        //(bindless_array, index: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE,        //(bindless_array, index: uint): uint3
-    BINDLESS_TEXTURE2D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint2
-    BINDLESS_TEXTURE3D_SIZE_LEVEL,  //(bindless_array, index: uint, level: uint): uint3
+    BINDLESS_TEXTURE2D_SAMPLE,      // (bindless_array, index: uint, uv: float2): float4
+    BINDLESS_TEXTURE2D_SAMPLE_LEVEL,// (bindless_array, index: uint, uv: float2, level: float): float4
+    BINDLESS_TEXTURE2D_SAMPLE_GRAD, // (bindless_array, index: uint, uv: float2, ddx: float2, ddy: float2): float4
+    BINDLESS_TEXTURE3D_SAMPLE,      // (bindless_array, index: uint, uv: float3): float4
+    BINDLESS_TEXTURE3D_SAMPLE_LEVEL,// (bindless_array, index: uint, uv: float3, level: float): float4
+    BINDLESS_TEXTURE3D_SAMPLE_GRAD, // (bindless_array, index: uint, uv: float3, ddx: float3, ddy: float3): float4
+    BINDLESS_TEXTURE2D_READ,        // (bindless_array, index: uint, coord: uint2): float4
+    BINDLESS_TEXTURE3D_READ,        // (bindless_array, index: uint, coord: uint3): float4
+    BINDLESS_TEXTURE2D_READ_LEVEL,  // (bindless_array, index: uint, coord: uint2, level: uint): float4
+    BINDLESS_TEXTURE3D_READ_LEVEL,  // (bindless_array, index: uint, coord: uint3, level: uint): float4
+    BINDLESS_TEXTURE2D_SIZE,        // (bindless_array, index: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE,        // (bindless_array, index: uint): uint3
+    BINDLESS_TEXTURE2D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint2
+    BINDLESS_TEXTURE3D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ,//(bindless_array, index: uint): expr->type()
+    BINDLESS_BUFFER_READ,// (bindless_array, index: uint): expr->type()
 
-    MAKE_BOOL2,
-    MAKE_BOOL3,
-    MAKE_BOOL4,
-    MAKE_INT2,
-    MAKE_INT3,
-    MAKE_INT4,
-    MAKE_UINT2,
-    MAKE_UINT3,
-    MAKE_UINT4,
-    MAKE_FLOAT2,
-    MAKE_FLOAT3,
-    MAKE_FLOAT4,
+    MAKE_BOOL2, // (bool, bool2)
+    MAKE_BOOL3, // (bool, bool3)
+    MAKE_BOOL4, // (bool, bool4)
+    MAKE_INT2,  // (scalar, vec2)
+    MAKE_INT3,  // (scalar, vec3)
+    MAKE_INT4,  // (scalar, vec4)
+    MAKE_UINT2, // (scalar, vec2)
+    MAKE_UINT3, // (scalar, vec3)
+    MAKE_UINT4, // (scalar, vec4)
+    MAKE_FLOAT2,// (scalar, vec2)
+    MAKE_FLOAT3,// (scalar, vec3)
+    MAKE_FLOAT4,// (scalar, vec4)
 
-    MAKE_FLOAT2X2,
-    MAKE_FLOAT3X3,
-    MAKE_FLOAT4X4,
+    MAKE_FLOAT2X2,// (float2x2) / (float3x3) / (float4x4)
+    MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)
+    MAKE_FLOAT4X4,// (float2x2) / (float3x3) / (float4x4)
 
     // optimization hints
-    ASSUME,
-    UNREACHABLE,
+    ASSUME,     // ()
+    UNREACHABLE,// ()
 
     // ray tracing
     // FIXME: should rayquery support get_aabb?
-    RAY_TRACING_INSTANCE_AABB,
-    RAY_TRACING_INSTANCE_TRANSFORM,
-    RAY_TRACING_SET_INSTANCE_AABB,
-    RAY_TRACING_SET_INSTANCE_TRANSFORM,
-    RAY_TRACING_SET_INSTANCE_VISIBILITY,
-    RAY_TRACING_SET_INSTANCE_OPACITY,
-    RAY_TRACING_TRACE_CLOSEST,
-    RAY_TRACING_TRACE_ANY,
-    RAY_TRACING_TRACE_ALL,
+    RAY_TRACING_INSTANCE_TRANSFORM,     // (Accel, uint)
+    RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
+    RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
+    RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
+    RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, uint): Hit
+    RAY_TRACING_TRACE_ANY,              // (Accel, ray, uint): bool
+    RAY_TRACING_TRACE_ALL,              // (Accel, ray, uint): RayQuery
 
     // ray query
-    RAY_QUERY_PROCEED, //Proceed(query): bool return: is bvh completed?
-    RAY_QUERY_IS_CANDIDATE_TRIANGLE,
-    RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,
-    RAY_QUERY_TRIANGLE_CANDIDATE_HIT,
-    RAY_QUERY_COMMITTED_HIT,
-    RAY_QUERY_COMMIT_TRIANGLE,
-    RAY_QUERY_COMMIT_PROCEDURAL,
-
+    RAY_QUERY_PROCEED,                 //Proceed(RayQuery): bool return: is bvh completed?
+    RAY_QUERY_IS_CANDIDATE_TRIANGLE,   // (RayQuery): bool
+    RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): Hit
+    RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): Hit
+    RAY_QUERY_COMMITTED_HIT,           // (RayQuery): Hit
+    RAY_QUERY_COMMIT_TRIANGLE,         // (RayQuery): void
+    RAY_QUERY_COMMIT_PROCEDURAL,       // (RayQuery): void
 
     // rasterization
-    RASTER_DISCARD,
+    RASTER_DISCARD,// (): void
 
     // indirect
-    INDIRECT_CLEAR_DISPATCH_BUFFER,
-    INDIRECT_EMPLACE_DISPATCH_KERNEL,
+    INDIRECT_CLEAR_DISPATCH_BUFFER,  // (Buffer): void
+    INDIRECT_EMPLACE_DISPATCH_KERNEL,// (Buffer, uint3 block_size, uint3 dispatch_size, uint kernel_id)
 
 };
 

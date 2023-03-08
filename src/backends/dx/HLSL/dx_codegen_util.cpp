@@ -925,9 +925,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             args[1]->accept(vis);
             str << ')';
             return;
-        case CallOp::RAY_TRACING_SET_INSTANCE_AABB:
-            str << "SetAABB"sv;
-            break;
         default: {
             LUISA_ERROR("Function Not Implemented");
         } break;
