@@ -1,3 +1,4 @@
+set_xmakever("2.7.3")
 add_rules("mode.release", "mode.debug")
 -- pre-defined options
 option("enable_mimalloc")
