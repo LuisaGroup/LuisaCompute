@@ -23,9 +23,6 @@ index_buffer.copy_from(indices)
 
 accel = Accel()
 
-accel.add(vertex_buffer, index_buffer)
-accel.update()
-
 
 @func
 def halton(i, b):
@@ -89,10 +86,12 @@ while gui.running():
     vertices = [
         float3(-0.5, -0.5, -2.0),
         float3(0.5, -0.5, -1.5),
-        float3(0.0, math.sin(time_second) * 0.2 + 0.5, -1.0),
+        float3(0.0, math.sin(time_second * 2.0) * 0.2 + 0.5, -1.0),
     ]
     vertex_buffer.copy_from(vertices)
+    # tell acceleration structure this mesh has been updated
     accel.add(vertex_buffer, index_buffer)
+    # update top-level accel
     accel.update()
 
     raytracing_kernel(image, accel, dispatch_size=(*res, 1))

@@ -9,6 +9,8 @@ LuisaCompute is also the *rendering framework* described in the **SIGGRAPH Asia 
 
 See also [LuisaRender](https://github.com/LuisaGroup/LuisaRender) for the *rendering application* as described in the paper; and please visit the [project page](https://luisa-render.com) for other information about the paper and the project.
 
+Welcome to join the [discussion channel on Discord](https://discord.com/invite/ymYEBkUa7F)!
+
 ## Table of Contents
 
 - [LuisaCompute](#luisacompute)

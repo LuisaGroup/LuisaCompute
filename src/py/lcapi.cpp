@@ -779,6 +779,7 @@ PYBIND11_MODULE(lcapi, m) {
         .value("BC7", PixelStorage::BC7);
 
     m.def("pixel_storage_channel_count", pixel_storage_channel_count);
+    m.def("pixel_storage_to_format_uint", pixel_storage_to_format<uint>);
     m.def("pixel_storage_to_format_int", pixel_storage_to_format<int>);
     m.def("pixel_storage_to_format_float", pixel_storage_to_format<float>);
     m.def("pixel_storage_size", [](PixelStorage storage, uint32_t w, uint32_t h, uint32_t d) { return pixel_storage_size(storage, make_uint3(w, h, d)); });

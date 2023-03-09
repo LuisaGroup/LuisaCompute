@@ -19,9 +19,10 @@ def get_negative_number():
 
 
 array = np.zeros([32 * 8], dtype=np.float32)
+buffer.copy_from(array)
+# write array after "copy_from" command is fine here, all commands is scheduled in queue before call execute()
 for i in range(len(array)):
     array[i] = i
-buffer.copy_from(array)
 get_negative_number(dispatch_size=(32, 1, 1))
 # all commands start running when execute() is called
 execute()
