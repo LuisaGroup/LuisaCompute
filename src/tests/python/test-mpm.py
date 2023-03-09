@@ -78,8 +78,7 @@ def point_to_grid():
     w[1] = float3(0.75) - sqr(fx - float3(1.0))
     w[2] = float3(0.5) * sqr(fx - float3(0.5))
     stress = -4. * dt * E * p_vol * (J.read(p) - 1.) / sqr(dx)
-    affine = float3x3(stress, 0, 0, 0, stress, 0, 0,
-                      0, stress) + p_mass * C.read(p)
+    affine = make_float3x3_eye(stress) + p_mass * C.read(p)
     vp = v.read(p)
     for ii in range(27):
         offset = int3(ii % 3, (ii // 3) % 3, ii // 3 // 3)
