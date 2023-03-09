@@ -5,7 +5,7 @@ namespace vstd {
 template<typename T, size_t mSize>
 	requires(mSize > 0)
 class array {
-	std::aligned_storage_t<sizeof(T) * mSize, alignof(T)> storage;
+	eastl::aligned_storage_t<sizeof(T) * mSize, alignof(T)> storage;
 
 public:
 	static constexpr size_t size = mSize;

@@ -85,6 +85,7 @@ on_load(function(target)
 end)
 rule_end()
 _config_rules = {"basic_settings"}
+_disable_unity_build = not get_config("enable_unity_build")
 _configs = {
 	use_simd = UseSIMD
 	-- enable_mimalloc=true

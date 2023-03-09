@@ -41,7 +41,7 @@ public:
         requires((!std::is_same_v<std::remove_cvref_t<F>, SharedFunction>) && (std::is_invocable_r_v<Ret, F, Args &&...>))
     SharedFunction(F &&f) noexcept {
         struct SharedFunctionDerive : public SharedFunctionBase {
-            std::aligned_storage_t<sizeof(F), alignof(F)> storage;
+            eastl::aligned_storage_t<sizeof(F), alignof(F)> storage;
         };
         using Func = std::remove_cvref_t<F>;
         auto derive = new (luisa::detail::allocator_allocate(sizeof(SharedFunctionDerive), alignof(SharedFunctionDerive))) SharedFunctionDerive();

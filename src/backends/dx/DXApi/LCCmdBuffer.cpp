@@ -60,7 +60,7 @@ public:
     void EmplaceData(T const &data) {
         size_t sz = argBuffer->size();
         argBuffer->push_back_uninitialized(sz + sizeof(T));
-        using PlaceHolder = std::aligned_storage_t<sizeof(T), 1>;
+        using PlaceHolder = eastl::aligned_storage_t<sizeof(T), 1>;
         *reinterpret_cast<PlaceHolder *>(argBuffer->data() + sz) =
             *reinterpret_cast<PlaceHolder const *>(&data);
     }

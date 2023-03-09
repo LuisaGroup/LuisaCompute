@@ -7,9 +7,15 @@
 #include <core/clock.h>
 #include <core/platform.h>
 #include <core/logging.h>
+#include <core/stl/filesystem.h>
 
 #if defined(LUISA_PLATFORM_WINDOWS)
-
+#ifndef UNICODE
+#define UNICODE 1
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX 1
+#endif
 #include <windows.h>
 #include <dbghelp.h>
 
@@ -51,13 +57,23 @@ size_t pagesize() noexcept {
     }();
     return page_size;
 }
-
+namespace win_detail {
+template<typename PathChar>
+void set_dll_directory(PathChar const *path) {
+    if constexpr (sizeof(PathChar) == 1) {
+        SetDllDirectoryA(path);
+    } else {
+        SetDllDirectoryW(path);
+    }
+}
+}// namespace win_detail
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     bool has_parent_path = path.has_parent_path();
+    using PathType = std::filesystem::path::value_type;
     if (has_parent_path) {
-        SetDllDirectory(path.parent_path().c_str());
+        win_detail::set_dll_directory(path.parent_path().c_str());
     }
-    auto path_string = path.string();
+    auto path_string = luisa::to_string(path.filename());
     auto module = LoadLibraryA(path_string.c_str());
     if (module == nullptr) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
@@ -65,7 +81,7 @@ void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
             path_string, detail::win32_last_error_message());
     }
     if (has_parent_path) {
-        SetDllDirectory(nullptr);
+        win_detail::set_dll_directory<PathType>(nullptr);
     }
     return module;
 }
@@ -167,7 +183,7 @@ void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
         }
         LUISA_WARNING_WITH_LOCATION(
             "Failed to load dynamic module '{}', reason: {}.",
-            p.string(), dlerror());
+            luisa::to_string(p), dlerror());
     }
     return nullptr;
 }

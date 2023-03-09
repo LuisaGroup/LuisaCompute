@@ -422,10 +422,10 @@ public:
 }// namespace detail
 template<typename I, size_t sboSize = 48, size_t align = sizeof(size_t)>
 class SBO {
-    std::aligned_storage_t<sboSize, align> buffer;
+    eastl::aligned_storage_t<sboSize, align> buffer;
     I *ptr;
     //void(Src, Dest)
-    using InterfaceStorage = std::aligned_storage_t<sizeof(detail::SBOInterface), alignof(detail::SBOInterface)>;
+    using InterfaceStorage = eastl::aligned_storage_t<sizeof(detail::SBOInterface), alignof(detail::SBOInterface)>;
     InterfaceStorage storage;
     detail::SBOInterface const *GetInterface() const {
         return reinterpret_cast<detail::SBOInterface const *>(&storage);
@@ -833,7 +833,7 @@ private:
         }
     };
 
-    std::aligned_storage_t<(detail::max_size<sizeof(AA)...>()), (detail::max_size<alignof(AA)...>())> placeHolder;
+    eastl::aligned_storage_t<(detail::max_size<sizeof(AA)...>()), (detail::max_size<alignof(AA)...>())> placeHolder;
     size_t switcher = 0;
     void m_dispose() {
         if constexpr (detail::AnyMap<std::is_trivially_destructible, true>::template Run<AA...>()) {

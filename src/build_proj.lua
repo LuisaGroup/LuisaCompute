@@ -13,7 +13,7 @@ function _config_project(config)
 		end
 	end
 	local batch_size = config["batch_size"]
-	if type(batch_size) == "number" and batch_size > 1 then
+	if type(batch_size) == "number" and batch_size > 1 and (not _disable_unity_build) then
 		add_rules("c.unity_build", {
 			batchsize = batch_size
 		})

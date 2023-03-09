@@ -1,6 +1,7 @@
 #include <core/dynamic_module.h>
 #include <core/clock.h>
 #include <core/logging.h>
+#include <core/stl/filesystem.h>
 
 namespace luisa {
 
@@ -64,7 +65,7 @@ DynamicModule DynamicModule::load(std::string_view name) noexcept {
         if (auto handle = dynamic_module_load(p)) {
             LUISA_INFO(
                 "Loaded dynamic module '{}' in {} ms.",
-                p.string(), clock.toc());
+                to_string(p), clock.toc());
             return DynamicModule{handle};
         }
     }
@@ -84,7 +85,7 @@ DynamicModule DynamicModule::load(const std::filesystem::path &folder, std::stri
     if (auto handle = dynamic_module_load(p)) {
         LUISA_INFO(
             "Loaded dynamic module '{}' in {} ms.",
-            p.string(), clock.toc());
+            to_string(p), clock.toc());
         return DynamicModule{handle};
     }
     return DynamicModule{nullptr};
