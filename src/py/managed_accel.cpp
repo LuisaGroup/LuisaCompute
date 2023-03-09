@@ -53,11 +53,11 @@ uint64 ManagedAccel::set_mesh(size_t index, T const &mesh) noexcept {
         v.mesh = new_mesh;
         v.ref_count = 1;
         v.type = _mesh_ref_type;
-        data->require_update_mesh.try_emplace(new_mesh, temp);
     } else {
         new_mesh = v.mesh;
         v.ref_count++;
     }
+    data->require_update_mesh.try_emplace(new_mesh, temp);
     last_mesh = {new_mesh, md5};
     if constexpr (_mesh_ref_type == MeshRefType::Mesh) {
         uint64 handles[2] = {mesh.vertex_buffer, mesh.triangle_buffer};
