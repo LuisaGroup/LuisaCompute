@@ -7,8 +7,10 @@
 #include <ast/function.h>
 #include <ast/statement.h>
 #include <ast/expression.h>
-#include <compile/codegen.h>
-#include <compile/definition_analysis.h>
+
+namespace luisa {
+class StringScratch;
+}
 
 namespace luisa::compute::cuda {
 
@@ -16,9 +18,10 @@ namespace luisa::compute::cuda {
  * @brief CUDA code generator
  * 
  */
-class CUDACodegen final : public Codegen, private TypeVisitor, private ExprVisitor, private StmtVisitor {
+class CUDACodegen final : private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
+    StringScratch &_scratch;
     Function _function;
     luisa::vector<Function> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
@@ -61,19 +64,9 @@ private:
     void _emit_variable_declarations(Function f) noexcept;
 
 public:
-    /**
-     * @brief Construct a new CUDACodegen object
-     * 
-     * @param scratch scratch of generated code
-     */
-    explicit CUDACodegen(Codegen::Scratch &scratch) noexcept
-        : Codegen{scratch} {}
-    /**
-     * @brief Emit a function
-     * 
-     * @param f function
-     */
-    void emit(Function f) override;
+    explicit CUDACodegen(StringScratch &scratch) noexcept
+        : _scratch{scratch} {}
+    void emit(Function f);
 };
 
 }// namespace luisa::compute::cuda
