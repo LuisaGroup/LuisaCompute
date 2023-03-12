@@ -7,7 +7,7 @@
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
-#include <backends/cuda/cuda_codegen.h>
+//#include <backends/cuda/cuda_codegen.h>
 
 namespace luisa::compute::cuda {
 

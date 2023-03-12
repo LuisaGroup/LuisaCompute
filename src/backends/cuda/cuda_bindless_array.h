@@ -18,6 +18,7 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 class CUDAStream;
+class CUDACommandEncoder;
 
 /**
  * @brief Bindless array of CUDA
@@ -52,77 +53,10 @@ private:
     luisa::unordered_map<CUtexObject, uint64_t> _texture_resources;
 
 public:
-    /**
-     * @brief Construct a new CUDABindlessArray object
-     * 
-     * @param capacity capacity of bindless array
-     */
     explicit CUDABindlessArray(size_t capacity) noexcept;
     ~CUDABindlessArray() noexcept;
-    /**
-     * @brief Return SlotSOA handle
-     * 
-     * @return SlotSOA
-     */
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    /**
-     * @brief Emplace a buffer
-     * 
-     * @param index place to emplace
-     * @param buffer handle of buffer
-     * @param offset offset of buffer
-     */
-    void emplace_buffer(size_t index, uint64_t buffer, size_t offset) noexcept;
-    /**
-     * @brief Emplace a 2D texture
-     * 
-     * @param index place to emplace
-     * @param array address of 2D texture
-     * @param sampler sampler of texture
-     */
-    void emplace_tex2d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
-    /**
-     * @brief Emplace a 3D texture
-     * 
-     * @param index index to emplace
-     * @param array address of 3D texture
-     * @param sampler sampler of texture
-     */
-    void emplace_tex3d(size_t index, CUDAMipmapArray *array, Sampler sampler) noexcept;
-    /**
-     * @brief Remove buffer
-     * 
-     * @param index place to remove
-     */
-    void remove_buffer(size_t index) noexcept;
-    /**
-     * @brief Remove 2D texture
-     * 
-     * @param index place to remove
-     */
-    void remove_tex2d(size_t index) noexcept;
-    /**
-     * @brief Remove 3D texture
-     * 
-     * @param index place to remove
-     */
-    void remove_tex3d(size_t index) noexcept;
-    /**
-     * @brief If resource is used
-     * 
-     * @param handle handle of resource
-     * @return true 
-     * @return false 
-     */
-    [[nodiscard]] bool uses_resource(uint64_t handle) const noexcept;
-    /**
-     * @brief Upload bindless array to CUDA device
-     * 
-     * @param stream CUDAStream
-     */
-    void upload(CUDAStream *stream) noexcept;
-
-    void update(CUDAStream *stream, luisa::span<const BindlessArrayUpdateCommand::Modification> mods) noexcept;
+    void update(CUDACommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;
 };
 
 }// namespace luisa::compute::cuda

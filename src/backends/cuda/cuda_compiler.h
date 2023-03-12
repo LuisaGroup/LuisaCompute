@@ -7,7 +7,6 @@
 #include <nvrtc.h>
 #include <cuda.h>
 
-#include <core/lru_cache.h>
 #include <ast/function.h>
 #include <runtime/context.h>
 
@@ -18,16 +17,17 @@ namespace luisa::compute::cuda {
  * 
  */
 class CUDACompiler {
-
-public:
-    using Cache = LRUCache<uint64_t, luisa::string>;
-    static constexpr auto max_cache_item_count = 128u;
-
+//
+//public:
+//    using Cache = LRUCache<uint64_t, luisa::string>;
+//    static constexpr auto max_cache_item_count = 128u;
+//
+//private:
+//    luisa::unique_ptr<Cache> _cache;
+//
 private:
-    luisa::unique_ptr<Cache> _cache;
-
-private:
-    CUDACompiler() noexcept : _cache{Cache::create(max_cache_item_count)} {}
+//    CUDACompiler() noexcept : _cache{Cache::create(max_cache_item_count)} {}
+    CUDACompiler() noexcept = default;
 
 public:
     CUDACompiler(CUDACompiler &&) noexcept = delete;
@@ -50,7 +50,7 @@ public:
      */
     [[nodiscard]] luisa::string compile(const Context &ctx, Function function, uint32_t sm) noexcept;
 
-    [[nodiscard]] size_t type_size(const Type *type) const noexcept;
+    [[nodiscard]] static size_t type_size(const Type *type) noexcept;
 };
 
 }// namespace luisa::compute::cuda

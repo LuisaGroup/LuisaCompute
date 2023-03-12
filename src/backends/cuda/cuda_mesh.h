@@ -13,6 +13,7 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 class CUDAStream;
+class CUDACommandEncoder;
 
 /**
  * @brief Mesh of CUDA
@@ -36,36 +37,9 @@ private:
     [[nodiscard]] optix::BuildInput _make_build_input() const noexcept;
 
 public:
-    /**
-     * @brief Construct a new CUDAMesh object
-     * 
-     * @param v_buffer handle of vertex buffer
-     * @param v_offset offset of vertex buffer
-     * @param v_stride stride of vertex buffer
-     * @param v_count count of vertices
-     * @param t_buffer handle of triangle buffer
-     * @param t_offset offset of triangle buffer
-     * @param t_count count of triangles
-     * @param hint build hint
-     */
-    CUDAMesh(const AccelOption &option) noexcept;
-    /**
-     * @brief Destruct the CUDAMesh object
-     */
+    explicit CUDAMesh(const AccelOption &option) noexcept;
     ~CUDAMesh() noexcept;
-    /**
-     * @brief Build mesh on CUDA
-     * 
-     * @param device CUDADeivce
-     * @param stream CUDAStream
-     * @param command command to build the mesh
-     */
-    void build(CUDAStream *stream, const MeshBuildCommand *command) noexcept;
-    /**
-     * @brief Return Optix handle
-     * 
-     * @return OptixTraversableHandle
-     */
+    void build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
 };
 

@@ -17,6 +17,7 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 class CUDAStream;
+class CUDACommandEncoder;
 
 /**
  * @brief Shader on CUDA
@@ -52,7 +53,7 @@ struct CUDAShader {
      * @param stream 
      * @param command 
      */
-    virtual void launch(CUDAStream *stream, const ShaderDispatchCommand *command) const noexcept = 0;
+    virtual void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept = 0;
 };
 
 }

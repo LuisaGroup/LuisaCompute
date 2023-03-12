@@ -28,7 +28,7 @@ cmake --build build_release -j
 运行测试脚本：
 
 ```bash
-cd build_release/bin
+cd build_release/binxm
 python3 test.py
 ```
 

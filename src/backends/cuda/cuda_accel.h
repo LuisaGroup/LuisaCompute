@@ -18,6 +18,7 @@ class CUDAMesh;
 class CUDAHeap;
 class CUDADevice;
 class CUDAStream;
+class CUDACommandEncoder;
 
 /**
  * @brief Acceleration structure of CUDA
@@ -51,33 +52,10 @@ private:
     void _update(CUDADevice *device, CUDAStream *stream, CUstream cuda_stream) noexcept;
 
 public:
-    /**
-     * @brief Construct a new CUDAAccel object
-     * 
-     * @param hint build hint
-     */
     explicit CUDAAccel(const AccelOption &option) noexcept;
     ~CUDAAccel() noexcept;
-
-    /**
-     * @brief Build (or rebuild) the acceleration structure
-     *
-     * @param device pointer to the CUDA device
-     * @param stream pointer to the CUDA stream
-     * @param command command to build the acceleration structure
-     */
-    void build(CUDAStream *stream, const AccelBuildCommand *command) noexcept;
-    /**
-     * @brief Return OptixTraversableHandle
-     * 
-     * @return OptixTraversableHandle
-     */
+    void build(CUDACommandEncoder &encoder, AccelBuildCommand *command) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    /**
-     * @brief Return the handle of instance buffer
-     * 
-     * @return handle of instance buffer
-     */
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
 };
 

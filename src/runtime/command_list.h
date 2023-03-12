@@ -6,9 +6,9 @@
 
 #include <core/concepts.h>
 #include <core/stl/optional.h>
+#include <core/stl/functional.h>
 #include <runtime/rhi/command.h>
 #include <api/common.h>
-#include <core/stl/functional.h>
 
 namespace luisa::compute {
 

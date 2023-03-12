@@ -11,34 +11,50 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 class CUDAStream;
+class CUDACallbackContext;
 
 /**
  * @brief Command encoder of CUDA
  * 
  */
-class CUDACommandEncoder : public CommandVisitor {
+class CUDACommandEncoder : public MutableCommandVisitor {
 
 private:
     CUDAStream *_stream;
+    luisa::vector<CUDACallbackContext *> _callbacks;
 
 public:
-    explicit CUDACommandEncoder(CUDAStream *stream) noexcept: _stream{stream} {}
-    void visit(const BufferUploadCommand *command) noexcept override;
-    void visit(const BufferDownloadCommand *command) noexcept override;
-    void visit(const BufferCopyCommand *command) noexcept override;
-    void visit(const BufferToTextureCopyCommand *command) noexcept override;
-    void visit(const ShaderDispatchCommand *command) noexcept override;
-    void visit(const TextureUploadCommand *command) noexcept override;
-    void visit(const TextureDownloadCommand *command) noexcept override;
-    void visit(const TextureCopyCommand *command) noexcept override;
-    void visit(const TextureToBufferCopyCommand *command) noexcept override;
-    void visit(const AccelBuildCommand *command) noexcept override;
-    void visit(const MeshBuildCommand *command) noexcept override;
-    void visit(const BindlessArrayUpdateCommand *command) noexcept override;
-    void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override;
-    void visit(const CustomCommand *command) noexcept override;
-    void visit(const DrawRasterSceneCommand *command) noexcept override;
-    void visit(const ClearDepthCommand *command) noexcept override;
+    explicit CUDACommandEncoder(CUDAStream *stream) noexcept
+        : _stream{stream} {}
+
+    [[nodiscard]] auto stream() const noexcept { return _stream; }
+    void add_callback(CUDACallbackContext *cb) noexcept { _callbacks.emplace_back(cb); }
+
+    void visit(BufferUploadCommand *command) noexcept override;
+    void visit(BufferDownloadCommand *command) noexcept override;
+    void visit(BufferCopyCommand *command) noexcept override;
+    void visit(BufferToTextureCopyCommand *command) noexcept override;
+    void visit(ShaderDispatchCommand *command) noexcept override;
+    void visit(TextureUploadCommand *command) noexcept override;
+    void visit(TextureDownloadCommand *command) noexcept override;
+    void visit(TextureCopyCommand *command) noexcept override;
+    void visit(TextureToBufferCopyCommand *command) noexcept override;
+    void visit(AccelBuildCommand *command) noexcept override;
+    void visit(MeshBuildCommand *command) noexcept override;
+    void visit(BindlessArrayUpdateCommand *command) noexcept override;
+    void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
+    void visit(CustomCommand *command) noexcept override;
+    void visit(DrawRasterSceneCommand *command) noexcept override;
+    void visit(ClearDepthCommand *command) noexcept override;
+
+    void commit(CommandList::CallbackContainer &&user_callbacks) noexcept;
+
+    template<typename F>
+    void with_upload_buffer(size_t size, F &&f) noexcept {
+        auto upload_buffer = _stream->upload_pool()->allocate(size);
+        f(upload_buffer);
+        _callbacks.emplace_back(upload_buffer);
+    }
 };
 
 }// namespace luisa::compute::cuda

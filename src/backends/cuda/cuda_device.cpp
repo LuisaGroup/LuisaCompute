@@ -263,11 +263,8 @@ CUDADevice::~CUDADevice() noexcept {
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_count) noexcept {
-    LUISA_ASSERT(!element->is_custom(),
-                 "Buffer of custom type '{}' is not implemented in CUDA.",
-                 element->description());
     BufferCreationInfo info{};
-    info.element_stride = element->size();
+    info.element_stride = CUDACompiler::type_size(element);
     info.total_size_bytes = info.element_stride * elem_count;
     info.handle = with_handle([size = info.total_size_bytes] {
         auto buffer = 0ull;
@@ -357,9 +354,15 @@ void CUDADevice::synchronize_stream(uint64_t stream_handle) noexcept {
 }
 
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
-    with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle), &list] {
-        stream->dispatch(std::move(list));
-    });
+    if (!list.empty()) {
+        with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
+                     commands = list.steal_commands(),
+                     callbacks = list.steal_callbacks()]() mutable noexcept {
+            CUDACommandEncoder encoder{stream};
+            for (auto &cmd : commands) { cmd->accept(encoder); }
+            encoder.commit(std::move(callbacks));
+        });
+    }
 }
 
 SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle,
