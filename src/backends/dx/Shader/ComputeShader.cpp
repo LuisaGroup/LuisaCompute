@@ -1,6 +1,5 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
-#include <vstl/binary_reader.h>
 #include <HLSL/dx_codegen.h>
 #include <Shader/ShaderCompiler.h>
 #include <vstl/md5.h>

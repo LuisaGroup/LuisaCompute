@@ -4,13 +4,11 @@ namespace luisa::compute {
 #define LC_FSEEK _fseeki64_nolock
 #define LC_FTELL _ftelli64_nolock
 #define LC_FREAD _fread_nolock
-#define LC_FWRITE _fwrite_nolock
 #define LC_FCLOSE _fclose_nolock
 #else
 #define LC_FSEEK fseek
 #define LC_FTELL ftell
 #define LC_FREAD fread
-#define LC_FWRITE fwrite
 #define LC_FCLOSE fclose
 #endif
 BinaryReader::BinaryReader(luisa::string const &path) noexcept {
@@ -27,15 +25,15 @@ BinaryReader::BinaryReader(luisa::string const &path) noexcept {
 void BinaryReader::read(luisa::span<std::byte> dst) noexcept {
     if (!_valid) return;
     auto len = dst.size();
-    uint64_t targetEnd = _pos + len;
-    if (targetEnd > _length) {
-        targetEnd = _length;
-        len = targetEnd - _pos;
+    uint64_t target_end = _pos + len;
+    if (target_end > _length) {
+        target_end = _length;
+        len = target_end - _pos;
     }
-    auto lastPos = _pos;
-    _pos = targetEnd;
+    auto last_pos = _pos;
+    _pos = target_end;
     if (len == 0) return;
-    LC_FSEEK(_ifs, lastPos, SEEK_SET);
+    LC_FSEEK(_ifs, last_pos, SEEK_SET);
     LC_FREAD(dst.data(), len, 1, _ifs);
 }
 BinaryReader::~BinaryReader() noexcept {
@@ -52,6 +50,5 @@ BinaryReader::BinaryReader(BinaryReader &&rhs) noexcept
 #undef LC_FSEEK
 #undef LC_FTELL
 #undef LC_FREAD
-#undef LC_FWRITE
 #undef LC_FCLOSE
 }// namespace luisa

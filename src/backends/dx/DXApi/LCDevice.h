@@ -2,7 +2,6 @@
 #include <vstl/common.h>
 #include <runtime/device.h>
 #include <DXRuntime/Device.h>
-#include <DXRuntime/ShaderPaths.h>
 using namespace luisa;
 using namespace luisa::compute;
 namespace toolhub::directx {
@@ -26,7 +25,6 @@ class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
     };
 
 public:
-    ShaderPaths shaderPaths;
     Device nativeDevice;
     std::mutex extMtx;
     vstd::unordered_map<vstd::string, Ext> exts;

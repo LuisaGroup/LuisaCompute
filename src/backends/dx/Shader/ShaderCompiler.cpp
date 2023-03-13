@@ -1,9 +1,6 @@
 #include <Shader/ShaderCompiler.h>
 #include <core/dynamic_module.h>
 #include <vstl/string_utility.h>
-#ifndef NDEBUG
-#include <vstl/binary_reader.h>
-#endif
 #include <core/logging.h>
 namespace toolhub::directx {
 DXByteBlob::DXByteBlob(

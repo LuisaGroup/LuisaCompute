@@ -1,6 +1,5 @@
 #pragma once
 #include <Shader/ComputeShader.h>
-#include <DXRuntime/ShaderPaths.h>
 namespace toolhub::directx {
 class BuiltinKernel {
 public:

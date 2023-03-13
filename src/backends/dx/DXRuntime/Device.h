@@ -5,10 +5,11 @@
 #include <vstl/md5.h>
 #include <dxgi1_4.h>
 #include <core/binary_io.h>
-#include <vstl/binary_reader.h>
+#include <core/binary_reader.h>
 #include <runtime/device.h>
 #include <DxRuntime/DxPtr.h>
 #include <ext_settings.h>
+#include <backends/common/default_binary_io.h>
 namespace luisa::compute {
 class BinaryIO;
 class Context;
@@ -16,41 +17,15 @@ class Context;
 class ElementAllocator;
 using Microsoft::WRL::ComPtr;
 namespace toolhub::directx {
-struct ShaderPaths;
 class GpuAllocator;
 class DescriptorHeap;
 class ComputeShader;
 class PipelineLibrary;
 class ShaderCompiler;
-class BinaryStream : public luisa::compute::IBinaryStream, public vstd::IOperatorNewBase {
-public:
-    BinaryReader reader;
-    BinaryStream(vstd::string const &path);
-    size_t length() const override;
-    size_t pos() const override;
-    void read(luisa::span<std::byte> dst) override;
-    ~BinaryStream();
-};
-struct SerializeVisitor : public luisa::compute::BinaryIO {
-    ShaderPaths const &path;
-    SerializeVisitor(
-        ShaderPaths const &path) noexcept;
-    luisa::unique_ptr<luisa::compute::IBinaryStream> Read(vstd::string const &filePath) noexcept;
-    void Write(vstd::string const &filePath, luisa::span<std::byte const> data) noexcept;
-    //	static vstd::string_view FileNameFilter(vstd::string_view path);
-    luisa::unique_ptr<luisa::compute::IBinaryStream> read_shader_bytecode(luisa::string_view name) noexcept override;
-    luisa::unique_ptr<luisa::compute::IBinaryStream> read_shader_cache(luisa::string_view name) noexcept override;
-    luisa::unique_ptr<luisa::compute::IBinaryStream> read_internal_shader(luisa::string_view name) noexcept override;
-    void write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
-    void write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
-    void write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
-};
 class Device {
 public:
     size_t maxAllocatorCount = 2;
-    ShaderPaths const &path;
     std::atomic<luisa::compute::BinaryIO *> fileIo = nullptr;
-    mutable SerializeVisitor serVisitor;
     struct LazyLoadShader {
     public:
         using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::compute::BinaryIO *)>;
@@ -65,6 +40,7 @@ public:
         bool Check(Device *self);
         ~LazyLoadShader();
     };
+    luisa::compute::DefaultBinaryIO serVisitor;
     bool SupportMeshShader() const;
     vstd::MD5 adapterID;
     DxPtr<IDXGIAdapter1> adapter;
@@ -92,7 +68,7 @@ public:
     vstd::unique_ptr<ComputeShader> bc7_1;
     vstd::unique_ptr<ComputeShader> bc7_2;
     vstd::unique_ptr<ComputeShader> bc7_3;*/
-    Device(luisa::compute::Context &ctx, ShaderPaths const &path, luisa::compute::DeviceConfig const *settings);
+    Device(luisa::compute::Context &ctx, luisa::compute::DeviceConfig const *settings);
     Device(Device const &) = delete;
     Device(Device &&) = delete;
     ~Device();

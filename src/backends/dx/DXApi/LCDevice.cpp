@@ -14,7 +14,6 @@
 #include <Shader/ShaderSerializer.h>
 #include <Resource/BottomAccel.h>
 #include <Resource/TopAccel.h>
-#include <vstl/binary_reader.h>
 #include <DXApi/LCSwapChain.h>
 #include "../ext.h"
 #include "HLSL/dx_codegen.h"
@@ -30,8 +29,7 @@ namespace toolhub::directx {
 static constexpr uint kShaderModel = 65u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
-      shaderPaths{_ctx.paths().cache_directory(), _ctx.paths().data_directory() / "dx_builtin", _ctx.paths().runtime_directory()},
-      nativeDevice(_ctx, shaderPaths, settings) {
+      nativeDevice(_ctx, settings) {
     exts.try_emplace(
         "TexCompressExt"sv,
         [](LCDevice *device) -> DeviceExtension * {

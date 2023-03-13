@@ -1,5 +1,4 @@
 #include <DXRuntime/Device.h>
-#include <DXRuntime/ShaderPaths.h>
 #include <Resource/DescriptorHeap.h>
 #include <Resource/DefaultBuffer.h>
 #include <DXRuntime/GlobalSamplers.h>
@@ -8,7 +7,6 @@
 #include <dxgi1_3.h>
 #include <Shader/ShaderCompiler.h>
 #include <Shader/ComputeShader.h>
-#include <vstl/binary_reader.h>
 #include <core/logging.h>
 #include <runtime/context.h>
 #include <ext_settings.h>
@@ -17,55 +15,6 @@ namespace toolhub::directx {
 static std::mutex gDxcMutex;
 static vstd::optional<ShaderCompiler> gDxcCompiler;
 static int32 gDxcRefCount = 0;
-
-SerializeVisitor::SerializeVisitor(
-    ShaderPaths const &path) noexcept
-    : path(path) {
-    eastl::make_shared<int>(5);
-}
-luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::Read(vstd::string const &filePath) noexcept {
-    return luisa::make_unique<BinaryStream>(filePath);
-}
-void SerializeVisitor::Write(vstd::string const &filePath, luisa::span<std::byte const> data) noexcept {
-    auto f = fopen(filePath.c_str(), "wb");
-    if (f) {
-        VSTD_FWRITE(data.data(), data.size(), 1, f);
-        VSTD_FCLOSE(f);
-    }
-}
-luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_shader_bytecode(luisa::string_view name) noexcept {
-    std::filesystem::path localPath{name};
-    if (localPath.is_absolute()) {
-        return Read(luisa::to_string(name));
-    }
-    auto filePath = luisa::to_string(this->path.runtimeFolder / name);
-    return Read(filePath);
-}
-luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_internal_shader(luisa::string_view name) noexcept {
-    auto filePath = luisa::to_string(this->path.dataFolder / name);
-    return Read(filePath);
-}
-luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_shader_cache(luisa::string_view name) noexcept {
-    auto filePath = luisa::to_string(this->path.shaderCacheFolder / name);
-    return Read(filePath);
-}
-void SerializeVisitor::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
-    std::filesystem::path localPath{name};
-    if (localPath.is_absolute()) {
-        Write(luisa::to_string(name), data);
-        return;
-    }
-    auto filePath = luisa::to_string(this->path.runtimeFolder / name);
-    Write(filePath, data);
-}
-void SerializeVisitor::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
-    auto filePath = luisa::to_string(this->path.shaderCacheFolder / name);
-    Write(filePath, data);
-}
-void SerializeVisitor::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) noexcept {
-    auto filePath = luisa::to_string(this->path.dataFolder / name);
-    Write(filePath, data);
-}
 
 Device::LazyLoadShader::~LazyLoadShader() {}
 
@@ -108,17 +57,16 @@ bool Device::LazyLoadShader::Check(Device *self) {
 ShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
-Device::Device(Context &ctx, ShaderPaths const &path, DeviceConfig const *settings)
-    : path(path),
-      serVisitor(path),
-      setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
+Device::Device(Context &ctx, DeviceConfig const *settings)
+    : setAccelKernel(BuiltinKernel::LoadAccelSetKernel),
       bc6TryModeG10(BuiltinKernel::LoadBC6TryModeG10CSKernel),
       bc6TryModeLE10(BuiltinKernel::LoadBC6TryModeLE10CSKernel),
       bc6EncodeBlock(BuiltinKernel::LoadBC6EncodeBlockCSKernel),
       bc7TryMode456(BuiltinKernel::LoadBC7TryMode456CSKernel),
       bc7TryMode137(BuiltinKernel::LoadBC7TryMode137CSKernel),
       bc7TryMode02(BuiltinKernel::LoadBC7TryMode02CSKernel),
-      bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel) {
+      bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel),
+      serVisitor(ctx, "dx"sv) {
     using Microsoft::WRL::ComPtr;
     fileIo = &serVisitor;
     size_t index = 0;
@@ -224,17 +172,4 @@ bool Device::SupportMeshShader() const {
     device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &featureData, sizeof(featureData));
     return (featureData.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1);
 }
-
-BinaryStream::BinaryStream(vstd::string const &path)
-    : reader(path) {}
-size_t BinaryStream::length() const {
-    return reader.GetLength();
-}
-size_t BinaryStream::pos() const {
-    return reader.GetPos();
-}
-void BinaryStream::read(vstd::span<std::byte> dst) {
-    reader.Read(dst.data(), dst.size_bytes());
-}
-BinaryStream::~BinaryStream() {}
 }// namespace toolhub::directx
