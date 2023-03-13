@@ -4,7 +4,7 @@
 #include <ast/function.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
-#include <vstl/string_builder.h>
+#include <HLSL/string_builder.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class StructureType : public vstd::IOperatorNewBase {

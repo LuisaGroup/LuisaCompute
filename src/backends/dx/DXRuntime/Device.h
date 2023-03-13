@@ -1,6 +1,5 @@
 #pragma once
 #include <d3dx12.h>
-#include <vstl/pool_allocator.h>
 #include <Resource/BufferView.h>
 #include <vstl/v_guid.h>
 #include <vstl/md5.h>

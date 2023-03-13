@@ -5,7 +5,8 @@
 #include <string_view>
 
 #include <core/logging.h>
-#include <core/string_scratch.h>
+#include <backends/common/string_scratch.h>
+#include <backends/common/string_scratch_impl.cpp>
 
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>

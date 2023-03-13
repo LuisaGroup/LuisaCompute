@@ -6,7 +6,7 @@
 
 #include <core/stl/format.h>
 #include <core/logging.h>
-#include <core/string_scratch.h>
+#include <backends/common/string_scratch.h>
 
 namespace luisa {
 

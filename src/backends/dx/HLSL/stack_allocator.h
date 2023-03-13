@@ -6,7 +6,7 @@ public:
     virtual uint64 Allocate(uint64 size) = 0;
     virtual void DeAllocate(uint64 handle) = 0;
 };
-class LC_VSTL_API StackAllocator {
+class StackAllocator {
     StackAllocatorVisitor *visitor;
     uint64 capacity;
     uint64 initCapacity;
@@ -50,12 +50,12 @@ public:
         return ptr;
     }
 };
-class LC_VSTL_API DefaultMallocVisitor : public StackAllocatorVisitor {
+class DefaultMallocVisitor : public StackAllocatorVisitor {
 public:
     uint64 Allocate(uint64 size) override;
     void DeAllocate(uint64 handle) override;
 };
-class LC_VSTL_API VEngineMallocVisitor : public StackAllocatorVisitor {
+class VEngineMallocVisitor : public StackAllocatorVisitor {
 public:
     uint64 Allocate(uint64 size) override;
     void DeAllocate(uint64 handle) override;
