@@ -8,10 +8,10 @@ namespace luisa::compute {
 class IBinaryStream {
 
 public:
-    [[nodiscard]] virtual size_t length() const = 0;
-    [[nodiscard]] virtual size_t pos() const = 0;
-    virtual void read(luisa::span<std::byte> dst) = 0;
-    virtual ~IBinaryStream() = default;
+    [[nodiscard]] virtual size_t length() const noexcept = 0;
+    [[nodiscard]] virtual size_t pos() const  noexcept = 0;
+    virtual void read(luisa::span<std::byte> dst)  noexcept = 0;
+    virtual ~IBinaryStream()  noexcept = default;
 };
 
 class BinaryIO {
