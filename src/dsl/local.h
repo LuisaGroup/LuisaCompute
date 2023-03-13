@@ -19,20 +19,23 @@ private:
 public:
     explicit Local(size_t n) noexcept
         : _expression{detail::FunctionBuilder::current()->local(
-              Type::from(luisa::format("array<{},{}>", Type::of<T>()->description(), n)))},
+              Type::from(luisa::format(
+                  "array<{},{}>", Type::of<T>()->description(), n)))},
           _size{n} {}
 
     template<typename U>
-        requires is_array_expr_v<U> Local(U &&array)
-    noexcept
+        requires is_array_expr_v<U>
+    Local(U &&array) noexcept
         : _expression{detail::extract_expression(def(std::forward<U>(array)))},
           _size{array_expr_dimension_v<U>} {}
 
     Local(Local &&) noexcept = default;
     Local(const Local &another) noexcept
-        : _expression{another._expression}, _size{another._size} {
-        detail::FunctionBuilder::current()->assign(
-            _expression, another._expression);
+        : _size{another._size} {
+        auto fb = detail::FunctionBuilder::current();
+        _expression = fb->local(Type::from(luisa::format(
+            "array<{},{}>", Type::of<T>()->description(), _size)));
+        fb->assign(_expression, another._expression);
     }
     Local &operator=(const Local &rhs) noexcept {
         if (&rhs != this) [[likely]] {
@@ -51,7 +54,8 @@ public:
     }
 
     template<typename U>
-    requires is_array_expr_v<U> Local &operator=(U &&rhs) noexcept {
+        requires is_array_expr_v<U>
+    Local &operator=(U &&rhs) noexcept {
         constexpr auto n = array_expr_dimension_v<U>;
         LUISA_ASSERT(_size == n, "Incompatible sizes ({} and {}).", _size, n);
         detail::FunctionBuilder::current()->assign(
