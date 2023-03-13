@@ -1,6 +1,9 @@
 #pragma once
+
 #include <core/binary_io.h>
+
 namespace luisa {
+
 class LC_CORE_API BinaryFileStream : public BinaryStream {
 
 private:
@@ -22,4 +25,5 @@ public:
     void read(luisa::span<std::byte> dst) noexcept override;
     void close() noexcept;
 };
+
 }// namespace luisa

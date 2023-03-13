@@ -27,7 +27,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         basic_traits.h
         basic_types.cpp basic_types.h
         binary_buffer.cpp binary_buffer.h
-        binary_io.cpp binary_io.h
+        binary_file_stream.cpp binary_file_stream.h
+        binary_io.h
         clock.h
         concepts.h
         constants.h
@@ -48,7 +49,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         swizzle_3.inl.h
         swizzle_4.inl.h
         thread_pool.cpp thread_pool.h
-        thread_safety.h binary_io.cpp)
+        thread_safety.h)
 
 find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_STL_SOURCES} ${LUISA_COMPUTE_CORE_SOURCES})

@@ -1,3 +1,5 @@
+add_subdirectory(common)
+
 add_library(luisa-compute-backends INTERFACE)
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "" "SOURCES" ${ARGN})
@@ -6,7 +8,8 @@ function(luisa_compute_add_backend name)
             luisa-compute-ast
             luisa-compute-runtime
             luisa-compute-gui
-            luisa-compute-vstl)
+            luisa-compute-vstl
+            luisa-compute-backend-common)
     if(LUISA_COMPUTE_ENABLE_DSL)
         target_link_libraries(lc-backend-${name} PRIVATE luisa-compute-dsl)
     endif()
