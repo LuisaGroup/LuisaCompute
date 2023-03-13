@@ -6,14 +6,14 @@
 #include "codegen_stack_data.h"
 #include <vstl/pdqsort.h>
 namespace toolhub::directx {
-vstd::StringBuilder CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::compute::BinaryIO *ctx) {
+vstd::StringBuilder CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO *ctx) {
     auto bin = ctx->read_internal_shader(name);
     vstd::StringBuilder str;
     str.resize(bin->length());
     bin->read({reinterpret_cast<std::byte *>(str.data()), str.size()});
     return str;
 }
-vstd::vector<char> CodegenUtility::ReadInternalHLSLFileByte(vstd::string_view name, luisa::compute::BinaryIO *ctx) {
+vstd::vector<char> CodegenUtility::ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO *ctx) {
     auto bin = ctx->read_internal_shader(name);
     vstd::vector<char> str;
     str.resize_uninitialized(bin->length());
@@ -24,11 +24,11 @@ namespace detail {
 static inline uint64 CalcAlign(uint64 value, uint64 align) {
     return (value + (align - 1)) & ~(align - 1);
 }
-static vstd::string_view HLSLHeader(luisa::compute::BinaryIO *internalDataPath) {
+static vstd::string_view HLSLHeader(luisa::BinaryIO *internalDataPath) {
     static auto header = CodegenUtility::ReadInternalHLSLFileByte("hlsl_header", internalDataPath);
     return {header.data(), header.size()};
 }
-static vstd::string_view RayTracingHeader(luisa::compute::BinaryIO *internalDataPath) {
+static vstd::string_view RayTracingHeader(luisa::BinaryIO *internalDataPath) {
     static auto header = CodegenUtility::ReadInternalHLSLFileByte("raytracing_header", internalDataPath);
     return {header.data(), header.size()};
 }
@@ -1574,7 +1574,7 @@ vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
     return {typeDescs.view()};
 }
 CodegenResult CodegenUtility::Codegen(
-    Function kernel, luisa::compute::BinaryIO *internalDataPath) {
+    Function kernel, luisa::BinaryIO *internalDataPath) {
     assert(kernel.tag() == Function::Tag::KERNEL);
     opt = CodegenStackData::Allocate();
     auto disposeOpt = vstd::scope_exit([&] {
@@ -1618,7 +1618,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     MeshFormat const &meshFormat,
     Function vertFunc,
     Function pixelFunc,
-    luisa::compute::BinaryIO *internalDataPath) {
+    luisa::BinaryIO *internalDataPath) {
     opt = CodegenStackData::Allocate();
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = vertFunc;

@@ -176,7 +176,7 @@ void Shader::SetRasterResource(
     assert(properties[propertyName].type == ShaderVariableType::ConstantValue);
     cmdList->SetGraphicsRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
-void Shader::SavePSO(vstd::string_view psoName, BinaryIO *fileStream, Device const *device) const {
+void Shader::SavePSO(vstd::string_view psoName, luisa::BinaryIO *fileStream, Device const *device) const {
     LUISA_INFO("Write Pipeline cache to {}.", psoName);
     ComPtr<ID3DBlob> psoCache;
     pso->GetCachedBlob(&psoCache);

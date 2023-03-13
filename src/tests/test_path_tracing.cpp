@@ -179,6 +179,7 @@ int main(int argc, char *argv[]) {
     Callable balanced_heuristic = [](Float pdf_a, Float pdf_b) noexcept {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
+
     static constexpr auto spp_per_dispatch = 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
@@ -266,7 +267,7 @@ int main(int argc, char *argv[]) {
                 beta *= 1.0f / q;
             };
         };
-        radiance /= (float)spp_per_dispatch;
+        radiance /= static_cast<float>(spp_per_dispatch);
         seed_image.write(coord, make_uint4(state));
         $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
@@ -316,7 +317,6 @@ int main(int argc, char *argv[]) {
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
     CommandList cmd_list;
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    Clock clock;
     cmd_list << clear_shader(accum_image).dispatch(resolution)
              << make_sampler_shader(seed_image).dispatch(resolution);
 
@@ -326,22 +326,28 @@ int main(int argc, char *argv[]) {
         stream,
         resolution,
         true, false, 2)};
-    double time = 0;
+    auto last_time = 0.0;
+    auto frame_count = 0u;
+    Clock clock;
+
     while (!window.should_close()) {
         cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
         cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution);
-        stream << cmd_list.commit() << swap_chain.present(ldr_image);
+        stream << cmd_list.commit()
+               << swap_chain.present(ldr_image);
         window.pool_event();
-        time = clock.toc();
-        clock.tic();
-        LUISA_INFO("time: {} ms", time);
+        auto dt = clock.toc() - last_time;
+        last_time = clock.toc();
+        frame_count += spp_per_dispatch;
+        LUISA_INFO("time: {} ms", dt);
     }
-
     stream
         << ldr_image.copy_to(host_image.data())
         << synchronize();
+
+    LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }

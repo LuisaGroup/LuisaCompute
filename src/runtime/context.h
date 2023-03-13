@@ -10,17 +10,17 @@
 
 namespace luisa {
 class DynamicModule;
+class BinaryIO;
 }
 
 namespace luisa::compute {
 
 class Device;
-class BinaryIO;
 class ContextPaths;
 
 class DeviceConfigExt {
 public:
-    virtual ~DeviceConfigExt() = default;
+    virtual ~DeviceConfigExt() noexcept = default;
 };
 
 struct DeviceConfig {

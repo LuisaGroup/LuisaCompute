@@ -2,7 +2,7 @@
 #include <core/stl/vector.h>
 #include <core/binary_io.h>
 namespace luisa::compute {
-class LC_CORE_API BinaryReader : public IBinaryStream {
+class LC_CORE_API BinaryReader : public BinaryStream {
 private:
     bool _valid = true;
     FILE *_ifs;

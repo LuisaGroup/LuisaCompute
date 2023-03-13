@@ -10,8 +10,11 @@
 #include <DxRuntime/DxPtr.h>
 #include <ext_settings.h>
 #include <backends/common/default_binary_io.h>
-namespace luisa::compute {
+
+namespace luisa {
 class BinaryIO;
+}
+namespace luisa::compute {
 class Context;
 }// namespace luisa::compute
 class ElementAllocator;
@@ -25,10 +28,10 @@ class ShaderCompiler;
 class Device {
 public:
     size_t maxAllocatorCount = 2;
-    std::atomic<luisa::compute::BinaryIO *> fileIo = nullptr;
+    std::atomic<luisa::BinaryIO *> fileIo = nullptr;
     struct LazyLoadShader {
     public:
-        using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::compute::BinaryIO *)>;
+        using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::BinaryIO *)>;
 
     private:
         vstd::unique_ptr<ComputeShader> shader;
