@@ -5,12 +5,10 @@
 #include <string_view>
 
 #include <core/logging.h>
-#include <backends/common/string_scratch.h>
-#include <backends/common/string_scratch_impl.cpp>
-
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
+#include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_codegen.h>
 
 namespace luisa::compute::cuda {
