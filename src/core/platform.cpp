@@ -4,7 +4,7 @@
 #if (!defined __clang__) && (!defined _MSC_VER) && (!defined __GNUC__) && (!defined __MINGW64__)
 static_assert(false, "unsupported compiler.");
 #endif
-static_assert(sizeof(void *) == 8 && sizeof(int) == 4, "legal environment test");
+static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1, "legal environment test");
 #include <sstream>
 
 #include <core/clock.h>

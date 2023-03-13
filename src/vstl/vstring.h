@@ -173,27 +173,27 @@ inline size_t wstrLen(wchar_t const *ptr) {
 template<>
 struct hash<vstd::wstring> {
     inline size_t operator()(const vstd::wstring &str) const noexcept {
-        return Hash::CharArrayHash((const char *)str.c_str(), str.size() * 2);
+        return Hash::CharArrayHash((const char *)str.c_str(), str.size()  * sizeof(wchar_t));
     }
 };
 template<>
 struct compare<vstd::wstring> {
     int32 operator()(const vstd::wstring &a, const vstd::wstring &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size() * 2);
+            return memcmp(a.data(), b.data(), a.size()  * sizeof(wchar_t));
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(const vstd::wstring &a, const std::wstring_view &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size() * 2);
+            return memcmp(a.data(), b.data(), a.size()  * sizeof(wchar_t));
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(const vstd::wstring &a, wchar_t const *ptr) const noexcept {
         size_t sz = wstrLen(ptr);
         if (a.size() == sz)
-            return memcmp(a.data(), ptr, a.size() * 2);
+            return memcmp(a.data(), ptr, a.size() * sizeof(wchar_t));
         else
             return (a.size() > sz) ? 1 : -1;
     }

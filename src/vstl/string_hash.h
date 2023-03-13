@@ -38,7 +38,7 @@ struct hash<wchar_t const *> {
     static size_t wstrlen(wchar_t const *ptr) {
         size_t i = 0;
         while (*ptr != 0) {
-            i += 2;
+            i += sizeof(wchar_t);
             ptr++;
         }
         return i;
@@ -58,7 +58,7 @@ struct hash<wchar_t *> {
 template<size_t i>
 struct hash<wchar_t[i]> {
     inline size_t operator()(wchar_t const *ptr) const noexcept {
-        return Hash::CharArrayHash(reinterpret_cast<char const *>(ptr), (i - 1) * 2);
+        return Hash::CharArrayHash(reinterpret_cast<char const *>(ptr), (i - 1) * sizeof(wchar_t));
     }
 };
 
