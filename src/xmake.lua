@@ -18,6 +18,7 @@ end
 if EnablePython then
 	includes("py")
 end
+includes("backends/common")
 if DxBackend then
 	includes("backends/dx")
 end

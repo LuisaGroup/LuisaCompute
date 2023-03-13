@@ -5,7 +5,6 @@
 #include <vstl/md5.h>
 #include <dxgi1_4.h>
 #include <core/binary_io.h>
-#include <core/binary_reader.h>
 #include <runtime/device.h>
 #include <DxRuntime/DxPtr.h>
 #include <ext_settings.h>
