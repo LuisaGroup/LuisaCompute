@@ -13,7 +13,8 @@ from lcapi import PixelStorage
 from .gui import GUI
 
 from .printer import Printer
-from .accel import Ray, Hit, Accel
+from .accel import Ray, Hit, Accel, make_ray, inf_ray, offset_ray_origin
+from .rayquery import RayQueryType
 from .bindless import bindless_array, BindlessArray
 from .util import RandomSampler
 from .meshformat import MeshFormat

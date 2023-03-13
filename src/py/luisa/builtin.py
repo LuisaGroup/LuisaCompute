@@ -186,8 +186,6 @@ builtin_func_names = {
     'select', 'clamp', 'saturate', 'step', 'lerp',
     'clz', 'ctz', 'popcount', 'reverse',
     'determinant', 'transpose', 'inverse', "faceforward", "reflect",
-    'array', 'struct',
-    'make_ray', 'inf_ray', 'offset_ray_origin',
     'print',
     'len'
 }
@@ -561,78 +559,11 @@ def builtin_func(name, *args, **kwargs):
         assert to_lctype(args[0].dtype).is_matrix()
         dtype = args[0].dtype
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-    if name == 'array': # create array from list
-        check_exact_signature([list], args, 'array')
-        # deduce array dtype & length
-        nodes = args[0].elts
-        size = len(nodes)
-        if size == 0:
-            raise TypeError("Can't create empty array")
-        dtype = nodes[0].dtype
-        for x in nodes:
-            if x.dtype != dtype:
-                raise TypeError("all elements of array must be of same type")
-        arrtype = ArrayType(dtype=dtype, size=size)
-        # create & fill array
-        arrexpr = lcapi.builder().local(to_lctype(arrtype))
-        for idx in range(size):
-            sliceexpr = lcapi.builder().literal(to_lctype(int), idx)
-            lhs = lcapi.builder().access(to_lctype(dtype), arrexpr, sliceexpr)
-            lcapi.builder().assign(lhs, nodes[idx].expr)
-        return arrtype, arrexpr
-
-    if name == 'struct': # create struct from kwargs
-        # get alignment
-        alignment = 1
-        if len(args) > 0:
-            if len(args) > 1 or args[0].dtype != int:
-                raise TypeError("struct only takes an optional positional argument 'alignment' (int)")
-            if type(args[0]).__name__ != "Constant":
-                eval_value = lcapi.builder().try_eval_int(args[0].expr)
-                if eval_value.exist():
-                    alignment = eval_value.value()
-                else:
-                    raise TypeError("alignment must be compile-time constant (literal).")
-            else:
-                alignment = args[0].value
-        if 'alignment' in kwargs:
-            if type(kwargs['alignment']).__name__ != "Constant":
-                eval_value = lcapi.builder().try_eval_int(kwargs['alignment'].expr)
-                if eval_value.exist():
-                    alignment = eval_value.value()
-                else:
-                    raise TypeError("alignment must be compile-time constant (literal).")
-            else:
-                alignment = kwargs.pop('alignment').value
-        # deduce struct type
-        strtype = StructType(alignment=alignment, **{name:kwargs[name].dtype for name in kwargs})
-        # create & fill struct
-        strexpr = lcapi.builder().local(to_lctype(strtype))
-        for name in kwargs:
-            idx = strtype.idx_dict[name]
-            dtype = strtype.membertype[idx]
-            lhs = lcapi.builder().member(to_lctype(dtype), strexpr, idx)
-            lcapi.builder().assign(lhs, kwargs[name].expr)
-        return strtype, strexpr
-
     if name == 'len':
         assert len(args) == 1
         if type(args[0].dtype) is ArrayType or args[0].dtype in vector_and_matrix_dtypes:
             return int, lcapi.builder().literal(to_lctype(int), length_of(args[0].dtype))
         raise TypeError(f"{nameof(args[0].dtype)} object has no len()")
-
-    if name == 'make_ray':
-        from .accel import make_ray
-        return callable_call(make_ray, *args)
-
-    if name == 'inf_ray':
-        from .accel import inf_ray
-        return callable_call(inf_ray, *args)
-
-    if name == 'offset_ray_origin':
-        from .accel import offset_ray_origin
-        return callable_call(offset_ray_origin, *args)
 
     raise NameError(f'unrecognized function call {name}')
 

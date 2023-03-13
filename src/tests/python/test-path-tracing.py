@@ -1,7 +1,6 @@
 from luisa import *
 from luisa.builtin import *
 from luisa.types import *
-from luisa.accel import offset_ray_origin
 
 import time
 import cornell_box
