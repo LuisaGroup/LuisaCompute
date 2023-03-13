@@ -1,10 +1,14 @@
 #pragma once
+
 #include <runtime/image.h>
 #include <runtime/volume.h>
 #include <runtime/raster/depth_buffer.h>
 #include <runtime/buffer.h>
+
 namespace luisa::compute {
+
 class ResourceGenerator {
+
 public:
     template<typename T>
     [[nodiscard]] static Image<T> create_native_image(const ResourceCreationInfo &create_info, DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels) noexcept {
@@ -34,4 +38,5 @@ public:
         return {handle, storage, level, size};
     }
 };
+
 }// namespace luisa::compute

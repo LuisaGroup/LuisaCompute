@@ -238,7 +238,7 @@ namespace luisa::compute::cuda {
 //    });
 //}
 
-CUDADevice::CUDADevice(Context &&ctx, uint device_id) noexcept
+CUDADevice::CUDADevice(Context &&ctx, size_t device_id) noexcept
     : DeviceInterface{std::move(ctx)}, _handle{device_id} {
     with_handle([this] {
         LUISA_CHECK_CUDA(cuCtxResetPersistingL2Cache());
@@ -250,7 +250,7 @@ CUDADevice::CUDADevice(Context &&ctx, uint device_id) noexcept
             "update_instances"));
         // warm up memory allocator
         auto preallocated = 0ull;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&preallocated, 64_mb, nullptr));
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&preallocated, 64_m, nullptr));
         LUISA_CHECK_CUDA(cuMemFreeAsync(preallocated, nullptr));
     });
 }
@@ -510,7 +510,7 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
     return nullptr;
 }
 
-CUDADevice::Handle::Handle(uint index) noexcept {
+CUDADevice::Handle::Handle(size_t index) noexcept {
     // global init
     static std::once_flag flag;
     std::call_once(flag, [] {

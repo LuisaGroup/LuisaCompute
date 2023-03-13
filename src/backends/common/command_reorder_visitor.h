@@ -7,7 +7,9 @@
 #include <runtime/rhi/command.h>
 #include <runtime/buffer.h>
 #include <runtime/raster/raster_scene.h>
+
 namespace luisa::compute {
+
 template<typename T>
 /*
 struct ReorderFuncTable{
@@ -24,8 +26,10 @@ concept ReorderFuncTable =
         requires(std::is_same_v<size_t, decltype(t.aabb_stride())>);
         t.update_bindless(uint64_v, modification);
     };
+
 template<ReorderFuncTable FuncTable, bool supportConcurrentCopy>
 class CommandReorderVisitor : public CommandVisitor {
+
 public:
     enum class ResourceRW : uint8_t {
         Read,

@@ -59,7 +59,7 @@ public:
          * 
          * @param index index of CUDA device
          */
-        explicit Handle(uint index) noexcept;
+        explicit Handle(size_t index) noexcept;
         ~Handle() noexcept;
         Handle(Handle &&) noexcept = delete;
         Handle(const Handle &) noexcept = delete;
@@ -104,7 +104,7 @@ private:
     BinaryIO *_io{nullptr};
 
 public:
-    CUDADevice(Context &&ctx, uint device_id) noexcept;
+    CUDADevice(Context &&ctx, size_t device_id) noexcept;
     ~CUDADevice() noexcept override;
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
     template<typename F>

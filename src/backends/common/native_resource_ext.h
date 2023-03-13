@@ -1,12 +1,17 @@
 #pragma once
+
 #include <ast/type_registry.h>
 #include <runtime/rhi/device_interface.h>
 #include <backends/common/resource_generator.h>
+
 namespace luisa::compute {
+
 class NativeResourceExt : public DeviceExtension {
+
 protected:
     DeviceInterface *_device;
-    NativeResourceExt(DeviceInterface *device) noexcept : _device{device} {}
+    explicit NativeResourceExt(DeviceInterface *device) noexcept
+        : _device{device} {}
     ~NativeResourceExt() noexcept = default;
 
 public:
@@ -78,4 +83,5 @@ public:
             _device, storage, uint3{width, height, volume}, mip);
     }
 };
+
 }// namespace luisa::compute

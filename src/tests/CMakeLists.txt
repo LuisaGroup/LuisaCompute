@@ -4,12 +4,12 @@ function(luisa_compute_add_executable name)
     install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endfunction()
 
-
 luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)
 luisa_compute_add_executable(test_ast2ir_headless test_ast2ir_headless.cpp)
 luisa_compute_add_executable(test_ast2ir_ir2ast test_ast2ir_ir2ast.cpp)
 luisa_compute_add_executable(test_type test_type.cpp)
 luisa_compute_add_executable(test_ast test_ast.cpp)
+luisa_compute_add_executable(test_copy test_copy.cpp)
 luisa_compute_add_executable(test_dsl test_dsl.cpp)
 luisa_compute_add_executable(test_dsl_multithread test_dsl_multithread.cpp)
 luisa_compute_add_executable(test_dsl_sugar test_dsl_sugar.cpp)

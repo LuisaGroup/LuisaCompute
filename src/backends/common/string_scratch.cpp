@@ -1,6 +1,9 @@
-#include <backends/common/string_scratch.h>
 #include <array>
+
 #include <core/stl/format.h>
+#include <core/logging.h>
+#include <backends/common/string_scratch.h>
+
 namespace luisa::compute {
 
 namespace detail {
@@ -14,12 +17,15 @@ inline auto to_string(T x) noexcept {
             return fmt::format_to_n(s.data(), s.size(), FMT_STRING("{}"), x);
         }
     }();
-    assert(iter == s.data() + size && "No enough storage converting to string.");
+    LUISA_ASSERT(iter == s.data() + size,
+                 "No enough storage converting '{}' to string.", x);
     return std::string_view{s.data(), size};
 }
+
 }// namespace detail
+
 StringScratch::StringScratch(size_t reserved_size) noexcept { _buffer.reserve(reserved_size); }
-StringScratch::StringScratch() noexcept : StringScratch{4_kb} {}
+StringScratch::StringScratch() noexcept : StringScratch{4_k} {}
 StringScratch &StringScratch::operator<<(std::string_view s) noexcept { return _buffer.append(s), *this; }
 StringScratch &StringScratch::operator<<(const char *s) noexcept { return *this << std::string_view{s}; }
 StringScratch &StringScratch::operator<<(const std::string &s) noexcept { return *this << std::string_view{s}; }
@@ -35,4 +41,5 @@ size_t StringScratch::size() const noexcept { return _buffer.size(); }
 void StringScratch::pop_back() noexcept { _buffer.pop_back(); }
 void StringScratch::clear() noexcept { _buffer.clear(); }
 char StringScratch::back() const noexcept { return _buffer.back(); }
+
 }// namespace luisa::compute

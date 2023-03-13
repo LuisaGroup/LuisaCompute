@@ -19,7 +19,7 @@ private:
     void _write_bytes(const void *data, size_t size, size_t alignment) noexcept;
 
 public:
-    explicit BinaryBuffer(size_t capacity = 1_mb) noexcept
+    explicit BinaryBuffer(size_t capacity = 1_m) noexcept
         : _bytes{capacity} {}
     explicit BinaryBuffer(luisa::vector<std::byte> &&bytes) noexcept
         : _bytes{std::move(bytes)} {}

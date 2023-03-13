@@ -33,4 +33,5 @@ public:
     void clear() noexcept;
     [[nodiscard]] char back() const noexcept;
 };
+
 }// namespace luisa::compute

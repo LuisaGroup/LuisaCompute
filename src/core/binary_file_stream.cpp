@@ -15,8 +15,8 @@ namespace luisa {
 #define LUISA_FCLOSE _fclose_nolock
 #else
 #define LUISA_FOPEN fopen
-#define LUISA_FSEEK fseek
-#define LUISA_FTELL ftell
+#define LUISA_FSEEK fseeko
+#define LUISA_FTELL ftello
 #define LUISA_FREAD fread
 #define LUISA_FCLOSE fclose
 #endif

@@ -1,8 +1,12 @@
 #pragma once
+
 #include <core/binary_io.h>
 #include <core/stl/filesystem.h>
+
 namespace luisa::compute {
+
 class Context;
+
 class DefaultBinaryIO final : public BinaryIO {
     Context &_ctx;
     std::filesystem::path _data_path;
@@ -18,4 +22,5 @@ public:
     void write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
     void write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) noexcept override;
 };
+
 }// namespace luisa::compute
