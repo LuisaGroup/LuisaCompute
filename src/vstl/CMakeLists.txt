@@ -6,7 +6,6 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         common_iterator.h
         compare.h
         config.h
-        executor.h
         functional.h
         hash.h
         hash_map.h
@@ -17,15 +16,13 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         meta_lib.h
         pdqsort.h
         pool.h
-        pool_allocator.cpp pool_allocator.h
         ranges.h
         serializer.h
         small_vector.h
         spin_mutex.h
-        stack_allocator.cpp stack_allocator.h
-        string_builder.cpp string_builder.h
         string_hash.h
         string_utility.cpp string_utility.h
+        thread_pool.cpp thread_pool.h
         tree_map_base.h
         tuple.h
         unique_ptr.h
