@@ -54,15 +54,36 @@ class Texture3D:
     @staticmethod
     def empty(width, height, channel, dtype, storage = None):
         return Texture3D(width, height, channel, dtype, 1, storage)
+    
+    def copy_to_tex(self, tex, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
+        assert self.storage == tex.storage and self.width == tex.width and self.volume == tex.volume and self.height == tex.height
+        cpcmd = lcapi.TextureCopyCommand.create(self.storage, self.handle, tex.handle, 0, 0, lcapi.uint3(self.width,self.height,self.volume))
+        stream.add(cpcmd)
+        if sync:
+            stream.synchronize()
+
+    def copy_from_tex(self, tex, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
+        assert self.storage == tex.storage and self.width == tex.width and self.volume == tex.volume and self.height == tex.height
+        cpcmd = lcapi.TextureCopyCommand.create(self.storage, tex.handle, self.handle, 0, 0, lcapi.uint3(self.width,self.height,self.volume))
+        stream.add(cpcmd)
+        if sync:
+            stream.synchronize()
 
     def copy_from(self, arr, sync = False, stream = None):
-        return self.copy_from_array(self, arr, sync, stream)
+        if type(arr).__name__ == "ndarray":
+            self.copy_from_array(arr, sync, stream)
+        else:
+            self.copy_from_tex(arr, sync, stream)
 
     def copy_from_array(self, arr, sync = False, stream = None): # arr: numpy array
         if stream is None:
             stream = globalvars.stream
         assert arr.size * arr.itemsize == self.bytesize
-        ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width,self.height,1), arr)
+        ulcmd = lcapi.TextureUploadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width,self.height,self.volume), arr)
         stream.add(ulcmd)
         if sync:
             stream.synchronize()
@@ -71,7 +92,7 @@ class Texture3D:
         if stream is None:
             stream = globalvars.stream
         assert arr.size * arr.itemsize == self.bytesize
-        dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width,self.height,1), arr)
+        dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0, lcapi.uint3(self.width,self.height,self.volume), arr)
         stream.add(dlcmd)
         # stream.add_readback_buffer(arr)
         if sync:

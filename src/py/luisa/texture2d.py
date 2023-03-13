@@ -103,9 +103,30 @@ class Texture2D:
             del(arr)
         else:
             raise "Illegal export image format!"
+        
+    def copy_to_tex(self, tex, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
+        assert self.storage == tex.storage and self.width == tex.width and self.height == tex.height
+        cpcmd = lcapi.TextureCopyCommand.create(self.storage, self.handle, tex.handle, 0, 0, lcapi.uint3(self.width,self.height,1))
+        stream.add(cpcmd)
+        if sync:
+            stream.synchronize()
+
+    def copy_from_tex(self, tex, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
+        assert self.storage == tex.storage and self.width == tex.width and self.height == tex.height
+        cpcmd = lcapi.TextureCopyCommand.create(self.storage, tex.handle, self.handle, 0, 0, lcapi.uint3(self.width,self.height,1))
+        stream.add(cpcmd)
+        if sync:
+            stream.synchronize()
 
     def copy_from(self, arr, sync = False, stream = None):
-        return self.copy_from_array(arr, sync, stream)
+        if type(arr).__name__ == "ndarray":
+            self.copy_from_array(arr, sync, stream)
+        else:
+            self.copy_from_tex(arr, sync, stream)
 
     def copy_from_array(self, arr, sync = False, stream = None): # arr: numpy array
         if stream is None:

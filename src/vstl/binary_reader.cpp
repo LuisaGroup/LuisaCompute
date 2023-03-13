@@ -1,17 +1,4 @@
 #include <vstl/binary_reader.h>
-#ifdef _WIN32
-#define VSTD_FSEEK _fseeki64_nolock
-#define VSTD_FTELL _ftelli64_nolock
-#define VSTD_FREAD _fread_nolock
-#define VSTD_FWRITE _fwrite_nolock
-#define VSTD_FCLOSE _fclose_nolock
-#else
-#define VSTD_FSEEK fseek
-#define VSTD_FTELL ftell
-#define VSTD_FREAD fread
-#define VSTD_FWRITE fwrite
-#define VSTD_FCLOSE fclose
-#endif
 BinaryReader::BinaryReader(vstd::string const &path) {
     currentPos = 0;
     ifs = fopen(path.c_str(), "rb");

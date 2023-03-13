@@ -80,7 +80,6 @@ class Buffer:
         stream.add_upload_buffer(packed_bytes)
         if sync:
             stream.synchronize()
-
     def copy_from_array(self, arr, sync=False, stream=None):  # arr: numpy array or list
         if stream is None:
             stream = globalvars.stream

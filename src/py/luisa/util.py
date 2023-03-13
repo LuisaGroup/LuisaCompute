@@ -78,3 +78,14 @@ def make_float4x4_eye(v: float):
                     0, v, 0, 0,
                     0, 0, v, 0,
                     0, 0, 0, v)
+
+
+@func
+def distance(a: float3, b: float3):
+    return length(a - b)
+
+
+@func
+def distance_squared(a: float3, b: float3):
+    dir = (a - b)
+    return dot(dir, dir)

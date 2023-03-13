@@ -27,11 +27,10 @@ luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::Read(vstd::st
     return luisa::make_unique<BinaryStream>(filePath);
 }
 void SerializeVisitor::Write(vstd::string const &filePath, luisa::span<std::byte const> data) noexcept {
-
     auto f = fopen(filePath.c_str(), "wb");
     if (f) {
-        fwrite(data.data(), data.size(), 1, f);
-        fclose(f);
+        VSTD_FWRITE(data.data(), data.size(), 1, f);
+        VSTD_FCLOSE(f);
     }
 }
 luisa::unique_ptr<luisa::compute::IBinaryStream> SerializeVisitor::read_shader_bytecode(luisa::string_view name) noexcept {

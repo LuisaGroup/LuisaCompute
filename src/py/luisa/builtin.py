@@ -467,11 +467,11 @@ def builtin_func(name, *args, **kwargs):
         return make_vector_call(float, lcapi.CallOp.LERP, args)
 
     if name in ('select'):
-        assert len(args) == 3
-        assert args[2].dtype in [bool, bool2, bool3, bool4]
-        assert implicit_covertable(args[0].dtype, args[1].dtype)
-        assert args[2].dtype == bool or args[0].dtype in scalar_dtypes or \
-            args[0].dtype in vector_dtypes and length_of(args[0].dtype) == length_of(args[2].dtype)
+        bool_vec_len = length_of(args[2].dtype)
+        assert len(args) == 3 and \
+            args[2].dtype in [bool, bool2, bool3, bool4] and \
+            args[0].dtype == args[1].dtype and\
+            (length_of(args[0].dtype) == bool_vec_len or bool_vec_len == 1)
         return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
 
     if name == 'print':

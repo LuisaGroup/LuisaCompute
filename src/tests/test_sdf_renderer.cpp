@@ -103,7 +103,6 @@ int main(int argc, char *argv[]) {
     };
 
     Callable ray_march = [&sdf](Float3 p, Float3 d) noexcept {
-        auto _ = tan(p);
         auto dist = def(0.0f);
         $for(j, 100) {
             auto s = sdf(p + dist * d);
