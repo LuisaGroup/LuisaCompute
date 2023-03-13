@@ -48,7 +48,8 @@ set(LUISA_COMPUTE_CORE_SOURCES
         swizzle_3.inl.h
         swizzle_4.inl.h
         thread_pool.cpp thread_pool.h
-        thread_safety.h)
+        thread_safety.h
+        string_scratch.cpp string_scratch.h)
 
 find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_STL_SOURCES} ${LUISA_COMPUTE_CORE_SOURCES})

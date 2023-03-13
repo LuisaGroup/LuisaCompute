@@ -4,12 +4,17 @@
 
 #include <string_view>
 
+#include <core/logging.h>
+#include <core/string_scratch.h>
+
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
-//#include <backends/cuda/cuda_codegen.h>
+#include <backends/cuda/cuda_codegen.h>
 
 namespace luisa::compute::cuda {
+
+// TODO: fix this
 
 void CUDACodegen::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
@@ -61,9 +66,9 @@ void CUDACodegen::visit(const MemberExpr *expr) {
             auto elem = expr->type()->element();
             switch (elem->tag()) {
                 case Type::Tag::BOOL: _scratch << "bool"; break;
-                case Type::Tag::INT: _scratch << "int"; break;
-                case Type::Tag::UINT: _scratch << "uint"; break;
-                case Type::Tag::FLOAT: _scratch << "float"; break;
+                case Type::Tag::INT32: _scratch << "int"; break;
+                case Type::Tag::UINT32: _scratch << "uint"; break;
+                case Type::Tag::FLOAT32: _scratch << "float"; break;
                 default: LUISA_ERROR_WITH_LOCATION(
                     "Invalid vector element type: {}.",
                     elem->description());
@@ -95,10 +100,10 @@ namespace detail {
 class LiteralPrinter {
 
 private:
-    Codegen::Scratch &_s;
+    StringScratch &_s;
 
 public:
-    explicit LiteralPrinter(Codegen::Scratch &s) noexcept : _s{s} {}
+    explicit LiteralPrinter(StringScratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
         if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
@@ -314,11 +319,11 @@ void CUDACodegen::visit(const CallExpr *expr) {
         case CallOp::MAKE_FLOAT4X4: _scratch << "lc_make_float4x4"; break;
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
-        case CallOp::INSTANCE_TO_WORLD_MATRIX: _scratch << "lc_accel_instance_transform"; break;
-        case CallOp::TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
-        case CallOp::TRACE_ANY: _scratch << "lc_trace_any"; break;
-        case CallOp::SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
-        case CallOp::SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
+        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_trace_any"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
     }
     auto args = expr->arguments();
     if (is_atomic) {
@@ -462,7 +467,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     }
 
     // ray tracing kernels use __constant__ args
-    if (f.tag() == Function::Tag::KERNEL && f.raytracing()) {
+    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
         _scratch << "struct alignas(16) Params {";
         for (auto arg : f.arguments()) {
             _scratch << "\n  alignas(16) ";
@@ -476,7 +481,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
         _scratch << "extern \"C\" __global__ void "
-                 << (f.raytracing() ? "__raygen__rg_" : "kernel_")
+                 << (f.requires_raytracing() ? "__raygen__rg_" : "kernel_")
                  << hash_to_string(f.hash());
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "inline __device__ ";
@@ -490,7 +495,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
         LUISA_ERROR_WITH_LOCATION("Invalid function type.");
     }
     _scratch << "(";
-    if (f.tag() == Function::Tag::KERNEL && f.raytracing()) {
+    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
         _scratch << ") {"
                  // block size
                  << "\n  constexpr auto bs = lc_make_uint3("
@@ -604,9 +609,9 @@ void CUDACodegen::_emit_type_name(const Type *type) noexcept {
 
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
-        case Type::Tag::FLOAT: _scratch << "lc_float"; break;
-        case Type::Tag::INT: _scratch << "lc_int"; break;
-        case Type::Tag::UINT: _scratch << "lc_uint"; break;
+        case Type::Tag::FLOAT32: _scratch << "lc_float"; break;
+        case Type::Tag::INT32: _scratch << "lc_int"; break;
+        case Type::Tag::UINT32: _scratch << "lc_uint"; break;
         case Type::Tag::VECTOR:
             _emit_type_name(type->element());
             _scratch << type->dimension();
