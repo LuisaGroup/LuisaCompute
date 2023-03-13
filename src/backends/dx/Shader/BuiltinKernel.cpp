@@ -3,7 +3,7 @@
 #include "HLSL/dx_codegen.h"
 #include <core/stl/filesystem.h>
 namespace toolhub::directx {
-ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO *ctx) {
     auto func = [&] {
         CodegenResult code;
         code.bdlsBufferCount = 0;
@@ -91,11 +91,11 @@ static ComputeShader *LoadBCKernel(
         fileName,
         true);
 }
-static vstd::string_view Bc6Header(luisa::compute::BinaryIO *ctx) {
+static vstd::string_view Bc6Header(luisa::BinaryIO *ctx) {
     static auto bc6Header = CodegenUtility::ReadInternalHLSLFileByte("bc6_header", ctx);
     return {bc6Header.data(), bc6Header.size()};
 }
-static vstd::string_view Bc7Header(luisa::compute::BinaryIO *ctx) {
+static vstd::string_view Bc7Header(luisa::BinaryIO *ctx) {
     static auto bc7Header = CodegenUtility::ReadInternalHLSLFileByte("bc7_header", ctx);
     return {bc7Header.data(), bc7Header.size()};
 }
@@ -103,49 +103,49 @@ static vstd::string_view Bc7Header(luisa::compute::BinaryIO *ctx) {
 static vstd::string bc7Header;
 }// namespace detail
 
-ComputeShader *BuiltinKernel::LoadBC6TryModeG10CSKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadBC6TryModeG10CSKernel(Device *device, luisa::BinaryIO *ctx) {
     return detail::LoadBCKernel(
         device,
         [&] { return detail::Bc6Header(ctx); },
         [&] { return CodegenUtility::ReadInternalHLSLFileByte("bc6_trymode_g10cs", ctx); },
         "bc6_trymodeg10"sv);
 }
-ComputeShader *BuiltinKernel::LoadBC6TryModeLE10CSKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadBC6TryModeLE10CSKernel(Device *device, luisa::BinaryIO *ctx) {
     return detail::LoadBCKernel(
         device,
         [&] { return detail::Bc6Header(ctx); },
         [&] { return CodegenUtility::ReadInternalHLSLFileByte("bc6_trymode_le10cs", ctx); },
         "bc6_trymodele10"sv);
 }
-ComputeShader *BuiltinKernel::LoadBC6EncodeBlockCSKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadBC6EncodeBlockCSKernel(Device *device, luisa::BinaryIO *ctx) {
     return detail::LoadBCKernel(
         device,
         [&] { return detail::Bc6Header(ctx); },
         [&] { return CodegenUtility::ReadInternalHLSLFileByte("bc6_encode_block", ctx); },
         "bc6_encodeblock"sv);
 }
-ComputeShader *BuiltinKernel::LoadBC7TryMode456CSKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadBC7TryMode456CSKernel(Device *device, luisa::BinaryIO *ctx) {
     return detail::LoadBCKernel(
         device,
         [&] { return detail::Bc7Header(ctx); },
         [&] { return CodegenUtility::ReadInternalHLSLFileByte("bc7_trymode_456cs", ctx); },
         "bc7_trymode456"sv);
 }
-ComputeShader *BuiltinKernel::LoadBC7TryMode137CSKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadBC7TryMode137CSKernel(Device *device, luisa::BinaryIO *ctx) {
     return detail::LoadBCKernel(
         device,
         [&] { return detail::Bc7Header(ctx); },
         [&] { return CodegenUtility::ReadInternalHLSLFileByte("bc7_trymode_137cs", ctx); },
         "bc7_trymode137"sv);
 }
-ComputeShader *BuiltinKernel::LoadBC7TryMode02CSKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadBC7TryMode02CSKernel(Device *device, luisa::BinaryIO *ctx) {
     return detail::LoadBCKernel(
         device,
         [&] { return detail::Bc7Header(ctx); },
         [&] { return CodegenUtility::ReadInternalHLSLFileByte("bc7_trymode_02cs", ctx); },
         "bc7_trymode02"sv);
 }
-ComputeShader *BuiltinKernel::LoadBC7EncodeBlockCSKernel(Device *device, luisa::compute::BinaryIO *ctx) {
+ComputeShader *BuiltinKernel::LoadBC7EncodeBlockCSKernel(Device *device, luisa::BinaryIO *ctx) {
     return detail::LoadBCKernel(
         device,
         [&] { return detail::Bc7Header(ctx); },

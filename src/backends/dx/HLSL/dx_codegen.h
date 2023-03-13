@@ -90,20 +90,20 @@ public:
         Function kernel,
         uint offset,
         vstd::array<uint, 3> &registerCount);
-    static CodegenResult Codegen(Function kernel, luisa::compute::BinaryIO *internalDataPath);
+    static CodegenResult Codegen(Function kernel, luisa::BinaryIO *internalDataPath);
     static CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
-        luisa::compute::BinaryIO *internalDataPath);
-    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::compute::BinaryIO *ctx);
-    static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::compute::BinaryIO *ctx);
+        luisa::BinaryIO *internalDataPath);
+    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO *ctx);
+    static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO *ctx);
     /*
 #ifdef USE_SPIRV
     static void GenerateBindlessSpirv(
         vstd::StringBuilder &str);
     static CodegenStackData *StackData();
-    static vstd::optional<vstd::StringBuilder> CodegenSpirv(Function kernel, luisa::compute::BinaryIO*internalDataPath);
+    static vstd::optional<vstd::StringBuilder> CodegenSpirv(Function kernel, luisa::BinaryIO*internalDataPath);
 #endif*/
     static vstd::StringBuilder GetNewTempVarName();
 };

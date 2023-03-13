@@ -44,7 +44,7 @@ public:
         luisa::string_view psoName,
         bool isInternal,
         Device *device,
-        BinaryIO &streamFunc,
+        luisa::BinaryIO &streamFunc,
         vstd::optional<vstd::MD5> const &checkMD5,
         vstd::MD5 &typeMD5,
         bool &clearCache);
@@ -53,7 +53,7 @@ public:
         luisa::string_view psoName,
         bool isInternal,
         Device *device,
-        BinaryIO &streamFunc,
+        luisa::BinaryIO &streamFunc,
         vstd::optional<vstd::MD5> const &ilMd5,
         vstd::MD5 &typeMD5,
         MeshFormat const &meshFormat,
@@ -64,7 +64,7 @@ public:
     static bool CheckMD5(
         vstd::string_view fileName,
         vstd::MD5 const &checkMD5,
-        BinaryIO &streamFunc);
+        luisa::BinaryIO &streamFunc);
     static vstd::vector<SavedArgument> SerializeKernel(Function kernel);
     static vstd::vector<SavedArgument> SerializeKernel(
         vstd::IRange<std::pair<Variable, Usage>> &arguments);

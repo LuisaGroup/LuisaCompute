@@ -9,8 +9,8 @@ namespace luisa::compute {
 class DefaultBinaryIO final : public BinaryIO {
     Context &_ctx;
     std::filesystem::path _data_path;
-    luisa::unique_ptr<luisa::compute::IBinaryStream> _read(luisa::string const &file_path) noexcept {
-        return luisa::make_unique<BinaryReader>(file_path);
+    luisa::unique_ptr<luisa::BinaryStream> _read(luisa::string const &file_path) noexcept {
+        return luisa::make_unique<BinaryFileIO>(file_path);
     }
     void _write(luisa::string const &file_path, luisa::span<std::byte const> data) noexcept {
         auto f = fopen(file_path.c_str(), "wb");

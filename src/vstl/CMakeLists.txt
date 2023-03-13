@@ -1,7 +1,6 @@
 set(LUISA_COMPUTE_VSTL_SOURCES
         allocate_type.h
         array.h
-        binary_reader.cpp binary_reader.h
         common.h
         common_iterator.h
         compare.h

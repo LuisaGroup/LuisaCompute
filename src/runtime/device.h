@@ -7,6 +7,10 @@
 #include <ast/type_registry.h>
 #include <runtime/rhi/device_interface.h>
 
+namespace luisa {
+class BinaryIO;
+}
+
 namespace luisa::compute {
 
 class MeshFormat;
@@ -18,7 +22,6 @@ class Mesh;
 class ProceduralPrimitive;
 class Accel;
 class SwapChain;
-class BinaryIO;
 class BindlessArray;
 class IndirectDispatchBuffer;
 

@@ -24,7 +24,6 @@ if (WIN32)
             DXRuntime/DxPtr.h
             DXRuntime/GlobalSamplers.cpp DXRuntime/GlobalSamplers.h
             DXRuntime/ResourceStateTracker.cpp DXRuntime/ResourceStateTracker.h
-            DXRuntime/ShaderPaths.h
 
             Resource/D3D12MemoryAllocator/D3D12MemAlloc.cpp Resource/D3D12MemoryAllocator/D3D12MemAlloc.h
             Resource/AllocHandle.h
