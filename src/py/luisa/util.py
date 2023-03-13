@@ -1,5 +1,6 @@
 from . import func, StructType, int3, float2, float3
 from .mathtypes import *
+import math
 RandomSampler = StructType(state=int)
 
 
@@ -19,6 +20,21 @@ def _f(self, p: int3):
 
 
 RandomSampler.add_method(_f, "__init__")
+
+
+@func
+def sign(x):
+    return copysign(1., x)
+
+
+@func
+def fmod(x, y):
+    return x - y * trunc(x / y)
+
+
+@func
+def mod(x, y):
+    return x - y * floor(x / y)
 
 
 @func
@@ -87,5 +103,14 @@ def distance(a: float3, b: float3):
 
 @func
 def distance_squared(a: float3, b: float3):
-    dir = (a - b)
-    return dot(dir, dir)
+    return length_squared(a - b)
+
+
+@func
+def radians(x):
+    return x * (math.pi / 180.)
+
+
+@func
+def degree(x):
+    return x * (180. / math.pi)
