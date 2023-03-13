@@ -34,9 +34,10 @@ public:
 
     Local(Local &&) noexcept = default;
     Local(const Local &another) noexcept
-        : _expression{another._expression}, _size{another._size} {
-        detail::FunctionBuilder::current()->assign(
-            _expression, another._expression);
+        : _size{another._size} {
+        auto fb = detail::FunctionBuilder::current();
+        _expression = fb->local(Type::array(Type::of<T>(), _size));
+        fb->assign(_expression, another._expression);
     }
     Local &operator=(const Local &rhs) noexcept {
         if (&rhs != this) [[likely]] {
