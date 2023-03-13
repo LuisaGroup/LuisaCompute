@@ -90,13 +90,7 @@ set_showmenu(true)
 option_end()
 -- pre-defined options end
 
-option("legal_env")
-set_showmenu(false)
-add_csnippets("legal_env", "return ((sizeof(void*)==8)&&(sizeof(int)==4)&&(sizeof(char)==1))?0:-1;", {
-	tryrun = true
-})
-option_end()
-if has_config("legal_env") then
+if is_arch("x64", "x86_64", "arm64") then
 	UseMimalloc = get_config("enable_mimalloc")
 	UseSIMD = get_config("enable_simd")
 	-- test require dsl
