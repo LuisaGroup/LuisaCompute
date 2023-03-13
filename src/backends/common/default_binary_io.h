@@ -10,7 +10,7 @@ class DefaultBinaryIO final : public BinaryIO {
     Context &_ctx;
     std::filesystem::path _data_path;
     luisa::unique_ptr<luisa::BinaryStream> _read(luisa::string const &file_path) noexcept {
-        return luisa::make_unique<BinaryFileIO>(file_path);
+        return luisa::make_unique<luisa::BinaryFileStream>(file_path);
     }
     void _write(luisa::string const &file_path, luisa::span<std::byte const> data) noexcept {
         auto f = fopen(file_path.c_str(), "wb");
@@ -34,7 +34,7 @@ public:
         dir_name += "_builtin"sv;
         _data_path = _ctx.paths().data_directory() / dir_name;
     }
-    luisa::unique_ptr<IBinaryStream> read_shader_bytecode(luisa::string_view name) noexcept override {
+    luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) noexcept override {
         std::filesystem::path localPath{name};
         if (localPath.is_absolute()) {
             return _read(luisa::to_string(name));
@@ -42,11 +42,11 @@ public:
         auto file_path = luisa::to_string(_ctx.paths().runtime_directory() / name);
         return _read(file_path);
     }
-    luisa::unique_ptr<IBinaryStream> read_shader_cache(luisa::string_view name) noexcept override {
+    luisa::unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) noexcept override {
         auto file_path = luisa::to_string(_ctx.paths().cache_directory() / name);
         return _read(file_path);
     }
-    luisa::unique_ptr<IBinaryStream> read_internal_shader(luisa::string_view name) noexcept override {
+    luisa::unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) noexcept override {
         auto file_path = luisa::to_string(_data_path / name);
         return _read(file_path);
     }

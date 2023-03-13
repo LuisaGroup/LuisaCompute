@@ -9,6 +9,7 @@
 #include <runtime/device.h>
 #include <DxRuntime/DxPtr.h>
 #include <ext_settings.h>
+#include <backends/common/default_binary_io.h>
 
 namespace luisa {
 class BinaryIO;
