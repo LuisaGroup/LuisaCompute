@@ -9,8 +9,10 @@ scalar_dtypes = {int, float, bool, uint}
 vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4}
 matrix_dtypes = {float2x2, float3x3, float4x4}
 
+scalar_and_vector_dtypes = {*scalar_dtypes, *vector_dtypes}
+vector_and_matrix_dtypes = {*vector_dtypes, *matrix_dtypes}
 basic_dtypes = {*scalar_dtypes, *vector_dtypes, *matrix_dtypes}
-arithmetic_dtypes = {int, float, int2, float2, int3, float3, int4, float4}
+arithmetic_dtypes = {int, uint, float, int2, uint2, float2, int3, uint3, float3, int4, uint4, float4}
 
 
 def nameof(dtype):

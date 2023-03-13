@@ -5,7 +5,7 @@ _config_project({
 rule("build_cargo")
 set_extensions(".toml")
 on_buildcmd_file(function (target, batchcmds, sourcefile, opt)
-	local sub_dir = sourcefile;
+	local sub_dir = sourcefile
 	local cargo_cmd = "cargo build --manifest-path "
 	local mode = nil
 	if is_mode("debug") then

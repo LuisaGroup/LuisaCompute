@@ -1,7 +1,7 @@
 import lcapi
 from .mathtypes import *
 from .types import uint, to_lctype, BuiltinFuncBuilder, \
-    scalar_dtypes, arithmetic_dtypes, vector_dtypes, matrix_dtypes, vector, length_of, element_of, nameof, implicit_covertable, uint, uint3
+    scalar_dtypes, arithmetic_dtypes, vector_dtypes, scalar_and_vector_dtypes, matrix_dtypes, vector_and_matrix_dtypes, vector, length_of, element_of, nameof, implicit_covertable, uint, uint3
 import functools
 from . import globalvars
 from types import SimpleNamespace
@@ -36,21 +36,21 @@ def deduce_broadcast(dtype0, dtype1):
 
 
 def to_bool(dtype):
-    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    assert dtype in scalar_and_vector_dtypes
     return vector(bool, length_of(dtype))
 
 def to_float(dtype):
     if dtype in matrix_dtypes:
         return dtype
-    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    assert dtype in scalar_and_vector_dtypes
     return vector(float, length_of(dtype))
 
 def to_int(dtype):
-    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    assert dtype in scalar_and_vector_dtypes
     return vector(int, length_of(dtype))
 
 def to_uint(dtype):
-    assert dtype in scalar_dtypes or dtype in vector_dtypes
+    assert dtype in scalar_and_vector_dtypes
     return vector(uint, length_of(dtype))
 
 
@@ -247,7 +247,7 @@ def builtin_type_cast(dtype, *args):
         if args[0].dtype not in {int, float, bool, uint}:
             raise TypeError(f"Can't convert {args[0].dtype} to {dtype.__name__}")
         return dtype, lcapi.builder().cast(to_lctype(dtype), lcapi.CastOp.STATIC, args[0].expr)
-    if dtype in vector_dtypes or dtype in matrix_dtypes:
+    if dtype in vector_and_matrix_dtypes:
         return builtin_func(f"make_{dtype.__name__}", *args)
     # TODO: vectors / matrices
     # TODO: array
@@ -468,9 +468,10 @@ def builtin_func(name, *args, **kwargs):
 
     if name in ('select'):
         bool_vec_len = length_of(args[2].dtype)
-        assert len(args) == 3 and \
-            args[2].dtype in [bool, bool2, bool3, bool4] and \
+        assert len(args) == 3 and\
+            args[2].dtype in [bool, bool2, bool3, bool4] and\
             args[0].dtype == args[1].dtype and\
+            args[0].dtype in scalar_and_vector_dtypes and\
             (length_of(args[0].dtype) == bool_vec_len or bool_vec_len == 1)
         return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
 
@@ -534,8 +535,8 @@ def builtin_func(name, *args, **kwargs):
 
     if name == 'faceforward':
         op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 3
-        assert args[0].dtype == float3 and args[1].dtype == float3 and args[2].dtype == float3, \
+        assert len(args) == 3 and\
+        args[0].dtype == float3 and args[1].dtype == float3 and args[2].dtype == float3, \
                "invalid parameter"
         dtype = float3
         return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
@@ -617,7 +618,7 @@ def builtin_func(name, *args, **kwargs):
 
     if name == 'len':
         assert len(args) == 1
-        if type(args[0].dtype) is ArrayType or args[0].dtype in {*vector_dtypes, *matrix_dtypes}:
+        if type(args[0].dtype) is ArrayType or args[0].dtype in vector_and_matrix_dtypes:
             return int, lcapi.builder().literal(to_lctype(int), length_of(args[0].dtype))
         raise TypeError(f"{nameof(args[0].dtype)} object has no len()")
 
