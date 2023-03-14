@@ -180,7 +180,7 @@ int main(int argc, char *argv[]) {
     init(stream);
     Window window{"MPM88", resolution, resolution, false};
     auto swap_chain{device.create_swapchain(
-        window.window_native_handle(),
+        window.native_handle(),
         stream,
         make_uint2(resolution),
         true, false, 2)};

@@ -152,7 +152,7 @@ int main(int argc, char *argv[]) {
     stream << clear(device_image).dispatch(width, height);
     Window window{"Display", make_uint2(width, height), false};
     auto swap_chain{device.create_swapchain(
-        window.window_native_handle(),
+        window.native_handle(),
         stream,
         window.size(),
         true, false, 2)};

@@ -558,7 +558,7 @@ int main(int argc, char *argv[]) {
 
     Window window{"Display", resolution.x, resolution.y, false};
     auto swap_chain{device.create_swapchain(
-        window.window_native_handle(),
+        window.native_handle(),
         stream,
         resolution,
         true, false, 2)};

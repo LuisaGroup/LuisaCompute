@@ -39,7 +39,7 @@ public:
     Window &operator=(Window &&) noexcept;
     Window &operator=(const Window &) noexcept = delete;
 
-    [[nodiscard]] uint64_t window_native_handle() const noexcept;
+    [[nodiscard]] uint64_t native_handle() const noexcept;
     [[nodiscard]] bool should_close() const noexcept;
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto name() const noexcept { return string_view{_name}; }

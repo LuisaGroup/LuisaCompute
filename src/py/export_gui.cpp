@@ -86,7 +86,7 @@ void export_gui(py::module &m) {
                 w.cursur_pos.x = std::clamp(w.cursur_pos.x, 0.0f, 1.0f);
                 w.cursur_pos.y = std::clamp(w.cursur_pos.y, 0.0f, 1.0f);
             });
-            w.chain = device.device.create_swapchain(w.window->window_native_handle(), stream.stream(), {width, height}, true, vsync, 2);
+            w.chain = device.device.create_swapchain(w.window->native_handle(), stream.stream(), {width, height}, true, vsync, 2);
         })
         .def("should_close", [](PyWindow &w) {
             return w.window->should_close();

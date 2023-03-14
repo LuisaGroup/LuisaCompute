@@ -20,7 +20,7 @@ public:
 
 private:
     friend class Device;
-    PixelStorage _storage;
+    PixelStorage _storage{};
     SwapChain(DeviceInterface *device, uint64_t window_handle,
               uint64_t stream_handle, uint width, uint height,
               bool allow_hdr, bool vsync, uint back_buffer_size) noexcept;

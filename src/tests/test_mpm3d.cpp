@@ -215,7 +215,7 @@ int main(int argc, char *argv[]) {
     // std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
     // file << "Frame, Time(ms)\n";
     auto swap_chain{device.create_swapchain(
-        window.window_native_handle(),
+        window.native_handle(),
         stream,
         make_uint2(resolution),
         true, false, 2)};

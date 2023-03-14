@@ -101,7 +101,7 @@ Window::Window(
 
 Window::~Window() noexcept = default;
 
-uint64_t Window::window_native_handle() const noexcept {
+uint64_t Window::native_handle() const noexcept {
     return static_cast<detail::WindowImpl *>(_impl.get())->window_handle;
 }
 

@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     std::mt19937 rng{std::random_device{}()};
     Window window{"Game of Life", width * 4u, height * 4u, false};
-    auto swap_chain = device.create_swapchain(window.window_native_handle(), stream, window.size());
+    auto swap_chain = device.create_swapchain(window.native_handle(), stream, window.size());
     auto display = device.create_image<float>(PixelStorage::BYTE4, window.size());
 
     auto reset = [&] {

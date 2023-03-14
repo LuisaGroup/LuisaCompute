@@ -322,7 +322,7 @@ int main(int argc, char *argv[]) {
 
     Window window{"path tracing", resolution.x, resolution.x, false};
     auto swap_chain{device.create_swapchain(
-        window.window_native_handle(),
+        window.native_handle(),
         stream,
         resolution,
         true, false, 2)};

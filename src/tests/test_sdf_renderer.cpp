@@ -217,7 +217,7 @@ int main(int argc, char *argv[]) {
 #if ENABLE_DISPLAY
     Window window{"SDF Renderer", width, height, false};
     auto swap_chain{device.create_swapchain(
-        window.window_native_handle(),
+        window.native_handle(),
         stream,
         make_uint2(width, height),
         true, false, 2)};

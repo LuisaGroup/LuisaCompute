@@ -102,7 +102,7 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder, BindlessArrayUpdateC
                          m.buffer.offset_bytes, buffer->size());
             auto address = buffer->handle() + m.buffer.offset_bytes;
             auto size = buffer->size() - m.buffer.offset_bytes;
-            m.buffer.handle = address;   // FIXME: reusing this field is a bit hacky
+            m.buffer.handle = address;
             m.buffer.offset_bytes = size;// FIXME: reusing this field is a bit hacky
         }
         // process tex2d
