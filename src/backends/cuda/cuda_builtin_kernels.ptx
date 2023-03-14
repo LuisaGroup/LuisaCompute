@@ -78,9 +78,74 @@ $L__BB0_3:
 	.param .u32 update_bindless_array_param_2
 )
 {
+	.reg .pred 	%p<8>;
+	.reg .b32 	%r<17>;
+	.reg .b64 	%rd<38>;
 
 
+	ld.param.u64 	%rd16, [update_bindless_array_param_0];
+	ld.param.u64 	%rd17, [update_bindless_array_param_1];
+	ld.param.u32 	%r7, [update_bindless_array_param_2];
+	mov.u32 	%r8, %ctaid.x;
+	mov.u32 	%r9, %ntid.x;
+	mov.u32 	%r10, %tid.x;
+	mad.lo.s32 	%r1, %r8, %r9, %r10;
+	setp.ge.u32 	%p1, %r1, %r7;
+	@%p1 bra 	$L__BB1_12;
 
+	cvta.to.global.u64 	%rd18, %rd16;
+	cvta.to.global.u64 	%rd19, %rd17;
+	mul.wide.u32 	%rd20, %r1, 64;
+	add.s64 	%rd21, %rd19, %rd20;
+	ld.global.nc.v2.u64 	{%rd22, %rd35}, [%rd21];
+	ld.global.nc.u64 	%rd34, [%rd21+16];
+	ld.global.nc.u64 	%rd36, [%rd21+32];
+	ld.global.nc.v2.u32 	{%r11, %r12}, [%rd21+40];
+	ld.global.nc.u64 	%rd37, [%rd21+48];
+	ld.global.nc.v2.u32 	{%r13, %r14}, [%rd21+56];
+	shl.b64 	%rd25, %rd22, 5;
+	add.s64 	%rd5, %rd18, %rd25;
+	ld.global.v2.u64 	{%rd26, %rd27}, [%rd5+16];
+	ld.global.nc.u32 	%r6, [%rd21+24];
+	setp.eq.s32 	%p2, %r6, 1;
+	@%p2 bra 	$L__BB1_3;
+
+	ld.global.v2.u64 	{%rd28, %rd29}, [%rd5];
+	setp.eq.s32 	%p3, %r6, 2;
+	selp.b64 	%rd34, 0, %rd29, %p3;
+	selp.b64 	%rd35, 0, %rd28, %p3;
+
+$L__BB1_3:
+	setp.eq.s32 	%p4, %r12, 1;
+	@%p4 bra 	$L__BB1_7;
+
+	setp.ne.s32 	%p5, %r12, 2;
+	@%p5 bra 	$L__BB1_6;
+
+	mov.u64 	%rd36, 0;
+	bra.uni 	$L__BB1_7;
+
+$L__BB1_6:
+	mov.u64 	%rd36, %rd26;
+
+$L__BB1_7:
+	setp.eq.s32 	%p6, %r14, 1;
+	@%p6 bra 	$L__BB1_11;
+
+	setp.ne.s32 	%p7, %r14, 2;
+	@%p7 bra 	$L__BB1_10;
+
+	mov.u64 	%rd37, 0;
+	bra.uni 	$L__BB1_11;
+
+$L__BB1_10:
+	mov.u64 	%rd37, %rd27;
+
+$L__BB1_11:
+	st.global.v2.u64 	[%rd5], {%rd35, %rd34};
+	st.global.v2.u64 	[%rd5+16], {%rd36, %rd37};
+
+$L__BB1_12:
 	ret;
 
 }

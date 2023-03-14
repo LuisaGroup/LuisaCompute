@@ -4,6 +4,7 @@ if (CUDAToolkit_FOUND)
     set(LUISA_COMPUTE_CUDA_SOURCES
             cuda_error.h
             cuda_bindless_array.cpp cuda_bindless_array.h
+            cuda_buffer.cpp cuda_buffer.h
             cuda_stream.cpp cuda_stream.h
             cuda_device.cpp cuda_device.h
             cuda_host_buffer_pool.cpp cuda_host_buffer_pool.h

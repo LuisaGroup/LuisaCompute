@@ -11,6 +11,7 @@
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_mesh.h>
 #include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_stream.h>
@@ -265,18 +266,17 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
     BufferCreationInfo info{};
     info.element_stride = CUDACompiler::type_size(element);
     info.total_size_bytes = info.element_stride * elem_count;
-    info.handle = with_handle([size = info.total_size_bytes] {
-        auto buffer = 0ull;
-        LUISA_CHECK_CUDA(cuMemAlloc(&buffer, size));
-        return buffer;
+    auto buffer = with_handle([size = info.total_size_bytes] {
+        return new_with_allocator<CUDABuffer>(size);
     });
-    info.native_handle = reinterpret_cast<void *>(info.handle);
+    info.handle = reinterpret_cast<uint64_t>(buffer);
+    info.native_handle = buffer;
     return info;
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
-    with_handle([buffer = handle] {
-        LUISA_CHECK_CUDA(cuMemFree(buffer));
+    with_handle([buffer = reinterpret_cast<CUDABuffer *>(handle)] {
+        delete_with_allocator(buffer);
     });
 }
 

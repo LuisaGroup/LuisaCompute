@@ -660,6 +660,7 @@ public:
         : Command{Command::Tag::EBindlessArrayUpdateCommand},
           _handle{handle}, _modifications{std::move(mods)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto steal_modifications() noexcept { return std::move(_modifications); }
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand, StreamTag::COPY)
 };

@@ -5,6 +5,25 @@ using lc_uint = unsigned int;
 using lc_float = float;
 using lc_bool = bool;
 
+using lc_half = unsigned short;
+
+template<typename T, size_t N>
+class lc_array {
+
+private:
+    T _data[N];
+
+public:
+    template<typename... Elem>
+    __device__ constexpr lc_array(Elem... elem) noexcept : _data{elem...} {}
+    __device__ constexpr lc_array(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array(const lc_array &) noexcept = default;
+    __device__ constexpr lc_array &operator=(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array &operator=(const lc_array &) noexcept = default;
+    [[nodiscard]] __device__ T &operator[](size_t i) noexcept { return _data[i]; }
+    [[nodiscard]] __device__ T operator[](size_t i) const noexcept { return _data[i]; }
+};
+
 struct alignas(8) lc_int2 {
     lc_int x, y;
     __device__ constexpr lc_int2() noexcept

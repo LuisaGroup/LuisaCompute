@@ -11,6 +11,7 @@
 #include <core/dirty_range.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/rhi/command.h>
+#include <backends/common/resource_tracker.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 
@@ -27,30 +28,18 @@ class CUDACommandEncoder;
 class CUDABindlessArray {
 
 public:
-    /**
-     * @brief Slot struct on device
-     * 
-     */
-    struct SlotSOA {
-        CUdeviceptr _buffer_slots;
-        CUdeviceptr _tex2d_slots;
-        CUdeviceptr _tex3d_slots;
-        CUdeviceptr _tex2d_sizes;
-        CUdeviceptr _tex3d_sizes;
+    struct Slot {
+        uint64_t buffer;
+        size_t size;
+        uint64_t tex2d;
+        uint64_t tex3d;
     };
 
 private:
-    SlotSOA _handle{};
-    DirtyRange _buffer_dirty_range;
-    DirtyRange _tex2d_dirty_range;
-    DirtyRange _tex3d_dirty_range;
-    luisa::vector<CUdeviceptr> _buffer_slots;
+    CUdeviceptr _handle{};
     luisa::vector<CUtexObject> _tex2d_slots;
     luisa::vector<CUtexObject> _tex3d_slots;
-    luisa::vector<std::array<uint16_t, 2u>> _tex2d_sizes;
-    luisa::vector<std::array<uint16_t, 4u>> _tex3d_sizes;
-    luisa::vector<uint64_t> _buffer_resources;
-    luisa::unordered_map<CUtexObject, uint64_t> _texture_resources;
+    ResourceTracker _texture_tracker;
 
 public:
     explicit CUDABindlessArray(size_t capacity) noexcept;

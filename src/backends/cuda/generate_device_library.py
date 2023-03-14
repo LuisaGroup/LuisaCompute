@@ -11,7 +11,27 @@ if __name__ == "__main__":
         native_types = ["int", "unsigned int", "float", "bool"]
         for t, native_t in zip(scalar_types, native_types):
             print(f"using lc_{t} = {native_t};", file=file)
-        print(file=file)
+
+        print("""
+using lc_half = unsigned short;
+
+template<typename T, size_t N>
+class lc_array {
+
+private:
+    T _data[N];
+
+public:
+    template<typename... Elem>
+    __device__ constexpr lc_array(Elem... elem) noexcept : _data{elem...} {}
+    __device__ constexpr lc_array(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array(const lc_array &) noexcept = default;
+    __device__ constexpr lc_array &operator=(lc_array &&) noexcept = default;
+    __device__ constexpr lc_array &operator=(const lc_array &) noexcept = default;
+    [[nodiscard]] __device__ T &operator[](size_t i) noexcept { return _data[i]; }
+    [[nodiscard]] __device__ T operator[](size_t i) const noexcept { return _data[i]; }
+};
+""", file=file)
 
         # vector types
         vector_alignments = {2: 8, 3: 16, 4: 16}

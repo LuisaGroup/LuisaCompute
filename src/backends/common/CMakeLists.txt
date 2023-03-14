@@ -1,11 +1,10 @@
 set(LUISA_BACKEND_COMMON_SOURCES
-        default_binary_io.cpp
-        default_binary_io.h
+        default_binary_io.cpp default_binary_io.h
         native_resource_ext.h
         resource_generator.h
-        string_scratch.cpp
-        string_scratch.h
-        tex_compress_ext.h)
+        string_scratch.cpp string_scratch.h
+        tex_compress_ext.h
+        resource_tracker.cpp resource_tracker.h)
 
 add_library(luisa-compute-backend-common STATIC ${LUISA_BACKEND_COMMON_SOURCES})
 target_link_libraries(luisa-compute-backend-common PUBLIC

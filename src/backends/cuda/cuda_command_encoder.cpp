@@ -4,6 +4,7 @@
 
 #include <runtime/command_list.h>
 #include <backends/cuda/cuda_error.h>
+#include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_mesh.h>
 #include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_stream.h>
@@ -56,27 +57,31 @@ void CUDACommandEncoder::commit(CommandList::CallbackContainer &&user_callbacks)
 }
 
 void CUDACommandEncoder::visit(BufferUploadCommand *command) noexcept {
-    auto buffer = command->handle() + command->offset();
+    auto buffer = reinterpret_cast<const CUDABuffer *>(command->handle());
+    auto address = buffer->handle() + command->offset();
     auto data = command->data();
     auto size = command->size();
     with_upload_buffer(size, [&](auto upload_buffer) noexcept {
         std::memcpy(upload_buffer->address(), data, size);
         LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-            buffer, upload_buffer->address(),
+            address, upload_buffer->address(),
             size, _stream->handle()));
     });
 }
 
 void CUDACommandEncoder::visit(BufferDownloadCommand *command) noexcept {
-    auto buffer = command->handle() + command->offset();
+    auto buffer = reinterpret_cast<const CUDABuffer *>(command->handle());
+    auto address = buffer->handle() + command->offset();
     auto data = command->data();
     auto size = command->size();
-    LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(data, buffer, size, _stream->handle()));
+    LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(data, address, size, _stream->handle()));
 }
 
 void CUDACommandEncoder::visit(BufferCopyCommand *command) noexcept {
-    auto src_buffer = command->src_handle() + command->src_offset();
-    auto dst_buffer = command->dst_handle() + command->dst_offset();
+    auto src_buffer = reinterpret_cast<const CUDABuffer *>(command->src_handle())->handle() +
+                      command->src_offset();
+    auto dst_buffer = reinterpret_cast<const CUDABuffer *>(command->dst_handle())->handle() +
+                      command->dst_offset();
     auto size = command->size();
     LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dst_buffer, src_buffer, size, _stream->handle()));
 }
@@ -92,7 +97,8 @@ void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
     auto height = pixel_storage_size(command->storage(), make_uint3(command->size().xy(), 1u)) / pitch;
     copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-    copy.srcDevice = command->buffer() + command->buffer_offset();
+    copy.srcDevice = reinterpret_cast<const CUDABuffer *>(command->buffer())->handle() +
+                     command->buffer_offset();
     copy.srcPitch = pitch;
     copy.srcHeight = height;
     copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
@@ -171,7 +177,8 @@ void CUDACommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = array;
     copy.dstMemoryType = CU_MEMORYTYPE_DEVICE;
-    copy.dstDevice = command->buffer() + command->buffer_offset();
+    copy.dstDevice = reinterpret_cast<const CUDABuffer *>(command->buffer())->handle() +
+                     command->buffer_offset();
     copy.dstPitch = pitch;
     copy.dstHeight = height;
     copy.WidthInBytes = pitch;

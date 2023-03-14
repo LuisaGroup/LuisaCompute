@@ -6,6 +6,7 @@
 
 #include <core/clock.h>
 #include <backends/cuda/cuda_error.h>
+#include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_mesh.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_stream.h>
@@ -133,6 +134,9 @@ void CUDAMesh::_update(CUDACommandEncoder &encoder) noexcept {
 
 void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noexcept {
 
+    auto vertex_buffer = reinterpret_cast<const CUDABuffer *>(command->vertex_buffer());
+    auto triangle_buffer = reinterpret_cast<const CUDABuffer *>(command->triangle_buffer());
+
     auto requires_build =
         // not built yet
         handle() == 0u ||
@@ -141,17 +145,17 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
         // user wants to force build
         command->request() == AccelBuildRequest::FORCE_BUILD ||
         // buffers changed
-        command->vertex_buffer() + command->vertex_buffer_offset() != _vertex_buffer ||
+        vertex_buffer->handle() + command->vertex_buffer_offset() != _vertex_buffer ||
         command->vertex_buffer_size() != _vertex_buffer_size ||
         command->vertex_stride() != _vertex_stride ||
-        command->triangle_buffer() + command->triangle_buffer_offset() != _triangle_buffer ||
+        triangle_buffer->handle() + command->triangle_buffer_offset() != _triangle_buffer ||
         command->triangle_buffer_size() != _triangle_buffer_size;
 
     // update buffers
-    _vertex_buffer = command->vertex_buffer() + command->vertex_buffer_offset();
+    _vertex_buffer = vertex_buffer->handle() + command->vertex_buffer_offset();
     _vertex_buffer_size = command->vertex_buffer_size();
     _vertex_stride = command->vertex_stride();
-    _triangle_buffer = command->triangle_buffer() + command->triangle_buffer_offset();
+    _triangle_buffer = triangle_buffer->handle() + command->triangle_buffer_offset();
     _triangle_buffer_size = command->triangle_buffer_size();
 
     // build or update

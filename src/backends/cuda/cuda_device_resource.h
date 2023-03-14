@@ -1,30 +1,5 @@
 #pragma once
 
-// template<typename T>
-// [[nodiscard]] inline auto lc_buffer_read(const T *buffer, lc_uint index) noexcept {
-//     constexpr auto size = sizeof(T);
-//     constexpr auto n = (size + 3u) / 4u;
-//     auto ptr = reinterpret_cast<const lc_uint *>(buffer + index);
-//     lc_uint data[n];
-// #pragma unroll
-//     for (auto i = 0u; i < n; i++) {
-//         data[i] = __ldcv(ptr + i);
-//     }
-//     return *reinterpret_cast<const T *>(data);
-// }
-
-// template<typename T>
-// inline void lc_buffer_write(T *buffer, lc_uint index, T value) noexcept {
-//     constexpr auto size = sizeof(T);
-//     constexpr auto n = (size + 3u) / 4u;
-//     auto ptr = reinterpret_cast<lc_uint *>(buffer + index);
-//     auto data = reinterpret_cast<lc_uint *>(&value);
-// #pragma unroll
-//     for (auto i = 0u; i < n; i++) {
-//         __stwt(ptr + i, data[i]);
-//     }
-// }
-
 #if LC_NVRTC_VERSION < 110300
 inline void __builtin_unreachable() noexcept { asm("trap;"); }
 #endif
@@ -33,8 +8,41 @@ inline void __builtin_unreachable() noexcept { asm("trap;"); }
 inline void __builtin_assume(bool) noexcept {}
 #endif
 
-#define lc_buffer_read(buffer, index) (buffer[index])
-#define lc_buffer_write(buffer, index, value) static_cast<void>((buffer)[index] = (value))
+#define lc_assume(...) __builtin_assume(__VA_ARGS__)
+
+template<typename T>
+[[noreturn]] __device__ inline T lc_unreachable() noexcept {
+    __builtin_unreachable();
+}
+
+#define lc_assert(...)                        \
+    do {                                      \
+        if (!(__VA_ARGS__)) {                 \
+            printf("Assertion failed: %s, %s:%d\n", #__VA_ARGS__, __FILE__, __LINE__); \
+            asm("trap;");                     \
+        }                                     \
+    } while (false)
+
+template<typename T>
+struct LCBuffer {
+    T *ptr;
+    size_t size_bytes;
+};
+
+template<typename T, typename Index>
+[[nodiscard]] __device__ inline auto lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
+    return buffer.ptr[index];
+}
+
+template<typename T, typename Index>
+__device__ inline void lc_buffer_write(LCBuffer<T> buffer, Index index, T value) noexcept {
+    buffer.ptr[index] = value;
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_buffer_size(LCBuffer<T> buffer) noexcept {
+    return buffer.size_bytes / sizeof(T);
+}
 
 enum struct LCPixelStorage : lc_uint {
 
@@ -79,25 +87,6 @@ struct lc_is_same<A, A> {
 template<typename...>
 struct lc_always_false {
     [[nodiscard]] static constexpr auto value() noexcept { return false; };
-};
-
-using lc_half = unsigned short;
-
-template<typename T, size_t N>
-class lc_array {
-
-private:
-    T _data[N];
-
-public:
-    template<typename... Elem>
-    __device__ constexpr lc_array(Elem... elem) noexcept : _data{elem...} {}
-    __device__ constexpr lc_array(lc_array &&) noexcept = default;
-    __device__ constexpr lc_array(const lc_array &) noexcept = default;
-    __device__ constexpr lc_array &operator=(lc_array &&) noexcept = default;
-    __device__ constexpr lc_array &operator=(const lc_array &) noexcept = default;
-    [[nodiscard]] __device__ T &operator[](size_t i) noexcept { return _data[i]; }
-    [[nodiscard]] __device__ T operator[](size_t i) const noexcept { return _data[i]; }
 };
 
 template<typename P>
@@ -846,22 +835,60 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
     }
 }
 
+template<typename T>
+struct LCTexture2D {
+    LCSurface surface;
+};
+
+template<typename T>
+struct LCTexture3D {
+    LCSurface surface;
+};
+
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_read(LCTexture2D<T> tex, lc_uint2 p) noexcept {
+    return lc_surf2d_read<T>(tex.surface, p);
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_texture_read(LCTexture3D<T> tex, lc_uint3 p) noexcept {
+    return lc_surf3d_read<T>(tex.surface, p);
+}
+
+template<typename T, typename V>
+__device__ inline void lc_texture_write(LCTexture2D<T> tex, lc_uint2 p, V value) noexcept {
+    lc_surf2d_write<T>(tex.surface, p, value);
+}
+
+template<typename T, typename V>
+__device__ inline void lc_texture_write(LCTexture3D<T> tex, lc_uint3 p, V value) noexcept {
+    lc_surf3d_write<T>(tex.surface, p, value);
+}
+
+struct alignas(16) LCBindlessSlot {
+    const void *__restrict__ buffer;
+    size_t buffer_size;
+    cudaTextureObject_t tex2d;
+    cudaTextureObject_t tex3d;
+};
+
 struct alignas(16) LCBindlessArray {
-    const void **buffer_slots;
-    const cudaTextureObject_t *tex2d_slots;
-    const cudaTextureObject_t *tex3d_slots;
-    const ushort2 *tex2d_sizes;
-    const ushort4 *tex3d_sizes;
+    const LCBindlessSlot *__restrict__ slots;
 };
 
 template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_uint i) noexcept {
-    auto buffer = static_cast<const T *>(array.buffer_slots[index]);
+    auto buffer = static_cast<const T *>(array.slots[index].buffer);
     return buffer[i];
 }
 
+template<typename T = unsigned char>
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_size(LCBindlessArray array, lc_uint index) noexcept {
+    return array.slots[index].buffer_size / sizeof(T);
+}
+
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
-    auto t = array.tex2d_slots[index];
+    auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -870,7 +897,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d(LCBindlessArray array, lc_uint index, lc_float3 p) noexcept {
-    auto t = array.tex3d_slots[index];
+    auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -879,7 +906,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_level(LCBindlessArray array, lc_uint index, lc_float2 p, float level) noexcept {
-    auto t = array.tex2d_slots[index];
+    auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.level.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], %7;"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -888,7 +915,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_level(LCBindlessArray array, lc_uint index, lc_float3 p, float level) noexcept {
-    auto t = array.tex3d_slots[index];
+    auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], %9;"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -897,7 +924,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_grad(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy) noexcept {
-    auto t = array.tex2d_slots[index];
+    auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.grad.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], {%7, %8}, {%9, %10};"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -906,7 +933,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_grad(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy) noexcept {
-    auto t = array.tex3d_slots[index];
+    auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.grad.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], {%9, %10, %11, %12}, {%13, %14, %15, 16};"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -917,27 +944,34 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size2d(LCBindlessArray array, lc_uint index) noexcept {
-    auto s = array.tex2d_sizes[index];
-    return lc_make_uint2(s.x, s.y);
+    auto t = array.slots[index].tex2d;
+    auto s = lc_make_uint2();
+    asm("txq.width.b32 %0, [%1];" : "=r"(s.x) : "l"(t));
+    asm("txq.height.b32 %0, [%1];" : "=r"(s.y) : "l"(t));
+    return s;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size3d(LCBindlessArray array, lc_uint index) noexcept {
-    auto s = array.tex3d_sizes[index];
-    return lc_make_uint3(s.x, s.y, s.z);
+    auto t = array.slots[index].tex3d;
+    auto s = lc_make_uint3();
+    asm("txq.width.b32 %0, [%1];" : "=r"(s.x) : "l"(t));
+    asm("txq.height.b32 %0, [%1];" : "=r"(s.y) : "l"(t));
+    asm("txq.depth.b32 %0, [%1];" : "=r"(s.z) : "l"(t));
+    return s;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size2d_level(LCBindlessArray array, lc_uint index, lc_uint level) noexcept {
-    auto s = array.tex2d_sizes[index];
-    return lc_max(lc_make_uint2(s.x, s.y) >> level, lc_make_uint2(1u));
+    auto s = lc_bindless_texture_size2d(array, index);
+    return lc_max(s >> level, lc_make_uint2(1u));
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size3d_level(LCBindlessArray array, lc_uint index, lc_uint level) noexcept {
-    auto s = array.tex3d_sizes[index];
-    return lc_max(lc_make_uint3(s.x, s.y, s.z) >> level, lc_make_uint3(1u));
+    auto s = lc_bindless_texture_size3d(array, index);
+    return lc_max(s >> level, lc_make_uint3(1u));
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read2d(LCBindlessArray array, lc_uint index, lc_uint2 p) noexcept {
-    auto t = array.tex2d_slots[index];
+    auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.2d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -946,7 +980,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read3d(LCBindlessArray array, lc_uint index, lc_uint3 p) noexcept {
-    auto t = array.tex3d_slots[index];
+    auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.3d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -955,7 +989,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read2d_level(LCBindlessArray array, lc_uint index, lc_uint2 p, lc_uint level) noexcept {
-    auto t = array.tex2d_slots[index];
+    auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.level.2d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6}], %7;"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -964,7 +998,7 @@ template<typename T>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read3d_level(LCBindlessArray array, lc_uint index, lc_uint3 p, lc_uint level) noexcept {
-    auto t = array.tex3d_slots[index];
+    auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.level.3d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], %9;"
         : "=f"(v.x), "=f"(v.y), "=f"(v.z), "=f"(v.w)
@@ -989,7 +1023,7 @@ struct alignas(16) LCHit {
 };
 
 struct alignas(16) LCAccelInstance {
-    lc_float m[12];
+    lc_array<lc_float4, 3> m;
     lc_uint instance_id;
     lc_uint sbt_offset;
     lc_uint mask;
@@ -1002,58 +1036,60 @@ struct alignas(16u) LCAccel {
     LCAccelInstance *instances;
 };
 
-[[nodiscard]] inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
+[[nodiscard]] __device__ inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
     auto m = accel.instances[instance_id].m;
     return lc_make_float4x4(
-        m[0], m[4], m[8], 0.0f,
-        m[1], m[5], m[9], 0.0f,
-        m[2], m[6], m[10], 0.0f,
-        m[3], m[7], m[11], 1.0f);
+        m[0].x, m[1].x, m[2].x, 0.0f,
+        m[0].y, m[1].y, m[2].y, 0.0f,
+        m[0].z, m[1].z, m[2].z, 0.0f,
+        m[0].w, m[1].w, m[2].w, 1.0f);
 }
 
-inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint index, lc_float4x4 m) noexcept {
-    auto p = accel.instances[index].m;
-    p[0] = m[0][0];
-    p[1] = m[1][0];
-    p[2] = m[2][0];
-    p[3] = m[3][0];
-    p[4] = m[0][1];
-    p[5] = m[1][1];
-    p[6] = m[2][1];
-    p[7] = m[3][1];
-    p[8] = m[0][2];
-    p[9] = m[1][2];
-    p[10] = m[2][2];
-    p[11] = m[3][2];
+__device__ inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint index, lc_float4x4 m) noexcept {
+    lc_array<lc_float4, 3> p;
+    p[0].x = m[0][0];
+    p[0].y = m[1][0];
+    p[0].z = m[2][0];
+    p[0].w = m[3][0];
+    p[1].x = m[0][1];
+    p[1].y = m[1][1];
+    p[1].z = m[2][1];
+    p[1].w = m[3][1];
+    p[2].x = m[0][2];
+    p[2].y = m[1][2];
+    p[2].z = m[2][2];
+    p[2].w = m[3][2];
 }
 
-inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, bool v) noexcept {
-    accel.instances[index].mask = v ? 0xffu : 0x00u;
+__device__ inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, lc_uint mask) noexcept {
+    accel.instances[index].mask = mask & 0xffu;
 }
 
-inline float atomicExch_float(float *a, float v) noexcept {
-    return atomicExch(a, v);
-}
-
-inline float atomicCAS_float(float *a, float cmp, float v) noexcept {
+__device__ inline float atomicCAS(float *a, float cmp, float v) noexcept {
     return __uint_as_float(atomicCAS(reinterpret_cast<lc_uint *>(a), __float_as_uint(cmp), __float_as_uint(v)));
 }
 
-inline float atomicAdd_float(float *a, float v) noexcept {
-    return atomicAdd(a, v);
-}
-
-inline float atomicSub_float(float *a, float v) noexcept {
+__device__ inline float atomicSub(float *a, float v) noexcept {
     return atomicAdd(a, -v);
 }
 
-inline float atomicMin_float(float *a, float v) noexcept {
+__device__ inline float atomicMin(float *a, float v) noexcept {
     return __int_as_float(atomicMin(reinterpret_cast<int *>(a), __float_as_int(v)));
 }
 
-inline float atomicMax_float(float *a, float v) noexcept {
+__device__ inline float atomicMax(float *a, float v) noexcept {
     return __int_as_float(atomicMax(reinterpret_cast<int *>(a), __float_as_int(v)));
 }
+
+#define lc_atomic_exchange(buffer, index, value) atomicExch(&((buffer).ptr[index]), value)
+#define lc_atomic_compare_exchange(buffer, index, cmp, value) atomicCAS(&((buffer).ptr[index]), cmp, value)
+#define lc_atomic_fetch_add(buffer, index, value) atomicAdd(&((buffer).ptr[index]), value)
+#define lc_atomic_fetch_sub(buffer, index, value) atomicSub(&((buffer).ptr[index]), value)
+#define lc_atomic_fetch_min(buffer, index, value) atomicMin(&((buffer).ptr[index]), value)
+#define lc_atomic_fetch_max(buffer, index, value) atomicMax(&((buffer).ptr[index]), value)
+#define lc_atomic_fetch_and(buffer, index, value) atomicAnd(&((buffer).ptr[index]), value)
+#define lc_atomic_fetch_or(buffer, index, value) atomicOr(&((buffer).ptr[index]), value)
+#define lc_atomic_fetch_xor(buffer, index, value) atomicXor(&((buffer).ptr[index]), value)
 
 #if LC_OPTIX_VERSION != 0
 
@@ -1131,7 +1167,7 @@ extern "C" __global__ void __closesthit__trace_closest() {
 
 template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 [[nodiscard]] inline auto lc_trace_impl(
-    LCAccel accel, LCRay ray,
+    LCAccel accel, LCRay ray, lc_uint mask,
     lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3) noexcept {
     auto ox = ray.m0[0];
     auto oy = ray.m0[1];
@@ -1149,9 +1185,9 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
             : "=r"(r0)
             : "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz),
               "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
-              "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
+              "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
               "r"(0u)
-            : );
+            :);
     } else if constexpr (reg_count == 4u) {
         asm volatile(
             "call (%0, %1, %2, %3), _optix_trace_4, "
@@ -1159,9 +1195,9 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
             : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3)
             : "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz),
               "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
-              "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
+              "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
               "r"(0u), "r"(0u), "r"(0u), "r"(0u)
-            : );
+            :);
     } else {
         __builtin_unreachable();
     }
@@ -1184,7 +1220,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(0u), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
-          "f"(t_max), "f"(0.0f), "r"(0xffu), "r"(flags), "r"(ray_type), "r"(0u),
+          "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
           "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(p4), "r"(p5), "r"(p6),
           "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
           "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
@@ -1193,29 +1229,29 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 #endif
 }
 
-[[nodiscard]] inline auto lc_trace_closest(LCAccel accel, LCRay ray) noexcept {
+[[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = 1u;// disable any hit
     auto r0 = ~0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
-    lc_trace_impl<0u, 4u, flags>(accel, ray, r0, r1, r2, r3);
+    lc_trace_impl<0u, 4u, flags>(accel, ray, mask, r0, r1, r2, r3);
     return r0 == ~0u ?
                LCHit{} :
                LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
 }
 
-[[nodiscard]] inline auto lc_trace_any(LCAccel accel, LCRay ray) noexcept {
+[[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = 1u | 4u;// disable any hit and terminate on first hit
     auto r0 = 0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
-    lc_trace_impl<1u, 1u, flags>(accel, ray, r0, r1, r2, r3);
+    lc_trace_impl<1u, 1u, flags>(accel, ray, mask, r0, r1, r2, r3);
     return static_cast<bool>(r0);
 }
 
-[[nodiscard]] inline auto lc_rtx_dispatch_id() noexcept {
+[[nodiscard]] inline auto lc_dispatch_id() noexcept {
     lc_uint u0, u1, u2;
     asm("call (%0), _optix_get_launch_index_x, ();"
         : "=r"(u0)
@@ -1229,7 +1265,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     return lc_make_uint3(u0, u1, u2);
 }
 
-[[nodiscard]] inline auto lc_rtx_dispatch_size() noexcept {
+[[nodiscard]] inline auto lc_dispatch_size() noexcept {
     lc_uint u0, u1, u2;
     asm("call (%0), _optix_get_launch_dimension_x, ();"
         : "=r"(u0)
@@ -1241,6 +1277,40 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
         : "=r"(u2)
         :);
     return lc_make_uint3(u0, u1, u2);
+}
+[[nodiscard]] __device__ constexpr lc_uint3 lc_block_size() noexcept;
+[[nodiscard]] inline auto lc_thread_id() noexcept {
+    return lc_dispatch_id() % lc_block_size();
+}
+
+[[nodiscard]] inline auto lc_block_id() noexcept {
+    return lc_dispatch_id() / lc_block_size();
+}
+
+#else
+[[nodiscard]] __device__ constexpr lc_uint3 lc_block_size() noexcept {
+    return LC_BLOCK_SIZE;
+}
+#define lc_dispatch_size() dispatch_size
+
+[[nodiscard]] __device__ inline auto lc_thread_id() noexcept {
+    return lc_make_uint3(lc_uint(threadIdx.x),
+                         lc_uint(threadIdx.y),
+                         lc_uint(threadIdx.z));
+}
+
+[[nodiscard]] __device__ inline auto lc_block_id() noexcept {
+    return lc_make_uint3(lc_uint(blockIdx.x),
+                         lc_uint(blockIdx.y),
+                         lc_uint(blockIdx.z));
+}
+
+[[nodiscard]] __device__ inline auto lc_dispatch_id() noexcept {
+    return lc_block_id() * lc_block_size() + lc_thread_id();
+}
+
+__device__ inline void lc_synchronize_block() noexcept {
+    __syncthreads();
 }
 
 #endif
