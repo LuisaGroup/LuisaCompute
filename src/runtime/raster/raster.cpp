@@ -34,7 +34,7 @@ void RasterShaderInvoke::check_dst(luisa::span<PixelFormat const> rt_formats, De
         LUISA_ERROR("Depth-buffer's format mismatch");
     }
 }
-void RasterShaderInvoke::check_scene(luisa::span<RasterMesh const> scene) noexcept {
+void RasterShaderInvoke::check_scene(luisa::vector<RasterMesh> const& scene) noexcept {
     for (auto &&mesh : scene) {
         auto vb = mesh.vertex_buffers();
         if (vb.size() != _mesh_format->vertex_stream_count()) {

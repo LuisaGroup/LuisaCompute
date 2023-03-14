@@ -35,6 +35,9 @@ void DecodeCmd(ShaderDispatchCommandBase const &cmd, Visitor &&visitor) {
             case Tag::ACCEL: {
                 visitor(i.accel);
             } break;
+            default: {
+                assert(false);
+            } break;
         }
     }
 }

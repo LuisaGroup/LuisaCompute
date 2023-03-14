@@ -24,7 +24,8 @@ DrawRasterSceneCommand::DrawRasterSceneCommand(uint64_t shader_handle,
                                 argument_count},
       _rtv_texs{rtv_textures}, _rtv_count{rtv_count},
       _dsv_tex{dsv_texture}, _scene{std::move(scene)},
-      _viewport{viewport} {}
+      _viewport{viewport} {
+}
 
 DrawRasterSceneCommand::DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept = default;
 

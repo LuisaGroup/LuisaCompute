@@ -353,10 +353,10 @@ ResourceCreationInfo LCDevice::create_raster_shader(
     Function vert,
     Function pixel,
     ShaderOption option) noexcept {
-    assert(!option.name.empty());
     auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
+        assert(!option.name.empty());
         RasterShader::SaveRaster(
             nativeDevice.fileIo,
             &nativeDevice,

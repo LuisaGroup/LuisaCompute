@@ -48,7 +48,7 @@ LUISA_EXPORT_API void *allocator_reallocate(void *p, size_t size, size_t alignme
 }// namespace detail
 
 [[nodiscard]] inline auto align(size_t s, size_t a) noexcept {
-    return (s + a - 1u) / a * a;
+    return (s + (a - 1)) & ~(a - 1);
 }
 
 template<typename T = std::byte>

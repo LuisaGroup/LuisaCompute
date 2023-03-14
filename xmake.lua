@@ -65,7 +65,13 @@ set_default("")
 set_showmenu(true)
 option_end()
 
-option("enable_rust")
+option("enable_ir")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
+
+option("enable_api")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
@@ -101,8 +107,10 @@ if is_arch("x64", "x86_64", "arm64") then
 	CudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux")) and false
 	MetalBackend = get_config("metal_backend") and is_plat("macos")
 	CpuBackend = get_config("cpu_backend")
+	EnableIR = get_config("enable_ir") or CudaBackend or MetalBackend or CpuBackend
+	EnableAPI = get_config("enable_api")
 	-- TODO: rust condition
-	EnableRust = get_config("enable_rust") or CudaBackend or MetalBackend or CpuBackend
+	EnableRust = EnableIR or EnableAPI
 	PythonVersion = get_config("py_version")
 	PythonPath = get_config("py_path")
 	EnablePython = type(PythonPath) == "string" and type(PythonVersion) == "string" and PythonPath:len() > 0 and

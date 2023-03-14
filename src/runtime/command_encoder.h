@@ -62,21 +62,16 @@ class RasterMesh;
 class LC_RUNTIME_API RasterDispatchCmdEncoder final : public ShaderDispatchCmdEncoder {
 
 private:
-    luisa::span<const Function::Binding> _vertex_bindings;
-    luisa::span<const Function::Binding> _pixel_bindings;
-    luisa::span<const Function::Binding> _current_bindings;
+    luisa::span<const Function::Binding> _bindings;
     std::array<ShaderDispatchCommandBase::Argument::Texture, 8u> _rtv_texs;
     size_t _rtv_count{};
     ShaderDispatchCommandBase::Argument::Texture _dsv_tex{};
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport{};
 
-    void update_arg();
-
 public:
     explicit RasterDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
-                                      luisa::span<const Function::Binding> vertex_bindings,
-                                      luisa::span<const Function::Binding> pixel_bindings) noexcept;
+                                      luisa::span<const Function::Binding> bindings) noexcept;
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder const &) noexcept = delete;
     ~RasterDispatchCmdEncoder() noexcept;
     RasterDispatchCmdEncoder(RasterDispatchCmdEncoder &&) noexcept;

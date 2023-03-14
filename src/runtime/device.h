@@ -216,15 +216,15 @@ public:
         static_cast<void>(this->compile<N>(std::forward<Kernel>(kernel), option));
     }
 
-    template<typename... Args>
+    template<typename V, typename P>
     [[nodiscard]] auto compile(
-        const RasterKernel<Args...> &kernel,
+        const RasterKernel<V, P> &kernel,
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
         const ShaderOption &option = {}) noexcept {
-        return _create<typename RasterKernel<Args...>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
+        return _create<typename RasterKernel<V, P>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
     }
     template<typename V, typename P>
     void compile_to(
@@ -233,9 +233,9 @@ public:
         luisa::string_view serialization_path,
         bool enable_debug_info,
         bool enable_fast_math) {
-        _check_no_implicit_binding(kernel.vert().get(), serialization_path);
-        _check_no_implicit_binding(kernel.pixel().get(), serialization_path);
-        _impl->save_raster_shader(format, Function(kernel.vert().get()), Function(kernel.pixel().get()), serialization_path, enable_debug_info, enable_fast_math);
+        _check_no_implicit_binding(kernel.vert(), serialization_path);
+        _check_no_implicit_binding(kernel.pixel(), serialization_path);
+        _impl->save_raster_shader(format, kernel.vert(), kernel.pixel(), serialization_path, enable_debug_info, enable_fast_math);
     }
 
     template<typename... Args>
