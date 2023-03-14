@@ -63,7 +63,7 @@ void CUDAMesh::_build(CUDACommandEncoder &encoder) noexcept {
         return (x + alignment - 1u) / alignment * alignment;
     };
 
-    auto output_handle = 0ull;
+    auto output_handle = static_cast<optix::TraversableHandle>(0u);
     if (option().allow_compaction) {// with compaction
         auto temp_buffer_offset = align(0u);
         auto output_buffer_offset = align(temp_buffer_offset + sizes.tempSizeInBytes);
@@ -123,7 +123,7 @@ void CUDAMesh::_update(CUDACommandEncoder &encoder) noexcept {
     auto cuda_stream = encoder.stream()->handle();
     auto update_buffer = 0ull;
     LUISA_CHECK_CUDA(cuMemAllocAsync(&update_buffer, _update_buffer_size, cuda_stream));
-    auto output_handle = 0ull;
+    auto output_handle = static_cast<optix::TraversableHandle>(0u);
     LUISA_CHECK_OPTIX(optix::api().accelBuild(
         encoder.stream()->device()->handle().optix_context(), cuda_stream,
         &build_options, &build_input, 1u, update_buffer, _update_buffer_size,
