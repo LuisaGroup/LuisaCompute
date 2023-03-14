@@ -328,36 +328,31 @@ def set_block_size(x, y, z):
 def sync_block():
     return None, lcapi.builder().call(lcapi.CallOp.SYNCHRONIZE_BLOCK, [])
 
-# return dtype, expr
-def builtin_func(name, *args, **kwargs):
+_func_map = {}
+def _compute_xx_id(name, *args):
+    assert len(args) == 0
+    # NOTE: cast to signed int by default
+    expr = getattr(lcapi.builder(), name)()
+    dtype = uint3
+    expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
+    tmp = lcapi.builder().local(to_lctype(dtype))
+    lcapi.builder().assign(tmp, expr1)
+    return dtype, tmp
+for _func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
+    _func_map[_func] = _compute_xx_id
+def _custom_xx_id(name, *args):
+    assert len(args) == 0
+    # NOTE: cast to signed int by default
+    expr = getattr(lcapi.builder(), name)()
+    dtype = uint
+    tmp = lcapi.builder().local(to_lctype(dtype))
+    lcapi.builder().assign(tmp, expr)
+    return dtype, tmp
 
-    for f in [set_block_size, sync_block]:
-        if name == f.__name__:
-            return f.builder(*args, **kwargs)
-
-    # e.g. dispatch_id()
-    for func in 'thread_id', 'block_id', 'dispatch_id', 'dispatch_size':
-        if name == func:
-            assert len(args) == 0
-            # NOTE: cast to signed int by default
-            expr = getattr(lcapi.builder(), func)()
-            dtype = uint3
-            expr1 = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.MAKE_INT3, [expr])
-            tmp = lcapi.builder().local(to_lctype(dtype))
-            lcapi.builder().assign(tmp, expr1)
-            return dtype, tmp
-
-    for func in 'kernel_id', 'object_id':
-        if name == func:
-            assert len(args) == 0
-            # NOTE: cast to signed int by default
-            expr = getattr(lcapi.builder(), func)()
-            dtype = uint
-            tmp = lcapi.builder().local(to_lctype(dtype))
-            lcapi.builder().assign(tmp, expr)
-            return dtype, tmp
-
-    # e.g. make_float4(...)
+for _func in 'kernel_id', 'object_id':
+    _func_map[_func] = _custom_xx_id
+# e.g. make_float4(...)
+def _make_vec(name, *args):
     for T in 'uint', 'int', 'float', 'bool':
         for N in 2, 3, 4:
             if name == f'make_{T}{N}':
@@ -370,13 +365,13 @@ def builtin_func(name, *args, **kwargs):
                 op = getattr(lcapi.CallOp, name.upper())
                 dtype = getattr(lcapi, f'{T}{N}')
                 return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+for T in 'uint', 'int', 'float', 'bool':
+    for N in 2, 3, 4:
+        _func_map[f'make_{T}{N}'] = _make_vec
 
-    # e.g. make_float2x2(...)
+def _make_matrices(name, *args):
     for N in 2, 3, 4:
         if name == f'make_float{N}x{N}':
-            # for x in args:
-            #     if element_of(x.dtype) != float and x.dtype != int:
-            #         raise TypeError(f"Can't make {T}{N}x{N} from {x.dtype} (must be of same element type)")
             try:
                 if len(args) == 1:
                     assert args[0].dtype in {float2x2, float3x3, float4x4}
@@ -391,181 +386,191 @@ def builtin_func(name, *args, **kwargs):
             op = getattr(lcapi.CallOp, name.upper())
             dtype = getattr(lcapi, f'float{N}x{N}')
             return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+for N in 2, 3, 4:
+    _func_map[f'make_float{N}x{N}'] = _make_matrices
+def _atan2(name, *args):
+    assert len(args) == 2
+    assert (args[0].dtype in {float, float2, float3, float4}) and (args[0].dtype == args[1].dtype)
+    op = getattr(lcapi.CallOp, name.upper())
+    dtype = args[0].dtype
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+_func_map["atan2"] = _atan2
+def _one_float_arg(name, *args):
+    assert len(args) == 1
+    assert args[0].dtype in {float, float2, float3, float4}
+    op = getattr(lcapi.CallOp, name.upper())
+    dtype = args[0].dtype
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
 
-    # e.g. sin(x)
-    if name == 'atan2':
-        assert len(args) == 2
-        assert (args[0].dtype in {float, float2, float3, float4}) and (args[0].dtype == args[1].dtype)
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
-    if name in ('acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh',
-                'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
-                'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round'):
+for name in ('acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh','sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10','sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'saturate'):
+    _func_map[name] = _one_float_arg
         # type check: arg must be float / float vector
-        assert len(args) == 1
-        assert args[0].dtype in {float, float2, float3, float4}
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-        
-    if name in ('isinf','isnan'):
-        # type check: arg must be float / float vector
-        assert len(args) == 1
-        assert args[0].dtype in {float, float2, float3, float4}
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = to_bool(args[0].dtype)
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+def _is(name, *args):
+    assert len(args) == 1
+    assert args[0].dtype in {float, float2, float3, float4}
+    op = getattr(lcapi.CallOp, name.upper())
+    dtype = to_bool(args[0].dtype)
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+for name in ('isinf','isnan'):
+    _func_map[name] = _is
 
-    if name in ('abs'):
-        assert len(args) == 1
-        assert args[0].dtype in arithmetic_dtypes
-        op = getattr(lcapi.CallOp, name.upper())
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
-
-    if name in ('copysign'):
-        assert len(args) == 2
-        return make_vector_call(float, lcapi.CallOp.COPYSIGN, args)
-
-    if name in ('min', 'max'):
-        assert len(args) == 2
-        op = getattr(lcapi.CallOp, name.upper())
-        return make_vector_call(element_of(args[0].dtype), op, args)
-
-    if name in ('length', 'length_squared'):
-        assert len(args) == 1
-        assert args[0].dtype in {float2, float3, float4}
-        op = getattr(lcapi.CallOp, name.upper())
-        return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
-
-    if name in ('normalize'):
-        assert len(args) == 1
-        assert args[0].dtype in {float2, float3, float4}
-        op = getattr(lcapi.CallOp, name.upper())
-        return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), op, [x.expr for x in args])
-
-    if name in ('dot'):
-        assert len(args) == 2
-        assert args[0].dtype in {float2, float3, float4}
-        assert args[0].dtype == args[1].dtype
-        op = getattr(lcapi.CallOp, name.upper())
-        return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
-
-    if name in ('cross'):
-        assert len(args) == 2
-        assert args[0].dtype == float3
-        assert args[1].dtype == float3
-        op = getattr(lcapi.CallOp, name.upper())
-        return float3, lcapi.builder().call(to_lctype(float3), op, [x.expr for x in args])
-
-    if name in ('lerp'):
-        assert len(args) == 3
-        return make_vector_call(float, lcapi.CallOp.LERP, args)
-
-    if name in ('select'):
-        bool_vec_len = length_of(args[2].dtype)
-        assert len(args) == 3 and\
-            args[2].dtype in [bool, bool2, bool3, bool4] and\
-            args[0].dtype == args[1].dtype and\
-            args[0].dtype in scalar_and_vector_dtypes and\
-            (length_of(args[0].dtype) == bool_vec_len or bool_vec_len == 1)
-        return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
-
-    if name == 'print':
-        globalvars.printer.kernel_print(args)
-        globalvars.current_context.uses_printer = True
-        return None, None
-
-    if name == 'pow':
-        assert len(args) == 2
-        for arg in args:
-            if arg.dtype is not float:
-                arg.dtype, arg.expr = builtin_type_cast(to_float(arg.dtype), arg)
-        return make_vector_call(float, lcapi.CallOp.POW, args)
-
-    if name in ('all', 'any'):
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 1
-        assert args[0].dtype in vector_dtypes and element_of(args[0].dtype) is bool
-        return bool, lcapi.builder().call(to_lctype(bool), op, [args[0].expr])
-    if name == 'saturate':
-        assert len(args) == 1
-        e = element_of(args[0].dtype)
+def _abs(name, *args):
+    assert len(args) == 1
+    assert args[0].dtype in arithmetic_dtypes
+    op = getattr(lcapi.CallOp, name.upper())
+    dtype = args[0].dtype
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [x.expr for x in args])
+_func_map["abs"] = _abs
+def _copysign(name, *args):
+    assert len(args) == 2
+    return make_vector_call(float, lcapi.CallOp.COPYSIGN, args)
+_func_map["copysign"] = _copysign
+def _minmax(name, *args):
+    assert len(args) == 2
+    op = getattr(lcapi.CallOp, name.upper())
+    return make_vector_call(element_of(args[0].dtype), op, args)
+for name in ('min', 'max'):
+    _func_map[name] = _minmax
+def _len(name, *args):
+    assert len(args) == 1
+    assert args[0].dtype in {float2, float3, float4}
+    op = getattr(lcapi.CallOp, name.upper())
+    return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
+for name in ('length', 'length_squared'):
+    _func_map[name] = _len
+def _normalize(name, *args):
+    assert len(args) == 1
+    assert args[0].dtype in {float2, float3, float4}
+    op = getattr(lcapi.CallOp, name.upper())
+    return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), op, [x.expr for x in args])
+_func_map["normalize"] = _normalize
+def _dot(name, *args):
+    assert len(args) == 2
+    assert args[0].dtype in {float2, float3, float4}
+    assert args[0].dtype == args[1].dtype
+    op = getattr(lcapi.CallOp, name.upper())
+    return float, lcapi.builder().call(to_lctype(float), op, [x.expr for x in args])
+_func_map["dot"] = _dot
+def _cross(name, *args):
+    assert len(args) == 2
+    assert args[0].dtype == float3
+    assert args[1].dtype == float3
+    op = getattr(lcapi.CallOp, name.upper())
+    return float3, lcapi.builder().call(to_lctype(float3), op, [x.expr for x in args])
+_func_map["cross"] = _cross
+def _lerp(name, *args):
+    assert len(args) == 3
+    return make_vector_call(float, lcapi.CallOp.LERP, args)
+_func_map["lerp"] = _lerp
+def _select(name, *args):
+    bool_vec_len = length_of(args[2].dtype)
+    assert len(args) == 3 and\
+        args[2].dtype in [bool, bool2, bool3, bool4] and\
+        args[0].dtype == args[1].dtype and\
+        args[0].dtype in scalar_and_vector_dtypes and\
+        (length_of(args[0].dtype) == bool_vec_len or bool_vec_len == 1)
+    return args[0].dtype, lcapi.builder().call(to_lctype(args[0].dtype), lcapi.CallOp.SELECT, [x.expr for x in args])
+_func_map["select"] = _select
+def _print(name, *args):
+    globalvars.printer.kernel_print(args)
+    globalvars.current_context.uses_printer = True
+    return None, None
+_func_map["print"] = _print
+def _pow(name, *args):
+    assert len(args) == 2
+    for arg in args:
+        if arg.dtype is not float:
+            arg.dtype, arg.expr = builtin_type_cast(to_float(arg.dtype), arg)
+    return make_vector_call(float, lcapi.CallOp.POW, args)
+_func_map["pow"] = _pow
+def _aa(name, *args):
+    op = getattr(lcapi.CallOp, name.upper())
+    assert len(args) == 1
+    assert args[0].dtype in vector_dtypes and element_of(args[0].dtype) is bool
+    return bool, lcapi.builder().call(to_lctype(bool), op, [args[0].expr])
+for name in ('all', 'any'):
+    _func_map[name] = _aa
+def _tri_arg(name, *args):
+    op = getattr(lcapi.CallOp, name.upper())
+    assert len(args) == 3
+    e = element_of(args[0].dtype)
+    if name == 'clamp':
         assert e in {int, float, uint}
-        op = getattr(lcapi.CallOp, name.upper())
-        return make_vector_call(e, op, args)
-
-    if name in ('clamp', 'fma'):
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 3
-        e = element_of(args[0].dtype)
-        if name == 'clamp':
-            assert e in {int, float, uint}
-        else:
-            assert e == float
-        return make_vector_call(e, op, args)
-
-    if name == 'step':
-        op = lcapi.CallOp.STEP
-        assert len(args) == 2
-        assert implicit_covertable(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
-               "invalid parameter"
-        if args[0].dtype in {int, float, uint}:
-            # step(scalar, scalar) -> float
-            dtype = float
-        else:
-            # step(vector<scalar>, vector<scalar>) -> vector(float)
-            dtype = vector(float, length_of(args[0].dtype))
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-    if name in ('clz', 'ctz', 'popcount', 'reverse'):
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 1
-        assert args[0].dtype == int or \
-                args[0].dtype in vector_dtypes and element_of(args[0].dtype) is int, \
-               "invalid parameter"
-        # clz(uint) -> uint
-        # clz(vector<uint>) -> vector<uint>
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-    if name == 'faceforward':
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 3 and\
-        args[0].dtype == float3 and args[1].dtype == float3 and args[2].dtype == float3, \
-               "invalid parameter"
-        dtype = float3
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-    if name == 'reflect':
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 2
-        assert args[0].dtype == float3 and args[1].dtype == float3, "invalid parameter"
-        dtype = float3
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
-
-    if name == 'determinant':
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 1
-        assert to_lctype(args[0].dtype).is_matrix()
+    else:
+        assert e == float
+    return make_vector_call(e, op, args)
+for name in ('clamp', 'fma'):
+    _func_map[name] = _tri_arg
+def _step(name, *args):
+    op = lcapi.CallOp.STEP
+    assert len(args) == 2
+    assert implicit_covertable(args[0].dtype, args[1].dtype) and args[0].dtype in arithmetic_dtypes, \
+            "invalid parameter"
+    if args[0].dtype in {int, float, uint}:
+        # step(scalar, scalar) -> float
         dtype = float
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-
-    if name in ('transpose', 'inverse'):
-        op = getattr(lcapi.CallOp, name.upper())
-        assert len(args) == 1
-        assert to_lctype(args[0].dtype).is_matrix()
-        dtype = args[0].dtype
-        return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
-    if name == 'len':
-        assert len(args) == 1
-        if type(args[0].dtype) is ArrayType or args[0].dtype in vector_and_matrix_dtypes:
-            return int, lcapi.builder().literal(to_lctype(int), length_of(args[0].dtype))
-        raise TypeError(f"{nameof(args[0].dtype)} object has no len()")
-
-    raise NameError(f'unrecognized function call {name}')
+    else:
+        # step(vector<scalar>, vector<scalar>) -> vector(float)
+        dtype = vector(float, length_of(args[0].dtype))
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+_func_map["step"] = _step
+def _int_func(name, *args):
+    op = getattr(lcapi.CallOp, name.upper())
+    assert len(args) == 1
+    assert args[0].dtype == int or \
+            args[0].dtype in vector_dtypes and element_of(args[0].dtype) is int, \
+            "invalid parameter"
+    # clz(uint) -> uint
+    # clz(vector<uint>) -> vector<uint>
+    dtype = args[0].dtype
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
+for name in ('clz', 'ctz', 'popcount', 'reverse'):
+    _func_map[name] = _int_func
+def _faceforward(name, *args):
+    op = getattr(lcapi.CallOp, name.upper())
+    assert len(args) == 3 and\
+    args[0].dtype == float3 and args[1].dtype == float3 and args[2].dtype == float3, \
+            "invalid parameter"
+    dtype = float3
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+_func_map["faceforward"] = _faceforward
+def _reflect(name, *args):
+    op = getattr(lcapi.CallOp, name.upper())
+    assert len(args) == 2
+    assert args[0].dtype == float3 and args[1].dtype == float3, "invalid parameter"
+    dtype = float3
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [arg.expr for arg in args])
+_func_map["reflect"] = _reflect
+def _det(name, *args):
+    op = getattr(lcapi.CallOp, name.upper())
+    assert len(args) == 1
+    assert to_lctype(args[0].dtype).is_matrix()
+    dtype = float
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
+_func_map["determinant"] = _det
+def _mats(name, *args):
+    op = getattr(lcapi.CallOp, name.upper())
+    assert len(args) == 1
+    assert to_lctype(args[0].dtype).is_matrix()
+    dtype = args[0].dtype
+    return dtype, lcapi.builder().call(to_lctype(dtype), op, [args[0].expr])
+for name in ('transpose', 'inverse'):
+    _func_map[name] = _mats
+def _len(name, *args):
+    assert len(args) == 1
+    if type(args[0].dtype) is ArrayType or args[0].dtype in vector_and_matrix_dtypes:
+        return int, lcapi.builder().literal(to_lctype(int), length_of(args[0].dtype))
+    raise TypeError(f"{nameof(args[0].dtype)} object has no len()")
+_func_map["len"] = _len
+# return dtype, expr
+def builtin_func(name, *args, **kwargs):
+    for f in [set_block_size, sync_block]:
+        if name == f.__name__:
+            return f.builder(*args, **kwargs)
+    func = _func_map.get(name)
+    if func == None:
+        raise NameError(f'unrecognized function call {name}')
+    return func(name, *args)
 
 
 def callable_call(func, *args):

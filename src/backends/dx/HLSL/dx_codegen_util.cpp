@@ -1,6 +1,6 @@
 #include "dx_codegen.h"
 #include <vstl/string_utility.h>
-#include <vstl/variant_util.h>
+#include <HLSL/variant_util.h>
 #include <ast/constant_data.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"

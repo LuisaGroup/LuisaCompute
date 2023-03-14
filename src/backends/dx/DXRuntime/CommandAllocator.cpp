@@ -2,7 +2,7 @@
 #include <DXRuntime/CommandQueue.h>
 namespace toolhub::directx {
 template<typename Pack>
-uint64 CommandAllocator::Visitor<Pack>::Allocate(uint64 size) {
+uint64 CommandAllocator::Visitor<Pack>::allocate(uint64 size) {
     auto packPtr = new Pack(
         self->device,
         size,
@@ -18,13 +18,13 @@ vstd::unique_ptr<Pack> CommandAllocator::Visitor<Pack>::Create(uint64 size) {
 }
 
 template<typename Pack>
-void CommandAllocator::Visitor<Pack>::DeAllocate(uint64 handle) {
+void CommandAllocator::Visitor<Pack>::deallocate(uint64 handle) {
     delete reinterpret_cast<Pack *>(handle);
 }
 template<typename T>
 void CommandAllocator::BufferAllocator<T>::Clear() {
     largeBuffers.clear();
-    alloc.Dispose();
+    alloc.dispose();
 }
 template<typename T>
 CommandAllocator::BufferAllocator<T>::BufferAllocator(size_t initCapacity)
@@ -36,7 +36,7 @@ CommandAllocator::BufferAllocator<T>::~BufferAllocator() {
 template<typename T>
 BufferView CommandAllocator::BufferAllocator<T>::Allocate(size_t size) {
     if (size <= kLargeBufferSize) [[likely]] {
-        auto chunk = alloc.Allocate(size);
+        auto chunk = alloc.allocate(size);
         return BufferView(reinterpret_cast<T const *>(chunk.handle), chunk.offset, size);
     } else {
         auto &v = largeBuffers.emplace_back(visitor.Create(size));
@@ -46,7 +46,7 @@ BufferView CommandAllocator::BufferAllocator<T>::Allocate(size_t size) {
 template<typename T>
 BufferView CommandAllocator::BufferAllocator<T>::Allocate(size_t size, size_t align) {
     if (size <= kLargeBufferSize) [[likely]] {
-        auto chunk = alloc.Allocate(size, align);
+        auto chunk = alloc.allocate(size, align);
         return BufferView(reinterpret_cast<T const *>(chunk.handle), chunk.offset, size);
     } else {
         auto &v = largeBuffers.emplace_back(visitor.Create(size));
@@ -166,8 +166,8 @@ void CommandAllocator::Reset(CommandQueue *queue) {
     readbackAllocator.Clear();
     uploadAllocator.Clear();
     defaultAllocator.Clear();
-    rtvAllocator.Clear();
-    dsvAllocator.Clear();
+    rtvAllocator.clear();
+    dsvAllocator.clear();
     CommandAllocatorBase::Reset(queue);
 }
 
@@ -213,13 +213,13 @@ BufferView CommandAllocator::GetTempDefaultBuffer(uint64 size, size_t align) {
     }
 }
 
-uint64 CommandAllocator::DescHeapVisitor::Allocate(uint64 size) {
+uint64 CommandAllocator::DescHeapVisitor::allocate(uint64 size) {
     return reinterpret_cast<uint64>(new DescriptorHeap(
         device,
         type,
         size, false));
 }
-void CommandAllocator::DescHeapVisitor::DeAllocate(uint64 handle) {
+void CommandAllocator::DescHeapVisitor::deallocate(uint64 handle) {
     delete reinterpret_cast<DescriptorHeap *>(handle);
 }
 CommandAllocatorBase::~CommandAllocatorBase() {

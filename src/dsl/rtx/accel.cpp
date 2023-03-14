@@ -5,16 +5,16 @@ namespace luisa::compute {
 
 namespace detail {
 
-Var<Hit> AccelExprProxy::trace_closest(Expr<Ray> ray) const noexcept {
-    return Expr<Accel>{_accel}.trace_closest(ray);
+Var<Hit> AccelExprProxy::trace_closest(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
+    return Expr<Accel>{_accel}.trace_closest(ray, vis_mask);
 }
 
-Var<bool> AccelExprProxy::trace_any(Expr<Ray> ray) const noexcept {
-    return Expr<Accel>{_accel}.trace_any(ray);
+Var<bool> AccelExprProxy::trace_any(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
+    return Expr<Accel>{_accel}.trace_any(ray, vis_mask);
 }
 
-RayQuery AccelExprProxy::trace_all(Expr<Ray> ray) const noexcept {
-    return Expr<Accel>{_accel}.trace_all(ray);
+RayQuery AccelExprProxy::trace_all(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
+    return Expr<Accel>{_accel}.trace_all(ray, vis_mask);
 }
 
 Var<float4x4> AccelExprProxy::instance_transform(Expr<int> instance_id) const noexcept {

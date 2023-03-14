@@ -47,17 +47,15 @@ class LC_RUNTIME_API RasterShaderInvoke {
 
 private:
     RasterDispatchCmdEncoder _command;
-    luisa::span<const Function::Binding> _vertex_bindings;
-    luisa::span<const Function::Binding> _pixel_bindings;
+    luisa::span<const Function::Binding> _bindings;
 
 public:
     explicit RasterShaderInvoke(
         size_t arg_size,
         size_t uniform_size,
         uint64_t handle,
-        luisa::span<const Function::Binding> vertex_bindings,
-        luisa::span<const Function::Binding> pixel_bindings) noexcept
-        : _command{handle, arg_size, uniform_size, vertex_bindings, pixel_bindings} {
+        luisa::span<const Function::Binding> bindings) noexcept
+        : _command{handle, arg_size, uniform_size, bindings} {
     }
     RasterShaderInvoke(RasterShaderInvoke &&) noexcept = default;
     RasterShaderInvoke(const RasterShaderInvoke &) noexcept = delete;
@@ -113,7 +111,7 @@ public:
     luisa::span<PixelFormat const> _rtv_format;
     DepthFormat _dsv_format;
     void check_dst(luisa::span<PixelFormat const> rt_formats, DepthBuffer const *depth) noexcept;
-    void check_scene(luisa::span<RasterMesh const> scene) noexcept;
+    void check_scene(luisa::vector<RasterMesh> const &scene) noexcept;
 #endif
     template<typename... Rtv>
         requires(sizeof...(Rtv) == 0 || detail::LegalDst<Rtv...>())
@@ -151,8 +149,7 @@ class RasterShader : public Resource {
 
 private:
     friend class Device;
-    luisa::vector<Function::Binding> _vertex_bindings;
-    luisa::vector<Function::Binding> _pixel_bindings;
+    luisa::vector<Function::Binding> _bindings;
     size_t _uniform_size;
 #ifndef NDEBUG
     MeshFormat _mesh_format;
@@ -163,70 +160,14 @@ private:
     // JIT Shader
     // clang-format off
 
-    RasterShader(
-        DeviceInterface *device,
-        const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<PixelFormat const> rtv_format,
-        DepthFormat dsv_format,
-        luisa::shared_ptr<const detail::FunctionBuilder> vert,
-        luisa::shared_ptr<const detail::FunctionBuilder> pixel,
-        luisa::string_view name,
-        bool enable_debug_info,
-        bool enable_fast_math) noexcept
-        : Resource(
-              device,
-              Tag::RASTER_SHADER,
-              device->create_raster_shader(
-                  mesh_format,
-                  raster_state,
-                  rtv_format,
-                  dsv_format,
-                  Function(vert.get()),
-                  Function(pixel.get()),
-                  ShaderOption{
-                    .enable_cache = true,
-                    .enable_fast_math = enable_fast_math,
-                    .enable_debug_info = enable_debug_info,
-                    .name = name})),
-         _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
-              detail::shader_argument_types<Args...>())}
-#ifndef NDEBUG
-        ,_mesh_format(mesh_format),
-        _raster_state(raster_state),
-        _dsv_format(dsv_format)
-#endif
-        {
-#ifndef NDEBUG
-            _rtv_format.resize(rtv_format.size());
-            memcpy(_rtv_format.data(), rtv_format.data(), rtv_format.size_bytes());
-            detail::rastershader_check_rtv_format(_rtv_format);
-            detail::rastershader_check_vertex_func(Function{vert.get()});
-            detail::rastershader_check_pixel_func(Function{pixel.get()});
-#endif
-            auto copy_vec = [](auto&& src, auto&& dst){
-                src.push_back_uninitialized(dst.size());
-                std::memcpy(src.data(), dst.data(), dst.size_bytes());
-            };
-            auto vert_bindings = vert->argument_bindings();
-            auto pixel_bindings = pixel->argument_bindings();
-            copy_vec(_vertex_bindings, vert_bindings);
-            copy_vec(_pixel_bindings, pixel_bindings);
-#ifndef NDEBUG
-        
-#endif
-        }
-
     RasterShader(DeviceInterface *device,
                  const MeshFormat &mesh_format,
                  const RasterState &raster_state,
                  luisa::span<PixelFormat const> rtv_format,
                  DepthFormat dsv_format,
-                 luisa::shared_ptr<const detail::FunctionBuilder> vert,
-                 luisa::shared_ptr<const detail::FunctionBuilder> pixel,
-                 bool enable_cache,
-                 bool enable_debug_info,
-                 bool enable_fast_math)noexcept
+                 Function vert,
+                 Function pixel,
+                 ShaderOption const& option)noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,
@@ -235,12 +176,9 @@ private:
                   raster_state,
                   rtv_format,
                   dsv_format,
-                  Function(vert.get()),
-                  Function(pixel.get()),
-                  ShaderOption{
-                    .enable_cache = enable_cache,
-                    .enable_fast_math = enable_fast_math,
-                    .enable_debug_info = enable_debug_info})),
+                  vert,
+                  pixel,
+                  option)),
          _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
                 detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
@@ -253,17 +191,18 @@ private:
             _rtv_format.resize(rtv_format.size());
             memcpy(_rtv_format.data(), rtv_format.data(), rtv_format.size_bytes());
             detail::rastershader_check_rtv_format(_rtv_format);
-            detail::rastershader_check_vertex_func(Function{vert.get()});
-            detail::rastershader_check_pixel_func(Function{pixel.get()});
+            detail::rastershader_check_vertex_func(vert);
+            detail::rastershader_check_pixel_func(pixel);
 #endif
-            auto copy_vec = [](auto&& src, auto&& dst){
-                src.push_back_uninitialized(dst.size());
-                std::memcpy(src.data(), dst.data(), dst.size_bytes());
-            };
-            auto vert_bindings = vert->argument_bindings();
-            auto pixel_bindings = pixel->argument_bindings();
-            copy_vec(_vertex_bindings, vert_bindings);
-            copy_vec(_pixel_bindings, pixel_bindings);
+            auto vert_bindings = vert.argument_bindings().subspan(1);
+            auto pixel_bindings = pixel.argument_bindings().subspan(1);
+            _bindings.reserve(vert_bindings.size() + pixel_bindings.size());
+            for(auto&& i : vert_bindings){
+                _bindings.emplace_back(i);
+            }
+            for(auto&& i : pixel_bindings){
+                _bindings.emplace_back(i);
+            }
         }
     // AOT Shader
     RasterShader(
@@ -309,17 +248,16 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         size_t arg_size;
-        if (_vertex_bindings.empty() || _pixel_bindings.empty()) {
+        if (_bindings.empty()) {
             arg_size = sizeof...(Args);
         } else {
-            arg_size = (_vertex_bindings.size() + _pixel_bindings.size() - 2);
+            arg_size = _bindings.size();
         }
         RasterShaderInvoke invoke(
             arg_size,
             _uniform_size,
             handle(),
-            _vertex_bindings,
-            _pixel_bindings);
+            _bindings);
 #ifndef NDEBUG
         invoke._raster_state = &_raster_state;
         invoke._mesh_format = &_mesh_format;

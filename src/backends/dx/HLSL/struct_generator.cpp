@@ -2,7 +2,7 @@
 #include "codegen_stack_data.h"
 #include "struct_generator.h"
 #include "dx_codegen.h"
-#include <vstl/common_iterator.h>
+#include <HLSL/common_iterator.h>
 namespace toolhub::directx {
 /*
 size_t StructureType::size() const {

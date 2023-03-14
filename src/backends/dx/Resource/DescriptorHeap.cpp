@@ -36,7 +36,7 @@ uint32_t DescriptorHeap::AllocateIndex() {
     std::lock_guard lck(heapMtx);
     if (freeList.empty()) {
         if(allocIndex == numDescriptors)[[unlikely]]{
-            VEngine_Log("bindless allocator out or range!\n");
+            vengine_log("bindless allocator out or range!\n");
             VENGINE_EXIT;
         }
         auto v = allocIndex;

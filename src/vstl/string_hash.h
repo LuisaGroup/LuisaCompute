@@ -9,7 +9,7 @@ namespace vstd {
 template<>
 struct hash<std::string_view> {
     inline size_t operator()(const std::string_view &str) const noexcept {
-        return Hash::CharArrayHash(str.data(), str.size());
+        return Hash::binary_hash(str.data(), str.size());
     }
 };
 
@@ -17,20 +17,20 @@ template<>
 struct hash<char const *> {
     inline size_t operator()(char const *ptr) const noexcept {
         auto sz = strlen(ptr);
-        return Hash::CharArrayHash(ptr, sz);
+        return Hash::binary_hash(ptr, sz);
     }
 };
 template<>
 struct hash<char *> {
     inline size_t operator()(char *ptr) const noexcept {
         auto sz = strlen(ptr);
-        return Hash::CharArrayHash(ptr, sz);
+        return Hash::binary_hash(ptr, sz);
     }
 };
 template<size_t i>
 struct hash<char[i]> {
     inline size_t operator()(char const *ptr) const noexcept {
-        return Hash::CharArrayHash(ptr, i - 1);
+        return Hash::binary_hash(ptr, i - 1);
     }
 };
 template<>
@@ -45,7 +45,7 @@ struct hash<wchar_t const *> {
     }
     inline size_t operator()(wchar_t const *ptr) const noexcept {
         auto sz = wstrlen(ptr);
-        return Hash::CharArrayHash(reinterpret_cast<char const *>(ptr), sz);
+        return Hash::binary_hash(reinterpret_cast<char const *>(ptr), sz);
     }
 };
 template<>
@@ -58,7 +58,7 @@ struct hash<wchar_t *> {
 template<size_t i>
 struct hash<wchar_t[i]> {
     inline size_t operator()(wchar_t const *ptr) const noexcept {
-        return Hash::CharArrayHash(reinterpret_cast<char const *>(ptr), (i - 1) * sizeof(wchar_t));
+        return Hash::binary_hash(reinterpret_cast<char const *>(ptr), (i - 1) * sizeof(wchar_t));
     }
 };
 

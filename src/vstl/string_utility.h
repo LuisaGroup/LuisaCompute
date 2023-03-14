@@ -39,28 +39,22 @@ private:
     StringUtil() = delete;
     KILL_COPY_CONSTRUCT(StringUtil)
 public:
-    static StrvIEnumerator<char, CharSplitIterator> Split(std::string_view str, char sign) {
+    static StrvIEnumerator<char, CharSplitIterator> split(std::string_view str, char sign) {
         return {str.data(), str.data() + str.size(), sign};
     }
-    static StrvIEnumerator<vstd::string_view, StrVSplitIterator> Split(std::string_view str, vstd::string_view signs) {
+    static StrvIEnumerator<vstd::string_view, StrVSplitIterator> split(std::string_view str, vstd::string_view signs) {
         return {str.data(), str.data() + str.size(), signs};
     }
-    static int64 GetFirstIndexOf(std::string_view str, char sign);
 
-    static variant<int64, double> StringToNumber(std::string_view numStr);
-    static void ToLower(string &str);
-    static void ToUpper(string &str);
-    static char ToUpper(char c);
-    static char ToLower(char c);
-    static string ToLower(std::string_view str);
-    static string ToUpper(std::string_view str);
-    static void EncodeToBase64(span<uint8_t const> binary, string &result);
-    static void EncodeToBase64(span<uint8_t const> binary, char *result);
-    static void DecodeFromBase64(std::string_view str, vector<uint8_t> &result);
-    static void DecodeFromBase64(std::string_view str, uint8_t *size);
-    static void TransformWCharToChar(
-        wchar_t const *src,
-        char *dst,
-        size_t sz);
+    static void to_lower(string &str);
+    static void to_upper(string &str);
+    static char to_upper(char c);
+    static char to_lower(char c);
+    static string to_lower(std::string_view str);
+    static string to_upper(std::string_view str);
+    static void to_base64(span<uint8_t const> binary, string &result);
+    static void to_base64(span<uint8_t const> binary, char *result);
+    static void from_base64(std::string_view str, vector<uint8_t> &result);
+    static void from_base64(std::string_view str, uint8_t *size);
 };
 }// namespace vstd

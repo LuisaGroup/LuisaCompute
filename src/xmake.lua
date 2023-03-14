@@ -38,9 +38,13 @@ if get_config("enable_tools") then
 	includes("tools")
 end
 if EnableRust then
-	includes("api")
-	includes("ir")
 	includes("rust")
+end
+if EnableIR then
+	includes("ir")
+end
+if EnableAPI then
+	includes("api")
 end
 if get_config("enable_unity3d_plugin") then
 	includes("unity3d")

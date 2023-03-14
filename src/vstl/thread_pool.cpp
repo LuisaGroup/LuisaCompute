@@ -7,7 +7,7 @@ static thread_local Node *tlocalNode = nullptr;
 NodeAlloc::NodeAlloc()
     : pool(64, true) {}
 WorkerThread::WorkerThread(ThreadPool *tp)
-    : thd([tp, this] { tp->ThreadRun(this); }) {}
+    : thd([tp, this] { tp->thread_run(this); }) {}
 #ifndef NDEBUG
 static std::atomic_int64_t nodeCount = 0;
 struct MemoryLeakDetact {
@@ -23,7 +23,7 @@ Node::~Node() {
     --nodeCount;
 #endif
     for (auto &&i : afterWork) {
-        i->Deref();
+        i->deref();
     }
     if (parallelCount == 0)
         singleFunc.destroy();
@@ -32,7 +32,7 @@ Node::~Node() {
 }
 Node::Node(NodeAlloc *worker, ThreadPool *pool, ThreadBarrier *barrier, size_t joinedSize, size_t ref, function<void()> &&func)
     : worker(worker), parallelCount(0), ref(ref), pool(pool), joinedSize(joinedSize), barrier(barrier) {
-    barrier->AddRef();
+    barrier->addref();
 #ifndef NDEBUG
     ++nodeCount;
 #endif
@@ -40,23 +40,23 @@ Node::Node(NodeAlloc *worker, ThreadPool *pool, ThreadBarrier *barrier, size_t j
 }
 Node::Node(NodeAlloc *worker, ThreadPool *pool, ThreadBarrier *barrier, size_t joinedSize, size_t ref, function<void(size_t)> &&func, size_t count, size_t queueCount)
     : worker(worker), parallelCount(count), parallelIdx(0), ref(ref), pool(pool), queueCount(queueCount), joinedSize(joinedSize), barrier(barrier) {
-    barrier->AddRef();
+    barrier->addref();
 #ifndef NDEBUG
     ++nodeCount;
 #endif
     parallelFunc.create(std::move(func));
 }
 
-void Node::Deref() {
+void Node::deref() {
     if (--ref == 0) {
-        worker->pool.Delete_Lock(worker->allocMtx, this);
+        worker->pool.destroy_lock(worker->allocMtx, this);
     }
 }
 
-void Node::Execute() {
+void Node::execute() {
     curBarrier = barrier;
-    auto Then = [&] {
-        barrier->Notify();
+    auto then = [&] {
+        barrier->notify();
         mtx.lock();
         executing = false;
         mtx.unlock();
@@ -64,7 +64,7 @@ void Node::Execute() {
         for (auto i : afterWork) {
             if (--i->joinedSize == 0)
                 notifyCount += EnqueueNode(i);
-            i->Deref();
+            i->deref();
         }
         afterWork.clear();
         if (notifyCount == 0) return;
@@ -73,13 +73,13 @@ void Node::Execute() {
         if (workerInst) {
             notifyCount--;
         }
-        pool->NotifyWorker(notifyCount);
+        pool->notify_worker(notifyCount);
     };
     if (parallelCount == 0) {
         tlocalNode = this;
         (*singleFunc)();
         tlocalNode = nullptr;
-        Then();
+        then();
     } else {
         while (true) {
             auto i = parallelIdx++;
@@ -90,7 +90,7 @@ void Node::Execute() {
             (*parallelFunc)(i);
             tlocalNode = nullptr;
             if (++finishedIdx == parallelCount) {
-                Then();
+                then();
             }
         }
     }
@@ -100,30 +100,30 @@ Event::Event(Node *node)
     : node(node) {
 }
 
-Event Event::Then(function<void()> &&func) {
-    auto newNode = node->pool->AllocNode(node->barrier, 1, 2, std::move(func));
-    node->RunAfter(newNode);
+Event Event::then(function<void()> &&func) {
+    auto newNode = node->pool->alloc_node(node->barrier, 1, 2, std::move(func));
+    node->run_after(newNode);
     return {newNode};
 }
-Event Event::Then(function<void(size_t)> &&func, size_t count) {
+Event Event::then(function<void(size_t)> &&func, size_t count) {
     count = std::max<size_t>(1, count);
     auto queueCount = std::min<size_t>(count, node->pool->threadCount);
-    auto newNode = node->pool->AllocNode(node->barrier, 1, 2, std::move(func), count, queueCount);
-    node->RunAllAfter(newNode);
+    auto newNode = node->pool->alloc_node(node->barrier, 1, 2, std::move(func), count, queueCount);
+    node->run_all_after(newNode);
     return {newNode};
 }
-Event Event::AfterSelf(function<void()> &&func) {
+Event Event::after_self(function<void()> &&func) {
     auto node = tlocalNode;
-    auto newNode = node->pool->AllocNode(node->barrier, 1, 2, std::move(func));
-    node->RunAfter(newNode);
+    auto newNode = node->pool->alloc_node(node->barrier, 1, 2, std::move(func));
+    node->run_after(newNode);
     return {newNode};
 }
-Event Event::AfterSelf(function<void(size_t)> &&func, size_t count) {
+Event Event::after_self(function<void(size_t)> &&func, size_t count) {
     auto node = tlocalNode;
     count = std::max<size_t>(1, count);
     auto queueCount = std::min<size_t>(count, node->pool->threadCount);
-    auto newNode = node->pool->AllocNode(node->barrier, 1, 2, std::move(func), count, queueCount);
-    node->RunAllAfter(newNode);
+    auto newNode = node->pool->alloc_node(node->barrier, 1, 2, std::move(func), count, queueCount);
+    node->run_all_after(newNode);
     return {newNode};
 }
 size_t Node::EnqueueNode(Node *i) {
@@ -148,7 +148,7 @@ size_t Node::EnqueueNode(Node *i) {
         return i->queueCount;
     }
 }
-void Node::RunAfter(Node *node) {
+void Node::run_after(Node *node) {
     {
         std::lock_guard lck(mtx);
         if (executing) {
@@ -160,12 +160,12 @@ void Node::RunAfter(Node *node) {
         pool->globalQueue.push(node);
         pool->mtx.lock();
         pool->mtx.unlock();
-        pool->NotifyWorker(1);
+        pool->notify_worker(1);
     } else {
-        node->Deref();
+        node->deref();
     }
 }
-void Node::RunAllAfter(Node *node) {
+void Node::run_all_after(Node *node) {
     {
         std::lock_guard lck(mtx);
         if (executing) {
@@ -181,71 +181,71 @@ void Node::RunAllAfter(Node *node) {
         }
         pool->mtx.lock();
         pool->mtx.unlock();
-        pool->NotifyWorker(count);
+        pool->notify_worker(count);
     } else {
-        node->Deref();
+        node->deref();
     }
 }
 
 }// namespace tpool_detail
 
-ThreadEvent ThreadBarrier::Execute(function<void()> &&func) {
-    auto newNode = pool->AllocNode(this, 0, 2, std::move(func));
+ThreadEvent ThreadBarrier::execute(function<void()> &&func) {
+    auto newNode = pool->alloc_node(this, 0, 2, std::move(func));
     pool->globalQueue.push(newNode);
     pool->mtx.lock();
     pool->mtx.unlock();
-    pool->NotifyWorker(1);
+    pool->notify_worker(1);
     return {newNode};
 }
-ThreadEvent ThreadBarrier::Execute(function<void()> &&func, span<ThreadEvent const> depend) {
+ThreadEvent ThreadBarrier::execute(function<void()> &&func, span<ThreadEvent const> depend) {
     if (depend.empty()) {
-        return Execute(std::move(func));
+        return execute(std::move(func));
     }
-    auto newNode = pool->AllocNode(this, depend.size(), depend.size() + 1, std::move(func));
+    auto newNode = pool->alloc_node(this, depend.size(), depend.size() + 1, std::move(func));
     for (auto &&i : depend) {
-        i.node->RunAfter(newNode);
+        i.node->run_after(newNode);
     }
     return {newNode};
 }
 
-ThreadEvent ThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount) {
+ThreadEvent ThreadBarrier::execute(function<void(size_t)> &&func, size_t threadCount) {
     threadCount = std::max<size_t>(1, threadCount);
     auto queueCount = std::min<size_t>(threadCount, pool->threadCount);
-    auto newNode = pool->AllocNode(this, 0, queueCount + 1, std::move(func), threadCount, queueCount);
+    auto newNode = pool->alloc_node(this, 0, queueCount + 1, std::move(func), threadCount, queueCount);
     for (auto i : range(queueCount)) {
         pool->globalQueue.push(newNode);
     }
     pool->mtx.lock();
     pool->mtx.unlock();
-    pool->NotifyWorker(queueCount);
+    pool->notify_worker(queueCount);
     return {newNode};
 }
-ThreadEvent ThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend) {
+ThreadEvent ThreadBarrier::execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend) {
     if (depend.empty()) {
-        return Execute(std::move(func), threadCount);
+        return execute(std::move(func), threadCount);
     }
     threadCount = std::max<size_t>(1, threadCount);
     auto queueCount = std::min<size_t>(threadCount, pool->threadCount);
-    auto newNode = pool->AllocNode(this, depend.size(), depend.size() + 1, std::move(func), threadCount, queueCount);
+    auto newNode = pool->alloc_node(this, depend.size(), depend.size() + 1, std::move(func), threadCount, queueCount);
     for (auto &&i : depend) {
-        i.node->RunAllAfter(newNode);
+        i.node->run_all_after(newNode);
     }
     return {newNode};
 }
 
 template<typename... Args>
-tpool_detail::Node *ThreadPool::AllocNode(Args &&...args) {
+tpool_detail::Node *ThreadPool::alloc_node(Args &&...args) {
     tpool_detail::NodeAlloc *alloc;
     if (tpool_detail::workerInst) {
         alloc = &tpool_detail::workerInst->alloc;
     } else {
         alloc = &defaultNodeAlloc;
     }
-    auto ptr = alloc->pool.New_Lock(alloc->allocMtx, alloc, this, std::forward<Args>(args)...);
+    auto ptr = alloc->pool.create_lock(alloc->allocMtx, alloc, this, std::forward<Args>(args)...);
     return ptr;
 }
 
-void ThreadPool::NotifyWorker(size_t i) {
+void ThreadPool::notify_worker(size_t i) {
     if (i < threadCount) {
         for (auto v : range(i)) {
             cv.notify_one();
@@ -275,25 +275,25 @@ ThreadPool::~ThreadPool() {
 	}
     vengine_free(threads);
 }
-void ThreadPool::ThreadRun(tpool_detail::WorkerThread *worker) {
+void ThreadPool::thread_run(tpool_detail::WorkerThread *worker) {
     tpool_detail::workerInst = worker;
     auto disp = scope_exit([] { tpool_detail::workerInst = nullptr; });
     while (enabled) {
-        ThreadRun();
+        thread_run();
     }
 }
-void ThreadPool::ThreadRun() {
+void ThreadPool::thread_run() {
     auto ExecuteTmp = [&] {
         while (tpool_detail::workerInst->tempNode) {
             auto tmp = tpool_detail::workerInst->tempNode;
             tpool_detail::workerInst->tempNode = nullptr;
-            tmp->Execute();
-            tmp->Deref();
+            tmp->execute();
+            tmp->deref();
         }
     };
     while (auto task = globalQueue.pop()) {
-        (*task)->Execute();
-        (*task)->Deref();
+        (*task)->execute();
+        (*task)->deref();
         ExecuteTmp();
     }
     std::unique_lock lck(mtx);
@@ -305,73 +305,73 @@ void ThreadPool::ThreadRun() {
 ThreadEvent ThreadPool::CurrentEvent() {
     return ThreadEvent{tpool_detail::tlocalNode};
 }
-void ThreadBarrier::Notify() {
+void ThreadBarrier::notify() {
     if (--barrierCount == 0) {
         barrierMtx.lock();
         barrierMtx.unlock();
         barrierCv.notify_all();
     }
 }
-void ThreadBarrier::Wait() {
+void ThreadBarrier::wait() {
     if (barrierCount.load(std::memory_order_relaxed) == 0) return;
     std::unique_lock lck(barrierMtx);
     while (barrierCount > 0) {
         barrierCv.wait(lck);
     }
 }
-void ThreadBarrier::AddRef() {
+void ThreadBarrier::addref() {
     barrierCount++;
 }
 ThreadBarrier::~ThreadBarrier() {
-    Wait();
+    wait();
 }
 DeferredThreadBarrier::DeferredThreadBarrier(ThreadPool *pool)
     : barrier(pool) {}
 DeferredThreadBarrier::~DeferredThreadBarrier() {
-    Submit();
-    Wait();
+    submit();
+    wait();
 }
-ThreadEvent DeferredThreadBarrier::Execute(function<void()> &&func) {
+ThreadEvent DeferredThreadBarrier::execute(function<void()> &&func) {
     auto pool = barrier.pool;
-    auto newNode = pool->AllocNode(&barrier, 0, 2, std::move(func));
+    auto newNode = pool->alloc_node(&barrier, 0, 2, std::move(func));
     nodes.push(newNode);
     return {newNode};
 }
-ThreadEvent DeferredThreadBarrier::Execute(function<void()> &&func, span<ThreadEvent const> depend) {
+ThreadEvent DeferredThreadBarrier::execute(function<void()> &&func, span<ThreadEvent const> depend) {
     if (depend.empty()) {
-        return Execute(std::move(func));
+        return execute(std::move(func));
     }
     auto pool = barrier.pool;
-    auto newNode = pool->AllocNode(&barrier, depend.size(), depend.size() + 1, std::move(func));
+    auto newNode = pool->alloc_node(&barrier, depend.size(), depend.size() + 1, std::move(func));
     for (auto &&i : depend) {
-        i.node->RunAfter(newNode);
+        i.node->run_after(newNode);
     }
     return {newNode};
 }
-ThreadEvent DeferredThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount) {
+ThreadEvent DeferredThreadBarrier::execute(function<void(size_t)> &&func, size_t threadCount) {
     auto pool = barrier.pool;
     threadCount = std::max<size_t>(1, threadCount);
     auto queueCount = std::min<size_t>(threadCount, pool->threadCount);
-    auto newNode = pool->AllocNode(&barrier, 0, queueCount + 1, std::move(func), threadCount, queueCount);
+    auto newNode = pool->alloc_node(&barrier, 0, queueCount + 1, std::move(func), threadCount, queueCount);
     nodes.push(newNode);
     /*	for (auto i : range(queueCount)) {
 	}*/
     return {newNode};
 }
-ThreadEvent DeferredThreadBarrier::Execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend) {
+ThreadEvent DeferredThreadBarrier::execute(function<void(size_t)> &&func, size_t threadCount, span<ThreadEvent const> depend) {
     if (depend.empty()) {
-        return Execute(std::move(func), threadCount);
+        return execute(std::move(func), threadCount);
     }
     threadCount = std::max<size_t>(1, threadCount);
     auto pool = barrier.pool;
     auto queueCount = std::min<size_t>(threadCount, pool->threadCount);
-    auto newNode = pool->AllocNode(&barrier, depend.size(), depend.size() + 1, std::move(func), threadCount, queueCount);
+    auto newNode = pool->alloc_node(&barrier, depend.size(), depend.size() + 1, std::move(func), threadCount, queueCount);
     for (auto &&i : depend) {
-        i.node->RunAllAfter(newNode);
+        i.node->run_all_after(newNode);
     }
     return {newNode};
 }
-void DeferredThreadBarrier::Submit() {
+void DeferredThreadBarrier::submit() {
     size_t count = 0;
     auto pool = barrier.pool;
     while (auto vOpt = nodes.pop()) {
@@ -389,11 +389,11 @@ void DeferredThreadBarrier::Submit() {
     if (count > 0) {
         pool->mtx.lock();
         pool->mtx.unlock();
-        pool->NotifyWorker(count);
+        pool->notify_worker(count);
     }
 }
-void DeferredThreadBarrier::Wait() {
-    barrier.Wait();
+void DeferredThreadBarrier::wait() {
+    barrier.wait();
 }
 
 }// namespace vstd

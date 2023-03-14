@@ -17,7 +17,7 @@ private:
     MD5Data data;
 
 public:
-    MD5Data const &ToBinary() const { return data; }
+    MD5Data const &to_binary() const { return data; }
     MD5() {}
     MD5(string const &str);
     MD5(vstd::string_view str);
@@ -25,7 +25,7 @@ public:
     MD5(MD5 const &) = default;
     MD5(MD5 &&) = default;
     MD5(MD5Data const &data);
-    string ToString(bool upper = true) const;
+    string to_string(bool upper = true) const;
     template<typename T>
     MD5 &operator=(T &&t) {
         this->~MD5();
@@ -41,14 +41,14 @@ public:
 template<>
 struct hash<MD5::MD5Data> {
     size_t operator()(MD5::MD5Data const &m) const {
-        return Hash::CharArrayHash(&m.data0, sizeof(MD5::MD5Data));
+        return Hash::binary_hash(&m.data0, sizeof(MD5::MD5Data));
     }
 };
 template<>
 struct hash<MD5> {
     size_t operator()(MD5 const &m) const {
         static hash<MD5::MD5Data> dataHasher;
-        return dataHasher(m.ToBinary());
+        return dataHasher(m.to_binary());
     }
 };
 
