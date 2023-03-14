@@ -9,12 +9,13 @@ if (WIN32)
             DXApi/LCSwapChain.cpp DXApi/LCSwapChain.h
 
             HLSL/codegen_stack_data.cpp HLSL/codegen_stack_data.h
+            HLSL/common_iterator.h
             HLSL/dx_codegen.cpp HLSL/dx_codegen.h
             HLSL/dx_codegen_util.cpp
             HLSL/shader_property.h
-            HLSL/stack_allocator.cpp HLSL/stack_allocator.h
             HLSL/string_builder.cpp HLSL/string_builder.h
             HLSL/struct_generator.cpp HLSL/struct_generator.h
+            HLSL/variant_util.h
 
             DXRuntime/CommandAllocator.cpp DXRuntime/CommandAllocator.h
             DXRuntime/CommandAllocatorBase.h

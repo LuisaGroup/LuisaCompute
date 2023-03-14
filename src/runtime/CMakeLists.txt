@@ -12,6 +12,7 @@ set(LUISA_COMPUTE_RUNTIME_RTX_SOURCES
         rtx/triangle.h)
 
 set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
+        raster/app_data.h
         raster/depth_buffer.cpp
         raster/depth_buffer.h
         raster/dsl.h

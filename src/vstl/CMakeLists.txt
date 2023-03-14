@@ -2,7 +2,6 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         allocate_type.h
         array.h
         common.h
-        common_iterator.h
         compare.h
         config.h
         functional.h
@@ -19,6 +18,7 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         serializer.h
         small_vector.h
         spin_mutex.h
+        stack_allocator.cpp stack_allocator.h
         string_hash.h
         string_utility.cpp string_utility.h
         thread_pool.cpp thread_pool.h
@@ -27,7 +27,6 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         unique_ptr.h
         v_allocator.h
         v_guid.cpp v_guid.h
-        variant_util.h
         vector.h
         vstl.cpp
         vstring.h)

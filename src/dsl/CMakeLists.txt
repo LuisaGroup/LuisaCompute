@@ -13,8 +13,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             rtx/triangle.h)
 
     set(LUISA_COMPUTE_DSL_RASTER_SOURCES
-            raster/draw_indirect.h
-            raster/raster_kernel.h)
+            raster/raster_kernel.cpp raster/raster_kernel.h)
 
     set(LUISA_COMPUTE_DSL_SOURCES
             arg.h
