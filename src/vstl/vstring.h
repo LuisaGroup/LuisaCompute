@@ -135,7 +135,7 @@ namespace vstd {
 template<>
 struct hash<string> {
     inline size_t operator()(string const &str) const noexcept {
-        return Hash::CharArrayHash(str.data(), str.size());
+        return Hash::binary_hash(str.data(), str.size());
     }
 };
 
@@ -173,7 +173,7 @@ inline size_t wstrLen(wchar_t const *ptr) {
 template<>
 struct hash<vstd::wstring> {
     inline size_t operator()(const vstd::wstring &str) const noexcept {
-        return Hash::CharArrayHash((const char *)str.c_str(), str.size()  * sizeof(wchar_t));
+        return Hash::binary_hash((const char *)str.c_str(), str.size()  * sizeof(wchar_t));
     }
 };
 template<>

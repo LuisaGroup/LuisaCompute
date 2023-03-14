@@ -12,7 +12,7 @@
 namespace vstd {
 Guid::Guid(bool generate) {
     if (generate) {
-        ReGenerate();
+        remake();
     } else {
         memset(&data, 0, sizeof(GuidData));
     }
@@ -71,7 +71,7 @@ optional<Guid> Guid::TryParseGuid(std::string_view strv) {
     switch (strv.size()) {
         case 22: {
             Guid opt;
-            StringUtil::DecodeFromBase64(strv, reinterpret_cast<uint8_t *>(&opt.data));
+            StringUtil::from_base64(strv, reinterpret_cast<uint8_t *>(&opt.data));
             return {opt};
         }
         case 32: {
@@ -86,20 +86,20 @@ Guid::Guid(std::string_view strv) {
     using namespace VGuid_Detail;
     switch (strv.size()) {
         case 22:
-            StringUtil::DecodeFromBase64(strv, reinterpret_cast<uint8_t *>(&data));
+            StringUtil::from_base64(strv, reinterpret_cast<uint8_t *>(&data));
             break;
         case 32: {
             ParseHex(strv, data);
         } break;
         default:
-            VEngine_Log("Wrong guid string length!\n");
+            vengine_log("Wrong guid string length!\n");
             VENGINE_EXIT;
     }
 }
 
 Guid::Guid(span<uint8_t> data) {
     if (data.size() != sizeof(GuidData) * 2) {
-        VEngine_Log("Wrong guid string length!\n");
+        vengine_log("Wrong guid string length!\n");
         VENGINE_EXIT;
     }
     memcpy(&this->data, data.data(), sizeof(GuidData));
@@ -108,24 +108,24 @@ Guid::Guid(std::array<uint8_t, sizeof(GuidData)> const &data) {
     memcpy(&this->data, data.data(), sizeof(GuidData));
 }
 
-string Guid::ToBase64() const {
+string Guid::to_base64() const {
     string result;
-    StringUtil::EncodeToBase64({reinterpret_cast<uint8_t const *>(&data), sizeof(data)}, result);
+    StringUtil::to_base64({reinterpret_cast<uint8_t const *>(&data), sizeof(data)}, result);
     result.resize(result.size() - 2);
     return result;
 }
 
-void Guid::ToBase64(char *result) const {
-    StringUtil::EncodeToBase64({reinterpret_cast<uint8_t const *>(&data), sizeof(data)}, result);
+void Guid::to_base64(char *result) const {
+    StringUtil::to_base64({reinterpret_cast<uint8_t const *>(&data), sizeof(data)}, result);
 }
 
-void Guid::ReGenerate() {
+void Guid::remake() {
 #ifdef _WIN32
     static_assert(sizeof(data) == sizeof(_GUID), "Size mismatch");
 #ifndef NDEBUG
     HRESULT h = ::CoCreateGuid(reinterpret_cast<_GUID *>(&data));
     if (h != S_OK) {
-        VEngine_Log("GUID Generate Failed!\n"_sv);
+        vengine_log("GUID Generate Failed!\n"_sv);
         VENGINE_EXIT;
     }
 #else
@@ -159,7 +159,7 @@ void toHex(uint64 data, char *&sPtr, bool upper) {
     }
 }
 }// namespace vguid_detail
-string Guid::ToString(bool upper) const {
+string Guid::to_string(bool upper) const {
     string s;
     s.resize(sizeof(GuidData) * 2);
     auto sPtr = s.data() + sizeof(GuidData) * 2 - 1;
@@ -167,7 +167,7 @@ string Guid::ToString(bool upper) const {
     vguid_detail::toHex(data.data0, sPtr, upper);
     return s;
 }
-void Guid::ToString(char *result, bool upper) const {
+void Guid::to_string(char *result, bool upper) const {
     auto sPtr = result + sizeof(GuidData) * 2 - 1;
     vguid_detail::toHex(data.data1, sPtr, upper);
     vguid_detail::toHex(data.data0, sPtr, upper);
@@ -176,19 +176,19 @@ void Guid::ToString(char *result, bool upper) const {
 #ifdef EXPORT_UNITY_FUNCTION
 VENGINE_UNITY_EXTERN void vguid_get_new(
     Guid *guidData) {
-    *guidData = Guid(true).ToBinary();
+    *guidData = Guid(true).to_binary();
 }
 VENGINE_UNITY_EXTERN void vguid_get_from_std::string(
     char const *str,
     int32 strLen,
     Guid *guidData) {
-    *guidData = Guid(std::string_view(str, strLen)).ToBinary();
+    *guidData = Guid(std::string_view(str, strLen)).to_binary();
 }
 VENGINE_UNITY_EXTERN void vguid_to_std::string(
     Guid const *guidData,
     char *result,
     bool upper) {
-    guidData->ToString(result, upper);
+    guidData->to_string(result, upper);
 }
 #endif
 }// namespace vstd

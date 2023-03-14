@@ -1,58 +1,49 @@
 #include <vstl/string_utility.h>
 namespace vstd {
 
-char StringUtil::ToLower(char c) {
+char StringUtil::to_lower(char c) {
     if ((c >= 'A') && (c <= 'Z'))
         return c + ('a' - 'A');
     return c;
 }
-char StringUtil::ToUpper(char c) {
+char StringUtil::to_upper(char c) {
     if ((c >= 'a') && (c <= 'z'))
         return c + ('A' - 'a');
     return c;
 }
 
-void StringUtil::ToLower(string &str) {
+void StringUtil::to_lower(string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
-        c[i] = ToLower(c[i]);
+        c[i] = to_lower(c[i]);
     }
 }
-int64 StringUtil::GetFirstIndexOf(std::string_view str, char sign) {
-    int64 count = str.length();
-    for (int64 i = 0; i < count; ++i) {
-        if (sign == str[i]) {
-            return i;
-        }
-    }
-    return -1;
-}
-void StringUtil::ToUpper(string &str) {
+void StringUtil::to_upper(string &str) {
     char *c = str.data();
     const uint size = str.length();
     for (uint i = 0; i < size; ++i) {
-        c[i] = ToUpper(c[i]);
+        c[i] = to_upper(c[i]);
     }
 }
 
-string StringUtil::ToLower(std::string_view str) {
+string StringUtil::to_lower(std::string_view str) {
     string s;
     s.resize(str.size());
     for (auto i : range(str.size())) {
         auto &&v = s[i];
         v = str[i];
-        v = ToLower(v);
+        v = to_lower(v);
     }
     return s;
 }
-string StringUtil::ToUpper(std::string_view str) {
+string StringUtil::to_upper(std::string_view str) {
     string s;
     s.resize(str.size());
     for (auto i : range(str.size())) {
         auto &&v = s[i];
         v = str[i];
-        v = ToUpper(v);
+        v = to_upper(v);
     }
     return s;
 }
@@ -232,18 +223,18 @@ size_t constexpr decoded_size(size_t n) {
 }
 
 }// namespace strutil_detail
-void StringUtil::EncodeToBase64(span<uint8_t const> binary, string &str) {
+void StringUtil::to_base64(span<uint8_t const> binary, string &str) {
     using namespace strutil_detail;
     size_t oriSize = str.size();
     str.resize(oriSize + encoded_size(binary.size()));
     encode(str.data() + oriSize, binary.data(), binary.size());
 }
-void StringUtil::EncodeToBase64(span<uint8_t const> binary, char *result) {
+void StringUtil::to_base64(span<uint8_t const> binary, char *result) {
     using namespace strutil_detail;
     encode(result, binary.data(), binary.size());
 }
 
-void StringUtil::DecodeFromBase64(std::string_view str, vector<uint8_t> &bin) {
+void StringUtil::from_base64(std::string_view str, vector<uint8_t> &bin) {
     using namespace strutil_detail;
     size_t oriSize = bin.size();
     bin.reserve(oriSize + decoded_size(str.size()));
@@ -251,86 +242,9 @@ void StringUtil::DecodeFromBase64(std::string_view str, vector<uint8_t> &bin) {
     bin.resize(oriSize + destAndSrcSize.first);
 }
 
-void StringUtil::DecodeFromBase64(std::string_view str, uint8_t *size) {
+void StringUtil::from_base64(std::string_view str, uint8_t *size) {
     using namespace strutil_detail;
     decode(size, str.data(), str.size());
 }
 
-variant<int64, double> StringUtil::StringToNumber(std::string_view numStr) {
-    auto pin = numStr.begin();
-    auto error = []() {
-        return false;
-    };
-    int64 integerPart = 0;
-    optional<double> floatPart;
-    optional<int64> ratePart;
-    auto GetInt =
-        [&](int64 &v,
-            auto &&processFloat,
-            auto &&processRate) -> bool {
-        bool isNegative;
-        if (numStr[0] == '-') {
-            isNegative = true;
-            pin++;
-        } else if (numStr[0] == '+') {
-            isNegative = false;
-            pin++;
-        } else {
-            isNegative = false;
-        }
-        while (pin != numStr.end()) {
-            if (*pin >= '0' && *pin <= '9') {
-                v *= 10;
-                v += (*pin) - 48;
-                pin++;
-            } else if (*pin == '.') {
-                pin++;
-                if (!processFloat()) return false;
-                break;
-            } else if (*pin == 'e' || *pin == 'E') {
-                pin++;
-                if (!processRate()) return false;
-                break;
-            } else
-                return error();
-        }
-        if (isNegative) v *= -1;
-        return true;
-    };
-    auto GetFloat = [&](double &v, auto &&processRate) -> bool {
-        double rate = 1;
-        while (pin != numStr.end()) {
-            if (*pin >= '0' && *pin <= '9') {
-                rate *= 0.1;
-                v += ((*pin) - 48) * rate;
-                pin++;
-            } else if (*pin == 'e' || *pin == 'E') {
-                pin++;
-                return processRate();
-            } else {
-                return error();
-            }
-        }
-        return true;
-    };
-
-    auto GetRate = [&]() -> bool {
-        ratePart.create();
-        return GetInt(*ratePart, error, error);
-    };
-    auto GetNumFloatPart = [&]() -> bool {
-        floatPart.create();
-        return GetFloat(*floatPart, GetRate);
-    };
-    if (!GetInt.operator()(
-            integerPart,
-            GetNumFloatPart,
-            GetRate)) return {};
-    if (ratePart || floatPart) {
-        double value = (integerPart + (floatPart ? *floatPart : 0)) * (ratePart ? pow(10, *ratePart) : 1);
-        return value;
-    } else {
-        return integerPart;
-    }
-}
 }// namespace vstd

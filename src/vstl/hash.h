@@ -27,12 +27,12 @@ class Hash {
 public:
     static constexpr size_t FNV_offset_basis = 14695981039346656037ULL;
     static constexpr size_t FNV_prime = 1099511628211ULL;
-    static size_t GetNextHash(
+    static size_t get_next_hash(
         size_t curHash,
         size_t lastHash = FNV_offset_basis) {
         return (lastHash ^ curHash) * FNV_prime;
     }
-    static size_t CharArrayHash(
+    static size_t binary_hash(
         const void *First,
         const size_t Count) noexcept {// accumulate range [_First, First + Count) into partial FNV-1a hash Val
         return vstd_xxhash_gethash(First, Count);
@@ -46,7 +46,7 @@ public:
         auto results = {func(values)...};
         size_t initHash = FNV_offset_basis;
         for (auto &&i : results) {
-            initHash = GetNextHash(i, initHash);
+            initHash = get_next_hash(i, initHash);
         }
         return initHash;
     }
@@ -108,7 +108,7 @@ struct hash<std::pair<A, B>> {
     size_t operator()(std::pair<A, B> const &v) const noexcept {
         hash<A> hs;
         hash<B> hs1;
-        return Hash::GetNextHash(hs(v.first), hs1(v.second));
+        return Hash::get_next_hash(hs(v.first), hs1(v.second));
     }
 };
 template<typename... T>

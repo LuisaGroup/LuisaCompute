@@ -12,16 +12,16 @@ private:
     class Visitor : public vstd::StackAllocatorVisitor {
     public:
         CommandAllocator *self;
-        uint64 Allocate(uint64 size) override;
+        uint64 allocate(uint64 size) override;
         vstd::unique_ptr<Pack> Create(uint64 size);
-        void DeAllocate(uint64 handle) override;
+        void deallocate(uint64 handle) override;
     };
     class DescHeapVisitor : public vstd::StackAllocatorVisitor {
     public:
         D3D12_DESCRIPTOR_HEAP_TYPE type;
         Device *device;
-        uint64 Allocate(uint64 size) override;
-        void DeAllocate(uint64 handle) override;
+        uint64 allocate(uint64 size) override;
+        void deallocate(uint64 handle) override;
         DescHeapVisitor(Device *device, D3D12_DESCRIPTOR_HEAP_TYPE type) : type(type), device(device) {}
     };
     template<typename T>

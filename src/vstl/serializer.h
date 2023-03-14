@@ -302,7 +302,7 @@ struct SerDe<Guid, reverseBytes> {
         return SerDe<Guid::GuidData, reverseBytes>::Get(sp);
     }
     static void Set(Value const &data, vector<std::byte> &arr) {
-        SerDe<Guid::GuidData, reverseBytes>::Set(data.ToBinary(), arr);
+        SerDe<Guid::GuidData, reverseBytes>::Set(data.to_binary(), arr);
     }
 };
 template<>
@@ -314,7 +314,7 @@ struct SerDe<MD5> {
         return MD5(data);
     }
     static void Set(MD5 const &data, vector<std::byte> &arr) {
-        auto &&dd = data.ToBinary();
+        auto &&dd = data.to_binary();
         SerDe<uint64>::Set(dd.data0, arr);
         SerDe<uint64>::Set(dd.data1, arr);
     }
@@ -322,10 +322,10 @@ struct SerDe<MD5> {
 template<>
 struct compare<MD5> {
     int32 operator()(MD5 const &a, MD5 const &b) const {
-        if (a.ToBinary().data0 > b.ToBinary().data0) return 1;
-        if (a.ToBinary().data0 < b.ToBinary().data0) return -1;
-        if (a.ToBinary().data1 > b.ToBinary().data1) return 1;
-        if (a.ToBinary().data1 < b.ToBinary().data1) return -1;
+        if (a.to_binary().data0 > b.to_binary().data0) return 1;
+        if (a.to_binary().data0 < b.to_binary().data0) return -1;
+        if (a.to_binary().data1 > b.to_binary().data1) return 1;
+        if (a.to_binary().data1 < b.to_binary().data1) return -1;
         return 0;
     }
 };

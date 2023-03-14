@@ -188,6 +188,6 @@ vstd::string Shader::PSOName(Device const *device, vstd::string_view fileName) {
     memcpy(data.data(), &device->adapterID, 16);
     memcpy(data.data() + 16, fileName.data(), fileName.size());
     vstd::MD5 hash{data};
-    return hash.ToString(false);
+    return hash.to_string(false);
 }
 }// namespace toolhub::directx

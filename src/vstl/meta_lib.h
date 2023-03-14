@@ -28,8 +28,8 @@ inline void vengine_free(void *ptr) {
 inline void *vengine_realloc(void *ptr, size_t size) {
     return luisa::detail::allocator_reallocate(ptr, size, 0);
 }
-LC_VSTL_API void VEngine_Log(std::type_info const &t);
-LC_VSTL_API void VEngine_Log(char const *chunk);
+LC_VSTL_API void vengine_log(std::type_info const &t);
+LC_VSTL_API void vengine_log(char const *chunk);
 #define VE_SUB_TEMPLATE template<typename...> \
 class
 namespace vstd {
@@ -885,7 +885,7 @@ public:
     get() & {
 #ifndef NDEBUG
         if (i != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vengine_log("Try get wrong variant type!\n");
             VENGINE_EXIT;
         }
 #endif
@@ -896,7 +896,7 @@ public:
     get() && {
 #ifndef NDEBUG
         if (i != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vengine_log("Try get wrong variant type!\n");
             VENGINE_EXIT;
         }
 #endif
@@ -907,7 +907,7 @@ public:
     get() const & {
 #ifndef NDEBUG
         if (i != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vengine_log("Try get wrong variant type!\n");
             VENGINE_EXIT;
         }
 #endif
@@ -967,7 +967,7 @@ public:
         static constexpr auto tarIdx = (IndexOf<T>);
 #ifndef NDEBUG
         if (tarIdx != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vengine_log("Try get wrong variant type!\n");
             VENGINE_EXIT;
         }
 #endif
@@ -980,7 +980,7 @@ public:
         static constexpr auto tarIdx = (IndexOf<T>);
 #ifndef NDEBUG
         if (tarIdx != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vengine_log("Try get wrong variant type!\n");
             VENGINE_EXIT;
         }
 #endif
@@ -992,7 +992,7 @@ public:
         static constexpr auto tarIdx = (IndexOf<T>);
 #ifndef NDEBUG
         if (tarIdx != switcher) {
-            VEngine_Log("Try get wrong variant type!\n");
+            vengine_log("Try get wrong variant type!\n");
             VENGINE_EXIT;
         }
 #endif

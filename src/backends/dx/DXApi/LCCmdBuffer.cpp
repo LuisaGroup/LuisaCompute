@@ -528,7 +528,7 @@ public:
         auto cmdList = bd->GetCB()->CmdList();
         auto alloc = bd->GetCB()->GetAlloc();
         D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle;
-        auto chunk = alloc->dsvAllocator.Allocate(1);
+        auto chunk = alloc->dsvAllocator.allocate(1);
         auto descHeap = reinterpret_cast<DescriptorHeap *>(chunk.handle);
         dsvHandle = descHeap->hCPU(chunk.offset);
         D3D12_DEPTH_STENCIL_VIEW_DESC viewDesc{
@@ -702,7 +702,7 @@ public:
             D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle;
             D3D12_CPU_DESCRIPTOR_HANDLE *dsvHandlePtr = nullptr;
             if (!rtvs.empty()) {
-                auto chunk = alloc->rtvAllocator.Allocate(rtvs.size());
+                auto chunk = alloc->rtvAllocator.allocate(rtvs.size());
                 auto descHeap = reinterpret_cast<DescriptorHeap *>(chunk.handle);
                 rtvHandle = descHeap->hCPU(chunk.offset);
                 for (auto i : vstd::range(rtvs.size())) {
@@ -719,7 +719,7 @@ public:
             }
             if (dsv.handle != ~0ull) {
                 dsvHandlePtr = &dsvHandle;
-                auto chunk = alloc->dsvAllocator.Allocate(1);
+                auto chunk = alloc->dsvAllocator.allocate(1);
                 auto descHeap = reinterpret_cast<DescriptorHeap *>(chunk.handle);
                 dsvHandle = descHeap->hCPU(chunk.offset);
                 auto tex = reinterpret_cast<TextureBase *>(dsv.handle);

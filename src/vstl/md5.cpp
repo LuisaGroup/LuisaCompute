@@ -402,7 +402,7 @@ bool MD5::operator==(MD5 const &m) const {
 bool MD5::operator!=(MD5 const &m) const {
     return data.data0 != m.data.data0 || data.data1 != m.data.data1;
 }
-string MD5::ToString(bool upper) const {
+string MD5::to_string(bool upper) const {
     string str;
     str.resize(sizeof(uint64) * 2 * 2);
     char *ptr = str.data();

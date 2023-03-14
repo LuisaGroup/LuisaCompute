@@ -107,7 +107,7 @@ void RTShader::Init(
         hitGroup->SetIntersectionShaderImport(GetIntersectFuncName());
     }
 
-    //hitGroup->SetHitGroupExport(vstd::Guid(true).ToString());
+    //hitGroup->SetHitGroupExport(vstd::Guid(true).to_string());
     hitGroup->SetHitGroupExport(L"hh");
     hitGroup->SetHitGroupType(D3D12_HIT_GROUP_TYPE_TRIANGLES);
 

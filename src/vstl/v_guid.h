@@ -22,7 +22,7 @@ public:
 	static optional<Guid> TryParseGuid(std::string_view strv);
 	Guid(span<uint8_t> data);
 	Guid(MD5 const& md5) {
-		auto&& bin = md5.ToBinary();
+		auto&& bin = md5.to_binary();
 		data.data0 = bin.data0;
 		data.data1 = bin.data1;
 	}
@@ -31,19 +31,19 @@ public:
 	}
 	Guid(std::array<uint8_t, sizeof(GuidData)> const& data);
 	Guid(GuidData const& d);
-	void ReGenerate();
+	void remake();
 	Guid(Guid const&) = default;
 	Guid(Guid&&) = default;
-	void Reset() {
+	void reset() {
 		data.data0 = 0;
 		data.data1 = 0;
 	}
-	GuidData const& ToBinary() const { return data; }
+	GuidData const& to_binary() const { return data; }
 	std::array<uint8_t, sizeof(GuidData)> ToArray() const;
-	string ToString(bool upper = true) const;
-	void ToString(char* result, bool upper = true) const;
-	string ToBase64() const;
-	void ToBase64(char* result) const;
+	string to_string(bool upper = true) const;
+	void to_string(char* result, bool upper = true) const;
+	string to_base64() const;
+	void to_base64(char* result) const;
 
 	inline bool operator==(Guid const& d) const {
 		return data.data0 == d.data.data0 && data.data1 == d.data.data1;
@@ -71,18 +71,18 @@ public:
 template<>
 struct hash<Guid> {
 	size_t operator()(Guid const& guid) const {
-		return Hash::CharArrayHash(
-			&guid.ToBinary().data0,
+		return Hash::binary_hash(
+			&guid.to_binary().data0,
 			sizeof(Guid::GuidData));
 	}
 };
 template<>
 struct compare<Guid> {
 	int32 operator()(Guid const& a, Guid const& b) const{
-		if (a.ToBinary().data0 > b.ToBinary().data0) return 1;
-		if (a.ToBinary().data0 < b.ToBinary().data0) return -1;
-		if (a.ToBinary().data1 > b.ToBinary().data1) return 1;
-		if (a.ToBinary().data1 < b.ToBinary().data1) return -1;
+		if (a.to_binary().data0 > b.to_binary().data0) return 1;
+		if (a.to_binary().data0 < b.to_binary().data0) return -1;
+		if (a.to_binary().data1 > b.to_binary().data1) return 1;
+		if (a.to_binary().data1 < b.to_binary().data1) return -1;
 		return 0;
 	}
 };

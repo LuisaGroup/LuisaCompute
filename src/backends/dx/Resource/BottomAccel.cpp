@@ -240,10 +240,10 @@ static vstd::spin_mutex meshHandleMtx;
 }// namespace detail
 MeshHandle *MeshHandle::AllocateHandle() {
     using namespace detail;
-    return meshHandlePool.New_Lock(meshHandleMtx);
+    return meshHandlePool.create_lock(meshHandleMtx);
 }
 void MeshHandle::DestroyHandle(MeshHandle *handle) {
     using namespace detail;
-    meshHandlePool.Delete_Lock(meshHandleMtx, handle);
+    meshHandlePool.destroy_lock(meshHandleMtx, handle);
 }
 }// namespace toolhub::directx
