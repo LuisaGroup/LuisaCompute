@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/functional.h>
 #include <DXRuntime/CommandBuffer.h>
-#include <HLSL/stack_allocator.h>
+#include <vstl/stack_allocator.h>
 #include <Resource/UploadBuffer.h>
 #include <Resource/DefaultBuffer.h>
 #include <Resource/ReadbackBuffer.h>

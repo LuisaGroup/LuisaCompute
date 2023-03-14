@@ -55,9 +55,9 @@ public:
     LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(AccelExprProxy)
 
 public:
-    [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray) const noexcept;
-    [[nodiscard]] RayQuery trace_all(Expr<Ray> ray) const noexcept;
-    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray) const noexcept;
+    [[nodiscard]] Var<Hit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
+    [[nodiscard]] RayQuery trace_all(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
+    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 255u) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     void set_instance_transform(Expr<int> instance_id, Expr<float4x4> mat) const noexcept;
