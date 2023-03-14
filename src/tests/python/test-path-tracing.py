@@ -84,7 +84,7 @@ def raytracing_kernel(image, accel, heap, resolution, vertex_buffer, material_bu
     for depth in range(5):
         # trace
         hit = accel.trace_closest(ray, -1)
-        # advanced usage: rayquery 
+        # advanced usage: rayquery
         # query = accel.trace_all(ray, -1)
         # while(query.proceed()):
         #     if query.is_triangle():
