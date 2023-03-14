@@ -11,5 +11,9 @@ target_link_libraries(luisa-compute-backend-common PUBLIC
         luisa-compute-runtime
         luisa-compute-dsl)
 
+if (UNIX AND NOT APPLE)
+    target_compile_options(luisa-compute-backend-common PRIVATE -fPIC)
+endif ()
+
 set_target_properties(luisa-compute-backend-common PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
