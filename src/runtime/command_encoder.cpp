@@ -12,10 +12,12 @@ std::byte *ShaderDispatchCmdEncoder::_make_space(size_t size) noexcept {
     return _argument_buffer.data() + offset;
 }
 
-ShaderDispatchCmdEncoder::ShaderDispatchCmdEncoder(uint64_t handle,
-                                                   size_t arg_count,
-                                                   size_t uniform_size) noexcept
-    : _handle{handle}, _argument_count{arg_count} {
+ShaderDispatchCmdEncoder::ShaderDispatchCmdEncoder(
+    uint64_t handle,
+    size_t arg_count,
+    size_t uniform_size,
+    luisa::span<const Function::Binding> bindings) noexcept
+    : _handle{handle}, _argument_count{arg_count}, _bindings{bindings} {
     if (auto arg_size_bytes = arg_count * sizeof(Argument)) {
         _argument_buffer.reserve(arg_size_bytes + uniform_size);
         _argument_buffer.resize_uninitialized(arg_size_bytes);
@@ -70,11 +72,10 @@ void ShaderDispatchCmdEncoder::_encode_accel(uint64_t handle) noexcept {
     arg.accel = Argument::Accel{handle};
 }
 
-void ShaderDispatchCmdEncoder::_encode_pending_bindings(
-    luisa::span<const Function::Binding> bindings) noexcept {
-    while (_argument_idx < bindings.size() &&
-           !luisa::holds_alternative<luisa::monostate>(bindings[_argument_idx])) {
-        auto &&binding = bindings[_argument_idx];
+void ShaderDispatchCmdEncoder::_encode_pending_bindings() noexcept {
+    while (_argument_idx < _bindings.size() &&
+           !luisa::holds_alternative<luisa::monostate>(_bindings[_argument_idx])) {
+        auto &&binding = _bindings[_argument_idx];
         luisa::visit(
             [&]<typename T>(T binding) noexcept {
                 if constexpr (std::is_same_v<T, Function::BufferBinding>) {
@@ -111,57 +112,56 @@ size_t ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span<const Type *co
 
 ComputeDispatchCmdEncoder::ComputeDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
                                                      luisa::span<const Function::Binding> bindings) noexcept
-    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size},
-      _bindings{bindings} { _encode_pending_bindings(_bindings); }
+    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size, bindings} { _encode_pending_bindings(); }
 
 void ComputeDispatchCmdEncoder::encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
     _encode_buffer(handle, offset, size);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void ComputeDispatchCmdEncoder::encode_texture(uint64_t handle, uint32_t level) noexcept {
     _encode_texture(handle, level);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void ComputeDispatchCmdEncoder::encode_uniform(const void *data, size_t size) noexcept {
     _encode_uniform(data, size);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void ComputeDispatchCmdEncoder::encode_bindless_array(uint64_t handle) noexcept {
     _encode_bindless_array(handle);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void ComputeDispatchCmdEncoder::encode_accel(uint64_t handle) noexcept {
     _encode_accel(handle);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void RasterDispatchCmdEncoder::encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
     _encode_buffer(handle, offset, size);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void RasterDispatchCmdEncoder::encode_texture(uint64_t handle, uint32_t level) noexcept {
     _encode_texture(handle, level);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void RasterDispatchCmdEncoder::encode_uniform(const void *data, size_t size) noexcept {
     _encode_uniform(data, size);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void RasterDispatchCmdEncoder::encode_bindless_array(uint64_t handle) noexcept {
     _encode_bindless_array(handle);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 void RasterDispatchCmdEncoder::encode_accel(uint64_t handle) noexcept {
     _encode_accel(handle);
-    _encode_pending_bindings(_bindings);
+    _encode_pending_bindings();
 }
 
 RasterDispatchCmdEncoder::~RasterDispatchCmdEncoder() noexcept = default;
@@ -170,8 +170,7 @@ RasterDispatchCmdEncoder &RasterDispatchCmdEncoder::operator=(RasterDispatchCmdE
 
 RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
                                                    luisa::span<const Function::Binding> bindings) noexcept
-    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size},
-      _bindings{bindings}{
+    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size, bindings} {
 }
 
 luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&noexcept {
