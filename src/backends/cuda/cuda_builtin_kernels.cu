@@ -2,7 +2,9 @@
 // Created by Mike on 2022/4/6.
 //
 
-struct alignas(16) Property {
+// built-in update kernel for Accel
+
+struct alignas(16) InstanceProperty {
     unsigned int instance_id;
     unsigned int sbt_offset;
     unsigned int mask;
@@ -13,10 +15,10 @@ struct alignas(16) Property {
 
 struct alignas(16) Instance {
     float4 affine[3];
-    Property property;
+    InstanceProperty property;
 };
 
-struct alignas(16) Modification {
+struct alignas(16) InstanceModification {
     unsigned int index;
     unsigned int flags;
     unsigned long long primitive;
@@ -24,13 +26,11 @@ struct alignas(16) Modification {
 };
 
 static_assert(sizeof(Instance) == 80, "");
-static_assert(sizeof(Modification) == 64, "");
+static_assert(sizeof(InstanceModification) == 64, "");
 
-extern "C"
-__global__ void update_instances(
-    Instance *__restrict__ instances,
-    const Modification *__restrict__ mods,
-    unsigned int n) {
+extern "C" __global__ void update_accel(Instance *__restrict__ instances,
+                                        const InstanceModification *__restrict__ mods,
+                                        unsigned int n) {
     auto tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid < n) [[likely]] {
 
@@ -57,4 +57,17 @@ __global__ void update_instances(
             t[2] = m.affine[2];
         }
     }
+}
+
+// built-in update kernel for BindlessArray
+struct BindlessSlot {
+};
+
+struct SlotModification {
+};
+
+extern "C" __global__ void update_bindless_array(BindlessSlot *__restrict__ array,
+                                                 const SlotModification *__restrict__ mods,
+                                                 unsigned int n) {
+    // TODO
 }

@@ -10,12 +10,12 @@
 .target sm_52
 .address_size 64
 
-	// .globl	update_instances
+	// .globl	update_accel
 
-.visible .entry update_instances(
-	.param .u64 update_instances_param_0,
-	.param .u64 update_instances_param_1,
-	.param .u32 update_instances_param_2
+.visible .entry update_accel(
+	.param .u64 update_accel_param_0,
+	.param .u64 update_accel_param_1,
+	.param .u32 update_accel_param_2
 )
 {
 	.reg .pred 	%p<5>;
@@ -24,9 +24,9 @@
 	.reg .b64 	%rd<16>;
 
 
-	ld.param.u64 	%rd3, [update_instances_param_0];
-	ld.param.u64 	%rd4, [update_instances_param_1];
-	ld.param.u32 	%r2, [update_instances_param_2];
+	ld.param.u64 	%rd3, [update_accel_param_0];
+	ld.param.u64 	%rd4, [update_accel_param_1];
+	ld.param.u32 	%r2, [update_accel_param_2];
 	mov.u32 	%r3, %ntid.x;
 	mov.u32 	%r4, %ctaid.x;
 	mov.u32 	%r5, %tid.x;
@@ -68,6 +68,19 @@
 	st.global.v4.f32 	[%rd2+-16], {%f17, %f18, %f19, %f20};
 
 $L__BB0_3:
+	ret;
+
+}
+	// .globl	update_bindless_array
+.visible .entry update_bindless_array(
+	.param .u64 update_bindless_array_param_0,
+	.param .u64 update_bindless_array_param_1,
+	.param .u32 update_bindless_array_param_2
+)
+{
+
+
+
 	ret;
 
 }

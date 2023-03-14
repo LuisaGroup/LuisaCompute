@@ -99,8 +99,9 @@ public:
 
 private:
     Handle _handle;
-    CUmodule _accel_update_module{nullptr};
+    CUmodule _builtin_kernel_module{nullptr};
     CUfunction _accel_update_function{nullptr};
+    CUfunction _bindless_array_update_function{nullptr};
     BinaryIO *_io{nullptr};
 
 public:
@@ -114,6 +115,7 @@ public:
     }
     void *native_handle() const noexcept override { return _handle.context(); }
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
+    [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
     [[nodiscard]] auto io() const noexcept { return _io; }
     void set_io(BinaryIO *binary_io) noexcept override { _io = binary_io; }
     bool is_c_api() const noexcept override { return false; }

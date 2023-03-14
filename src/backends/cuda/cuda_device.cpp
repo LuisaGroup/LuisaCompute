@@ -21,7 +21,7 @@
 #include <backends/cuda/cuda_shader.h>
 #include <backends/cuda/optix_api.h>
 
-#include <backends/cuda/cuda_accel_update_embedded.inl.h>
+#include <backends/cuda/cuda_builtin_kernels_embedded.inl.h>
 
 namespace luisa::compute::cuda {
 //
@@ -244,21 +244,20 @@ CUDADevice::CUDADevice(Context &&ctx, size_t device_id) noexcept
         LUISA_CHECK_CUDA(cuCtxResetPersistingL2Cache());
         LUISA_CHECK_CUDA(cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_L1));
         LUISA_CHECK_CUDA(cuModuleLoadData(
-            &_accel_update_module, cuda_accel_update_source));
+            &_builtin_kernel_module, cuda_builtin_kernels_source));
         LUISA_CHECK_CUDA(cuModuleGetFunction(
-            &_accel_update_function, _accel_update_module,
-            "update_instances"));
-        // warm up memory allocator
-        auto preallocated = 0ull;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&preallocated, 64_m, nullptr));
-        LUISA_CHECK_CUDA(cuMemFreeAsync(preallocated, nullptr));
+            &_accel_update_function, _builtin_kernel_module,
+            "update_accel"));
+        LUISA_CHECK_CUDA(cuModuleGetFunction(
+            &_bindless_array_update_function, _builtin_kernel_module,
+            "update_bindless_array"));
     });
 }
 
 CUDADevice::~CUDADevice() noexcept {
     with_handle([this] {
         LUISA_CHECK_CUDA(cuCtxSynchronize());
-        LUISA_CHECK_CUDA(cuModuleUnload(_accel_update_module));
+        LUISA_CHECK_CUDA(cuModuleUnload(_builtin_kernel_module));
     });
 }
 
