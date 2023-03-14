@@ -36,7 +36,6 @@ int main(int argc, char *argv[]) {
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
         image.write(dispatch_id().xy(), make_float4(0.1f));
     };
-    std::mutex mtx;
     RasterKernel<decltype(vert), decltype(pixel)> kernel{vert, pixel};
     Context context{argv[0]};
     if (argc <= 1) {
