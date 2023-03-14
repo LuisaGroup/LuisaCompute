@@ -17,10 +17,10 @@ LUISA_STRUCT(luisa::compute::Hit, inst, prim, bary, hit_type, committed_ray_t) {
     [[nodiscard]] auto miss() const noexcept {
         return hit_type == static_cast<uint32_t>(luisa::compute::HitType::Miss);
     }
-    [[nodiscard]] auto hit_triangle() const noexcept {
+    [[nodiscard]] auto is_triangle() const noexcept {
         return hit_type == static_cast<uint32_t>(luisa::compute::HitType::Triangle);
     }
-    [[nodiscard]] auto hit_procedural() const noexcept {
+    [[nodiscard]] auto is_procedural() const noexcept {
         return hit_type == static_cast<uint32_t>(luisa::compute::HitType::Procedural);
     }
     template<typename A, typename B, typename C>

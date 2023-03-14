@@ -52,7 +52,7 @@ struct fmt::formatter<Test> {
 };
 
 template<typename T, typename Generate>
-void do_test(Device &device, size_t size, const Generate &g) noexcept {
+void test_buffer(Device &device, size_t size, const Generate &g) noexcept {
     LUISA_INFO("Testing {} elements with type '{}'",
                size, typeid(T).name());
     luisa::vector<T> host_input;
@@ -93,11 +93,11 @@ int main(int argc, char *argv[]) {
     std::mt19937 rand{std::random_device{}()};
 
     for (auto size : sizes) {
-        do_test<int>(device, size, [&] { return static_cast<int>(rand()); });
-        do_test<float>(device, size, [&] {
+        test_buffer<int>(device, size, [&] { return static_cast<int>(rand()); });
+        test_buffer<float>(device, size, [&] {
             auto dist = std::uniform_real_distribution{-233.f, 666.f};
             return dist(rand);
         });
-        do_test<Test>(device, size, [&] { return Test::make_random(rand); });
+        test_buffer<Test>(device, size, [&] { return Test::make_random(rand); });
     }
 }

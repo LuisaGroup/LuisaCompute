@@ -103,13 +103,13 @@ int main(int argc, char *argv[]) {
             };
         };
         auto hit = q.committed_hit();
-        $if(hit->hit_procedural()) {
+        $if(hit->is_procedural()) {
             // write depth as color
             // device_image1->write(coord, make_float4(make_float3(1.f / log(hit->committed_ray_t)), 1.f));
             // write normal
             device_image1->write(coord, make_float4(sphere_color, 1.f));
         }
-        $elif(hit->hit_triangle()) {
+        $elif(hit->is_triangle()) {
             // write bary-centric
             device_image1->write(coord, make_float4(hit.bary, 0.f, 1.f));
         }

@@ -485,12 +485,12 @@ public:
           _triangle_buffer_size{triangle_buffer_size} {
     }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto vertex_stride() const noexcept { return _vertex_stride; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto vertex_buffer() const noexcept { return _vertex_buffer; }
-    [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
+    [[nodiscard]] auto vertex_stride() const noexcept { return _vertex_stride; }
     [[nodiscard]] auto vertex_buffer_offset() const noexcept { return _vertex_buffer_offset; }
     [[nodiscard]] auto vertex_buffer_size() const noexcept { return _vertex_buffer_size; }
+    [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
     [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
     [[nodiscard]] auto triangle_buffer_size() const noexcept { return _triangle_buffer_size; }
     LUISA_MAKE_COMMAND_COMMON(MeshBuildCommand, StreamTag::COMPUTE)
@@ -525,7 +525,7 @@ public:
     struct alignas(16) Modification {
 
         // flags
-        static constexpr auto flag_mesh = 1u << 0u;
+        static constexpr auto flag_primitive = 1u << 0u;
         static constexpr auto flag_transform = 1u << 1u;
         static constexpr auto flag_opaque_on = 1u << 2u;
         static constexpr auto flag_opaque_off = 1u << 3u;
@@ -536,7 +536,7 @@ public:
         // members
         uint index{};
         uint flags{};
-        uint64_t mesh{};
+        uint64_t primitive{};
         float affine[12]{};
 
         // ctor
@@ -560,19 +560,16 @@ public:
             flags |= flag_transform;
         }
         void set_visibility(uint8_t mask) noexcept {
-            flags |= flag_visibility;
-            flags &= (1u << flag_vis_mask_offset) - 1;
-            uint32_t int_mask = mask;
-            int_mask <<= flag_vis_mask_offset;
-            flags |= int_mask;
+            flags &= (1u << flag_vis_mask_offset) - 1u;
+            flags |= (mask << flag_vis_mask_offset) | flag_visibility;
         }
         void set_opaque(bool opaque) noexcept {
             flags &= ~flag_opaque;// clear old visibility flags
             flags |= opaque ? flag_opaque_on : flag_opaque_off;
         }
-        void set_mesh(uint64_t handle) noexcept {
-            mesh = handle;
-            flags |= flag_mesh;
+        void set_primitive(uint64_t handle) noexcept {
+            primitive = handle;
+            flags |= flag_primitive;
         }
     };
 

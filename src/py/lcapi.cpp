@@ -718,7 +718,7 @@ PYBIND11_MODULE(lcapi, m) {
     py::class_<AccelModification>(m, "AccelModification")
         .def("set_transform", &AccelModification::set_transform)
         .def("set_visibility", &AccelModification::set_visibility)
-        .def("set_mesh", &AccelModification::set_mesh);
+        .def("set_mesh", &AccelModification::set_primitive);
 
     // pixel
     py::enum_<PixelFormat>(m, "PixelFormat")

@@ -5,13 +5,13 @@
 #pragma once
 
 #include <cuda.h>
+
 #include <runtime/rhi/command.h>
+#include <backends/cuda/cuda_stream.h>
 
 namespace luisa::compute::cuda {
 
 class CUDADevice;
-class CUDAStream;
-class CUDACallbackContext;
 
 /**
  * @brief Command encoder of CUDA

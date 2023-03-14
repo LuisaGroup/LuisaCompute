@@ -469,7 +469,11 @@ void CUDADevice::synchronize_event(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept {
-    LUISA_ERROR_WITH_LOCATION("TODO");
+    auto mesh_handle = with_handle([&option] {
+        return new_with_allocator<CUDAMesh>(option);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(mesh_handle),
+            .native_handle = mesh_handle};
 }
 
 void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
@@ -488,10 +492,11 @@ void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcept {
-    auto accel_handle = with_handle([&option]{
+    auto accel_handle = with_handle([&option] {
         return new_with_allocator<CUDAAccel>(option);
     });
-    return {.handle = reinterpret_cast<uint64_t>(accel_handle), .native_handle = accel_handle};
+    return {.handle = reinterpret_cast<uint64_t>(accel_handle),
+            .native_handle = accel_handle};
 }
 
 void CUDADevice::destroy_accel(uint64_t handle) noexcept {

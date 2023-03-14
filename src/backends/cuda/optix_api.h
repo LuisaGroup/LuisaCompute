@@ -52,6 +52,7 @@ constexpr auto BUILD_FLAG_PREFER_FAST_TRACE = 1u << 2u;
 constexpr auto BUILD_FLAG_PREFER_FAST_BUILD = 1u << 3u;
 
 constexpr auto BUILD_INPUT_TYPE_TRIANGLES = 0x2141u;
+constexpr auto BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES = 0x2142u;
 constexpr auto BUILD_INPUT_TYPE_INSTANCES = 0x2143u;
 
 constexpr auto BUILD_OPERATION_BUILD = 0x2161u;
@@ -65,11 +66,11 @@ constexpr auto GEOMETRY_FLAG_DISABLE_ANYHIT = 1u << 0u;
 constexpr auto GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL = 1u << 1u;
 constexpr auto GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 2u;
 
-constexpr auto VERTEX_FORMAT_NONE      = 0u;
-constexpr auto VERTEX_FORMAT_FLOAT3    = 0x2121u;
-constexpr auto VERTEX_FORMAT_FLOAT2    = 0x2122u;
-constexpr auto VERTEX_FORMAT_HALF3     = 0x2123u;
-constexpr auto VERTEX_FORMAT_HALF2     = 0x2124u;
+constexpr auto VERTEX_FORMAT_NONE = 0u;
+constexpr auto VERTEX_FORMAT_FLOAT3 = 0x2121u;
+constexpr auto VERTEX_FORMAT_FLOAT2 = 0x2122u;
+constexpr auto VERTEX_FORMAT_HALF3 = 0x2123u;
+constexpr auto VERTEX_FORMAT_HALF2 = 0x2124u;
 constexpr auto VERTEX_FORMAT_SNORM16_3 = 0x2125u;
 constexpr auto VERTEX_FORMAT_SNORM16_2 = 0x2126u;
 
@@ -238,6 +239,18 @@ struct BuildInputTriangleArray {
     uint transformFormat;
 };
 
+struct BuildInputCustomPrimitiveArray {
+    const CUdeviceptr *aabbBuffers;
+    uint numPrimitives;
+    uint strideInBytes;
+    const uint *flags;
+    uint numSbtRecords;
+    CUdeviceptr sbtIndexOffsetBuffer;
+    uint sbtIndexOffsetSizeInBytes;
+    uint sbtIndexOffsetStrideInBytes;
+    uint primitiveIndexOffset;
+};
+
 struct BuildInputInstanceArray {
     CUdeviceptr instances;
     uint numInstances;
@@ -248,6 +261,7 @@ struct BuildInput {
     union {
         BuildInputTriangleArray triangleArray;
         BuildInputInstanceArray instanceArray;
+        BuildInputCustomPrimitiveArray customPrimitiveArray;
         uint8_t pad[1024];
     };
 };

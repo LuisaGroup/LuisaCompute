@@ -45,20 +45,43 @@ public:
 
     // host interfaces
     // operations is committed by update_instance() or build()
-    void emplace_back(const Mesh &mesh, float4x4 transform = make_float4x4(1.f), uint8_t visibility_mask = ~0, bool opaque = true) noexcept {
+    void emplace_back(const Mesh &mesh,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true) noexcept {
         emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque);
     }
-    void emplace_back(const ProceduralPrimitive &prim, float4x4 transform = make_float4x4(1.f), uint8_t visibility_mask = ~0, bool opaque = true) noexcept {
+
+    void emplace_back(const ProceduralPrimitive &prim,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true) noexcept {
         emplace_back_handle(prim.handle(), transform, visibility_mask, opaque);
     }
-    void emplace_back_handle(uint64_t mesh_handle, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept;
-    void set(size_t index, const Mesh &mesh, float4x4 transform = make_float4x4(1.f), uint8_t visibility_mask = ~0, bool opaque = true) noexcept {
+
+    void emplace_back_handle(uint64_t mesh_handle,
+                             float4x4 const &transform,
+                             uint8_t visibility_mask,
+                             bool opaque) noexcept;
+
+    void set(size_t index, const Mesh &mesh,
+             float4x4 transform = make_float4x4(1.f),
+             uint8_t visibility_mask = 0xffu,
+             bool opaque = true) noexcept {
         set_handle(index, mesh.handle(), transform, visibility_mask, opaque);
     }
-    void set(size_t index, const ProceduralPrimitive &prim, float4x4 transform = make_float4x4(1.f), uint8_t visibility_mask = ~0, bool opaque = true) noexcept {
+
+    void set(size_t index, const ProceduralPrimitive &prim,
+             float4x4 transform = make_float4x4(1.f),
+             uint8_t visibility_mask = 0xffu,
+             bool opaque = true) noexcept {
         set_handle(index, prim.handle(), transform, visibility_mask, opaque);
     }
-    void set_handle(size_t index, uint64_t mesh_handle, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept;
+
+    void set_handle(size_t index, uint64_t mesh_handle,
+                    float4x4 const &transform,
+                    uint8_t visibility_mask, bool opaque) noexcept;
+
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept;

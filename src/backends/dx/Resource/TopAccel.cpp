@@ -127,18 +127,18 @@ void TopAccel::PreProcessInst(
 
     for (auto &&m : setDesc) {
         auto ite = setMap.find(m.index);
-        bool updateMesh = (m.flags & m.flag_mesh);
+        bool updateMesh = (m.flags & m.flag_primitive);
         if (ite != setMap.end()) {
             if (!updateMesh) {
-                m.mesh = ite->second->mesh->GetAccelBuffer()->GetAddress();
-                m.flags |= m.flag_mesh;
+                m.primitive = ite->second->mesh->GetAccelBuffer()->GetAddress();
+                m.flags |= m.flag_primitive;
             }
             setMap.erase(ite);
         }
         if (updateMesh) {
-            auto mesh = reinterpret_cast<BottomAccel *>(m.mesh);
+            auto mesh = reinterpret_cast<BottomAccel *>(m.primitive);
             SetMesh(mesh, m.index);
-            m.mesh = mesh->GetAccelBuffer()->GetAddress();
+            m.primitive = mesh->GetAccelBuffer()->GetAddress();
             update = false;
         }
     }
@@ -151,8 +151,8 @@ void TopAccel::PreProcessInst(
         setDesc.reserve(setMap.size());
         for (auto &&i : setMap) {
             auto &mod = setDesc.emplace_back(i.first);
-            mod.flags = mod.flag_mesh;
-            mod.mesh = i.second->mesh->GetAccelBuffer()->GetAddress();
+            mod.flags = mod.flag_primitive;
+            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
         }
         setMap.clear();
     }
@@ -183,18 +183,18 @@ size_t TopAccel::PreProcess(
 
     for (auto &&m : setDesc) {
         auto ite = setMap.find(m.index);
-        bool updateMesh = (m.flags & m.flag_mesh);
+        bool updateMesh = (m.flags & m.flag_primitive);
         if (ite != setMap.end()) {
             if (!updateMesh) {
-                m.mesh = ite->second->mesh->GetAccelBuffer()->GetAddress();
-                m.flags |= m.flag_mesh;
+                m.primitive = ite->second->mesh->GetAccelBuffer()->GetAddress();
+                m.flags |= m.flag_primitive;
             }
             setMap.erase(ite);
         }
         if (updateMesh) {
-            auto mesh = reinterpret_cast<BottomAccel *>(m.mesh);
+            auto mesh = reinterpret_cast<BottomAccel *>(m.primitive);
             SetMesh(mesh, m.index);
-            m.mesh = mesh->GetAccelBuffer()->GetAddress();
+            m.primitive = mesh->GetAccelBuffer()->GetAddress();
             update = false;
         }
     }
@@ -207,8 +207,8 @@ size_t TopAccel::PreProcess(
         setDesc.reserve(setMap.size());
         for (auto &&i : setMap) {
             auto &mod = setDesc.emplace_back(i.first);
-            mod.flags = mod.flag_mesh;
-            mod.mesh = i.second->mesh->GetAccelBuffer()->GetAddress();
+            mod.flags = mod.flag_primitive;
+            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
         }
         setMap.clear();
     }

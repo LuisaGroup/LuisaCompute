@@ -229,9 +229,9 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
     RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
     RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
-    RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, uint): Hit
-    RAY_TRACING_TRACE_ANY,              // (Accel, ray, uint): bool
-    RAY_TRACING_TRACE_ALL,              // (Accel, ray, uint): RayQuery
+    RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): Hit
+    RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
+    RAY_TRACING_TRACE_ALL,              // (Accel, ray, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_PROCEED,                 //Proceed(RayQuery): bool return: is bvh completed?

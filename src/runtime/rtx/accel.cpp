@@ -52,7 +52,7 @@ luisa::unique_ptr<Command> Accel::update(bool build_accel, Accel::BuildRequest r
 void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {
     auto index = static_cast<uint>(_mesh_handles.size());
     Modification modification{index};
-    modification.set_mesh(mesh);
+    modification.set_primitive(mesh);
     modification.set_transform(transform);
     modification.set_visibility(visibility_mask);
     modification.set_opaque(opaque);
@@ -81,7 +81,7 @@ void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, u
         modification.set_visibility(visibility_mask);
         modification.set_opaque(opaque);
         if (mesh != _mesh_handles[index]) [[likely]] {
-            modification.set_mesh(mesh);
+            modification.set_primitive(mesh);
             _mesh_handles[index] = mesh;
         }
         _modifications[index] = modification;

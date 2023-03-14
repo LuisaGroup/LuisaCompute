@@ -11,4 +11,4 @@ struct CUDACallbackContext {
     virtual ~CUDACallbackContext() noexcept = default;
 };
 
-}
+}// namespace luisa::compute::cuda
