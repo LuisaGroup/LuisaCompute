@@ -1,31 +1,42 @@
 #pragma once
 
-#if LC_NVRTC_VERSION < 110300
-inline void __builtin_unreachable() noexcept { asm("trap;"); }
+#if LC_NVRTC_VERSION < 110200
+#define LC_CONSTANT const
+#else
+#define LC_CONSTANT constexpr
 #endif
 
 #if LC_NVRTC_VERSION < 110200
-inline void __builtin_assume(bool) noexcept {}
+inline __device__ void lc_assume(bool) noexcept {}
+#else
+#define lc_assume(...) __builtin_assume(__VA_ARGS__)
 #endif
 
-#define lc_assume(...) __builtin_assume(__VA_ARGS__)
-
 template<typename T>
-[[noreturn]] __device__ inline T lc_unreachable() noexcept {
+[[noreturn]] inline __device__ T lc_unreachable() noexcept {
+#if LC_NVRTC_VERSION < 110300
+    asm("trap;");
+#else
     __builtin_unreachable();
+#endif
 }
 
-#define lc_assert(...)                        \
-    do {                                      \
-        if (!(__VA_ARGS__)) {                 \
-            printf("Assertion failed: %s, %s:%d\n", #__VA_ARGS__, __FILE__, __LINE__); \
-            asm("trap;");                     \
-        }                                     \
+#ifdef LC_DEBUG
+#define lc_assert(...)                                \
+    do {                                              \
+        if (!(__VA_ARGS__)) {                         \
+            printf("Assertion failed: %s, %s:%d\n",   \
+                   #__VA_ARGS__, __FILE__, __LINE__); \
+            asm("trap;");                             \
+        }                                             \
     } while (false)
+#else
+inline __device__ void lc_assert(bool) noexcept {}
+#endif
 
 template<typename T>
 struct LCBuffer {
-    T *ptr;
+    T *__restrict__ ptr;
     size_t size_bytes;
 };
 
@@ -946,17 +957,27 @@ template<typename T = unsigned char>
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size2d(LCBindlessArray array, lc_uint index) noexcept {
     auto t = array.slots[index].tex2d;
     auto s = lc_make_uint2();
-    asm("txq.width.b32 %0, [%1];" : "=r"(s.x) : "l"(t));
-    asm("txq.height.b32 %0, [%1];" : "=r"(s.y) : "l"(t));
+    asm("txq.width.b32 %0, [%1];"
+        : "=r"(s.x)
+        : "l"(t));
+    asm("txq.height.b32 %0, [%1];"
+        : "=r"(s.y)
+        : "l"(t));
     return s;
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size3d(LCBindlessArray array, lc_uint index) noexcept {
     auto t = array.slots[index].tex3d;
     auto s = lc_make_uint3();
-    asm("txq.width.b32 %0, [%1];" : "=r"(s.x) : "l"(t));
-    asm("txq.height.b32 %0, [%1];" : "=r"(s.y) : "l"(t));
-    asm("txq.depth.b32 %0, [%1];" : "=r"(s.z) : "l"(t));
+    asm("txq.width.b32 %0, [%1];"
+        : "=r"(s.x)
+        : "l"(t));
+    asm("txq.height.b32 %0, [%1];"
+        : "=r"(s.y)
+        : "l"(t));
+    asm("txq.depth.b32 %0, [%1];"
+        : "=r"(s.z)
+        : "l"(t));
     return s;
 }
 

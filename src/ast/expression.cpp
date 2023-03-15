@@ -47,6 +47,7 @@ void CallExpr::_mark() const noexcept {
             _op == CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
             _op == CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY ||
             _op == CallOp::RAY_TRACING_SET_INSTANCE_OPACITY ||
+            // TODO: ray query
             _op == CallOp::ATOMIC_EXCHANGE ||
             _op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
             _op == CallOp::ATOMIC_FETCH_ADD ||

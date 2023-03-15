@@ -67,10 +67,9 @@ struct SharedAsAtomic<int> {
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
-        return AtomicRef<int>{FunctionBuilder::current()->access(
-            Type::of<int>(),
+        return AtomicRef<int>{
             static_cast<const Shared<int> *>(this)->expression(),
-            index.expression())};
+            index.expression()};
     }
 };
 
@@ -80,10 +79,9 @@ struct SharedAsAtomic<uint> {
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
-        return AtomicRef<uint>{FunctionBuilder::current()->access(
-            Type::of<uint>(),
+        return AtomicRef<uint>{
             static_cast<const Shared<uint> *>(this)->expression(),
-            index.expression())};
+            index.expression()};
     }
 };
 

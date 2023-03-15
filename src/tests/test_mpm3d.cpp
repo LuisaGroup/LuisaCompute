@@ -12,6 +12,7 @@
 #include <runtime/stream.h>
 #include <core/logging.h>
 #include <gui/window.h>
+
 int main(int argc, char *argv[]) {
 
     using namespace luisa;

@@ -51,6 +51,8 @@ private:
     void visit(const ForStmt *stmt) override;
     void visit(const ConstantExpr *expr) override;
     void visit(const CommentStmt *stmt) override;
+    void visit(const CpuCustomOpExpr *expr) override;
+    void visit(const GpuCustomOpExpr *expr) override;
 
 private:
     void _emit_type_decl() noexcept;

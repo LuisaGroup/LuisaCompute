@@ -20,12 +20,14 @@ template<typename T>
 class AtomicRef {
 
 private:
-    const AccessExpr *_expression{nullptr};
+    const Expression *_range{nullptr};
+    const Expression *_index{nullptr};
 
 public:
     /// Construct from AccessExpr
-    explicit AtomicRef(const AccessExpr *expr) noexcept
-        : _expression{expr} {}
+    AtomicRef(const Expression *range,
+              const Expression *index) noexcept
+        : _range{range}, _index{index} {}
     AtomicRef(AtomicRef &&) noexcept = delete;
     AtomicRef(const AtomicRef &) noexcept = delete;
     AtomicRef &operator=(AtomicRef &&) noexcept = delete;
@@ -35,7 +37,7 @@ public:
     auto exchange(Expr<T> desired) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_EXCHANGE,
-            {this->_expression, desired.expression()});
+            {this->_range, this->_index, desired.expression()});
         return def<T>(expr);
     }
 
@@ -43,7 +45,7 @@ public:
     auto compare_exchange(Expr<T> expected, Expr<T> desired) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_COMPARE_EXCHANGE,
-            {this->_expression, expected.expression(), desired.expression()});
+            {this->_range, this->_index, expected.expression(), desired.expression()});
         return def<T>(expr);
     }
 
@@ -51,7 +53,7 @@ public:
     auto fetch_add(Expr<T> val) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_ADD,
-            {this->_expression, val.expression()});
+            {this->_range, this->_index, val.expression()});
         return def<T>(expr);
     };
 
@@ -59,7 +61,7 @@ public:
     auto fetch_sub(Expr<T> val) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_SUB,
-            {this->_expression, val.expression()});
+            {this->_range, this->_index, val.expression()});
         return def<T>(expr);
     };
 
@@ -69,7 +71,7 @@ public:
     {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_AND,
-            {this->_expression, val.expression()});
+            {this->_range, this->_index, val.expression()});
         return def<T>(expr);
     };
 
@@ -79,7 +81,7 @@ public:
     {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_OR,
-            {this->_expression, val.expression()});
+            {this->_range, this->_index, val.expression()});
         return def<T>(expr);
     };
 
@@ -89,7 +91,7 @@ public:
     {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_XOR,
-            {this->_expression, val.expression()});
+            {this->_range, this->_index, val.expression()});
         return def<T>(expr);
     };
 
@@ -97,7 +99,7 @@ public:
     auto fetch_min(Expr<T> val) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_MIN,
-            {this->_expression, val.expression()});
+            {this->_range, this->_index, val.expression()});
         return def<T>(expr);
     };
 
@@ -105,7 +107,7 @@ public:
     auto fetch_max(Expr<T> val) &&noexcept {
         auto expr = detail::FunctionBuilder::current()->call(
             Type::of<T>(), CallOp::ATOMIC_FETCH_MAX,
-            {this->_expression, val.expression()});
+            {this->_range, this->_index, val.expression()});
         return def<T>(expr);
     };
 };
@@ -176,10 +178,9 @@ struct BufferExprAsAtomic<int> {
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
-        return AtomicRef<int>{FunctionBuilder::current()->access(
-            Type::of<int>(),
+        return AtomicRef<int>{
             static_cast<const Expr<Buffer<int>> *>(this)->expression(),
-            index.expression())};
+            index.expression()};
     }
 };
 
@@ -191,10 +192,9 @@ struct BufferExprAsAtomic<uint> {
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
-        return AtomicRef<uint>{FunctionBuilder::current()->access(
-            Type::of<uint>(),
+        return AtomicRef<uint>{
             static_cast<const Expr<Buffer<uint>> *>(this)->expression(),
-            index.expression())};
+            index.expression()};
     }
 };
 
@@ -206,10 +206,9 @@ struct BufferExprAsAtomic<float> {
         requires is_integral_expr_v<I>
     [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
-        return AtomicRef<float>{FunctionBuilder::current()->access(
-            Type::of<float>(),
+        return AtomicRef<float>{
             static_cast<const Expr<Buffer<float>> *>(this)->expression(),
-            index.expression())};
+            index.expression()};
     }
 };
 

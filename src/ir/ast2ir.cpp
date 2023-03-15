@@ -623,17 +623,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             luisa::to_underlying(expr->op()));
     }();
     luisa::vector<ir::NodeRef> args;
-    if (is_atomic_operation(expr->op())) {
-        args.reserve(expr->arguments().size() + 1u);
-        LUISA_ASSERT(expr->arguments().front()->tag() == Expression::Tag::ACCESS,
-                     "First argument of atomic operation must be an AccessExpr.");
-        auto access = static_cast<const AccessExpr *>(expr->arguments().front());
-        args.emplace_back(_convert_expr(access->range()));
-        args.emplace_back(_convert_expr(access->index()));
-        for (auto arg : luisa::span{expr->arguments()}.subspan(1u)) {
-            args.emplace_back(_convert_expr(arg));
-        }
-    } else if (is_vector_maker(expr->op())) {
+    if (is_vector_maker(expr->op())) {
         // resolve overloaded vector maker
         args.reserve(expr->type()->dimension());
         auto a = expr->arguments();

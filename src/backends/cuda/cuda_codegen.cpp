@@ -711,7 +711,7 @@ void CUDACodegen::_emit_constant(Function::Constant c) noexcept {
                   _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }
     _generated_constants.emplace_back(c.data.hash());
 
-    _scratch << "__constant__ lc_constant ";
+    _scratch << "__constant__ LC_CONSTANT ";
     _emit_type_name(c.type);
     _scratch << " c" << hash_to_string(c.data.hash()) << "{";
     auto count = c.type->dimension();
@@ -770,6 +770,16 @@ void CUDACodegen::_emit_variable_declarations(Function f) noexcept {
             _scratch << "{};";
         }
     }
+}
+
+void CUDACodegen::visit(const CpuCustomOpExpr *expr) {
+    LUISA_ERROR_WITH_LOCATION(
+        "CudaCodegen: CpuCustomOpExpr is not supported in CUDA backend.");
+}
+
+void CUDACodegen::visit(const GpuCustomOpExpr *expr) {
+    LUISA_ERROR_WITH_LOCATION(
+        "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
 
 }// namespace luisa::compute::cuda

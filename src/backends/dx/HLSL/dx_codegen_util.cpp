@@ -377,23 +377,15 @@ void CodegenUtility::GetFunctionName(Function callable, vstd::StringBuilder &res
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &str, StringStateVisitor &vis) {
     auto args = expr->arguments();
     auto getPointer = [&]() {
-        str << '(';
-        uint64 sz = 1;
-        if (args.size() >= 1) {
-            auto firstArg = static_cast<AccessExpr const *>(args[0]);
-            firstArg->range()->accept(vis);
-            str << ',';
-            firstArg->index()->accept(vis);
-            str << ',';
-        }
-        for (auto i : vstd::range(1, args.size())) {
-            ++sz;
+        str << "(";
+        for (auto i = 0u; i + 1u < args.size(); i++) {
             args[i]->accept(vis);
-            if (sz != args.size()) {
-                str << ',';
-            }
+            str << ", ";
         }
-        str << ')';
+        if (!args.empty()) {
+            args.back()->accept(vis);
+        }
+        str << ")";
     };
     auto IsNumVec3 = [&](Type const &t) {
         if (t.tag() != Type::Tag::VECTOR || t.dimension() != 3) return false;
