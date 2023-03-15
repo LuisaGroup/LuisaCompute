@@ -17,12 +17,25 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Test {
+struct Test1 {
     int3 something;
     float a;
 };
 
-LUISA_STRUCT(Test, something, a) {};
+struct Test2 {
+    int3 a;
+    bool b;
+};
+
+struct Test3 {
+    int a;
+    bool2 b;
+    bool c;
+};
+
+LUISA_STRUCT(Test1, something, a) {};
+LUISA_STRUCT(Test2, a, b) {};
+LUISA_STRUCT(Test3, a, b, c) {};
 
 int main(int argc, char *argv[]) {
 
@@ -41,6 +54,9 @@ int main(int argc, char *argv[]) {
     auto float_buffer = device.create_buffer<float>(1024u);
 
     Callable c1 = [&](UInt a) noexcept {
+        Var<Test1> t1;
+        Var<Test2> t2;
+        Var<Test3> t3;
         return buffer->read(a + thread_x());// captures buffer
     };
 
@@ -139,8 +155,8 @@ int main(int argc, char *argv[]) {
         Var x = w.x;
 
         Var<int3> s;
-        Var<Test> vvt{s, v_float_copy};
-        Var<Test> vt{vvt};
+        Var<Test1> vvt{s, v_float_copy};
+        Var<Test1> vt{vvt};
 
         Var vt_copy = vt;
         Var c = 0.5f + vt.a * 1.0f;

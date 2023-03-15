@@ -100,7 +100,7 @@ struct TypeDesc<T>
 // array
 template<typename T, size_t N>
 struct TypeDesc<std::array<T, N>> {
-    static_assert(alignof(T) >= 4u);
+    static_assert(alignof(T) >= 4u, "array element must be at least 4-byte aligned");
     static luisa::string_view description() noexcept {
         static thread_local auto s = make_array_description(
             TypeDesc<T>::description(), N);
@@ -252,11 +252,13 @@ struct is_valid_reflection : std::false_type {};
 template<typename S, typename... M, typename O, O... os>
 struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>> {
 
-    // static_assert(((alignof(M) >= 4u) && ...));
-    static_assert((!is_bool_vector_v<M> && ...),
-                  "Boolean vectors are not allowed in DSL "
-                  "structures since their may have different "
-                  "layouts on different platforms.");
+    static_assert(alignof(S) >= 4u, "Structs must be aligned to at least 4 bytes.");
+
+    //    static_assert(((alignof(M) >= 4u) && ...));
+    //    static_assert((!is_bool_vector_v<M> && ...),
+    //                  "Boolean vectors are not allowed in DSL "
+    //                  "structures since their may have different "
+    //                  "layouts on different platforms.");
 
 private:
     [[nodiscard]] constexpr static auto _check() noexcept {
