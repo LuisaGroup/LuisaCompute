@@ -52,10 +52,6 @@ vstd::StringBuilder CodegenUtility::GetNewTempVarName() {
     opt->tempCount++;
     return name;
 }
-StructGenerator const *CodegenUtility::GetStruct(
-    Type const *type) {
-    return opt->CreateStruct(type);
-}
 void CodegenUtility::RegistStructType(Type const *type) {
     if (type->is_structure() || type->is_array())
         opt->structTypes.try_emplace(type, opt->count++);
@@ -239,14 +235,10 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             }
         }
             return;
+        case Type::Tag::STRUCTURE:
         case Type::Tag::ARRAY: {
             auto customType = opt->CreateStruct(&type);
-            str << customType->GetStructName();
-        }
-            return;
-        case Type::Tag::STRUCTURE: {
-            auto customType = opt->CreateStruct(&type);
-            str << customType->GetStructName();
+            str << customType;
         }
             return;
         case Type::Tag::BUFFER: {
@@ -256,8 +248,8 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "StructuredBuffer<"sv;
             auto ele = type.element();
             if (ele->is_matrix()) {
-                auto n = ele->dimension();
-                str << luisa::format("WrappedFloat{}x{}", n, n);
+                auto n = vstd::to_string(ele->dimension());
+                str << "WrappedFloat"sv << n << 'x' << n;
             } else {
                 vstd::StringBuilder typeName;
                 if (ele->is_vector() && ele->dimension() == 3) {
@@ -1443,14 +1435,16 @@ void CodegenUtility::PreprocessCodegenProperties(
     GenerateBindless(properties, varData);
 }
 void CodegenUtility::PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult) {
-    if (!opt->customStructVector.empty()) {
-        vstd::fixed_vector<const StructGenerator *, 8> structures(
-            opt->customStructVector.begin(),
-            opt->customStructVector.end());
-        pdqsort(structures.begin(), structures.end(), [](auto lhs, auto rhs) noexcept {
+    if (!opt->customStruct.empty()) {
+        vstd::fixed_vector<StructGenerator *, 16> customStructVector;
+        customStructVector.reserve(opt->customStruct.size());
+        for (auto &&i : opt->customStruct) {
+            customStructVector.emplace_back(i.second.get());
+        }
+        pdqsort(customStructVector.begin(), customStructVector.end(), [](auto lhs, auto rhs) noexcept {
             return lhs->GetType()->index() < rhs->GetType()->index();
         });
-        for (auto v : structures) {
+        for (auto v : customStructVector) {
             finalResult << "struct " << v->GetStructName() << "{\n"
                         << v->GetStructDesc() << "};\n";
         }
@@ -1468,7 +1462,6 @@ void CodegenUtility::PostprocessCodegenProperties(CodegenResult::Properties &pro
 }
 void CodegenUtility::CodegenProperties(
     CodegenResult::Properties &properties,
-    vstd::StringBuilder &finalResult,
     vstd::StringBuilder &varData,
     Function kernel,
     uint offset,
@@ -1604,7 +1597,7 @@ CodegenResult CodegenUtility::Codegen(
     uint64 immutableHeaderSize = finalResult.size();
     vstd::array<uint, 3> registerCount;
     PreprocessCodegenProperties(properties, varData, registerCount, nonEmptyCbuffer, false);
-    CodegenProperties(properties, finalResult, varData, kernel, 0, registerCount);
+    CodegenProperties(properties, varData, kernel, 0, registerCount);
     PostprocessCodegenProperties(properties, finalResult);
     finalResult << varData << codegenData;
     return {
@@ -1756,8 +1749,8 @@ uint iid:SV_INSTANCEID;
     uint64 immutableHeaderSize = finalResult.size();
     vstd::array<uint, 3> registerCount;
     PreprocessCodegenProperties(properties, varData, registerCount, nonEmptyCbuffer, true);
-    CodegenProperties(properties, finalResult, varData, vertFunc, 1, registerCount);
-    CodegenProperties(properties, finalResult, varData, pixelFunc, 1, registerCount);
+    CodegenProperties(properties, varData, vertFunc, 1, registerCount);
+    CodegenProperties(properties, varData, pixelFunc, 1, registerCount);
     PostprocessCodegenProperties(properties, finalResult);
     finalResult << varData << codegenData;
     return {

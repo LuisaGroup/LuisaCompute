@@ -7,7 +7,7 @@ namespace toolhub::directx {
 CodegenStackData::CodegenStackData()
     : generateStruct(
           [this](Type const *t) {
-              return CreateStruct(t);
+              CreateStruct(t);
           }) {
     structReplaceName.try_emplace(
         "float3"sv, "float4"sv);
@@ -28,7 +28,6 @@ void CodegenStackData::Clear() {
     constTypes.clear();
     funcTypes.clear();
     customStruct.clear();
-    customStructVector.clear();
     sharedVariable.clear();
     constCount = 0;
     argOffset = 0;
@@ -48,28 +47,23 @@ bool &CodegenStackData::ThreadLocalSpirv() {
     return gIsCodegenSpirv;
 }*/
 
-StructGenerator *CodegenStackData::CreateStruct(Type const *t) {
-    StructGenerator *newPtr;
+vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
+    auto iter = internalStruct.find(t);
+    if (iter != internalStruct.end())
+        return iter->second;
     auto ite = customStruct.try_emplace(
         t,
         vstd::lazy_eval([&] {
-            newPtr = new StructGenerator(
+            auto newPtr = new StructGenerator(
                 t,
                 structCount++);
             return vstd::create_unique(newPtr);
         }));
-    if (!ite.second) {
-        return ite.first->second.get();
-    } else {
-        ite.first->second->Init(generateStruct);
+    if (ite.second) {
+        auto newPtr = ite.first->second.get();
+        newPtr->Init(generateStruct);
     }
-    auto iter = internalStruct.find(t);
-    if (iter != internalStruct.end()) {
-        newPtr->SetStructName(vstd::string{iter->second});
-    } else {
-        customStructVector.emplace_back(newPtr);
-    }
-    return newPtr;
+    return ite.first->second->GetStructName();
 }
 std::pair<uint64, bool> CodegenStackData::GetConstCount(uint64 data) {
     bool newValue = false;
@@ -83,7 +77,7 @@ std::pair<uint64, bool> CodegenStackData::GetConstCount(uint64 data) {
     return {ite.first->second, newValue};
 }
 
-uint64 CodegenStackData::GetFuncCount(void const* data) {
+uint64 CodegenStackData::GetFuncCount(void const *data) {
     auto ite = funcTypes.try_emplace(
         data,
         vstd::lazy_eval(

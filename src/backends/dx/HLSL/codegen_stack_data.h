@@ -22,7 +22,6 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool isRaster = false;
     bool isPixelShader = false;
     bool pixelFirstArgIsStruct = false;
-    vstd::vector<StructGenerator *> customStructVector;
     uint64 count = 0;
     uint64 constCount = 0;
     uint64 funcCount = 0;
@@ -33,7 +32,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     int64_t appdataId = -1;
     int64 scopeCount = -1;
 
-    vstd::function<StructGenerator *(Type const *)> generateStruct;
+    vstd::function<void (Type const *)> generateStruct;
     vstd::unordered_map<vstd::string, vstd::string, vstd::hash<vstd::StringBuilder>> structReplaceName;
     vstd::unordered_map<uint64, Variable> sharedVariable;
     Expression const *tempSwitchExpr;
@@ -41,7 +40,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     CodegenStackData();
     void Clear();
     void AddBindlessType(Type const *type);
-    StructGenerator *CreateStruct(Type const *t);
+    vstd::string_view CreateStruct(Type const *t);
     std::pair<uint64, bool> GetConstCount(uint64 data);
     uint64 GetFuncCount(void const *data);
     uint64 GetTypeCount(Type const *t);
