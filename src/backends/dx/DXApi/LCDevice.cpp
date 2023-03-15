@@ -352,7 +352,7 @@ ResourceCreationInfo LCDevice::create_raster_shader(
     DepthFormat dsv_format,
     Function vert,
     Function pixel,
-    ShaderOption option) noexcept {
+    const ShaderOption &option) noexcept {
     auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {

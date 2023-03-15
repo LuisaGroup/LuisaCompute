@@ -11,6 +11,7 @@
 #include <core/binary_io.h>
 #include <vstl/pdqsort.h>
 #include <core/stl/filesystem.h>
+
 namespace luisa::compute {
 
 // Make context global, so dynamic modules cannot be over-loaded
@@ -23,7 +24,6 @@ struct Context::Impl {
     luisa::vector<Device::Creator *> device_creators;
     luisa::vector<Device::Deleter *> device_deleters;
     luisa::vector<luisa::string> installed_backends;
-    BinaryIO *file_io{nullptr};
 };
 
 namespace detail {
@@ -151,14 +151,6 @@ luisa::span<const DynamicModule> Context::loaded_modules() const noexcept {
 Device Context::create_default_device() noexcept {
     LUISA_ASSERT(!installed_backends().empty(), "No backends installed.");
     return create_device(installed_backends().front());
-}
-
-BinaryIO *Context::file_io() const noexcept {
-    return _impl->file_io;
-}
-
-void Context::set_file_io(BinaryIO *file_io) noexcept {
-    _impl->file_io = file_io;
 }
 
 }// namespace luisa::compute

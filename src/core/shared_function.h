@@ -1,15 +1,20 @@
 #pragma once
-#include <core/stl/memory.h>
+
 #include <atomic>
+#include <core/stl/memory.h>
+
 namespace luisa {
+
 template<typename Func>
 class SharedFunction;
+
 template<typename Ret, typename... Args>
 class SharedFunction<Ret(Args...)> {
     struct SharedFunctionBase {
+        using dtor_type = void (*)(void *);
         std::atomic_uint32_t ref{1};
-        uint32_t align;
-        void (*dtor)(void *);
+        uint32_t align{};
+        dtor_type dtor{nullptr};
     };
     SharedFunctionBase *_base;
     Ret (*_func_ptr)(void *, Args &&...);
@@ -124,4 +129,5 @@ public:
         return *this;
     }
 };
+
 }// namespace luisa

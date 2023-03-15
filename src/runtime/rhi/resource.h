@@ -66,7 +66,7 @@ struct ShaderOption {
     bool enable_fast_math{true};
     bool enable_debug_info{false};
     bool compile_only{false};// compile the shader but not create a shader object
-    luisa::string_view name; // will generate a default name if empty
+    luisa::string name;      // will generate a default name if empty
 };
 
 class LC_RUNTIME_API Resource {

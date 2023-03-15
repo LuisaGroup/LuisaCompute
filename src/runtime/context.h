@@ -63,10 +63,6 @@ public:
     // choose one backend randomly when multiple installed backends compiled
     // program panic when no installed backends compiled
     [[nodiscard]] Device create_default_device() noexcept;
-    // Interface for binary input and output
-    // A default BinaryIO instance is provided by backend, usually the behavior is: read and write binary data from disk
-    [[nodiscard]] BinaryIO *file_io() const noexcept;
-    void set_file_io(BinaryIO *file_io) noexcept;
 };
 
 }// namespace luisa::compute

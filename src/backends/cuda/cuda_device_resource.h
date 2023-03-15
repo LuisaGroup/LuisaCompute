@@ -1094,10 +1094,12 @@ __device__ inline float atomicSub(float *a, float v) noexcept {
     return atomicAdd(a, -v);
 }
 
+// is this valid?
 __device__ inline float atomicMin(float *a, float v) noexcept {
     return __int_as_float(atomicMin(reinterpret_cast<int *>(a), __float_as_int(v)));
 }
 
+// is this valid?
 __device__ inline float atomicMax(float *a, float v) noexcept {
     return __int_as_float(atomicMax(reinterpret_cast<int *>(a), __float_as_int(v)));
 }
@@ -1111,6 +1113,11 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
 #define lc_atomic_fetch_and(buffer, index, value) atomicAnd(&((buffer).ptr[index]), value)
 #define lc_atomic_fetch_or(buffer, index, value) atomicOr(&((buffer).ptr[index]), value)
 #define lc_atomic_fetch_xor(buffer, index, value) atomicXor(&((buffer).ptr[index]), value)
+
+// static block size
+[[nodiscard]] __device__ constexpr lc_uint3 lc_block_size() noexcept {
+    return LC_BLOCK_SIZE;
+}
 
 #if LC_OPTIX_VERSION != 0
 
@@ -1299,7 +1306,6 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
         :);
     return lc_make_uint3(u0, u1, u2);
 }
-[[nodiscard]] __device__ constexpr lc_uint3 lc_block_size() noexcept;
 [[nodiscard]] inline auto lc_thread_id() noexcept {
     return lc_dispatch_id() % lc_block_size();
 }
@@ -1309,9 +1315,6 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 }
 
 #else
-[[nodiscard]] __device__ constexpr lc_uint3 lc_block_size() noexcept {
-    return LC_BLOCK_SIZE;
-}
 #define lc_dispatch_size() dispatch_size
 
 [[nodiscard]] __device__ inline auto lc_thread_id() noexcept {

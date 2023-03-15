@@ -223,7 +223,7 @@ PYBIND11_MODULE(lcapi, m) {
                 .enable_fast_math = true,
                 .enable_debug_info = false,
                 .compile_only = false,
-                .name = str};
+                .name = luisa::string{str}};
             return self.create_shader(option, kernel).handle;
         })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
@@ -240,7 +240,7 @@ PYBIND11_MODULE(lcapi, m) {
                 .enable_fast_math = true,
                 .enable_debug_info = false,
                 .compile_only = true,
-                .name = str_view};
+                .name = luisa::string{str_view}};
             auto useless = self.create_shader(option, kernel);
         })
         .def("save_shader_async", [](DeviceInterface &self, eastl::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
@@ -259,7 +259,7 @@ PYBIND11_MODULE(lcapi, m) {
                     .enable_fast_math = true,
                     .enable_debug_info = false,
                     .compile_only = true,
-                    .name = str_view};
+                    .name = luisa::string{str_view}};
                 auto useless = self.create_shader(option, builder->function());
             }));
         })

@@ -167,7 +167,7 @@ private:
                  DepthFormat dsv_format,
                  Function vert,
                  Function pixel,
-                 ShaderOption const& option)noexcept
+                 const ShaderOption &option)noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,

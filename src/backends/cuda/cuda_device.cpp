@@ -403,7 +403,7 @@ ResourceCreationInfo CUDADevice::create_raster_shader(const MeshFormat &mesh_for
                                                       luisa::span<const PixelFormat> rtv_format,
                                                       DepthFormat dsv_format,
                                                       Function vert, Function pixel,
-                                                      ShaderOption shader_option) noexcept {
+                                                      const ShaderOption &shader_option) noexcept {
     LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
 }
 

@@ -96,7 +96,7 @@ public:
         DepthFormat dsv_format,
         Function vert,
         Function pixel,
-        ShaderOption shader_option) noexcept { return ResourceCreationInfo::make_invalid(); }
+        const ShaderOption &shader_option) noexcept { return ResourceCreationInfo::make_invalid(); }
 
     virtual void save_raster_shader(
         const MeshFormat &mesh_format,
