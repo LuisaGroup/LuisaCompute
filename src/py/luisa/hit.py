@@ -4,24 +4,33 @@ from .func import func
 from .types import uint
 from .mathtypes import *
 
-# Hit
-# hit_type: 0: miss, 1: triangle, 2: procedural primitive
-Hit = StructType(inst=uint, prim=uint, bary=float2, hit_type=uint, ray_t=float)
+CommittedHit = StructType(inst=uint, prim=uint, bary=float2, hit_type=uint, ray_t=float)
+TriangleHit = StructType(inst=uint, prim=uint, bary=float2, ray_t=float)
+ProceduralHit = StructType(inst=uint, prim=uint)
 
 @func
-def miss(self):
+def _miss(self):
     return self.hit_type==0
 @func
-def hit_triangle(self):
+def _hit_triangle(self):
     return self.hit_type==1
 @func
-def hit_procedural(self):
+def _hit_procedural(self):
     return self.hit_type==2
-Hit.add_method(miss)
-Hit.add_method(hit_triangle)
-Hit.add_method(hit_procedural)
+CommittedHit.add_method(_miss, "miss")
+CommittedHit.add_method(_hit_triangle, "hit_triangle")
+CommittedHit.add_method(_hit_procedural, "hit_procedural")
 
 @func
-def interpolate(self, a, b, c):
+def _interpolate(self, a, b, c):
     return (1.0 - self.bary.x - self.bary.y) * a + self.bary.x * b + self.bary.y * c
-Hit.add_method(interpolate)
+CommittedHit.add_method(_interpolate, "interpolate")
+
+@func
+def _miss(self):
+    return self.inst == 4294967295
+@func
+def _hitted(self):
+    return self.inst != 4294967295
+TriangleHit.add_method(_miss, "miss")
+TriangleHit.add_method(_hitted, "hitted")

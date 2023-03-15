@@ -15,11 +15,10 @@ public:
     RayQuery(const CallExpr *func) noexcept;
     RayQuery(RayQuery &&) noexcept = default;
     RayQuery(RayQuery const &) noexcept = delete;
-    using Callback = luisa::move_only_function<void(Var<Hit> &&)>;
     [[nodiscard]] Var<bool> proceed() const noexcept;
-    [[nodiscard]] Var<Hit> triangle_candidate() const noexcept;
-    [[nodiscard]] Var<Hit> procedural_candidate() const noexcept;
-    [[nodiscard]] Var<Hit> committed_hit() const noexcept;
+    [[nodiscard]] Var<TriangleHit> triangle_candidate() const noexcept;
+    [[nodiscard]] Var<ProceduralHit> procedural_candidate() const noexcept;
+    [[nodiscard]] Var<CommittedHit> committed_hit() const noexcept;
     [[nodiscard]] Var<bool> is_candidate_triangle() const noexcept;
     [[nodiscard]] Var<bool> is_candidate_procedural() const noexcept;
     void commit_triangle() const noexcept;

@@ -15,10 +15,11 @@ CodegenStackData::CodegenStackData()
         "int3"sv, "int4"sv);
     structReplaceName.try_emplace(
         "uint3"sv, "uint4"sv);
+    internalStruct.emplace(Type::of<CommittedHit>(), "Hit0");
+    internalStruct.emplace(Type::of<TriangleHit>(), "Hit1");
+    internalStruct.emplace(Type::of<ProceduralHit>(), "Hit2");
 }
 void CodegenStackData::Clear() {
-    rayDesc = nullptr;
-    hitDesc = nullptr;
     tempSwitchExpr = nullptr;
     arguments.clear();
     scopeCount = -1;
@@ -48,7 +49,6 @@ bool &CodegenStackData::ThreadLocalSpirv() {
 }*/
 
 StructGenerator *CodegenStackData::CreateStruct(Type const *t) {
-    bool isHitType = (t == Type::of<Hit>());
     StructGenerator *newPtr;
     auto ite = customStruct.try_emplace(
         t,
@@ -63,9 +63,9 @@ StructGenerator *CodegenStackData::CreateStruct(Type const *t) {
     } else {
         ite.first->second->Init(generateStruct);
     }
-    if (isHitType) {
-        hitDesc = newPtr;
-        newPtr->SetStructName(vstd::string("RayPayload"sv));
+    auto iter = internalStruct.find(t);
+    if (iter != internalStruct.end()) {
+        newPtr->SetStructName(vstd::string{iter->second});
     } else {
         customStructVector.emplace_back(newPtr);
     }

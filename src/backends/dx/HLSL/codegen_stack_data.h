@@ -11,6 +11,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::unordered_map<void const *, uint64> funcTypes;
     vstd::unordered_map<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::unordered_map<uint, uint> arguments;
+    vstd::unordered_map<Type const*, vstd::string> internalStruct;
     enum class FuncType : uint8_t {
         Kernel,
         Vert,
@@ -33,8 +34,6 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     int64 scopeCount = -1;
 
     vstd::function<StructGenerator *(Type const *)> generateStruct;
-    StructGenerator *rayDesc = nullptr;
-    StructGenerator *hitDesc = nullptr;
     vstd::unordered_map<vstd::string, vstd::string, vstd::hash<vstd::StringBuilder>> structReplaceName;
     vstd::unordered_map<uint64, Variable> sharedVariable;
     Expression const *tempSwitchExpr;

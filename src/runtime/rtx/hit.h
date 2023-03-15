@@ -14,12 +14,24 @@ enum class HitType : uint8_t {
     Procedural = 2
 };
 
-struct Hit {
+struct CommittedHit {
     uint inst;
     uint prim;
     float2 bary;
     uint hit_type;
     float committed_ray_t;
+};
+
+struct TriangleHit {
+    uint inst;
+    uint prim;
+    float2 bary;
+    float committed_ray_t;
+};
+
+struct ProceduralHit{
+    uint inst;
+    uint prim;
 };
 
 }// namespace luisa::compute

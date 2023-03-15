@@ -7,7 +7,7 @@ from .mathtypes import *
 from .func import func
 from .types import to_lctype
 from .builtin import _builtin_call, bitwise_cast
-from .hit import Hit
+from .hit import TriangleHit, CommittedHit, ProceduralHit
 from .rayquery import rayQueryType, rayQuery
 # Ray
 Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
@@ -78,18 +78,6 @@ def set_dir(self, val: float3):
     self._dir[1] = val.y
     self._dir[2] = val.z
 Ray.add_method(set_dir)
-# Var<float> interpolate(Expr<Hit> hit, Expr<float> a, Expr<float> b, Expr<float> c) noexcept {
-#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
-# }
-
-# Var<float2> interpolate(Expr<Hit> hit, Expr<float2> a, Expr<float2> b, Expr<float2> c) noexcept {
-#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
-# }
-
-# Var<float3> interpolate(Expr<Hit> hit, Expr<float3> a, Expr<float3> b, Expr<float3> c) noexcept {
-#     return (1.0f - hit.bary.x - hit.bary.y) * a + hit.bary.x * b + hit.bary.y * c;
-# }
-
 
 class Accel:
     def __init__(self,  hint:lcapi.AccelUsageHint = lcapi.AccelUsageHint.FAST_BUILD, allow_compact:bool = False, allow_update:bool = False):
@@ -151,7 +139,7 @@ class Accel:
 
     @func
     def trace_closest(self, ray: Ray, vis_mask: int):
-        return _builtin_call(Hit, "RAY_TRACING_TRACE_CLOSEST", self, ray, vis_mask)
+        return _builtin_call(TriangleHit, "RAY_TRACING_TRACE_CLOSEST", self, ray, vis_mask)
 
     @func
     def trace_any(self, ray: Ray, vis_mask: int):

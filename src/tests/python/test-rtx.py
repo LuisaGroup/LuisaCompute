@@ -69,7 +69,7 @@ def raytracing_kernel(image, accel):
     hit = accel.trace_closest(ray, -1)
     # if hit.hit_type == 1:
     # if not hit.miss():
-    if hit.hit_triangle():
+    if hit.hitted():
         red = float3(1.0, 0.0, 0.0)
         green = float3(0.0, 1.0, 0.0)
         blue = float3(0.0, 0.0, 1.0)
