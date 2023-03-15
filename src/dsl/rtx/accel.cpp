@@ -5,7 +5,7 @@ namespace luisa::compute {
 
 namespace detail {
 
-Var<Hit> AccelExprProxy::trace_closest(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
+Var<TriangleHit> AccelExprProxy::trace_closest(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
     return Expr<Accel>{_accel}.trace_closest(ray, vis_mask);
 }
 
@@ -57,10 +57,10 @@ Expr<Accel>::Expr(const Accel &accel) noexcept
     : _expression{detail::FunctionBuilder::current()->accel_binding(
           accel.handle())} {}
 
-Var<Hit> Expr<Accel>::trace_closest(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return def<Hit>(
+Var<TriangleHit> Expr<Accel>::trace_closest(Expr<Ray> ray, Expr<uint> mask) const noexcept {
+    return def<TriangleHit>(
         detail::FunctionBuilder::current()->call(
-            Type::of<Hit>(), CallOp::RAY_TRACING_TRACE_CLOSEST,
+            Type::of<TriangleHit>(), CallOp::RAY_TRACING_TRACE_CLOSEST,
             {_expression, ray.expression(), mask.expression()}));
 }
 

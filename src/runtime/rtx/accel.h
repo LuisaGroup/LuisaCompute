@@ -17,7 +17,7 @@ namespace detail {
 // for DSL
 class AccelExprProxy;
 }// namespace detail
-
+// Accel is top-level acceleration structure(TLAS) for ray-tracing
 class LC_RUNTIME_API Accel final : public Resource {
 
 public:

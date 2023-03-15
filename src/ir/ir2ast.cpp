@@ -514,10 +514,8 @@ namespace luisa::compute {
             }
             case ir::Func::Tag::CpuCustomOp: LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
             // FIXME: these tags are deprecated and will be removed.
-            case ir::Func::Tag::RayTracingInstanceAabb: [[fallthrough]];
             case ir::Func::Tag::RayTracingInstanceVisibility: [[fallthrough]];
             case ir::Func::Tag::RayTracingInstanceOpacity: [[fallthrough]];
-            case ir::Func::Tag::RayTracingSetInstanceAabb: [[fallthrough]];
             default: LUISA_ERROR_WITH_LOCATION("Invalid function tag.");
         }
         return nullptr;

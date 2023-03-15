@@ -7,6 +7,7 @@ use std::{cell::RefCell, collections::HashMap, hash::Hash, rc::Rc};
 pub mod context;
 mod display;
 pub mod transform;
+mod usage_detect;
 
 use ir::{ArrayType, Primitive, Type};
 

@@ -44,6 +44,7 @@ def _rm(ro: float3, rd: float3, time: float):
 
 @func
 def clear_kernel(image):
+    set_block_size(16,16,1)
     coord = dispatch_id().xy
     image.write(coord, float4(0.3, 0.4, 0.5, 1.))
 

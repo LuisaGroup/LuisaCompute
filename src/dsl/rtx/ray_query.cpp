@@ -16,14 +16,14 @@ Var<bool> RayQuery::proceed() const noexcept {
         Type::of<bool>(), CallOp::RAY_QUERY_PROCEED, {_expr}));
 }
 
-Var<Hit> RayQuery::triangle_candidate() const noexcept {
-    return def<Hit>(detail::FunctionBuilder::current()->call(
-        Type::of<Hit>(), CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT, {_expr}));
+Var<TriangleHit> RayQuery::triangle_candidate() const noexcept {
+    return def<TriangleHit>(detail::FunctionBuilder::current()->call(
+        Type::of<TriangleHit>(), CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT, {_expr}));
 }
 
-Var<Hit> RayQuery::procedural_candidate() const noexcept {
-    return def<Hit>(detail::FunctionBuilder::current()->call(
-        Type::of<Hit>(), CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT, {_expr}));
+Var<ProceduralHit> RayQuery::procedural_candidate() const noexcept {
+    return def<ProceduralHit>(detail::FunctionBuilder::current()->call(
+        Type::of<ProceduralHit>(), CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT, {_expr}));
 }
 
 Var<bool> RayQuery::is_candidate_triangle() const noexcept {
@@ -46,9 +46,9 @@ void RayQuery::commit_procedural(Expr<float> distance) const noexcept {
         {_expr, distance.expression()});
 }
 
-Var<Hit> RayQuery::committed_hit() const noexcept {
-    return def<Hit>(detail::FunctionBuilder::current()->call(
-        Type::of<Hit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_expr}));
+Var<CommittedHit> RayQuery::committed_hit() const noexcept {
+    return def<CommittedHit>(detail::FunctionBuilder::current()->call(
+        Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_expr}));
 }
 
 }// namespace luisa::compute

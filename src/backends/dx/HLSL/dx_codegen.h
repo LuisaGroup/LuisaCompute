@@ -66,8 +66,6 @@ public:
         bool cBufferNonEmpty);
     static void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, vstd::function<void(vstd::StringBuilder &)> const &bindVertex);
     static void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
-    static StructGenerator const *GetStruct(
-        Type const *type);
     static bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
     static bool IsCBufferNonEmpty(Function func);
     static vstd::MD5 GetTypeMD5(vstd::span<Type const *const> types);
@@ -85,7 +83,6 @@ public:
     static void PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult);
     static void CodegenProperties(
         CodegenResult::Properties &properties,
-        vstd::StringBuilder &finalResult,
         vstd::StringBuilder &varData,
         Function kernel,
         uint offset,

@@ -133,9 +133,7 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
         vstd::StringBuilder curStr;
         StringStateVisitor vis(f, curStr);
         expr->self()->accept(vis);
-        auto &&selfStruct = CodegenUtility::GetStruct(expr->self()->type());
-        auto &&structVar = selfStruct->GetStructVar(expr->member_index());
-        str << curStr << '.' << structVar;
+        str << curStr << ".v"sv << vstd::to_string(expr->member_index());
         auto t = expr->type();
         if (t->is_vector() && t->dimension() == 3) {
             str << ".v"sv;

@@ -341,7 +341,9 @@ template<typename Buffer,typename Idx,typename T>
 T _atomic_max(Buffer a,const Idx idx,const T b){T r;InterlockedMax(a[idx],b,r);return r;}
 template<typename Buffer,typename Idx>
 float _atomic_max_float(Buffer a,const Idx idx,const float b){int r;InterlockedMax(a[idx],asint(b),r);return asfloat(r);}
-struct RayPayload {uint v0;uint v1;float2 v2;uint v3;float v4;};
+struct Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
+struct Hit1{uint v0;uint v1;float2 v2;float v3;};
+struct Hit2{uint v0;uint v1;};
 void ClearDispInd(RWStructuredBuffer<uint> buffer){buffer[0]=0;}
 void EmplaceDispInd3D(RWStructuredBuffer<uint> buffer,const uint3 blk,const uint3 size,const uint ker){
 uint idx;

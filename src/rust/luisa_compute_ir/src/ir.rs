@@ -1,6 +1,7 @@
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
+use crate::usage_detect::detect_usage;
 use crate::*;
 use std::any::{Any, TypeId};
 use std::collections::HashSet;
@@ -193,7 +194,7 @@ impl Primitive {
     pub fn size(&self) -> usize {
         match self {
             Primitive::Bool => 1,
-            Primitive::Int16=> 2,
+            Primitive::Int16 => 2,
             Primitive::Uint16 => 2,
             Primitive::Int32 => 4,
             Primitive::Uint32 => 4,
@@ -419,10 +420,8 @@ pub enum Func {
 
     // (handle, instance_id) -> Mat4
     RayTracingInstanceTransform,
-    RayTracingInstanceAabb,
     RayTracingInstanceVisibility,
     RayTracingInstanceOpacity,
-    RayTracingSetInstanceAabb,
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpacity,
     RayTracingSetInstanceVisibility,
@@ -1626,6 +1625,66 @@ impl IrBuilder {
     }
 }
 
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub enum Usage {
+    NONE,
+    READ,
+    WRITE,
+    READ_WRITE,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub enum UsageMark {
+    READ,
+    WRITE,
+}
+
+impl Usage {
+    pub fn mark(&self, usage: UsageMark) -> Usage {
+        match (self, usage) {
+            (Usage::NONE, UsageMark::READ) => Usage::READ,
+            (Usage::NONE, UsageMark::WRITE) => Usage::WRITE,
+            (Usage::READ, UsageMark::READ) => Usage::READ,
+            (Usage::READ, UsageMark::WRITE) => Usage::READ_WRITE,
+            (Usage::WRITE, UsageMark::READ) => Usage::READ_WRITE,
+            (Usage::WRITE, UsageMark::WRITE) => Usage::WRITE,
+            (Usage::READ_WRITE, _) => Usage::READ_WRITE,
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSlice<Usage> {
+    let mut usage_map = detect_usage(&kernel.module);
+    let mut usage = Vec::new();
+    for captured in kernel.captures.as_ref() {
+        usage.push(
+            usage_map.remove(&captured.node).expect(
+                format!(
+                    "Requested resource {} not exist in usage map",
+                    captured.node.0
+                )
+                .as_str(),
+            ),
+        );
+    }
+    for argument in kernel.args.as_ref() {
+        usage.push(
+            usage_map.remove(argument).expect(
+                format!(
+                    "Requested argument {} not exist in usage map",
+                    argument.0
+                )
+                .as_str(),
+            )
+        );
+    }
+    CBoxedSlice::new(usage)
+}
+
 #[no_mangle]
 pub extern "C" fn luisa_compute_ir_new_node(pools: CArc<ModulePools>, node: Node) -> NodeRef {
     new_node(&pools, node)
@@ -1702,9 +1761,7 @@ pub extern "C" fn luisa_compute_ir_new_instruction(
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_callable_module(
-    m: CallableModule,
-) -> CallableModuleRef{
+pub extern "C" fn luisa_compute_ir_new_callable_module(m: CallableModule) -> CallableModuleRef {
     CallableModuleRef(CArc::new(m))
 }
 
@@ -1715,7 +1772,7 @@ pub extern "C" fn luisa_compute_ir_new_kernel_module(
     CArc::into_raw(CArc::new(m))
 }
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_register_type(ty:&Type)->*mut CArcSharedBlock<Type>{
+pub extern "C" fn luisa_compute_ir_register_type(ty: &Type) -> *mut CArcSharedBlock<Type> {
     CArc::into_raw(context::register_type(ty.clone()))
 }
 pub mod debug {

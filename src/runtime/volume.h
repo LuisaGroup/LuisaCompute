@@ -102,7 +102,7 @@ public:
         return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
     }
 };
-
+// VolumeView represents a reference to a Image. Use a VolumeView that referenced to a destructed Volume is an undefined behavior.
 template<typename T>
 class VolumeView {
 

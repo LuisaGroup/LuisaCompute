@@ -252,7 +252,7 @@ struct is_valid_reflection : std::false_type {};
 template<typename S, typename... M, typename O, O... os>
 struct is_valid_reflection<S, std::tuple<M...>, std::integer_sequence<O, os...>> {
 
-    static_assert(((alignof(M) >= 4u) && ...));
+    // static_assert(((alignof(M) >= 4u) && ...));
     static_assert((!is_bool_vector_v<M> && ...),
                   "Boolean vectors are not allowed in DSL "
                   "structures since their may have different "
@@ -322,6 +322,7 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
             LUISA_MAP_LIST(                                                  \
                 LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET,                        \
                 ##__VA_ARGS__)>;                                             \
+        static_assert(alignof(this_type) >= 4);                              \
         static_assert(luisa::compute::detail::is_valid_reflection_v<         \
                       this_type, type, offset>);                             \
     };                                                                       \
