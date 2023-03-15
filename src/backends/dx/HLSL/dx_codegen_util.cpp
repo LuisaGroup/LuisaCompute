@@ -1452,7 +1452,7 @@ void CodegenUtility::PostprocessCodegenProperties(CodegenResult::Properties &pro
     for (auto &&kv : opt->sharedVariable) {
         auto &&i = kv.second;
         finalResult << "groupshared "sv;
-        GetTypeName(*i.type()->element(), finalResult, Usage::READ);
+        GetTypeName(*i.type()->element(), finalResult, Usage::READ, false);
         finalResult << ' ';
         GetVariableName(i, finalResult);
         finalResult << '[';
