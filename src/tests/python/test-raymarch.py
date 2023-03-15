@@ -1,3 +1,4 @@
+# https://www.shadertoy.com/view/Xds3zN
 from luisa import *
 from luisa.builtin import *
 from luisa.types import *
@@ -586,17 +587,17 @@ def clear_kernel(image):
     image.write(coord, float4(0.3, 0.4, 0.5, 1.))
 
 
-super_sampling = 4
-GroupArray = SharedArrayType(super_sampling * super_sampling, float3)
-
+super_sampling = 1
+block_size = (1 << super_sampling)
+GroupArray = SharedArrayType(block_size * block_size, float3)
 
 @func
 def downsample_tex(image, out_image):
-    set_block_size(super_sampling, super_sampling, 1)
+    set_block_size(block_size, block_size, 1)
     arr = GroupArray()
     local_coord = thread_id().xy
     col = image.read(dispatch_id().xy).xyz
-    value = super_sampling
+    value = block_size
     while value > 1:
         next_value = value // 2
         if all(local_coord < uint2(value)):
@@ -616,17 +617,28 @@ def downsample_tex(image, out_image):
 
 
 res = 1280, 720
-super_res = res[0] * super_sampling, res[1] * super_sampling
+super_res = res[0] * block_size, res[1] * block_size
 render_image = Texture2D(*super_res, 4, float, storage="BYTE")
 image = Texture2D(*res, 4, float, storage="BYTE")
 gui = GUI("Test raymarch", res)
 clear_kernel(render_image, dispatch_size=(*super_res, 1))
 time = 0.0
-mouse_pos = float2(0.5)
+mouse_pos = float2(0.)
+mouse_movement = float2(0.)
+last_mouse = float2(0.)
 while gui.running():
     # left mouse
-    if gui.is_mouse_pressed(0):
-        mouse_pos = gui.cursor_pos()
+    if gui.is_mouse_down(0):
+        cur_pos = gui.cursor_pos()
+        mouse_movement = float2(0)
+        last_mouse = cur_pos
+    elif gui.is_mouse_pressed(0):
+        cur_pos = gui.cursor_pos()
+        mouse_movement = cur_pos - last_mouse
+        last_mouse = cur_pos
+    else:
+        mouse_movement = float2(0.)
+    mouse_pos += mouse_movement
     kernel(mouse_pos, time, render_image, dispatch_size=(*super_res, 1))
     downsample_tex(render_image, image, dispatch_size=(*super_res, 1))
     gui.set_image(image)
