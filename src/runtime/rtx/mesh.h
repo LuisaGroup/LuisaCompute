@@ -11,7 +11,7 @@
 namespace luisa::compute {
 
 class Accel;
-
+// Mesh is buttom-level acceleration structure(BLAS) for ray-tracing, it present triangle-mesh only, custom intersection see ProceduralPrimitive
 class LC_RUNTIME_API Mesh final : public Resource {
 
 public:

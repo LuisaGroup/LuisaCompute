@@ -1,7 +1,7 @@
 #include <core/logging.h>
 #include <ast/function_builder.h>
 #include <runtime/rhi/command.h>
-#include <runtime/command_encoder.h>
+#include <runtime/rhi/command_encoder.h>
 #include <runtime/raster/raster_scene.h>
 
 namespace luisa::compute {

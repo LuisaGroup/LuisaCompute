@@ -5,7 +5,7 @@
 #include <dsl/rtx/hit.h>
 
 namespace luisa::compute {
-
+// RayQuery DSL module, see test_procedural.cpp as example
 class LC_DSL_API RayQuery {
 
 private:

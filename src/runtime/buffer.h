@@ -26,7 +26,7 @@ LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) no
 
 template<typename T>
 class BufferView;
-
+// check if this data type is legitimate
 template<typename T>
 constexpr bool is_valid_buffer_element_v =
     std::is_same_v<T, std::remove_cvref_t<T>> &&
@@ -34,6 +34,7 @@ constexpr bool is_valid_buffer_element_v =
     std::is_trivially_destructible_v<T> &&
     (alignof(T) >= 4u);
 
+// Buffer is a one-dimensional data structure that can be of any base data type, such as int, float2, struct or array
 template<typename T>
 class Buffer final : public Resource {
 
@@ -78,7 +79,7 @@ public:
         return reinterpret_cast<const detail::BufferExprProxy<Buffer<T>> *>(this);
     }
 };
-
+// BufferView represents a reference to a Buffer. Use a BufferView that referenced to a destructed Buffer is an undefined behavior.
 template<typename T>
 class BufferView {
 

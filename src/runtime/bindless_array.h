@@ -29,7 +29,9 @@ class BindlessBuffer;
 
 template<typename T>
 struct Expr;
-
+// BindlessArray is a heap that contain references to buffer, 2d-image and 3d-image
+// every element can contain one buffer, one 2d-image and one 3d-image's reference
+// see test_bindless.cpp as example
 class LC_RUNTIME_API BindlessArray final : public Resource {
 
 public:
@@ -50,6 +52,7 @@ public:
 
 private:
     size_t _size{0u};
+    // "emplace" and "remove" operations will be cached under _updates and commit in update() command
     luisa::unordered_set<Modification, ModSlotHash, ModSlotEqual> _updates;
 
 private:

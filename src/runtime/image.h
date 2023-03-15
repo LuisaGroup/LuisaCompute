@@ -112,6 +112,7 @@ public:
         return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
 };
+// ImageView represents a reference to a Image. Use an ImageView that referenced to a destructed Image is an undefined behavior.
 template<typename T>
 class ImageView {
 

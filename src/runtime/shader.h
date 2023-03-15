@@ -10,7 +10,7 @@
 #include <runtime/device.h>
 #include <runtime/bindless_array.h>
 #include <runtime/dispatch_buffer.h>
-#include <runtime/command_encoder.h>
+#include <runtime/rhi/command_encoder.h>
 
 namespace luisa::compute {
 
