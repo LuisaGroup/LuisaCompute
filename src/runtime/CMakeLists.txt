@@ -8,7 +8,6 @@ set(LUISA_COMPUTE_RUNTIME_RTX_SOURCES
         rtx/procedural_primitive.cpp
         rtx/procedural_primitive.h
         rtx/ray.h
-        rtx/ray_query.h
         rtx/triangle.h)
 
 set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
@@ -25,6 +24,7 @@ set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
 
 set(LUISA_COMPUTE_RUNTIME_RHI_SOURCES
         rhi/command.cpp rhi/command.h
+        rhi/command_encoder.cpp rhi/command_encoder.h
         rhi/device_interface.h
         rhi/pixel.cpp rhi/pixel.h
         rhi/resource.cpp rhi/resource.h
@@ -35,7 +35,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp bindless_array.h
         buffer.cpp buffer.h
         buffer_arena.h
-        command_encoder.cpp command_encoder.h
         command_list.cpp command_list.h
         context.cpp context.h
         context_paths.h

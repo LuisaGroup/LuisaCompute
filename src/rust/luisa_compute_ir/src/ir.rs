@@ -1654,10 +1654,18 @@ impl Usage {
             (Usage::READ_WRITE, _) => Usage::READ_WRITE,
         }
     }
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Usage::NONE => 0,
+            Usage::READ => 1,
+            Usage::WRITE => 2,
+            Usage::READ_WRITE => 3,
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSlice<Usage> {
+pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSlice<u8> {
     let mut usage_map = detect_usage(&kernel.module);
     let mut usage = Vec::new();
     for captured in kernel.captures.as_ref() {
@@ -1668,7 +1676,7 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
                     captured.node.0
                 )
                 .as_str(),
-            ),
+            ).to_u8(),
         );
     }
     for argument in kernel.args.as_ref() {
@@ -1679,7 +1687,7 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
                     argument.0
                 )
                 .as_str(),
-            )
+            ).to_u8()
         );
     }
     CBoxedSlice::new(usage)
