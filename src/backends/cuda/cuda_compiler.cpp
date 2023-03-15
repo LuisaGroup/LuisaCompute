@@ -24,8 +24,8 @@ luisa::string CUDACompiler::compile(const Context &ctx, Function function, uint3
 
     auto ver_major = 0;
     auto ver_minor = 0;
-    auto nvrtc_version = ver_major * 10000 + ver_minor * 100;
     LUISA_CHECK_NVRTC(nvrtcVersion(&ver_major, &ver_minor));
+    auto nvrtc_version = ver_major * 10000 + ver_minor * 100;
     auto nvrtc_option = luisa::format("-DLC_NVRTC_VERSION={}", nvrtc_version);
     auto sm_option = fmt::format("-arch=compute_{}", sm);
     auto rt_option = fmt::format("-DLC_OPTIX_VERSION={}", function.raytracing() ? optix::VERSION : 0);
