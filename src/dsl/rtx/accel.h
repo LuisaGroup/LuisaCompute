@@ -30,7 +30,7 @@ public:
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept;
 };
 
-Expr(const Accel &) -> Expr<Accel>;
+Expr(const Accel &) noexcept -> Expr<Accel>;
 
 template<>
 struct Var<Accel> : public Expr<Accel> {

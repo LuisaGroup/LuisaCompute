@@ -12,10 +12,9 @@ private:
     const Expression *_expr;
 
 public:
-    RayQuery(const CallExpr *func) noexcept;
+    explicit RayQuery(const CallExpr *func) noexcept;
     RayQuery(RayQuery &&) noexcept = default;
     RayQuery(RayQuery const &) noexcept = delete;
-    using Callback = luisa::move_only_function<void(Var<Hit> &&)>;
     [[nodiscard]] Var<bool> proceed() const noexcept;
     [[nodiscard]] Var<Hit> triangle_candidate() const noexcept;
     [[nodiscard]] Var<Hit> procedural_candidate() const noexcept;
@@ -25,6 +24,7 @@ public:
     void commit_triangle() const noexcept;
     void commit_procedural(Expr<float> distance) const noexcept;
 };
+
 }// namespace luisa::compute
 
 LUISA_CUSTOM_STRUCT_REFLECT(luisa::compute::RayQuery, "LC_RayQuery")

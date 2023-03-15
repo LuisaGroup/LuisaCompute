@@ -56,4 +56,4 @@ struct CUDAShader {
     virtual void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept = 0;
 };
 
-}
+}// namespace luisa::compute::cuda
