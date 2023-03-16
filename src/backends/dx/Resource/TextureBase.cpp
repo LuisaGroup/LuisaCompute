@@ -8,13 +8,15 @@ TextureBase::TextureBase(
     GFXFormat format,
     TextureDimension dimension,
     uint depth,
-    uint mip)
+    uint mip,
+    D3D12_RESOURCE_STATES initState)
     : Resource(device),
       width(width),
       height(height),
       format(format),
       dimension(dimension),
       depth(depth),
+      initState(initState),
       mip(mip) {
     this->depth = std::max<uint>(this->depth, 1);
     this->mip = std::max<uint>(this->mip, 1);
@@ -123,5 +125,11 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC TextureBase::GetColorUavDescBase(uint targetMip
     return uavDesc;
 }
 TextureBase::~TextureBase() {
+}
+D3D12_RESOURCE_STATES TextureBase::GetNonSimulCurrentState() const {
+    return initState.load();
+}
+void TextureBase::SetNonSimulCurrentState(D3D12_RESOURCE_STATES state) const {
+    initState = state;
 }
 }// namespace toolhub::directx

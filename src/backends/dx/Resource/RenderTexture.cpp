@@ -86,7 +86,7 @@ RenderTexture::RenderTexture(
     uint mip,
     bool allowUav,
     GpuAllocator *allocator)
-    : TextureBase(device, width, height, format, dimension, depth, mip),
+    : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
       allocHandle(allocator),
       allowUav(allowUav) {
     D3D12_RESOURCE_DESC texDesc{};

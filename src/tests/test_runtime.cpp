@@ -57,10 +57,10 @@ int main(int argc, char *argv[]) {
     }
     static constexpr auto resolution = make_uint2(1024u);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
-    Kernel2D kernel = [&]() {
+    Kernel2D kernel = [&](Float time) {
         auto coord = dispatch_id().xy();
         auto uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
-        ldr_image->write(coord, make_float4(uv, 0.5f, 1.f));
+        ldr_image->write(coord, make_float4(uv, sin(time) * 0.5f + 0.5f, 1.f));
     };
     auto shader = device.compile(kernel);
     Window window{"test runtime", resolution.x, resolution.x, false};
@@ -69,13 +69,15 @@ int main(int argc, char *argv[]) {
         graphics_stream,
         resolution,
         true, false, framebuffer_count - 1)};
+    Clock clk;
+    clk.tic();
     while (!window.should_close()) {
         auto resource_frame = frame % framebuffer_count;
         auto &grpahics_event = graphics_events[resource_frame];
         grpahics_event.synchronize();
         // Use Commandlist to store commands
         CommandList cmd_list;
-        cmd_list << shader().dispatch(resolution);
+        cmd_list << shader(clk.toc() / 200.0f).dispatch(resolution);
         // compute stream must wait last frame's graphics stream
         if (frame > 0) [[likely]] {
             auto &last_event = graphics_events[(frame - 1) % framebuffer_count];

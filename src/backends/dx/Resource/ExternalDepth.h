@@ -5,7 +5,6 @@ namespace toolhub::directx {
 class ExternalDepth final : public TextureBase {
 private:
     ID3D12Resource *resource;
-    D3D12_RESOURCE_STATES initState;
     mutable uint srvIdx{~0u};
     mutable std::mutex allocMtx;
 

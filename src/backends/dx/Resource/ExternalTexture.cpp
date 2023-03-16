@@ -19,8 +19,10 @@ ExternalTexture::ExternalTexture(
           format,
           dimension,
           depth,
-          mip},
-      resource{resource}, initState{initState}, allowUav{allowUav} {}
+          mip,
+          initState},
+      resource{resource}, allowUav{allowUav} {
+}
 ExternalTexture::~ExternalTexture() {
     auto &globalHeap = *device->globalHeap.get();
     for (auto &&i : uavIdcs) {

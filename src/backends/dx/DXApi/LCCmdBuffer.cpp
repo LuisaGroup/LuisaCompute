@@ -117,7 +117,7 @@ public:
                 }
             }
             for (auto &&i : *self->backState) {
-                self->stateTracker->RecordState(i);
+                self->stateTracker->RecordState(i, self->stateTracker->ReadState(ResourceReadUsage::Srv));
             }
             self->backState->clear();
             ++arg;
@@ -893,6 +893,7 @@ void LCCmdBuffer::Execute(
             for (auto &&i : lst)
                 i->accept(visitor);
             if (!updateAccel.empty()) {
+                tracker.ClearFence();
                 tracker.RecordState(
                     accelScratchBuffer,
                     D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -907,7 +908,6 @@ void LCCmdBuffer::Execute(
                                 i.size));
                     });
                 }
-                tracker.ClearFence();
                 tracker.RestoreState(cmdBuilder);
                 queue.ForceSync(
                     allocator,

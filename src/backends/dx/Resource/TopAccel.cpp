@@ -104,9 +104,9 @@ bool TopAccel::GenerateNewBuffer(
                 0,
                 oldBuffer->GetByteSize());
             tracker.RecordState(
-                oldBuffer.get());
+                oldBuffer.get(), oldBuffer->GetInitState());
             tracker.RecordState(
-                newBuffer);
+                newBuffer, oldBuffer->GetInitState());
         }
         builder.GetCB()->GetAlloc()->ExecuteAfterComplete(Buffers{std::move(oldBuffer)});
         oldBuffer = vstd::create_unique(newBuffer);

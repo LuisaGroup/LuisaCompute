@@ -146,7 +146,8 @@ void BindlessArray::UpdateStates(
                 &binded[mod.slot].first);
         }
         tracker.RecordState(
-            &buffer);
+            &buffer,
+            tracker.ReadState(ResourceReadUsage::Srv));
     }
     vstd::vector<uint> needReturnIdx;
     while (auto i = freeQueue.pop()) {

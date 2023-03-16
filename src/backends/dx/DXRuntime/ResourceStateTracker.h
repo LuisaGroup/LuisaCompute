@@ -42,7 +42,6 @@ public:
         Resource const *resource,
         D3D12_RESOURCE_STATES state,
         bool lock = false);
-    void RecordState(Resource const *resource, bool lock = false);
     void UpdateState(CommandBufferBuilder const &cmdBuffer);
     void RestoreState(CommandBufferBuilder const &cmdBuffer);
 };

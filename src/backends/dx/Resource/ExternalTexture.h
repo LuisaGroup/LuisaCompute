@@ -8,7 +8,6 @@ private:
     mutable vstd::unordered_map<uint, uint> srvIdcs;
     mutable std::mutex allocMtx;
     ID3D12Resource *resource;
-    D3D12_RESOURCE_STATES initState;
     bool allowUav;
 
 public:

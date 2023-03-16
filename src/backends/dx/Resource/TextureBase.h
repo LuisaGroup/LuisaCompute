@@ -13,8 +13,8 @@ protected:
     TextureDimension dimension;
     uint depth;
     uint mip;
+    mutable std::atomic<D3D12_RESOURCE_STATES> initState;
     //	vstd::unique_ptr<std::atomic<D3D12_BARRIER_LAYOUT>> layouts;
-protected:
     D3D12_UNORDERED_ACCESS_VIEW_DESC GetColorUavDescBase(uint targetMipLevel) const;
     D3D12_RENDER_TARGET_VIEW_DESC GetRenderTargetDescBase(uint mipOffset) const;
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDescBase(uint mipOffset) const;
@@ -50,9 +50,13 @@ public:
         GFXFormat format,
         TextureDimension dimension,
         uint depth,
-        uint mip);
+        uint mip,
+        D3D12_RESOURCE_STATES initState);
     virtual ~TextureBase();
     TextureBase(TextureBase &&) = default;
+    D3D12_RESOURCE_STATES GetNonSimulCurrentState() const override;
+    void SetNonSimulCurrentState(D3D12_RESOURCE_STATES state) const override;
+    bool IsNonSimulResource() const override { return true; }
     KILL_COPY_CONSTRUCT(TextureBase)
 };
 }// namespace toolhub::directx
