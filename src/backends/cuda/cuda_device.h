@@ -102,7 +102,7 @@ private:
     CUmodule _builtin_kernel_module{nullptr};
     CUfunction _accel_update_function{nullptr};
     CUfunction _bindless_array_update_function{nullptr};
-    BinaryIO *_io{nullptr};
+    const BinaryIO *_io{nullptr};
 
 public:
     CUDADevice(Context &&ctx, size_t device_id) noexcept;
@@ -117,7 +117,7 @@ public:
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
     [[nodiscard]] auto io() const noexcept { return _io; }
-    void set_io(BinaryIO *binary_io) noexcept override { _io = binary_io; }
+    void set_io(const BinaryIO *binary_io) noexcept override { _io = binary_io; }
     bool is_c_api() const noexcept override { return false; }
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
