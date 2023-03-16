@@ -29,7 +29,7 @@ Device::~Device() {
 
 void Device::WaitFence(ID3D12Fence *fence, uint64 fenceIndex) {
     if (fenceIndex <= 0) return;
-    HANDLE eventHandle = CreateEventEx(nullptr, (LPCWSTR) nullptr, false, EVENT_ALL_ACCESS);
+    HANDLE eventHandle = CreateEventEx(nullptr, nullptr, false, EVENT_ALL_ACCESS);
     auto d = vstd::scope_exit([&] {
         CloseHandle(eventHandle);
     });

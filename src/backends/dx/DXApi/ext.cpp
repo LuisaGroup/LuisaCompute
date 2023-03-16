@@ -22,7 +22,7 @@ DxTexCompressExt::~DxTexCompressExt() {
 TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
 
-    RenderTexture *srcTex = reinterpret_cast<RenderTexture *>(src.handle());
+    TextureBase *srcTex = reinterpret_cast<TextureBase *>(src.handle());
     cmdBuffer->CompressBC(
         srcTex,
         result,
@@ -36,7 +36,7 @@ TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, Image<flo
 TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result, float alphaImportance) noexcept {
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
     cmdBuffer->CompressBC(
-        reinterpret_cast<RenderTexture *>(src.handle()),
+        reinterpret_cast<TextureBase *>(src.handle()),
         result,
         false,
         alphaImportance,

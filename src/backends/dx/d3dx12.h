@@ -17,6 +17,13 @@
 #include <dxgi.h>
 #include <iostream>
 #include <core/basic_types.h>
+#ifdef UNICODE
+#define lcdx_cout std::wcout
+using lcdx_pchar = LPCWSTR;
+#else
+#define lcdx_cout std::cout
+using lcdx_pchar = LPCSTR;
+#endif
 #define LUISA_MAKE_VECTOR_TYPES(T) \
 	using T##2 = luisa::T##2;      \
 	using T##3 = luisa::T##3;      \
@@ -3269,30 +3276,6 @@ private:
 #endif// #ifndef D3DX12_NO_STATE_OBJECT_HELPERS
 
 #endif// defined( __cplusplus )
-class DxException {
-public:
-	DxException() = default;
-	DxException(HRESULT hr, vstd::string functionName, vstd::wstring filename, int32_t lineNumber)
-		: ErrorCode(hr),
-		  FunctionName(std::move(functionName)),
-		  Filename(std::move(filename)),
-		  LineNumber(lineNumber) {}
-
-	void ToString() const {
-		// Get the string description of the error code.
-		_com_error err(ErrorCode);
-		vstd::wstring msg(err.ErrorMessage());
-
-		std::cout << FunctionName << " failed in ";
-		std::wcout << Filename;
-		std::cout << "; line " << vstd::to_string(LineNumber) << "; error: ";
-		std::wcout << msg;
-	}
-	HRESULT ErrorCode = S_OK;
-	vstd::string FunctionName;
-	vstd::wstring Filename;
-	int32_t LineNumber = -1;
-};
 inline vstd::wstring AnsiToWString(const vstd::string& str) {
 	WCHAR buffer[512];
 	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, buffer, 512);
