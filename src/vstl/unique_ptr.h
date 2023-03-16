@@ -11,10 +11,10 @@ struct unique_ptr_deleter {
             ptr->Dispose();
         } else if constexpr (std::is_base_of_v<ISelfPtr, T>) {
             auto selfPtr = ptr->SelfPtr();
-            destruct(ptr);
+            vstd::destruct(ptr);
             vengine_free(selfPtr);
         } else {
-            destruct(ptr);
+            vstd::destruct(ptr);
             vengine_free(ptr);
         }
     }

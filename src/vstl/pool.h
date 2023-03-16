@@ -76,13 +76,13 @@ public:
     }
     void destroy(T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            destruct(ptr);
+            vstd::destruct(ptr);
         allPtrs.push_back(ptr);
     }
     template<typename Mutex>
     void destroy_lock(Mutex &mtx, T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            destruct(ptr);
+            vstd::destruct(ptr);
         std::lock_guard lck(mtx);
         allPtrs.push_back(ptr);
     }
@@ -210,7 +210,7 @@ public:
 
     void destroy(T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            destruct(ptr);
+            vstd::destruct(ptr);
         RemoveAllocatedObject(ptr);
         allPtrs.push_back(ptr);
     }
@@ -223,7 +223,7 @@ public:
     template<typename Mutex>
     void destroy_lock(Mutex &mtx, T *ptr) {
         if constexpr (!std::is_trivially_destructible_v<T>)
-            destruct(ptr);
+            vstd::destruct(ptr);
         std::lock_guard lck(mtx);
         RemoveAllocatedObject(ptr);
         allPtrs.push_back(ptr);
@@ -231,7 +231,7 @@ public:
 
     ~Pool() {
         for (auto &&i : allocatedObjects) {
-            destruct(reinterpret_cast<T *>(i));
+            vstd::destruct(reinterpret_cast<T *>(i));
         }
         for (auto &&i : allocatedPtrs) {
             PoolFree(i);

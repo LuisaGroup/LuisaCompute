@@ -413,10 +413,10 @@ class ite_range : public detail::RangeFlag<ite_range<T, E>> {
 public:
     ite_range(T &&b, E &&e) : b(std::forward<T>(b)), e(std::forward<E>(e)) {}
     ~ite_range() {
-        if (begined) { destruct(Ptr()); }
+        if (begined) { vstd::destruct(Ptr()); }
     }
     IteRef<ite_range> begin() {
-        if (begined) { destruct(Ptr()); }
+        if (begined) { vstd::destruct(Ptr()); }
         new (Ptr()) T(std::forward<T>(b));
         return {this};
     }
