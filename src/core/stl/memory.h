@@ -24,18 +24,15 @@ namespace luisa {
 
 inline namespace size_literals {
 
-/// Calculate size of KB
 [[nodiscard]] constexpr auto operator""_k(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u);
 }
 
-/// Calculate size of MB
-[[nodiscard]] constexpr auto operator""_m(unsigned long long size) noexcept {
+[[nodiscard]] constexpr auto operator""_M(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u * 1024u);
 }
 
-/// Calculate size of GB
-[[nodiscard]] constexpr auto operator""_g(unsigned long long size) noexcept {
+[[nodiscard]] constexpr auto operator""_G(unsigned long long size) noexcept {
     return static_cast<size_t>(size * 1024u * 1024u * 1024u);
 }
 
