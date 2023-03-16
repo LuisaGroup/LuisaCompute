@@ -44,7 +44,7 @@ public:
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
     [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
 
-    virtual void set_io(BinaryIO *binary_io) noexcept = 0;
+    virtual void set_io(BinaryIO const*binary_io) noexcept = 0;
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;

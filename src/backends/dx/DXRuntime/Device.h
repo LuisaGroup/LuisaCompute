@@ -27,10 +27,10 @@ class ShaderCompiler;
 class Device {
 public:
     size_t maxAllocatorCount = 2;
-    std::atomic<luisa::BinaryIO *> fileIo = nullptr;
+    std::atomic<luisa::BinaryIO const*> fileIo = nullptr;
     struct LazyLoadShader {
     public:
-        using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::BinaryIO *)>;
+        using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::BinaryIO const *)>;
 
     private:
         vstd::unique_ptr<ComputeShader> shader;

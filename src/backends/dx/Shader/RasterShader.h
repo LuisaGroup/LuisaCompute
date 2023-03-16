@@ -68,7 +68,7 @@ public:
     ~RasterShader();
 
     static RasterShader *CompileRaster(
-        luisa::BinaryIO *fileIo,
+        luisa::BinaryIO const*fileIo,
         Device *device,
         Function vertexKernel,
         Function pixelKernel,
@@ -82,7 +82,7 @@ public:
         vstd::string_view fileName,
         bool isInternal);
     static void SaveRaster(
-        luisa::BinaryIO *fileIo,
+        luisa::BinaryIO const*fileIo,
         Device *device,
         CodegenResult const &result,
         vstd::MD5 const &md5,
@@ -91,7 +91,7 @@ public:
         Function pixelKernel,
         uint shaderModel);
     static RasterShader *LoadRaster(
-        luisa::BinaryIO *fileIo,
+        luisa::BinaryIO const*fileIo,
         Device *device,
         const MeshFormat &mesh_format,
         const RasterState &raster_state,

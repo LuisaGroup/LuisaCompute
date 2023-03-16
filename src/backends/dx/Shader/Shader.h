@@ -34,7 +34,7 @@ protected:
     vstd::vector<Property> properties;
     vstd::vector<SavedArgument> kernelArguments;
     uint bindlessCount;
-    void SavePSO(vstd::string_view psoName, luisa::BinaryIO *fileStream, Device const *device) const;
+    void SavePSO(vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const;
 
 public:
     static vstd::string PSOName(Device const *device, vstd::string_view fileName);

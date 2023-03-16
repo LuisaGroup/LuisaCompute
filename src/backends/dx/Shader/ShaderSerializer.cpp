@@ -98,7 +98,7 @@ vstd::vector<std::byte> ShaderSerializer::RasterSerialize(
 bool ShaderSerializer::CheckMD5(
     vstd::string_view fileName,
     vstd::MD5 const &checkMD5,
-    luisa::BinaryIO &streamFunc) {
+    luisa::BinaryIO const &streamFunc) {
     using namespace shader_ser;
     auto binStream = streamFunc.read_shader_bytecode(fileName);
     if (binStream == nullptr) return false;
@@ -113,7 +113,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
     luisa::string_view psoName,
     bool isInternal,
     Device *device,
-    luisa::BinaryIO &streamFunc,
+    luisa::BinaryIO const &streamFunc,
     vstd::optional<vstd::MD5> const &checkMD5,
     vstd::MD5 &typeMD5,
     bool &clearCache) {
@@ -210,7 +210,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     luisa::string_view psoName,
     bool isInternal,
     Device *device,
-    luisa::BinaryIO &streamFunc,
+    luisa::BinaryIO const &streamFunc,
     vstd::optional<vstd::MD5> const &ilMd5,
     vstd::MD5 &typeMD5,
     MeshFormat const &meshFormat,

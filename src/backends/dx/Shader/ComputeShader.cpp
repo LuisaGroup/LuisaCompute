@@ -8,7 +8,7 @@ namespace ComputeShaderDetail {
 static constexpr bool PRINT_CODE = false;
 }// namespace ComputeShaderDetail
 ComputeShader *ComputeShader::LoadPresetCompute(
-    BinaryIO *fileIo,
+    BinaryIO const*fileIo,
     Device *device,
     vstd::span<Type const *const> types,
     vstd::string_view fileName) {
@@ -39,7 +39,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
     return result;
 }
 ComputeShader *ComputeShader::CompileCompute(
-    BinaryIO *fileIo,
+    BinaryIO const*fileIo,
     Device *device,
     Function kernel,
     vstd::function<CodegenResult()> const &codegen,
@@ -140,7 +140,7 @@ ComputeShader *ComputeShader::CompileCompute(
     }
 }
 void ComputeShader::SaveCompute(
-    BinaryIO *fileIo,
+    BinaryIO const*fileIo,
     Function kernel,
     CodegenResult &str,
     uint3 blockSize,

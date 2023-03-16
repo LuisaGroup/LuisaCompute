@@ -170,7 +170,7 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
         ->Execute(std::move(list), nativeDevice.maxAllocatorCount);
 }
 
-void LCDevice::set_io(BinaryIO *visitor) noexcept {
+void LCDevice::set_io(BinaryIO const *visitor) noexcept {
     if (visitor) {
         nativeDevice.fileIo = visitor;
     } else {

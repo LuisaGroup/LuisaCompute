@@ -320,7 +320,7 @@ vstd::MD5 RasterShader::GenMD5(
             sizeof(Hashes)});
 }
 RasterShader *RasterShader::CompileRaster(
-    BinaryIO *fileIo,
+    BinaryIO const*fileIo,
     Device *device,
     Function vertexKernel,
     Function pixelKernel,
@@ -405,7 +405,7 @@ RasterShader *RasterShader::CompileRaster(
     }
 }
 void RasterShader::SaveRaster(
-    BinaryIO *fileIo,
+    BinaryIO const*fileIo,
     Device *device,
     CodegenResult const &str,
     vstd::MD5 const &md5,
@@ -444,7 +444,7 @@ void RasterShader::SaveRaster(
     fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
 }
 RasterShader *RasterShader::LoadRaster(
-    BinaryIO *fileIo,
+    BinaryIO const*fileIo,
     Device *device,
     const MeshFormat &mesh_format,
     const RasterState &raster_state,

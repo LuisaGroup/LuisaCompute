@@ -87,14 +87,14 @@ public:
         Function kernel,
         uint offset,
         vstd::array<uint, 3> &registerCount);
-    static CodegenResult Codegen(Function kernel, luisa::BinaryIO *internalDataPath);
+    static CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath);
     static CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
-        luisa::BinaryIO *internalDataPath);
-    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO *ctx);
-    static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO *ctx);
+        luisa::BinaryIO const*internalDataPath);
+    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const*ctx);
+    static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO const*ctx);
     /*
 #ifdef USE_SPIRV
     static void GenerateBindlessSpirv(

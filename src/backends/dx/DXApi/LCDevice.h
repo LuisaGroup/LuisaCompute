@@ -35,7 +35,7 @@ public:
     // buffer
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    void set_io(BinaryIO *visitor) noexcept override;
+    void set_io(BinaryIO const*visitor) noexcept override;
     // texture
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,

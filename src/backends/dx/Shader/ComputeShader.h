@@ -27,7 +27,7 @@ public:
     Tag GetTag() const { return Tag::ComputeShader; }
     uint3 BlockSize() const { return blockSize; }
     static ComputeShader *CompileCompute(
-        luisa::BinaryIO *fileIo,
+        luisa::BinaryIO const*fileIo,
         Device *device,
         Function kernel,
         vstd::function<CodegenResult()> const &codegen,
@@ -37,14 +37,14 @@ public:
         vstd::string_view fileName,
         bool isInternal);
     static void SaveCompute(
-        luisa::BinaryIO *fileIo,
+        luisa::BinaryIO const*fileIo,
         Function kernel,
         CodegenResult &codegen,
         uint3 blockSize,
         uint shaderModel,
         vstd::string_view fileName);
     static ComputeShader *LoadPresetCompute(
-        luisa::BinaryIO *fileIo,
+        luisa::BinaryIO const*fileIo,
         Device *device,
         vstd::span<Type const *const> types,
         vstd::string_view fileName);
