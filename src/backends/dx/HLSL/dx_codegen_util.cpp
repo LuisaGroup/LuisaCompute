@@ -376,30 +376,19 @@ void CodegenUtility::GetFunctionName(Function callable, vstd::StringBuilder &res
 }
 void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &str, StringStateVisitor &vis) {
     auto args = expr->arguments();
-    auto getPointer = [&]() {
-        str << "(";
-        for (auto i = 0u; i + 1u < args.size(); i++) {
-            args[i]->accept(vis);
-            str << ", ";
-        }
-        if (!args.empty()) {
-            args.back()->accept(vis);
-        }
-        str << ")";
-    };
     auto IsNumVec3 = [&](Type const &t) {
         if (t.tag() != Type::Tag::VECTOR || t.dimension() != 3) return false;
         auto &&ele = *t.element();
         return ele.is_scalar();
     };
     auto PrintArgs = [&](size_t offset = 0) {
+        if (args.empty()) return;
         auto last = args.size() - 1;
-        for (auto i : vstd::range(offset, args.size())) {
+        for (auto i : vstd::range(offset, last)) {
             args[i]->accept(vis);
-            if (i != last) {
-                str << ',';
-            }
+            str << ',';
         }
+        args.back()->accept(vis);
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
@@ -606,65 +595,47 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 str << "_atomic_exchange"sv;
             }
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: {
             if (expr->type()->tag() == Type::Tag::FLOAT32) {
                 str << "_atomic_compare_exchange_float"sv;
             } else {
                 str << "_atomic_compare_exchange"sv;
             }
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_FETCH_ADD: {
             if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_add_float"sv;
             else
                 str << "_atomic_add"sv;
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_FETCH_SUB: {
             if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_sub_float"sv;
             else
                 str << "_atomic_sub"sv;
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_FETCH_AND: {
             str << "_atomic_and"sv;
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_FETCH_OR: {
             str << "_atomic_or"sv;
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_FETCH_XOR: {
             str << "_atomic_xor"sv;
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_FETCH_MIN: {
             if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_min_float"sv;
             else
                 str << "_atomic_min"sv;
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::ATOMIC_FETCH_MAX: {
             if (expr->type()->tag() == Type::Tag::FLOAT32)
                 str << "_atomic_max_float"sv;
             else
                 str << "_atomic_max"sv;
-            getPointer();
-            return;
-        }
+        } break;
         case CallOp::TEXTURE_READ:
             str << "Smptx";
             break;
