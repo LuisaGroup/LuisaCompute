@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
         // Use Commandlist to store commands
         CommandList cmd_list;
         cmd_list << shader().dispatch(resolution);
-        // compute stream must wait last frame's graphics queue
+        // compute stream must wait last frame's graphics stream
         if (frame > 0) [[likely]] {
             auto &last_event = graphics_events[(frame - 1) % framebuffer_count];
             compute_stream << last_event.wait();
