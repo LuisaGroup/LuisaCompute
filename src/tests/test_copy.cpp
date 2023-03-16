@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
                      static_cast<size_t>(233u),
                      1_k,
                      233_k,
-                     17_m + 655_k + 13u};
+                     17_M + 655_k + 13u};
 
     std::mt19937 rand{std::random_device{}()};
 

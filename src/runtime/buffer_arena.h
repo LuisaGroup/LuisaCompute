@@ -13,7 +13,7 @@ private:
     size_t _capacity;
 
 public:
-    explicit BufferArena(Device &device, size_t capacity = 4_m) noexcept
+    explicit BufferArena(Device &device, size_t capacity = 4_M) noexcept
         : _device{device}, _capacity{std::max(next_pow2(capacity), 64_k) / sizeof(float4)} {}
     // Allocate sub buffer by stack-allocator
     template<typename T>

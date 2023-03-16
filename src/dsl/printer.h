@@ -65,7 +65,7 @@ private:
 
 public:
     /// Create printer object on device. Will create a buffer in it.
-    explicit Printer(Device &device, luisa::string_view name = "device", size_t capacity = 16_m) noexcept;
+    explicit Printer(Device &device, luisa::string_view name = "device", size_t capacity = 16_M) noexcept;
     /// Reset the printer. Must be called before any shader dispatch that uses this printer.
     [[nodiscard]] luisa::unique_ptr<Command> reset() noexcept;
     /// Retrieve and print the logs. Will automatically reset the printer for future use.

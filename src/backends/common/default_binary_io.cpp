@@ -1,20 +1,23 @@
+#include <core/stl/filesystem.h>
 #include <backends/common/default_binary_io.h>
 #include <runtime/context.h>
 #include <runtime/context_paths.h>
-#include <core/stl/filesystem.h>
 
 namespace luisa::compute {
+
 LockedBinaryFileStream::LockedBinaryFileStream(DefaultBinaryIO const *binary_io, const luisa::string &path) noexcept
     : _stream{path},
       _binary_io{binary_io},
-      _idx{binary_io->_lock(path, false)} {
-}
+      _idx{binary_io->_lock(path, false)} {}
+
 LockedBinaryFileStream::~LockedBinaryFileStream() noexcept {
     _binary_io->_unlock(_idx, false);
 }
+
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file_path) const noexcept {
     return luisa::make_unique<LockedBinaryFileStream>(this, file_path);
 }
+
 DefaultBinaryIO::MapIndex DefaultBinaryIO::_lock(luisa::string const &name, bool is_write) const noexcept {
     MapIndex iter;
     FileMutex *ptr;
@@ -31,6 +34,7 @@ DefaultBinaryIO::MapIndex DefaultBinaryIO::_lock(luisa::string const &name, bool
     }
     return iter;
 }
+
 void DefaultBinaryIO::_unlock(MapIndex const &idx, bool is_write) const noexcept {
     auto &v = idx.value();
     if (is_write) {
@@ -45,6 +49,7 @@ void DefaultBinaryIO::_unlock(MapIndex const &idx, bool is_write) const noexcept
         }
     }
 }
+
 void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::byte const> data) const noexcept {
     auto idx = _lock(file_path, true);
     auto disposer = vstd::scope_exit([&]() { _unlock(idx, true); });
@@ -65,9 +70,7 @@ void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::by
 }
 
 DefaultBinaryIO::DefaultBinaryIO(Context &ctx, luisa::string_view backend_name) noexcept : _ctx(ctx) {
-    using namespace std::string_view_literals;
-    luisa::string dir_name{backend_name};
-    dir_name += "_builtin"sv;
+    auto dir_name = luisa::string{backend_name}.append("_builtin");
     _data_path = _ctx.paths().data_directory() / dir_name;
 }
 
@@ -109,4 +112,5 @@ void DefaultBinaryIO::write_internal_shader(luisa::string_view name, luisa::span
     auto file_path = luisa::to_string(_data_path / name);
     _write(file_path, data);
 }
+
 }// namespace luisa::compute
