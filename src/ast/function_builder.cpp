@@ -469,10 +469,11 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
     }
     _direct_builtin_callables.mark(call_op);
     _propagated_builtin_callables.mark(call_op);
-    LUISA_ASSERT(!args.empty(), "First argument of a call must be a buffer.");
-    if (is_atomic_operation(call_op) &&
-        args.front()->type()->element()->tag() == Type::Tag::FLOAT32) {
-        _requires_atomic_float = true;
+    if (is_atomic_operation(call_op)) {
+        LUISA_ASSERT(!args.empty(), "Atomic operation requires at least one argument.");
+        if (args.front()->type()->element()->is_float32()) {
+            _requires_atomic_float = true;
+        }
     }
     auto expr = _create_expression<CallExpr>(
         type, call_op, CallExpr::ArgumentList{args.begin(), args.end()});

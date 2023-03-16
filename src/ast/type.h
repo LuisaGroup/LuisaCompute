@@ -374,6 +374,10 @@ public:
 
     /// Scalar = bool || float || int || uint
     [[nodiscard]] bool is_scalar() const noexcept;
+    [[nodiscard]] bool is_bool() const noexcept;
+    [[nodiscard]] bool is_int32() const noexcept;
+    [[nodiscard]] bool is_uint32() const noexcept;
+    [[nodiscard]] bool is_float32() const noexcept;
     /// Arithmetic = float || int || uint
     [[nodiscard]] bool is_arithmetic() const noexcept;
 
@@ -381,6 +385,10 @@ public:
     [[nodiscard]] bool is_basic() const noexcept;
     [[nodiscard]] bool is_array() const noexcept;
     [[nodiscard]] bool is_vector() const noexcept;
+    [[nodiscard]] bool is_bool_vector() const noexcept;
+    [[nodiscard]] bool is_int32_vector() const noexcept;
+    [[nodiscard]] bool is_uint32_vector() const noexcept;
+    [[nodiscard]] bool is_float32_vector() const noexcept;
     [[nodiscard]] bool is_matrix() const noexcept;
     [[nodiscard]] bool is_structure() const noexcept;
     [[nodiscard]] bool is_buffer() const noexcept;

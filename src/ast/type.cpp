@@ -547,4 +547,13 @@ const Type *Type::custom(luisa::string_view name) noexcept {
     return detail::TypeRegistry::instance().custom_type(name);
 }
 
+bool Type::is_bool() const noexcept { return tag() == Tag::BOOL; }
+bool Type::is_int32() const noexcept { return tag() == Tag::INT32; }
+bool Type::is_uint32() const noexcept { return tag() == Tag::UINT32; }
+bool Type::is_float32() const noexcept { return tag() == Tag::FLOAT32; }
+bool Type::is_bool_vector() const noexcept { return is_vector() && element()->is_bool(); }
+bool Type::is_int32_vector() const noexcept { return is_vector() && element()->is_int32(); }
+bool Type::is_uint32_vector() const noexcept { return is_vector() && element()->is_uint32(); }
+bool Type::is_float32_vector() const noexcept { return is_vector() && element()->is_float32(); }
+
 }// namespace luisa::compute
