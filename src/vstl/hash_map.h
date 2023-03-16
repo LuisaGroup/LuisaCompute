@@ -302,8 +302,54 @@ public:
         deleteOneNode(ite, pool);
     }
 };
+
+template<typename K, typename V, typename Hash,
+         typename Compare, VEngine_AllocType allocType>
+class HashMap;
+
+namespace hashmap_detail {
+
+template<typename HashMap>
+struct HashMapIndex : public HashMap::IndexBase {
+    HashMapIndex() {}
+    HashMapIndex(const HashMap *map, typename HashMap::LinkNode *node) noexcept
+        : HashMap::IndexBase(map, node) {}
+    typename HashMap::KeyType const &key() const noexcept {
+        using Map = typename HashMap::Map;
+        return Map::GetFirst(this->node->data);
+    }
+    inline typename HashMap::ValueType &value() const noexcept {
+        return this->node->data.second;
+    }
+};
+
+template<typename K, typename... Other>
+struct HashMapIndex<HashMap<K, void, Other...>> : public HashMap<K, void, Other...>::IndexBase {
+
+private:
+    using HashMapType = HashMap<K, void, Other...>;
+    using MapType = typename HashMapType::Map;
+
+public:
+    HashMapIndex() {}
+    HashMapIndex(const HashMapType *map, typename HashMapType::LinkNode *node) noexcept
+        : HashMapType::IndexBase(map, node) {}
+    K const &Get() const noexcept {
+        return MapType::GetFirst(this->node->data);
+    }
+    K const *operator->() const noexcept {
+        return &MapType::GetFirst(this->node->data);
+    }
+    K &operator*() const noexcept {
+        return MapType::GetFirst(this->node->data);
+    }
+};
+
+}// namespace hashmap_detail
+
 template<typename K, typename V = void, typename Hash = HashValue, typename Compare = compare<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap {
+
 public:
     using KeyType = K;
     using ValueType = V;
@@ -313,6 +359,7 @@ public:
     using NodePair = typename Map::ConstElement;
     using MoveNodePair = typename Map::Element;
     using Allocator = VAllocHandle<allocType>;
+
     struct Iterator {
         friend class HashMap;
 
@@ -366,6 +413,9 @@ public:
     struct IndexBase {
         friend class HashMap;
 
+        template<typename T>
+        friend struct hashmap_detail::HashMapIndex;
+
     private:
         const HashMap *map;
         LinkNode *node;
@@ -387,38 +437,8 @@ public:
         }
     };
 
-    static consteval decltype(auto) IndexType() {
-        if constexpr (std::is_same_v<V, void>) {
-            struct IndexKey : public IndexBase {
-                IndexKey() {}
-                IndexKey(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-                K const &Get() const noexcept {
-                    return Map::GetFirst(this->node->data);
-                }
-                K const *operator->() const noexcept {
-                    return &Map::GetFirst(this->node->data);
-                }
-                K &operator*() const noexcept {
-                    return Map::GetFirst(this->node->data);
-                }
-            };
-            return TypeOf<IndexKey>{};
-        } else {
-            struct IndexKeyValue : public IndexBase {
-                IndexKeyValue() {}
-                IndexKeyValue(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-                K const &key() const noexcept {
-                    return Map::GetFirst(this->node->data);
-                }
-                inline V &value() const noexcept {
-                    return this->node->data.second;
-                }
-            };
-            return TypeOf<IndexKeyValue>{};
-        }
-    }
+    using Index = hashmap_detail::HashMapIndex<HashMap>;
 
-    using Index = typename decltype(IndexType())::Type;
     Index get_index(Iterator const &ite) {
         return Index(this, *ite.ii);
     }
