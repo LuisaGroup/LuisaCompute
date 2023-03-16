@@ -1,26 +1,24 @@
-from . import func, StructType, int3, float2, float3
+from . import func, StructType
 from .mathtypes import *
+from .types import *
 import math
 RandomSampler = StructType(state=int)
 
 
 @func
-def _f(self, p: int3):
-    PRIME32_2 = 2246822519
-    PRIME32_3 = 3266489917
-    PRIME32_4 = 668265263
-    PRIME32_5 = 374761393
-    h32 = p.z + PRIME32_5 + p.x * PRIME32_3
-    h32 = PRIME32_4 * ((h32 << 17) | 0x0001ffff & (h32 >> (32 - 17)))
-    h32 += p.y * PRIME32_3
-    h32 = PRIME32_4 * ((h32 << 17) | 0x0001ffff & (h32 >> (32 - 17)))
-    h32 = PRIME32_2 * (h32 ^ ((h32 >> 15) & 0x0001ffff))
-    h32 = PRIME32_3 * (h32 ^ ((h32 >> 13) & 0x0007ffff))
-    self.state = h32 ^ ((h32 >> 16) & 0x0000ffff)
+def _f(self, init_state):
+    self.state = init_state
 
 
 RandomSampler.add_method(_f, "__init__")
-
+@func
+def make_random_sampler(v0, v1):
+    s0 = uint()
+    for i in range(4):
+        s0 += 0x9e3779b9
+        v0 += ((v1 << 4) + 0xa341316c) ^ (v1 + s0) ^ ((v1 >> 5) + 0xc8013ea4)
+        v1 += ((v0 << 4) + 0xad90777d) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7e95761e)
+    return RandomSampler(v0)
 
 @func
 def sign(x):

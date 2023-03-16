@@ -37,24 +37,6 @@ def halton(i, b):
 
 
 @func
-def tea(v0, v1):
-    s0 = 0
-    for n in range(4):
-        s0 += 0x9e3779b9
-        v0 += ((v1 << 4) + 0xa341316c) ^ (v1 + s0) ^ ((v1 >> 5) + 0xc8013ea4)
-        v1 += ((v0 << 4) + 0xad90777d) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7e95761e)
-    return v0
-
-
-@func
-def rand(f, p):
-    i = tea(p.x, p.y) + f
-    rx = halton(i, 2)
-    ry = halton(i, 3)
-    return float2(rx, ry)
-
-
-@func
 def raytracing_kernel(image, accel):
     set_block_size(16, 16, 1)
     coord = dispatch_id().xy

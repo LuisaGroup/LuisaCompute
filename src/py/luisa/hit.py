@@ -34,3 +34,4 @@ def _hitted(self):
     return self.inst != 4294967295
 TriangleHit.add_method(_miss, "miss")
 TriangleHit.add_method(_hitted, "hitted")
+TriangleHit.add_method(_interpolate, "interpolate")

@@ -1,6 +1,7 @@
 from luisa import *
 from luisa.builtin import *
 from luisa.types import *
+from luisa.util import *
 
 import time
 import cornell_box
@@ -63,11 +64,14 @@ def balanced_heuristic(pdf_a, pdf_b):
 
 
 @func
-def raytracing_kernel(image, accel, heap, resolution, vertex_buffer, material_buffer, mesh_cnt, frame_index):
+def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer, material_buffer, mesh_cnt, frame_index):
     set_block_size(8, 8, 1)
     coord = dispatch_id().xy
     frame_size = float(min(resolution.x, resolution.y))
-    sampler = RandomSampler(make_int3(coord, frame_index))
+    if frame_index == 0:
+        sampler = make_random_sampler(coord.x, coord.y)
+    else:
+        sampler = RandomSampler(seed_image.read(coord))
     radiance = float3(0)
     light_position = float3(-0.24, 1.98, 0.16)
     light_u = float3(-0.24, 1.98, -0.22) - light_position
@@ -165,7 +169,8 @@ def raytracing_kernel(image, accel, heap, resolution, vertex_buffer, material_bu
         beta *= 1.0 / q
         if any(isnan(radiance)):
             radiance = float3(0.0)
-    image.write(dispatch_id().xy, float4(
+    seed_image.write(coord, sampler.state)
+    image.write(coord, float4(
         clamp(radiance, 0.0, 30.0), 1.0))
 
 
@@ -242,6 +247,7 @@ heap.update()
 res = 1024, 1024
 image = Texture2D(*res, 4, float)
 accum_image = Texture2D(*res, 4, float)
+seed_image = Texture2D(*res, 1, uint, storage="INT")
 ldr_image = Texture2D(*res, 4, float, storage="BYTE")
 
 clear_kernel(accum_image, dispatch_size=[*res, 1])
@@ -253,7 +259,7 @@ frame_index = 0
 
 def sample():
     global frame_index, image, accel, res
-    raytracing_kernel(image, accel, heap, make_int2(
+    raytracing_kernel(image, seed_image, accel, heap, make_int2(
         *res), vertex_buffer, material_buffer, mesh_cnt, frame_index, dispatch_size=(*res, 1))
     accumulate_kernel(accum_image, image, dispatch_size=[*res, 1])
     hdr2ldr_kernel(accum_image, ldr_image, 1.0, dispatch_size=[*res, 1])
