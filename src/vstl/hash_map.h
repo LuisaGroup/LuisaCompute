@@ -390,13 +390,8 @@ public:
     static consteval decltype(auto) IndexType() {
         if constexpr (std::is_same_v<V, void>) {
             struct IndexKey : public IndexBase {
-                friend class HashMap;
-
-            private:
-                IndexKey(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-
-            public:
                 IndexKey() {}
+                IndexKey(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
                 K const &Get() const noexcept {
                     return Map::GetFirst(this->node->data);
                 }
@@ -410,13 +405,8 @@ public:
             return TypeOf<IndexKey>{};
         } else {
             struct IndexKeyValue : public IndexBase {
-                friend class HashMap;
-
-            private:
-                IndexKeyValue(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-
-            public:
                 IndexKeyValue() {}
+                IndexKeyValue(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
                 K const &key() const noexcept {
                     return Map::GetFirst(this->node->data);
                 }
