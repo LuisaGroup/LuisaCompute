@@ -303,6 +303,50 @@ public:
     }
 };
 
+template<typename K, typename V, typename Hash,
+         typename Compare, VEngine_AllocType allocType>
+class HashMap;
+
+namespace hashmap_detail {
+
+template<typename HashMap>
+struct HashMapIndex : public HashMap::IndexBase {
+    HashMapIndex() noexcept = default;
+    HashMapIndex(const HashMap *map, typename HashMap::LinkNode *node) noexcept
+        : HashMap::IndexBase(map, node) {}
+    typename HashMap::KeyType const &key() const noexcept {
+        using Map = typename HashMap::Map;
+        return Map::GetFirst(this->node->data);
+    }
+    inline typename HashMap::ValueType &value() const noexcept {
+        return this->node->data.second;
+    }
+};
+
+template<typename K, typename... Other>
+struct HashMapIndex<HashMap<K, void, Other...>> : public HashMap<K, void, Other...>::IndexBase {
+
+private:
+    using HashMapType = HashMap<K, void, Other...>;
+    using MapType = typename HashMapType::Map;
+
+public:
+    HashMapIndex() noexcept = default;
+    HashMapIndex(const HashMapType *map, typename HashMapType::LinkNode *node) noexcept
+        : HashMapType::IndexBase(map, node) {}
+    K const &Get() const noexcept {
+        return MapType::GetFirst(this->node->data);
+    }
+    K const *operator->() const noexcept {
+        return &MapType::GetFirst(this->node->data);
+    }
+    K &operator*() const noexcept {
+        return MapType::GetFirst(this->node->data);
+    }
+};
+
+}// namespace hashmap_detail
+
 template<typename K, typename V = void, typename Hash = HashValue, typename Compare = compare<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap {
 
@@ -369,13 +413,16 @@ public:
     struct IndexBase {
         friend class HashMap;
 
+        template<typename T>
+        friend struct hashmap_detail::HashMapIndex;
+
     private:
         const HashMap *map;
         LinkNode *node;
         IndexBase(const HashMap *map, LinkNode *node) noexcept : map(map), node(node) {}
 
     public:
-        IndexBase() : map(nullptr), node(nullptr) {}
+        IndexBase() noexcept : map(nullptr), node(nullptr) {}
         bool operator==(const IndexBase &a) const noexcept {
             return node == a.node;
         }
@@ -389,45 +436,8 @@ public:
             return !operator==(a);
         }
     };
-    template<bool isKeyVoid>
-    struct IndexKV;
-    template<>
-    struct IndexKV<false> : public IndexBase {
-        friend class HashMap;
 
-    private:
-        IndexKV(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-
-    public:
-        IndexKV() {}
-        K const &key() const noexcept {
-            return Map::GetFirst(this->node->data);
-        }
-        inline V &value() const noexcept {
-            return this->node->data.second;
-        }
-    };
-    template<>
-    struct IndexKV<true> : public IndexBase {
-        friend class HashMap;
-
-    private:
-        IndexKV(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-
-    public:
-        IndexKV() {}
-        K const &get() const noexcept {
-            return Map::GetFirst(this->node->data);
-        }
-        K const *operator->() const noexcept {
-            return &Map::GetFirst(this->node->data);
-        }
-        K &operator*() const noexcept {
-            return Map::GetFirst(this->node->data);
-        }
-    };
-
-    using Index = IndexKV<std::is_same_v<V, void>>;
+    using Index = hashmap_detail::HashMapIndex<HashMap>;
 
     Index get_index(Iterator const &ite) {
         return Index(this, *ite.ii);
