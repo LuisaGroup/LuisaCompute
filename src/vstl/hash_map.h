@@ -386,49 +386,45 @@ public:
             return !operator==(a);
         }
     };
+    template<bool isKeyVoid>
+    struct IndexKV;
+    template<>
+    struct IndexKV<false> : public IndexBase {
+        friend class HashMap;
 
-    static consteval decltype(auto) IndexType() {
-        if constexpr (std::is_same_v<V, void>) {
-            struct IndexKey : public IndexBase {
-                friend class HashMap;
+    private:
+        IndexKV(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
 
-            private:
-                IndexKey(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-
-            public:
-                IndexKey() {}
-                K const &Get() const noexcept {
-                    return Map::GetFirst(this->node->data);
-                }
-                K const *operator->() const noexcept {
-                    return &Map::GetFirst(this->node->data);
-                }
-                K &operator*() const noexcept {
-                    return Map::GetFirst(this->node->data);
-                }
-            };
-            return TypeOf<IndexKey>{};
-        } else {
-            struct IndexKeyValue : public IndexBase {
-                friend class HashMap;
-
-            private:
-                IndexKeyValue(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
-
-            public:
-                IndexKeyValue() {}
-                K const &key() const noexcept {
-                    return Map::GetFirst(this->node->data);
-                }
-                inline V &value() const noexcept {
-                    return this->node->data.second;
-                }
-            };
-            return TypeOf<IndexKeyValue>{};
+    public:
+        IndexKV() {}
+        K const &key() const noexcept {
+            return Map::GetFirst(this->node->data);
         }
-    }
+        inline V &value() const noexcept {
+            return this->node->data.second;
+        }
+    };
+    template<>
+    struct IndexKV<true> : public IndexBase {
+        friend class HashMap;
 
-    using Index = typename decltype(IndexType())::Type;
+    private:
+        IndexKV(const HashMap *map, LinkNode *node) noexcept : IndexBase(map, node) {}
+
+    public:
+        IndexKV() {}
+        K const &get() const noexcept {
+            return Map::GetFirst(this->node->data);
+        }
+        K const *operator->() const noexcept {
+            return &Map::GetFirst(this->node->data);
+        }
+        K &operator*() const noexcept {
+            return Map::GetFirst(this->node->data);
+        }
+    };
+
+    using Index = IndexKV<std::is_same_v<V, void>>;
     Index get_index(Iterator const &ite) {
         return Index(this, *ite.ii);
     }
