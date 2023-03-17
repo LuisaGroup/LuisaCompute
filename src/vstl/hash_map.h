@@ -302,8 +302,10 @@ public:
         deleteOneNode(ite, pool);
     }
 };
+
 template<typename K, typename V = void, typename Hash = HashValue, typename Compare = compare<K>, VEngine_AllocType allocType = VEngine_AllocType::VEngine>
 class HashMap {
+
 public:
     using KeyType = K;
     using ValueType = V;
@@ -313,6 +315,7 @@ public:
     using NodePair = typename Map::ConstElement;
     using MoveNodePair = typename Map::Element;
     using Allocator = VAllocHandle<allocType>;
+
     struct Iterator {
         friend class HashMap;
 
@@ -425,6 +428,7 @@ public:
     };
 
     using Index = IndexKV<std::is_same_v<V, void>>;
+
     Index get_index(Iterator const &ite) {
         return Index(this, *ite.ii);
     }

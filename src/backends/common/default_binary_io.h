@@ -26,6 +26,8 @@ private:
     std::filesystem::path _data_path;
     mutable std::mutex _global_mtx;
     mutable MutexMap _mutex_map;
+
+private:
     luisa::unique_ptr<BinaryStream> _read(luisa::string const &file_path) const noexcept;
     void _write(luisa::string const &file_path, luisa::span<std::byte const> data) const noexcept;
     MapIndex _lock(luisa::string const &name, bool is_write) const noexcept;
@@ -42,6 +44,8 @@ public:
 };
 
 class LockedBinaryFileStream : public BinaryStream {
+
+private:
     BinaryFileStream _stream;
     DefaultBinaryIO const* _binary_io;
     DefaultBinaryIO::MapIndex _idx;
