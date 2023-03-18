@@ -43,6 +43,9 @@ public:
     [[nodiscard]] auto device_library() const noexcept { return luisa::string_view{_device_library}; }
     [[nodiscard]] auto device_library_hash() const noexcept { return _library_hash; }
     [[nodiscard]] luisa::string compile(const luisa::string &src,
+                                        luisa::span<const char *const> options,
+                                        luisa::optional<uint64_t> precomputed_hash = luisa::nullopt) const noexcept;
+    [[nodiscard]] uint64_t compute_hash(const luisa::string &src,
                                         luisa::span<const char *const> options) const noexcept;
     [[nodiscard]] static size_t type_size(const Type *type) noexcept;
 };

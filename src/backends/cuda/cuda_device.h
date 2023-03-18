@@ -80,6 +80,12 @@ private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
 
+private:
+    [[nodiscard]] ShaderCreationInfo _create_shader(const string &source,
+                                                    ShaderOption option,
+                                                    uint3 block_size,
+                                                    bool is_raytracing) noexcept;
+
 public:
     CUDADevice(Context &&ctx,
                size_t device_id,

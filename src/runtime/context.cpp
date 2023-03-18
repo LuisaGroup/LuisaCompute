@@ -121,7 +121,7 @@ Device Context::create_device(std::string_view backend_name_in, const DeviceConf
         auto &&m = impl->loaded_modules.emplace_back(
             DynamicModule::load(
                 impl->runtime_directory,
-                fmt::format("lc-backend-{}", backend_name)));
+                luisa::format("lc-backend-{}", backend_name)));
         creator = m.function<Device::Creator>("create");
         deleter = m.function<Device::Deleter>("destroy");
         impl->device_identifiers.emplace_back(backend_name);

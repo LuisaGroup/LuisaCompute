@@ -18,10 +18,6 @@ namespace luisa::compute::cuda {
 class CUDADevice;
 class CUDACommandEncoder;
 
-/**
- * @brief Shader on CUDA
- * 
- */
 struct CUDAShader {
     CUDAShader() noexcept = default;
     CUDAShader(CUDAShader &&) noexcept = delete;

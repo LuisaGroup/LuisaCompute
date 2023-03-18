@@ -121,14 +121,19 @@ namespace luisa::compute::cuda {
 //}
 
 luisa::string CUDACompiler::compile(const luisa::string &src,
-                                    luisa::span<const char *const> options) const noexcept {
+                                    luisa::span<const char *const> options,
+                                    luisa::optional<uint64_t> precomputed_hash) const noexcept {
+
+#ifndef NDEBUG
+    auto recomputed_hash = compute_hash(src, options);
+    LUISA_ASSERT(!precomputed_hash || *precomputed_hash == recomputed_hash,
+                 "Hash mismatch!");
+    precomputed_hash.emplace(recomputed_hash);
+#endif
 
     Clock clk;
-
-    auto src_hash = hash_value(src);
-    auto opt_hash = hash_value(luisa::format("-DLC_NVRTC_VERSION={}", _nvrtc_version));
-    for (auto o : options) { opt_hash = hash_value(o, opt_hash); }
-    if (auto ptx = _cache->fetch(hash_combine({src_hash, opt_hash, _library_hash}))) { return *ptx; }
+    auto hash = precomputed_hash.value_or(compute_hash(src, options));
+    if (auto ptx = _cache->fetch(hash)) { return *ptx; }
 
     std::array header_names{"device_library.h"};
     std::array header_sources{_device_library.c_str()};
@@ -200,6 +205,12 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
     LUISA_VERBOSE_WITH_LOCATION("CUDA NVRTC version: {}.", _nvrtc_version);
     LUISA_VERBOSE_WITH_LOCATION("CUDA device library size = {} bytes, hash = {:016X}.",
                                 _device_library.size(), _library_hash);
+}
+
+uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *const> options) const noexcept {
+    auto hash = hash_value(src, _library_hash);
+    for (auto o : options) { hash = hash_value(o, hash); }
+    return hash;
 }
 
 }// namespace luisa::compute::cuda

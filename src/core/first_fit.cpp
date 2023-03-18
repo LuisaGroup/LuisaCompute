@@ -146,9 +146,9 @@ inline void FirstFit::_destroy() noexcept {
 }
 
 luisa::string FirstFit::dump_free_list() const noexcept {
-    luisa::string message{fmt::format("[head (size = {})]", size())};
+    luisa::string message{luisa::format("[head (size = {})]", size())};
     for (auto p = _free_list._next; p != nullptr; p = p->_next) {
-        message.append(fmt::format(" -> [{}, {})", p->_offset, p->_offset + p->_size));
+        message.append(luisa::format(" -> [{}, {})", p->_offset, p->_offset + p->_size));
     }
     return message;
 }

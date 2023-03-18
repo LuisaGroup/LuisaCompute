@@ -175,7 +175,7 @@ CUDADevice::CUDADevice(Context &&ctx,
             builtin_kernel_src.size()});
     }
 
-    auto sm_option = fmt::format("-arch=sm_{}", handle().compute_capability());
+    auto sm_option = luisa::format("-arch=sm_{}", handle().compute_capability());
     std::array options{sm_option.c_str(),
                        "--std=c++17",
                        "--use_fast_math",
@@ -327,18 +327,15 @@ void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swap
     LUISA_ERROR_WITH_LOCATION("Swap chains are not supported on CUDA.");
 }
 
-ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
-
-    StringScratch scratch;
-    CUDACodegenAST codegen{scratch};
-    codegen.emit(kernel);
-    auto source = luisa::string{scratch.view()};
-    LUISA_INFO("CUDA source:\n{}", source);
+ShaderCreationInfo CUDADevice::_create_shader(const string &source,
+                                              ShaderOption option,
+                                              uint3 block_size,
+                                              bool is_raytracing) noexcept {
 
     // NVRTC options
-    auto sm_option = fmt::format("-arch=compute_{}", _handle.compute_capability());
-    auto nvrtc_version_option = fmt::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
-    auto optix_version_option = fmt::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
+    auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
+    auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
+    auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
     luisa::vector<const char *> options{sm_option.c_str(),
                                         nvrtc_version_option.c_str(),
                                         optix_version_option.c_str(),
@@ -358,9 +355,32 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         options.emplace_back("-use_fast_math");
     }
 
-    // compile
-    // TODO: honor cache config
-    auto ptx = _compiler->compile(source, options);
+    // compute hash
+    auto src_hash = _compiler->compute_hash(source, options);
+
+    // generate a default name if not specified
+    if (option.name.empty()) { option.name = luisa::format("kernel_{}.ptx", src_hash); }
+    if (!option.name.ends_with(".ptx") &&
+        !option.name.ends_with(".PTX")) { option.name.append(".ptx"); }
+
+    // try disk cache
+    luisa::string ptx;
+    if (option.enable_cache) {
+        if (auto stream = _io->read_shader_cache(option.name)) {
+            // TODO: check hash
+            ptx.resize(stream->length());
+            stream->read(luisa::span{
+                reinterpret_cast<std::byte *>(ptx.data()),
+                ptx.size() * sizeof(char)});
+        }
+    }
+
+    // compile if not found in cache
+    if (ptx.empty()) {
+        ptx = _compiler->compile(source, options, src_hash);
+        luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
+        if (option.enable_cache) { _io->write_shader_cache(option.name, ptx_data); }
+    }
     LUISA_INFO("PTX:\n{}", ptx);
 
     if (option.compile_only) {// no shader object should be created
@@ -369,7 +389,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 
     // create the shader object
     auto p = with_handle([&]() noexcept -> CUDAShader * {
-        if (kernel.requires_raytracing()) {
+        if (is_raytracing) {
             return new_with_allocator<CUDAShaderOptiX>(
                 this, ptx.data(), ptx.size(), "__raygen__main");
         }
@@ -380,8 +400,18 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     ShaderCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
     info.native_handle = p;
-    info.block_size = kernel.block_size();
+    info.block_size = block_size;
     return info;
+}
+
+ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
+    StringScratch scratch;
+    CUDACodegenAST codegen{scratch};
+    codegen.emit(kernel);
+    LUISA_INFO("CUDA source:\n{}", scratch.string());
+    return _create_shader(scratch.string(), option,
+                          kernel.block_size(),
+                          kernel.requires_raytracing());
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
@@ -557,7 +587,7 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
 //    optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
 #endif
     optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
-        auto log = fmt::format("Logs from OptiX ({}): {}", tag, message);
+        auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);
         if (level >= 4) {
             LUISA_INFO("{}", log);
         } else [[unlikely]] {

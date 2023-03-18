@@ -34,7 +34,8 @@ StringScratch &StringScratch::operator<<(float x) noexcept { return *this << det
 StringScratch &StringScratch::operator<<(int x) noexcept { return *this << detail::to_string(x); }
 StringScratch &StringScratch::operator<<(uint x) noexcept { return *this << detail::to_string(x); }
 StringScratch &StringScratch::operator<<(size_t x) noexcept { return *this << detail::to_string(x); }
-luisa::string_view StringScratch::view() const noexcept { return luisa::string_view{_buffer}; }
+const luisa::string &StringScratch::string() const noexcept { return _buffer; }
+luisa::string_view StringScratch::string_view() const noexcept { return _buffer; }
 const char *StringScratch::c_str() const noexcept { return _buffer.c_str(); }
 bool StringScratch::empty() const noexcept { return _buffer.empty(); }
 size_t StringScratch::size() const noexcept { return _buffer.size(); }

@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
             STBIR_EDGE_REFLECT);
         image_width = half_w;
         image_height = half_h;
-        stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
+        stbi_write_png(luisa::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
         cmd << texture.view(i).copy_from(out_pixels);
         in_pixels = out_pixels;
         out_pixels += image_width * image_height * 4u;
