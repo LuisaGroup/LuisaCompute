@@ -359,27 +359,45 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
     auto src_hash = _compiler->compute_hash(source, options);
 
     // generate a default name if not specified
-    if (option.name.empty()) { option.name = luisa::format("kernel_{}.ptx", src_hash); }
+    auto uses_user_path = !option.name.empty();
+    if (!uses_user_path) { option.name = luisa::format("kernel_{:016x}.ptx", src_hash); }
     if (!option.name.ends_with(".ptx") &&
         !option.name.ends_with(".PTX")) { option.name.append(".ptx"); }
 
     // try disk cache
-    luisa::string ptx;
-    if (option.enable_cache) {
-        if (auto stream = _io->read_shader_cache(option.name)) {
-            // TODO: check hash
-            ptx.resize(stream->length());
-            stream->read(luisa::span{
-                reinterpret_cast<std::byte *>(ptx.data()),
-                ptx.size() * sizeof(char)});
+    auto ptx = [&] {
+        luisa::unique_ptr<BinaryStream> ptx_stream;
+        if (uses_user_path) {
+            ptx_stream = _io->read_shader_bytecode(option.name);
+        } else if (option.enable_cache) {
+            ptx_stream = _io->read_shader_cache(option.name);
         }
-    }
+        luisa::string ptx_data;
+        if (ptx_stream != nullptr) {
+            ptx_data.resize(ptx_stream->length());
+            ptx_stream->read(luisa::span{
+                reinterpret_cast<std::byte *>(ptx_data.data()),
+                ptx_data.size() * sizeof(char)});
+            auto expected_header = _compiler->checksum_header(src_hash);
+            if (!ptx_data.starts_with(expected_header)) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Shader '{}' cache checksum mismatches.",
+                    option.name);
+                ptx_data.clear();
+            }
+        }
+        return ptx_data;
+    }();
 
     // compile if not found in cache
     if (ptx.empty()) {
         ptx = _compiler->compile(source, options, src_hash);
         luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
-        if (option.enable_cache) { _io->write_shader_cache(option.name, ptx_data); }
+        if (uses_user_path) {
+            _io->write_shader_bytecode(option.name, ptx_data);
+        } else if (option.enable_cache) {
+            _io->write_shader_cache(option.name, ptx_data);
+        }
     }
     LUISA_INFO("PTX:\n{}", ptx);
 

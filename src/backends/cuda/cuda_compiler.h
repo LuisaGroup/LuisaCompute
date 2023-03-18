@@ -47,6 +47,7 @@ public:
                                         luisa::optional<uint64_t> precomputed_hash = luisa::nullopt) const noexcept;
     [[nodiscard]] uint64_t compute_hash(const luisa::string &src,
                                         luisa::span<const char *const> options) const noexcept;
+    [[nodiscard]] luisa::string checksum_header(uint64_t hash) const noexcept;
     [[nodiscard]] static size_t type_size(const Type *type) noexcept;
 };
 

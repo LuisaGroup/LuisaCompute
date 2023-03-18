@@ -151,11 +151,12 @@ luisa::string CUDACompiler::compile(const luisa::string &src,
         LUISA_WARNING_WITH_LOCATION("Compile log:\n{}", log);
     }
     LUISA_CHECK_NVRTC(error);
+    auto ptx = checksum_header(hash).append("\n\n");
+    auto checksum_header_size = ptx.size();
     size_t ptx_size;
     LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
-    luisa::string ptx;
-    ptx.resize(ptx_size - 1);
-    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
+    ptx.resize(checksum_header_size + ptx_size - 1u);
+    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data() + checksum_header_size));
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
     LUISA_VERBOSE_WITH_LOCATION("CUDACompiler::compile() took {} ms.", clk.toc());
     return ptx;
@@ -211,6 +212,10 @@ uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *c
     auto hash = hash_value(src, _library_hash);
     for (auto o : options) { hash = hash_value(o, hash); }
     return hash;
+}
+
+luisa::string CUDACompiler::checksum_header(uint64_t hash) const noexcept {
+    return luisa::format("// CHECKSUM {:016X}", hash);
 }
 
 }// namespace luisa::compute::cuda

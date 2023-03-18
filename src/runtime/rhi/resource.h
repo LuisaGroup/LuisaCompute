@@ -68,12 +68,32 @@ struct AccelOption {
     bool allow_update{false};
 };
 
+/// \brief Options for shader creation.
 struct ShaderOption {
+    /// \brief Whether to enable shader cache. Read/write behaviors are
+    ///   controlled by the `read_shader_cache` and `write_shader_cache`
+    ///   methods in `class BinaryIO` passed via `class DeviceConfig` to
+    ///   the backend on device creation. This field has no effects if
+    ///   a user-defined `name` is provided.
+    /// \sa DeviceConfig
+    /// \sa BinaryIO
     bool enable_cache{true};
+    /// \brief Whether to enable fast math.
     bool enable_fast_math{true};
+    /// \brief Whether to enable debug info.
     bool enable_debug_info{false};
-    bool compile_only{false};// compile the shader but not create a shader object
-    luisa::string name;      // will generate a default name if empty
+    /// \brief Whether to create the shader object. No shader object
+    ///   will be created if this field is set to `true`. This field
+    ///   is useful for AOT compilation.
+    bool compile_only{false};
+    /// \brief A user-defined name for the shader. If provided, the
+    ///   shader will be read from or written to the `BinaryIO` object
+    ///   (passed to the backend on device creation) through its
+    ///   `read_shader_bytecode` and `write_shader_bytecode` methods.
+    ///   The `enable_cache` field is ignored if this field is not empty.
+    /// \sa DeviceConfig
+    /// \sa BinaryIO
+    luisa::string name;
 };
 
 class LC_RUNTIME_API Resource {
