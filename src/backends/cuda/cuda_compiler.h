@@ -30,12 +30,10 @@ private:
     const CUDADevice *_device;
     uint _nvrtc_version;
     uint64_t _library_hash;
-    luisa::unique_ptr<Cache> _cache;
-
-private:
-    explicit CUDACompiler(const CUDADevice *device) noexcept;
+    mutable luisa::unique_ptr<Cache> _cache;
 
 public:
+    explicit CUDACompiler(const CUDADevice *device) noexcept;
     CUDACompiler(CUDACompiler &&) noexcept = default;
     CUDACompiler(const CUDACompiler &) noexcept = delete;
     CUDACompiler &operator=(CUDACompiler &&) noexcept = default;
@@ -43,7 +41,7 @@ public:
     [[nodiscard]] auto nvrtc_version() const noexcept { return _nvrtc_version; }
     [[nodiscard]] luisa::string compile(const luisa::string &src,
                                         const ShaderOption &option,
-                                        luisa::span<const char *const> extra_options) noexcept;
+                                        luisa::span<const char *const> extra_options) const noexcept;
     [[nodiscard]] static size_t type_size(const Type *type) noexcept;
 };
 

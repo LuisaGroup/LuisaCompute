@@ -165,11 +165,6 @@ public:
         return _create<Buffer<T>>(ptr, size);
     }
 
-    // [[nodiscard]] Buffer<DrawIndirectArgs> create_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;
-    // [[nodiscard]] Buffer<DrawIndexedIndirectArgs> create_indexed_draw_buffer(const MeshFormat &mesh_format, size_t capacity) noexcept;
-
-    void set_io(BinaryIO const *visitor) noexcept { _impl->set_io(visitor); }
-
     template<size_t N, typename... Args>
     [[nodiscard]] auto compile(const Kernel<N, Args...> &kernel,
                                const ShaderOption &option = {}) noexcept {

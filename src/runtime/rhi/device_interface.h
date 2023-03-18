@@ -24,6 +24,19 @@ class RasterState;
 class Type;
 struct AccelOption;
 
+class DeviceConfigExt {
+public:
+    virtual ~DeviceConfigExt() noexcept = default;
+};
+
+struct DeviceConfig {
+    mutable luisa::unique_ptr<DeviceConfigExt> extension;
+    const BinaryIO *binary_io{nullptr};
+    size_t device_index{0ull};
+    bool inqueue_buffer_limit{true};
+    bool headless{false};
+};
+
 class DeviceExtension {
 protected:
     ~DeviceExtension() noexcept = default;
@@ -43,8 +56,6 @@ public:
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;
     [[nodiscard]] virtual bool is_c_api() const noexcept { return false; }
-
-    virtual void set_io(BinaryIO const*binary_io) noexcept = 0;
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;

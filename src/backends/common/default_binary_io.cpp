@@ -69,7 +69,7 @@ void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::by
     }
 }
 
-DefaultBinaryIO::DefaultBinaryIO(Context &ctx, luisa::string_view backend_name) noexcept : _ctx(ctx) {
+DefaultBinaryIO::DefaultBinaryIO(const Context &ctx, luisa::string_view backend_name) noexcept : _ctx(ctx) {
     auto dir_name = luisa::string{backend_name}.append("_builtin");
     _data_path = _ctx.paths().data_directory() / dir_name;
 }

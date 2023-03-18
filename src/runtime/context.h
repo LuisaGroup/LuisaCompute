@@ -16,19 +16,8 @@ class BinaryIO;
 namespace luisa::compute {
 
 class Device;
+class DeviceConfig;
 class ContextPaths;
-
-class DeviceConfigExt {
-public:
-    virtual ~DeviceConfigExt() noexcept = default;
-};
-
-struct DeviceConfig {
-    mutable luisa::unique_ptr<DeviceConfigExt> extension;
-    size_t device_index{0ull};
-    bool inqueue_buffer_limit{true};
-    bool headless{false};
-};
 
 class LC_RUNTIME_API Context {
 

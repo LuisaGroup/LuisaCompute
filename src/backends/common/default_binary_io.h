@@ -22,7 +22,7 @@ public:
     using MapIndex = MutexMap::Index;
 
 private:
-    Context &_ctx;
+    const Context &_ctx;
     std::filesystem::path _data_path;
     mutable std::mutex _global_mtx;
     mutable MutexMap _mutex_map;
@@ -34,7 +34,7 @@ private:
     void _unlock(MapIndex const &idx, bool is_write) const noexcept;
 
 public:
-    DefaultBinaryIO(Context &ctx, luisa::string_view backend_name) noexcept;
+    DefaultBinaryIO(const Context &ctx, luisa::string_view backend_name) noexcept;
     luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept override;
     luisa::unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept override;

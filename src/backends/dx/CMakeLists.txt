@@ -1,7 +1,9 @@
 # TODO
 if (WIN32)
     message(STATUS "Build with DirectX backend")
-    set(VENGINE_SOURCE
+    set(LC_BACKEND_DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
+    set(LC_BACKEND_DX_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
+    set(LC_BACKEND_DX_SOURCE
             DXApi/ext.cpp
             DXApi/LCCmdBuffer.cpp DXApi/LCCmdBuffer.h
             DXApi/LCDevice.cpp DXApi/LCDevice.h
@@ -55,7 +57,10 @@ if (WIN32)
             Shader/ShaderCompiler.cpp Shader/ShaderCompiler.h
             Shader/ShaderSerializer.cpp Shader/ShaderSerializer.h
             Shader/ShaderVariableType.h)
-    luisa_compute_add_backend(dx SOURCES ${VENGINE_SOURCE})
+    luisa_compute_add_backend(dx
+            SOURCES ${LC_BACKEND_DX_SOURCE}
+            SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR}
+            BUILTIN_DIR ${LC_BACKEND_DX_BUILTIN_DIR})
     target_include_directories(lc-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(lc-backend-dx PRIVATE D3D12 d3dcompiler dxgi)
     target_compile_definitions(lc-backend-dx PRIVATE UNICODE)
@@ -65,28 +70,6 @@ if (WIN32)
                 m128_f32=vector4_f32
                 m128_u32=vector4_u32)
     endif ()
-    set_target_properties(lc-backend-dx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-    set(DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
-    set(DX_BUILTIN_SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
-    mark_as_advanced(DX_SUPPORT_DIR)
-    mark_as_advanced(DX_BUILTIN_SHADER_DIR)
-    if (CMAKE_BUILD_TYPE)
-        add_custom_target(lc-dx-copy-support ALL
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${DX_SUPPORT_DIR}"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/")
-        add_custom_target(lc-dx-copy-builtin ALL
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${DX_BUILTIN_SHADER_DIR}"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/.data/dx_builtin")
-        add_dependencies(lc-backend-dx
-                lc-dx-copy-support
-                lc-dx-copy-builtin)
-    endif ()
-    install(DIRECTORY ${DX_SUPPORT_DIR}
-            DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(DIRECTORY ${DX_BUILTIN_SHADER_DIR}
-            DESTINATION ${CMAKE_INSTALL_BINDIR}/.data/dx_builtin)
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "The DirectX backend will not be built on non-Windows platforms.")
 else ()

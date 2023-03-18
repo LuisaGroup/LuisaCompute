@@ -7,6 +7,8 @@
 #include <future>
 #include <thread>
 
+#include <core/binary_io.h>
+
 #include <runtime/rhi/sampler.h>
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_error.h>
@@ -22,23 +24,7 @@
 #include <backends/cuda/cuda_shader.h>
 #include <backends/cuda/optix_api.h>
 
-#include <backends/cuda/cuda_builtin_kernels_embedded.inl.h>
-
 namespace luisa::compute::cuda {
-//
-//uint64_t CUDADevice::create_buffer(size_t size_bytes) noexcept {
-//    return with_handle([size = size_bytes, this] {
-//        auto buffer = 0ull;
-//        LUISA_CHECK_CUDA(cuMemAlloc(&buffer, size));
-//        return buffer;
-//    });
-//}
-//
-//void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
-//    with_handle([buffer = handle, this] {
-//        LUISA_CHECK_CUDA(cuMemFree(buffer));
-//    });
-//}
 
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
     switch (format) {
@@ -239,13 +225,33 @@ namespace luisa::compute::cuda {
 //    });
 //}
 
-CUDADevice::CUDADevice(Context &&ctx, size_t device_id) noexcept
-    : DeviceInterface{std::move(ctx)}, _handle{device_id} {
-    with_handle([this] {
+CUDADevice::CUDADevice(Context &&ctx,
+                       size_t device_id,
+                       const BinaryIO *io) noexcept
+    : DeviceInterface{std::move(ctx)},
+      _handle{device_id}, _io{io} {
+
+    // provide a default binary IO
+    if (_io == nullptr) {
+        _default_io = luisa::make_unique<DefaultBinaryIO>(context(), "cuda");
+        _io = _default_io.get();
+    }
+
+    _compiler = luisa::make_unique<CUDACompiler>(this);
+
+    auto builtin_kernel_stream = _io->read_internal_shader("cuda_builtin_kernels.ptx");
+    luisa::string builtin_kernel;
+    builtin_kernel.resize(builtin_kernel_stream->length());
+    builtin_kernel_stream->read(luisa::span{
+        reinterpret_cast<std::byte *>(builtin_kernel.data()),
+        builtin_kernel.size()});
+
+    // prepare default shaders
+    with_handle([this, &builtin_kernel] {
         LUISA_CHECK_CUDA(cuCtxResetPersistingL2Cache());
         LUISA_CHECK_CUDA(cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_L1));
         LUISA_CHECK_CUDA(cuModuleLoadData(
-            &_builtin_kernel_module, cuda_builtin_kernels_source));
+            &_builtin_kernel_module, builtin_kernel.data()));
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_accel_update_function, _builtin_kernel_module,
             "update_accel"));
@@ -579,10 +585,18 @@ std::string_view CUDADevice::Handle::name() const noexcept {
 
 }// namespace luisa::compute::cuda
 
-LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx, const luisa::compute::DeviceConfig *config) noexcept {
-    auto device_id = config == nullptr ? 0u : config->device_index;
+LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
+                                                         const luisa::compute::DeviceConfig *config) noexcept {
+    auto device_id = 0ull;
+    auto binary_io = static_cast<const luisa::BinaryIO *>(nullptr);
+    if (config != nullptr) {
+        device_id = config->device_index;
+        binary_io = config->binary_io;
+        LUISA_ASSERT(!config->headless,
+                     "Headless mode is not implemented yet for CUDA backend.");
+    }
     return luisa::new_with_allocator<luisa::compute::cuda::CUDADevice>(
-        std::move(ctx), device_id);
+        std::move(ctx), device_id, binary_io);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {

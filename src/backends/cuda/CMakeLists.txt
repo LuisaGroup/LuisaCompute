@@ -10,8 +10,6 @@ if (CUDAToolkit_FOUND)
             cuda_host_buffer_pool.cpp cuda_host_buffer_pool.h
             cuda_command_encoder.cpp cuda_command_encoder.h
             cuda_mipmap_array.cpp cuda_mipmap_array.h
-            cuda_device_math_embedded.inl.h
-            cuda_device_resource_embedded.inl.h
             cuda_codegen.cpp cuda_codegen.h
             cuda_compiler.cpp cuda_compiler.h
             cuda_accel.cpp cuda_accel.h
@@ -20,12 +18,14 @@ if (CUDAToolkit_FOUND)
             cuda_shader.cpp cuda_shader.h
             cuda_callback_context.h
             optix_api.cpp optix_api.h)
-    luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+    set(LUISA_COMPUTE_CUDA_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cuda_builtin")
+    luisa_compute_add_backend(cuda
+            SOURCES ${LUISA_COMPUTE_CUDA_SOURCES}
+            BUILTIN_DIR ${LUISA_COMPUTE_CUDA_BUILTIN_DIR})
     target_link_libraries(lc-backend-cuda PRIVATE CUDA::cuda_driver CUDA::nvrtc)
     if (WIN32)
         target_link_libraries(lc-backend-cuda PRIVATE cfgmgr32)
     endif ()
-    target_include_directories(lc-backend-cuda PRIVATE "${OptiX_INCLUDE_DIR}")
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "CUDA not found. The CUDA backend will not be built.")
 else ()

@@ -7,6 +7,7 @@
 #include <core/dll_export.h>
 #include <core/stl/memory.h>
 #include <core/stl/string.h>
+#include <core/stl/hash.h>
 #include <runtime/rhi/pixel.h>
 
 namespace luisa::compute {
@@ -117,3 +118,39 @@ public:
 };
 
 }// namespace luisa::compute
+
+namespace luisa {
+
+template<>
+struct hash<compute::ShaderOption> {
+    [[nodiscard]] auto operator()(const compute::ShaderOption &option,
+                                  uint64_t seed = hash64_default_seed) const noexcept {
+        constexpr auto enable_cache_shift = 0u;
+        constexpr auto enable_fast_math_shift = 1u;
+        constexpr auto enable_debug_info_shift = 2u;
+        constexpr auto compile_only_shift = 3u;
+        auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
+                                       (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
+                                       (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
+                                       (static_cast<uint>(option.compile_only) << compile_only_shift),
+                                   seed);
+        auto name_hash = hash_value(option.name, seed);
+        return hash_combine({opt_hash, name_hash}, seed);
+    }
+};
+
+template<>
+struct hash<compute::AccelOption> {
+    [[nodiscard]] auto operator()(const compute::AccelOption &option,
+                                  uint64_t seed = hash64_default_seed) const noexcept {
+        constexpr auto hint_shift = 0u;
+        constexpr auto allow_compaction_shift = 8u;
+        constexpr auto allow_update_shift = 9u;
+        return hash_value((static_cast<uint>(option.hint) << hint_shift) |
+                              (static_cast<uint>(option.allow_compaction) << allow_compaction_shift) |
+                              (static_cast<uint>(option.allow_update) << allow_update_shift),
+                          seed);
+    }
+};
+
+}// namespace luisa

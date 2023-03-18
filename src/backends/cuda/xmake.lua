@@ -6,3 +6,7 @@ _config_project({
 add_deps("lc-runtime", "lc-vstl")
 add_files("**.cpp")
 add_defines("NOMINMAX", "UNICODE")
+after_build(function(target)
+	local binDir = target:targetdir()
+	os.cp("src/backends/cuda/cuda_builtin", path.join(binDir, ".data/"))
+end)

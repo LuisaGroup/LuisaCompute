@@ -7,7 +7,7 @@
 //
 
 .version 7.0
-.target sm_52
+.target sm_60
 .address_size 64
 
 	// .globl	update_accel

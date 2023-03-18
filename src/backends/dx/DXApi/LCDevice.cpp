@@ -170,13 +170,6 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
         ->Execute(std::move(list), nativeDevice.maxAllocatorCount);
 }
 
-void LCDevice::set_io(BinaryIO const *visitor) noexcept {
-    if (visitor) {
-        nativeDevice.fileIo = visitor;
-    } else {
-        nativeDevice.fileIo = &nativeDevice.serVisitor;
-    }
-}
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
     auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);

@@ -7,9 +7,11 @@
 #include <cuda.h>
 
 #include <runtime/rhi/device_interface.h>
+#include <backends/common/default_binary_io.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
@@ -102,10 +104,14 @@ private:
     CUmodule _builtin_kernel_module{nullptr};
     CUfunction _accel_update_function{nullptr};
     CUfunction _bindless_array_update_function{nullptr};
+    luisa::unique_ptr<CUDACompiler> _compiler;
+    luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
 
 public:
-    CUDADevice(Context &&ctx, size_t device_id) noexcept;
+    CUDADevice(Context &&ctx,
+               size_t device_id,
+               const BinaryIO *io) noexcept;
     ~CUDADevice() noexcept override;
     [[nodiscard]] auto &handle() const noexcept { return _handle; }
     template<typename F>
@@ -116,8 +122,8 @@ public:
     void *native_handle() const noexcept override { return _handle.context(); }
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
+    [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     [[nodiscard]] auto io() const noexcept { return _io; }
-    void set_io(const BinaryIO *binary_io) noexcept override { _io = binary_io; }
     bool is_c_api() const noexcept override { return false; }
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
@@ -144,8 +150,17 @@ public:
                                               DepthFormat dsv_format,
                                               Function vert, Function pixel,
                                               const ShaderOption &shader_option) noexcept override;
-    void save_raster_shader(const MeshFormat &mesh_format, Function vert, Function pixel, luisa::string_view name, bool enable_debug_info, bool enable_fast_math) noexcept override;
-    ResourceCreationInfo load_raster_shader(const MeshFormat &mesh_format, const RasterState &raster_state, luisa::span<const PixelFormat> rtv_format, DepthFormat dsv_format, luisa::span<const Type *const> types, luisa::string_view ser_path) noexcept override;
+    void save_raster_shader(const MeshFormat &mesh_format,
+                            Function vert, Function pixel,
+                            luisa::string_view name,
+                            bool enable_debug_info,
+                            bool enable_fast_math) noexcept override;
+    ResourceCreationInfo load_raster_shader(const MeshFormat &mesh_format,
+                                            const RasterState &raster_state,
+                                            luisa::span<const PixelFormat> rtv_format,
+                                            DepthFormat dsv_format,
+                                            luisa::span<const Type *const> types,
+                                            luisa::string_view ser_path) noexcept override;
     void destroy_raster_shader(uint64_t handle) noexcept override;
     ResourceCreationInfo create_event() noexcept override;
     void destroy_event(uint64_t handle) noexcept override;

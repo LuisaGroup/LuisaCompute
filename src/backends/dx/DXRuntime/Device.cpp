@@ -68,14 +68,15 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
       bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel),
       serVisitor(ctx, "dx"sv) {
     using Microsoft::WRL::ComPtr;
-    fileIo = &serVisitor;
     size_t index = 0;
     bool useRuntime = true;
     if (settings) {
         index = settings->device_index;
         useRuntime = !settings->headless;
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
+        fileIo = settings->binary_io;
     }
+    if (fileIo == nullptr) { fileIo = &serVisitor; }
     auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
         struct AdapterInfo {
             WCHAR Description[128];
