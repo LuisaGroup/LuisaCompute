@@ -70,11 +70,12 @@ struct AccelOption {
 
 /// \brief Options for shader creation.
 struct ShaderOption {
-    /// \brief Whether to enable shader cache. Read/write behaviors are
-    ///   controlled by the `read_shader_cache` and `write_shader_cache`
-    ///   methods in `class BinaryIO` passed via `class DeviceConfig` to
-    ///   the backend on device creation. This field has no effects if
-    ///   a user-defined `name` is provided.
+    /// \brief Whether to enable shader cache.
+    /// \details LuisaCompute uses shader cache to avoid redundant shader
+    ///   compilation. Cache read/write behaviors are controlled by the
+    ///   `read_shader_cache` and `write_shader_cache` methods in `BinaryIO`
+    ///   passed via `class DeviceConfig` to backends on device creation.
+    ///   This field has no effects if a user-defined `name` is provided.
     /// \sa DeviceConfig
     /// \sa BinaryIO
     bool enable_cache{true};
@@ -82,15 +83,15 @@ struct ShaderOption {
     bool enable_fast_math{true};
     /// \brief Whether to enable debug info.
     bool enable_debug_info{false};
-    /// \brief Whether to create the shader object. No shader object
-    ///   will be created if this field is set to `true`. This field
-    ///   is useful for AOT compilation.
+    /// \brief Whether to create the shader object.
+    /// \details No shader object will be created if this field is set to
+    ///   `true`. This field is useful for AOT compilation.
     bool compile_only{false};
-    /// \brief A user-defined name for the shader. If provided, the
-    ///   shader will be read from or written to the `BinaryIO` object
-    ///   (passed to the backend on device creation) through its
-    ///   `read_shader_bytecode` and `write_shader_bytecode` methods.
-    ///   The `enable_cache` field is ignored if this field is not empty.
+    /// \brief A user-defined name for the shader.
+    /// \details If provided, the shader will be read from or written to disk
+    ///   via the `BinaryIO` object (passed to backends on device creation)
+    ///   through the `read_shader_bytecode` and `write_shader_bytecode` methods.
+    ///   The `enable_cache` field will be ignored if this field is not empty.
     /// \sa DeviceConfig
     /// \sa BinaryIO
     luisa::string name;

@@ -17,6 +17,7 @@ namespace luisa::compute {
 
 namespace ir {
 struct KernelModule;
+struct Type;
 }
 
 class MeshFormat;
@@ -59,6 +60,7 @@ public:
 
 public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept = 0;
+    [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::Type *element, size_t elem_count) noexcept = 0;
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
     // texture
@@ -84,7 +86,6 @@ public:
         uint64_t stream_handle, CommandList &&list) noexcept = 0;
 
     // swap chain
-
     [[nodiscard]] virtual SwapChainCreationInfo create_swap_chain(
         uint64_t window_handle, uint64_t stream_handle,
         uint width, uint height, bool allow_hdr,
