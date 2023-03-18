@@ -11,12 +11,12 @@
 namespace luisa {
 class DynamicModule;
 class BinaryIO;
-}
+}// namespace luisa
 
 namespace luisa::compute {
 
 class Device;
-class DeviceConfig;
+struct DeviceConfig;
 class ContextPaths;
 
 class LC_RUNTIME_API Context {

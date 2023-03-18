@@ -236,15 +236,16 @@ CUDADevice::CUDADevice(Context &&ctx,
         _default_io = luisa::make_unique<DefaultBinaryIO>(context(), "cuda");
         _io = _default_io.get();
     }
-
     _compiler = luisa::make_unique<CUDACompiler>(this);
 
-    auto builtin_kernel_stream = _io->read_internal_shader("cuda_builtin_kernels.ptx");
     luisa::string builtin_kernel;
-    builtin_kernel.resize(builtin_kernel_stream->length());
-    builtin_kernel_stream->read(luisa::span{
-        reinterpret_cast<std::byte *>(builtin_kernel.data()),
-        builtin_kernel.size()});
+    {
+        auto builtin_kernel_stream = _io->read_internal_shader("cuda_builtin_kernels.ptx");
+        builtin_kernel.resize(builtin_kernel_stream->length());
+        builtin_kernel_stream->read(luisa::span{
+            reinterpret_cast<std::byte *>(builtin_kernel.data()),
+            builtin_kernel.size()});
+    }
 
     // prepare default shaders
     with_handle([this, &builtin_kernel] {

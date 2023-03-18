@@ -6,7 +6,7 @@
 #include <dxgi1_4.h>
 #include <core/binary_io.h>
 #include <runtime/device.h>
-#include <DxRuntime/DxPtr.h>
+#include <DXRuntime/DxPtr.h>
 #include <ext_settings.h>
 #include <backends/common/default_binary_io.h>
 
