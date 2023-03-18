@@ -1,94 +1,95 @@
 set_xmakever("2.7.3")
 add_rules("mode.release", "mode.debug")
 -- pre-defined options
+-- enable mimalloc as default allocator: https://github.com/LuisaGroup/mimalloc
 option("enable_mimalloc")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
-
+-- enable unity(jumbo) build, enable this option will optimize compile speed
 option("enable_unity_build")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
-
+-- enable sse and sse2 SIMD
 option("enable_simd")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
-
+-- enable DirectX-12 backend
 option("dx_backend")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
-
+-- enable NVIDIA-CUDA backend
 option("cuda_backend")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
-
+-- enable Metal backend
 option("metal_backend")
 set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
-
+-- enable cpu backend
 option("cpu_backend")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-
+-- enable tools module
 option("enable_tools")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-
+-- enable tests module
 option("enable_tests")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-
+-- python runtime path
 option("py_path")
 set_default("")
 set_showmenu(true)
 option_end()
-
+-- python version, depends on python runtime, for instance --py_version=3.10
 option("py_version")
 set_default("")
 set_showmenu(true)
 option_end()
-
+-- enable intermediate representation module (rust required)
 option("enable_ir")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-
+-- enable c-language api module for cross-language bindings module
 option("enable_api")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-
+-- enable C++ DSL module
 option("enable_dsl")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-
+-- enable GUI module
 option("enable_gui")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
-
+-- enable Unity3D plugin module
 option("enable_unity3d_plugin")
 set_values(true, false)
 set_default(false)
