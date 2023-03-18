@@ -20,8 +20,7 @@ void LCEvent::Sync() const {
 }
 void LCEvent::Signal(CommandQueue *queue) const {
     this->queue = queue;
-    ++fenceIndex;
-    queue->Queue()->Signal(fence.Get(), fenceIndex);
+    queue->Queue()->Signal(fence.Get(), ++fenceIndex);
     queue->AddEvent(this);
 }
 void LCEvent::Wait(CommandQueue *queue) const {

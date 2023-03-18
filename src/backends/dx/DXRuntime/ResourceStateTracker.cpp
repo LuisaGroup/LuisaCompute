@@ -45,15 +45,15 @@ static bool ShouldIgnoreState(D3D12_RESOURCE_STATES lastState, D3D12_RESOURCE_ST
 }// namespace detail
 D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const {
     auto iter = stateMap.find(res);
-    if (iter == stateMap.end()) {
-        auto nonSimulState = res->GetNonSimulCurrentState();
-        if (luisa::to_underlying(nonSimulState) == std::numeric_limits<uint32_t>::max()) {
-            return res->GetInitState();
-        } else {
-            return nonSimulState;
-        }
+    if (iter != stateMap.end()) {
+        return iter->second.curState;
     }
-    return iter->second.curState;
+    auto nonSimulState = res->GetNonSimulCurrentState();
+    if (luisa::to_underlying(nonSimulState) == std::numeric_limits<uint32_t>::max()) {
+        return res->GetInitState();
+    } else {
+        return nonSimulState;
+    }
 }
 ResourceStateTracker::ResourceStateTracker() {}
 ResourceStateTracker::~ResourceStateTracker() = default;

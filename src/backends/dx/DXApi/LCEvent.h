@@ -6,7 +6,7 @@ class LCEvent : public vstd::IOperatorNewBase {
     friend class CommandQueue;
     mutable CommandQueue *queue;
     ComPtr<ID3D12Fence> fence;
-    mutable uint64 fenceIndex = 1;
+    mutable std::atomic_uint64_t fenceIndex = 1;
     Device *device;
     mutable std::mutex eventMtx;
     mutable std::condition_variable cv;

@@ -4,7 +4,10 @@
 #include <core/logging.h>
 
 namespace luisa::compute {
-
+SwapChain::SwapChain(DeviceInterface *device, const SwapChainCreationInfo &create_info) noexcept
+    : Resource{device, Tag::SWAP_CHAIN, create_info},
+      _storage{create_info.storage} {
+}
 SwapChain Device::create_swapchain(uint64_t window_handle,
                                    Stream const &stream,
                                    uint2 resolution,
@@ -20,14 +23,11 @@ SwapChain Device::create_swapchain(uint64_t window_handle,
 
 SwapChain::SwapChain(DeviceInterface *device, uint64_t window_handle, uint64_t stream_handle,
                      uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept
-    : Resource{device, Tag::SWAP_CHAIN,
-               [&] {
-                   auto create_info = device->create_swap_chain(
-                       window_handle, stream_handle, width, height,
-                       allow_hdr, vsync, back_buffer_size);
-                   _storage = create_info.storage;
-                   return create_info;
-               }()} {
+    : SwapChain{
+          device,
+          device->create_swap_chain(
+              window_handle, stream_handle, width, height,
+              allow_hdr, vsync, back_buffer_size)} {
 }
 
 SwapChain::Present SwapChain::present(ImageView<float> frame) const noexcept {
