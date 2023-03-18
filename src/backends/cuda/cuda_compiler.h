@@ -40,9 +40,10 @@ public:
     CUDACompiler &operator=(CUDACompiler &&) noexcept = default;
     CUDACompiler &operator=(const CUDACompiler &) noexcept = delete;
     [[nodiscard]] auto nvrtc_version() const noexcept { return _nvrtc_version; }
+    [[nodiscard]] auto device_library() const noexcept { return luisa::string_view{_device_library}; }
+    [[nodiscard]] auto device_library_hash() const noexcept { return _library_hash; }
     [[nodiscard]] luisa::string compile(const luisa::string &src,
-                                        const ShaderOption &option,
-                                        luisa::span<const char *const> extra_options) const noexcept;
+                                        luisa::span<const char *const> options) const noexcept;
     [[nodiscard]] static size_t type_size(const Type *type) noexcept;
 };
 

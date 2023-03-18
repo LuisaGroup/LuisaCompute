@@ -119,104 +119,36 @@ namespace luisa::compute::cuda {
 //}
 
 luisa::string CUDACompiler::compile(const luisa::string &src,
-                                    const ShaderOption &option,
-                                    luisa::span<const char *const> extra_options) const noexcept {
+                                    luisa::span<const char *const> options) const noexcept {
 
-    // compute hash
-    //    auto src_hash = hash_value(src);
-    //    auto opt_hash = hash_value(luisa::format("__nvrtc_{}__", _nvrtc_version));
-    //    for (auto o : options) { opt_hash = hash_value(o, opt_hash); }
-    //    auto hash = hash_combine({src_hash, opt_hash});
-    //
-    //    // try memory cache
-    //    if (auto ptx = _cache->fetch(hash)) { return *ptx; }
-    //
-    //    static std::mutex io_mutex;
-    //
-    //    // try disk cache
-    //    {
-    //        std::lock_guard lock{io_mutex};
-    //        _device->io()->read_shader_bytecode()
-    //    }
-    //
-    //    // try memory cache
-    //    auto file_name = fmt::format(
-    //        "func_{:016x}.lib_{:016x}.opt_{:016x}",
-    //        src_hash, _library_hash, opt_hash);
-    //    auto ptx_file_name = file_name + ".ptx";
-    //    auto cu_file_name = file_name + ".cu";
-    //
-    //    // try disk cache
-    //    {
-    //        std::lock_guard lock{ptx_mutex};
-    //
-    //        if (std::ifstream ptx_file{ptx_file_path}; ptx_file.is_open()) {
-    //            LUISA_INFO("Found compilation cache: '{}'.", ptx_file_name);
-    //            luisa::string ptx{
-    //                std::istreambuf_iterator<char>{ptx_file},
-    //                std::istreambuf_iterator<char>{}};
-    //            _cache->update(hash, ptx);
-    //            return ptx;
-    //        }
-    //    }
-    //    LUISA_INFO(
-    //        "Failed to load compilation cache for kernel {:016X},"
-    //        " falling back to re-compiling.",
-    //        function.hash());
-    //
-    //    auto ptx_file_path = cache_dir / ptx_file_name;
-    //
-    //    // compile
-    //    static thread_local Codegen::Scratch scratch;
-    //    scratch.clear();
-    //    CUDACodegen{scratch}.emit(function);
-    //
-    //    auto source = scratch.view();
-    //    LUISA_VERBOSE_WITH_LOCATION("Generated CUDA source:\n{}", source);
-    //
-    //    // save the source for debugging
-    //    {
-    //        static std::mutex mutex;
-    //        std::lock_guard lock{mutex};
-    //        std::ofstream cu_file{cache_dir / cu_file_name};
-    //        cu_file << source;
-    //    }
-    //
-    //    std::array header_names{"device_math.h", "device_resource.h"};
-    //    std::array header_sources{cuda_device_math_source, cuda_device_resource_source};
-    //    nvrtcProgram prog;
-    //    LUISA_CHECK_NVRTC(nvrtcCreateProgram(
-    //        &prog, source.data(), "my_kernel.cu",
-    //        header_sources.size(), header_sources.data(), header_names.data()));
-    //    auto error = nvrtcCompileProgram(prog, options.size(), options.data());
-    //    size_t log_size;
-    //    LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
-    //    if (log_size > 1u) {
-    //        luisa::string log;
-    //        log.resize(log_size - 1);
-    //        LUISA_CHECK_NVRTC(nvrtcGetProgramLog(prog, log.data()));
-    //        std::cerr << "Compile log:\n"
-    //                  << log << std::flush;
-    //    }
-    //    LUISA_CHECK_NVRTC(error);
-    //
-    //    size_t ptx_size;
-    //    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
-    //    luisa::string ptx;
-    //    ptx.resize(ptx_size - 1);
-    //    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
-    //    LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
-    //
-    //    _cache->update(hash, ptx);
-    //
-    //    // save cache
-    //    {
-    //        std::lock_guard lock{ptx_mutex};
-    //        std::ofstream ptx_file{ptx_file_path};
-    //        ptx_file << ptx;
-    //    }
-    //    return ptx;
-    return {};
+    auto src_hash = hash_value(src);
+    auto opt_hash = hash_value(luisa::format("-DLC_NVRTC_VERSION={}", _nvrtc_version));
+    for (auto o : options) { opt_hash = hash_value(o, opt_hash); }
+    if (auto ptx = _cache->fetch(hash_combine({src_hash, opt_hash, _library_hash}))) { return *ptx; }
+
+    std::array header_names{"device_library.h"};
+    std::array header_sources{_device_library.c_str()};
+    nvrtcProgram prog;
+    LUISA_CHECK_NVRTC(nvrtcCreateProgram(
+        &prog, src.data(), "my_kernel.cu",
+        header_sources.size(), header_sources.data(), header_names.data()));
+    auto error = nvrtcCompileProgram(prog, static_cast<int>(options.size()), options.data());
+    size_t log_size;
+    LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
+    if (log_size > 1u) {
+        luisa::string log;
+        log.resize(log_size - 1);
+        LUISA_CHECK_NVRTC(nvrtcGetProgramLog(prog, log.data()));
+        LUISA_WARNING_WITH_LOCATION("Compile log:\n{}", log);
+    }
+    LUISA_CHECK_NVRTC(error);
+    size_t ptx_size;
+    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
+    luisa::string ptx;
+    ptx.resize(ptx_size - 1);
+    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
+    LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
+    return ptx;
 }
 
 size_t CUDACompiler::type_size(const Type *type) noexcept {

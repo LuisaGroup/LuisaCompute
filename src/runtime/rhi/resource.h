@@ -123,6 +123,7 @@ namespace luisa {
 
 template<>
 struct hash<compute::ShaderOption> {
+    using is_avalanching = void;
     [[nodiscard]] auto operator()(const compute::ShaderOption &option,
                                   uint64_t seed = hash64_default_seed) const noexcept {
         constexpr auto enable_cache_shift = 0u;
@@ -141,6 +142,7 @@ struct hash<compute::ShaderOption> {
 
 template<>
 struct hash<compute::AccelOption> {
+    using is_avalanching = void;
     [[nodiscard]] auto operator()(const compute::AccelOption &option,
                                   uint64_t seed = hash64_default_seed) const noexcept {
         constexpr auto hint_shift = 0u;
