@@ -18,7 +18,7 @@ namespace luisa::compute::cuda {
  * @brief CUDA code generator
  * 
  */
-class CUDACodegen final : private TypeVisitor, private ExprVisitor, private StmtVisitor {
+class CUDACodegenAST final : private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
 private:
     StringScratch &_scratch;
@@ -66,7 +66,7 @@ private:
     void _emit_variable_declarations(Function f) noexcept;
 
 public:
-    explicit CUDACodegen(StringScratch &scratch) noexcept
+    explicit CUDACodegenAST(StringScratch &scratch) noexcept
         : _scratch{scratch} {}
     void emit(Function f);
 };

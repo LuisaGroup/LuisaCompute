@@ -40,6 +40,14 @@ struct LCBuffer {
     size_t size_bytes;
 };
 
+template<typename T>
+struct LCBuffer<const T> {
+    const T *__restrict__ ptr;
+    size_t size_bytes;
+    LCBuffer(LCBuffer<T> buffer) noexcept
+        : ptr{buffer.ptr}, size_bytes{buffer.size_bytes} {}
+};
+
 template<typename T, typename Index>
 [[nodiscard]] __device__ inline auto lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
     return buffer.ptr[index];
@@ -1119,7 +1127,7 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
     return LC_BLOCK_SIZE;
 }
 
-#if LC_OPTIX_VERSION != 0
+#ifdef LC_ENABLE_OPTIX
 
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {

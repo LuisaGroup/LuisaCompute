@@ -3,6 +3,8 @@
 //
 
 #include <fstream>
+
+#include <core/clock.h>
 #include <core/binary_io.h>
 #include <runtime/context_paths.h>
 #include <backends/cuda/cuda_error.h>
@@ -70,7 +72,7 @@ namespace luisa::compute::cuda {
 //    // compile
 //    static thread_local Codegen::Scratch scratch;
 //    scratch.clear();
-//    CUDACodegen{scratch}.emit(function);
+//    CUDACodegenAST{scratch}.emit(function);
 //
 //    auto source = scratch.view();
 //    LUISA_VERBOSE_WITH_LOCATION("Generated CUDA source:\n{}", source);
@@ -121,6 +123,8 @@ namespace luisa::compute::cuda {
 luisa::string CUDACompiler::compile(const luisa::string &src,
                                     luisa::span<const char *const> options) const noexcept {
 
+    Clock clk;
+
     auto src_hash = hash_value(src);
     auto opt_hash = hash_value(luisa::format("-DLC_NVRTC_VERSION={}", _nvrtc_version));
     for (auto o : options) { opt_hash = hash_value(o, opt_hash); }
@@ -148,6 +152,7 @@ luisa::string CUDACompiler::compile(const luisa::string &src,
     ptx.resize(ptx_size - 1);
     LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
+    LUISA_VERBOSE_WITH_LOCATION("CUDACompiler::compile() took {} ms.", clk.toc());
     return ptx;
 }
 
@@ -193,8 +198,8 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
       _library_hash{hash_value(_device_library)},
       _cache{Cache::create(max_cache_item_count)} {
     LUISA_VERBOSE_WITH_LOCATION("CUDA NVRTC version: {}.", _nvrtc_version);
-    LUISA_VERBOSE_WITH_LOCATION("CUDA device library (size = {} bytes, hash = {:016X}):\n{}",
-                                _device_library.size(), _library_hash, _device_library);
+    LUISA_VERBOSE_WITH_LOCATION("CUDA device library size = {} bytes, hash = {:016X}.",
+                                _device_library.size(), _library_hash);
 }
 
 }// namespace luisa::compute::cuda

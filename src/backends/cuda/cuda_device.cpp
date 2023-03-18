@@ -11,17 +11,20 @@
 
 #include <runtime/rhi/sampler.h>
 #include <runtime/bindless_array.h>
+#include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_mesh.h>
 #include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_codegen_ast.h>
 #include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_mipmap_array.h>
-#include <backends/cuda/cuda_shader.h>
+#include <backends/cuda/cuda_shader_native.h>
+#include <backends/cuda/cuda_shader_optix.h>
 #include <backends/cuda/optix_api.h>
 
 namespace luisa::compute::cuda {
@@ -67,82 +70,7 @@ namespace luisa::compute::cuda {
     LUISA_ERROR_WITH_LOCATION("Invalid pixel format 0x{:02x}.",
                               luisa::to_underlying(format));
 }
-//
-//uint64_t CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
-//    return with_handle([=] {
-//        auto [array_format, num_channels] = cuda_array_format_and_channels(format);
-//        CUDA_ARRAY3D_DESCRIPTOR array_desc{};
-//        array_desc.Width = width;
-//        array_desc.Height = height;
-//        array_desc.Depth = dimension == 2u ? 0u : depth;
-//        array_desc.Format = array_format;
-//        array_desc.NumChannels = num_channels;
-//        array_desc.Flags = CUDA_ARRAY3D_SURFACE_LDST;
-//        auto array_handle = [&] {
-//            if (mipmap_levels == 1u) {
-//                CUarray handle{nullptr};
-//                LUISA_CHECK_CUDA(cuArray3DCreate(&handle, &array_desc));
-//                return reinterpret_cast<uint64_t>(handle);
-//            }
-//            CUmipmappedArray handle{nullptr};
-//            LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&handle, &array_desc, mipmap_levels));
-//            return reinterpret_cast<uint64_t>(handle);
-//        }();
-//        return reinterpret_cast<uint64_t>(
-//            new_with_allocator<CUDAMipmapArray>(array_handle, format, mipmap_levels));
-//    });
-//}
-//
-//void CUDADevice::destroy_texture(uint64_t handle) noexcept {
-//    with_handle([array = reinterpret_cast<CUDAMipmapArray *>(handle)] {
-//        delete_with_allocator(array);
-//    });
-//}
-//
-//uint64_t CUDADevice::create_stream(bool for_present) noexcept {
-//    return with_handle([&] {
-//        return reinterpret_cast<uint64_t>(new_with_allocator<CUDAStream>(this));
-//    });
-//}
-//
-//void CUDADevice::destroy_stream(uint64_t handle) noexcept {
-//    with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
-//        delete_with_allocator(stream);
-//    });
-//}
-//
-//void CUDADevice::synchronize_stream(uint64_t handle) noexcept {
-//    with_handle([stream = reinterpret_cast<CUDAStream *>(handle)] {
-//        stream->synchronize();
-//    });
-//}
-//
-//void CUDADevice::dispatch(uint64_t stream_handle, move_only_function<void()> &&func) noexcept {
-//    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), &func] {
-//        stream->dispatch(std::move(func));
-//    });
-//}
-//
-//void CUDADevice::dispatch(uint64_t stream_handle, const CommandList &list) noexcept {
-//    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), &list] {
-//        CUDACommandEncoder encoder{this, stream};
-//        for (auto &&cmd : list) { cmd->accept(encoder); }
-//        stream->barrier();
-//        stream->dispatch_callbacks();
-//    });
-//}
-//
-//void CUDADevice::dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept {
-//    with_handle([this, stream = reinterpret_cast<CUDAStream *>(stream_handle), lists] {
-//        for (auto &&list : lists) {
-//            CUDACommandEncoder encoder{this, stream};
-//            for (auto &&cmd : list) { cmd->accept(encoder); }
-//            stream->barrier();
-//        }
-//        stream->dispatch_callbacks();
-//    });
-//}
-//
+
 //uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
 //    Clock clock;
 //    auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
@@ -238,21 +166,34 @@ CUDADevice::CUDADevice(Context &&ctx,
     }
     _compiler = luisa::make_unique<CUDACompiler>(this);
 
-    luisa::string builtin_kernel;
+    luisa::string builtin_kernel_src;
     {
-        auto builtin_kernel_stream = _io->read_internal_shader("cuda_builtin_kernels.ptx");
-        builtin_kernel.resize(builtin_kernel_stream->length());
+        auto builtin_kernel_stream = _io->read_internal_shader("cuda_builtin_kernels.cu");
+        builtin_kernel_src.resize(builtin_kernel_stream->length());
         builtin_kernel_stream->read(luisa::span{
-            reinterpret_cast<std::byte *>(builtin_kernel.data()),
-            builtin_kernel.size()});
+            reinterpret_cast<std::byte *>(builtin_kernel_src.data()),
+            builtin_kernel_src.size()});
     }
 
+    auto sm_option = fmt::format("-arch=sm_{}", handle().compute_capability());
+    std::array options{sm_option.c_str(),
+                       "--std=c++17",
+                       "--use_fast_math",
+                       "-default-device",
+                       "-restrict",
+                       "-extra-device-vectorization",
+                       "-dw",
+                       "-w",
+                       "-ewp",
+                       "-dopt"};
+    auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, options);
+
     // prepare default shaders
-    with_handle([this, &builtin_kernel] {
+    with_handle([this, &builtin_kernel_ptx] {
         LUISA_CHECK_CUDA(cuCtxResetPersistingL2Cache());
         LUISA_CHECK_CUDA(cuCtxSetCacheConfig(CU_FUNC_CACHE_PREFER_L1));
         LUISA_CHECK_CUDA(cuModuleLoadData(
-            &_builtin_kernel_module, builtin_kernel.data()));
+            &_builtin_kernel_module, builtin_kernel_ptx.data()));
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_accel_update_function, _builtin_kernel_module,
             "update_accel"));
@@ -387,7 +328,60 @@ void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swap
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
-    LUISA_ERROR_WITH_LOCATION("TODO");
+
+    StringScratch scratch;
+    CUDACodegenAST codegen{scratch};
+    codegen.emit(kernel);
+    auto source = luisa::string{scratch.view()};
+    LUISA_INFO("CUDA source:\n{}", source);
+
+    // NVRTC options
+    auto sm_option = fmt::format("-arch=compute_{}", _handle.compute_capability());
+    auto nvrtc_version_option = fmt::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
+    auto optix_version_option = fmt::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
+    luisa::vector<const char *> options{sm_option.c_str(),
+                                        nvrtc_version_option.c_str(),
+                                        optix_version_option.c_str(),
+                                        "--std=c++17",
+                                        "-default-device",
+                                        "-restrict",
+                                        "-extra-device-vectorization",
+                                        "-dw",
+                                        "-w",
+                                        "-ewp",
+                                        "-dopt=on"};
+    if (option.enable_debug_info) {
+        options.emplace_back("-line-info");
+        options.emplace_back("-DLC_DEBUG");
+    }
+    if (option.enable_fast_math) {
+        options.emplace_back("-use_fast_math");
+    }
+
+    // compile
+    // TODO: honor cache config
+    auto ptx = _compiler->compile(source, options);
+    LUISA_INFO("PTX:\n{}", ptx);
+
+    if (option.compile_only) {// no shader object should be created
+        return ShaderCreationInfo::make_invalid();
+    }
+
+    // create the shader object
+    auto p = with_handle([&]() noexcept -> CUDAShader * {
+        if (kernel.requires_raytracing()) {
+            return new_with_allocator<CUDAShaderOptiX>(
+                this, ptx.data(), ptx.size(), "__raygen__main");
+        }
+        return new_with_allocator<CUDAShaderNative>(
+            ptx.data(), ptx.size(), "kernel_main");
+    });
+
+    ShaderCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(p);
+    info.native_handle = p;
+    info.block_size = kernel.block_size();
+    return info;
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
@@ -401,7 +395,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
 
 void CUDADevice::destroy_shader(uint64_t handle) noexcept {
     with_handle([shader = reinterpret_cast<CUDAShader *>(handle)] {
-        CUDAShader::destroy(shader);
+        delete_with_allocator(shader);
     });
 }
 
@@ -530,6 +524,10 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     });
 
     // cuda
+    auto driver_version = 0;
+    LUISA_CHECK_CUDA(cuDriverGetVersion(&driver_version));
+    _driver_version = driver_version;
+
     auto device_count = 0;
     LUISA_CHECK_CUDA(cuDeviceGetCount(&device_count));
     if (device_count == 0) {
@@ -546,9 +544,8 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     auto compute_cap_minor = 0;
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&compute_cap_major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, _device));
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&compute_cap_minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, _device));
-    LUISA_INFO(
-        "Created CUDA device at index {}: {} (capability = {}.{}).",
-        index, name(), compute_cap_major, compute_cap_minor);
+    LUISA_INFO("Created CUDA device at index {}: {} (driver = {}, capability = {}.{}).",
+               index, name(), driver_version, compute_cap_major, compute_cap_minor);
     _compute_capability = 10u * compute_cap_major + compute_cap_minor;
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 

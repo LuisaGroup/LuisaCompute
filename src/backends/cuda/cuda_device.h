@@ -54,48 +54,20 @@ public:
         optix::DeviceContext _optix_context{nullptr};
         CUdevice _device{0};
         uint32_t _compute_capability{};
+        uint32_t _driver_version{};
 
     public:
-        /**
-         * @brief Construct a new Handle object
-         * 
-         * @param index index of CUDA device
-         */
         explicit Handle(size_t index) noexcept;
         ~Handle() noexcept;
         Handle(Handle &&) noexcept = delete;
         Handle(const Handle &) noexcept = delete;
         Handle &operator=(Handle &&) noexcept = delete;
         Handle &operator=(const Handle &) noexcept = delete;
-        /**
-         * @brief Return name of device
-         * 
-         * @return std::string_view 
-         */
         [[nodiscard]] std::string_view name() const noexcept;
-        /**
-         * @brief Return handle of device
-         * 
-         * @return CUdevice
-         */
         [[nodiscard]] auto device() const noexcept { return _device; }
-        /**
-         * @brief Return handle of context
-         * 
-         * @return CUcontext
-         */
         [[nodiscard]] auto context() const noexcept { return _context; }
-        /**
-         * @brief Return handle of Optix context
-         * 
-         * @return OptixDeviceContext
-         */
         [[nodiscard]] auto optix_context() const noexcept { return _optix_context; }
-        /**
-         * @brief Return compute capability
-         * 
-         * @return uint32
-         */
+        [[nodiscard]] auto driver_version() const noexcept { return _driver_version; }
         [[nodiscard]] auto compute_capability() const noexcept { return _compute_capability; }
     };
 

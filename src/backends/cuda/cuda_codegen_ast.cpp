@@ -9,13 +9,13 @@
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
 #include <backends/common/string_scratch.h>
-#include <backends/cuda/cuda_codegen.h>
+#include <backends/cuda/cuda_codegen_ast.h>
 
 namespace luisa::compute::cuda {
 
 // TODO: fix this
 
-void CUDACodegen::visit(const UnaryExpr *expr) {
+void CUDACodegenAST::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
         case UnaryOp::PLUS: _scratch << "+"; break;
         case UnaryOp::MINUS: _scratch << "-"; break;
@@ -26,7 +26,7 @@ void CUDACodegen::visit(const UnaryExpr *expr) {
     expr->operand()->accept(*this);
 }
 
-void CUDACodegen::visit(const BinaryExpr *expr) {
+void CUDACodegenAST::visit(const BinaryExpr *expr) {
     _scratch << "(";
     expr->lhs()->accept(*this);
     switch (expr->op()) {
@@ -53,7 +53,7 @@ void CUDACodegen::visit(const BinaryExpr *expr) {
     _scratch << ")";
 }
 
-void CUDACodegen::visit(const MemberExpr *expr) {
+void CUDACodegenAST::visit(const MemberExpr *expr) {
     if (expr->is_swizzle()) {
         static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
         if (auto ss = expr->swizzle_size(); ss == 1u) {
@@ -87,7 +87,7 @@ void CUDACodegen::visit(const MemberExpr *expr) {
     }
 }
 
-void CUDACodegen::visit(const AccessExpr *expr) {
+void CUDACodegenAST::visit(const AccessExpr *expr) {
     expr->range()->accept(*this);
     _scratch << "[";
     expr->index()->accept(*this);
@@ -170,15 +170,15 @@ public:
 
 }// namespace detail
 
-void CUDACodegen::visit(const LiteralExpr *expr) {
+void CUDACodegenAST::visit(const LiteralExpr *expr) {
     luisa::visit(detail::LiteralPrinter{_scratch}, expr->value());
 }
 
-void CUDACodegen::visit(const RefExpr *expr) {
+void CUDACodegenAST::visit(const RefExpr *expr) {
     _emit_variable_name(expr->variable());
 }
 
-void CUDACodegen::visit(const CallExpr *expr) {
+void CUDACodegenAST::visit(const CallExpr *expr) {
 
     auto is_atomic = false;
     switch (expr->op()) {
@@ -350,7 +350,7 @@ void CUDACodegen::visit(const CallExpr *expr) {
     _scratch << ")";
 }
 
-void CUDACodegen::visit(const CastExpr *expr) {
+void CUDACodegenAST::visit(const CastExpr *expr) {
     switch (expr->op()) {
         case CastOp::STATIC:
             _scratch << "static_cast<";
@@ -368,15 +368,15 @@ void CUDACodegen::visit(const CastExpr *expr) {
     _scratch << ")";
 }
 
-void CUDACodegen::visit(const BreakStmt *) {
+void CUDACodegenAST::visit(const BreakStmt *) {
     _scratch << "break;";
 }
 
-void CUDACodegen::visit(const ContinueStmt *) {
+void CUDACodegenAST::visit(const ContinueStmt *) {
     _scratch << "continue;";
 }
 
-void CUDACodegen::visit(const ReturnStmt *stmt) {
+void CUDACodegenAST::visit(const ReturnStmt *stmt) {
     _scratch << "return";
     if (auto expr = stmt->expression(); expr != nullptr) {
         _scratch << " ";
@@ -385,13 +385,13 @@ void CUDACodegen::visit(const ReturnStmt *stmt) {
     _scratch << ";";
 }
 
-void CUDACodegen::visit(const ScopeStmt *stmt) {
+void CUDACodegenAST::visit(const ScopeStmt *stmt) {
     _scratch << "{";
     _emit_statements(stmt->statements());
     _scratch << "}";
 }
 
-void CUDACodegen::visit(const IfStmt *stmt) {
+void CUDACodegenAST::visit(const IfStmt *stmt) {
     _scratch << "if (";
     stmt->condition()->accept(*this);
     _scratch << ") ";
@@ -407,48 +407,54 @@ void CUDACodegen::visit(const IfStmt *stmt) {
     }
 }
 
-void CUDACodegen::visit(const LoopStmt *stmt) {
+void CUDACodegenAST::visit(const LoopStmt *stmt) {
     _scratch << "for (;;) ";
     stmt->body()->accept(*this);
 }
 
-void CUDACodegen::visit(const ExprStmt *stmt) {
+void CUDACodegenAST::visit(const ExprStmt *stmt) {
     stmt->expression()->accept(*this);
     _scratch << ";";
 }
 
-void CUDACodegen::visit(const SwitchStmt *stmt) {
+void CUDACodegenAST::visit(const SwitchStmt *stmt) {
     _scratch << "switch (";
     stmt->expression()->accept(*this);
     _scratch << ") ";
     stmt->body()->accept(*this);
 }
 
-void CUDACodegen::visit(const SwitchCaseStmt *stmt) {
+void CUDACodegenAST::visit(const SwitchCaseStmt *stmt) {
     _scratch << "case ";
     stmt->expression()->accept(*this);
     _scratch << ": ";
     stmt->body()->accept(*this);
 }
 
-void CUDACodegen::visit(const SwitchDefaultStmt *stmt) {
+void CUDACodegenAST::visit(const SwitchDefaultStmt *stmt) {
     _scratch << "default: ";
     stmt->body()->accept(*this);
 }
 
-void CUDACodegen::visit(const AssignStmt *stmt) {
+void CUDACodegenAST::visit(const AssignStmt *stmt) {
     stmt->lhs()->accept(*this);
     _scratch << " = ";
     stmt->rhs()->accept(*this);
     _scratch << ";";
 }
 
-void CUDACodegen::emit(Function f) {
+void CUDACodegenAST::emit(Function f) {
+    if (f.requires_raytracing()) { _scratch << "#define LC_ENABLE_OPTIX\n"; }
+    _scratch << "#define LC_BLOCK_SIZE lc_make_uint3("
+             << f.block_size().x << ", "
+             << f.block_size().y << ", "
+             << f.block_size().z << ")\n\n"
+             << "#include \"device_library.h\"\n\n";
     _emit_type_decl();
     _emit_function(f);
 }
 
-void CUDACodegen::_emit_function(Function f) noexcept {
+void CUDACodegenAST::_emit_function(Function f) noexcept {
 
     if (auto iter = std::find(_generated_functions.cbegin(), _generated_functions.cend(), f);
         iter != _generated_functions.cend()) { return; }
@@ -480,8 +486,9 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
         _scratch << "extern \"C\" __global__ void "
-                 << (f.requires_raytracing() ? "__raygen__rg_" : "kernel_")
-                 << hash_to_string(f.hash());
+                 << (f.requires_raytracing() ?
+                         "__raygen__main" :
+                         "kernel_main");
     } else if (f.tag() == Function::Tag::CALLABLE) {
         _scratch << "inline __device__ ";
         if (f.return_type() != nullptr) {
@@ -565,7 +572,7 @@ void CUDACodegen::_emit_function(Function f) noexcept {
     _scratch << "}\n\n";
 }
 
-void CUDACodegen::_emit_variable_name(Variable v) noexcept {
+void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
     switch (v.tag()) {
         case Variable::Tag::LOCAL: _scratch << "v" << v.uid(); break;
         case Variable::Tag::SHARED: _scratch << "s" << v.uid(); break;
@@ -581,14 +588,14 @@ void CUDACodegen::_emit_variable_name(Variable v) noexcept {
     }
 }
 
-void CUDACodegen::_emit_type_decl() noexcept {
+void CUDACodegenAST::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
 static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
 static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
 
-void CUDACodegen::visit(const Type *type) noexcept {
+void CUDACodegenAST::visit(const Type *type) noexcept {
     if (type->is_structure() &&
         type->description() != ray_type_desc &&
         type->description() != hit_type_desc) {
@@ -604,7 +611,7 @@ void CUDACodegen::visit(const Type *type) noexcept {
     }
 }
 
-void CUDACodegen::_emit_type_name(const Type *type) noexcept {
+void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
 
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
@@ -640,7 +647,7 @@ void CUDACodegen::_emit_type_name(const Type *type) noexcept {
     }
 }
 
-void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
+void CUDACodegenAST::_emit_variable_decl(Variable v, bool force_const) noexcept {
     auto usage = _function.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
@@ -662,9 +669,10 @@ void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
             _emit_variable_name(v);
             break;
         case Variable::Tag::BUFFER:
+            _scratch << "const LCBuffer<";
             if (readonly || force_const) { _scratch << "const "; }
             _emit_type_name(v.type()->element());
-            _scratch << " *__restrict__ ";
+            _scratch << "> ";
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
@@ -687,11 +695,11 @@ void CUDACodegen::_emit_variable_decl(Variable v, bool force_const) noexcept {
     }
 }
 
-void CUDACodegen::_emit_indent() noexcept {
+void CUDACodegenAST::_emit_indent() noexcept {
     for (auto i = 0u; i < _indent; i++) { _scratch << "  "; }
 }
 
-void CUDACodegen::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
+void CUDACodegenAST::_emit_statements(luisa::span<const Statement *const> stmts) noexcept {
     _indent++;
     for (auto s : stmts) {
         _scratch << "\n";
@@ -705,7 +713,7 @@ void CUDACodegen::_emit_statements(luisa::span<const Statement *const> stmts) no
     }
 }
 
-void CUDACodegen::_emit_constant(Function::Constant c) noexcept {
+void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
 
     if (std::find(_generated_constants.cbegin(),
                   _generated_constants.cend(), c.data.hash()) != _generated_constants.cend()) { return; }
@@ -734,11 +742,11 @@ void CUDACodegen::_emit_constant(Function::Constant c) noexcept {
     _scratch << "};\n";
 }
 
-void CUDACodegen::visit(const ConstantExpr *expr) {
+void CUDACodegenAST::visit(const ConstantExpr *expr) {
     _scratch << "c" << hash_to_string(expr->data().hash());
 }
 
-void CUDACodegen::visit(const ForStmt *stmt) {
+void CUDACodegenAST::visit(const ForStmt *stmt) {
     _scratch << "for (; ";
     stmt->condition()->accept(*this);
     _scratch << "; ";
@@ -749,11 +757,11 @@ void CUDACodegen::visit(const ForStmt *stmt) {
     stmt->body()->accept(*this);
 }
 
-void CUDACodegen::visit(const CommentStmt *stmt) {
+void CUDACodegenAST::visit(const CommentStmt *stmt) {
     _scratch << "/* " << stmt->comment() << " */";
 }
 
-void CUDACodegen::_emit_variable_declarations(Function f) noexcept {
+void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
     for (auto v : f.shared_variables()) {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
@@ -772,12 +780,12 @@ void CUDACodegen::_emit_variable_declarations(Function f) noexcept {
     }
 }
 
-void CUDACodegen::visit(const CpuCustomOpExpr *expr) {
+void CUDACodegenAST::visit(const CpuCustomOpExpr *expr) {
     LUISA_ERROR_WITH_LOCATION(
         "CudaCodegen: CpuCustomOpExpr is not supported in CUDA backend.");
 }
 
-void CUDACodegen::visit(const GpuCustomOpExpr *expr) {
+void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
     LUISA_ERROR_WITH_LOCATION(
         "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
