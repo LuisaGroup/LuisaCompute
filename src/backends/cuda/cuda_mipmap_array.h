@@ -18,7 +18,7 @@ namespace luisa::compute::cuda {
  */
 struct alignas(16) CUDASurface {
     CUsurfObject handle;
-    PixelStorage storage;
+    uint64_t storage;
 };
 
 static_assert(sizeof(CUDASurface) == 16u);

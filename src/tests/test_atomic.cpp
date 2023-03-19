@@ -44,8 +44,9 @@ int main(int argc, char *argv[]) {
            << buffer.copy_to(&host_buffer)
            << synchronize();
     auto time = clock.toc();
-
     LUISA_INFO("Count: {} {}, Time: {} ms", host_buffer.x, host_buffer.w, time);
+    LUISA_ASSERT(host_buffer.x == 1u && host_buffer.w == 102400u,
+                 "Atomic operation failed.");
 
     auto atomic_float_buffer = device.create_buffer<float>(1u);
     Kernel1D add_kernel = [&](BufferFloat buffer) noexcept {
@@ -59,4 +60,5 @@ int main(int argc, char *argv[]) {
            << atomic_float_buffer.copy_to(&result)
            << synchronize();
     LUISA_INFO("Atomic float result: {}.", result);
+    LUISA_ASSERT(result == 1024.f, "Atomic float operation failed.");
 }

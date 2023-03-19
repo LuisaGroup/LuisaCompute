@@ -74,6 +74,44 @@ void test_buffer(Device &device, size_t size, const Generate &g) noexcept {
     }
 }
 
+template<typename T, typename Size>
+void test_texture(Device &device, PixelStorage storage, Size size, std::mt19937 &rng) noexcept {
+    luisa::vector<uint8_t> host_input;
+    luisa::vector<uint8_t> host_output;
+    auto size_bytes = [&] {
+        if constexpr (std::is_same_v<Size, uint2>) {
+            LUISA_INFO("Testing image with size {}x{} and storage 0x{:02x}",
+                       size.x, size.y, to_underlying(storage));
+            return pixel_storage_size(storage, make_uint3(size, 1u));
+        } else {
+            LUISA_INFO("Testing volume with size {}x{}x{} and storage 0x{:02x}",
+                       size.x, size.y, size.z, to_underlying(storage));
+            return pixel_storage_size(storage, size);
+        }
+    }();
+    host_input.resize(size_bytes);
+    host_output.resize(size_bytes);
+    for (auto i = 0u; i < size_bytes; i++) {
+        host_input[i] = static_cast<uint8_t>(rng());
+    }
+    auto texture = [&] {
+        if constexpr (std::is_same_v<Size, uint2>) {
+            return device.create_image<T>(storage, size);
+        } else {
+            return device.create_volume<T>(storage, size);
+        }
+    }();
+    auto stream = device.create_stream();
+    stream << texture.copy_from(host_input.data())
+           << texture.copy_to(host_output.data())
+           << synchronize();
+    for (auto i = 0u; i < size_bytes; i++) {
+        LUISA_ASSERT(host_input[i] == host_output[i],
+                     "Element {} mismatch: {} != {}",
+                     i, host_input[i], host_output[i]);
+    }
+}
+
 int main(int argc, char *argv[]) {
 
     if (argc <= 1) {
@@ -100,4 +138,66 @@ int main(int argc, char *argv[]) {
         });
         test_buffer<Test>(device, size, [&] { return Test::make_random(rand); });
     }
+
+    test_texture<float>(device, PixelStorage::BYTE1, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::BYTE2, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::BYTE4, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::SHORT1, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::SHORT2, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::SHORT4, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::HALF1, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::HALF2, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::HALF4, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::FLOAT1, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::FLOAT2, make_uint2(233u, 666u), rand);
+    test_texture<float>(device, PixelStorage::FLOAT4, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::BYTE1, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::BYTE2, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::BYTE4, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::SHORT1, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::SHORT2, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::SHORT4, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::INT1, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::INT2, make_uint2(233u, 666u), rand);
+    test_texture<int>(device, PixelStorage::INT4, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::BYTE1, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::BYTE2, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::BYTE4, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::SHORT1, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::SHORT2, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::SHORT4, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::INT1, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::INT2, make_uint2(233u, 666u), rand);
+    test_texture<uint>(device, PixelStorage::INT4, make_uint2(233u, 666u), rand);
+
+    test_texture<float>(device, PixelStorage::BYTE1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::BYTE2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::BYTE4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::SHORT1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::SHORT2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::SHORT4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::HALF1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::HALF2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::HALF4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::FLOAT1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::FLOAT2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<float>(device, PixelStorage::FLOAT4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::BYTE1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::BYTE2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::BYTE4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::SHORT1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::SHORT2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::SHORT4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::INT1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::INT2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<int>(device, PixelStorage::INT4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::BYTE1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::BYTE2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::BYTE4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::SHORT1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::SHORT2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::SHORT4, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::INT1, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::INT2, make_uint3(233u, 666u, 45u), rand);
+    test_texture<uint>(device, PixelStorage::INT4, make_uint3(233u, 666u, 45u), rand);
 }

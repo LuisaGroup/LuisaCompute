@@ -130,67 +130,6 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         block_size.x, block_size.y, block_size.z,
         0u, cuda_stream,
         arguments.data(), nullptr));
-
-    //        static thread_local std::array<std::byte, 65536u> argument_buffer;// should be enough...
-    //        static thread_local std::vector<void *> arguments;
-    //        auto argument_buffer_offset = static_cast<size_t>(0u);
-    //        auto allocate_argument = [&](size_t bytes) noexcept {
-    //            static constexpr auto alignment = 16u;
-    //            auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
-    //            argument_buffer_offset = offset + bytes;
-    //            if (argument_buffer_offset > argument_buffer.size()) {
-    //                LUISA_ERROR_WITH_LOCATION(
-    //                    "Too many arguments in ShaderDispatchCommand");
-    //            }
-    //            return arguments.emplace_back(argument_buffer.data() + offset);
-    //        };
-    //        arguments.clear();
-    //        arguments.reserve(32u);
-    //        command->decode([&](auto argument) noexcept -> void {
-    //            using T = decltype(argument);
-    //            if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
-    //                auto ptr = allocate_argument(sizeof(CUdeviceptr));
-    //                auto buffer = argument.handle + argument.offset;
-    //                std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
-    //            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-    //                auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
-    //                auto surface = mipmap_array->surface(argument.level);
-    //                auto ptr = allocate_argument(sizeof(CUDASurface));
-    //                std::memcpy(ptr, &surface, sizeof(CUDASurface));
-    //            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-    //                auto ptr = allocate_argument(sizeof(CUDABindlessArray::SlotSOA));
-    //                auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle)->handle();
-    //                std::memcpy(ptr, &array, sizeof(CUDABindlessArray::SlotSOA));
-    //            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-    //                auto ptr = allocate_argument(sizeof(CUDAAccel::Binding));
-    //                auto accel = reinterpret_cast<CUDAAccel *>(argument.handle);
-    //                CUDAAccel::Binding binding{.handle = accel->handle(), .instances = accel->instance_buffer()};
-    //                std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
-    //            } else {// uniform
-    //                static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);
-    //                auto ptr = allocate_argument(argument.size);
-    //                std::memcpy(ptr, argument.data, argument.size);
-    //            }
-    //        });
-    //        // the last one is always the launch size
-    //        auto launch_size = command->dispatch_size();
-    //        auto ptr = allocate_argument(sizeof(luisa::uint3));
-    //        std::memcpy(ptr, &launch_size, sizeof(luisa::uint3));
-    //        auto block_size = command->kernel().block_size();
-    //        auto blocks = (launch_size + block_size - 1u) / block_size;
-    //        LUISA_VERBOSE_WITH_LOCATION(
-    //            "Dispatching native shader #{} ({}) with {} argument(s) "
-    //            "in ({}, {}, {}) blocks of size ({}, {}, {}).",
-    //            command->handle(), _entry, arguments.size(),
-    //            blocks.x, blocks.y, blocks.z,
-    //            block_size.x, block_size.y, block_size.z);
-    //        auto cuda_stream = stream->handle();
-    //        LUISA_CHECK_CUDA(cuLaunchKernel(
-    //            _function,
-    //            blocks.x, blocks.y, blocks.z,
-    //            block_size.x, block_size.y, block_size.z,
-    //            0u, cuda_stream,
-    //            arguments.data(), nullptr));
 }
 
 }// namespace luisa::compute::cuda

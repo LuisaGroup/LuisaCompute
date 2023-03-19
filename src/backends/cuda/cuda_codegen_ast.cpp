@@ -180,7 +180,6 @@ void CUDACodegenAST::visit(const RefExpr *expr) {
 
 void CUDACodegenAST::visit(const CallExpr *expr) {
 
-    auto is_atomic = false;
     switch (expr->op()) {
         case CallOp::CUSTOM: _scratch << "custom_" << hash_to_string(expr->custom().hash()); break;
         case CallOp::ALL: _scratch << "lc_all"; break;
@@ -236,43 +235,16 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::DETERMINANT: _scratch << "lc_determinant"; break;
         case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
         case CallOp::INVERSE: _scratch << "lc_inverse"; break;
-        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "__syncthreads"; break;
-        case CallOp::ATOMIC_EXCHANGE:
-            _scratch << "atomicExch";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            _scratch << "atomicCAS";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_FETCH_ADD:
-            _scratch << "atomicAdd";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_FETCH_SUB:
-            _scratch << "atomicSub";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_FETCH_AND:
-            _scratch << "atomicAnd";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_FETCH_OR:
-            _scratch << "atomicOr";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_FETCH_XOR:
-            _scratch << "atomicXor";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_FETCH_MIN:
-            _scratch << "atomicMin";
-            is_atomic = true;
-            break;
-        case CallOp::ATOMIC_FETCH_MAX:
-            _scratch << "atomicMax";
-            is_atomic = true;
-            break;
+        case CallOp::SYNCHRONIZE_BLOCK: _scratch << "lc_synchronize_block"; break;
+        case CallOp::ATOMIC_EXCHANGE: _scratch << "lc_atomic_exchange"; break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "lc_atomic_compare_exchange"; break;
+        case CallOp::ATOMIC_FETCH_ADD: _scratch << "lc_atomic_fetch_add"; break;
+        case CallOp::ATOMIC_FETCH_SUB: _scratch << "lc_atomic_fetch_sub"; break;
+        case CallOp::ATOMIC_FETCH_AND: _scratch << "lc_atomic_fetch_and"; break;
+        case CallOp::ATOMIC_FETCH_OR: _scratch << "lc_atomic_fetch_or"; break;
+        case CallOp::ATOMIC_FETCH_XOR: _scratch << "lc_atomic_fetch_xor"; break;
+        case CallOp::ATOMIC_FETCH_MIN: _scratch << "lc_atomic_fetch_min"; break;
+        case CallOp::ATOMIC_FETCH_MAX: _scratch << "lc_atomic_fetch_max"; break;
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::TEXTURE_READ:
@@ -324,28 +296,14 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
     }
-    auto args = expr->arguments();
-    if (is_atomic) {
-        if (args.front()->type()->description() == "float") {
-            _scratch << "_float";
-        }
-        _scratch << "(&(";
-        args.front()->accept(*this);
-        _scratch << ")";
-        for (auto arg : args.subspan(1u)) {
-            _scratch << ", ";
+    _scratch << "(";
+    if (auto args = expr->arguments(); !args.empty()) {
+        for (auto arg : args) {
             arg->accept(*this);
+            _scratch << ", ";
         }
-    } else {
-        _scratch << "(";
-        if (!args.empty()) {
-            for (auto arg : args) {
-                arg->accept(*this);
-                _scratch << ", ";
-            }
-            _scratch.pop_back();
-            _scratch.pop_back();
-        }
+        _scratch.pop_back();
+        _scratch.pop_back();
     }
     _scratch << ")";
 }
