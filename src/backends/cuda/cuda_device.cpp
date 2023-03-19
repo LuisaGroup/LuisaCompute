@@ -7,6 +7,7 @@
 #include <future>
 #include <thread>
 
+#include <core/clock.h>
 #include <core/binary_io.h>
 
 #include <runtime/rhi/sampler.h>
@@ -426,10 +427,12 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
+    Clock clk;
     StringScratch scratch;
     CUDACodegenAST codegen{scratch};
     codegen.emit(kernel);
-    LUISA_INFO("CUDA source:\n{}", scratch.string());
+    LUISA_INFO("Generated CUDA source in {} ms:\n{}",
+               clk.toc(), scratch.string());
     return _create_shader(scratch.string(), option,
                           kernel.block_size(),
                           kernel.requires_raytracing());
