@@ -548,11 +548,11 @@ def kernel(mouse, time, img):
     set_block_size(16, 16, 1)
     fragCoord = float2(dispatch_id().xy)
     resolution = float2(dispatch_size().xy)
-    fragCoord.y = resolution.x - fragCoord.y - 1
+    fragCoord.y = resolution.y - fragCoord.y - 1
     mo = float2(mouse)
-    ta = float3(0.25, -4.75, -0.75)
+    ta = float3(0.25, -0.75, -0.75)
     ro = ta + float3(5.5*cos(0.1*time + 7.0*mo.x),
-                     6.2,
+                     2.2,
                      5.5*sin(0.1*time + 7.0*mo.x))
     # camera-to-world transformation
     ca = setCamera(ro, ta, 0.0)

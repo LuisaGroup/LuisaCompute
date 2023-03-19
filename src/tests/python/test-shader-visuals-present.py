@@ -126,7 +126,7 @@ def render_kernel(image, time):
                   smoothstep(-1., 1., sin(data.d1 * 5. + time * 2.)))
     matcol = lerp(matcol, float3(.5, .4, 1.), smoothstep(
         0., 1., sin(data.d2 * 5. + time * 2.)))
-    matcol = ite(dl, lerp(1., matcol, .1) * .2 + .1, matcol)
+    matcol = ite(dl, lerp(float3(1.), matcol, .1) * .2 + .1, matcol)
     col = matcol * fact * ss + pow(fact, 10.)
     col = ite(lz, float3(4.), col)
     fragColor = col * atten + glo * glo + fogcol * glo

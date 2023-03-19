@@ -459,7 +459,8 @@ def _cross(name, *args):
     return float3, lcapi.builder().call(to_lctype(float3), op, [x.expr for x in args])
 _func_map["cross"] = _cross
 def _lerp(name, *args):
-    assert len(args) == 3
+    t_len = length_of(args[2].dtype)
+    assert len(args) == 3 and (args[0].dtype == args[1].dtype) and (length_of(args[0].dtype) == t_len or t_len == 1)
     return make_vector_call(float, lcapi.CallOp.LERP, args)
 _func_map["lerp"] = _lerp
 def _select(name, *args):
