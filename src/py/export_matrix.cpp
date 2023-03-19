@@ -13,7 +13,7 @@
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
-// const auto pyref = py::return_value_policy::reference; // object lifetime is managed on C++ side
+// constexpr auto pyref = py::return_value_policy::reference; // object lifetime is managed on C++ side
 
 
 void export_matrix(py::module &m) {
