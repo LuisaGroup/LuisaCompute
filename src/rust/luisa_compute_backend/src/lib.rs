@@ -126,7 +126,7 @@ pub extern "C" fn lc_rs_create_texture(
         .unwrap()
 }
 #[no_mangle]
-pub extern "C" fn lc_rs_destory_texture(backend: *mut c_void, texture: api::Texture) {
+pub extern "C" fn lc_rs_destroy_texture(backend: *mut c_void, texture: api::Texture) {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
     backend.destroy_texture(texture)
 }

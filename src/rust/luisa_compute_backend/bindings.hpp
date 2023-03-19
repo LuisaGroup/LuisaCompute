@@ -44,8 +44,6 @@ CreatedResourceInfo lc_rs_create_texture(void *backend,
                                          uint32_t depth,
                                          uint32_t mipmap_levels);
 
-void lc_rs_destory_texture(void *backend, Texture texture);
-
 void lc_rs_destroy_accel(void *backend, Accel accel);
 
 void lc_rs_destroy_backend(void *ptr);
@@ -61,6 +59,8 @@ void lc_rs_destroy_mesh(void *backend, Mesh mesh);
 void lc_rs_destroy_shader(void *backend, Shader shader);
 
 void lc_rs_destroy_stream(void *backend, Stream stream);
+
+void lc_rs_destroy_texture(void *backend, Texture texture);
 
 bool lc_rs_dispatch(void *backend,
                     Stream stream,

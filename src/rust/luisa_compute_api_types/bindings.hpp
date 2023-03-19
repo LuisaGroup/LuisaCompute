@@ -474,4 +474,26 @@ struct KernelModule {
     uint64_t ptr;
 };
 
+struct CreatedResourceInfo {
+    uint64_t handle;
+    void *native_handle;
+};
+
+struct CreatedBufferInfo {
+    CreatedResourceInfo resource;
+    size_t element_stride;
+    size_t total_size_bytes;
+};
+
+struct CreatedShaderInfo {
+    CreatedResourceInfo resource;
+    uint32_t block_size[3];
+};
+
+struct AccelOption {
+    AccelUsageHint hint;
+    bool allow_compaction;
+    bool allow_update;
+};
+
 } // namespace luisa::compute::api
