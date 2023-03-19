@@ -11,6 +11,7 @@
 #include <core/logging.h>
 #include <py/py_stream.h>
 #include <py/ref_counter.h>
+#include <runtime/raster/raster_state.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -181,6 +182,25 @@ PYBIND11_MODULE(lcapi, m) {
         .value("REPEAT", Sampler::Address::REPEAT)
         .value("MIRROR", Sampler::Address::MIRROR)
         .value("ZERO", Sampler::Address::ZERO);
+    py::enum_<VertexElementFormat>(m, "VertexElementFormat")
+        .value("XYZW8UNorm", VertexElementFormat::XYZW8UNorm)
+        .value("XY16UNorm", VertexElementFormat::XY16UNorm)
+        .value("XYZW16UNorm", VertexElementFormat::XYZW16UNorm)
+        .value("XY16Float", VertexElementFormat::XY16Float)
+        .value("XYZW16Float", VertexElementFormat::XYZW16Float)
+        .value("X32Float", VertexElementFormat::X32Float)
+        .value("XY32Float", VertexElementFormat::XY32Float)
+        .value("XYZ32Float", VertexElementFormat::XYZ32Float)
+        .value("XYZW32Float", VertexElementFormat::XYZW32Float);
+    py::enum_<VertexAttributeType>(m, "VertexAttributeType")
+        .value("Position", VertexAttributeType::Position)
+        .value("Normal", VertexAttributeType::Normal)
+        .value("Tangent", VertexAttributeType::Tangent)
+        .value("Color", VertexAttributeType::Color)
+        .value("UV0", VertexAttributeType::UV0)
+        .value("UV1", VertexAttributeType::UV1)
+        .value("UV2", VertexAttributeType::UV2)
+        .value("UV3", VertexAttributeType::UV3);
     export_img(m);
     export_gui(m);
 }

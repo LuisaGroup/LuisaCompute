@@ -505,24 +505,4 @@ void export_runtime(py::module &m) {
             pyref)
         // .def("meta") // unused
         .def("function", &FunctionBuilder::function);// returning object
-
-    py::enum_<VertexElementFormat>(m, "VertexElementFormat")
-        .value("XYZW8UNorm", VertexElementFormat::XYZW8UNorm)
-        .value("XY16UNorm", VertexElementFormat::XY16UNorm)
-        .value("XYZW16UNorm", VertexElementFormat::XYZW16UNorm)
-        .value("XY16Float", VertexElementFormat::XY16Float)
-        .value("XYZW16Float", VertexElementFormat::XYZW16Float)
-        .value("X32Float", VertexElementFormat::X32Float)
-        .value("XY32Float", VertexElementFormat::XY32Float)
-        .value("XYZ32Float", VertexElementFormat::XYZ32Float)
-        .value("XYZW32Float", VertexElementFormat::XYZW32Float);
-    py::enum_<VertexAttributeType>(m, "VertexAttributeType")
-        .value("Position", VertexAttributeType::Position)
-        .value("Normal", VertexAttributeType::Normal)
-        .value("Tangent", VertexAttributeType::Tangent)
-        .value("Color", VertexAttributeType::Color)
-        .value("UV0", VertexAttributeType::UV0)
-        .value("UV1", VertexAttributeType::UV1)
-        .value("UV2", VertexAttributeType::UV2)
-        .value("UV3", VertexAttributeType::UV3);
 }
