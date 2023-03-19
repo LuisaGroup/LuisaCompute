@@ -20,8 +20,16 @@ use super::{
     shader::ShaderImpl,
     texture::TextureImpl,
 };
+#[derive(Clone)]
+struct Work {
+    f: Arc<dyn Fn() + Send + Sync>,
+    callback: (fn(*mut u8), *mut u8),
+}
+unsafe impl Send for Work {}
+unsafe impl Sync for Work {}
+
 struct StreamContext {
-    queue: Mutex<VecDeque<Arc<dyn Fn() + Send + Sync>>>,
+    queue: Mutex<VecDeque<Work>>,
     new_work: Condvar,
     sync: Condvar,
     work_count: AtomicUsize,
@@ -57,7 +65,8 @@ impl StreamImpl {
                         }
                         let work = guard.pop_front().unwrap();
                         drop(guard);
-                        work();
+                        (work.f)();
+                        (work.callback.0)(work.callback.1);
                         ctx.finished_count
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         guard = ctx.queue.lock();
@@ -89,9 +98,16 @@ impl StreamImpl {
             self.ctx.sync.wait(&mut guard);
         }
     }
-    pub(super) fn enqueue(&self, work: impl Fn() + Send + Sync + 'static) {
+    pub(super) fn enqueue(
+        &self,
+        work: impl Fn() + Send + Sync + 'static,
+        callback: (fn(*mut u8), *mut u8),
+    ) {
         let mut guard = self.ctx.queue.lock();
-        guard.push_back(Arc::new(work));
+        guard.push_back(Work {
+            f: Arc::new(work),
+            callback,
+        });
         self.ctx
             .work_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -322,7 +338,16 @@ impl StreamImpl {
                             ),
                         );
                     }
-                    luisa_compute_api_types::Command::BindlessArrayUpdate(_) => {}
+                    luisa_compute_api_types::Command::BindlessArrayUpdate(bindless_update) => {
+                        let array = &mut *(bindless_update.handle.0 as *mut BindlessArrayImpl);
+                        array.update(std::slice::from_raw_parts(
+                            bindless_update.modifications,
+                            bindless_update.modifications_count,
+                        ));
+                    }
+                    luisa_compute_api_types::Command::ProceduralPrimitiveBuild(_) => {
+                        todo!()
+                    }
                 }
             }
         }

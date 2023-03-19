@@ -1,6 +1,57 @@
 use bitflags::bitflags;
 use std::ffi::c_void;
+pub const INVALID_RESOURCE_HANDLE: u64 = u64::MAX;
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct CreatedResourceInfo {
+    pub handle: u64,
+    pub native_handle: *mut c_void,
+}
 
+impl CreatedResourceInfo {
+    pub const INVALID: Self = Self {
+        handle: INVALID_RESOURCE_HANDLE,
+        native_handle: std::ptr::null_mut(),
+    };
+    #[inline]
+    pub fn valid(&self) -> bool {
+        self.handle != INVALID_RESOURCE_HANDLE
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct CreatedBufferInfo {
+    pub resource: CreatedResourceInfo,
+    pub element_stride: usize,
+    pub total_size_bytes: usize,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct CreatedShaderInfo {
+    pub resource: CreatedResourceInfo,
+    pub block_size: [u32; 3],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct ShaderOption {
+    pub enable_cache: bool,
+    pub enable_fast_math: bool,
+    pub enable_debug_info: bool,
+    pub compile_only: bool,
+    pub name: *const std::ffi::c_char,
+}
+impl Default for ShaderOption {
+    fn default() -> Self {
+        Self {
+            enable_cache: true,
+            enable_fast_math: true,
+            enable_debug_info: false,
+            compile_only: false,
+            name: std::ptr::null(),
+        }
+    }
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct Buffer(pub u64);
@@ -32,7 +83,9 @@ pub struct BindlessArray(pub u64);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct Mesh(pub u64);
-
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct ProceduralPrimitive(pub u64);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct Accel(pub u64);
@@ -63,17 +116,23 @@ pub enum AccelBuildRequest {
     PreferUpdate,
     ForceBuild,
 }
-// #[repr(C)]
-// #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
-// pub struct AccelBuildModificationFlags(pub u32);
-// impl AccelBuildModificationFlags {
-//     pub const EMPTY: Self = Self(0);
-//     pub const MESH: Self = Self(1 << 0);
-//     pub const TRANSFORM: Self = Self(1 << 1);
-//     pub const VISIBILITY_ON: Self = Self(1 << 2);
-//     pub const VISIBILITY_OFF: Self = Self(1 << 3);
-//     pub const VISIBILITY: Self = Self(Self::VISIBILITY_ON.0 | Self::VISIBILITY_OFF.0);
-// }
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct AccelOption {
+    pub hint: AccelUsageHint,
+    pub allow_compaction: bool,
+    pub allow_update: bool,
+}
+impl Default for AccelOption {
+    fn default() -> Self {
+        Self {
+            hint: AccelUsageHint::FastTrace,
+            allow_compaction: true,
+            allow_update: false,
+        }
+    }
+}
+
 bitflags! {
     #[repr(C)]
     pub struct AccelBuildModificationFlags : u32 {
@@ -215,10 +274,8 @@ impl PixelFormat {
             PixelFormat::Rgba16f => PixelStorage::Half4,
             PixelFormat::R32f => PixelStorage::Float1,
             PixelFormat::Rg32f => PixelStorage::Float2,
-            PixelFormat::Rgba32Sint | PixelFormat::Rgba32Uint=> PixelStorage::Int4,
-            PixelFormat::Rgba32f => {
-                PixelStorage::Float4
-            }
+            PixelFormat::Rgba32Sint | PixelFormat::Rgba32Uint => PixelStorage::Int4,
+            PixelFormat::Rgba32f => PixelStorage::Float4,
         }
     }
 }
@@ -415,7 +472,15 @@ pub struct MeshBuildCommand {
     pub index_buffer_size: usize,
     pub index_stride: usize,
 }
-
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct ProceduralPrimitiveBuildCommand {
+    pub handle: ProceduralPrimitive,
+    pub request: AccelBuildRequest,
+    pub aabb_buffer: Buffer,
+    pub aabb_ffset: usize,
+    pub aabb_count: usize,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct AccelBuildCommand {
@@ -426,7 +491,42 @@ pub struct AccelBuildCommand {
     pub modifications_count: usize,
     pub build_accel: bool,
 }
-
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub enum BindlessArrayUpdateOperation {
+    None,
+    Emplace,
+    Remove,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct BindlessArrayUpdateBuffer {
+    pub op: BindlessArrayUpdateOperation,
+    pub handle:Buffer,
+    pub offset: usize,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct BindlessArrayUpdateTexture{
+    pub op: BindlessArrayUpdateOperation,
+    pub handle:Texture,
+    pub sampler: Sampler,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct BindlessArrayUpdateModification {
+    pub slot:usize,
+    pub buffer:BindlessArrayUpdateBuffer,
+    pub tex2d:BindlessArrayUpdateTexture,
+    pub tex3d:BindlessArrayUpdateTexture,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct BindlessArrayUpdateCommand {
+    pub handle:BindlessArray,
+    pub modifications: *const BindlessArrayUpdateModification,
+    pub modifications_count: usize,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum Command {
@@ -440,8 +540,9 @@ pub enum Command {
     TextureCopy(TextureCopyCommand),
     ShaderDispatch(ShaderDispatchCommand),
     MeshBuild(MeshBuildCommand),
+    ProceduralPrimitiveBuild(ProceduralPrimitiveBuildCommand),
     AccelBuild(AccelBuildCommand),
-    BindlessArrayUpdate(BindlessArray),
+    BindlessArrayUpdate(BindlessArrayUpdateCommand),
 }
 
 unsafe impl Send for Command {}

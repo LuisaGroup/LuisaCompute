@@ -59,6 +59,9 @@ endif ()
 if (LUISA_COMPUTE_ENABLE_CPU)
     add_subdirectory(cpu)
 endif ()
+if (LUISA_COMPUTE_ENABLE_REMOTE)
+    add_subdirectory(remote)
+endif ()
 
 install(TARGETS luisa-compute-backends
         EXPORT LuisaComputeTargets)

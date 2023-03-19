@@ -31,6 +31,9 @@ end
 if CpuBackend then
 	includes("backends/cpu")
 end
+if RemoteBackend then
+	includes("backends/remote")
+end
 if EnableTest then
 	includes("tests")
 end

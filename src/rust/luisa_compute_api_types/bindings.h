@@ -7,6 +7,8 @@
 #include <stdlib.h>
 
 
+#define LCINVALID_RESOURCE_HANDLE UINT64_MAX
+
 typedef enum LCAccelBuildRequest {
     LC_ACCEL_BUILD_REQUEST_PREFER_UPDATE,
     LC_ACCEL_BUILD_REQUEST_FORCE_BUILD,
@@ -17,6 +19,12 @@ typedef enum LCAccelUsageHint {
     LC_ACCEL_USAGE_HINT_FAST_BUILD,
     LC_ACCEL_USAGE_HINT_FAST_UPDATE,
 } LCAccelUsageHint;
+
+typedef enum LCBindlessArrayUpdateOperation {
+    LC_BINDLESS_ARRAY_UPDATE_OPERATION_NONE,
+    LC_BINDLESS_ARRAY_UPDATE_OPERATION_EMPLACE,
+    LC_BINDLESS_ARRAY_UPDATE_OPERATION_REMOVE,
+} LCBindlessArrayUpdateOperation;
 
 typedef enum LCPixelFormat {
     LC_PIXEL_FORMAT_R8_SINT,
@@ -278,6 +286,18 @@ typedef struct LCMeshBuildCommand {
     size_t index_stride;
 } LCMeshBuildCommand;
 
+typedef struct LCProceduralPrimitive {
+    uint64_t _0;
+} LCProceduralPrimitive;
+
+typedef struct LCProceduralPrimitiveBuildCommand {
+    struct LCProceduralPrimitive handle;
+    enum LCAccelBuildRequest request;
+    struct LCBuffer aabb_buffer;
+    size_t aabb_ffset;
+    size_t aabb_count;
+} LCProceduralPrimitiveBuildCommand;
+
 typedef struct LCAccelBuildCommand {
     struct LCAccel accel;
     enum LCAccelBuildRequest request;
@@ -286,6 +306,31 @@ typedef struct LCAccelBuildCommand {
     size_t modifications_count;
     bool build_accel;
 } LCAccelBuildCommand;
+
+typedef struct LCBindlessArrayUpdateBuffer {
+    enum LCBindlessArrayUpdateOperation op;
+    struct LCBuffer handle;
+    size_t offset;
+} LCBindlessArrayUpdateBuffer;
+
+typedef struct LCBindlessArrayUpdateTexture {
+    enum LCBindlessArrayUpdateOperation op;
+    struct LCTexture handle;
+    struct LCSampler sampler;
+} LCBindlessArrayUpdateTexture;
+
+typedef struct LCBindlessArrayUpdateModification {
+    size_t slot;
+    struct LCBindlessArrayUpdateBuffer buffer;
+    struct LCBindlessArrayUpdateTexture tex2d;
+    struct LCBindlessArrayUpdateTexture tex3d;
+} LCBindlessArrayUpdateModification;
+
+typedef struct LCBindlessArrayUpdateCommand {
+    struct LCBindlessArray handle;
+    const struct LCBindlessArrayUpdateModification *modifications;
+    size_t modifications_count;
+} LCBindlessArrayUpdateCommand;
 
 typedef enum LCCommand_Tag {
     LC_COMMAND_BUFFER_UPLOAD,
@@ -298,6 +343,7 @@ typedef enum LCCommand_Tag {
     LC_COMMAND_TEXTURE_COPY,
     LC_COMMAND_SHADER_DISPATCH,
     LC_COMMAND_MESH_BUILD,
+    LC_COMMAND_PROCEDURAL_PRIMITIVE_BUILD,
     LC_COMMAND_ACCEL_BUILD,
     LC_COMMAND_BINDLESS_ARRAY_UPDATE,
 } LCCommand_Tag;
@@ -336,10 +382,13 @@ typedef struct LCCommand {
             struct LCMeshBuildCommand mesh_build;
         };
         struct {
+            struct LCProceduralPrimitiveBuildCommand procedural_primitive_build;
+        };
+        struct {
             struct LCAccelBuildCommand accel_build;
         };
         struct {
-            struct LCBindlessArray bindless_array_update;
+            struct LCBindlessArrayUpdateCommand bindless_array_update;
         };
     };
 } LCCommand;

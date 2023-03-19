@@ -41,7 +41,6 @@ macro_rules! check_error {
 impl MeshImpl {
     pub unsafe fn new(
         hint: api::AccelUsageHint,
-        ty: api::MeshType,
         _allow_compact: bool,
         _allow_update: bool,
     ) -> Self {
@@ -53,10 +52,7 @@ impl MeshImpl {
             AccelUsageHint::FastTrace => sys::RTC_BUILD_QUALITY_HIGH,
             AccelUsageHint::FastUpdate => sys::RTC_BUILD_QUALITY_REFIT,
         };
-        match ty {
-            api::MeshType::Mesh => {}
-            api::MeshType::ProceduralPrimitive => todo!(),
-        }
+
         sys::rtcSetSceneFlags(handle, flags);
 
         Self {

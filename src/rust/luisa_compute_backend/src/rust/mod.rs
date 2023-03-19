@@ -9,10 +9,16 @@ use self::{
     texture::TextureImpl,
 };
 use super::Backend;
+use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo};
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
-use luisa_compute_ir::{codegen::CodeGen, context::type_hash, ir::Type, CArc};
+use luisa_compute_ir::{
+    codegen::CodeGen,
+    context::type_hash,
+    ir::{self, Type},
+    CArc,
+};
 
 use sha2::Digest;
 mod accel;
@@ -23,11 +29,140 @@ mod texture;
 pub struct RustBackend {
     shared_pool: Arc<rayon::ThreadPool>,
 }
-impl RustBackend {
-    #[inline]
-    fn create_shader_impl(
+
+impl Backend for RustBackend {
+    fn query(&self, property: &str) -> Option<String> {
+        match property {
+            "device_name" => Some("cpu".to_string()),
+            _ => None,
+        }
+    }
+    fn create_buffer(
+        &self,
+        ty: &ir::Type,
+        count: usize,
+    ) -> super::Result<luisa_compute_api_types::CreatedBufferInfo> {
+        let size_bytes = ty.size() * count;
+        let buffer = Box::new(BufferImpl::new(size_bytes, ty.alignment()));
+        let data = buffer.data;
+        let ptr = Box::into_raw(buffer);
+        Ok(CreatedBufferInfo {
+            resource: CreatedResourceInfo {
+                handle: ptr as u64,
+                native_handle: data as *mut std::ffi::c_void,
+            },
+            element_stride: ty.size(),
+            total_size_bytes: size_bytes,
+        })
+    }
+
+    fn destroy_buffer(&self, buffer: luisa_compute_api_types::Buffer) {
+        unsafe {
+            let ptr = buffer.0 as *mut BufferImpl;
+            drop(Box::from_raw(ptr));
+        }
+    }
+
+    fn create_texture(
+        &self,
+        format: luisa_compute_api_types::PixelFormat,
+        dimension: u32,
+        width: u32,
+        height: u32,
+        depth: u32,
+        mipmap_levels: u32,
+    ) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+        let storage = format.storage();
+
+        let texture = TextureImpl::new(
+            dimension as u8,
+            [width, height, depth],
+            storage,
+            mipmap_levels as u8,
+        );
+        let data = texture.data;
+        let ptr = Box::into_raw(Box::new(texture));
+        Ok(CreatedResourceInfo {
+            handle: ptr as u64,
+            native_handle: data as *mut std::ffi::c_void,
+        })
+    }
+
+    fn destroy_texture(&self, texture: luisa_compute_api_types::Texture) {
+        unsafe {
+            let texture = texture.0 as *mut TextureImpl;
+            drop(Box::from_raw(texture));
+        }
+    }
+    fn create_bindless_array(
+        &self,
+        size: usize,
+    ) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+        let bindless_array = BindlessArrayImpl {
+            buffers: vec![defs::BufferView::default(); size],
+            tex2ds: vec![defs::Texture::default(); size],
+            tex3ds: vec![defs::Texture::default(); size],
+        };
+        let ptr = Box::into_raw(Box::new(bindless_array));
+        Ok(CreatedResourceInfo {
+            handle: ptr as u64,
+            native_handle: ptr as *mut std::ffi::c_void,
+        })
+    }
+
+    fn destroy_bindless_array(&self, array: luisa_compute_api_types::BindlessArray) {
+        unsafe {
+            let ptr = array.0 as *mut BindlessArrayImpl;
+            drop(Box::from_raw(ptr));
+        }
+    }
+
+    fn create_stream(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+        let stream = Box::into_raw(Box::new(StreamImpl::new(self.shared_pool.clone())));
+        Ok(CreatedResourceInfo {
+            handle: stream as u64,
+            native_handle: stream as *mut std::ffi::c_void,
+        })
+    }
+
+    fn destroy_stream(&self, stream: luisa_compute_api_types::Stream) {
+        unsafe {
+            let stream = stream.0 as *mut StreamImpl;
+            drop(Box::from_raw(stream));
+        }
+    }
+
+    fn synchronize_stream(&self, stream: luisa_compute_api_types::Stream) -> super::Result<()> {
+        unsafe {
+            let stream = stream.0 as *mut StreamImpl;
+            (*stream).synchronize();
+            Ok(())
+        }
+    }
+
+    fn dispatch(
+        &self,
+        stream_: luisa_compute_api_types::Stream,
+        command_list: &[luisa_compute_api_types::Command],
+        callback: (fn(*mut u8), *mut u8),
+    ) -> super::Result<()> {
+        unsafe {
+            let stream = &*(stream_.0 as *mut StreamImpl);
+            let command_list = command_list.to_vec();
+            stream.enqueue(
+                move || {
+                    let stream = &*(stream_.0 as *mut StreamImpl);
+                    stream.dispatch(&command_list)
+                },
+                callback,
+            );
+            Ok(())
+        }
+    }
+    fn create_shader(
+        &self,
         kernel: CArc<luisa_compute_ir::ir::KernelModule>,
-    ) -> super::Result<luisa_compute_api_types::Shader> {
+    ) -> super::Result<luisa_compute_api_types::CreatedShaderInfo> {
         // let debug =
         //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
         // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
@@ -60,235 +195,13 @@ impl RustBackend {
             kernel.block_size,
         ));
         let shader = Box::into_raw(shader);
-        Ok(luisa_compute_api_types::Shader(shader as u64))
-    }
-}
-impl Backend for RustBackend {
-    fn query(&self, property: &str) -> Option<String> {
-        match property {
-            "device_name" => Some("cpu".to_string()),
-            _ => None,
-        }
-    }
-    fn set_buffer_type(&self, buffer: luisa_compute_api_types::Buffer, ty: CArc<Type>) {
-        unsafe {
-            let buffer = &mut *(buffer.0 as *mut BufferImpl);
-            buffer.ty = Some(ty);
-        }
-    }
-    fn create_buffer(
-        &self,
-        size_bytes: usize,
-        align: usize,
-    ) -> super::Result<luisa_compute_api_types::Buffer> {
-        let buffer = Box::new(BufferImpl::new(size_bytes, align));
-        let ptr = Box::into_raw(buffer);
-        Ok(luisa_compute_api_types::Buffer(ptr as u64))
-    }
-
-    fn destroy_buffer(&self, buffer: luisa_compute_api_types::Buffer) {
-        unsafe {
-            let ptr = buffer.0 as *mut BufferImpl;
-            drop(Box::from_raw(ptr));
-        }
-    }
-
-    fn buffer_native_handle(&self, buffer: luisa_compute_api_types::Buffer) -> *mut libc::c_void {
-        unsafe {
-            let buffer = &*(buffer.0 as *mut BufferImpl);
-            buffer.data as *mut libc::c_void
-        }
-    }
-
-    fn create_texture(
-        &self,
-        format: luisa_compute_api_types::PixelFormat,
-        dimension: u32,
-        width: u32,
-        height: u32,
-        depth: u32,
-        mipmap_levels: u32,
-    ) -> super::Result<luisa_compute_api_types::Texture> {
-        let storage = format.storage();
-
-        let texture = TextureImpl::new(
-            dimension as u8,
-            [width, height, depth],
-            storage,
-            mipmap_levels as u8,
-        );
-        let ptr = Box::into_raw(Box::new(texture));
-        Ok(luisa_compute_api_types::Texture(ptr as u64))
-    }
-
-    fn destroy_texture(&self, texture: luisa_compute_api_types::Texture) {
-        unsafe {
-            let texture = texture.0 as *mut TextureImpl;
-            drop(Box::from_raw(texture));
-        }
-    }
-
-    fn texture_native_handle(
-        &self,
-        texture: luisa_compute_api_types::Texture,
-    ) -> *mut libc::c_void {
-        unsafe {
-            let texture = texture.0 as *mut TextureImpl;
-            (*texture).data as *mut libc::c_void
-        }
-    }
-
-    fn create_bindless_array(
-        &self,
-        size: usize,
-    ) -> super::Result<luisa_compute_api_types::BindlessArray> {
-        let bindless_array = BindlessArrayImpl {
-            buffers: vec![defs::BufferView::default(); size],
-            tex2ds: vec![defs::Texture::default(); size],
-            tex3ds: vec![defs::Texture::default(); size],
-        };
-        let ptr = Box::into_raw(Box::new(bindless_array));
-        Ok(luisa_compute_api_types::BindlessArray(ptr as u64))
-    }
-
-    fn destroy_bindless_array(&self, array: luisa_compute_api_types::BindlessArray) {
-        unsafe {
-            let ptr = array.0 as *mut BindlessArrayImpl;
-            drop(Box::from_raw(ptr));
-        }
-    }
-
-    fn emplace_buffer_in_bindless_array(
-        &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-        handle: luisa_compute_api_types::Buffer,
-        offset_bytes: usize,
-    ) {
-        unsafe {
-            let array = &mut *(array.0 as *mut BindlessArrayImpl);
-            let buffer = &*(handle.0 as *mut BufferImpl);
-            let view = &mut array.buffers[index];
-            view.data = buffer.data as *mut u8;
-            view.size = buffer.size;
-            view.data = view.data.add(offset_bytes);
-            view.size -= offset_bytes;
-            view.ty = buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0);
-            array.buffers[index] = *view;
-        }
-    }
-
-    fn emplace_tex2d_in_bindless_array(
-        &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-        handle: luisa_compute_api_types::Texture,
-        sampler: luisa_compute_api_types::Sampler,
-    ) {
-        unsafe {
-            let array = &mut *(array.0 as *mut BindlessArrayImpl);
-            let texture = &*(handle.0 as *mut TextureImpl);
-            array.tex2ds[index] = texture.into_c_texture(sampler);
-        }
-    }
-
-    fn emplace_tex3d_in_bindless_array(
-        &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-        handle: luisa_compute_api_types::Texture,
-        sampler: luisa_compute_api_types::Sampler,
-    ) {
-        unsafe {
-            let array = &mut *(array.0 as *mut BindlessArrayImpl);
-            let texture = &*(handle.0 as *mut TextureImpl);
-            array.tex3ds[index] = texture.into_c_texture(sampler);
-        }
-    }
-
-    fn remove_buffer_from_bindless_array(
-        &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-    ) {
-        unsafe {
-            let array = &mut *(array.0 as *mut BindlessArrayImpl);
-            array.buffers[index] = defs::BufferView::default();
-        }
-    }
-
-    fn remove_tex2d_from_bindless_array(
-        &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-    ) {
-        unsafe {
-            let array = &mut *(array.0 as *mut BindlessArrayImpl);
-            array.tex2ds[index] = defs::Texture::default();
-        }
-    }
-
-    fn remove_tex3d_from_bindless_array(
-        &self,
-        array: luisa_compute_api_types::BindlessArray,
-        index: usize,
-    ) {
-        unsafe {
-            let array = &mut *(array.0 as *mut BindlessArrayImpl);
-            array.tex3ds[index] = defs::Texture::default();
-        }
-    }
-
-    fn create_stream(&self) -> super::Result<luisa_compute_api_types::Stream> {
-        let stream = Box::into_raw(Box::new(StreamImpl::new(self.shared_pool.clone())));
-        Ok(luisa_compute_api_types::Stream(stream as u64))
-    }
-
-    fn destroy_stream(&self, stream: luisa_compute_api_types::Stream) {
-        unsafe {
-            let stream = stream.0 as *mut StreamImpl;
-            drop(Box::from_raw(stream));
-        }
-    }
-
-    fn synchronize_stream(&self, stream: luisa_compute_api_types::Stream) -> super::Result<()> {
-        unsafe {
-            let stream = stream.0 as *mut StreamImpl;
-            (*stream).synchronize();
-            Ok(())
-        }
-    }
-
-    fn stream_native_handle(&self, stream: luisa_compute_api_types::Stream) -> *mut libc::c_void {
-        stream.0 as *mut libc::c_void
-    }
-
-    fn dispatch(
-        &self,
-        stream_: luisa_compute_api_types::Stream,
-        command_list: &[luisa_compute_api_types::Command],
-    ) -> super::Result<()> {
-        unsafe {
-            let stream = &*(stream_.0 as *mut StreamImpl);
-            let command_list = command_list.to_vec();
-            stream.enqueue(move || {
-                let stream = &*(stream_.0 as *mut StreamImpl);
-                stream.dispatch(&command_list)
-            });
-            Ok(())
-        }
-    }
-    fn create_shader_async(
-        &self,
-        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
-    ) -> super::Result<luisa_compute_api_types::Shader> {
-        Self::create_shader_impl(kernel)
-    }
-    fn create_shader(
-        &self,
-        kernel: CArc<luisa_compute_ir::ir::KernelModule>,
-    ) -> super::Result<luisa_compute_api_types::Shader> {
-        Self::create_shader_impl(kernel)
+        Ok(luisa_compute_api_types::CreatedShaderInfo {
+            resource: CreatedResourceInfo {
+                handle: shader as u64,
+                native_handle: shader as *mut std::ffi::c_void,
+            },
+            block_size: kernel.block_size,
+        })
     }
     fn shader_cache_dir(
         &self,
@@ -325,17 +238,18 @@ impl Backend for RustBackend {
     fn synchronize_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
         todo!()
     }
-    fn create_mesh(
-        &self,
-        hint: api::AccelUsageHint,
-        ty: api::MeshType,
-        allow_compact: bool,
-        allow_update: bool,
-    ) -> api::Mesh {
+    fn create_mesh(&self, option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
         unsafe {
-            let mesh = Box::new(MeshImpl::new(hint, ty, allow_compact, allow_update));
+            let mesh = Box::new(MeshImpl::new(
+                option.hint,
+                option.allow_compaction,
+                option.allow_update,
+            ));
             let mesh = Box::into_raw(mesh);
-            api::Mesh(mesh as u64)
+            Ok(api::CreatedResourceInfo {
+                handle: mesh as u64,
+                native_handle: mesh as *mut std::ffi::c_void,
+            })
         }
     }
     fn destroy_mesh(&self, mesh: api::Mesh) {
@@ -344,19 +258,23 @@ impl Backend for RustBackend {
             drop(Box::from_raw(mesh));
         }
     }
-    fn mesh_native_handle(&self, mesh: api::Mesh) -> *mut libc::c_void {
-        unsafe { (&*(mesh.0 as *const MeshImpl)).handle as *mut libc::c_void }
+    fn create_procedural_primitive(
+            &self,
+            _option: api::AccelOption,
+        ) -> crate::Result<api::CreatedResourceInfo> {
+        todo!()
     }
-    fn create_accel(
-        &self,
-        _hint: api::AccelUsageHint,
-        _allow_compact: bool,
-        _allow_update: bool,
-    ) -> api::Accel {
+    fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
+        todo!()
+    }
+    fn create_accel(&self, option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
         unsafe {
             let accel = Box::new(AccelImpl::new());
             let accel = Box::into_raw(accel);
-            api::Accel(accel as u64)
+            Ok(api::CreatedResourceInfo {
+                handle: accel as u64,
+                native_handle: accel as *mut std::ffi::c_void,
+            })
         }
     }
     fn destory_accel(&self, accel: api::Accel) {
@@ -364,9 +282,6 @@ impl Backend for RustBackend {
             let accel = accel.0 as *mut AccelImpl;
             drop(Box::from_raw(accel));
         }
-    }
-    fn accel_native_handle(&self, accel: api::Accel) -> *mut libc::c_void {
-        unsafe { (&*(accel.0 as *const AccelImpl)).handle as *mut libc::c_void }
     }
 }
 impl RustBackend {

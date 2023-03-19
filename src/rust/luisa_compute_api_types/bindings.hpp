@@ -10,6 +10,8 @@
 
 namespace luisa::compute::api {
 
+static const uint64_t INVALID_RESOURCE_HANDLE = UINT64_MAX;
+
 enum class AccelBuildRequest {
     PREFER_UPDATE,
     FORCE_BUILD,
@@ -19,6 +21,12 @@ enum class AccelUsageHint {
     FAST_TRACE,
     FAST_BUILD,
     FAST_UPDATE,
+};
+
+enum class BindlessArrayUpdateOperation {
+    NONE,
+    EMPLACE,
+    REMOVE,
 };
 
 enum class PixelFormat {
@@ -319,6 +327,18 @@ struct MeshBuildCommand {
     size_t index_stride;
 };
 
+struct ProceduralPrimitive {
+    uint64_t _0;
+};
+
+struct ProceduralPrimitiveBuildCommand {
+    ProceduralPrimitive handle;
+    AccelBuildRequest request;
+    Buffer aabb_buffer;
+    size_t aabb_ffset;
+    size_t aabb_count;
+};
+
 struct AccelBuildCommand {
     Accel accel;
     AccelBuildRequest request;
@@ -326,6 +346,31 @@ struct AccelBuildCommand {
     const AccelBuildModification *modifications;
     size_t modifications_count;
     bool build_accel;
+};
+
+struct BindlessArrayUpdateBuffer {
+    BindlessArrayUpdateOperation op;
+    Buffer handle;
+    size_t offset;
+};
+
+struct BindlessArrayUpdateTexture {
+    BindlessArrayUpdateOperation op;
+    Texture handle;
+    Sampler sampler;
+};
+
+struct BindlessArrayUpdateModification {
+    size_t slot;
+    BindlessArrayUpdateBuffer buffer;
+    BindlessArrayUpdateTexture tex2d;
+    BindlessArrayUpdateTexture tex3d;
+};
+
+struct BindlessArrayUpdateCommand {
+    BindlessArray handle;
+    const BindlessArrayUpdateModification *modifications;
+    size_t modifications_count;
 };
 
 struct Command {
@@ -340,6 +385,7 @@ struct Command {
         TEXTURE_COPY,
         SHADER_DISPATCH,
         MESH_BUILD,
+        PROCEDURAL_PRIMITIVE_BUILD,
         ACCEL_BUILD,
         BINDLESS_ARRAY_UPDATE,
     };
@@ -384,12 +430,16 @@ struct Command {
         MeshBuildCommand _0;
     };
 
+    struct ProceduralPrimitiveBuild_Body {
+        ProceduralPrimitiveBuildCommand _0;
+    };
+
     struct AccelBuild_Body {
         AccelBuildCommand _0;
     };
 
     struct BindlessArrayUpdate_Body {
-        BindlessArray _0;
+        BindlessArrayUpdateCommand _0;
     };
 
     Tag tag;
@@ -404,6 +454,7 @@ struct Command {
         TextureCopy_Body TEXTURE_COPY;
         ShaderDispatch_Body SHADER_DISPATCH;
         MeshBuild_Body MESH_BUILD;
+        ProceduralPrimitiveBuild_Body PROCEDURAL_PRIMITIVE_BUILD;
         AccelBuild_Body ACCEL_BUILD;
         BindlessArrayUpdate_Body BINDLESS_ARRAY_UPDATE;
     };

@@ -1,20 +1,21 @@
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 use api::PixelFormat;
 use libc::c_void;
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
-    ir::{KernelModule, Type}, CArc,
+    ir::{self, KernelModule, Type},
+    CArc,
 };
 pub mod remote;
 pub mod rust;
+
 #[derive(Debug)]
 pub struct BackendError {}
 pub type Result<T> = std::result::Result<T, BackendError>;
 pub trait Backend: Sync + Send {
-    fn create_buffer(&self, size_bytes: usize, align: usize) -> Result<api::Buffer>;
+    fn create_buffer(&self, ty: &ir::Type, count: usize) -> Result<api::CreatedBufferInfo>;
     fn destroy_buffer(&self, buffer: api::Buffer);
-    fn buffer_native_handle(&self, buffer: api::Buffer) -> *mut c_void;
     fn create_texture(
         &self,
         format: PixelFormat,
@@ -23,41 +24,19 @@ pub trait Backend: Sync + Send {
         height: u32,
         depth: u32,
         mipmap_levels: u32,
-    ) -> Result<api::Texture>;
+    ) -> Result<api::CreatedResourceInfo>;
     fn destroy_texture(&self, texture: api::Texture);
-    fn texture_native_handle(&self, texture: api::Texture) -> *mut c_void;
-    fn create_bindless_array(&self, size: usize) -> Result<api::BindlessArray>;
+    fn create_bindless_array(&self, size: usize) -> Result<api::CreatedResourceInfo>;
     fn destroy_bindless_array(&self, array: api::BindlessArray);
-    fn emplace_buffer_in_bindless_array(
-        &self,
-        array: api::BindlessArray,
-        index: usize,
-        handle: api::Buffer,
-        offset_bytes: usize,
-    );
-    fn emplace_tex2d_in_bindless_array(
-        &self,
-        array: api::BindlessArray,
-        index: usize,
-        handle: api::Texture,
-        sampler: api::Sampler,
-    );
-    fn emplace_tex3d_in_bindless_array(
-        &self,
-        array: api::BindlessArray,
-        index: usize,
-        handle: api::Texture,
-        sampler: api::Sampler,
-    );
-
-    fn remove_buffer_from_bindless_array(&self, array: api::BindlessArray, index: usize);
-    fn remove_tex2d_from_bindless_array(&self, array: api::BindlessArray, index: usize);
-    fn remove_tex3d_from_bindless_array(&self, array: api::BindlessArray, index: usize);
-    fn create_stream(&self) -> Result<api::Stream>;
+    fn create_stream(&self) -> Result<api::CreatedResourceInfo>;
     fn destroy_stream(&self, stream: api::Stream);
     fn synchronize_stream(&self, stream: api::Stream) -> Result<()>;
-    fn stream_native_handle(&self, stream: api::Stream) -> *mut c_void;
-    fn dispatch(&self, stream: api::Stream, command_list: &[api::Command]) -> Result<()>;
+    fn dispatch(
+        &self,
+        stream: api::Stream,
+        command_list: &[api::Command],
+        callback: (fn(*mut u8), *mut u8),
+    ) -> Result<()>;
     // fn create_swap_chain(
     //     &self,
     //     window_handle: u64,
@@ -75,8 +54,7 @@ pub trait Backend: Sync + Send {
     //     swapchain_handle: u64,
     //     image_handle: u64,
     // );
-    fn create_shader(&self, kernel: CArc<KernelModule>) -> Result<api::Shader>;
-    fn create_shader_async(&self, kernel: CArc<KernelModule>) -> Result<api::Shader>;
+    fn create_shader(&self, kernel: CArc<KernelModule>) -> Result<api::CreatedShaderInfo>;
     fn shader_cache_dir(&self, shader: api::Shader) -> Option<PathBuf>;
     fn destroy_shader(&self, shader: api::Shader);
     fn create_event(&self) -> Result<api::Event>;
@@ -84,25 +62,16 @@ pub trait Backend: Sync + Send {
     fn signal_event(&self, event: api::Event);
     fn wait_event(&self, event: api::Event) -> Result<()>;
     fn synchronize_event(&self, event: api::Event) -> Result<()>;
-    fn create_mesh(
+    fn create_mesh(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
+    fn create_procedural_primitive(
         &self,
-        hint: api::AccelUsageHint,
-        ty: api::MeshType,
-        allow_compact: bool,
-        allow_update: bool,
-    ) -> api::Mesh;
+        option: api::AccelOption,
+    ) -> Result<api::CreatedResourceInfo>;
     fn destroy_mesh(&self, mesh: api::Mesh);
-    fn create_accel(
-        &self,
-        hint: api::AccelUsageHint,
-        allow_compact: bool,
-        allow_update: bool,
-    ) -> api::Accel;
+    fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive);
+    fn create_accel(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
     fn destory_accel(&self, accel: api::Accel);
-    fn mesh_native_handle(&self, mesh: api::Mesh) -> *mut c_void;
-    fn accel_native_handle(&self, accel: api::Accel) -> *mut c_void;
     fn query(&self, property: &str) -> Option<String>;
-    fn set_buffer_type(&self, buffer: api::Buffer, ty: CArc<Type>);
 }
 
 // pub struct BackendWrapper<B: Backend> {
