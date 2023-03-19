@@ -15,7 +15,6 @@ class ShaderDispatchCommand;
 
 namespace luisa::compute::cuda {
 
-class CUDADevice;
 class CUDACommandEncoder;
 
 struct CUDAShader {
@@ -25,7 +24,8 @@ struct CUDAShader {
     CUDAShader &operator=(CUDAShader &&) noexcept = delete;
     CUDAShader &operator=(const CUDAShader &) noexcept = delete;
     virtual ~CUDAShader() noexcept = default;
-    virtual void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept = 0;
+    virtual void launch(CUDACommandEncoder &encoder,
+                        ShaderDispatchCommand *command) const noexcept = 0;
 };
 
 }// namespace luisa::compute::cuda

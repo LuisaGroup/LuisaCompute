@@ -35,7 +35,7 @@ ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO
         uint3(64, 1, 1),
         60,
         "set_accel_kernel.dxil"sv,
-        true);
+        CacheType::Internal);
 }
 namespace detail {
 static ComputeShader *LoadBCKernel(
@@ -89,7 +89,7 @@ static ComputeShader *LoadBCKernel(
         uint3(1, 1, 1),
         60,
         fileName,
-        true);
+        CacheType::Internal);
 }
 static vstd::string_view Bc6Header(luisa::BinaryIO const *ctx) {
     static auto bc6Header = CodegenUtility::ReadInternalHLSLFileByte("bc6_header", ctx);

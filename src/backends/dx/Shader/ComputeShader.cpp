@@ -8,7 +8,7 @@ namespace ComputeShaderDetail {
 static constexpr bool PRINT_CODE = false;
 }// namespace ComputeShaderDetail
 ComputeShader *ComputeShader::LoadPresetCompute(
-    BinaryIO const*fileIo,
+    BinaryIO const *fileIo,
     Device *device,
     vstd::span<Type const *const> types,
     vstd::string_view fileName) {
@@ -19,7 +19,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
     auto result = ShaderSerializer::DeSerialize(
         fileName,
         psoName,
-        false,
+        CacheType::ByteCode,
         device,
         *fileIo,
         {},
@@ -39,7 +39,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
     return result;
 }
 ComputeShader *ComputeShader::CompileCompute(
-    BinaryIO const*fileIo,
+    BinaryIO const *fileIo,
     Device *device,
     Function kernel,
     vstd::function<CodegenResult()> const &codegen,
@@ -47,7 +47,7 @@ ComputeShader *ComputeShader::CompileCompute(
     uint3 blockSize,
     uint shaderModel,
     vstd::string_view fileName,
-    bool isInternal) {
+    CacheType cacheType) {
 
     using namespace ComputeShaderDetail;
     auto CompileNewCompute = [&](bool WriteCache, vstd::string_view psoName) {
@@ -89,11 +89,7 @@ ComputeShader *ComputeShader::CompileCompute(
                         str.typeMD5,
                         str.bdlsBufferCount,
                         blockSize);
-                    if (isInternal) {
-                        fileIo->write_internal_shader(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                    } else {
-                        fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
-                    }
+                    WriteBinaryIO(cacheType, fileIo, fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
                 }
                 auto cs = new ComputeShader(
                     blockSize,
@@ -121,7 +117,7 @@ ComputeShader *ComputeShader::CompileCompute(
         auto result = ShaderSerializer::DeSerialize(
             fileName,
             psoName,
-            isInternal,
+            cacheType,
             device,
             *fileIo,
             checkMD5,
@@ -140,7 +136,7 @@ ComputeShader *ComputeShader::CompileCompute(
     }
 }
 void ComputeShader::SaveCompute(
-    BinaryIO const*fileIo,
+    BinaryIO const *fileIo,
     Function kernel,
     CodegenResult &str,
     uint3 blockSize,

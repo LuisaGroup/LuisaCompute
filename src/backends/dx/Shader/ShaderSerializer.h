@@ -42,7 +42,7 @@ public:
     static ComputeShader *DeSerialize(
         luisa::string_view fileName,
         luisa::string_view psoName,
-        bool isInternal,
+        CacheType cacheType,
         Device *device,
         luisa::BinaryIO const &streamFunc,
         vstd::optional<vstd::MD5> const &checkMD5,
@@ -51,7 +51,7 @@ public:
     static RasterShader *RasterDeSerialize(
         luisa::string_view fileName,
         luisa::string_view psoName,
-        bool isInternal,
+        CacheType cacheType,
         Device *device,
         luisa::BinaryIO const &streamFunc,
         vstd::optional<vstd::MD5> const &ilMd5,

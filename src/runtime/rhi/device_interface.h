@@ -17,6 +17,7 @@ namespace luisa::compute {
 
 namespace ir {
 struct KernelModule;
+struct Type;
 }
 
 class MeshFormat;
@@ -85,7 +86,6 @@ public:
         uint64_t stream_handle, CommandList &&list) noexcept = 0;
 
     // swap chain
-
     [[nodiscard]] virtual SwapChainCreationInfo create_swap_chain(
         uint64_t window_handle, uint64_t stream_handle,
         uint width, uint height, bool allow_hdr,

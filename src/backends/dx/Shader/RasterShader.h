@@ -80,7 +80,7 @@ public:
         vstd::span<PixelFormat const> rtv,
         DepthFormat dsv,
         vstd::string_view fileName,
-        bool isInternal);
+        CacheType cacheType);
     static void SaveRaster(
         luisa::BinaryIO const*fileIo,
         Device *device,

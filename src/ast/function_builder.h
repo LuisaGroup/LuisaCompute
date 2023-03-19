@@ -29,7 +29,7 @@ namespace luisa::compute::detail {
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
 
-    friend class AstSerializer;
+    friend class compute::AstSerializer;
 
 private:
     /**

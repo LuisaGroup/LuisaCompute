@@ -6,6 +6,7 @@
 #include <Resource/Buffer.h>
 #include <Resource/DescriptorHeap.h>
 #include <ast/function.h>
+#include <core/binary_io.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 struct SavedArgument {
@@ -17,6 +18,35 @@ struct SavedArgument {
     SavedArgument(Usage usage, Variable const &var);
     SavedArgument(Type const *type);
 };
+enum class CacheType : uint8_t {
+    Internal,
+    Cache,
+    ByteCode
+};
+inline static auto ReadBinaryIO(CacheType type, luisa::BinaryIO const *binIo, luisa::string_view name) {
+    switch (type) {
+        case CacheType::ByteCode:
+            return binIo->read_shader_bytecode(name);
+        case CacheType::Cache:
+            return binIo->read_shader_cache(name);
+        case CacheType::Internal:
+            return binIo->read_internal_shader(name);
+    }
+}
+inline static void WriteBinaryIO(CacheType type, luisa::BinaryIO const *binIo, luisa::string_view name, luisa::span<std::byte const> data) {
+    switch (type) {
+        case CacheType::ByteCode:
+            binIo->write_shader_bytecode(name, data);
+            return;
+        case CacheType::Cache:
+            binIo->write_shader_cache(name, data);
+            return;
+        case CacheType::Internal:
+            binIo->write_internal_shader(name, data);
+            return;
+    }
+}
+
 class TopAccel;
 class CommandBufferBuilder;
 class Shader : public vstd::IOperatorNewBase {
