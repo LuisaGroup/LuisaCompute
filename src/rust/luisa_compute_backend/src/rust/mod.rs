@@ -39,11 +39,11 @@ impl Backend for RustBackend {
     }
     fn create_buffer(
         &self,
-        ty: &ir::Type,
+        ty: &CArc<ir::Type>,
         count: usize,
     ) -> super::Result<luisa_compute_api_types::CreatedBufferInfo> {
         let size_bytes = ty.size() * count;
-        let buffer = Box::new(BufferImpl::new(size_bytes, ty.alignment()));
+        let buffer = Box::new(BufferImpl::new(size_bytes, ty.alignment(), type_hash(&ty)));
         let data = buffer.data;
         let ptr = Box::into_raw(buffer);
         Ok(CreatedBufferInfo {
@@ -277,7 +277,7 @@ impl Backend for RustBackend {
             })
         }
     }
-    fn destory_accel(&self, accel: api::Accel) {
+    fn destroy_accel(&self, accel: api::Accel) {
         unsafe {
             let accel = accel.0 as *mut AccelImpl;
             drop(Box::from_raw(accel));

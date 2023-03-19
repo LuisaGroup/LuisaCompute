@@ -32,6 +32,8 @@ pub struct CreatedShaderInfo {
     pub resource: CreatedResourceInfo,
     pub block_size: [u32; 3],
 }
+unsafe impl Send for CreatedShaderInfo {}
+unsafe impl Sync for CreatedShaderInfo {}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ShaderOption {
@@ -299,10 +301,20 @@ pub enum SamplerAddress {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default)]
 pub struct Sampler {
     pub filter: SamplerFilter,
     pub address: SamplerAddress,
+}
+impl Default for SamplerFilter {
+    fn default() -> Self {
+        SamplerFilter::Point
+    }
+}
+impl Default for SamplerAddress {
+    fn default() -> Self {
+        SamplerAddress::Edge
+    }
 }
 impl Sampler {
     pub fn encode(&self) -> u8 {
@@ -502,28 +514,46 @@ pub enum BindlessArrayUpdateOperation {
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BindlessArrayUpdateBuffer {
     pub op: BindlessArrayUpdateOperation,
-    pub handle:Buffer,
+    pub handle: Buffer,
     pub offset: usize,
+}
+impl Default for BindlessArrayUpdateBuffer {
+    fn default() -> Self {
+        Self {
+            op: BindlessArrayUpdateOperation::None,
+            handle: Buffer(INVALID_RESOURCE_HANDLE),
+            offset: 0,
+        }
+    }
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
-pub struct BindlessArrayUpdateTexture{
+pub struct BindlessArrayUpdateTexture {
     pub op: BindlessArrayUpdateOperation,
-    pub handle:Texture,
+    pub handle: Texture,
     pub sampler: Sampler,
+}
+impl Default for BindlessArrayUpdateTexture {
+    fn default() -> Self {
+        Self {
+            op: BindlessArrayUpdateOperation::None,
+            handle: Texture(INVALID_RESOURCE_HANDLE),
+            sampler: Sampler::default(),
+        }
+    }
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BindlessArrayUpdateModification {
-    pub slot:usize,
-    pub buffer:BindlessArrayUpdateBuffer,
-    pub tex2d:BindlessArrayUpdateTexture,
-    pub tex3d:BindlessArrayUpdateTexture,
+    pub slot: usize,
+    pub buffer: BindlessArrayUpdateBuffer,
+    pub tex2d: BindlessArrayUpdateTexture,
+    pub tex3d: BindlessArrayUpdateTexture,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BindlessArrayUpdateCommand {
-    pub handle:BindlessArray,
+    pub handle: BindlessArray,
     pub modifications: *const BindlessArrayUpdateModification,
     pub modifications_count: usize,
 }

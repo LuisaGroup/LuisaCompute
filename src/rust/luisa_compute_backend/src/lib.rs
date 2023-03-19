@@ -14,7 +14,7 @@ pub mod rust;
 pub struct BackendError {}
 pub type Result<T> = std::result::Result<T, BackendError>;
 pub trait Backend: Sync + Send {
-    fn create_buffer(&self, ty: &ir::Type, count: usize) -> Result<api::CreatedBufferInfo>;
+    fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> Result<api::CreatedBufferInfo>;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
         &self,
@@ -70,7 +70,7 @@ pub trait Backend: Sync + Send {
     fn destroy_mesh(&self, mesh: api::Mesh);
     fn destroy_procedural_primitive(&self, primitive: api::ProceduralPrimitive);
     fn create_accel(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
-    fn destory_accel(&self, accel: api::Accel);
+    fn destroy_accel(&self, accel: api::Accel);
     fn query(&self, property: &str) -> Option<String>;
 }
 

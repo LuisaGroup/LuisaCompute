@@ -208,13 +208,45 @@ impl Primitive {
 
 impl VectorType {
     pub fn size(&self) -> usize {
-        self.element.size() * self.length as usize
+        let el_sz = self.element.size();
+        let aligned_len = {
+            let four = self.length / 4;
+            let rem = self.length % 4;
+            if rem <= 2 {
+                four * 4 + rem
+            } else {
+                four * 4 + 4
+            }
+        };
+        let len = match self.element {
+            VectorElementType::Scalar(s) => match s {
+                Primitive::Bool => self.length,
+                _ => aligned_len,
+            },
+            VectorElementType::Vector(_) => self.length,
+        };
+        el_sz * len as usize
     }
 }
 
 impl MatrixType {
     pub fn size(&self) -> usize {
-        self.element.size() * self.dimension as usize * self.dimension as usize
+        let el_sz = self.element.size();
+        let len = match self.element {
+            VectorElementType::Scalar(s) => match s {
+                Primitive::Float32 => {
+                    (match self.dimension {
+                        2 => 2u32,
+                        3 => 4u32,
+                        4 => 4u32,
+                        _ => panic!("Invalid matrix dimension"),
+                    }) * self.dimension
+                }
+                _ => panic!("Invalid matrix element type"),
+            },
+            VectorElementType::Vector(_) => todo!(),
+        };
+        el_sz * len as usize
     }
     pub fn column(&self) -> CArc<Type> {
         match &self.element {
@@ -1670,24 +1702,26 @@ pub extern "C" fn luisa_compute_ir_node_usage(kernel: &KernelModule) -> CBoxedSl
     let mut usage = Vec::new();
     for captured in kernel.captures.as_ref() {
         usage.push(
-            usage_map.remove(&captured.node).expect(
-                format!(
-                    "Requested resource {} not exist in usage map",
-                    captured.node.0
+            usage_map
+                .remove(&captured.node)
+                .expect(
+                    format!(
+                        "Requested resource {} not exist in usage map",
+                        captured.node.0
+                    )
+                    .as_str(),
                 )
-                .as_str(),
-            ).to_u8(),
+                .to_u8(),
         );
     }
     for argument in kernel.args.as_ref() {
         usage.push(
-            usage_map.remove(argument).expect(
-                format!(
-                    "Requested argument {} not exist in usage map",
-                    argument.0
+            usage_map
+                .remove(argument)
+                .expect(
+                    format!("Requested argument {} not exist in usage map", argument.0).as_str(),
                 )
-                .as_str(),
-            ).to_u8()
+                .to_u8(),
         );
     }
     CBoxedSlice::new(usage)
@@ -1750,9 +1784,7 @@ pub extern "C" fn luisa_compute_ir_new_module_pools() -> *mut CArcSharedBlock<Mo
     CArc::into_raw(CArc::new(ModulePools::new()))
 }
 #[no_mangle]
-pub extern "C" fn luisa_compute_ir_new_builder(
-    pools: CArc<ModulePools>,
-) -> IrBuilder {
+pub extern "C" fn luisa_compute_ir_new_builder(pools: CArc<ModulePools>) -> IrBuilder {
     unsafe { IrBuilder::new(pools.clone()) }
 }
 

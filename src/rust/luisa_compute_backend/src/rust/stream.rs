@@ -364,7 +364,7 @@ pub unsafe fn convert_arg(arg: Argument) -> defs::KernelFnArg {
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
+                ty: buffer.ty,
             })
         }
         luisa_compute_api_types::Argument::Texture(t) => {
@@ -420,7 +420,7 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
             defs::KernelFnArg::Buffer(defs::BufferView {
                 data: buffer.data.add(offset),
                 size,
-                ty: buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0),
+                ty: buffer.ty,
             })
         }
         Binding::Texture(t) => {

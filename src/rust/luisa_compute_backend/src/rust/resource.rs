@@ -13,7 +13,7 @@ pub struct BufferImpl {
     pub data: *mut u8,
     pub size: usize,
     pub align: usize,
-    pub ty: Option<CArc<Type>>,
+    pub ty: u64,
 }
 #[repr(C)]
 pub struct BindlessArrayImpl {
@@ -35,7 +35,7 @@ impl BindlessArrayImpl {
                     view.size = buffer.size;
                     view.data = view.data.add(m.buffer.offset);
                     view.size -= m.buffer.offset;
-                    view.ty = buffer.ty.as_ref().map(|t| type_hash(t) as u64).unwrap_or(0);
+                    view.ty = buffer.ty;
                     self.buffers[slot] = *view;
                 }
                 BindlessArrayUpdateOperation::Remove => {
@@ -88,7 +88,7 @@ impl BindlessArrayImpl {
     }
 }
 impl BufferImpl {
-    pub(super) fn new(size: usize, align: usize) -> Self {
+    pub(super) fn new(size: usize, align: usize, ty: u64) -> Self {
         let layout = Layout::from_size_align(size, align).unwrap();
         let data = unsafe { std::alloc::alloc_zeroed(layout) };
         Self {
@@ -96,7 +96,7 @@ impl BufferImpl {
             data,
             size,
             align,
-            ty: None,
+            ty,
         }
     }
 }
