@@ -66,7 +66,7 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
       bc7TryMode137(BuiltinKernel::LoadBC7TryMode137CSKernel),
       bc7TryMode02(BuiltinKernel::LoadBC7TryMode02CSKernel),
       bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel),
-      serVisitor(ctx, "dx"sv) {
+      ctx(ctx){
     using Microsoft::WRL::ComPtr;
     size_t index = 0;
     bool useRuntime = true;
@@ -76,7 +76,10 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         fileIo = settings->binary_io;
     }
-    if (fileIo == nullptr) { fileIo = &serVisitor; }
+    if (fileIo == nullptr) { 
+        serVisitor = vstd::make_unique<luisa::compute::DefaultBinaryIO>(ctx, "dx"sv);
+        fileIo = serVisitor.get(); 
+    }
     auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
         struct AdapterInfo {
             WCHAR Description[128];

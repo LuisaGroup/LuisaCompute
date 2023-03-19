@@ -35,7 +35,7 @@ public:
         uint3 blockSize,
         uint shaderModel,
         vstd::string_view fileName,
-        bool isInternal);
+        CacheType cacheType);
     static void SaveCompute(
         luisa::BinaryIO const*fileIo,
         Function kernel,

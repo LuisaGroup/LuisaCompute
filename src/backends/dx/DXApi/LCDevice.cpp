@@ -189,11 +189,14 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         vstd::string_view file_name;
         vstd::string str_cache;
         vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+        CacheType cacheType;
         if (option.name.empty()) {
-            str_cache << ".cache/"sv << checkMD5.to_string(false) << ".dxil"sv;
+            str_cache << checkMD5.to_string(false) << ".dxil"sv;
             file_name = str_cache;
+            cacheType = CacheType::Cache;
         } else {
             file_name = option.name;
+            cacheType = CacheType::ByteCode;
         }
         auto res = ComputeShader::CompileCompute(
             nativeDevice.fileIo,
@@ -204,7 +207,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel.block_size(),
             kShaderModel,
             file_name,
-            false);
+            cacheType);
         info.block_size = kernel.block_size();
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->Pso();
@@ -363,11 +366,14 @@ ResourceCreationInfo LCDevice::create_raster_shader(
     } else {
         vstd::string_view file_name;
         vstd::string str_cache;
+        CacheType cacheType;
         if (option.name.empty()) {
-            str_cache << ".cache/"sv << checkMD5.to_string(false) << ".dxil"sv;
+            str_cache << checkMD5.to_string(false) << ".dxil"sv;
             file_name = str_cache;
+            cacheType = CacheType::Cache;
         } else {
             file_name = option.name;
+            cacheType = CacheType::ByteCode;
         }
         ResourceCreationInfo info;
         auto res = RasterShader::CompileRaster(
@@ -383,7 +389,7 @@ ResourceCreationInfo LCDevice::create_raster_shader(
             rtv_format,
             dsv_format,
             file_name,
-            false);
+            cacheType);
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->Pso();
         return info;

@@ -42,7 +42,8 @@ public:
         bool Check(Device *self);
         ~LazyLoadShader();
     };
-    luisa::compute::DefaultBinaryIO serVisitor;
+    luisa::compute::Context & ctx;
+    vstd::unique_ptr<luisa::compute::DefaultBinaryIO> serVisitor;
     bool SupportMeshShader() const;
     vstd::MD5 adapterID;
     DxPtr<IDXGIAdapter1> adapter;

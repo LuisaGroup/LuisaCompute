@@ -34,6 +34,9 @@ public:
     void *native_handle() const noexcept override;
     // buffer
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
+    BufferCreationInfo create_buffer(const ir::Type *element, size_t elem_count) noexcept override{
+        return BufferCreationInfo::make_invalid();
+    }
     void destroy_buffer(uint64_t handle) noexcept override;
     // texture
     ResourceCreationInfo create_texture(
