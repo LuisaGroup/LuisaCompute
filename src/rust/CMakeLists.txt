@@ -1,4 +1,7 @@
-corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
+corrosion_import_crate(
+    MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+    # ALL_FEATURES
+    )
 if (WIN32 AND NOT MINGW AND NOT MSYS)
     corrosion_set_linker(luisa_compute_ir link.exe)
     corrosion_set_linker(luisa_compute_api_types link.exe)
@@ -20,7 +23,7 @@ function(luisa_compute_install_rust target)
             FILES_MATCHING REGEX ".*\\.(h|hpp)$")
 endfunction()
 luisa_compute_install_rust(api_types)
-if(LUISA_COMPUTE_ENABLE_CPU)
+if(LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
     target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_backend)
     luisa_compute_install_rust(backend)
 endif()
