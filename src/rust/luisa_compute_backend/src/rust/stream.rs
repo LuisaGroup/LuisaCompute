@@ -23,7 +23,7 @@ use super::{
 #[derive(Clone)]
 struct Work {
     f: Arc<dyn Fn() + Send + Sync>,
-    callback: (fn(*mut u8), *mut u8),
+    callback: (extern "C" fn(*mut u8), *mut u8),
 }
 unsafe impl Send for Work {}
 unsafe impl Sync for Work {}
@@ -101,7 +101,7 @@ impl StreamImpl {
     pub(super) fn enqueue(
         &self,
         work: impl Fn() + Send + Sync + 'static,
-        callback: (fn(*mut u8), *mut u8),
+        callback: (extern "C" fn(*mut u8), *mut u8),
     ) {
         let mut guard = self.ctx.queue.lock();
         guard.push_back(Work {

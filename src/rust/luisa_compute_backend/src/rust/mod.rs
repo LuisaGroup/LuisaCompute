@@ -144,7 +144,7 @@ impl Backend for RustBackend {
         &self,
         stream_: luisa_compute_api_types::Stream,
         command_list: &[luisa_compute_api_types::Command],
-        callback: (fn(*mut u8), *mut u8),
+        callback: (extern "C" fn(*mut u8), *mut u8),
     ) -> super::Result<()> {
         unsafe {
             let stream = &*(stream_.0 as *mut StreamImpl);
@@ -219,7 +219,7 @@ impl Backend for RustBackend {
         }
     }
 
-    fn create_event(&self) -> super::Result<luisa_compute_api_types::Event> {
+    fn create_event(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
         todo!()
     }
 
