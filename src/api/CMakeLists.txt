@@ -1,3 +1,5 @@
+if (LUISA_COMPUTE_ENABLE_RUST)
+
 # option(LUISA_COMPUTE_RUST OFF)
 # if(NOT LUISA_COMPUTE_RUST)
 # execute_process(
@@ -33,3 +35,7 @@ luisa_compute_install(api SOURCES ${LUISA_COMPUTE_API_SOURCES})
 #             COMMENT "Updating Python bindings")
 #     add_dependencies(luisa-compute-api luisa-compute-api-python)
 # endif ()
+else ()
+    add_library(luisa-compute-api INTERFACE)
+    luisa_compute_install(api)
+endif ()

@@ -62,11 +62,10 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
     auto allocate_argument = [&](size_t bytes) noexcept {
         static constexpr auto alignment = 16u;
         auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
+        LUISA_ASSERT(offset + bytes <= argument_buffer.size() &&
+                         argument_count < arguments.size(),
+                     "Too many arguments in ShaderDispatchCommand");
         argument_buffer_offset = offset + bytes;
-        if (argument_buffer_offset > argument_buffer.size()) {
-            LUISA_ERROR_WITH_LOCATION(
-                "Too many arguments in ShaderDispatchCommand");
-        }
         return arguments[argument_count++] = argument_buffer.data() + offset;
     };
 
@@ -114,7 +113,8 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
     auto ptr = allocate_argument(sizeof(launch_size));
     std::memcpy(ptr, &launch_size, sizeof(launch_size));
     // launch configuration
-    auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);;
+    auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
+    ;
     auto blocks = (launch_size + block_size - 1u) / block_size;
     LUISA_VERBOSE_WITH_LOCATION(
         "Dispatching native shader #{} ({}) with {} argument(s) "
