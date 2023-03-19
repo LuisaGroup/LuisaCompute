@@ -1,7 +1,10 @@
 set(LUISA_PYTHON_SOURCES
+        export_commands.cpp
+        export_expr.cpp
         export_gui.cpp
         export_matrix.cpp
         export_op.cpp
+        export_runtime.cpp
         export_vector2.cpp
         export_vector3.cpp
         export_vector4.cpp
@@ -10,6 +13,7 @@ set(LUISA_PYTHON_SOURCES
         managed_accel.cpp managed_accel.h
         managed_bindless.cpp managed_bindless.h
         managed_collector.cpp managed_collector.h
+        managed_device.h
         py_stream.cpp py_stream.h
         ref_counter.cpp ref_counter.h
         stb.cpp)

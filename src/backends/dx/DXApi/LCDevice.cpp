@@ -449,7 +449,9 @@ DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
     }
     return v.ext;
 }
-
+BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+}
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);
 }

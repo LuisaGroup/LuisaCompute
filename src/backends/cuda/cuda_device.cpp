@@ -222,6 +222,10 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
     return info;
 }
 
+BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating buffer from IR types.");
+}
+
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     with_handle([buffer = reinterpret_cast<CUDABuffer *>(handle)] {
         delete_with_allocator(buffer);
