@@ -403,7 +403,6 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
             _io->write_shader_cache(option.name, ptx_data);
         }
     }
-    LUISA_INFO("PTX:\n{}", ptx);
 
     if (option.compile_only) {// no shader object should be created
         return ShaderCreationInfo::make_invalid();
@@ -416,7 +415,7 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
                 this, ptx.data(), ptx.size(), "__raygen__main");
         }
         return new_with_allocator<CUDAShaderNative>(
-            ptx.data(), ptx.size(), "kernel_main");
+            ptx.data(), ptx.size(), "kernel_main", block_size);
     });
 
     ShaderCreationInfo info{};

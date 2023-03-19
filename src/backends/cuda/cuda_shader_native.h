@@ -16,9 +16,11 @@ private:
     CUmodule _module{};
     CUfunction _function{};
     luisa::string _entry;
+    uint _block_size[3];
 
 public:
-    CUDAShaderNative(const char *ptx, size_t ptx_size, const char *entry) noexcept;
+    CUDAShaderNative(const char *ptx, size_t ptx_size,
+                     const char *entry, uint3 block_size) noexcept;
     ~CUDAShaderNative() noexcept override;
     void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 };

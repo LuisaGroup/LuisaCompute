@@ -35,6 +35,8 @@ public:
         uint64_t tex3d;
     };
 
+    using Binding = CUdeviceptr;
+
 private:
     CUdeviceptr _handle{};
     luisa::vector<CUtexObject> _tex2d_slots;
@@ -46,6 +48,7 @@ public:
     ~CUDABindlessArray() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     void update(CUDACommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;
+    [[nodiscard]] auto binding() const noexcept { return _handle; }
 };
 
 }// namespace luisa::compute::cuda
