@@ -5,7 +5,7 @@
 #include <runtime/rhi/resource.h>
 #include <runtime/device.h>
 #include <core/logging.h>
-
+#include <backends/ext/raster_ext.h>
 namespace luisa::compute {
 
 Resource::Resource(Resource &&rhs) noexcept
@@ -24,7 +24,7 @@ void Resource::_destroy() noexcept {
         case Tag::STREAM: _device->destroy_stream(_info.handle); break;
         case Tag::EVENT: _device->destroy_event(_info.handle); break;
         case Tag::SHADER: _device->destroy_shader(_info.handle); break;
-        case Tag::RASTER_SHADER: _device->destroy_raster_shader(_info.handle); break;
+        case Tag::RASTER_SHADER: static_cast<RasterExt *>(_device->extension(RasterExt::name))->destroy_raster_shader(_info.handle); break;
         case Tag::SWAP_CHAIN: _device->destroy_swap_chain(_info.handle); break;
         case Tag::DEPTH_BUFFER: _device->destroy_depth_buffer(_info.handle); break;
     }

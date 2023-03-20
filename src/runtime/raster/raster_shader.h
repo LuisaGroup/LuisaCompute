@@ -3,6 +3,7 @@
 #include <runtime/shader.h>
 #include <runtime/raster/raster_state.h>
 #include <runtime/raster/depth_buffer.h>
+#include <backends/ext/raster_ext.h>
 
 namespace luisa::compute {
 
@@ -171,7 +172,7 @@ private:
         : Resource(
               device,
               Tag::RASTER_SHADER,
-              device->create_raster_shader(
+              static_cast<RasterExt *>(device->extension(RasterExt::name))->create_raster_shader(
                   mesh_format,
                   raster_state,
                   rtv_format,
@@ -216,7 +217,7 @@ private:
               device,
               Tag::RASTER_SHADER,
               // TODO
-              device->load_raster_shader(
+              static_cast<RasterExt *>(device->extension(RasterExt::name))->load_raster_shader(
                 mesh_format,
                 raster_state,
                 rtv_format,

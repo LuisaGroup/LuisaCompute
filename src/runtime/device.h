@@ -24,6 +24,7 @@ class Accel;
 class SwapChain;
 class BindlessArray;
 class IndirectDispatchBuffer;
+class RasterExt;
 
 template<typename T>
 class Buffer;
@@ -216,26 +217,20 @@ public:
     }
 
     template<typename V, typename P>
-    [[nodiscard]] auto compile(
+    [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(
         const RasterKernel<V, P> &kernel,
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        const ShaderOption &option = {}) noexcept {
-        return _create<typename RasterKernel<V, P>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
-    }
+        const ShaderOption &option = {}) noexcept;
     template<typename V, typename P>
     void compile_to(
         const RasterKernel<V, P> &kernel,
         const MeshFormat &format,
         luisa::string_view serialization_path,
         bool enable_debug_info,
-        bool enable_fast_math) {
-        _check_no_implicit_binding(kernel.vert(), serialization_path);
-        _check_no_implicit_binding(kernel.pixel(), serialization_path);
-        _impl->save_raster_shader(format, kernel.vert(), kernel.pixel(), serialization_path, enable_debug_info, enable_fast_math);
-    }
+        bool enable_fast_math) noexcept;
 
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(
@@ -243,9 +238,7 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        luisa::string_view shader_name) {
-        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name);
-    }
+        luisa::string_view shader_name) noexcept;
 
     template<size_t N, typename... Args>
     [[nodiscard]] auto load_shader(luisa::string_view shader_name) noexcept {
