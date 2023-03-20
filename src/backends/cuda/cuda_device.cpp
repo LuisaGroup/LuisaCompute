@@ -186,7 +186,7 @@ CUDADevice::CUDADevice(Context &&ctx,
                        "-dw",
                        "-w",
                        "-ewp",
-                       "-dopt"};
+                       "-dopt=on"};
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, options);
 
     // prepare default shaders

@@ -553,11 +553,8 @@ void CUDACodegenAST::_emit_type_decl() noexcept {
 }
 
 void CUDACodegenAST::visit(const Type *type) noexcept {
-    auto ray_type_desc = Type::of<Ray>()->description();
-    auto triangle_hit_type_desc = Type::of<TriangleHit>()->description();
     if (type->is_structure() &&
-        type->description() != ray_type_desc &&
-        type->description() != triangle_hit_type_desc) {
+        type != _ray_type && type != _triangle_hit_type) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -594,11 +591,9 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
             _scratch << type->dimension() << ">";
             break;
         case Type::Tag::STRUCTURE: {
-            auto ray_type_desc = Type::of<Ray>()->description();
-            auto triangle_hit_type_desc = Type::of<TriangleHit>()->description();
-            if (auto desc = type->description(); desc == ray_type_desc) {
+            if (type == _ray_type) {
                 _scratch << "LCRay";
-            } else if (desc == triangle_hit_type_desc) {
+            } else if (type == _triangle_hit_type) {
                 _scratch << "LCTriangleHit";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
@@ -751,5 +746,10 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
     LUISA_ERROR_WITH_LOCATION(
         "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
+
+CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
+    : _scratch{scratch},
+      _ray_type{Type::of<Ray>()},
+      _triangle_hit_type{Type::of<TriangleHit>()} {}
 
 }// namespace luisa::compute::cuda

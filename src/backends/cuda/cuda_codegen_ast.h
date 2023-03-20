@@ -28,6 +28,10 @@ private:
     uint32_t _indent{0u};
 
 private:
+    const Type *_ray_type;
+    const Type *_triangle_hit_type;
+
+private:
     void visit(const Type *type) noexcept override;
     void visit(const UnaryExpr *expr) override;
     void visit(const BinaryExpr *expr) override;
@@ -66,8 +70,7 @@ private:
     void _emit_variable_declarations(Function f) noexcept;
 
 public:
-    explicit CUDACodegenAST(StringScratch &scratch) noexcept
-        : _scratch{scratch} {}
+    explicit CUDACodegenAST(StringScratch &scratch) noexcept;
     void emit(Function f);
 };
 
