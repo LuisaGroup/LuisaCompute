@@ -554,7 +554,8 @@ void CUDACodegenAST::_emit_type_decl() noexcept {
 
 void CUDACodegenAST::visit(const Type *type) noexcept {
     if (type->is_structure() &&
-        type != _ray_type && type != _triangle_hit_type) {
+        type != _ray_type && type != _triangle_hit_type &&
+        type != _procedural_hit_type && type != _committed_hit_type) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -595,6 +596,10 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCRay";
             } else if (type == _triangle_hit_type) {
                 _scratch << "LCTriangleHit";
+            } else if (type == _procedural_hit_type) {
+                _scratch << "LCProceduralHit";
+            } else if (type == _committed_hit_type) {
+                _scratch << "LCCommittedHit";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
             }
@@ -750,6 +755,8 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
 CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
     : _scratch{scratch},
       _ray_type{Type::of<Ray>()},
-      _triangle_hit_type{Type::of<TriangleHit>()} {}
+      _triangle_hit_type{Type::of<TriangleHit>()},
+      _procedural_hit_type{Type::of<ProceduralHit>()},
+      _committed_hit_type{Type::of<CommittedHit>()} {}
 
 }// namespace luisa::compute::cuda

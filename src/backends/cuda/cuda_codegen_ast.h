@@ -30,6 +30,8 @@ private:
 private:
     const Type *_ray_type;
     const Type *_triangle_hit_type;
+    const Type *_procedural_hit_type;
+    const Type *_committed_hit_type;
 
 private:
     void visit(const Type *type) noexcept override;
