@@ -44,8 +44,6 @@ public:
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;
-    void visit(DrawRasterSceneCommand *command) noexcept override;
-    void visit(ClearDepthCommand *command) noexcept override;
 
     void commit(CommandList::CallbackContainer &&user_callbacks) noexcept;
 
