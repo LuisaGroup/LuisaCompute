@@ -133,14 +133,8 @@ private:
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) {
         auto f = make_shared<FunctionBuilder>(tag);
-        push(f.get());
-        try {
-            f->with(&f->_body, std::forward<Def>(def));
-        } catch (...) {
-            pop(f.get());
-            throw;
-        }
-        pop(f.get());
+        FunctionStackGuard guard{f.get()};
+        f->with(&f->_body, std::forward<Def>(def));
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
 
