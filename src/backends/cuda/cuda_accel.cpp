@@ -142,7 +142,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                 auto m = mods[i];
                 if (m.flags & Mod::flag_primitive) {
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
-                    _primitives[i] = prim;
+                    _primitives[m.index] = prim;
                     m.primitive = prim->handle();
                 }
                 host_updates[i] = m;
@@ -167,6 +167,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     _prim_handles.resize(instance_count);
     for (auto i = 0u; i < instance_count; i++) {
         auto prim = _primitives[i];
+        LUISA_ASSERT(prim != nullptr, "Primitive at index {} is null.", i);
         requires_build |= prim->handle() != _prim_handles[i];// primitive handle changed
         _prim_handles[i] = prim->handle();
     }
