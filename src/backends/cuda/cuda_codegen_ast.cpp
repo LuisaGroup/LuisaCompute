@@ -10,6 +10,7 @@
 #include <ast/function_builder.h>
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
+#include <dsl/rtx/ray_query.h>
 #include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_codegen_ast.h>
 
@@ -554,8 +555,11 @@ void CUDACodegenAST::_emit_type_decl() noexcept {
 
 void CUDACodegenAST::visit(const Type *type) noexcept {
     if (type->is_structure() &&
-        type != _ray_type && type != _triangle_hit_type &&
-        type != _procedural_hit_type && type != _committed_hit_type) {
+        type != _ray_type &&
+        type != _triangle_hit_type &&
+        type != _procedural_hit_type &&
+        type != _committed_hit_type &&
+        type != _ray_query_type) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -600,6 +604,8 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCProceduralHit";
             } else if (type == _committed_hit_type) {
                 _scratch << "LCCommittedHit";
+            } else if (type == _ray_query_type) {
+                _scratch << "LCRayQuery";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
             }
@@ -757,6 +763,7 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},
-      _committed_hit_type{Type::of<CommittedHit>()} {}
+      _committed_hit_type{Type::of<CommittedHit>()},
+      _ray_query_type{Type::of<RayQuery>()} {}
 
 }// namespace luisa::compute::cuda
