@@ -12,6 +12,7 @@
 #include <core/stl/variant.h>
 #include <runtime/buffer.h>
 #include <runtime/dispatch_buffer.h>
+#include <core/logging.h>
 #include <runtime/rtx/aabb.h>
 namespace toolhub::directx {
 using Argument = ShaderDispatchCommandBase::Argument;
@@ -191,7 +192,7 @@ public:
             rt,
             D3D12_RESOURCE_STATE_COPY_DEST);
     }
-    void visit(const ClearDepthCommand *cmd) noexcept override {
+    void visit(const ClearDepthCommand *cmd) noexcept {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         stateTracker->RecordState(
             rt,
@@ -237,7 +238,7 @@ public:
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
-        if (cmd->build_accel()) {
+        if (!cmd->update_instance_buffer_only()) {
             AddBuildAccel(
                 accel->PreProcess(
                     *stateTracker,
@@ -293,10 +294,17 @@ public:
             cmd->modifications());
     };
     void visit(const CustomCommand *cmd) noexcept override {
-        //TODO
+        switch (cmd->uuid()) {
+            case clear_depth_command_uuid:
+                visit(static_cast<ClearDepthCommand const *>(cmd));
+                break;
+            case draw_raster_command_uuid:
+                visit(static_cast<DrawRasterSceneCommand const *>(cmd));
+                break;
+        }
     }
 
-    void visit(const DrawRasterSceneCommand *cmd) noexcept override {
+    void visit(const DrawRasterSceneCommand *cmd) noexcept {
         auto cs = reinterpret_cast<RasterShader *>(cmd->handle());
         size_t beforeSize = argBuffer->size();
         auto rtvs = cmd->rtv_texs();
@@ -523,7 +531,7 @@ public:
             rt,
             stateTracker->ReadState(ResourceReadUsage::Srv, rt));
     }
-    void visit(const ClearDepthCommand *cmd) noexcept override {
+    void visit(const ClearDepthCommand *cmd) noexcept {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
         auto cmdList = bd->GetCB()->CmdList();
         auto alloc = bd->GetCB()->GetAlloc();
@@ -613,7 +621,7 @@ public:
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         vstd::optional<BufferView> scratch;
-        if (cmd->build_accel()) {
+        if (!cmd->update_instance_buffer_only()) {
             scratch.create(BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second));
             if (accel->RequireCompact()) {
                 updateAccel->emplace_back(ButtomCompactCmd{
@@ -658,9 +666,16 @@ public:
             cmd->modifications());
     }
     void visit(const CustomCommand *cmd) noexcept override {
-        //TODO
+        switch (cmd->uuid()) {
+            case clear_depth_command_uuid:
+                visit(static_cast<ClearDepthCommand const *>(cmd));
+                break;
+            case draw_raster_command_uuid:
+                visit(static_cast<DrawRasterSceneCommand const *>(cmd));
+                break;
+        }
     }
-    void visit(const DrawRasterSceneCommand *cmd) noexcept override {
+    void visit(const DrawRasterSceneCommand *cmd) noexcept {
         bindProps->clear();
 
         auto cmdList = bd->GetCB()->CmdList();
@@ -975,7 +990,7 @@ void LCCmdBuffer::Present(
 }
 void LCCmdBuffer::CompressBC(
     TextureBase *rt,
-    vstd::vector<std::byte> &result,
+    luisa::compute::BufferView<uint> const &result,
     bool isHDR,
     float alphaImportance,
     GpuAllocator *allocator,
@@ -998,20 +1013,19 @@ void LCCmdBuffer::CompressBC(
     uint numTotalBlocks = numBlocks;
     static constexpr size_t BLOCK_SIZE = 16;
     auto bufferReadState = tracker.ReadState(ResourceReadUsage::Srv);
-    DefaultBuffer err1Buffer(
+    if (result.size_bytes() != BLOCK_SIZE * numBlocks) [[unlikely]] {
+        LUISA_ERROR("Texture compress output buffer incorrect size!");
+    }
+    DefaultBuffer backBuffer(
         device,
         BLOCK_SIZE * numBlocks,
         allocator,
         bufferReadState);
-    DefaultBuffer err2Buffer(
-        device,
-        BLOCK_SIZE * numBlocks,
-        allocator,
-        bufferReadState);
-    ReadbackBuffer readbackBuffer(
-        device,
-        BLOCK_SIZE * numBlocks,
-        allocator);
+    auto outBufferPtr = reinterpret_cast<Buffer *>(result.handle());
+    BufferView outBuffer{
+        outBufferPtr,
+        result.offset_bytes(),
+        result.size_bytes()};
     auto alloc = queue.CreateAllocator(maxAlloc);
     tracker.listType = alloc->Type();
     {
@@ -1024,32 +1038,32 @@ void LCCmdBuffer::CompressBC(
 
         BCCBuffer cbData;
         tracker.RecordState(rt, tracker.ReadState(ResourceReadUsage::Srv, rt));
-        auto RunComputeShader = [&](ComputeShader const *cs, uint dispatchCount, DefaultBuffer const &inBuffer, DefaultBuffer const &outBuffer) {
+        auto RunComputeShader = [&](ComputeShader const *cs, uint dispatchCount, BufferView const &inBuffer, BufferView const &outBuffer) {
             auto cbuffer = alloc->GetTempUploadBuffer(sizeof(BCCBuffer), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
             static_cast<UploadBuffer const *>(cbuffer.buffer)->CopyData(cbuffer.offset, {reinterpret_cast<uint8_t const *>(&cbData), sizeof(BCCBuffer)});
             tracker.RecordState(
-                &inBuffer,
+                inBuffer.buffer,
                 bufferReadState);
             tracker.RecordState(
-                &outBuffer,
+                outBuffer.buffer,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             tracker.UpdateState(cmdBuilder);
             BindProperty prop[4];
             prop[0] = cbuffer;
             prop[1] = DescriptorHeapView(device->globalHeap.get(), rt->GetGlobalSRVIndex());
-            prop[2] = BufferView(&inBuffer, 0);
-            prop[3] = BufferView(&outBuffer, 0);
+            prop[2] = inBuffer;
+            prop[3] = outBuffer;
             cmdBuilder.DispatchCompute(
                 cs,
                 uint3(dispatchCount, 1, 1),
                 {prop, 4});
         };
         constexpr int MAX_BLOCK_BATCH = 64;
-        DefaultBuffer const *outputBuffer = nullptr;
         uint startBlockID = 0;
         if (isHDR)//bc6
         {
-            outputBuffer = &err2Buffer;
+            BufferView err1Buffer{&backBuffer};
+            BufferView err2Buffer{outBuffer};
             auto bc6TryModeG10 = device->bc6TryModeG10.Get(device);
             auto bc6TryModeLE10 = device->bc6TryModeLE10.Get(device);
             auto bc6Encode = device->bc6EncodeBlock.Get(device);
@@ -1085,7 +1099,8 @@ void LCCmdBuffer::CompressBC(
             }
 
         } else {
-            outputBuffer = &err1Buffer;
+            BufferView err1Buffer{outBuffer};
+            BufferView err2Buffer{&backBuffer};
             auto bc7Try137Mode = device->bc7TryMode137.Get(device);
             auto bc7Try02Mode = device->bc7TryMode02.Get(device);
             auto bc7Try456Mode = device->bc7TryMode456.Get(device);
@@ -1134,22 +1149,11 @@ void LCCmdBuffer::CompressBC(
                 numBlocks -= n;
             }
         }
-        tracker.RecordState(outputBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        tracker.UpdateState(cmdBuilder);
-        cmdBuilder.CopyBuffer(
-            outputBuffer,
-            &readbackBuffer,
-            0, 0, outputBuffer->GetByteSize());
+        tracker.RecordState(outBufferPtr, D3D12_RESOURCE_STATE_COPY_SOURCE);
         tracker.RestoreState(cmdBuilder);
     }
     lastFence = queue.ExecuteCallback(
         std::move(alloc),
-        [&, err1Buffer = std::move(err1Buffer),
-         err2Buffer = std::move(err2Buffer),
-         readbackBuffer = std::move(readbackBuffer)] {
-            result.clear();
-            result.push_back_uninitialized(readbackBuffer.GetByteSize());
-            readbackBuffer.CopyData(0, {reinterpret_cast<uint8_t *>(result.data()), result.size()});
-        });
+        [backBuffer = std::move(backBuffer)] {});
 }
 }// namespace toolhub::directx

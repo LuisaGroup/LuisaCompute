@@ -8,6 +8,9 @@
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
+#include <runtime/rtx/ray.h>
+#include <runtime/rtx/hit.h>
+#include <dsl/rtx/ray_query.h>
 #include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_codegen_ast.h>
 
@@ -291,10 +294,11 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_trace_any"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
     }
     _scratch << "(";
     if (auto args = expr->arguments(); !args.empty()) {
@@ -467,9 +471,9 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
                  << f.block_size().y << ", "
                  << f.block_size().z << ");"
                  // launch size
-                 << "\n  const auto ls = lc_rtx_dispatch_size();"
+                 << "\n  const auto ls = lc_dispatch_size();"
                  // dispatch id
-                 << "\n  const auto did = lc_rtx_dispatch_id();";
+                 << "\n  const auto did = lc_dispatch_id();";
         for (auto builtin : f.builtin_variables()) {
             switch (builtin.tag()) {
                 case Variable::Tag::THREAD_ID:
@@ -550,13 +554,13 @@ void CUDACodegenAST::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
-static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
-
 void CUDACodegenAST::visit(const Type *type) noexcept {
     if (type->is_structure() &&
-        type->description() != ray_type_desc &&
-        type->description() != hit_type_desc) {
+        type != _ray_type &&
+        type != _triangle_hit_type &&
+        type != _procedural_hit_type &&
+        type != _committed_hit_type &&
+        type != _ray_query_type) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -592,15 +596,22 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
             _scratch << ", ";
             _scratch << type->dimension() << ">";
             break;
-        case Type::Tag::STRUCTURE:
-            if (auto desc = type->description(); desc == ray_type_desc) {
+        case Type::Tag::STRUCTURE: {
+            if (type == _ray_type) {
                 _scratch << "LCRay";
-            } else if (desc == hit_type_desc) {
-                _scratch << "LCHit";
+            } else if (type == _triangle_hit_type) {
+                _scratch << "LCTriangleHit";
+            } else if (type == _procedural_hit_type) {
+                _scratch << "LCProceduralHit";
+            } else if (type == _committed_hit_type) {
+                _scratch << "LCCommittedHit";
+            } else if (type == _ray_query_type) {
+                _scratch << "LCRayQuery";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
             }
             break;
+        }
         default: break;
     }
 }
@@ -747,5 +758,13 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
     LUISA_ERROR_WITH_LOCATION(
         "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
+
+CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
+    : _scratch{scratch},
+      _ray_type{Type::of<Ray>()},
+      _triangle_hit_type{Type::of<TriangleHit>()},
+      _procedural_hit_type{Type::of<ProceduralHit>()},
+      _committed_hit_type{Type::of<CommittedHit>()},
+      _ray_query_type{Type::of<RayQuery>()} {}
 
 }// namespace luisa::compute::cuda

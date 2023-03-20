@@ -114,7 +114,6 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
     std::memcpy(ptr, &launch_size, sizeof(launch_size));
     // launch configuration
     auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-    ;
     auto blocks = (launch_size + block_size - 1u) / block_size;
     LUISA_VERBOSE_WITH_LOCATION(
         "Dispatching native shader #{} ({}) with {} argument(s) "

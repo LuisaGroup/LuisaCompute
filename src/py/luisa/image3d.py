@@ -16,6 +16,8 @@ def _check_storage(storage_name, dtype):
 
 class Image3D:
     def __init__(self, width, height, volume, channel, dtype, mip=1, storage = None):
+        if width == 0 or height == 0 or volume == 0:
+            raise Exception("Image3D size must be non-zero")
         if not dtype in {int, uint, float}:
             raise Exception('Image3D only supports int / uint / float')
         if not channel in (1,3,4):

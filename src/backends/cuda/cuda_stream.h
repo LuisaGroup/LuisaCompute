@@ -34,6 +34,7 @@ private:
     std::mutex _mutex;
     luisa::queue<CallbackContainer> _callback_lists;
     CUstream _stream{};
+    uint64_t _uid;
 
 public:
     explicit CUDAStream(CUDADevice *device) noexcept;
@@ -46,6 +47,7 @@ public:
     void signal(CUevent event) noexcept;
     void wait(CUevent event) noexcept;
     void callback(CallbackContainer &&callbacks) noexcept;
+    [[nodiscard]] auto uid() const noexcept { return _uid; }
 };
 
 }// namespace luisa::compute::cuda

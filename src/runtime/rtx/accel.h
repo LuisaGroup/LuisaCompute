@@ -17,6 +17,7 @@ namespace detail {
 // for DSL
 class AccelExprProxy;
 }// namespace detail
+
 // Accel is top-level acceleration structure(TLAS) for ray-tracing
 class LC_RUNTIME_API Accel final : public Resource {
 
@@ -32,7 +33,8 @@ private:
     friend class Device;
     friend class Mesh;
     explicit Accel(DeviceInterface *device, const AccelOption &option) noexcept;
-    luisa::unique_ptr<Command> update(bool build_accel, Accel::BuildRequest request) noexcept;
+    luisa::unique_ptr<Command> _build(Accel::BuildRequest request,
+                                      bool update_instance_buffer_only) noexcept;
 
 public:
     Accel() noexcept = default;
@@ -88,12 +90,12 @@ public:
     void set_opaque_on_update(size_t index, bool opaque) noexcept;
 
     // update top-level acceleration structure's instance data without build
-    [[nodiscard]] luisa::unique_ptr<Command> update_instance() noexcept {
-        return update(false, Accel::BuildRequest::PREFER_UPDATE);
+    [[nodiscard]] luisa::unique_ptr<Command> update_instance_buffer() noexcept {
+        return _build(Accel::BuildRequest::PREFER_UPDATE, true);
     }
     // update top-level acceleration structure's instance data and build
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept {
-        return update(true, request);
+        return _build(request, false);
     }
 
     // DSL interface

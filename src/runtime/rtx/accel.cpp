@@ -4,7 +4,6 @@
 
 #include <ast/function_builder.h>
 #include <runtime/shader.h>
-#include <runtime/custom_pass.h>
 #include <runtime/rtx/accel.h>
 #include <vstl/pdqsort.h>
 #include <core/logging.h>
@@ -24,18 +23,11 @@ Accel Device::create_accel(const AccelOption &option) noexcept {
     return _create<Accel>(option);
 }
 
-void CustomPass::_emplace(luisa::string name, Usage usage, const Accel &accel) noexcept {
-    CustomCommand::ResourceBinding bindings;
-    bindings.name = std::move(name);
-    bindings.usage = usage;
-    bindings.resource_view = CustomCommand::AccelView{.handle = accel.handle()};
-    _bindings.emplace_back(std::move(bindings));
-}
-
 Accel::Accel(DeviceInterface *device, const AccelOption &option) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(option)} {}
 
-luisa::unique_ptr<Command> Accel::update(bool build_accel, Accel::BuildRequest request) noexcept {
+luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
+                                  bool update_instance_buffer_only) noexcept {
     if (_mesh_handles.empty()) { LUISA_ERROR_WITH_LOCATION(
         "Building acceleration structure without instances."); }
     // collect modifications
@@ -46,7 +38,8 @@ luisa::unique_ptr<Command> Accel::update(bool build_accel, Accel::BuildRequest r
     pdqsort(modifications.begin(), modifications.end(),
             [](auto &&lhs, auto &&rhs) noexcept { return lhs.index < rhs.index; });
     return AccelBuildCommand::create(handle(), static_cast<uint>(_mesh_handles.size()),
-                                     request, std::move(modifications), build_accel);
+                                     request, std::move(modifications),
+                                     update_instance_buffer_only);
 }
 
 void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque) noexcept {

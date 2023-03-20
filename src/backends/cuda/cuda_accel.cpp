@@ -142,7 +142,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                 auto m = mods[i];
                 if (m.flags & Mod::flag_primitive) {
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
-                    _primitives[i] = prim;
+                    _primitives[m.index] = prim;
                     m.primitive = prim->handle();
                 }
                 host_updates[i] = m;
@@ -159,22 +159,27 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
         LUISA_CHECK_CUDA(cuMemFreeAsync(update_buffer, cuda_stream));
     }
     // find out whether we really need to build (or rebuild) the BVH
-    auto requires_build = command->request() == AccelBuildRequest::FORCE_BUILD /* user requires rebuilding */ ||
-                          !_option.allow_update /* update is not allowed in the accel */ ||
-                          _handle == 0u /* the accel is not yet built */ ||
-                          _prim_handles.size() != instance_count;// number of instances changed
+    _requires_rebuild = _requires_rebuild /* pending rebuild */ ||
+                        command->request() == AccelBuildRequest::FORCE_BUILD /* user requires rebuilding */ ||
+                        !_option.allow_update /* update is not allowed in the accel */ ||
+                        _handle == 0u /* the accel is not yet built */ ||
+                        _prim_handles.size() != instance_count;// number of instances changed
     // check if any primitive handle changed
     _prim_handles.resize(instance_count);
     for (auto i = 0u; i < instance_count; i++) {
         auto prim = _primitives[i];
-        requires_build |= prim->handle() != _prim_handles[i];// primitive handle changed
+        LUISA_ASSERT(prim != nullptr, "Primitive at index {} is null.", i);
+        _requires_rebuild |= prim->handle() != _prim_handles[i];// primitive handle changed
         _prim_handles[i] = prim->handle();
     }
-    // perform the build or update
-    if (requires_build) {
-        _build(encoder);
-    } else {
-        _update(encoder);
+    if (!command->update_instance_buffer_only()) {// build or update the BVH
+        if (_requires_rebuild) {
+            _build(encoder);
+        } else {
+            _update(encoder);
+        }
+        // reset the flag
+        _requires_rebuild = false;
     }
 }
 

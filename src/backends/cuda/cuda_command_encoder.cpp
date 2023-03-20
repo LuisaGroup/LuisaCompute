@@ -207,16 +207,8 @@ void CUDACommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcep
 }
 
 void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Custom command '{}' is not supported on CUDA.",
-                              command->name());
-}
-
-void CUDACommandEncoder::visit(DrawRasterSceneCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
-}
-
-void CUDACommandEncoder::visit(ClearDepthCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Depth clear is not supported on CUDA.");
+    LUISA_ERROR_WITH_LOCATION("Custom command (UUID = {}) is not supported on CUDA.",
+                              command->uuid());
 }
 
 }// namespace luisa::compute::cuda

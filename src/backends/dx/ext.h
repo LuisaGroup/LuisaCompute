@@ -13,8 +13,8 @@ public:
     Device *device;
     DxTexCompressExt(Device *device);
     ~DxTexCompressExt();
-    Result compress_bc6h(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result) noexcept override;
-    Result compress_bc7(Stream &stream, Image<float> const &src, vstd::vector<std::byte> &result, float alphaImportance) noexcept override;
+    Result compress_bc6h(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result) noexcept override;
+    Result compress_bc7(Stream &stream, Image<float> const &src, luisa::compute::BufferView<uint> const &result, float alphaImportance) noexcept override;
     Result check_builtin_shader() noexcept override;
 };
 struct NativeTextureDesc {
@@ -139,7 +139,7 @@ public:
         Function vert,
         Function pixel,
         const ShaderOption &cache_option) noexcept override;
-    [[nodiscard]] void save_raster_shader(
+    void save_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,
         Function pixel,

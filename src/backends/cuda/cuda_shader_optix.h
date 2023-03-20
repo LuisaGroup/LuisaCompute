@@ -10,7 +10,7 @@
 
 namespace luisa::compute::cuda {
 
-class CUDAStream;
+class CUDACommandEncoder;
 
 class CUDAShaderOptiX final : public CUDAShader {
 
@@ -28,10 +28,10 @@ private:
     mutable luisa::spin_mutex _mutex;
     mutable CUevent _sbt_event{};
     mutable optix::ShaderBindingTable _sbt{};
-    mutable luisa::unordered_set<CUstream> _sbt_recoreded_streams;
+    mutable luisa::unordered_set<uint64_t> _sbt_recorded_streams;
 
 private:
-    void _prepare_sbt(CUDAStream *stream, CUstream cuda_stream) const noexcept;
+    void _prepare_sbt(CUDACommandEncoder &encoder) const noexcept;
 
 public:
     CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept;

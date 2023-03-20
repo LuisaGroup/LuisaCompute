@@ -22,8 +22,14 @@ option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" OFF)
 
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
-option(LUISA_COMPUTE_ENABLE_RUST "Enable GUI support" ON)
-
+option(LUISA_COMPUTE_ENABLE_RUST "Enable Rust Support" ON)
+option(LUISA_COMPUTE_DISABLE_RUST_OVERRIDE "Acknowledge Rust IR modules cannot be disabled for future release" OFF)
+if(NOT LUISA_COMPUTE_ENABLE_RUST AND NOT LUISA_COMPUTE_DISABLE_RUST_OVERRIDE)
+    message(FATAL_ERROR "\nRust is required for future releases. \n\
+    To install rust, `run curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` on unix environment\n\
+    or download and run the installer from https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe on windows environment.\n\
+    please set LUISA_COMPUTE_DISABLE_RUST_OVERRIDE to ON to acknowledge this")
+endif()
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
 if (APPLE AND LUISA_COMPUTE_ENABLE_METAL)

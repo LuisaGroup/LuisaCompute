@@ -11,7 +11,7 @@
 #include <Resource/BindlessArray.h>
 #include <Shader/ComputeShader.h>
 #include <Resource/BottomAccel.h>
-
+#include <runtime/buffer.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
 class RenderTexture;
@@ -70,7 +70,7 @@ public:
         size_t maxAlloc);
     void CompressBC(
         TextureBase *rt,
-        vstd::vector<std::byte> &result,
+        luisa::compute::BufferView<uint> const &result,
         bool isHDR,
         float alphaImportance,
         GpuAllocator *allocator,

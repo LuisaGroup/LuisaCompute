@@ -30,7 +30,6 @@ end)
 
 _config_project(my_table)
 add_files("*.cpp")
-add_defines("LC_AST_EXCEPTION")
 add_includedirs("../ext/stb/", "../ext/pybind11/include")
 add_deps("lc-runtime", "lc-gui")
 after_build(function(target)
