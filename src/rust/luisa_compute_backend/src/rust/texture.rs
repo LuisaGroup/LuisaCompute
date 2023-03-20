@@ -4,6 +4,7 @@ use parking_lot::RwLock;
 const BLOCK_SIZE: usize = 4;
 pub struct TextureImpl {
     pub(crate) data: *mut u8,
+    pub(crate) data_size: usize,
     pub(crate) size: [u32; 3],
     pub(crate) dimension: u8,
     pub(crate) pixel_stride_shift: usize,
@@ -15,6 +16,13 @@ pub struct TextureImpl {
 }
 unsafe impl Send for TextureImpl {}
 unsafe impl Sync for TextureImpl {}
+impl Drop for TextureImpl {
+    fn drop(&mut self) {
+        unsafe {
+            std::alloc::dealloc(self.data, self.layout);
+        }
+    }
+}
 impl TextureImpl {
     pub(super) fn new(dimension: u8, size: [u32; 3], storage: PixelStorage, levels: u8) -> Self {
         let pixel_size = storage.size();
@@ -32,6 +40,7 @@ impl TextureImpl {
         let mut data_size = 0;
         let mut mip_offsets = [0; 16];
         for level in 0..levels {
+            mip_offsets[level as usize] = data_size;
             let blocks = [
                 (((size[0] as usize >> level).max(1)) + BLOCK_SIZE - 1) / BLOCK_SIZE,
                 (((size[1] as usize >> level).max(1)) + BLOCK_SIZE - 1) / BLOCK_SIZE,
@@ -48,12 +57,15 @@ impl TextureImpl {
                     * BLOCK_SIZE
                     * pixel_size
             };
+        }
+        for level in levels..16 {
             mip_offsets[level as usize] = data_size;
         }
-        let layout = unsafe { std::alloc::Layout::from_size_align(data_size, 16).unwrap() };
+        let layout = std::alloc::Layout::from_size_align(data_size, 16).unwrap();
         let data = unsafe { std::alloc::alloc(layout) };
         Self {
             data,
+            data_size,
             size,
             dimension,
             pixel_stride_shift,
@@ -66,6 +78,7 @@ impl TextureImpl {
     }
     pub(crate) fn view(&self, level: u8) -> TextureView {
         let offset = self.mip_offsets[level as usize];
+        assert!(offset <= self.data_size);
         let size = [
             (self.size[0] >> level).max(1),
             (self.size[1] >> level).max(1),
@@ -76,6 +89,11 @@ impl TextureImpl {
                 data: self.data.add(offset) as *mut u8,
                 size,
                 pixel_stride_shift: self.pixel_stride_shift,
+                data_size: if level == 15 {
+                    self.data_size - offset
+                }else {
+                    self.mip_offsets[level as usize + 1] - offset
+                }
             }
         }
     }
@@ -97,14 +115,16 @@ impl TextureImpl {
         }
     }
 }
+#[derive(Debug)]
 pub(crate) struct TextureView {
     pub(crate) data: *mut u8,
     pub(crate) size: [u32; 3],
     pub(crate) pixel_stride_shift: usize,
+    pub(crate) data_size:usize,
 }
 
 impl TextureView {
-    pub(crate) fn data_size(&self) -> usize {
+    pub(crate) fn unpadded_data_size(&self) -> usize {
         self.size[0] as usize
             * self.size[1] as usize
             * self.size[2] as usize
@@ -120,10 +140,9 @@ impl TextureView {
         let pixel_y = y % BLOCK_SIZE as u32;
         let pixel_idx =
             block_idx * (BLOCK_SIZE * BLOCK_SIZE) as u32 + pixel_x + pixel_y * BLOCK_SIZE as u32;
-        unsafe {
-            self.data
-                .add((pixel_idx as usize) << self.pixel_stride_shift)
-        }
+        let i = (pixel_idx as usize) << self.pixel_stride_shift;
+        assert!(i <= self.data_size);
+        unsafe { self.data.add(i) }
     }
     #[inline]
     pub(crate) fn get_pixel_3d(&self, x: u32, y: u32, z: u32) -> *mut u8 {
@@ -140,10 +159,9 @@ impl TextureView {
             + pixel_x
             + pixel_y * BLOCK_SIZE as u32
             + pixel_z * BLOCK_SIZE as u32 * BLOCK_SIZE as u32;
-        unsafe {
-            self.data
-                .add((pixel_idx as usize) << self.pixel_stride_shift)
-        }
+        let i = (pixel_idx as usize) << self.pixel_stride_shift;
+        assert!(i <= self.data_size);
+        unsafe { self.data.add(i) }
     }
     #[inline]
     pub(crate) fn copy_from_2d(&self, mut data: *const u8) {
