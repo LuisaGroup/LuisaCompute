@@ -95,7 +95,7 @@ jobs:
       matrix:
         os: [ 2019, 2022 ]
         config: [ release, debug ]
-        compiler: [ cl, clang, clang-cl ]
+        compiler: [ msvc, clang, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: windows-${{ matrix.os }}
     steps:
@@ -114,5 +114,5 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          xmake f -p windows -a x64 -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true
+          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true
           xmake
