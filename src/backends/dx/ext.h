@@ -1,7 +1,7 @@
 #pragma once
 #include <vstl/common.h>
-#include <backends/common/tex_compress_ext.h>
-#include <backends/common/native_resource_ext.h>
+#include <backends/ext/tex_compress_ext.h>
+#include <backends/ext/native_resource_ext.h>
 #include <backends/dx/d3dx12.h>
 using namespace luisa::compute;
 namespace toolhub::directx {
