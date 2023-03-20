@@ -782,3 +782,22 @@ __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> gr
                 f"__device__ inline void lc_accumulate_grad({t} *dst, {t} grad) noexcept {{}}", file=file)
         print(
             "struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};", file=file)
+        print('''template<class T> struct element_type_;
+template<class T> using element_type = typename element_type_<T>::type;
+''',file=file)
+        def gen_element_type(vt, et):
+            print(f'''template<> struct element_type_<{vt}> {{ using type = {et}; }};''', file=file)
+        for vt in ['lc_float2', 'lc_float3', 'lc_float4']:
+            gen_element_type(vt, "float")
+        for vt in ['lc_short2', 'lc_short3', 'lc_short4']:
+            gen_element_type(vt, 'lc_short')
+        for vt in ['lc_ushort2', 'lc_ushort3', 'lc_ushort4']:
+            gen_element_type(vt, 'lc_ushort')
+        for vt in ['lc_int2', 'lc_int3', 'lc_int4']:
+            gen_element_type(vt, 'lc_int')
+        for vt in ['lc_uint2', 'lc_uint3', 'lc_uint4']:
+            gen_element_type(vt, 'lc_uint')
+        for vt in ['lc_long2', 'lc_long3', 'lc_long4']:
+            gen_element_type(vt, 'lc_long')
+        for vt in ['lc_ulong2', 'lc_ulong3', 'lc_ulong4']:
+            gen_element_type(vt, 'lc_ulong')

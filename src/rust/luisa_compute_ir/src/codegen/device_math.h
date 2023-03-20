@@ -4670,3 +4670,27 @@ __device__ inline void lc_accumulate_grad(lc_bool2 *dst, lc_bool2 grad) noexcept
 __device__ inline void lc_accumulate_grad(lc_bool3 *dst, lc_bool3 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_bool4 *dst, lc_bool4 grad) noexcept {}
 struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};
+template<class T> struct element_type_;
+template<class T> using element_type = typename element_type_<T>::type;
+
+template<> struct element_type_<lc_float2> { using type = float; };
+template<> struct element_type_<lc_float3> { using type = float; };
+template<> struct element_type_<lc_float4> { using type = float; };
+template<> struct element_type_<lc_short2> { using type = lc_short; };
+template<> struct element_type_<lc_short3> { using type = lc_short; };
+template<> struct element_type_<lc_short4> { using type = lc_short; };
+template<> struct element_type_<lc_ushort2> { using type = lc_ushort; };
+template<> struct element_type_<lc_ushort3> { using type = lc_ushort; };
+template<> struct element_type_<lc_ushort4> { using type = lc_ushort; };
+template<> struct element_type_<lc_int2> { using type = lc_int; };
+template<> struct element_type_<lc_int3> { using type = lc_int; };
+template<> struct element_type_<lc_int4> { using type = lc_int; };
+template<> struct element_type_<lc_uint2> { using type = lc_uint; };
+template<> struct element_type_<lc_uint3> { using type = lc_uint; };
+template<> struct element_type_<lc_uint4> { using type = lc_uint; };
+template<> struct element_type_<lc_long2> { using type = lc_long; };
+template<> struct element_type_<lc_long3> { using type = lc_long; };
+template<> struct element_type_<lc_long4> { using type = lc_long; };
+template<> struct element_type_<lc_ulong2> { using type = lc_ulong; };
+template<> struct element_type_<lc_ulong3> { using type = lc_ulong; };
+template<> struct element_type_<lc_ulong4> { using type = lc_ulong; };
