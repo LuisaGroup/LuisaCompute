@@ -42,9 +42,10 @@ class RasterMesh;
         MeshBuildCommand,                \
         ProceduralPrimitiveBuildCommand, \
         BindlessArrayUpdateCommand,      \
-        CustomCommand,                   \
-        DrawRasterSceneCommand,          \
-        ClearDepthCommand
+        CustomCommand
+
+static constexpr uint64_t draw_raster_command_uuid = 10000;
+static constexpr uint64_t clear_depth_command_uuid = 10001;
 
 #define LUISA_MAKE_COMMAND_FWD_DECL(CMD) class CMD;
 LUISA_MAP(LUISA_MAKE_COMMAND_FWD_DECL, LUISA_COMPUTE_RUNTIME_COMMANDS)
@@ -105,8 +106,7 @@ public:
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] virtual StreamTag stream_tag() const noexcept = 0;
 };
-
-class ShaderDispatchCommandBase : public Command {
+class ShaderDispatchCommandBase {
 
 public:
     struct Argument {
@@ -158,11 +158,10 @@ private:
     size_t _argument_count;
 
 protected:
-    ShaderDispatchCommandBase(Tag tag, uint64_t shader_handle,
+    ShaderDispatchCommandBase(uint64_t shader_handle,
                               luisa::vector<std::byte> &&argument_buffer,
                               size_t argument_count) noexcept
-        : Command{tag},
-          _handle{shader_handle},
+        : _handle{shader_handle},
           _argument_buffer{std::move(argument_buffer)},
           _argument_count{argument_count} {}
 
@@ -176,7 +175,7 @@ public:
     }
 };
 
-class ShaderDispatchCommand final : public ShaderDispatchCommandBase {
+class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
 
 public:
     using DispatchSize = luisa::variant<uint3, IndirectDispatchArg>;
@@ -189,10 +188,10 @@ public:
                           luisa::vector<std::byte> &&argument_buffer,
                           size_t argument_count,
                           DispatchSize dispatch_size) noexcept
-        : ShaderDispatchCommandBase{Tag::EShaderDispatchCommand,
-                                    shader_handle,
+        : ShaderDispatchCommandBase{shader_handle,
                                     std::move(argument_buffer),
                                     argument_count},
+          Command{Tag::EShaderDispatchCommand},
           _dispatch_size{dispatch_size} {}
     ShaderDispatchCommand(ShaderDispatchCommand const &) = delete;
     ShaderDispatchCommand(ShaderDispatchCommand &&) = default;
@@ -200,36 +199,6 @@ public:
     [[nodiscard]] auto dispatch_size() const noexcept { return luisa::get<uint3>(_dispatch_size); }
     [[nodiscard]] auto indirect_dispatch_size() const noexcept { return luisa::get<IndirectDispatchArg>(_dispatch_size); }
     LUISA_MAKE_COMMAND_COMMON(ShaderDispatchCommand, StreamTag::COMPUTE)
-};
-
-class LC_RUNTIME_API DrawRasterSceneCommand final : public ShaderDispatchCommandBase {
-
-private:
-    std::array<Argument::Texture, 8u> _rtv_texs;
-    size_t _rtv_count;
-    Argument::Texture _dsv_tex;
-    luisa::vector<RasterMesh> _scene;
-    Viewport _viewport;
-
-public:
-    DrawRasterSceneCommand(uint64_t shader_handle,
-                           luisa::vector<std::byte> &&argument_buffer,
-                           size_t argument_count,
-                           std::array<Argument::Texture, 8u> rtv_textures,
-                           size_t rtv_count,
-                           Argument::Texture dsv_texture,
-                           luisa::vector<RasterMesh> &&scene,
-                           Viewport viewport) noexcept;
-
-public:
-    DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
-    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
-    ~DrawRasterSceneCommand() noexcept override;
-    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
-    [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
-    [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
-    [[nodiscard]] auto viewport() const noexcept { return _viewport; }
-    LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)
 };
 
 class BufferUploadCommand final : public Command {
@@ -665,69 +634,59 @@ public:
     LUISA_MAKE_COMMAND_COMMON(BindlessArrayUpdateCommand, StreamTag::COPY)
 };
 
-class ClearDepthCommand final : public Command {
+class CustomCommand : public Command {
+private:
+    uint64_t _uuid{};
+
+public:
+    explicit CustomCommand(uint64_t uuid) noexcept
+        : Command{Command::Tag::ECustomCommand}, _uuid{uuid} {}
+    [[nodiscard]] auto uuid() const noexcept { return _uuid; }
+};
+
+class LC_RUNTIME_API DrawRasterSceneCommand final : public CustomCommand, public ShaderDispatchCommandBase {
+
+private:
+    std::array<Argument::Texture, 8u> _rtv_texs;
+    size_t _rtv_count;
+    Argument::Texture _dsv_tex;
+    luisa::vector<RasterMesh> _scene;
+    Viewport _viewport;
+
+public:
+    DrawRasterSceneCommand(uint64_t shader_handle,
+                           luisa::vector<std::byte> &&argument_buffer,
+                           size_t argument_count,
+                           std::array<Argument::Texture, 8u> rtv_textures,
+                           size_t rtv_count,
+                           Argument::Texture dsv_texture,
+                           luisa::vector<RasterMesh> &&scene,
+                           Viewport viewport) noexcept;
+
+public:
+    DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
+    DrawRasterSceneCommand(DrawRasterSceneCommand &&) noexcept;
+    ~DrawRasterSceneCommand() noexcept override;
+    [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
+    [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
+    [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
+    [[nodiscard]] auto viewport() const noexcept { return _viewport; }
+    LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)
+};
+
+class ClearDepthCommand final : public CustomCommand {
     uint64_t _handle;
     float _value;
 
 public:
     explicit ClearDepthCommand(uint64_t handle, float value) noexcept
-        : Command{Command::Tag::EClearDepthCommand}, _handle{handle}, _value(value) {}
+        : CustomCommand{clear_depth_command_uuid},
+          _handle{handle}, _value(value) {
+    }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto value() const noexcept { return _value; }
 
     LUISA_MAKE_COMMAND_COMMON(ClearDepthCommand, StreamTag::GRAPHICS)
-};
-
-class CustomCommand final : public Command {
-
-public:
-    struct BufferView {
-        uint64_t handle;
-        uint64_t start_byte;
-        uint64_t size_byte;
-    };
-
-    struct TextureView {
-        uint64_t handle;
-        uint64_t start_mip;
-        uint64_t size_mip;
-    };
-
-    struct MeshView {
-        uint64_t handle;
-    };
-
-    struct AccelView {
-        uint64_t handle;
-    };
-
-    struct BindlessView {
-        uint64_t handle;
-    };
-
-    struct ResourceBinding {
-        luisa::variant<
-            BufferView,
-            TextureView,
-            MeshView,
-            AccelView,
-            BindlessView>
-            resource_view;
-        luisa::string name;
-        Usage usage;
-    };
-
-private:
-    luisa::vector<ResourceBinding> _resources;
-    luisa::string _name;
-    StreamTag _stream_tag;
-
-public:
-    explicit CustomCommand(luisa::vector<ResourceBinding> &&resources, luisa::string &&name, StreamTag stream_tag) noexcept
-        : Command(Command::Tag::ECustomCommand), _resources(std::move(resources)), _name(std::move(name)), _stream_tag(stream_tag) {}
-    [[nodiscard]] auto resources() const noexcept { return luisa::span{_resources}; }
-    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
-    LUISA_MAKE_COMMAND_COMMON(CustomCommand, _stream_tag)
 };
 
 #undef LUISA_MAKE_COMMAND_COMMON_CREATE

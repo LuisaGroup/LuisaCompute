@@ -11,6 +11,7 @@ class RasterExt : public DeviceExtension {
 
 public:
     static constexpr luisa::string_view name = "RasterExt";
+
     [[nodiscard]] virtual ResourceCreationInfo create_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -71,5 +72,4 @@ RasterShader<Args...> Device::load_raster_shader(
     luisa::string_view shader_name) noexcept {
     return _create<RasterShader<Args...>>(static_cast<RasterExt *>(_impl->extension(RasterExt::name)), mesh_format, raster_state, rtv_format, dsv_format, shader_name);
 }
-
 }// namespace luisa::compute

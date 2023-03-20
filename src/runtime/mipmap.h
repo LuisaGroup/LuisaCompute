@@ -77,7 +77,7 @@ public:
             buffer.handle(), buffer.offset_bytes(),
             _handle, _storage, _level, _size);
     }
-
+    
     template<typename U>
     [[nodiscard]] auto copy_to(BufferView<U> buffer) const noexcept {
         if (auto size = size_bytes(); buffer.size_bytes() < size) {
