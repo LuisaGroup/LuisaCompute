@@ -4,6 +4,7 @@
 #include <dxgi.h>
 #include <dxgi1_4.h>
 #include <vstl/common.h>
+#include <runtime/rhi/device_interface.h>
 namespace luisa::compute {
 struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNewBase {
     virtual ID3D12Device *GetDevice() noexcept = 0;
