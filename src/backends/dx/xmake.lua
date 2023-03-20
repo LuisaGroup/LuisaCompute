@@ -15,4 +15,6 @@ after_build(function(target)
 	os.cp("src/backends/dx/dx_builtin", path.join(binDir, ".data/"))
 	os.cp("src/backends/dx/dx_support/*.dll", binDir)
 end)
-add_defines("NOMINMAX")
+if is_plat("windows") then	
+	add_defines("NOMINMAX", "UNICODE")
+end

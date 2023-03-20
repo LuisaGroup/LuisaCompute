@@ -1,5 +1,26 @@
 -- Global config
 rule("basic_settings")
+on_config(function(target)
+	local _, cc = target:tool("cxx")
+	if (not is_mode("debug")) then
+		-- elseif (cc == "clang" or cc == "clangxx") then
+		-- 	target:add("cxflags", "-flto=thin")
+		if cc == "gcc" or cc == "gxx" then
+			target:add("cxflags", "-flto")
+		end
+		local _, ld = target:tool("ld")
+		if ld == "link" then
+			target:add("ldflags", "-LTCG")
+			target:add("shflags", "-LTCG")
+		-- elseif and (ld == "clang" or ld == "clangxx") then
+		-- 	target:add("ldflags", "-flto=thin")
+		-- 	target:add("shflags", "-flto=thin")
+		elseif ld == "gcc" or ld == "gxx" then
+			target:add("ldflags", "-flto")
+			target:add("shflags", "-flto")
+		end
+	end
+end)
 on_load(function(target)
 	local _get_or = function(name, default_value)
 		local v = target:values(name)
