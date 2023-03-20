@@ -99,9 +99,7 @@ set_showmenu(true)
 option_end()
 -- pre-defined options end
 if is_arch("x64", "x86_64", "arm64") then
-	if is_mode("debug") then
-		set_policy("build.optimization.lto", true)
-	end
+	set_policy("build.optimization.lto", not is_mode("debug"))
 	UseMimalloc = get_config("enable_mimalloc")
 	UseSIMD = get_config("enable_simd")
 	-- test require dsl
