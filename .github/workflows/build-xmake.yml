@@ -102,15 +102,11 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: "Setup XMake"
+        shell: powershell
+        run: Invoke-Expression (Invoke-Webrequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
       - name: "Setup CUDA"
         uses: Jimver/cuda-toolkit@v0.2.8
-      - name: "Setup Ninja"
-        uses: ashutoshvarma/setup-ninja@master
-        with:
-          version: 1.10.2
-      - name: "Setup XMake"
-        shell: cmd
-        run: winget install xmake
       - name: "Configure and Build"
         shell: cmd
         run: |
