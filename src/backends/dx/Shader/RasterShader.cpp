@@ -4,6 +4,7 @@
 #include <HLSL/dx_codegen.h>
 #include <Shader/ShaderCompiler.h>
 #include <vstl/md5.h>
+#include <core/logging.h>
 namespace toolhub::directx {
 namespace RasterShaderDetail {
 static constexpr bool PRINT_CODE = false;
@@ -345,14 +346,12 @@ RasterShader *RasterShader::CompileRaster(
             str.result.view(),
             true,
             shaderModel);
-        if (compResult.vertex.is_type_of<vstd::string>()) {
-            std::cout << compResult.vertex.get<1>() << '\n';
-            VSTL_ABORT();
+        if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
+            LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
             return nullptr;
         }
-        if (compResult.pixel.is_type_of<vstd::string>()) {
-            std::cout << compResult.pixel.get<1>() << '\n';
-            VSTL_ABORT();
+        if (compResult.pixel.is_type_of<vstd::string>()) [[unlikely]] {
+            LUISA_ERROR("DXC compile pixel-shader error: {}", compResult.pixel.get<1>());
             return nullptr;
         }
         auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
@@ -394,6 +393,7 @@ RasterShader *RasterShader::CompileRaster(
             if (oldDeleted) {
                 result->SavePSO(psoName, fileIo, device);
             }
+            return result;
         }
         return CompileNewCompute(true, psoName);
     } else {
@@ -420,14 +420,12 @@ void RasterShader::SaveRaster(
         true,
         shaderModel);
 
-    if (compResult.vertex.is_type_of<vstd::string>()) {
-        std::cout << compResult.vertex.get<1>() << '\n';
-        VSTL_ABORT();
+    if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
+        LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
         return;
     }
-    if (compResult.pixel.is_type_of<vstd::string>()) {
-        std::cout << compResult.pixel.get<1>() << '\n';
-        VSTL_ABORT();
+    if (compResult.pixel.is_type_of<vstd::string>()) [[unlikely]] {
+        LUISA_ERROR("DXC compile pixel-shader error: {}", compResult.pixel.get<1>());
         return;
     }
     auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);

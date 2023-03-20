@@ -150,8 +150,9 @@ class RasterShader : public Resource {
 
 private:
     friend class Device;
+    RasterExt *_raster_ext{};
     luisa::vector<Function::Binding> _bindings;
-    size_t _uniform_size;
+    size_t _uniform_size{};
 #ifndef NDEBUG
     MeshFormat _mesh_format;
     RasterState _raster_state;
@@ -162,6 +163,7 @@ private:
     // clang-format off
 
     RasterShader(DeviceInterface *device,
+                 RasterExt* raster_ext,
                  const MeshFormat &mesh_format,
                  const RasterState &raster_state,
                  luisa::span<PixelFormat const> rtv_format,
@@ -172,7 +174,7 @@ private:
         : Resource(
               device,
               Tag::RASTER_SHADER,
-              static_cast<RasterExt *>(device->extension(RasterExt::name))->create_raster_shader(
+              raster_ext->create_raster_shader(
                   mesh_format,
                   raster_state,
                   rtv_format,
@@ -180,6 +182,7 @@ private:
                   vert,
                   pixel,
                   option)),
+                  _raster_ext{raster_ext},
          _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
                 detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
@@ -208,6 +211,7 @@ private:
     // AOT Shader
     RasterShader(
         DeviceInterface *device,
+        RasterExt* raster_ext,
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
@@ -217,13 +221,14 @@ private:
               device,
               Tag::RASTER_SHADER,
               // TODO
-              static_cast<RasterExt *>(device->extension(RasterExt::name))->load_raster_shader(
+              raster_ext->load_raster_shader(
                 mesh_format,
                 raster_state,
                 rtv_format,
                 dsv_format,
                 detail::shader_argument_types<Args...>(),
                 file_path)),
+            _raster_ext{raster_ext},
             _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
                 detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
@@ -244,8 +249,18 @@ public:
     RasterShader() noexcept = default;
     RasterShader(RasterShader &&) noexcept = default;
     RasterShader(RasterShader const &) noexcept = delete;
-    RasterShader &operator=(RasterShader &&) noexcept = default;
+    RasterShader &operator=(RasterShader &&rhs) noexcept {
+        if (this == &rhs) [[unlikely]] { return *this; }
+        this->~RasterShader();
+        new (std::launder(this)) RasterShader{std::move(rhs)};
+        return *this;
+    }
     RasterShader &operator=(RasterShader const &) noexcept = delete;
+    ~RasterShader() noexcept {
+        if (*this) {
+            _raster_ext->destroy_raster_shader(handle());
+        }
+    }
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
         size_t arg_size;

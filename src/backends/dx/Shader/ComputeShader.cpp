@@ -2,6 +2,7 @@
 #include <Shader/ShaderSerializer.h>
 #include <HLSL/dx_codegen.h>
 #include <Shader/ShaderCompiler.h>
+#include <core/logging.h>
 #include <vstl/md5.h>
 namespace toolhub::directx {
 namespace ComputeShaderDetail {
@@ -168,8 +169,7 @@ void ComputeShader::SaveCompute(
             fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
         },
         [](auto &&err) {
-            std::cout << err << '\n';
-            VSTL_ABORT();
+            LUISA_ERROR("DXC compute-shader compile error: {}", err);
         });
 }
 ID3D12CommandSignature *ComputeShader::CmdSig() const {

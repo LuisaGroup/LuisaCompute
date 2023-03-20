@@ -183,7 +183,7 @@ impl StreamImpl {
                         let dim = texture.dimension;
                         let view = texture.view(level);
                         assert_eq!(cmd.storage, texture.storage);
-                        assert!(buffer.size >= cmd.buffer_offset + view.data_size());
+                        assert!(buffer.size >= cmd.buffer_offset + view.unpadded_data_size());
                         if dim == 2 {
                             assert_eq!(cmd.texture_size, view.size);
                             view.copy_from_2d(buffer.data.add(cmd.buffer_offset))
@@ -200,7 +200,7 @@ impl StreamImpl {
                         let dim = texture.dimension;
                         let view = texture.view(level);
                         assert_eq!(cmd.storage, texture.storage);
-                        assert!(buffer.size >= cmd.buffer_offset + view.data_size());
+                        assert!(buffer.size >= cmd.buffer_offset + view.unpadded_data_size());
                         if dim == 2 {
                             assert_eq!(cmd.texture_size, view.size);
                             view.copy_to_2d(buffer.data.add(cmd.buffer_offset))
@@ -254,7 +254,7 @@ impl StreamImpl {
                         std::ptr::copy_nonoverlapping(
                             src_view.data,
                             dst_view.data,
-                            src_view.data_size(),
+                            src_view.data_size,
                         );
                     }
                     luisa_compute_api_types::Command::ShaderDispatch(cmd) => {
