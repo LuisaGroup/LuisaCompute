@@ -65,9 +65,9 @@ pub struct Mat4(pub [f32; 16]);
 #[derive(Copy, Clone)]
 pub struct Accel {
     pub handle: *const c_void,
-    pub trace_closest: extern "C" fn(*const c_void, &Ray) -> Hit,
-    pub trace_any: extern "C" fn(*const c_void, &Ray) -> bool,
-    pub set_instance_visibility: extern "C" fn(*const c_void, u32, bool),
+    pub trace_closest: extern "C" fn(*const c_void, &Ray, u8) -> Hit,
+    pub trace_any: extern "C" fn(*const c_void, &Ray, u8) -> bool,
+    pub set_instance_visibility: extern "C" fn(*const c_void, u32, u8),
     pub set_instance_transform: extern "C" fn(*const c_void, u32, &Mat4),
     pub instance_transform: extern "C" fn(*const c_void, u32) -> Mat4,
 }

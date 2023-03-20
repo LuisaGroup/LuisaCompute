@@ -30,9 +30,9 @@ typedef enum LCPixelFormat {
     LC_PIXEL_FORMAT_R8_SINT,
     LC_PIXEL_FORMAT_R8_UINT,
     LC_PIXEL_FORMAT_R8_UNORM,
-    LC_PIXEL_FORMAT_RGB8_SINT,
-    LC_PIXEL_FORMAT_RGB8_UINT,
-    LC_PIXEL_FORMAT_RGB8_UNORM,
+    LC_PIXEL_FORMAT_RG8_SINT,
+    LC_PIXEL_FORMAT_RG8_UINT,
+    LC_PIXEL_FORMAT_RG8_UNORM,
     LC_PIXEL_FORMAT_RGBA8_SINT,
     LC_PIXEL_FORMAT_RGBA8_UINT,
     LC_PIXEL_FORMAT_RGBA8_UNORM,
@@ -119,18 +119,17 @@ typedef struct LCAccelBuildModificationFlags {
     uint32_t bits;
 } LCAccelBuildModificationFlags;
 #define LCAccelBuildModificationFlags_EMPTY (LCAccelBuildModificationFlags){ .bits = (uint32_t)0 }
-#define LCAccelBuildModificationFlags_MESH (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 0) }
+#define LCAccelBuildModificationFlags_PRIMITIVE (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 0) }
 #define LCAccelBuildModificationFlags_TRANSFORM (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 1) }
-#define LCAccelBuildModificationFlags_VISIBILITY_ON (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 2) }
-#define LCAccelBuildModificationFlags_VISIBILITY_OFF (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 3) }
-#define LCAccelBuildModificationFlags_OPAQUE_ON (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 4) }
-#define LCAccelBuildModificationFlags_OPAQUE_OFF (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 5) }
-#define LCAccelBuildModificationFlags_VISIBILITY (LCAccelBuildModificationFlags){ .bits = (uint32_t)((LCAccelBuildModificationFlags_VISIBILITY_ON).bits | (LCAccelBuildModificationFlags_VISIBILITY_OFF).bits) }
+#define LCAccelBuildModificationFlags_OPAQUE_ON (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 2) }
+#define LCAccelBuildModificationFlags_OPAQUE_OFF (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 3) }
+#define LCAccelBuildModificationFlags_VISIBILITY (LCAccelBuildModificationFlags){ .bits = (uint32_t)(1 << 4) }
 #define LCAccelBuildModificationFlags_OPAQUE (LCAccelBuildModificationFlags){ .bits = (uint32_t)((LCAccelBuildModificationFlags_OPAQUE_ON).bits | (LCAccelBuildModificationFlags_OPAQUE_OFF).bits) }
 
 typedef struct LCAccelBuildModification {
     uint32_t index;
     struct LCAccelBuildModificationFlags flags;
+    uint8_t visibility;
     uint64_t mesh;
     float affine[12];
 } LCAccelBuildModification;

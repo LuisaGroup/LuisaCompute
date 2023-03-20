@@ -182,11 +182,11 @@ inline T lc_atomic_fetch_max(T *ptr, T value) noexcept {
     }
 }
 
-inline Hit lc_trace_closest(const Accel &accel, const Ray & ray) {
-    return accel.trace_closest(accel.handle, &ray);
+inline Hit lc_trace_closest(const Accel &accel, const Ray & ray, uint8_t mask) {
+    return accel.trace_closest(accel.handle, &ray, mask);
 }
-inline bool lc_trace_any(const Accel &accel, const Ray & ray) {
-    return accel.trace_any(accel.handle, &ray);
+inline bool lc_trace_any(const Accel &accel, const Ray & ray, uint8_t mask) {
+    return accel.trace_any(accel.handle, &ray, mask);
 }
 inline lc_float4x4 lc_accel_instance_transform(const Accel &accel, lc_uint inst_id) {
     auto m4 = accel.instance_transform(accel.handle, inst_id);

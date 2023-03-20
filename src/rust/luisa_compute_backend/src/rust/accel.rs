@@ -128,7 +128,7 @@ impl Drop for MeshImpl {
 struct Instance {
     affine: [f32; 12],
     dirty: bool,
-    visible: bool,
+    visible: u8,
     geometry: sys::RTCGeometry,
 }
 impl Instance {
@@ -141,7 +141,7 @@ impl Default for Instance {
         Self {
             affine: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
             dirty: false,
-            visible: false,
+            visible: u8::MAX,
             geometry: std::ptr::null_mut(),
         }
     }
@@ -177,7 +177,7 @@ impl AccelImpl {
             }
         }
         for m in modifications {
-            if m.flags.contains(AccelBuildModificationFlags::MESH) {
+            if m.flags.contains(AccelBuildModificationFlags::PRIMITIVE) {
                 let mesh = &*(m.mesh as *const MeshImpl);
                 assert!(mesh.built);
                 unsafe {
@@ -189,7 +189,7 @@ impl AccelImpl {
                     *self.instances[m.index as usize].write() = Instance {
                         affine,
                         dirty: false,
-                        visible: true,
+                        visible: u8::MAX,
                         geometry,
                     };
                 }
@@ -208,22 +208,13 @@ impl AccelImpl {
                 instance.affine = affine;
                 instance.dirty = true;
             }
-            if m.flags.contains(AccelBuildModificationFlags::VISIBILITY_ON) {
+            if m.flags.contains(AccelBuildModificationFlags::VISIBILITY) {
                 let mut instance = self.instances[m.index as usize].write();
                 let geometry = instance.geometry;
                 assert!(!geometry.is_null());
                 sys::rtcEnableGeometry(geometry);
-                instance.visible = true;
-                instance.dirty = true;
-            }
-            if m.flags
-                .contains(AccelBuildModificationFlags::VISIBILITY_OFF)
-            {
-                let mut instance = self.instances[m.index as usize].write();
-                let geometry = instance.geometry;
-                assert!(!geometry.is_null());
-                sys::rtcDisableGeometry(geometry);
-                instance.visible = false;
+                sys::rtcSetGeometryMask(geometry, m.visibility as u32);
+                instance.visible = m.visibility;
                 instance.dirty = true;
             }
         }
@@ -237,7 +228,7 @@ impl AccelImpl {
         sys::rtcCommitScene(self.handle);
     }
     #[inline]
-    pub unsafe fn trace_closest(&self, ray: &defs::Ray) -> defs::Hit {
+    pub unsafe fn trace_closest(&self, ray: &defs::Ray, mask: u8) -> defs::Hit {
         let mut rayhit = sys::RTCRayHit {
             ray: sys::RTCRay {
                 org_x: ray.orig_x,
@@ -249,7 +240,7 @@ impl AccelImpl {
                 dir_z: ray.dir_z,
                 time: 0.0,
                 tfar: ray.tmax,
-                mask: 0,
+                mask: mask as u32,
                 id: 0,
                 flags: 0,
             },
@@ -290,7 +281,7 @@ impl AccelImpl {
         }
     }
     #[inline]
-    pub unsafe fn trace_any(&self, ray: &defs::Ray) -> bool {
+    pub unsafe fn trace_any(&self, ray: &defs::Ray, mask: u8) -> bool {
         let mut ray = sys::RTCRay {
             org_x: ray.orig_x,
             org_y: ray.orig_y,
@@ -301,7 +292,7 @@ impl AccelImpl {
             dir_z: ray.dir_z,
             time: 0.0,
             tfar: ray.tmax,
-            mask: 0,
+            mask: mask as u32,
             id: 0,
             flags: 0,
         };
@@ -334,7 +325,7 @@ impl AccelImpl {
         instance.affine = affine;
     }
     #[inline]
-    pub unsafe fn set_instance_visibility(&self, id: u32, visibility: bool) {
+    pub unsafe fn set_instance_visibility(&self, id: u32, visibility: u8) {
         let mut instance = self.instances[id as usize].write();
         assert!(instance.valid());
         instance.visible = visibility;

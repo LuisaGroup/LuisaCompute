@@ -24,9 +24,9 @@ struct alignas(16) Mat4 {
 
 struct Accel {
     const void *handle;
-    Hit (*trace_closest)(const void*, const Ray*);
-    bool (*trace_any)(const void*, const Ray*);
-    void (*set_instance_visibility)(const void*, uint32_t, bool);
+    Hit (*trace_closest)(const void*, const Ray*, uint8_t);
+    bool (*trace_any)(const void*, const Ray*, uint8_t);
+    void (*set_instance_visibility)(const void*, uint32_t, uint8_t);
     void (*set_instance_transform)(const void*, uint32_t, const Mat4*);
     Mat4 (*instance_transform)(const void*, uint32_t);
 };
