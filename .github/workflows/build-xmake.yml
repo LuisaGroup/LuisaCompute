@@ -11,7 +11,7 @@ jobs:
 #        gcc: [ 11, 12 ]
 #        llvm: [ 14, 15, 16 ]
 #        compiler: [ gcc, clang ]
-#        config: [ Release, Debug ]
+#        config: [ release, debug ]
 #        exclude:
 #          - os: ubuntu-20.04
 #            gcc: 12
@@ -38,6 +38,8 @@ jobs:
 #          else
 #            sudo apt-get -y install libc++-${{ matrix.llvm }}-dev libc++abi-${{ matrix.llvm }}-dev
 #          fi
+#      - name: "Setup XMake"
+#        run: curl -fsSL https://xmake.io/shget.text | bash
 #      - name: "Setup CUDA"
 #        uses: Jimver/cuda-toolkit@v0.2.8
 #        with:
@@ -53,12 +55,15 @@ jobs:
 #            export LUISA_CXX=clang++-${{ matrix.llvm }}
 #            export LUISA_FLAGS="-stdlib=libc++"
 #          fi
+#          curl -fsSL https://xmake.io/shget.text | bash
+#          xmake f -p linux -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true
+#          xmake
 #          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}" -D LLVM_ROOT=/usr/lib/llvm-${{ matrix.llvm }}
 #          cmake --build build
 #      - name: "Install"
 #        run: |
 #          sudo cmake --install build --prefix dist -v
-#
+
 #  build-macos:
 #    strategy:
 #      fail-fast: false
@@ -102,13 +107,11 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - name: "Setup XMake"
-        shell: powershell
-        run: Invoke-Expression (Invoke-Webrequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
-      - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.8
+#      - name: "Setup CUDA"
+#        uses: Jimver/cuda-toolkit@v0.2.8
       - name: "Configure and Build"
-        shell: cmd
+        shell: powershell
         run: |
-          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true
+          Invoke-Expression (Invoke-Webrequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
+          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=false --enable_dsl=true --enable_gui=true
           xmake
