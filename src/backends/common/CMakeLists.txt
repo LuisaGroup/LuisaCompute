@@ -1,10 +1,9 @@
 set(LUISA_BACKEND_COMMON_SOURCES
+        command_reorder_visitor.h
         default_binary_io.cpp default_binary_io.h
-        native_resource_ext.h
         resource_generator.h
-        string_scratch.cpp string_scratch.h
-        tex_compress_ext.h
-        resource_tracker.cpp resource_tracker.h)
+        resource_tracker.h
+        string_scratch.cpp string_scratch.h)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
     list(APPEND LUISA_BACKEND_COMMON_SOURCES
@@ -14,7 +13,8 @@ endif ()
 add_library(luisa-compute-backend-common STATIC ${LUISA_BACKEND_COMMON_SOURCES})
 target_link_libraries(luisa-compute-backend-common PUBLIC
         luisa-compute-runtime
-        luisa-compute-dsl)
+        luisa-compute-dsl
+        luisa-compute-ir)
 
 if (UNIX AND NOT APPLE)
     target_compile_options(luisa-compute-backend-common PRIVATE -fPIC)

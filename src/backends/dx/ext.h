@@ -139,7 +139,7 @@ public:
         Function vert,
         Function pixel,
         const ShaderOption &cache_option) noexcept override;
-    [[nodiscard]] void save_raster_shader(
+    void save_raster_shader(
         const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
