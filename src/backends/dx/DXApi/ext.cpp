@@ -128,4 +128,5 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
+
 }// namespace toolhub::directx

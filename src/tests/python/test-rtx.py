@@ -7,7 +7,7 @@ import math
 init()
 
 res = 1024, 1024
-image = Texture2D(*res, 4, float, storage="BYTE")
+image = Image2D(*res, 4, float, storage="BYTE")
 
 vertices = [
     float3(-0.5, -0.5, -2.0),

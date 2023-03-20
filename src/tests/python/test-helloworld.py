@@ -1,7 +1,7 @@
 from luisa import *
 init()
 res = 1024, 1024
-img = Texture2D(*res, 4, float, storage="BYTE")
+img = Image2D(*res, 4, float, storage="BYTE")
 
 
 @func

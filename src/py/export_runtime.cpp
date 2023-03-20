@@ -11,7 +11,7 @@
 #include <py/managed_accel.h>
 #include <py/managed_bindless.h>
 #include <core/thread_pool.h>
-
+#include <runtime/raster/raster_state.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -281,7 +281,7 @@ void export_runtime(py::module &m) {
             } else {
                 str_view = str;
             }
-            self.save_raster_shader(fmt.format, vertex, pixel, str_view, false, true);
+            static_cast<RasterExt *>(self.extension(RasterExt::name))->save_raster_shader(fmt.format, vertex, pixel, str_view, false, true);
         })
         .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.create();
@@ -295,7 +295,7 @@ void export_runtime(py::module &m) {
                 } else {
                     str_view = str;
                 }
-                self.save_raster_shader(fmt.format, vertex->function(), pixel->function(), str_view, false, true);
+                static_cast<RasterExt *>(self.extension(RasterExt::name))->save_raster_shader(fmt.format, vertex->function(), pixel->function(), str_view, false, true);
             }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)

@@ -24,6 +24,7 @@
 #include <runtime/context_paths.h>
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
+#include <ext.h>
 using namespace toolhub::directx;
 namespace toolhub::directx {
 static constexpr uint kShaderModel = 65u;
@@ -31,7 +32,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       nativeDevice(_ctx, settings) {
     exts.try_emplace(
-        "TexCompressExt"sv,
+        TexCompressExt::name,
         [](LCDevice *device) -> DeviceExtension * {
             return new DxTexCompressExt(&device->nativeDevice);
         },
@@ -39,12 +40,20 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             delete static_cast<DxTexCompressExt *>(ext);
         });
     exts.try_emplace(
-        "NativeResourceExt"sv,
+        NativeResourceExt::name,
         [](LCDevice *device) -> DeviceExtension * {
             return new DxNativeResourceExt(device, &device->nativeDevice);
         },
         [](DeviceExtension *ext) {
             delete static_cast<DxNativeResourceExt *>(ext);
+        });
+    exts.try_emplace(
+        RasterExt::name,
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxRasterExt(device->nativeDevice);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxRasterExt *>(ext);
         });
 }
 LCDevice::~LCDevice() {
@@ -322,7 +331,7 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
             reinterpret_cast<TextureBase *>(image_handle), nativeDevice.maxAllocatorCount);
 }
-void LCDevice::save_raster_shader(
+void DxRasterExt::save_raster_shader(
     const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
@@ -341,7 +350,7 @@ void LCDevice::save_raster_shader(
         pixel,
         kShaderModel);
 }
-ResourceCreationInfo LCDevice::create_raster_shader(
+ResourceCreationInfo DxRasterExt::create_raster_shader(
     const MeshFormat &mesh_format,
     const RasterState &raster_state,
     span<const PixelFormat> rtv_format,
@@ -396,7 +405,7 @@ ResourceCreationInfo LCDevice::create_raster_shader(
     }
 }
 
-ResourceCreationInfo LCDevice::load_raster_shader(
+ResourceCreationInfo DxRasterExt::load_raster_shader(
     const MeshFormat &mesh_format,
     const RasterState &raster_state,
     span<const PixelFormat> rtv_format,

@@ -28,7 +28,7 @@ C = Buffer(n_particles, float3x3)
 J = Buffer(n_particles, float)
 grid_v = Buffer(n_grid * n_grid * n_grid * 4, float)
 grid_m = Buffer(n_grid * n_grid * n_grid, float)
-display = Texture2D(resolution, resolution, 4, float, storage="BYTE")
+display = Image2D(resolution, resolution, 4, float, storage="BYTE")
 
 
 @func

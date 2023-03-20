@@ -245,10 +245,10 @@ for mesh in cornell_box.faces:
 accel.update()
 heap.update()
 res = 1024, 1024
-image = Texture2D(*res, 4, float)
-accum_image = Texture2D(*res, 4, float)
-seed_image = Texture2D(*res, 1, uint, storage="INT")
-ldr_image = Texture2D(*res, 4, float, storage="BYTE")
+image = Image2D(*res, 4, float)
+accum_image = Image2D(*res, 4, float)
+seed_image = Image2D(*res, 1, uint, storage="INT")
+ldr_image = Image2D(*res, 4, float, storage="BYTE")
 
 clear_kernel(accum_image, dispatch_size=[*res, 1])
 

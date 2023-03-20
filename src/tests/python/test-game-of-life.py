@@ -10,8 +10,8 @@ init()
 
 class ImagePair:
     def __init__(self, width, height, channel, storage):
-        self.prev = Texture2D(width, height, channel, uint, 1, storage)
-        self.curr = Texture2D(width, height, channel, uint, 1, storage)
+        self.prev = Image2D(width, height, channel, uint, 1, storage)
+        self.curr = Image2D(width, height, channel, uint, 1, storage)
 
     def swap(self):
         tmp = self.prev
@@ -66,7 +66,7 @@ for i in range(len(host_image)):
 image_pair.prev.copy_from(host_image)
 synchronize()
 window_size = (res[0] * super_sampling, res[1] * super_sampling)
-display = Texture2D(*window_size, 4, float, 1, "BYTE")
+display = Image2D(*window_size, 4, float, 1, "BYTE")
 gui = GUI("Test game-of-life", window_size)
 while gui.running():
     kernel(image_pair.prev, image_pair.curr, dispatch_size=(*res, 1))

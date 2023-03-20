@@ -3,10 +3,10 @@ from luisa.builtin import *
 from luisa.types import *
 init()
 
-texture = Texture2D.from_ldr_image("logo.png")
+texture = Image2D.from_ldr_image("logo.png")
 res = texture.width, texture.height
-display_tex = Texture2D(*res, 4, float, storage="BYTE")
-# texture = Texture2D(*res, 4, float, storage="FLOAT")
+display_tex = Image2D(*res, 4, float, storage="BYTE")
+# texture = Image2D(*res, 4, float, storage="FLOAT")
 block_size = 16
 
 

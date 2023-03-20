@@ -15,13 +15,10 @@
 #include <comdef.h>
 #include <vstl/functional.h>
 #include <dxgi.h>
-#include <iostream>
 #include <core/basic_types.h>
 #ifdef UNICODE
-#define lcdx_cout std::wcout
 using lcdx_pchar = LPCWSTR;
 #else
-#define lcdx_cout std::cout
 using lcdx_pchar = LPCSTR;
 #endif
 #define LUISA_MAKE_VECTOR_TYPES(T) \

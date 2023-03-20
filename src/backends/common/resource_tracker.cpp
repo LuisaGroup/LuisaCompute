@@ -1,3 +1,5 @@
+#if (LC_ENABLE_CUDA_BACKEND || LC_ENABLE_METAL_BACKEND || LC_ENABLE_CUDA_BACKEND)
+
 //
 // Created by Mike on 3/14/2023.
 //
@@ -24,3 +26,4 @@ bool ResourceTracker::contains(uint64_t handle) const noexcept {
 }
 
 }// namespace luisa::compute
+#endif

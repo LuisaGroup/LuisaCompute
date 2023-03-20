@@ -3,7 +3,7 @@ from lcapi import uint2, uint3
 from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
-from . import Buffer, Texture2D, Texture3D
+from . import Buffer, Image2D, Image3D
 from .types import BuiltinFuncBuilder, to_lctype, uint
 from .builtin import check_exact_signature
 from .func import func
@@ -34,18 +34,18 @@ class BindlessArray:
     def emplace(self, idx, res, filter = None, address = None, byte_offset = 0):
         if type(res) is Buffer:
             device().impl().emplace_buffer_in_bindless_array(self.array, idx, res.handle, byte_offset)
-        elif type(res) is Texture2D:
+        elif type(res) is Image2D:
             if res.dtype != float:
-                raise TypeError("Type of emplaced Texture2D must be float")
+                raise TypeError("Type of emplaced Image2D must be float")
             if filter == None:
                 filter = lcapi.Filter.LINEAR_POINT
             if address == None:
                 address = lcapi.Address.REPEAT
             sampler = lcapi.Sampler(filter, address)
             device().impl().emplace_tex2d_in_bindless_array(self.array, idx, res.handle, sampler)
-        elif type(res) is Texture3D:
+        elif type(res) is Image3D:
             if res.dtype != float:
-                raise TypeError("Type of emplaced Texture3D must be float")
+                raise TypeError("Type of emplaced Image3D must be float")
             if filter == None:
                 filter = lcapi.Filter.LINEAR_POINT
             if address == None:

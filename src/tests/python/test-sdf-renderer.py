@@ -158,9 +158,9 @@ def hdr2ldr_kernel(hdr_image, ldr_image, scale: float):
     ldr_image.write(coord, float4(ldr, 1.0))
 
 res = (1280, 720)
-seed_image = Texture2D(*res, 1, uint, storage="INT")
-accum_image=Texture2D(*res, 4, float, storage="FLOAT")
-ldr_image=Texture2D(*res, 4, float, storage="BYTE")
+seed_image = Image2D(*res, 1, uint, storage="INT")
+accum_image=Image2D(*res, 4, float, storage="FLOAT")
+ldr_image=Image2D(*res, 4, float, storage="BYTE")
 gui = GUI("Test cornell box", res)
 frame = 0
 while gui.running():

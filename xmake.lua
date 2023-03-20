@@ -1,5 +1,7 @@
 set_xmakever("2.7.3")
 add_rules("mode.release", "mode.debug")
+-- disable ccache in-case error
+set_policy("build.ccache", false)
 -- pre-defined options
 -- enable mimalloc as default allocator: https://github.com/LuisaGroup/mimalloc
 option("enable_mimalloc")
@@ -96,8 +98,8 @@ set_default(false)
 set_showmenu(true)
 option_end()
 -- pre-defined options end
-
 if is_arch("x64", "x86_64", "arm64") then
+	set_policy("build.optimization.lto", not is_mode("debug"))
 	UseMimalloc = get_config("enable_mimalloc")
 	UseSIMD = get_config("enable_simd")
 	-- test require dsl

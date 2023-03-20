@@ -39,8 +39,8 @@ def read_texture(bindless, display_tex):
 
 bindless_array = BindlessArray()
 res = 1024, 1024
-input_tex = Texture2D(*res, 4, float, storage="BYTE")
-display_tex = Texture2D(*res, 4, float, storage="BYTE")
+input_tex = Image2D(*res, 4, float, storage="BYTE")
+display_tex = Image2D(*res, 4, float, storage="BYTE")
 address = lcapi.Address.MIRROR
 bindless_array.emplace(
     55, input_tex, filter=lcapi.Filter.LINEAR_POINT, address=address)

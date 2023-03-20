@@ -147,7 +147,7 @@ def clear_kernel(image):
 
 
 res = 1280, 720
-image = Texture2D(*res, 4, float, storage="BYTE")
+image = Image2D(*res, 4, float, storage="BYTE")
 gui = GUI("Test shadertoy", res)
 clear_kernel(image, dispatch_size=(*res, 1))
 time = 0.0

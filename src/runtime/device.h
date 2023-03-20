@@ -77,7 +77,12 @@ template<typename... Args>
 struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
 }// namespace detail
-
+template<typename Ext>
+concept ExtClass =
+    requires {
+        requires(std::is_base_of_v<DeviceExtension, Ext>);
+        requires(std::is_same_v<const luisa::string_view, decltype(Ext::name)>);
+    };
 class LC_RUNTIME_API Device {
 
 public:
@@ -102,10 +107,9 @@ public:
     // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
     // backend native plugins & extensions interface
-    template<typename Ext = DeviceExtension>
-        requires std::derived_from<Ext, DeviceExtension>
-    [[nodiscard]] auto extension(luisa::string_view name) const noexcept {
-        return static_cast<Ext *>(_impl->extension(name));
+    template<ExtClass Ext>
+    [[nodiscard]] auto extension() const noexcept {
+        return static_cast<Ext *>(_impl->extension(Ext::name));
     }
     // see definition in runtime/stream.cpp
     [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;
@@ -212,26 +216,20 @@ public:
     }
 
     template<typename V, typename P>
-    [[nodiscard]] auto compile(
+    [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(
         const RasterKernel<V, P> &kernel,
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        const ShaderOption &option = {}) noexcept {
-        return _create<typename RasterKernel<V, P>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
-    }
+        const ShaderOption &option = {}) noexcept;
     template<typename V, typename P>
     void compile_to(
         const RasterKernel<V, P> &kernel,
         const MeshFormat &format,
         luisa::string_view serialization_path,
         bool enable_debug_info,
-        bool enable_fast_math) {
-        _check_no_implicit_binding(kernel.vert(), serialization_path);
-        _check_no_implicit_binding(kernel.pixel(), serialization_path);
-        _impl->save_raster_shader(format, kernel.vert(), kernel.pixel(), serialization_path, enable_debug_info, enable_fast_math);
-    }
+        bool enable_fast_math) noexcept;
 
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(
@@ -239,9 +237,7 @@ public:
         const RasterState &raster_state,
         luisa::span<PixelFormat const> rtv_format,
         DepthFormat dsv_format,
-        luisa::string_view shader_name) {
-        return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name);
-    }
+        luisa::string_view shader_name) noexcept;
 
     template<size_t N, typename... Args>
     [[nodiscard]] auto load_shader(luisa::string_view shader_name) noexcept {
