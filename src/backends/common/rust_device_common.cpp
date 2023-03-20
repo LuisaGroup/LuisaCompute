@@ -1,13 +1,14 @@
-#if LC_ENABLE_CPU_BACKEND
 #include <core/logging.h>
 #include <luisa_compute_ir/bindings.hpp>
 #include <luisa_compute_api_types/bindings.hpp>
+
 namespace luisa::compute::backend {
 using namespace luisa::compute::api;
 using luisa::compute::ir::CArc;
 using luisa::compute::ir::KernelModule;
 using luisa::compute::ir::Type;
 }// namespace luisa::compute::backend
+
 #include <luisa_compute_backend/bindings.hpp>
 #include "rust_device_common.h"
 
@@ -56,4 +57,3 @@ void RustDevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 }// namespace luisa::compute::rust
-#endif

@@ -1,4 +1,4 @@
-name: build
+name: build-cmake
 
 on: [ push, pull_request ]
 

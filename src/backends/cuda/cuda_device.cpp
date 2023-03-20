@@ -453,36 +453,6 @@ void CUDADevice::destroy_shader(uint64_t handle) noexcept {
     });
 }
 
-ResourceCreationInfo CUDADevice::create_raster_shader(const MeshFormat &mesh_format,
-                                                      const RasterState &raster_state,
-                                                      luisa::span<const PixelFormat> rtv_format,
-                                                      DepthFormat dsv_format,
-                                                      Function vert, Function pixel,
-                                                      const ShaderOption &shader_option) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
-}
-
-void CUDADevice::save_raster_shader(const MeshFormat &mesh_format,
-                                    Function vert, Function pixel,
-                                    luisa::string_view name,
-                                    bool enable_debug_info,
-                                    bool enable_fast_math) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
-}
-
-ResourceCreationInfo CUDADevice::load_raster_shader(const MeshFormat &mesh_format,
-                                                    const RasterState &raster_state,
-                                                    luisa::span<const PixelFormat> rtv_format,
-                                                    DepthFormat dsv_format,
-                                                    luisa::span<const Type *const> types,
-                                                    luisa::string_view ser_path) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
-}
-
-void CUDADevice::destroy_raster_shader(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Rasterization is not supported on CUDA.");
-}
-
 ResourceCreationInfo CUDADevice::create_event() noexcept {
     auto event_handle = with_handle([] {
         CUevent event = nullptr;
