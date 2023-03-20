@@ -42,7 +42,7 @@ template<typename V, typename P>
     luisa::span<PixelFormat const> rtv_format,
     DepthFormat dsv_format,
     const ShaderOption &option) noexcept {
-    return _create<typename RasterKernel<V, P>::RasterShaderType>(mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
+    return _create<typename RasterKernel<V, P>::RasterShaderType>(static_cast<RasterExt *>(_impl->extension(RasterExt::name)), mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
 }
 template<typename V, typename P>
 void Device::compile_to(
@@ -62,7 +62,7 @@ RasterShader<Args...> Device::load_raster_shader(
     luisa::span<PixelFormat const> rtv_format,
     DepthFormat dsv_format,
     luisa::string_view shader_name) noexcept {
-    return _create<RasterShader<Args...>>(mesh_format, raster_state, rtv_format, dsv_format, shader_name);
+    return _create<RasterShader<Args...>>(static_cast<RasterExt *>(_impl->extension(RasterExt::name)), mesh_format, raster_state, rtv_format, dsv_format, shader_name);
 }
 
 }// namespace luisa::compute

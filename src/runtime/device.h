@@ -24,7 +24,6 @@ class Accel;
 class SwapChain;
 class BindlessArray;
 class IndirectDispatchBuffer;
-class RasterExt;
 
 template<typename T>
 class Buffer;
