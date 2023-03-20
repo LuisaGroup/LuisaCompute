@@ -7,6 +7,7 @@
 #include <future>
 #include <thread>
 
+#include <core/clock.h>
 #include <core/binary_io.h>
 
 #include <runtime/rhi/sampler.h>
@@ -222,6 +223,10 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
     return info;
 }
 
+BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating buffer from IR types.");
+}
+
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     with_handle([buffer = reinterpret_cast<CUDABuffer *>(handle)] {
         delete_with_allocator(buffer);
@@ -399,7 +404,6 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
             _io->write_shader_cache(option.name, ptx_data);
         }
     }
-    LUISA_INFO("PTX:\n{}", ptx);
 
     if (option.compile_only) {// no shader object should be created
         return ShaderCreationInfo::make_invalid();
@@ -412,7 +416,7 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
                 this, ptx.data(), ptx.size(), "__raygen__main");
         }
         return new_with_allocator<CUDAShaderNative>(
-            ptx.data(), ptx.size(), "kernel_main");
+            ptx.data(), ptx.size(), "kernel_main", block_size);
     });
 
     ShaderCreationInfo info{};
@@ -423,10 +427,12 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
+    Clock clk;
     StringScratch scratch;
     CUDACodegenAST codegen{scratch};
     codegen.emit(kernel);
-    LUISA_INFO("CUDA source:\n{}", scratch.string());
+    LUISA_INFO("Generated CUDA source in {} ms:\n{}",
+               clk.toc(), scratch.string());
     return _create_shader(scratch.string(), option,
                           kernel.block_size(),
                           kernel.requires_raytracing());

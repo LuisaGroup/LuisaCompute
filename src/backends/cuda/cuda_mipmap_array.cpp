@@ -52,7 +52,8 @@ CUDASurface CUDAMipmapArray::surface(uint32_t level) const noexcept {
         _surfaces[level] = surf;
         return surf;
     }();
-    return CUDASurface{handle, pixel_format_to_storage(format())};
+    auto storage = pixel_format_to_storage(format());
+    return CUDASurface{handle, to_underlying(storage)};
 }
 
 CUDAMipmapArray::CUDAMipmapArray(uint64_t array, PixelFormat format, uint32_t levels) noexcept

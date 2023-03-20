@@ -20,9 +20,9 @@ option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
 option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" OFF)
 
-
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
+option(LUISA_COMPUTE_ENABLE_RUST "Enable GUI support" ON)
 
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 

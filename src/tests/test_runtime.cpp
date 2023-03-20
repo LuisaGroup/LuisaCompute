@@ -15,17 +15,10 @@
 #include <dsl/syntax.h>
 #include <dsl/sugar.h>
 #include <gui/window.h>
+
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Base {
-    float a;
-};
-
-struct Derived : Base {
-    float b;
-    constexpr Derived(float a, float b) noexcept : Base{a}, b{b} {}
-};
 int main(int argc, char *argv[]) {
     luisa::log_level_verbose();
 

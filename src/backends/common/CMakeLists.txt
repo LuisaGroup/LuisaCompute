@@ -4,8 +4,12 @@ set(LUISA_BACKEND_COMMON_SOURCES
         resource_generator.h
         string_scratch.cpp string_scratch.h
         tex_compress_ext.h
-        resource_tracker.cpp resource_tracker.h
-        rust_device_common.h rust_device_common.cpp)
+        resource_tracker.cpp resource_tracker.h)
+
+if (LUISA_COMPUTE_ENABLE_RUST)
+    list(APPEND LUISA_BACKEND_COMMON_SOURCES
+            rust_device_common.cpp rust_device_common.h)
+endif ()
 
 add_library(luisa-compute-backend-common STATIC ${LUISA_BACKEND_COMMON_SOURCES})
 target_link_libraries(luisa-compute-backend-common PUBLIC

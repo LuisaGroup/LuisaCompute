@@ -18,7 +18,7 @@ namespace luisa::compute::cuda {
  */
 struct alignas(16) CUDASurface {
     CUsurfObject handle;
-    PixelStorage storage;
+    uint64_t storage;
 };
 
 static_assert(sizeof(CUDASurface) == 16u);
@@ -31,6 +31,7 @@ class CUDAMipmapArray {
 
 public:
     static constexpr auto max_level_count = 14u;
+    using Binding = CUDASurface;
 
 private:
     uint64_t _array;
@@ -87,6 +88,7 @@ public:
      * @return uint3 (width, height, depth)
      */
     [[nodiscard]] uint3 size() const noexcept;
+    [[nodiscard]] auto binding(uint32_t level) const noexcept { return surface(level); }
 };
 
 static_assert(sizeof(CUDAMipmapArray) == 128u);

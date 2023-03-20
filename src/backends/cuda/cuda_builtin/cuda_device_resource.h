@@ -63,7 +63,7 @@ template<typename T>
     return buffer.size_bytes / sizeof(T);
 }
 
-enum struct LCPixelStorage : lc_uint {
+enum struct LCPixelStorage {
 
     BYTE1,
     BYTE2,
@@ -88,7 +88,7 @@ enum struct LCPixelStorage : lc_uint {
 
 struct alignas(16) LCSurface {
     cudaSurfaceObject_t handle;
-    LCPixelStorage storage;
+    unsigned long long storage;
 };
 
 static_assert(sizeof(LCSurface) == 16);
@@ -234,7 +234,7 @@ using lc_vec4_t = typename lc_vec4<T>::type;
 template<typename T>
 [[nodiscard]] __device__ inline auto lc_surf2d_read(LCSurface surf, lc_uint2 p) noexcept {
     lc_vec4_t<T> result{0, 0, 0, 0};
-    switch (surf.storage) {
+    switch (static_cast<LCPixelStorage>(surf.storage)) {
         case LCPixelStorage::BYTE1: {
             int x;
             asm("suld.b.2d.b8.zero %0, [%1, {%2, %3}];"
@@ -397,7 +397,7 @@ template<typename T>
 
 template<typename T, typename V>
 __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noexcept {
-    switch (surf.storage) {
+    switch (static_cast<LCPixelStorage>(surf.storage)) {
         case LCPixelStorage::BYTE1: {
             int v = lc_texel_write_convert<char>(value.x);
             asm volatile("sust.b.2d.b8.zero [%0, {%1, %2}], %3;"
@@ -545,7 +545,7 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
 template<typename T>
 [[nodiscard]] __device__ inline auto lc_surf3d_read(LCSurface surf, lc_uint3 p) noexcept {
     lc_vec4_t<T> result{0, 0, 0, 0};
-    switch (surf.storage) {
+    switch (static_cast<LCPixelStorage>(surf.storage)) {
         case LCPixelStorage::BYTE1: {
             int x;
             asm("suld.b.3d.b8.zero %0, [%1, {%2, %3, %4, %5}];"
@@ -708,8 +708,7 @@ template<typename T>
 
 template<typename T, typename V>
 __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noexcept {
-
-    switch (surf.storage) {
+    switch (static_cast<LCPixelStorage>(surf.storage)) {
         case LCPixelStorage::BYTE1: {
             int v = lc_texel_write_convert<char>(value.x);
             asm volatile("sust.b.3d.b8.zero [%0, {%1, %2, %3, %4}], %5;"

@@ -16,4 +16,9 @@ CUDABuffer::~CUDABuffer() noexcept {
     LUISA_CHECK_CUDA(cuMemFree(_handle));
 }
 
+CUDABuffer::Binding CUDABuffer::binding(size_t offset, size_t size) const noexcept {
+    LUISA_ASSERT(offset + size <= _size, "CUDABuffer::binding() out of range.");
+    return Binding{_handle + offset, size};
+}
+
 }// namespace luisa::compute::cuda

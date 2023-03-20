@@ -11,9 +11,9 @@ function(luisa_compute_add_backend name)
             luisa-compute-gui
             luisa-compute-vstl
             luisa-compute-backend-common)
-    if(LUISA_COMPUTE_ENABLE_DSL)
+    if (LUISA_COMPUTE_ENABLE_DSL)
         target_link_libraries(lc-backend-${name} PRIVATE luisa-compute-dsl)
-    endif()
+    endif ()
     add_dependencies(luisa-compute-backends lc-backend-${name})
     set_target_properties(lc-backend-${name} PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
@@ -56,11 +56,14 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
     add_subdirectory(cuda)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_CPU)
-    add_subdirectory(cpu)
-endif ()
-if (LUISA_COMPUTE_ENABLE_REMOTE)
-    add_subdirectory(remote)
+if (LUISA_COMPUTE_ENABLE_RUST)
+    if (LUISA_COMPUTE_ENABLE_CPU)
+        add_subdirectory(cpu)
+    endif ()
+
+    if (LUISA_COMPUTE_ENABLE_REMOTE)
+        add_subdirectory(remote)
+    endif ()
 endif ()
 
 install(TARGETS luisa-compute-backends

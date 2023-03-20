@@ -21,6 +21,11 @@ serde = {version = "1.0", features = ["derive"]}
 serde_json = "1.0"
 sha2 = "0.10"
 
+[features]
+default = ["cpu"]
+cpu = []
+remote = []
+
 [build-dependencies]
 cbindgen = "0.24.3"
 

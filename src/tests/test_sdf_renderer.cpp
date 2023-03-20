@@ -7,6 +7,8 @@
 #include <numeric>
 #include <algorithm>
 
+#include <stb/stb_image_write.h>
+
 #include <core/clock.h>
 #include <core/logging.h>
 #include <runtime/context.h>
@@ -21,7 +23,7 @@ using namespace luisa::compute;
 
 #ifndef ENABLE_DISPLAY
 #ifdef LUISA_GUI_ENABLED
-#define ENABLE_DISPLAY 1
+#define ENABLE_DISPLAY 0
 #endif
 #endif
 
@@ -195,7 +197,11 @@ int main(int argc, char *argv[]) {
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
+#if ENABLE_DISPLAY
     auto stream = device.create_stream(StreamTag::GRAPHICS);
+#else
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+#endif
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
                             12.92f * x,
@@ -225,7 +231,7 @@ int main(int argc, char *argv[]) {
     static constexpr auto total_spp = 16384u;
 #else
     static constexpr auto interval = 64u;
-    static constexpr auto total_spp = 1024u;
+    static constexpr auto total_spp = 16384u;
 #endif
 
     auto t0 = clock.toc();
@@ -249,7 +255,14 @@ int main(int argc, char *argv[]) {
         stream << command_list.commit();
 #endif
     }
+
     stream << synchronize();
     auto average_fps = spp_count / (clock.toc() - t0) * 1000;
     LUISA_INFO("{} samples/s", average_fps);
+
+    luisa::vector<uint8_t> host_image(width * height * 4u);
+    stream << hdr2ldr_shader(accum_image, ldr_image, 2.0).dispatch(width, height)
+           << ldr_image.copy_to(host_image.data())
+           << synchronize();
+    stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
 }

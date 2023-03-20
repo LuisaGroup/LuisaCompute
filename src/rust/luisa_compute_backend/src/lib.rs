@@ -7,7 +7,9 @@ use luisa_compute_ir::{
     ir::{self, KernelModule, Type},
     CArc,
 };
+#[cfg(feature="remote")]
 pub mod remote;
+#[cfg(feature="cpu")]
 pub mod rust;
 
 #[derive(Debug)]
@@ -87,8 +89,10 @@ pub extern "C" fn lc_rs_create_backend(name: *const std::ffi::c_char) -> *mut c_
     let name = unsafe { std::ffi::CStr::from_ptr(name) };
     let name = name.to_str().unwrap();
     let backend = match name {
+        #[cfg(feature="cpu")]
         "rust" => Box::new(rust::RustBackend::new()),
-        // "remote" => Box::new(remote::RemoteBackend::new()),
+        #[cfg(feature="remote")]
+        "remote" => Box::new(remote::RemoteBackend::new()),
         _ => panic!("unknown backend"),
     };
     Box::into_raw(Box::new(backend)) as *mut c_void

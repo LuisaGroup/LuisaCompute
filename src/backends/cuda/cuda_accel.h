@@ -58,6 +58,7 @@ public:
     void build(CUDACommandEncoder &encoder, AccelBuildCommand *command) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
+    [[nodiscard]] auto binding() const noexcept { return Binding{_handle, _instance_buffer}; }
 };
 
 }// namespace luisa::compute::cuda

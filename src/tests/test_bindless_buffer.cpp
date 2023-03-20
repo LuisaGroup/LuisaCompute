@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     //     return heap.tex2d(0u).sample(uv, make_float2(), make_float2());
     // };
 
-    Callable readBuffer = [](BindlessVar heap, UInt index) noexcept {
+    Callable read_buffer = [](BindlessVar heap, UInt index) noexcept {
         UInt x = 0;
         return heap.buffer<uint>(0u).read(index);
     };
@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
         // Var r = length(uv - 0.5f);
         // Var t = log(sin(sqrt(r) * 100.0f - constants::pi_over_two) + 2.0f);
         // image.write(index, 0u);
-        image.write(index, readBuffer(heap, index));
+        image.write(index, read_buffer(heap, index));
     };
 
     auto clear_image = device.compile(clear_image_kernel);

@@ -23,7 +23,7 @@ on_load(function(target)
 		target:add("includedirs", path.join(py_path, "include"))
 	else
 		target:set("enabled", false)
-		utils.error("Illegal python version argument. please use argument like 3.9(for python 3.9) or 3.10(for python 3.10)")
+		utils.error("Illegal python version argument. please use argument like 3.9 (for python 3.9) or 3.10 (for python 3.10)")
 		return
 	end
 end)
