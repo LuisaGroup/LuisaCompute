@@ -30,7 +30,9 @@ class BufferView;
 class BindlessArray;
 
 // Images are textures without sampling, i.e., surfaces.
-
+namespace detail {
+LC_RUNTIME_API void image_size_zero_error() noexcept;
+}
 template<typename T>
 constexpr bool is_legal_image_element = std::disjunction_v<
     std::is_same<T, int32_t>,
@@ -59,10 +61,15 @@ private:
         : Resource{
               device,
               Tag::TEXTURE,
-              device->create_texture(
-                  pixel_storage_to_format<T>(storage), 2u,
-                  size.x, size.y, 1u,
-                  detail::max_mip_levels(make_uint3(size, 1u), mip_levels))},
+              [&] {
+                  if (size.x == 0 || size.y == 0) [[unlikely]] {
+                      detail::image_size_zero_error();
+                  }
+                  return device->create_texture(
+                      pixel_storage_to_format<T>(storage), 2u,
+                      size.x, size.y, 1u,
+                      detail::max_mip_levels(make_uint3(size, 1u), mip_levels));
+              }()},
           _size{size}, _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)}, _storage{storage} {}
 
 public:

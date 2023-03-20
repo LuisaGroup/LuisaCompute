@@ -21,6 +21,7 @@ LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst) noe
 LC_RUNTIME_API void error_buffer_reinterpret_size_too_small(size_t size, size_t dst) noexcept;
 LC_RUNTIME_API void error_buffer_subview_overflow(size_t offset, size_t ele_size, size_t size) noexcept;
 LC_RUNTIME_API void error_buffer_invalid_alignment(size_t offset, size_t dst) noexcept;
+LC_RUNTIME_API void buffer_size_zero_error() noexcept;
 
 }// namespace detail
 
@@ -52,7 +53,14 @@ private:
           _size{info.total_size_bytes / info.element_stride},
           _element_stride{info.element_stride} {}
     Buffer(DeviceInterface *device, size_t size) noexcept
-        : Buffer{device, device->create_buffer(Type::of<T>(), size)} {}
+        : Buffer{
+              device,
+              [&] {
+                  if (size == 0)[[unlikely]] {
+                      detail::buffer_size_zero_error();
+                  }
+                  return device->create_buffer(Type::of<T>(), size);
+              }()} {}
 
 public:
     Buffer() noexcept = default;

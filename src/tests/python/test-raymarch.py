@@ -610,7 +610,6 @@ def downsample_tex(image, out_image):
                 arr[value * last_coord.y + (last_coord.x + 1)] + \
                 arr[value * (last_coord.y + 1) + (last_coord.x + 1)]
             col *= 0.25
-            pass
         value = next_value
     if all(local_coord == uint2(0)):
         out_image.write(block_id().xy, float4(col, 1.))
