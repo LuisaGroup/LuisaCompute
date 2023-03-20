@@ -4,6 +4,12 @@
 
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_buffer.h>
+#include <backends/cuda/cuda_accel.h>
+#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_bindless_array.h>
+#include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_shader_optix.h>
 
 namespace luisa::compute::cuda {
@@ -31,7 +37,9 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
     return ss.cssRG + std::max(std::max(ss.cssCH, ss.cssMS), ss.cssIS + ss.cssAH);
 }
 
-CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx_size, const char *entry) noexcept
+CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
+                                 const char *ptx, size_t ptx_size,
+                                 const char *entry) noexcept
     : _device{device}, _entry{entry} {
 
     // create SBT event
@@ -65,7 +73,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device, const char *ptx, size_t ptx
     optix::PipelineCompileOptions pipeline_compile_options{};
     pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
     pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
-    pipeline_compile_options.numPayloadValues = 4u;
+    pipeline_compile_options.numPayloadValues = 5u;
     pipeline_compile_options.usesPrimitiveTypeFlags = optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
     char log[2048];// For error reporting from OptiX creation functions
@@ -160,101 +168,116 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
     LUISA_CHECK_OPTIX(optix::api().moduleDestroy(_module));
 }
 
-void CUDAShaderOptiX::_prepare_sbt(CUDAStream *stream, CUstream cuda_stream) const noexcept {
-    //        std::scoped_lock lock{_mutex};
-    //        if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
-    //            constexpr auto sbt_buffer_size = sizeof(SBTRecord) * 4u;
-    //            LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
-    //            auto sbt_record_buffer = stream->upload_pool()->allocate(sbt_buffer_size);
-    //            auto sbt_records = reinterpret_cast<SBTRecord *>(sbt_record_buffer->address());
-    //            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
-    //            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
-    //            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_any, &sbt_records[2]));
-    //            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
-    //            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-    //                _sbt_buffer, sbt_record_buffer->address(),
-    //                sbt_buffer_size, cuda_stream));
-    //            LUISA_CHECK_CUDA(cuEventRecord(_sbt_event, cuda_stream));
-    //            stream->emplace_callback(sbt_record_buffer);
-    //            _sbt.raygenRecord = _sbt_buffer;
-    //            _sbt.hitgroupRecordBase = _sbt_buffer + sizeof(SBTRecord);
-    //            _sbt.hitgroupRecordCount = 2u;
-    //            _sbt.hitgroupRecordStrideInBytes = sizeof(SBTRecord);
-    //            _sbt.missRecordBase = _sbt_buffer + sizeof(SBTRecord) * 3u;
-    //            _sbt.missRecordCount = 1u;
-    //            _sbt.missRecordStrideInBytes = sizeof(SBTRecord);
-    //            _sbt_recoreded_streams.emplace(cuda_stream);
-    //        } else {
-    //            if (_sbt_recoreded_streams.emplace(cuda_stream).second) {
-    //                LUISA_CHECK_CUDA(cuStreamWaitEvent(cuda_stream, _sbt_event, 0u));
-    //            }
-    //        }
+void CUDAShaderOptiX::_prepare_sbt(CUDACommandEncoder &encoder) const noexcept {
+    auto cuda_stream = encoder.stream()->handle();
+    std::scoped_lock lock{_mutex};
+    if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
+        constexpr auto sbt_buffer_size = sizeof(OptiXSBTRecord) * 4u;
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
+        encoder.with_upload_buffer(sbt_buffer_size, [&](auto sbt_record_buffer) noexcept {
+            auto sbt_records = reinterpret_cast<OptiXSBTRecord *>(sbt_record_buffer->address());
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_any, &sbt_records[2]));
+            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss, &sbt_records[3]));
+            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(_sbt_buffer, sbt_record_buffer->address(),
+                                               sbt_buffer_size, cuda_stream));
+            LUISA_CHECK_CUDA(cuEventRecord(_sbt_event, cuda_stream));
+        });
+        _sbt.raygenRecord = _sbt_buffer;
+        _sbt.hitgroupRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord);
+        _sbt.hitgroupRecordCount = 2u;
+        _sbt.hitgroupRecordStrideInBytes = sizeof(OptiXSBTRecord);
+        _sbt.missRecordBase = _sbt_buffer + sizeof(OptiXSBTRecord) * 3u;
+        _sbt.missRecordCount = 1u;
+        _sbt.missRecordStrideInBytes = sizeof(OptiXSBTRecord);
+        _sbt_recorded_streams.emplace(encoder.stream()->uid());
+    } else {
+        if (auto stream_uid = encoder.stream()->uid();
+            _sbt_recorded_streams.emplace(stream_uid).second) {
+            LUISA_CHECK_CUDA(cuStreamWaitEvent(cuda_stream, _sbt_event, 0u));
+        }
+    }
 }
 
 void CUDAShaderOptiX::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
-    //        auto cuda_stream = stream->handle();
-    //        _prepare_sbt(stream, cuda_stream);
-    //
-    //        // encode arguments
-    //        auto host_argument_buffer = stream->upload_pool()->allocate(_argument_buffer_size);
-    //        auto argument_buffer_offset = static_cast<size_t>(0u);
-    //        auto allocate_argument = [&](size_t bytes) noexcept {
-    //            static constexpr auto alignment = 16u;
-    //            auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
-    //            argument_buffer_offset = offset + bytes;
-    //            if (argument_buffer_offset > _argument_buffer_size) {
-    //                LUISA_ERROR_WITH_LOCATION(
-    //                    "Too many arguments in ShaderDispatchCommand");
-    //            }
-    //            return host_argument_buffer->address() + offset;
-    //        };
-    //        command->decode([&](auto argument) noexcept -> void {
-    //            using T = decltype(argument);
-    //            if constexpr (std::is_same_v<T, ShaderDispatchCommand::BufferArgument>) {
-    //                auto ptr = allocate_argument(sizeof(CUdeviceptr));
-    //                auto buffer = argument.handle + argument.offset;
-    //                std::memcpy(ptr, &buffer, sizeof(CUdeviceptr));
-    //            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::TextureArgument>) {
-    //                auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(argument.handle);
-    //                auto surface = mipmap_array->surface(argument.level);
-    //                auto ptr = allocate_argument(sizeof(CUDASurface));
-    //                std::memcpy(ptr, &surface, sizeof(CUDASurface));
-    //            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::BindlessArrayArgument>) {
-    //                auto ptr = allocate_argument(sizeof(CUDABindlessArray::SlotSOA));
-    //                auto array = reinterpret_cast<CUDABindlessArray *>(argument.handle)->handle();
-    //                std::memcpy(ptr, &array, sizeof(CUDABindlessArray::SlotSOA));
-    //            } else if constexpr (std::is_same_v<T, ShaderDispatchCommand::AccelArgument>) {
-    //                auto ptr = allocate_argument(sizeof(CUDAAccel::Binding));
-    //                auto accel = reinterpret_cast<CUDAAccel *>(argument.handle);
-    //                CUDAAccel::Binding binding{.handle = accel->handle(), .instances = accel->instance_buffer()};
-    //                std::memcpy(ptr, &binding, sizeof(CUDAAccel::Binding));
-    //            } else {// uniform
-    //                static_assert(std::same_as<T, ShaderDispatchCommand::UniformArgument>);
-    //                auto ptr = allocate_argument(argument.size);
-    //                std::memcpy(ptr, argument.data, argument.size);
-    //            }
-    //        });
-    //        auto s = command->dispatch_size();
-    //        if (host_argument_buffer->is_pooled()) {
-    //            auto argument_buffer = 0ull;
-    //            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
-    //                &argument_buffer, host_argument_buffer->address(), 0u));
-    //            LUISA_CHECK_OPTIX(optix::api().launch(
-    //                _pipeline, cuda_stream, argument_buffer,
-    //                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
-    //        } else {
-    //            auto argument_buffer = 0ull;
-    //            LUISA_CHECK_CUDA(cuMemAllocAsync(
-    //                &argument_buffer, _argument_buffer_size, cuda_stream));
-    //            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
-    //                argument_buffer, host_argument_buffer->address(),
-    //                _argument_buffer_size, cuda_stream));
-    //            LUISA_CHECK_OPTIX(optix::api().launch(
-    //                _pipeline, cuda_stream, argument_buffer,
-    //                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
-    //            LUISA_CHECK_CUDA(cuMemFreeAsync(argument_buffer, cuda_stream));
-    //        }
-    //        stream->emplace_callback(host_argument_buffer);
+
+    // create the sbt if not present
+    _prepare_sbt(encoder);
+
+    // encode arguments
+    encoder.with_upload_buffer(_argument_buffer_size, [&](CUDAHostBufferPool::View *argument_buffer) noexcept {
+        auto argument_buffer_offset = static_cast<size_t>(0u);
+        auto allocate_argument = [&](size_t bytes) noexcept {
+            static constexpr auto alignment = 16u;
+            auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
+            LUISA_ASSERT(offset + bytes <= _argument_buffer_size,
+                         "Too many arguments in ShaderDispatchCommand");
+            argument_buffer_offset = offset + bytes;
+            return argument_buffer->address() + offset;
+        };
+
+        for (auto &&arg : command->arguments()) {
+            using Tag = ShaderDispatchCommand::Argument::Tag;
+            switch (arg.tag) {
+                case Tag::BUFFER: {
+                    auto buffer = reinterpret_cast<const CUDABuffer *>(arg.buffer.handle);
+                    auto binding = buffer->binding(arg.buffer.offset, arg.buffer.size);
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                    break;
+                }
+                case Tag::TEXTURE: {
+                    auto texture = reinterpret_cast<const CUDAMipmapArray *>(arg.texture.handle);
+                    auto binding = texture->binding(arg.texture.level);
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                    break;
+                }
+                case Tag::UNIFORM: {
+                    auto uniform = command->uniform(arg.uniform);
+                    auto ptr = allocate_argument(uniform.size_bytes());
+                    std::memcpy(ptr, uniform.data(), uniform.size_bytes());
+                    break;
+                }
+                case Tag::BINDLESS_ARRAY: {
+                    auto array = reinterpret_cast<const CUDABindlessArray *>(arg.bindless_array.handle);
+                    auto binding = array->binding();
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                    break;
+                }
+                case Tag::ACCEL: {
+                    auto accel = reinterpret_cast<const CUDAAccel *>(arg.accel.handle);
+                    auto binding = accel->binding();
+                    auto ptr = allocate_argument(sizeof(binding));
+                    std::memcpy(ptr, &binding, sizeof(binding));
+                    break;
+                }
+            }
+        }
+        auto s = command->dispatch_size();
+        auto cuda_stream = encoder.stream()->handle();
+        if (argument_buffer->is_pooled()) {// if the argument buffer is pooled, we can use the device pointer directly
+            auto device_argument_buffer = 0ull;
+            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
+                &device_argument_buffer, argument_buffer->address(), 0u));
+            LUISA_CHECK_OPTIX(optix::api().launch(
+                _pipeline, cuda_stream, device_argument_buffer,
+                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
+        } else {// otherwise, we need to copy the argument buffer to the device
+            auto device_argument_buffer = 0ull;
+            LUISA_CHECK_CUDA(cuMemAllocAsync(
+                &device_argument_buffer, _argument_buffer_size, cuda_stream));
+            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(
+                device_argument_buffer, argument_buffer->address(),
+                _argument_buffer_size, cuda_stream));
+            LUISA_CHECK_OPTIX(optix::api().launch(
+                _pipeline, cuda_stream, device_argument_buffer,
+                _argument_buffer_size, &_sbt, s.x, s.y, s.z));
+            LUISA_CHECK_CUDA(cuMemFreeAsync(device_argument_buffer, cuda_stream));
+        }
+    });
 }
 
 }// namespace luisa::compute::cuda

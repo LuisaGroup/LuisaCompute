@@ -8,6 +8,8 @@
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
 #include <ast/function_builder.h>
+#include <runtime/rtx/ray.h>
+#include <runtime/rtx/hit.h>
 #include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_codegen_ast.h>
 
@@ -291,8 +293,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_trace_closest"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_trace_any"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
     }
@@ -467,9 +469,9 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
                  << f.block_size().y << ", "
                  << f.block_size().z << ");"
                  // launch size
-                 << "\n  const auto ls = lc_rtx_dispatch_size();"
+                 << "\n  const auto ls = lc_dispatch_size();"
                  // dispatch id
-                 << "\n  const auto did = lc_rtx_dispatch_id();";
+                 << "\n  const auto did = lc_dispatch_id();";
         for (auto builtin : f.builtin_variables()) {
             switch (builtin.tag()) {
                 case Variable::Tag::THREAD_ID:
@@ -550,13 +552,12 @@ void CUDACodegenAST::_emit_type_decl() noexcept {
     Type::traverse(*this);
 }
 
-static constexpr std::string_view ray_type_desc = "struct<16,array<float,3>,float,array<float,3>,float>";
-static constexpr std::string_view hit_type_desc = "struct<16,uint,uint,vector<float,2>>";
-
 void CUDACodegenAST::visit(const Type *type) noexcept {
+    auto ray_type_desc = Type::of<Ray>()->description();
+    auto triangle_hit_type_desc = Type::of<TriangleHit>()->description();
     if (type->is_structure() &&
         type->description() != ray_type_desc &&
-        type->description() != hit_type_desc) {
+        type->description() != triangle_hit_type_desc) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -592,15 +593,18 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
             _scratch << ", ";
             _scratch << type->dimension() << ">";
             break;
-        case Type::Tag::STRUCTURE:
+        case Type::Tag::STRUCTURE: {
+            auto ray_type_desc = Type::of<Ray>()->description();
+            auto triangle_hit_type_desc = Type::of<TriangleHit>()->description();
             if (auto desc = type->description(); desc == ray_type_desc) {
                 _scratch << "LCRay";
-            } else if (desc == hit_type_desc) {
-                _scratch << "LCHit";
+            } else if (desc == triangle_hit_type_desc) {
+                _scratch << "LCTriangleHit";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
             }
             break;
+        }
         default: break;
     }
 }

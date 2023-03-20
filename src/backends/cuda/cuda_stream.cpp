@@ -12,8 +12,14 @@
 
 namespace luisa::compute::cuda {
 
+[[nodiscard]] auto cuda_stream_assign_uid() noexcept {
+    static std::atomic_uint64_t uid{0u};
+    return uid.fetch_add(1u, std::memory_order_relaxed);
+}
+
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
-    : _device{device}, _upload_pool{64_M, true} {
+    : _device{device}, _upload_pool{64_M, true},
+      _uid{cuda_stream_assign_uid()} {
     LUISA_CHECK_CUDA(cuStreamCreate(&_stream, CU_STREAM_NON_BLOCKING));
 }
 

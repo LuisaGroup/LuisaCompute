@@ -1041,13 +1041,14 @@ struct alignas(16) LCRay {
     float m3;             // t_max
 };
 
-struct alignas(16) LCHit {
+struct alignas(16) LCTriangleHit {
     lc_uint m0;  // instance index
     lc_uint m1;  // primitive index
     lc_float2 m2;// barycentric coordinates
-    LCHit() noexcept : m0{~0u}, m1{~0u}, m2{0.0f, 0.0f} {}
-    LCHit(lc_uint inst, lc_uint prim, lc_float2 bary) noexcept
-        : m0{inst}, m1{prim}, m2{bary} {}
+    lc_float m3; // t_hit
+    LCTriangleHit() noexcept : m0{~0u}, m1{~0u}, m2{0.f, 0.f}, m3{0.f} {}
+    LCTriangleHit(lc_uint inst, lc_uint prim, lc_float2 bary, lc_float t_hit) noexcept
+        : m0{inst}, m1{prim}, m2{bary}, m3{t_hit} {}
 };
 
 struct alignas(16) LCAccelInstance {
@@ -1130,36 +1131,10 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
 
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
-#if LC_OPTIX_VERSION < 70300
-    if constexpr (i == 0u) {
-        asm volatile("call _optix_set_payload_0, (%0);"
-                     :
-                     : "r"(x)
-                     :);
-    } else if constexpr (i == 1u) {
-        asm volatile("call _optix_set_payload_1, (%0);"
-                     :
-                     : "r"(x)
-                     :);
-    } else if constexpr (i == 2u) {
-        asm volatile("call _optix_set_payload_2, (%0);"
-                     :
-                     : "r"(x)
-                     :);
-    } else if constexpr (i == 3u) {
-        asm volatile("call _optix_set_payload_3, (%0);"
-                     :
-                     : "r"(x)
-                     :);
-    } else {
-        __builtin_unreachable();
-    }
-#else
     asm volatile("call _optix_set_payload, (%0, %1);"
                  :
                  : "r"(i), "r"(x)
                  :);
-#endif
 }
 
 [[nodiscard]] inline auto lc_get_primitive_index() noexcept {
@@ -1186,6 +1161,14 @@ inline void lc_set_payload(lc_uint x) noexcept {
     return lc_make_float2(f0, f1);
 }
 
+[[nodiscard]] inline auto lc_get_hit_distance() noexcept {
+    float f0;
+    asm("call (%0), _optix_get_ray_tmax, ();"
+        : "=f"(f0)
+        :);
+    return f0;
+}
+
 extern "C" __global__ void __closesthit__trace_any() {
     lc_set_payload<0u>(1u);
 }
@@ -1194,16 +1177,18 @@ extern "C" __global__ void __closesthit__trace_closest() {
     auto inst = lc_get_instance_index();
     auto prim = lc_get_primitive_index();
     auto bary = lc_get_bary_coords();
+    auto t_hit = lc_get_hit_distance();
     lc_set_payload<0u>(inst);
     lc_set_payload<1u>(prim);
     lc_set_payload<2u>(__float_as_uint(bary.x));
     lc_set_payload<3u>(__float_as_uint(bary.y));
+    lc_set_payload<4u>(__float_as_uint(t_hit));
 }
 
 template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 [[nodiscard]] inline auto lc_trace_impl(
     LCAccel accel, LCRay ray, lc_uint mask,
-    lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3) noexcept {
+    lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3, lc_uint &r4) noexcept {
     auto ox = ray.m0[0];
     auto oy = ray.m0[1];
     auto oz = ray.m0[2];
@@ -1212,34 +1197,9 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto dz = ray.m2[2];
     auto t_min = ray.m1;
     auto t_max = ray.m3;
-#if LC_OPTIX_VERSION < 70300
-    if constexpr (reg_count == 1u) {
-        asm volatile(
-            "call (%0), _optix_trace_1, "
-            "(%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16);"
-            : "=r"(r0)
-            : "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz),
-              "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
-              "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
-              "r"(0u)
-            :);
-    } else if constexpr (reg_count == 4u) {
-        asm volatile(
-            "call (%0, %1, %2, %3), _optix_trace_4, "
-            "(%4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22);"
-            : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3)
-            : "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz),
-              "f"(dx), "f"(dy), "f"(dz), "f"(t_min), "f"(t_max), "f"(0.f),
-              "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u), "r"(0u),
-              "r"(0u), "r"(0u), "r"(0u), "r"(0u)
-            :);
-    } else {
-        __builtin_unreachable();
-    }
-#else
     [[maybe_unused]] unsigned int
-        p4,
-        p5, p6, p7, p8, p9, p10, p11, p12, p13,
+        p5,
+        p6, p7, p8, p9, p10, p11, p12, p13,
         p14, p15, p16, p17, p18, p19, p20, p21, p22,
         p23, p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
@@ -1250,18 +1210,17 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
         "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,"
         "%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63,"
         "%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
-        : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3), "=r"(p4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
+        : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3), "=r"(r4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
           "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(0u), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(p4), "r"(p5), "r"(p6),
+          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4), "r"(p5), "r"(p6),
           "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
           "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
           "r"(p25), "r"(p26), "r"(p27), "r"(p28), "r"(p29), "r"(p30), "r"(p31)
         :);
-#endif
 }
 
 [[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
@@ -1270,10 +1229,11 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
-    lc_trace_impl<0u, 4u, flags>(accel, ray, mask, r0, r1, r2, r3);
+    auto r4 = 0u;
+    lc_trace_impl<0u, 5u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
     return r0 == ~0u ?
-               LCHit{} :
-               LCHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3))};
+               LCTriangleHit{} :
+               LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
 }
 
 [[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
@@ -1282,7 +1242,8 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
-    lc_trace_impl<1u, 1u, flags>(accel, ray, mask, r0, r1, r2, r3);
+    auto r4 = 0u;
+    lc_trace_impl<1u, 1u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
     return static_cast<bool>(r0);
 }
 

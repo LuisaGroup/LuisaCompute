@@ -188,6 +188,7 @@ void CUDACommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(AccelBuildCommand *command) noexcept {
+    LUISA_ASSERT(command->build_accel(), "Invalid AccelBuildCommand with 'build_accel = false'.");
     auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
     accel->build(*this, command);
 }
