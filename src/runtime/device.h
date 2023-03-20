@@ -77,7 +77,12 @@ template<typename... Args>
 struct is_dsl_kernel<Kernel3D<Args...>> : std::true_type {};
 
 }// namespace detail
-
+template<typename Ext>
+concept ExtClass =
+    requires {
+        requires(std::is_base_of_v<DeviceExtension, Ext>);
+        requires(std::is_same_v<const luisa::string_view, decltype(Ext::name)>);
+    };
 class LC_RUNTIME_API Device {
 
 public:
@@ -102,10 +107,9 @@ public:
     // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
     // backend native plugins & extensions interface
-    template<typename Ext = DeviceExtension>
-        requires std::derived_from<Ext, DeviceExtension>
-    [[nodiscard]] auto extension(luisa::string_view name) const noexcept {
-        return static_cast<Ext *>(_impl->extension(name));
+    template<ExtClass Ext>
+    [[nodiscard]] auto extension() const noexcept {
+        return static_cast<Ext *>(_impl->extension(Ext::name));
     }
     // see definition in runtime/stream.cpp
     [[nodiscard]] Stream create_stream(StreamTag stream_tag = StreamTag::COMPUTE) noexcept;

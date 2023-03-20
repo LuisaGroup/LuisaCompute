@@ -10,6 +10,7 @@ protected:
     ~TexCompressExt() noexcept = default;
 
 public:
+    static constexpr luisa::string_view name = "TexCompressExt";
     enum class Result : int8_t {
         NotImplemented = -1,
         Success = 0,

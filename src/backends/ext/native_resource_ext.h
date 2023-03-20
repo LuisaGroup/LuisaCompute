@@ -15,6 +15,7 @@ protected:
     ~NativeResourceExt() noexcept = default;
 
 public:
+    static constexpr luisa::string_view name = "NativeResourceExt";
     virtual BufferCreationInfo register_external_buffer(
         void *external_ptr,
         const Type *element,

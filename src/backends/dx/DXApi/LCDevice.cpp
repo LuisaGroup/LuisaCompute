@@ -31,7 +31,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       nativeDevice(_ctx, settings) {
     exts.try_emplace(
-        "TexCompressExt"sv,
+        TexCompressExt::name,
         [](LCDevice *device) -> DeviceExtension * {
             return new DxTexCompressExt(&device->nativeDevice);
         },
@@ -39,7 +39,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
             delete static_cast<DxTexCompressExt *>(ext);
         });
     exts.try_emplace(
-        "NativeResourceExt"sv,
+        NativeResourceExt::name,
         [](LCDevice *device) -> DeviceExtension * {
             return new DxNativeResourceExt(device, &device->nativeDevice);
         },
