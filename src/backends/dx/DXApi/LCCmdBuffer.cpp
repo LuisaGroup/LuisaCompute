@@ -238,7 +238,7 @@ public:
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
-        if (cmd->build_accel()) {
+        if (!cmd->update_instance_buffer_only()) {
             AddBuildAccel(
                 accel->PreProcess(
                     *stateTracker,
@@ -621,7 +621,7 @@ public:
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
         vstd::optional<BufferView> scratch;
-        if (cmd->build_accel()) {
+        if (!cmd->update_instance_buffer_only()) {
             scratch.create(BufferView(accelScratchBuffer, accelScratchOffsets->first, accelScratchOffsets->second));
             if (accel->RequireCompact()) {
                 updateAccel->emplace_back(ButtomCompactCmd{
