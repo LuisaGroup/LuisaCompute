@@ -16,6 +16,8 @@ from .atomic import int_atomic_functions, float_atomic_functions
 
 class Buffer:
     def __init__(self, size, dtype):
+        if size == 0:
+            raise Exception("Buffer size must be non-zero")
         if dtype not in basic_dtypes and type(dtype).__name__ not in {'StructType', 'ArrayType'}:
             raise TypeError('Invalid buffer element type')
         self.bufferType = BufferType(dtype)

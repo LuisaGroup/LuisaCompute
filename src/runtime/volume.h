@@ -18,7 +18,7 @@ template<typename VolumeOrView>
 struct VolumeExprProxy;
 
 LC_RUNTIME_API void error_volume_invalid_mip_levels(size_t level, size_t mip) noexcept;
-LC_RUNTIME_API void image_size_zero_error() noexcept;
+LC_RUNTIME_API void volume_size_zero_error() noexcept;
 }// namespace detail
 
 template<typename T>
@@ -52,7 +52,7 @@ private:
               device, Tag::TEXTURE,
               [&] {
                   if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
-                      detail::image_size_zero_error();
+                      detail::volume_size_zero_error();
                   }
                   return device->create_texture(
                       pixel_storage_to_format<T>(storage), 3u,

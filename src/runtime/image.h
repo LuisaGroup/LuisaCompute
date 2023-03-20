@@ -18,6 +18,7 @@ template<typename ImageOrView>
 struct ImageExprProxy;
 
 LC_RUNTIME_API void error_image_invalid_mip_levels(size_t level, size_t mip) noexcept;
+LC_RUNTIME_API void image_size_zero_error() noexcept;
 
 }// namespace detail
 
@@ -30,9 +31,6 @@ class BufferView;
 class BindlessArray;
 
 // Images are textures without sampling, i.e., surfaces.
-namespace detail {
-LC_RUNTIME_API void image_size_zero_error() noexcept;
-}
 template<typename T>
 constexpr bool is_legal_image_element = std::disjunction_v<
     std::is_same<T, int32_t>,

@@ -3,7 +3,7 @@
 
 namespace luisa::compute::detail {
 LC_RUNTIME_API void buffer_size_zero_error() noexcept{
-    LUISA_ERROR_WITH_LOCATION("Invalid buffer with zero size.");
+    LUISA_ERROR_WITH_LOCATION("Buffer size must be non-zero.");
 }
 LC_RUNTIME_API void error_buffer_copy_sizes_mismatch(size_t src, size_t dst) noexcept {
     LUISA_ERROR_WITH_LOCATION(

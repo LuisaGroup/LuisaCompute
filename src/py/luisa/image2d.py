@@ -17,6 +17,8 @@ def _check_storage(storage_name, dtype):
 
 class Image2D:
     def __init__(self, width, height, channel, dtype, mip=1, storage = None):
+        if width == 0 or height == 0:
+            raise Exception("Image2D size must be non-zero")
         if not dtype in {int, uint, float}:
             raise Exception('Image2D only supports int / uint / float')
         if not channel in (1,2,4):
