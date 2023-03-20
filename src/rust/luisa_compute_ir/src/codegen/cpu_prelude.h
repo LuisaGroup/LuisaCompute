@@ -27,11 +27,6 @@ inline int __float_as_int(float x) {
 #define print_backtrace_hint()   fprintf(stderr, "set LUISA_BACKTRACE=1 for more information\n")
 
 #define __device__
-#define k_args_params    const KernelFnArgs* k_args
-#define k_buffer_arg(i)     lc_buffer_arg(k_args, i)
-#define k_buffer_capture(i)     lc_buffer_capture(k_args, i)
-#define k_bindless_arg(i)   lc_bindless_arg(k_args, i)
-#define k_bindless_capture(i)   lc_bindless_capture(k_args, i)
 #define lc_assert(cond)  do { if (!(cond)) { fprintf(stderr, "Assertion failed: %s at %s:%d\n", #cond, __FILE__, __LINE__); print_backtrace_hint(); abort(); } } while (false)
 #define lc_unreachable() { fprintf(stderr, "Unreachable code at %s:%d\n", __FILE__, __LINE__); print_backtrace_hint(); abort(); }
 #define lc_assume(cond)

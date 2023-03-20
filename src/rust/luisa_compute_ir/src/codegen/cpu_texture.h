@@ -394,7 +394,7 @@ struct TextureView {
         return detail::read_pixel<V, T>(LCPixelStorage(storage), _pixel3d(xyz));
     }
     template<typename V, typename T>
-    inline void write2d(lc_uint2 xy,V value) const noexcept {
+    inline void write2d(lc_uint2 xy, V value) const noexcept {
         if (_out_of_bounds(xy)) [[unlikely]] { return; }
         detail::write_pixel<V, T>(LCPixelStorage(storage), _pixel2d(xy), value);
     }
@@ -570,15 +570,39 @@ template<typename T>
 struct LCSampler {
     LCSamplerAddress address;
     LCSamplerFilter filter;
+    static LCSampler decode(uint8_t sampler)  noexcept {
+        LCSampler s{};
+        s.filter = static_cast<LCSamplerFilter>(sampler & 3);
+        s.address = static_cast<LCSamplerAddress>((sampler >> 2) & 3);
+        return s;
+    }
 };
-[[nodiscard]] inline lc_float4 lc_texture_2d_read(
-    const Texture *tex, lc_uint level, lc_uint2 uv) noexcept {
-    return lc_texture_view(tex, level).read2d<lc_float4, float>(uv);
+using Texture2D = KernelFnArg::Texture_Body;
+using Texture3D = KernelFnArg::Texture_Body;
+template<class V>
+[[nodiscard]] inline V lc_texture2d_read(
+    const Texture2D& tex, lc_uint2 uv) noexcept {
+    using T = element_type<V>;
+    return lc_texture_view(&tex._0, tex._1).read2d<V, T>(uv);
 }
 
-[[nodiscard]] inline lc_float4 lc_texture_3d_read(
-    const Texture *tex, lc_uint level, lc_uint3 uvw) noexcept {
-    return lc_texture_view(tex, level).read3d<lc_float4, float>(uvw);
+template<class V>
+[[nodiscard]] inline V lc_texture3d_read(
+    const Texture3D& tex, lc_uint3 uvw) noexcept {
+    using T = element_type<V>;
+    return lc_texture_view(&tex._0, tex._1).read3d<V, T>(uvw);
+}
+
+template<class V>
+inline void lc_texture2d_write(const Texture2D& tex, lc_uint2 uv, V value) noexcept {
+    using T = element_type<V>;
+    lc_texture_view(&tex._0, tex._1).write2d<V, T>(uv, value);
+}
+
+template<class V>
+inline void lc_texture3d_write(const Texture3D& tex,  lc_uint3 uv, V value) noexcept {
+    using T = element_type<V>;
+    lc_texture_view(&tex._0, tex._1).write3d<V, T>(uv, value);
 }
 
 [[nodiscard]] inline lc_float4 lc_texture_2d_sample(
@@ -590,7 +614,40 @@ struct LCSampler {
         return texture_sample_linear(view, sampler.address, uv);
     }
 }
-
+[[nodiscard]] inline const Texture& lc_bindless_texture_2d(const BindlessArray&array, size_t index) noexcept {
+    if (index >= array.texture2ds_count) {
+        fprintf(stderr, "Bindless texture2d index out of bounds: %zu >= %zu\n", index, array.texture2ds_count);
+        print_backtrace_hint();
+        abort();
+    }
+    return array.texture2ds[index];
+}
+[[nodiscard]] inline const Texture& lc_bindless_texture_3d(const BindlessArray&array, size_t index) noexcept {
+    if (index >= array.texture3ds_count) {
+        fprintf(stderr, "Bindless texture3d index out of bounds: %zu >= %zu\n", index, array.texture3ds_count);
+        print_backtrace_hint();
+        abort();
+    }
+    return array.texture3ds[index];
+}
+[[nodiscard]] inline lc_float4 lc_bindless_texture2d_read(
+    const BindlessArray&array, size_t index, lc_uint2 uv) noexcept {
+    auto &&tex = lc_bindless_texture_2d(array, index);
+    auto view = lc_texture_view(&tex, 0u);
+    return view.read2d<lc_float4, float>(uv);
+}
+[[nodiscard]] inline lc_float4 lc_bindless_texture3d_read(
+    const BindlessArray&array, size_t index, lc_uint3 uvw) noexcept {
+    auto &&tex = lc_bindless_texture_3d(array, index);
+    auto view = lc_texture_view(&tex, 0u);
+    return view.read3d<lc_float4, float>(uvw);
+}
+[[nodiscard]] inline lc_float4 lc_bindless_texture2d_sample(
+    const BindlessArray&array, size_t index, lc_float2 uv) noexcept {
+    auto &&tex = lc_bindless_texture_2d(array, index);
+    auto sampler = LCSampler::decode(tex.sampler);
+    return lc_texture_2d_sample(&tex, sampler, uv);
+}
 [[nodiscard]] inline lc_float4 lc_texture_3d_sample(
     const Texture *tex, LCSampler sampler, lc_float3 uvw) noexcept {
     auto view = lc_texture_view(tex, 0u);
@@ -600,7 +657,12 @@ struct LCSampler {
         return texture_sample_linear(view, sampler.address, uvw);
     }
 }
-
+[[nodiscard]] inline lc_float4 lc_bindless_texture3d_sample(
+    const BindlessArray&array, size_t index, lc_float3 uv) noexcept {
+    auto &&tex = lc_bindless_texture_3d(array, index);
+    auto sampler = LCSampler::decode(tex.sampler);
+    return lc_texture_3d_sample(&tex, sampler, uv);
+}
 [[nodiscard]] inline lc_float4 lc_texture_2d_sample_level(
     const Texture *tex, LCSampler sampler, lc_float2 uv, lc_float lod) noexcept {
     auto filter = sampler.filter;
@@ -613,7 +675,12 @@ struct LCSampler {
     auto v1 = texture_sample_linear(lc_texture_view(tex, level0 + 1u), sampler.address, uv);
     return lc_lerp(v0, v1, lc_float4(lod - level0));
 }
-
+[[nodiscard]] inline lc_float4 lc_bindless_texture_2d_sample_level(
+    const BindlessArray&array, size_t index, lc_float2 uv, lc_float lod) noexcept {
+    auto &&tex = lc_bindless_texture_2d(array, index);
+    auto sampler = LCSampler::decode(tex.sampler);
+    return lc_texture_2d_sample_level(&tex, sampler, uv, lod);
+}
 [[nodiscard]] inline lc_float4 lc_texture_3d_sample_level(
     const Texture *tex, LCSampler sampler, lc_float3 uvw, lc_float lod) noexcept {
     auto filter = sampler.filter;
@@ -626,8 +693,13 @@ struct LCSampler {
     auto v1 = texture_sample_linear(lc_texture_view(tex, level0 + 1u), sampler.address, uvw);
     return lc_lerp(v0, v1, lc_float4(lod - level0));
 }
-
-[[nodiscard]] inline lc_float4 lc_texture_2d_sample(
+[[nodiscard]] inline lc_float4 lc_bindless_texture_3d_sample_level(
+    const BindlessArray&array, size_t index, lc_float3 uvw, lc_float lod) noexcept {
+    auto &&tex = lc_bindless_texture_3d(array, index);
+    auto sampler = LCSampler::decode(tex.sampler);
+    return lc_texture_3d_sample_level(&tex, sampler, uvw, lod);
+}
+[[nodiscard]] inline lc_float4 lc_texture_2d_sample_grad(
     const Texture *tex, LCSampler sampler, lc_float2 uv,
     lc_float2 dpdx, lc_float2 dpdy) noexcept {
     constexpr auto ll = [](lc_float2 v) noexcept { return lc_dot(v, v); };
@@ -659,7 +731,13 @@ struct LCSampler {
     return lc_lerp(v0, v1, lc_make_float4(level - level_uint));
 
 }
-
+[[nodiscard]] inline lc_float4 lc_bindless_texture2d_sample_grad(
+    const BindlessArray&array, size_t index, lc_float2 uv,
+    lc_float2 dpdx, lc_float2 dpdy) noexcept {
+    auto &&tex = lc_bindless_texture_2d(array, index);
+    auto sampler = LCSampler::decode(tex.sampler);
+    return lc_texture_2d_sample_grad(&tex, sampler, uv, dpdx, dpdy);
+}
 [[nodiscard]] inline lc_float4 lc_texture_3d_sample_grad(
     const Texture *tex, LCSampler sampler, lc_float3 uvw, lc_float3 dpdx, lc_float3 dpdy) noexcept {
     constexpr auto ll = [](lc_float3 v) noexcept { return lc_dot(v, v); };
@@ -689,4 +767,11 @@ struct LCSampler {
     if (level == 0.0 || level == last_level) { return v0; }
     auto v1 = texture_sample_ewa(lc_texture_view(tex, level_uint + 1u), sampler.address, uvw, dpdx, dpdy);
     return lc_lerp(v0, v1, lc_make_float4(level - level_uint));
+}
+
+[[nodiscard]] inline lc_float4 lc_bindless_texture_3d_sample_grad(
+    const BindlessArray&array, size_t index, lc_float3 uvw, lc_float3 dpdx, lc_float3 dpdy) noexcept {
+    auto &&tex = lc_bindless_texture_3d(array, index);
+    auto sampler = LCSampler::decode(tex.sampler);
+    return lc_texture_3d_sample_grad(&tex, sampler, uvw, dpdx, dpdy);
 }

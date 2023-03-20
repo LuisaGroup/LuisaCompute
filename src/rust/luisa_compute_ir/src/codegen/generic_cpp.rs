@@ -445,7 +445,6 @@ impl GenericCppCodeGen {
     ) -> bool {
         match f {
             Func::BufferRead => {
-                self.gen_instr(args[0]);
                 let buffer_ty = self.type_gen.to_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
@@ -456,7 +455,6 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BufferWrite => {
-                self.gen_instr(args[0]);
                 let buffer_ty = self.type_gen.to_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
@@ -467,7 +465,6 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BufferSize => {
-                self.gen_instr(args[0]);
                 let buffer_ty = self.type_gen.to_c_type(args[0].type_());
                 writeln!(
                     &mut self.body,
@@ -478,7 +475,6 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BindlessBufferRead => {
-                self.gen_instr(args[0]);
                 writeln!(
                     &mut self.body,
                     "const auto {1} = lc_bindless_buffer_read<{0}>({2}, {3}, {4});",
@@ -488,7 +484,6 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BindlessBufferSize(t) => {
-                self.gen_instr(args[0]);
                 let buffer_ty = self.type_gen.to_c_type(t);
                 writeln!(
                     &mut self.body,
@@ -499,11 +494,172 @@ impl GenericCppCodeGen {
                 true
             }
             Func::BindlessBufferType => {
-                self.gen_instr(args[0]);
                 writeln!(
                     &mut self.body,
                     "const {} {} = lc_bindless_buffer_type({}, {});",
                     node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture2dRead => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture2d_read({}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture3dRead => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture3d_read({}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture2dReadLevel => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture2d_read_level({}, {}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2], args_v[3]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture3dReadLevel => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture3d_read_level({}, {}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2], args_v[3]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture2dSample => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture2d_sample({}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2],
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture3dSample => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture3d_sample({}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture2dSampleLevel => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture2d_sample_level({}, {}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2], args_v[3]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture3dSampleLevel => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture3d_sample_level({}, {}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2], args_v[3]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture2dSampleGrad => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture2d_sample_grad({}, {}, {}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2], args_v[3], args_v[4]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture3dSampleGrad => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_float4 {} = lc_bindless_texture3d_sample_grad({}, {}, {}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2], args_v[3], args_v[4]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture2dSize => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint2 {} = lc_bindless_texture2d_size({}, {});",
+                    var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture3dSize => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint3 {} = lc_bindless_texture3d_size({}, {});",
+                    var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture2dSizeLevel => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint2 {} = lc_bindless_texture2d_size_level({}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessTexture3dSizeLevel => {
+                writeln!(
+                    &mut self.body,
+                    "const lc_uint3 {} = lc_bindless_texture3d_size_level({}, {}, {});",
+                    var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::Texture2dRead => {
+                writeln!(
+                    &mut self.body,
+                    "const {0} {1} = lc_texture2d_read<{0}>({2}, {3});",
+                    node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::Texture3dRead => {
+                writeln!(
+                    &mut self.body,
+                    "const {0} {1} = lc_texture3d_read<{0}>({2}, {3});",
+                    node_ty_s, var, args_v[0], args_v[1]
+                )
+                .unwrap();
+                true
+            }
+            Func::Texture2dWrite => {
+                writeln!(
+                    &mut self.body,
+                    "lc_texture2d_write({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::Texture3dWrite => {
+                writeln!(
+                    &mut self.body,
+                    "lc_texture3d_write({0}, {1}, {2});",
+                    args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1292,18 +1448,18 @@ impl GenericCppCodeGen {
             }
             Instruction::Texture2D => {
                 self.signature
-                    .push(format!("const Texture2DView& {}", arg_name));
+                    .push(format!("const Texture2D& {}", arg_name));
                 self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture2DView& {} = {}[{}].texture2d._0;",
+                    "const Texture2D& {} = {}[{}].texture2d._0;",
                     arg_name, arg_array, index
                 ));
                 self.cpu_kernel_parameters.push(arg_name);
             }
             Instruction::Texture3D => {
                 self.signature
-                    .push(format!("const Texture3DView& {}", arg_name));
+                    .push(format!("const Texture3D& {}", arg_name));
                 self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture3DView& {} = {}[{}].texture3d._0;",
+                    "const Texture3D& {} = {}[{}].texture3d._0;",
                     arg_name, arg_array, index
                 ));
                 self.cpu_kernel_parameters.push(arg_name);
