@@ -38,7 +38,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         command_list.cpp command_list.h
         context.cpp context.h
         context_paths.h
-        custom_pass.cpp custom_pass.h
         depth_format.h
         device.cpp device.h
         dispatch_buffer.cpp dispatch_buffer.h

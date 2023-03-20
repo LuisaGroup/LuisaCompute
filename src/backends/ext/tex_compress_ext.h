@@ -17,8 +17,8 @@ public:
         Failed = 1
     };
     // TODO: astc
-    virtual Result compress_bc6h(Stream &stream, Image<float> const &src, luisa::vector<std::byte> &result) noexcept { return Result::NotImplemented; }
-    virtual Result compress_bc7(Stream &stream, Image<float> const &src, luisa::vector<std::byte> &result, float alpha_importance) noexcept { return Result::NotImplemented; }
+    virtual Result compress_bc6h(Stream &stream, Image<float> const &src, BufferView<uint> const &result) noexcept { return Result::NotImplemented; }
+    virtual Result compress_bc7(Stream &stream, Image<float> const &src, BufferView<uint> const &result, float alpha_importance) noexcept { return Result::NotImplemented; }
     virtual Result check_builtin_shader() noexcept { return Result::NotImplemented; }
 };
 

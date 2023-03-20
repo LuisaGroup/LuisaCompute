@@ -509,7 +509,7 @@ private:
     }
     FuncTable _func_table;
     template<typename... Callbacks>
-    void visit(const ShaderDispatchCommandBase *command, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
+    void visit(const ShaderDispatchCommandBase *command, const Command* cmd_base, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
@@ -573,7 +573,7 @@ private:
         for (auto &&i : _dispatch_write_handle) {
             set_write_layer(i.second, i.first, _dispatch_layer);
         }
-        add_command(command, _dispatch_layer);
+        add_command(cmd_base, _dispatch_layer);
         if (_use_bindless_in_pass) {
             _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
         }
@@ -636,7 +636,7 @@ public:
 
     // Shader : function, read/write multi resources
     void visit(const ShaderDispatchCommand *command) noexcept override {
-        visit(command, command->handle(), [&] {
+        visit(command, command, command->handle(), [&] {
             if (command->is_indirect()) {
                 auto &&t = command->indirect_dispatch_size();
                 add_dispatch_handle(
@@ -647,7 +647,7 @@ public:
             }
         });
     }
-    void visit(const DrawRasterSceneCommand *command) noexcept override {
+    void visit(const DrawRasterSceneCommand *command) noexcept {
         auto set_tex_dsl = [&](ShaderDispatchCommandBase::Argument::Texture const &a) {
             add_dispatch_handle(
                 a.handle,
@@ -655,7 +655,7 @@ public:
                 Range(a.level),
                 true);
         };
-        visit(command, command->handle(), [&] {
+        visit(command, command, command->handle(), [&] {
             auto &&rtv = command->rtv_texs();
             auto &&dsv = command->dsv_tex();
             for (auto &&i : rtv) {
@@ -700,7 +700,7 @@ public:
         auto binSize = pixel_storage_size(command->storage(), sz);
         add_command(command, set_rw(command->texture(), copy_range(command->level(), 1), ResourceType::Texture, command->buffer(), copy_range(command->buffer_offset(), binSize), ResourceType::Buffer));
     }
-    void visit(const ClearDepthCommand *command) noexcept override {
+    void visit(const ClearDepthCommand *command) noexcept {
         add_command(command, set_write(command->handle(), Range{}, ResourceType::Texture));
     }
 
@@ -741,61 +741,13 @@ public:
     }
 
     void visit(const CustomCommand *command) noexcept override {
-        _dispatch_read_handle.clear();
-        _dispatch_write_handle.clear();
-        _use_bindless_in_pass = false;
-        _use_accel_in_pass = false;
-        _dispatch_layer = 0;
-        for (auto &&i : command->resources()) {
-            bool is_write = ((uint)i.usage & (uint)Usage::WRITE) != 0;
-            luisa::visit(
-                [&]<typename T>(T const &res) {
-                    if constexpr (std::is_same_v<T, CustomCommand::BufferView>) {
-                        add_dispatch_handle(
-                            res.handle,
-                            ResourceType::Buffer,
-                            Range(res.start_byte, res.size_byte),
-                            is_write);
-                    } else if constexpr (std::is_same_v<T, CustomCommand::TextureView>) {
-                        add_dispatch_handle(
-                            res.handle,
-                            ResourceType::Texture,
-                            Range(res.start_mip, res.size_mip),
-                            is_write);
-                    } else if constexpr (std::is_same_v<T, CustomCommand::MeshView>) {
-                        add_dispatch_handle(
-                            res.handle,
-                            ResourceType::Mesh,
-                            Range(),
-                            is_write);
-                    } else if constexpr (std::is_same_v<T, CustomCommand::AccelView>) {
-                        add_dispatch_handle(
-                            res.handle,
-                            ResourceType::Accel,
-                            Range(),
-                            is_write);
-                    } else {
-                        add_dispatch_handle(
-                            res.handle,
-                            ResourceType::Bindless,
-                            Range(),
-                            is_write);
-                    }
-                },
-                i.resource_view);
-        }
-        for (auto &&i : _dispatch_read_handle) {
-            set_read_layer(i.second, i.first, _dispatch_layer);
-        }
-        for (auto &&i : _dispatch_write_handle) {
-            set_write_layer(i.second, i.first, _dispatch_layer);
-        }
-        add_command(command, _dispatch_layer);
-        if (_use_bindless_in_pass) {
-            _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
-        }
-        if (_use_accel_in_pass) {
-            _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+        switch (command->uuid()) {
+            case clear_depth_command_uuid:
+                visit(static_cast<ClearDepthCommand const *>(command));
+                break;
+            case draw_raster_command_uuid:
+                visit(static_cast<DrawRasterSceneCommand const *>(command));
+                break;
         }
     }
 };

@@ -4,7 +4,6 @@
 
 #include <ast/function_builder.h>
 #include <runtime/shader.h>
-#include <runtime/custom_pass.h>
 #include <runtime/rtx/accel.h>
 #include <vstl/pdqsort.h>
 #include <core/logging.h>
@@ -23,15 +22,6 @@ ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
 Accel Device::create_accel(const AccelOption &option) noexcept {
     return _create<Accel>(option);
 }
-
-void CustomPass::_emplace(luisa::string name, Usage usage, const Accel &accel) noexcept {
-    CustomCommand::ResourceBinding bindings;
-    bindings.name = std::move(name);
-    bindings.usage = usage;
-    bindings.resource_view = CustomCommand::AccelView{.handle = accel.handle()};
-    _bindings.emplace_back(std::move(bindings));
-}
-
 Accel::Accel(DeviceInterface *device, const AccelOption &option) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(option)} {}
 
