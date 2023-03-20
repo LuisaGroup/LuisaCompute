@@ -1,4 +1,4 @@
-name: build
+name: build-xmake
 
 on: [ push, pull_request ]
 
@@ -96,7 +96,7 @@ jobs:
         os: [ 2019, 2022 ]
         config: [ release, debug ]
         compiler: [ cl, clang, clang-cl ]
-    name: windows-${{ matrix.os }} / xmake / ${{ matrix.config }} / ${{ matrix.compiler }}
+    name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
