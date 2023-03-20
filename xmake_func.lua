@@ -58,22 +58,6 @@ on_load(function(target)
 	if _get_or("use_simd", false) then
 		target:add("vectorexts", "sse", "sse2")
 	end
-	local function _add_link_flags(...)
-		if project_kind == "shared" then
-			target:add("shflags", ...)
-		elseif project_kind == "binary" then
-			target:add("ldflags", ...)
-		else
-			target:add("arflags", ...)
-		end
-	end
-	if is_plat("windows") then
-		if is_mode("release") then
-			_add_link_flags("/INCREMENTAL:NO", "/LTCG:INCREMENTAL", "/OPT:REF", "/OPT:ICF")
-		else
-			_add_link_flags("/LTCG:OFF")
-		end
-	end
 	if _get_or("no_rtti", false) then
 		target:add("cxflags", "/GR-", {
 			tools = {"clang_cl", "cl"}

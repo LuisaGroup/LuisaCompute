@@ -106,9 +106,9 @@ def dtype_of(val):
         return val.bufferType
     if type(val).__name__ == "RayQuery":
         return val.queryType
-    if type(val).__name__ == "Texture2D":
+    if type(val).__name__ == "Image2D":
         return val.texture2DType
-    if type(val).__name__ == "Texture3D":
+    if type(val).__name__ == "Image3D":
         return val.texture3DType
     if type(val).__name__ == "BindlessArray":
         return type(val)

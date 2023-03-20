@@ -69,7 +69,7 @@ def main_kernel(image, time):
 
 
 res = 1024, 1024
-image = Texture2D(*res, 4, float, storage="BYTE")
+image = Image2D(*res, 4, float, storage="BYTE")
 
 gui = GUI("Test shadertoy", res)
 clear_kernel(image, dispatch_size=(*res, 1))

@@ -1,12 +1,13 @@
+#if LC_ENABLE_CPU_BACKEND
 #include <core/logging.h>
 #include <luisa_compute_ir/bindings.hpp>
 #include <luisa_compute_api_types/bindings.hpp>
 namespace luisa::compute::backend {
-    using namespace luisa::compute::api;
-    using luisa::compute::ir::CArc;
-    using luisa::compute::ir::KernelModule;
-    using luisa::compute::ir::Type;
-}
+using namespace luisa::compute::api;
+using luisa::compute::ir::CArc;
+using luisa::compute::ir::KernelModule;
+using luisa::compute::ir::Type;
+}// namespace luisa::compute::backend
 #include <luisa_compute_backend/bindings.hpp>
 #include "rust_device_common.h"
 
@@ -17,9 +18,9 @@ RustDevice::RustDevice(luisa::compute::Context &&ctx, std::string_view name) noe
     _handle = lc_rs_create_backend(name.data());
     LUISA_INFO("RustDevice: Created device: {}", name);
 }
- BufferCreationInfo RustDevice::create_buffer(const luisa::compute::Type *element, size_t elem_count) noexcept {
+BufferCreationInfo RustDevice::create_buffer(const luisa::compute::Type *element, size_t elem_count) noexcept {
     LUISA_ERROR_WITH_LOCATION("create_buffer(const Type*, size_t) is deprecated.");
- }
+}
 BufferCreationInfo RustDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
     auto info = lc_rs_create_buffer(_handle, element, elem_count);
     BufferCreationInfo ret;
@@ -54,6 +55,5 @@ void RustDevice::destroy_bindless_array(uint64_t handle) noexcept {
     lc_rs_destroy_bindless_array(_handle, api::BindlessArray{handle});
 }
 
-
-
-}
+}// namespace luisa::compute::rust
+#endif

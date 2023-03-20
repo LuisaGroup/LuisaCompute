@@ -1,3 +1,4 @@
+#if LC_ENABLE_CUDA_BACKEND || LC_ENABLE_METAL_BACKEND
 #include <array>
 
 #include <core/stl/format.h>
@@ -44,3 +45,4 @@ void StringScratch::clear() noexcept { _buffer.clear(); }
 char StringScratch::back() const noexcept { return _buffer.back(); }
 
 }// namespace luisa::compute
+#endif

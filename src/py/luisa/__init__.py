@@ -7,8 +7,8 @@ from .mathtypes import *
 from .array import array, ArrayType, SharedArrayType
 from .struct import struct, StructType
 from .buffer import buffer, Buffer, BufferType, DispatchIndirectBuffer
-from .texture2d import texture2d, Texture2D, Texture2DType
-from .texture3d import texture3d, Texture3D, Texture3DType
+from .image2d import image2d, Image2D, Texture2DType
+from .image3d import image3d, Image3D, Texture3DType
 from lcapi import PixelStorage
 from .gui import GUI
 

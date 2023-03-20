@@ -618,8 +618,8 @@ def downsample_tex(image, out_image):
 
 res = 1280, 720
 super_res = res[0] * block_size, res[1] * block_size
-render_image = Texture2D(*super_res, 4, float, storage="BYTE")
-image = Texture2D(*res, 4, float, storage="BYTE")
+render_image = Image2D(*super_res, 4, float, storage="BYTE")
+image = Image2D(*res, 4, float, storage="BYTE")
 gui = GUI("Test raymarch", res)
 clear_kernel(render_image, dispatch_size=(*super_res, 1))
 time = 0.0

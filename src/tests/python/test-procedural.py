@@ -42,7 +42,7 @@ AABB.add_method(_get_min, "get_min")
 AABB.add_method(_get_max, "get_max")
 
 res = 1280, 720
-image = Texture2D(*res, 4, float, storage="BYTE")
+image = Image2D(*res, 4, float, storage="BYTE")
 aabb_count = 1024
 radius = .2
 aabbs = np.empty(aabb_count * 6, dtype=np.float32)
