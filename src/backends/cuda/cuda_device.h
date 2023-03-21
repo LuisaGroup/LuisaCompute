@@ -55,6 +55,7 @@ public:
         CUdevice _device{0};
         uint32_t _compute_capability{};
         uint32_t _driver_version{};
+        CUuuid _uuid{};
 
     public:
         explicit Handle(size_t index) noexcept;
@@ -64,6 +65,7 @@ public:
         Handle &operator=(Handle &&) noexcept = delete;
         Handle &operator=(const Handle &) noexcept = delete;
         [[nodiscard]] std::string_view name() const noexcept;
+        [[nodiscard]] auto uuid() const noexcept { return _uuid; }
         [[nodiscard]] auto device() const noexcept { return _device; }
         [[nodiscard]] auto context() const noexcept { return _context; }
         [[nodiscard]] auto optix_context() const noexcept { return _optix_context; }

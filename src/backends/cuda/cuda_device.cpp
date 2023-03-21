@@ -72,88 +72,6 @@ namespace luisa::compute::cuda {
                               luisa::to_underlying(format));
 }
 
-//uint64_t CUDADevice::create_shader(Function kernel, std::string_view meta_options) noexcept {
-//    Clock clock;
-//    auto ptx = CUDACompiler::instance().compile(context(), kernel, _handle.compute_capability());
-//    auto entry = kernel.raytracing() ?
-//                     luisa::format("__raygen__rg_{:016X}", kernel.hash()) :
-//                     luisa::format("kernel_{:016X}", kernel.hash());
-//    LUISA_INFO("Generated PTX for {} in {} ms.", entry, clock.toc());
-//    return with_handle([&] {
-//        auto shader = CUDAShader::create(this, ptx.c_str(), ptx.size(), entry.c_str(), kernel.raytracing());
-//        return reinterpret_cast<uint64_t>(shader);
-//    });
-//}
-//
-//void CUDADevice::destroy_shader(uint64_t handle) noexcept {
-//    with_handle([shader = reinterpret_cast<CUDAShader *>(handle)] {
-//        CUDAShader::destroy(shader);
-//    });
-//}
-//
-//uint64_t CUDADevice::create_event() noexcept {
-//    return with_handle([] {
-//        CUevent event = nullptr;
-//        LUISA_CHECK_CUDA(cuEventCreate(
-//            &event, CU_EVENT_BLOCKING_SYNC | CU_EVENT_DISABLE_TIMING));
-//        return reinterpret_cast<uint64_t>(event);
-//    });
-//}
-//
-//void CUDADevice::destroy_event(uint64_t handle) noexcept {
-//    with_handle([event = reinterpret_cast<CUevent>(handle)] {
-//        LUISA_CHECK_CUDA(cuEventDestroy(event));
-//    });
-//}
-//
-//void CUDADevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
-//    with_handle([event = reinterpret_cast<CUevent>(handle),
-//                 stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
-//        LUISA_CHECK_CUDA(cuEventRecord(event, stream->handle(true)));
-//    });
-//}
-//
-//void CUDADevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
-//    with_handle([event = reinterpret_cast<CUevent>(handle),
-//                 stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
-//        LUISA_CHECK_CUDA(cuStreamWaitEvent(stream->handle(true), event, CU_EVENT_WAIT_DEFAULT));
-//    });
-//}
-//
-//void CUDADevice::synchronize_event(uint64_t handle) noexcept {
-//    with_handle([event = reinterpret_cast<CUevent>(handle)] {
-//        LUISA_CHECK_CUDA(cuEventSynchronize(event));
-//    });
-//}
-//
-//uint64_t CUDADevice::create_mesh(uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count, uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept {
-//    return with_handle([=] {
-//        auto mesh = new_with_allocator<CUDAMesh>(
-//            v_buffer, v_offset, v_stride, v_count,
-//            t_buffer, t_offset, t_count, hint);
-//        return reinterpret_cast<uint64_t>(mesh);
-//    });
-//}
-//
-//void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
-//    with_handle([mesh = reinterpret_cast<CUDAMesh *>(handle)] {
-//        delete_with_allocator(mesh);
-//    });
-//}
-//
-//uint64_t CUDADevice::create_accel(AccelUsageHint hint) noexcept {
-//    return with_handle([=, this] {
-//        auto accel = new_with_allocator<CUDAAccel>(hint);
-//        return reinterpret_cast<uint64_t>(accel);
-//    });
-//}
-//
-//void CUDADevice::destroy_accel(uint64_t handle) noexcept {
-//    with_handle([accel = reinterpret_cast<CUDAAccel *>(handle)] {
-//        delete_with_allocator(accel);
-//    });
-//}
-
 CUDADevice::CUDADevice(Context &&ctx,
                        size_t device_id,
                        const BinaryIO *io) noexcept
@@ -185,8 +103,7 @@ CUDADevice::CUDADevice(Context &&ctx,
                        "-extra-device-vectorization",
                        "-dw",
                        "-w",
-                       "-ewp",
-                       "-dopt=on"};
+                       "-ewp"};
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, options);
     LUISA_INFO_WITH_LOCATION("CUDA Builtin Kernel PTX:\n{}", builtin_kernel_ptx);
 
@@ -351,8 +268,7 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
                                         "-extra-device-vectorization",
                                         "-dw",
                                         "-w",
-                                        "-ewp",
-                                        "-dopt=on"};
+                                        "-ewp"};
     if (option.enable_debug_info) {
         options.emplace_back("-line-info");
         options.emplace_back("-DLC_DEBUG");
@@ -567,10 +483,29 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     LUISA_CHECK_CUDA(cuDeviceGet(&_device, index));
     auto compute_cap_major = 0;
     auto compute_cap_minor = 0;
+    LUISA_CHECK_CUDA(cuDeviceGetUuid(&_uuid, _device));
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&compute_cap_major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, _device));
     LUISA_CHECK_CUDA(cuDeviceGetAttribute(&compute_cap_minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, _device));
-    LUISA_INFO("Created CUDA device at index {}: {} (driver = {}, capability = {}.{}).",
-               index, name(), driver_version, compute_cap_major, compute_cap_minor);
+
+    auto format_uuid = [](auto uuid) noexcept {
+        luisa::string result;
+        result.reserve(36u);
+        auto count = 0u;
+        for (auto c : uuid.bytes) {
+            if (count == 4u || count == 6u || count == 8u || count == 10u) {
+                result.append("-");
+            }
+            result.append(fmt::format("{:02x}", static_cast<uint>(c) & 0xffu));
+            count++;
+        }
+        return result;
+    };
+
+    LUISA_INFO("Created CUDA device at index {}: {} "
+               "(driver = {}, capability = {}.{}, uuid = {}).",
+               index, name(), driver_version,
+               compute_cap_major, compute_cap_minor,
+               format_uuid(_uuid));
     _compute_capability = 10u * compute_cap_major + compute_cap_minor;
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 
