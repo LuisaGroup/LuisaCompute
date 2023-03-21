@@ -457,10 +457,11 @@ pub enum Func {
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpacity,
     RayTracingSetInstanceVisibility,
-    // (handle, Ray) -> Hit
+    // (handle, Ray, mask) -> Hit
     // struct Ray alignas(16) { float origin[3], tmin; float direction[3], tmax; };
     // struct Hit alignas(16) { uint inst; uint prim; float u; float v; };
     RayTracingTraceClosest,
+    // (handle, Ray, mask) -> bool
     RayTracingTraceAny,
 
     RayQueryProceed,

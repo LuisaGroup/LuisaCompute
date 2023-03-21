@@ -10,6 +10,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     luisa_compute_add_executable(test_ast2ir_ir2ast test_ast2ir_ir2ast.cpp)
 endif ()
 
+luisa_compute_add_executable(test_helloworld test_helloworld.cpp)
 luisa_compute_add_executable(test_type test_type.cpp)
 luisa_compute_add_executable(test_ast test_ast.cpp)
 luisa_compute_add_executable(test_copy test_copy.cpp)

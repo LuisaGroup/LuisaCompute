@@ -39,6 +39,7 @@ public:
 
 private:
     AccelOption _option;
+    bool _requires_rebuild{true};
     optix::TraversableHandle _handle{};
     CUdeviceptr _instance_buffer{};
     size_t _instance_buffer_size{};

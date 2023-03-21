@@ -196,7 +196,7 @@ impl TextureView {
                 let src = self.get_pixel_2d(x, y);
                 unsafe {
                     std::ptr::copy_nonoverlapping(src, data, 1 << self.pixel_stride_shift);
-                    data = data.add(self.pixel_stride_shift);
+                    data = data.add(1 << self.pixel_stride_shift);
                 }
             }
         }

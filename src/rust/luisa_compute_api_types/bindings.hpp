@@ -33,9 +33,9 @@ enum class PixelFormat {
     R8_SINT,
     R8_UINT,
     R8_UNORM,
-    RGB8_SINT,
-    RGB8_UINT,
-    RGB8_UNORM,
+    RG8_SINT,
+    RG8_UINT,
+    RG8_UNORM,
     RGBA8_SINT,
     RGBA8_UINT,
     RGBA8_UNORM,
@@ -150,18 +150,17 @@ struct AccelBuildModificationFlags {
     }
 };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_EMPTY = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)0 };
-static const AccelBuildModificationFlags AccelBuildModificationFlags_MESH = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 0) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_PRIMITIVE = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 0) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_TRANSFORM = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 1) };
-static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 2) };
-static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 3) };
-static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 4) };
-static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 5) };
-static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)((AccelBuildModificationFlags_VISIBILITY_ON).bits | (AccelBuildModificationFlags_VISIBILITY_OFF).bits) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_ON = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 2) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE_OFF = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 3) };
+static const AccelBuildModificationFlags AccelBuildModificationFlags_VISIBILITY = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)(1 << 4) };
 static const AccelBuildModificationFlags AccelBuildModificationFlags_OPAQUE = AccelBuildModificationFlags{ /* .bits = */ (uint32_t)((AccelBuildModificationFlags_OPAQUE_ON).bits | (AccelBuildModificationFlags_OPAQUE_OFF).bits) };
 
 struct AccelBuildModification {
     uint32_t index;
     AccelBuildModificationFlags flags;
+    uint8_t visibility;
     uint64_t mesh;
     float affine[12];
 };

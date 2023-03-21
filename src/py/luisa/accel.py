@@ -136,7 +136,12 @@ class Accel:
         stream.update_accel(self._accel)
         if sync:
             stream.synchronize()
-
+    def update_instance_buffer(self, sync = False, stream = None):
+        if stream is None:
+            stream = globalvars.stream
+        stream.update_instance_buffer(self._accel)
+        if sync:
+            stream.synchronize()
     @func
     def trace_closest(self, ray: Ray, vis_mask: int):
         return _builtin_call(TriangleHit, "RAY_TRACING_TRACE_CLOSEST", self, ray, vis_mask)

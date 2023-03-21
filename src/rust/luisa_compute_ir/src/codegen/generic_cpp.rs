@@ -1034,8 +1034,8 @@ impl GenericCppCodeGen {
             Func::RayTracingTraceAny => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_trace_any({2}, lc_bit_cast<Ray>({3}));",
-                    node_ty_s, var, args_v[0], args_v[1]
+                    "const {0} {1} = lc_trace_any({2}, lc_bit_cast<Ray>({3}), {4});",
+                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1043,8 +1043,8 @@ impl GenericCppCodeGen {
             Func::RayTracingTraceClosest => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bit_cast<{0}>(lc_trace_closest({2}, lc_bit_cast<Ray>({3})));",
-                    node_ty_s, var, args_v[0], args_v[1]
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_trace_closest({2}, lc_bit_cast<Ray>({3}), {4}));",
+                    node_ty_s, var, args_v[0], args_v[1], args_v[2]
                 )
                 .unwrap();
                 true
@@ -1423,7 +1423,7 @@ impl GenericCppCodeGen {
             Instruction::Accel => {
                 self.signature.push(format!("const Accel& {}", arg_name));
                 self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Accel& {} = {}[{}].accel.body._0;",
+                    "const Accel& {} = {}[{}].accel._0;",
                     arg_name, arg_array, index
                 ));
                 self.cpu_kernel_parameters.push(arg_name);
@@ -1450,7 +1450,7 @@ impl GenericCppCodeGen {
                 self.signature
                     .push(format!("const Texture2D& {}", arg_name));
                 self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture2D& {} = {}[{}].texture2d._0;",
+                    "const Texture2D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
                 ));
                 self.cpu_kernel_parameters.push(arg_name);
@@ -1459,7 +1459,7 @@ impl GenericCppCodeGen {
                 self.signature
                     .push(format!("const Texture3D& {}", arg_name));
                 self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture3D& {} = {}[{}].texture3d._0;",
+                    "const Texture3D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
                 ));
                 self.cpu_kernel_parameters.push(arg_name);

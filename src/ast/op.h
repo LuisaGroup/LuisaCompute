@@ -229,16 +229,16 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_SET_INSTANCE_TRANSFORM, // (Accel, uint, float4x4)
     RAY_TRACING_SET_INSTANCE_VISIBILITY,// (Accel, uint, uint)
     RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
-    RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): Hit
+    RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): TriangleHit
     RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
     RAY_TRACING_TRACE_ALL,              // (Accel, ray, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_PROCEED,                 //Proceed(RayQuery): bool return: is bvh completed?
     RAY_QUERY_IS_CANDIDATE_TRIANGLE,   // (RayQuery): bool
-    RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): Hit
-    RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): Hit
-    RAY_QUERY_COMMITTED_HIT,           // (RayQuery): Hit
+    RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
+    RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
+    RAY_QUERY_COMMITTED_HIT,           // (RayQuery): CommittedHit
     RAY_QUERY_COMMIT_TRIANGLE,         // (RayQuery): void
     RAY_QUERY_COMMIT_PROCEDURAL,       // (RayQuery): void
 

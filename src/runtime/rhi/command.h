@@ -546,22 +546,23 @@ private:
     uint64_t _handle;
     uint32_t _instance_count;
     AccelBuildRequest _request;
+    bool _update_instance_buffer_only;
     luisa::vector<Modification> _modifications;
-    bool _build_accel;
 
 public:
     AccelBuildCommand(uint64_t handle, uint32_t instance_count,
                       AccelBuildRequest request,
                       luisa::vector<Modification> modifications,
-                      bool build_accel) noexcept
+                      bool update_instance_buffer_only) noexcept
         : Command{Command::Tag::EAccelBuildCommand},
           _handle{handle}, _instance_count{instance_count},
-          _build_accel{build_accel}, _request{request}, _modifications{std::move(modifications)} {}
+          _update_instance_buffer_only{update_instance_buffer_only},
+          _request{request}, _modifications{std::move(modifications)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto instance_count() const noexcept { return _instance_count; }
     [[nodiscard]] auto modifications() const noexcept { return luisa::span{_modifications}; }
-    [[nodiscard]] auto build_accel() const noexcept { return _build_accel; }
+    [[nodiscard]] auto update_instance_buffer_only() const noexcept { return _update_instance_buffer_only; }
     LUISA_MAKE_COMMAND_COMMON(AccelBuildCommand, StreamTag::COMPUTE)
 };
 

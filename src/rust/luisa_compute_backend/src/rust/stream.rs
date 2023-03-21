@@ -459,16 +459,16 @@ pub unsafe fn convert_capture(c: Capture) -> defs::KernelFnArg {
     }
 }
 
-extern "C" fn trace_closest(accel: *const std::ffi::c_void, ray: &defs::Ray) -> defs::Hit {
+extern "C" fn trace_closest(accel: *const std::ffi::c_void, ray: &defs::Ray, mask:u8) -> defs::Hit {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
-        accel.trace_closest(ray)
+        accel.trace_closest(ray, mask)
     }
 }
-extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray) -> bool {
+extern "C" fn trace_any(accel: *const std::ffi::c_void, ray: &defs::Ray, mask:u8) -> bool {
     unsafe {
         let accel = &*(accel as *const AccelImpl);
-        accel.trace_any(ray)
+        accel.trace_any(ray, mask)
     }
 }
 extern "C" fn instance_transform(accel: *const std::ffi::c_void, instance_id: u32) -> defs::Mat4 {
@@ -508,7 +508,7 @@ extern "C" fn set_instance_transform(
 extern "C" fn set_instance_visibility(
     accel: *const std::ffi::c_void,
     instance_id: u32,
-    visible: bool,
+    visible: u8,
 ) {
     unsafe {
         let accel = &*(accel as *const AccelImpl);

@@ -110,7 +110,9 @@ void ManagedAccel::set(size_t idx, ProceduralUpdateCmd const &procedural, float4
     auto new_mesh = set_mesh<ProceduralUpdateCmd>(idx, procedural);
     data->accel.set_handle(idx, new_mesh, transform, visibility_mask, opaque);
 }
-
+void ManagedAccel::update_instance_buffer(PyStream &stream) noexcept {
+    stream.add(data->accel.update_instance_buffer());
+}
 void ManagedAccel::update(PyStream &stream) noexcept {
     for (auto &&i : data->require_update_mesh) {
         auto &m = i.second;

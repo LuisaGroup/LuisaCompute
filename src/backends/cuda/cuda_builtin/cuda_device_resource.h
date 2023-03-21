@@ -1041,14 +1041,34 @@ struct alignas(16) LCRay {
     float m3;             // t_max
 };
 
-struct alignas(16) LCTriangleHit {
+struct LCTriangleHit {
     lc_uint m0;  // instance index
     lc_uint m1;  // primitive index
     lc_float2 m2;// barycentric coordinates
     lc_float m3; // t_hit
-    LCTriangleHit() noexcept : m0{~0u}, m1{~0u}, m2{0.f, 0.f}, m3{0.f} {}
-    LCTriangleHit(lc_uint inst, lc_uint prim, lc_float2 bary, lc_float t_hit) noexcept
-        : m0{inst}, m1{prim}, m2{bary}, m3{t_hit} {}
+};
+
+struct LCProceduralHit {
+    lc_uint m0;  // instance index
+    lc_uint m1;  // primitive index
+};
+
+enum struct LCHitType {
+    MISS = 0,
+    TRIANGLE = 1,
+    PROCEDURAL = 2,
+};
+
+struct LCCommittedHit {
+    lc_uint m0;  // instance index
+    lc_uint m1;  // primitive index
+    lc_float2 m2;// baricentric coordinates
+    lc_uint m3;  // hit type
+    lc_float m4; // t_hit
+};
+
+struct LCRayQuery {
+    // TODO: add support for ray query
 };
 
 struct alignas(16) LCAccelInstance {
@@ -1092,6 +1112,10 @@ __device__ inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint in
 
 __device__ inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, lc_uint mask) noexcept {
     accel.instances[index].mask = mask & 0xffu;
+}
+
+__device__ inline void lc_accel_set_instance_opacity(LCAccel accel, lc_uint index, bool opaque) noexcept {
+    // no-op
 }
 
 __device__ inline float atomicCAS(float *a, float cmp, float v) noexcept {
@@ -1231,9 +1255,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto r3 = 0u;
     auto r4 = 0u;
     lc_trace_impl<0u, 5u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
-    return r0 == ~0u ?
-               LCTriangleHit{} :
-               LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
+    return LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
 }
 
 [[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {

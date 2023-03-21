@@ -139,13 +139,11 @@ bitflags! {
     #[repr(C)]
     pub struct AccelBuildModificationFlags : u32 {
         const EMPTY = 0;
-        const MESH = 1 << 0;
+        const PRIMITIVE = 1 << 0;
         const TRANSFORM = 1 << 1;
-        const VISIBILITY_ON = 1 << 2;
-        const VISIBILITY_OFF = 1 << 3;
-        const OPAQUE_ON = 1 << 4;
-        const OPAQUE_OFF = 1 << 5;
-        const VISIBILITY = Self::VISIBILITY_ON.bits | Self::VISIBILITY_OFF.bits;
+        const OPAQUE_ON = 1 << 2;
+        const OPAQUE_OFF = 1 << 3;
+        const VISIBILITY = 1 << 4;
         const OPAQUE = Self::OPAQUE_ON.bits | Self::OPAQUE_OFF.bits;
     }
 }
@@ -160,6 +158,7 @@ pub enum MeshType {
 pub struct AccelBuildModification {
     pub index: u32,
     pub flags: AccelBuildModificationFlags,
+    pub visibility: u8,
     pub mesh: u64,
     pub affine: [f32; 12],
 }
@@ -213,9 +212,9 @@ pub enum PixelFormat {
     R8Uint,
     R8Unorm,
 
-    Rgb8Sint,
-    Rgb8Uint,
-    Rgb8Unorm,
+    Rg8Sint,
+    Rg8Uint,
+    Rg8Unorm,
 
     Rgba8Sint,
     Rgba8Uint,
@@ -254,12 +253,12 @@ impl PixelFormat {
     pub fn storage(&self) -> PixelStorage {
         match self {
             PixelFormat::R8Sint | PixelFormat::R8Uint | PixelFormat::R8Unorm => PixelStorage::Byte1,
-            PixelFormat::Rgb8Sint
-            | PixelFormat::Rgb8Uint
-            | PixelFormat::Rgb8Unorm
-            | PixelFormat::Rgba8Sint
-            | PixelFormat::Rgba8Uint
-            | PixelFormat::Rgba8Unorm => PixelStorage::Byte4,
+            PixelFormat::Rg8Sint | PixelFormat::Rg8Uint | PixelFormat::Rg8Unorm => {
+                PixelStorage::Byte2
+            }
+            PixelFormat::Rgba8Sint | PixelFormat::Rgba8Uint | PixelFormat::Rgba8Unorm => {
+                PixelStorage::Byte4
+            }
             PixelFormat::R16Sint | PixelFormat::R16Uint | PixelFormat::R16Unorm => {
                 PixelStorage::Short1
             }
