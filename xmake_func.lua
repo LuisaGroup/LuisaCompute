@@ -68,9 +68,9 @@ on_load(function(target)
 			tools = "cl"
 		});
 	else
-		target:set("optimize", "fastest")
+		target:set("optimize", "aggressive")
 		target:set("warnings", "none")
-		target:add("cxflags", "/Oy", "/GS-", "/Gd", "/Oi", "/Ot", {
+		target:add("cxflags", "/GS-", "/Gd", {
 			tools = {"clang_cl", "cl"}
 		})
 		target:add("cxflags", "/GL", "/Zc:preprocessor", {
