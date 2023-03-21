@@ -3,10 +3,10 @@ rule("basic_settings")
 on_config(function(target)
 	local _, cc = target:tool("cxx")
 	if (not is_mode("debug")) then
-		-- elseif (cc == "clang" or cc == "clangxx") then
-		-- 	target:add("cxflags", "-flto=thin")
 		if cc == "gcc" or cc == "gxx" then
 			target:add("cxflags", "-flto")
+		-- elseif (cc == "clang" or cc == "clangxx") then
+		-- 	target:add("cxflags", "-flto=thin")
 		end
 		local _, ld = target:tool("ld")
 		local function _add_link(...)
@@ -14,9 +14,9 @@ on_config(function(target)
 			target:add("shflags", ...)
 		end
 		if ld == "link" then
-			_add_link("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
-		-- elseif and (ld == "clang" or ld == "clangxx") then
-		-- _add_link("-flto=thin")
+			_add_link("/INCREMENTAL:NO", "/LTCG")
+		-- elseif (ld == "clang" or ld == "clangxx") then
+		-- 	_add_link("-flto=thin")
 		elseif ld == "gcc" or ld == "gxx" then
 			_add_link("-flto")
 		end
