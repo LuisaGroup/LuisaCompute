@@ -51,11 +51,13 @@ public:
 
     private:
         CUcontext _context{nullptr};
-        optix::DeviceContext _optix_context{nullptr};
         CUdevice _device{0};
         uint32_t _compute_capability{};
         uint32_t _driver_version{};
         CUuuid _uuid{};
+        // will be lazily initialized
+        mutable optix::DeviceContext _optix_context{nullptr};
+        mutable spin_mutex _mutex{};
 
     public:
         explicit Handle(size_t index) noexcept;
@@ -68,9 +70,9 @@ public:
         [[nodiscard]] auto uuid() const noexcept { return _uuid; }
         [[nodiscard]] auto device() const noexcept { return _device; }
         [[nodiscard]] auto context() const noexcept { return _context; }
-        [[nodiscard]] auto optix_context() const noexcept { return _optix_context; }
         [[nodiscard]] auto driver_version() const noexcept { return _driver_version; }
         [[nodiscard]] auto compute_capability() const noexcept { return _compute_capability; }
+        [[nodiscard]] optix::DeviceContext optix_context() const noexcept;
     };
 
 private:

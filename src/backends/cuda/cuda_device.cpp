@@ -361,6 +361,30 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const i
 
 ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
                                            luisa::span<const Type *const> arg_types) noexcept {
+    // TODO: verify arg_types
+    auto ptx_stream = _io->read_shader_bytecode(name);
+    if (ptx_stream == nullptr) { return ShaderCreationInfo::make_invalid(); }
+    luisa::string ptx;
+    ptx.resize(ptx_stream->length());
+    ptx_stream->read(luisa::span{
+        reinterpret_cast<std::byte *>(ptx.data()),
+        ptx.size() * sizeof(char)});
+    auto is_raytracing = ptx.find("__raygen__main") != luisa::string::npos;
+    // create the shader object
+    //    auto p = with_handle([&]() noexcept -> CUDAShader * {
+    //        if (is_raytracing) {
+    //            return new_with_allocator<CUDAShaderOptiX>(
+    //                this, ptx.data(), ptx.size(), "__raygen__main");
+    //        }
+    //        return new_with_allocator<CUDAShaderNative>(
+    //            ptx.data(), ptx.size(), "kernel_main", block_size);
+    //    });
+    //
+    //    ShaderCreationInfo info{};
+    //    info.handle = reinterpret_cast<uint64_t>(p);
+    //    info.native_handle = p;
+    //    info.block_size = block_size;
+    //    return info;
     LUISA_ERROR_WITH_LOCATION("TODO");
 }
 
@@ -508,28 +532,12 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
                format_uuid(_uuid));
     _compute_capability = 10u * compute_cap_major + compute_cap_minor;
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
-
-    // optix
-    optix::DeviceContextOptions optix_options{};
-    optix_options.logCallbackLevel = 4u;
-#ifndef NDEBUG
-// Disable due to too much overhead
-//    optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
-#endif
-    optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
-        auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);
-        if (level >= 4) {
-            LUISA_INFO("{}", log);
-        } else [[unlikely]] {
-            LUISA_WARNING("{}", log);
-        }
-    };
-    LUISA_CHECK_OPTIX(optix::api().deviceContextCreate(
-        _context, &optix_options, &_optix_context));
 }
 
 CUDADevice::Handle::~Handle() noexcept {
-    LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
+    if (_optix_context) {
+        LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
+    }
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
     LUISA_INFO("Destroyed CUDA device: {}.", name());
 }
@@ -539,6 +547,29 @@ std::string_view CUDADevice::Handle::name() const noexcept {
     static thread_local char device_name[device_name_length];
     LUISA_CHECK_CUDA(cuDeviceGetName(device_name, device_name_length, _device));
     return device_name;
+}
+
+optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
+    std::scoped_lock lock{_mutex};
+    if (_optix_context == nullptr) [[unlikely]] {
+        optix::DeviceContextOptions optix_options{};
+        optix_options.logCallbackLevel = 4u;
+#ifndef NDEBUG
+// Disable due to too much overhead
+//    optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+#endif
+        optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
+            auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);
+            if (level >= 4) {
+                LUISA_INFO("{}", log);
+            } else [[unlikely]] {
+                LUISA_WARNING("{}", log);
+            }
+        };
+        LUISA_CHECK_OPTIX(optix::api().deviceContextCreate(
+            _context, &optix_options, &_optix_context));
+    }
+    return _optix_context;
 }
 
 }// namespace luisa::compute::cuda
