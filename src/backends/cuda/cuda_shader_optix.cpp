@@ -172,7 +172,7 @@ void CUDAShaderOptiX::_prepare_sbt(CUDACommandEncoder &encoder) const noexcept {
     auto cuda_stream = encoder.stream()->handle();
     std::scoped_lock lock{_mutex};
     if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
-        constexpr auto sbt_buffer_size = sizeof(OptiXSBTRecord) * 4u;
+        static constexpr auto sbt_buffer_size = sizeof(OptiXSBTRecord) * 4u;
         LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
         encoder.with_upload_buffer(sbt_buffer_size, [&](auto sbt_record_buffer) noexcept {
             auto sbt_records = reinterpret_cast<OptiXSBTRecord *>(sbt_record_buffer->address());
