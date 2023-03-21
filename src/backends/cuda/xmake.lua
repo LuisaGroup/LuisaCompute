@@ -6,8 +6,8 @@ _config_project({
 on_load(function(target)
 	local cuda_path = os.getenv("CUDA_PATH")
 	if cuda_path then
-		target:add("includedirs", cuda_path .. "/include")
-		target:add("linkdirs", cuda_path .. "/lib/x64")
+		target:add("includedirs", path.join(cuda_path, "include/"))
+		target:add("linkdirs", path.join(cuda_path, "lib/x64/"))
 		target:add("links", "cuda", "nvrtc")
 	else
 		target:set("enabled", false)
