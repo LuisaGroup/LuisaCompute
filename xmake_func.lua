@@ -9,15 +9,16 @@ on_config(function(target)
 			target:add("cxflags", "-flto")
 		end
 		local _, ld = target:tool("ld")
+		local function _add_link(...)
+			target:add("ldflags", ...)
+			target:add("shflags", ...)
+		end
 		if ld == "link" then
-			target:add("ldflags", "-LTCG")
-			target:add("shflags", "-LTCG")
+			_add_link("/INCREMENTAL:NO", "/LTCG", "/OPT:REF", "/OPT:ICF")
 		-- elseif and (ld == "clang" or ld == "clangxx") then
-		-- 	target:add("ldflags", "-flto=thin")
-		-- 	target:add("shflags", "-flto=thin")
+		-- _add_link("-flto=thin")
 		elseif ld == "gcc" or ld == "gxx" then
-			target:add("ldflags", "-flto")
-			target:add("shflags", "-flto")
+			_add_link("-flto")
 		end
 	end
 end)

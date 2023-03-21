@@ -18,8 +18,8 @@ on_load(function(target)
 	if legal_version then
 		local py_name = "python" .. version_table[1] .. version_table[2]
 		local py_path = get_config("py_path")
-		target:add("links", "python3", py_name)
 		target:add("linkdirs", path.join(py_path, "libs"))
+		target:add("links", "python3", py_name)
 		target:add("includedirs", path.join(py_path, "include"))
 	else
 		target:set("enabled", false)

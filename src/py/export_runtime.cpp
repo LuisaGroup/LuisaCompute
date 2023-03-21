@@ -359,6 +359,11 @@ void export_runtime(py::module &m) {
             "update_accel", [](PyStream &self, ManagedAccel &accel) {
                 accel.update(self);
             })
+        .def(
+            "update_instance_buffer", [](PyStream &self, ManagedAccel &accel) {
+                accel.update_instance_buffer(self);
+            }
+        )
         .def("update_bindless", [](PyStream &self, uint64 bindless) {
             reinterpret_cast<ManagedBindless *>(bindless)->Update(self);
         })

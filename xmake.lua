@@ -106,11 +106,11 @@ if is_arch("x64", "x86_64", "arm64") then
 	EnableDSL = get_config("enable_dsl") or EnableTest
 	DxBackend = get_config("dx_backend") and is_plat("windows")
 	-- TODO: require environment check
-	CudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux")) and false
+	CudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux"))
 	MetalBackend = get_config("metal_backend") and is_plat("macos")
 	CpuBackend = get_config("cpu_backend")
 	RemoteBackend = get_config("remote_backend")
-	EnableIR = get_config("enable_ir") or CudaBackend or MetalBackend or CpuBackend or RemoteBackend
+	EnableIR = get_config("enable_ir") or MetalBackend or CpuBackend or RemoteBackend
 	EnableAPI = get_config("enable_api")
 	-- TODO: rust condition
 	EnableRust = EnableIR or EnableAPI
