@@ -421,7 +421,7 @@ public:
     LUISA_MAKE_COMMAND_COMMON(TextureDownloadCommand, StreamTag::COPY)
 };
 
-enum struct AccelBuildRequest : uint8_t {
+enum struct AccelBuildRequest : uint32_t {
     PREFER_UPDATE,
     FORCE_BUILD,
 };

@@ -10,11 +10,6 @@ class CommandBufferBuilder;
 class ResourceStateTracker;
 class BindlessArray final : public Resource {
 public:
-    enum class BindTag : uint8_t {
-        Buffer,
-        Tex2D,
-        Tex3D
-    };
     using Map = vstd::HashMap<size_t, size_t>;
     using MapIndex = typename Map::Index;
     struct BindlessStruct {
