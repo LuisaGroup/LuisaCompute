@@ -107,17 +107,13 @@ if is_arch("x64", "x86_64", "arm64") then
 	DxBackend = get_config("dx_backend") and is_plat("windows")
 	-- TODO: require environment check
 	CudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux"))
-	MetalBackend = get_config("metal_backend") and is_plat("macos")
+	MetalBackend = get_config("metal_backend") and is_plat("macosx")
 	CpuBackend = get_config("cpu_backend")
 	RemoteBackend = get_config("remote_backend")
 	EnableIR = get_config("enable_ir") or MetalBackend or CpuBackend or RemoteBackend
 	EnableAPI = get_config("enable_api")
 	-- TODO: rust condition
 	EnableRust = EnableIR or EnableAPI
-	PythonVersion = get_config("py_version")
-	PythonPath = get_config("py_path")
-	EnablePython = type(PythonPath) == "string" and type(PythonVersion) == "string" and PythonPath:len() > 0 and
-					               PythonVersion:len() > 0
 	EnableGUI = get_config("enable_gui") or EnableTest or EnablePython
 
 	if is_mode("debug") then
