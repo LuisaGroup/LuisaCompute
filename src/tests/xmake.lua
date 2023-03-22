@@ -1,6 +1,6 @@
 target("stb-image")
 _config_project({
-	project_kind = "static"
+	project_kind = "shared"
 })
 add_files("../ext/stb/stb.c")
 add_includedirs("../ext/stb", {
