@@ -58,7 +58,7 @@ struct ShaderCreationInfo : public ResourceCreationInfo {
 
 struct AccelOption {
 
-    enum struct UsageHint : uint8_t {
+    enum struct UsageHint : uint32_t {
         FAST_TRACE,// build with best quality
         FAST_BUILD // optimize for frequent rebuild
     };
@@ -102,7 +102,7 @@ class LC_RUNTIME_API Resource {
     friend class Device;
 
 public:
-    enum struct Tag : uint8_t {
+    enum struct Tag : uint32_t {
         BUFFER,
         TEXTURE,
         BINDLESS_ARRAY,

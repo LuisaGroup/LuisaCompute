@@ -76,12 +76,13 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     pipeline_compile_options.numPayloadValues = 5u;
     pipeline_compile_options.usesPrimitiveTypeFlags = optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
+    auto optix_ctx = device->handle().optix_context();
     char log[2048];// For error reporting from OptiX creation functions
     size_t log_size;
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().moduleCreateFromPTX(
-            device->handle().optix_context(), &module_compile_options,
+            optix_ctx, &module_compile_options,
             &pipeline_compile_options, ptx, ptx_size,
             log, &log_size, &_module));
 
@@ -94,7 +95,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().programGroupCreate(
-            device->handle().optix_context(),
+            optix_ctx,
             &program_group_desc_rg, 1u,
             &program_group_options,
             log, &log_size, &_program_group_rg));
@@ -105,7 +106,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().programGroupCreate(
-            device->handle().optix_context(),
+            optix_ctx,
             &program_group_desc_ch_closest, 1u,
             &program_group_options,
             log, &log_size, &_program_group_ch_closest));
@@ -116,7 +117,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().programGroupCreate(
-            device->handle().optix_context(),
+            optix_ctx,
             &program_group_desc_ch_any, 1u,
             &program_group_options,
             log, &log_size, &_program_group_ch_any));
@@ -126,7 +127,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().programGroupCreate(
-            device->handle().optix_context(),
+            optix_ctx,
             &program_group_desc_miss, 1u,
             &program_group_options,
             log, &log_size, &_program_group_miss));
@@ -140,7 +141,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().pipelineCreate(
-            device->handle().optix_context(),
+            optix_ctx,
             &pipeline_compile_options,
             &pipeline_link_options,
             program_groups, 2u,
@@ -172,7 +173,7 @@ void CUDAShaderOptiX::_prepare_sbt(CUDACommandEncoder &encoder) const noexcept {
     auto cuda_stream = encoder.stream()->handle();
     std::scoped_lock lock{_mutex};
     if (_sbt.raygenRecord == 0u) {// create shader binding table if not present
-        constexpr auto sbt_buffer_size = sizeof(OptiXSBTRecord) * 4u;
+        static constexpr auto sbt_buffer_size = sizeof(OptiXSBTRecord) * 4u;
         LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
         encoder.with_upload_buffer(sbt_buffer_size, [&](auto sbt_record_buffer) noexcept {
             auto sbt_records = reinterpret_cast<OptiXSBTRecord *>(sbt_record_buffer->address());

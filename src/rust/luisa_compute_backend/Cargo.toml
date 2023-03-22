@@ -6,7 +6,7 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-embree_sys = {git = "https://github.com/shiinamiyuki/embree-sys"}
+embree_sys = {git = "https://github.com/shiinamiyuki/embree-sys", optional=true}
 fs2 = "0.4.3"
 lazy_static = "1.4.0"
 libc = "0.2"
@@ -23,7 +23,7 @@ sha2 = "0.10"
 
 [features]
 default = ["cpu"]
-cpu = []
+cpu = ["embree_sys"]
 remote = []
 
 [build-dependencies]

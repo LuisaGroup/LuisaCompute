@@ -75,6 +75,7 @@ public:
     void set(size_t idx, MeshUpdateCmd const &mesh, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
     void set(size_t idx, ProceduralUpdateCmd const &procedural, float4x4 const &transform, uint visibility_mask, bool opaque) noexcept;
     void update(PyStream &stream) noexcept;
+    void update_instance_buffer(PyStream &stream) noexcept;
 };
 
 }// namespace luisa::compute

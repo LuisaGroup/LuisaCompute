@@ -2,26 +2,25 @@
 rule("basic_settings")
 on_config(function(target)
 	local _, cc = target:tool("cxx")
+	local _, ld = target:tool("ld")
 	if (not is_mode("debug")) then
-		-- elseif (cc == "clang" or cc == "clangxx") then
-		-- 	target:add("cxflags", "-flto=thin")
 		if cc == "gcc" or cc == "gxx" then
 			target:add("cxflags", "-flto")
+		-- elseif (cc == "clang" or cc == "clangxx") then
+		-- 	target:add("cxflags", "-flto=thin")
 		end
-		local _, ld = target:tool("ld")
+		local function _add_link(...)
+			target:add("ldflags", ...)
+			target:add("shflags", ...)
+		end
 		if ld == "link" then
-			target:add("ldflags", "-LTCG")
-			target:add("shflags", "-LTCG")
-		-- elseif and (ld == "clang" or ld == "clangxx") then
-		-- 	target:add("ldflags", "-flto=thin")
-		-- 	target:add("shflags", "-flto=thin")
+			_add_link("/INCREMENTAL:NO", "/LTCG")
+		-- elseif (ld == "clang" or ld == "clangxx") then
+		-- 	_add_link("-flto=thin")
 		elseif ld == "gcc" or ld == "gxx" then
-			target:add("ldflags", "-flto")
-			target:add("shflags", "-flto")
+			_add_link("-flto")
 		end
 	end
-end)
-on_load(function(target)
 	local _get_or = function(name, default_value)
 		local v = target:values(name)
 		if v == nil then
@@ -41,20 +40,23 @@ on_load(function(target)
 
 	local enable_exception = _get_or("enable_exception", nil)
 	if enable_exception then
-		target:set("exceptions", "cxx", "objc")
+		target:set("exceptions", "cxx")
 	else
-		target:set("exceptions", "no-cxx", "no-objc")
+		target:set("exceptions", "no-cxx")
+	end
+	local function _win_runtime(clang_lib, clang_rt, vs_lib)
+		if (ld == "clang" or ld == "clangxx") then				
+			target:add("cxflags", "-fms-runtime-lib=" .. clang_lib)
+			target:add("syslinks", clang_rt)
+		else
+			target:set("runtimes", vs_lib)
+		end
 	end
 	if is_plat("windows") then
-		local win_runtime = _get_or("win_runtime", nil)
-		if win_runtime ~= nil then
-			target:set("runtimes", win_runtime)
+		if is_mode("debug") then
+			_win_runtime("dll_dbg", "msvcrtd", "MDd")
 		else
-			if is_mode("debug") then
-				target:set("runtimes", "MDd")
-			else
-				target:set("runtimes", "MD")
-			end
+			_win_runtime("dll", "msvcrt", "MD")
 		end
 	end
 	if is_mode("debug") then
@@ -67,9 +69,9 @@ on_load(function(target)
 			tools = "cl"
 		});
 	else
-		target:set("optimize", "fastest")
+		target:set("optimize", "aggressive")
 		target:set("warnings", "none")
-		target:add("cxflags", "/Oy", "/GS-", "/Gd", "/Oi", "/Ot", {
+		target:add("cxflags", "/GS-", "/Gd", {
 			tools = {"clang_cl", "cl"}
 		})
 		target:add("cxflags", "/GL", "/Zc:preprocessor", {

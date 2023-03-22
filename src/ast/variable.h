@@ -20,7 +20,7 @@ class LC_AST_API Variable {
 
 public:
     /// Variable tags
-    enum struct Tag : uint8_t {
+    enum struct Tag : uint32_t {
 
         // data
         LOCAL,
@@ -48,13 +48,12 @@ private:
     const Type *_type;
     uint32_t _uid;
     Tag _tag;
-    bool _is_argument;
 
 private:
     friend class detail::FunctionBuilder;
     friend class detail::SSABuilder;
-    Variable(const Type *type, Tag tag, uint32_t uid, bool is_arg = false) noexcept
-        : _type{type}, _uid{uid}, _tag{tag}, _is_argument{is_arg} {}
+    Variable(const Type *type, Tag tag, uint32_t uid) noexcept
+        : _type{type}, _uid{uid}, _tag{tag}{}
 
 public:
     Variable() noexcept = default;
@@ -66,7 +65,6 @@ public:
     [[nodiscard]] auto is_local() const noexcept { return _tag == Tag::LOCAL; }
     [[nodiscard]] auto is_shared() const noexcept { return _tag == Tag::SHARED; }
     [[nodiscard]] auto is_reference() const noexcept { return _tag == Tag::REFERENCE; }
-    [[nodiscard]] auto is_argument() const noexcept { return _is_argument; }
     [[nodiscard]] auto is_resource() const noexcept {
         return _tag == Tag::BUFFER ||
                _tag == Tag::TEXTURE ||
@@ -80,12 +78,6 @@ public:
                _tag == Tag::DISPATCH_SIZE ||
                _tag == Tag::KERNEL_ID ||
                _tag == Tag::OBJECT_ID;
-    }
-    [[nodiscard]] auto externally_initialized() const noexcept {
-        return is_reference() ||
-               is_resource() ||
-               is_builtin() ||
-               _is_argument;
     }
 };
 

@@ -4,7 +4,7 @@
 
 namespace luisa::compute {
 
-enum class DepthFormat : uint8_t {
+enum class DepthFormat : uint32_t {
     None,
     D16,
     D24S8,

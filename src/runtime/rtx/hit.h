@@ -8,7 +8,7 @@
 
 namespace luisa::compute {
 
-enum class HitType : uint8_t {
+enum class HitType : uint32_t {
     Miss = 0,
     Triangle = 1,
     Procedural = 2

@@ -13,7 +13,7 @@ namespace detail {
 [[noreturn]] LC_RUNTIME_API void error_pixel_invalid_format(const char *name) noexcept;
 }
 
-enum struct PixelStorage : uint8_t {
+enum struct PixelStorage : uint32_t {
 
     BYTE1,
     BYTE2,
@@ -42,7 +42,7 @@ enum struct PixelStorage : uint8_t {
     //TODO: ASTC
 };
 
-enum struct PixelFormat : uint8_t {
+enum struct PixelFormat : uint32_t {
 
     R8SInt,
     R8UInt,
