@@ -1,4 +1,4 @@
-set_xmakever("2.7.3")
+set_xmakever("2.7.7")
 add_rules("mode.release", "mode.debug")
 -- disable ccache in-case error
 set_policy("build.ccache", false)

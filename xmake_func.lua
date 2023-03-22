@@ -1,13 +1,13 @@
 -- Global config
 rule("basic_settings")
 on_config(function(target)
-	local _, cc = target:tool("cxx")
-	local _, ld = target:tool("ld")
 	if (not is_mode("debug")) then
+		local _, ld = target:tool("ld")
+		local _, cc = target:tool("cxx")
 		if cc == "gcc" or cc == "gxx" then
 			target:add("cxflags", "-flto")
-		-- elseif (cc == "clang" or cc == "clangxx") then
-		-- 	target:add("cxflags", "-flto=thin")
+			-- elseif (cc == "clang" or cc == "clangxx") then
+			-- 	target:add("cxflags", "-flto=thin")
 		end
 		local function _add_link(...)
 			target:add("ldflags", ...)
@@ -15,8 +15,8 @@ on_config(function(target)
 		end
 		if ld == "link" then
 			_add_link("/INCREMENTAL:NO", "/LTCG")
-		-- elseif (ld == "clang" or ld == "clangxx") then
-		-- 	_add_link("-flto=thin")
+			-- elseif (ld == "clang" or ld == "clangxx") then
+			-- 	_add_link("-flto=thin")
 		elseif ld == "gcc" or ld == "gxx" then
 			_add_link("-flto")
 		end
@@ -44,22 +44,8 @@ on_config(function(target)
 	else
 		target:set("exceptions", "no-cxx")
 	end
-	local function _win_runtime(clang_lib, clang_rt, vs_lib)
-		if (ld == "clang" or ld == "clangxx") then				
-			target:add("cxflags", "-fms-runtime-lib=" .. clang_lib)
-			target:add("syslinks", clang_rt)
-		else
-			target:set("runtimes", vs_lib)
-		end
-	end
-	if is_plat("windows") then
-		if is_mode("debug") then
-			_win_runtime("dll_dbg", "msvcrtd", "MDd")
-		else
-			_win_runtime("dll", "msvcrt", "MD")
-		end
-	end
 	if is_mode("debug") then
+		target:set("runtimes", "MDd")
 		target:set("optimize", "none")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS", "/Gd", {
@@ -69,6 +55,7 @@ on_config(function(target)
 			tools = "cl"
 		});
 	else
+		target:set("runtimes", "MD")
 		target:set("optimize", "aggressive")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS-", "/Gd", {
