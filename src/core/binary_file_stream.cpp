@@ -23,7 +23,7 @@ namespace luisa {
 
 BinaryFileStream::BinaryFileStream(const luisa::string &path) noexcept {
     _file = LUISA_FOPEN(path.c_str(), "rb");
-    if (_file != nullptr) {
+    if (_file) [[likely]] {
         LUISA_FSEEK(_file, 0, SEEK_END);
         _length = LUISA_FTELL(_file);
         LUISA_FSEEK(_file, 0, SEEK_SET);
@@ -42,7 +42,7 @@ BinaryFileStream::BinaryFileStream(BinaryFileStream &&another) noexcept
 }
 
 BinaryFileStream &BinaryFileStream::operator=(BinaryFileStream &&rhs) noexcept {
-    if (&rhs != this) {
+    if (&rhs != this) [[likely]] {
         close();
         _file = rhs._file;
         _length = rhs._length;
@@ -55,9 +55,7 @@ BinaryFileStream &BinaryFileStream::operator=(BinaryFileStream &&rhs) noexcept {
 }
 
 void BinaryFileStream::read(luisa::span<std::byte> dst) noexcept {
-    if (!valid()) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Failed to read from invalid file stream.");
+    if (!_file) [[unlikely]] {
         return;
     }
     auto size = std::min(dst.size(), _length - _pos);
@@ -66,7 +64,7 @@ void BinaryFileStream::read(luisa::span<std::byte> dst) noexcept {
 }
 
 void BinaryFileStream::close() noexcept {
-    if (_file) { LUISA_FCLOSE(_file); }
+    if (_file) [[likely]] { LUISA_FCLOSE(_file); }
     _length = 0;
     _pos = 0;
 }
