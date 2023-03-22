@@ -1,29 +1,8 @@
 -- Global config
 rule("basic_settings")
 on_config(function(target)
-	-- TODO: use this in new-version xmake
-	-- if is_mode("debug") then
-	-- 	target:set("runtimes", "MDd")
-	-- else
-	-- 	target:set("runtimes", "MD")
-	-- end
-	local _, cc = target:tool("cxx")
-	if is_plat("windows") then
-		local function _win_runtime(clang_lib, vs_lib, rt)
-			if (cc == "clang" or cc == "clangxx") then
-				target:add("cxflags", "-fms-runtime-lib=" .. clang_lib)
-				target:add("syslinks", rt)
-			else
-				target:set("runtimes", vs_lib)
-			end
-		end
-		if is_mode("debug") then
-			_win_runtime("dll_dbg", "MDd", "msvcrtd")
-		else
-			_win_runtime("dll", "MD", "msvcrtd")
-		end
-	end
 	if (not is_mode("debug")) then
+		local _, cc = target:tool("cxx")
 		local _, ld = target:tool("ld")
 		if cc == "gcc" or cc == "gxx" then
 			target:add("cxflags", "-flto")
@@ -68,6 +47,7 @@ on_load(function(target)
 		target:set("exceptions", "no-cxx")
 	end
 	if is_mode("debug") then
+		target:set("runtimes", "MDd")
 		target:set("optimize", "none")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS", "/Gd", {
@@ -77,6 +57,7 @@ on_load(function(target)
 			tools = "cl"
 		});
 	else
+		target:set("runtimes", "MD")
 		target:set("optimize", "aggressive")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS-", "/Gd", {
