@@ -7,7 +7,7 @@ on_load(
 	function(target)
 		local py_version = get_config("py_version")
 		local py_path = get_config("py_path")
-		if type(py_path) ~= "string" or type(py_version) ~= "string" then
+		if type(py_path) ~= "string" or string.len(py_path) == 0 or type(py_version) ~= "string" or string.len(py_version) == 0 then
 			target:set("enabled", false)
 			return
 		end

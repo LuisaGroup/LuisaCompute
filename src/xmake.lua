@@ -16,7 +16,6 @@ if EnableGUI then
 	includes("gui")
 end
 includes("py")
-includes("backends/common")
 if DxBackend then
 	includes("backends/dx")
 end
