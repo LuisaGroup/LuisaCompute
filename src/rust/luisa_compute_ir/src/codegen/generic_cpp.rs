@@ -690,6 +690,7 @@ impl GenericCppCodeGen {
             Func::Unreachable => {
                 if !is_type_equal(node_ty, &Type::void()) {
                     writeln!(&mut self.body, "{} {};", node_ty_s, var).unwrap();
+                    self.write_ident();
                 }
                 writeln!(&mut self.body, "lc_unreachable({});", args_v.join(", ")).unwrap();
                 true

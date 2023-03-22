@@ -133,6 +133,9 @@ fn _grad_type_of(type_: CArc<Type>) -> Option<GradTypeRecord> {
                 grad_field_to_primal_field.insert(i, *j);
                 primal_field_to_grad_field.insert(*j, i);
             }
+            if fields.len() == 0 {
+                return None;
+            }
             let fields = fields.into_iter().map(|(_, f)| f).collect::<Vec<_>>();
             let alignment = fields.iter().map(|f| f.alignment()).max().unwrap();
             let size = fields.iter().map(|f| f.size()).sum();
