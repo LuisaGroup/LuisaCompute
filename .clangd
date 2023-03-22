@@ -5,4 +5,4 @@ Hover:
 Index:
   Background: Build
 CompileFlags:
-  Remove: [-fms-runtime-lib=*, -m*]
+  Remove: [-f*, -m*]
