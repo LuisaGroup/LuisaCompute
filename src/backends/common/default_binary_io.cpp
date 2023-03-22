@@ -2,7 +2,7 @@
 #include <backends/common/default_binary_io.h>
 #include <runtime/context.h>
 #include <runtime/context_paths.h>
-
+#include <core/logging.h>
 namespace luisa::compute {
 
 LockedBinaryFileStream::LockedBinaryFileStream(DefaultBinaryIO const *binary_io, const luisa::string &path) noexcept
@@ -66,6 +66,9 @@ void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::by
         LUISA_FCLOSE(f);
 #undef LUISA_FWRITE
 #undef LUISA_FCLOSE
+        LUISA_INFO("Write file {} success.", file_path);
+    } else {
+        LUISA_INFO("Write file {} failed.", file_path);
     }
 }
 

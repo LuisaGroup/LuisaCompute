@@ -27,6 +27,9 @@ BinaryFileStream::BinaryFileStream(const luisa::string &path) noexcept {
         LUISA_FSEEK(_file, 0, SEEK_END);
         _length = LUISA_FTELL(_file);
         LUISA_FSEEK(_file, 0, SEEK_SET);
+        LUISA_INFO("Read file {} success.", path);
+    } else {
+        LUISA_INFO("Read file {} failed.", path);
     }
 }
 
