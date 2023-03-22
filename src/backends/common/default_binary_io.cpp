@@ -68,7 +68,7 @@ void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::by
 #undef LUISA_FCLOSE
         LUISA_INFO("Write file {} success.", file_path);
     } else {
-        LUISA_INFO("Write file {} failed.", file_path);
+        LUISA_WARNING("Write file {} failed.", file_path);
     }
 }
 
