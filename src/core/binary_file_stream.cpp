@@ -8,26 +8,30 @@
 namespace luisa {
 
 #ifdef _WIN32
-#define LUISA_FOPEN fopen
 #define LUISA_FSEEK _fseeki64_nolock
 #define LUISA_FTELL _ftelli64_nolock
 #define LUISA_FREAD _fread_nolock
 #define LUISA_FCLOSE _fclose_nolock
 #else
-#define LUISA_FOPEN fopen
 #define LUISA_FSEEK fseeko
 #define LUISA_FTELL ftello
 #define LUISA_FREAD fread
 #define LUISA_FCLOSE fclose
 #endif
-
+size_t BinaryFileStream::seek_len(::FILE *file) noexcept {
+    LUISA_FSEEK(file, 0, SEEK_END);
+    auto length = LUISA_FTELL(file);
+    LUISA_FSEEK(file, 0, SEEK_SET);
+    return length;
+}
+BinaryFileStream::BinaryFileStream(::FILE *file, size_t length) noexcept
+    : _file{file},
+      _length{length} {
+}
 BinaryFileStream::BinaryFileStream(const luisa::string &path) noexcept {
-    _file = LUISA_FOPEN(path.c_str(), "rb");
-    if (_file) [[likely]] {
-        LUISA_FSEEK(_file, 0, SEEK_END);
-        _length = LUISA_FTELL(_file);
-        LUISA_FSEEK(_file, 0, SEEK_SET);
-        LUISA_INFO("Read file {} success.", path);
+    _file = std::fopen(path.c_str(), "rb");
+    if (_file) {
+        _length = seek_len(_file);
     } else {
         LUISA_INFO("Read file {} failed.", path);
     }
@@ -72,7 +76,6 @@ void BinaryFileStream::close() noexcept {
     _pos = 0;
 }
 
-#undef LUISA_FOPEN
 #undef LUISA_FSEEK
 #undef LUISA_FTELL
 #undef LUISA_FREAD

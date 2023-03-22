@@ -51,7 +51,7 @@ private:
     DefaultBinaryIO::MapIndex _idx;
 
 public:
-    explicit LockedBinaryFileStream(DefaultBinaryIO const* binary_io, const luisa::string &path) noexcept;
+    explicit LockedBinaryFileStream(DefaultBinaryIO const* binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept;
     ~LockedBinaryFileStream() noexcept override;
     [[nodiscard]] size_t length() const noexcept override { return _stream.length(); }
     [[nodiscard]] size_t pos() const noexcept override { return _stream.pos(); }

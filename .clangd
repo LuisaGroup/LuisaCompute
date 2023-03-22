@@ -4,3 +4,5 @@ Hover:
   ShowAKA: No
 Index:
   Background: Build
+CompileFlags:
+  Remove: [-fms-runtime-lib=*, -m*]

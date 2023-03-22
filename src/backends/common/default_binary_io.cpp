@@ -5,17 +5,30 @@
 #include <core/logging.h>
 namespace luisa::compute {
 
-LockedBinaryFileStream::LockedBinaryFileStream(DefaultBinaryIO const *binary_io, const luisa::string &path) noexcept
-    : _stream{path},
+LockedBinaryFileStream::LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept
+    : _stream{file, length},
       _binary_io{binary_io},
-      _idx{binary_io->_lock(path, false)} {}
+      _idx{std::move(idx)} {}
 
 LockedBinaryFileStream::~LockedBinaryFileStream() noexcept {
     _binary_io->_unlock(_idx, false);
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file_path) const noexcept {
-    return luisa::make_unique<LockedBinaryFileStream>(this, file_path);
+    auto idx = _lock(file_path, false);
+    auto file = std::fopen(file_path.c_str(), "rb");
+    if (file) {
+        auto length = BinaryFileStream::seek_len(file);
+        if (length == 0) [[unlikely]] {
+            _unlock(idx, false);
+            return nullptr;
+        }
+        return luisa::make_unique<LockedBinaryFileStream>(this, file, length, file_path, std::move(idx));
+    } else {
+        _unlock(idx, false);
+        LUISA_INFO("Read file {} failed.", file_path);
+        return nullptr;
+    }
 }
 
 DefaultBinaryIO::MapIndex DefaultBinaryIO::_lock(luisa::string const &name, bool is_write) const noexcept {
@@ -66,7 +79,6 @@ void DefaultBinaryIO::_write(luisa::string const &file_path, luisa::span<std::by
         LUISA_FCLOSE(f);
 #undef LUISA_FWRITE
 #undef LUISA_FCLOSE
-        LUISA_INFO("Write file {} success.", file_path);
     } else {
         LUISA_WARNING("Write file {} failed.", file_path);
     }

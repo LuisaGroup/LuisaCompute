@@ -10,9 +10,10 @@ private:
     ::FILE *_file{nullptr};
     size_t _length{0u};
     size_t _pos{0u};
-
 public:
+    static size_t seek_len(::FILE *file) noexcept;
     explicit BinaryFileStream(const luisa::string &path) noexcept;
+    explicit BinaryFileStream(::FILE *file, size_t length) noexcept;
     ~BinaryFileStream() noexcept override;
     BinaryFileStream(BinaryFileStream &&another) noexcept;
     BinaryFileStream &operator=(BinaryFileStream &&rhs) noexcept;
