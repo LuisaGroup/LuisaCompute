@@ -17,7 +17,6 @@ typedef enum LCAccelBuildRequest {
 typedef enum LCAccelUsageHint {
     LC_ACCEL_USAGE_HINT_FAST_TRACE,
     LC_ACCEL_USAGE_HINT_FAST_BUILD,
-    LC_ACCEL_USAGE_HINT_FAST_UPDATE,
 } LCAccelUsageHint;
 
 typedef enum LCBindlessArrayUpdateOperation {
@@ -90,6 +89,12 @@ typedef enum LCSamplerFilter {
     LC_SAMPLER_FILTER_LINEAR_LINEAR,
     LC_SAMPLER_FILTER_ANISOTROPIC,
 } LCSamplerFilter;
+
+typedef enum LCStreamTag {
+    LC_STREAM_TAG_GRAPHICS,
+    LC_STREAM_TAG_COMPUTE,
+    LC_STREAM_TAG_COPY,
+} LCStreamTag;
 
 typedef struct LCBuffer {
     uint64_t _0;
@@ -224,20 +229,20 @@ typedef struct LCUniformArgument {
     size_t size;
 } LCUniformArgument;
 
-typedef struct LCAccel {
-    uint64_t _0;
-} LCAccel;
-
 typedef struct LCBindlessArray {
     uint64_t _0;
 } LCBindlessArray;
+
+typedef struct LCAccel {
+    uint64_t _0;
+} LCAccel;
 
 typedef enum LCArgument_Tag {
     LC_ARGUMENT_BUFFER,
     LC_ARGUMENT_TEXTURE,
     LC_ARGUMENT_UNIFORM,
-    LC_ARGUMENT_ACCEL,
     LC_ARGUMENT_BINDLESS_ARRAY,
+    LC_ARGUMENT_ACCEL,
 } LCArgument_Tag;
 
 typedef struct LCArgument {
@@ -253,10 +258,10 @@ typedef struct LCArgument {
             struct LCUniformArgument uniform;
         };
         struct {
-            struct LCAccel accel;
+            struct LCBindlessArray bindless_array;
         };
         struct {
-            struct LCBindlessArray bindless_array;
+            struct LCAccel accel;
         };
     };
 } LCArgument;
@@ -293,7 +298,7 @@ typedef struct LCProceduralPrimitiveBuildCommand {
     struct LCProceduralPrimitive handle;
     enum LCAccelBuildRequest request;
     struct LCBuffer aabb_buffer;
-    size_t aabb_ffset;
+    size_t aabb_offset;
     size_t aabb_count;
 } LCProceduralPrimitiveBuildCommand;
 
@@ -405,3 +410,33 @@ typedef struct LCAppContext {
 typedef struct LCKernelModule {
     uint64_t ptr;
 } LCKernelModule;
+
+typedef struct LCCreatedResourceInfo {
+    uint64_t handle;
+    void *native_handle;
+} LCCreatedResourceInfo;
+
+typedef struct LCCreatedBufferInfo {
+    struct LCCreatedResourceInfo resource;
+    size_t element_stride;
+    size_t total_size_bytes;
+} LCCreatedBufferInfo;
+
+typedef struct LCCreatedShaderInfo {
+    struct LCCreatedResourceInfo resource;
+    uint32_t block_size[3];
+} LCCreatedShaderInfo;
+
+typedef struct LCAccelOption {
+    enum LCAccelUsageHint hint;
+    bool allow_compaction;
+    bool allow_update;
+} LCAccelOption;
+
+typedef struct LCShaderOption {
+    bool enable_cache;
+    bool enable_fast_math;
+    bool enable_debug_info;
+    bool compile_only;
+    const char *name;
+} LCShaderOption;

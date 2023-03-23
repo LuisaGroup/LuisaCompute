@@ -5,7 +5,10 @@
 #include <luisa-compute.h>
 #include <ast/function_builder.h>
 #include <api/runtime.h>
-#include <ir/ir.hpp>
+#include <runtime/rhi/resource.h>
+#include <rust/luisa_compute_api_types/bindings.hpp>
+#include <utility>
+// #include <ir/ir.hpp>
 
 #define LC_RC_TOMBSTONE 0xdeadbeef
 
@@ -54,9 +57,9 @@ struct RC {
 namespace luisa::compute {
 
 struct BufferResource final : public Resource {
-    BufferResource(DeviceInterface *device, size_t size_bytes) noexcept
+    BufferResource(DeviceInterface *device, const ir::CArc<ir::Type> *element, size_t elem_count) noexcept
         : Resource{device, Tag::BUFFER,
-                   device->create_buffer(size_bytes)} {}
+                   device->create_buffer(element, elem_count)} {}
 };
 
 struct TextureResource final : public Resource {
@@ -73,9 +76,18 @@ struct TextureResource final : public Resource {
 struct ShaderResource : public Resource {
     ShaderResource(DeviceInterface *device,
                    Function function,
-                   luisa::string_view opts) noexcept
-        : Resource{device, Tag::SHADER,
-                   device->create_shader(function, opts)} {}
+                   const api::ShaderOption &option) noexcept
+        : Resource{
+              device,
+              Tag::SHADER,
+              device->create_shader(
+                  ShaderOption{
+                      .enable_cache = option.enable_cache,
+                      .enable_fast_math = option.enable_fast_math,
+                      .enable_debug_info = option.enable_debug_info,
+                      .compile_only = option.compile_only,
+                      .name = luisa::string{option.name}},
+                  function)} {}
 };
 
 }// namespace luisa::compute
@@ -85,65 +97,180 @@ struct ShaderResource : public Resource {
 using namespace luisa;
 using namespace luisa::compute;
 
+Sampler convert_sampler(api::Sampler sampler);
+
 namespace luisa::compute::detail {
 
 class CommandListConverter {
 
 private:
-    LCCommandList _list;
+    api::CommandList _list;
     bool _is_c_api;
 
-    luisa::unique_ptr<Command> convert_one(LCCommand cmd) const noexcept {
+    luisa::unique_ptr<Command> convert_one(api::Command cmd) const noexcept {
+        auto convert_pixel_storage = [](const api::PixelStorage &storage) noexcept {
+            return PixelStorage{(uint32_t)to_underlying(storage)};
+        };
+        auto convert_uint3 = [](uint32_t array[3]) noexcept {
+            return luisa::uint3{array[0], array[1], array[2]};
+        };
+        auto convert_accel_request = [](api::AccelBuildRequest req) noexcept {
+            return AccelBuildRequest{(uint32_t)to_underlying(req)};
+        };
         switch (cmd.tag) {
-            case LC_COMMAND_BUFFER_COPY: {
-                auto c = cmd.buffer_copy;
+            case api::Command::Tag::BUFFER_COPY: {
+                auto c = cmd.BUFFER_COPY._0;
                 return make_unique<BufferCopyCommand>(
                     c.src._0, c.dst._0,
                     c.src_offset, c.dst_offset, c.size);
             }
-            case LC_COMMAND_BUFFER_UPLOAD: {
-                auto c = cmd.buffer_upload;
+            case api::Command::Tag::BUFFER_UPLOAD: {
+                auto c = cmd.BUFFER_UPLOAD._0;
                 return make_unique<BufferUploadCommand>(
                     c.buffer._0, c.offset,
                     c.size, c.data);
             }
-            case LC_COMMAND_BUFFER_DOWNLOAD: {
-                auto c = cmd.buffer_download;
+            case api::Command::Tag::BUFFER_DOWNLOAD: {
+                auto c = cmd.BUFFER_DOWNLOAD._0;
                 return make_unique<BufferDownloadCommand>(
                     c.buffer._0, c.offset,
                     c.size, c.data);
             }
-            case LC_COMMAND_BINDLESS_ARRAY_UPDATE: {
+            case api::Command::Tag::BINDLESS_ARRAY_UPDATE: {
+                auto c = cmd.BINDLESS_ARRAY_UPDATE._0;
+                auto modifications = luisa::vector<BindlessArrayUpdateCommand::Modification>{};
+                for (auto i = 0u; i < c.modifications_count; i++) {
+                    auto &&[slot, api_buffer, api_tex2d, api_tex3d] = c.modifications[i];
+                    auto convert_op = [](api::BindlessArrayUpdateOperation op) noexcept {
+                        return BindlessArrayUpdateCommand::Modification::Operation{(uint)to_underlying(op)};
+                    };
+                    auto buffer = BindlessArrayUpdateCommand::Modification::Buffer(
+                        api_buffer.handle._0,
+                        api_buffer.offset,
+                        convert_op(api_buffer.op));
+                    auto tex2d = BindlessArrayUpdateCommand::Modification::Texture(
+                        api_tex2d.handle._0,
+                        convert_sampler(api_tex2d.sampler),
+                        convert_op(api_tex2d.op));
+                    auto tex3d = BindlessArrayUpdateCommand::Modification::Texture(
+                        api_tex3d.handle._0,
+                        convert_sampler(api_tex3d.sampler),
+                        convert_op(api_tex3d.op));
+                    modifications.emplace_back(slot, buffer, tex2d, tex3d);
+                }// Manually conversion is painful...
                 return make_unique<BindlessArrayUpdateCommand>(
-                    cmd.bindless_array_update._0,
-                    luisa::vector<BindlessArrayUpdateCommand::Modification>{} /* FIXME */);
+                    c.handle._0,
+                    modifications);
             }
-            case LC_COMMAND_SHADER_DISPATCH: {
-                auto c = ShaderDispatchExCommand(cmd.shader_dispatch.shader._0);
-                c.set_dispatch_size(make_uint3(cmd.shader_dispatch.dispatch_size[0],
-                                               cmd.shader_dispatch.dispatch_size[1],
-                                               cmd.shader_dispatch.dispatch_size[2]));
-                for (int i = 0; i < cmd.shader_dispatch.args_count; i++) {
-                    c.add_argument(cmd.shader_dispatch.args[i]);
+            case api::Command::Tag::SHADER_DISPATCH: {
+                auto c = cmd.SHADER_DISPATCH._0;
+                auto first = (std::byte *)c.args;
+                auto buffer = luisa::vector<std::byte>(first, first + c.args_count);
+                auto dispatch_size = luisa::uint3{c.dispatch_size[0], c.dispatch_size[1], c.dispatch_size[2]};
+
+                return make_unique<ShaderDispatchCommand>(
+                    c.shader._0,
+                    std::move(buffer),
+                    c.args_count,
+                    ShaderDispatchCommand::DispatchSize{dispatch_size}
+                );
+            }
+            case api::Command::Tag::BUFFER_TO_TEXTURE_COPY: {
+                auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.BUFFER_TO_TEXTURE_COPY._0;
+
+                return make_unique<BufferToTextureCopyCommand>(
+                    buffer._0,
+                    buffer_offset,
+                    texture._0,
+                    convert_pixel_storage(storage),
+                    texture_level,
+                    convert_uint3(texture_size));
+            }
+            case api::Command::Tag::TEXTURE_TO_BUFFER_COPY: {
+                auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.TEXTURE_TO_BUFFER_COPY._0;
+                return make_unique<TextureToBufferCopyCommand>(
+                    buffer._0,
+                    buffer_offset,
+                    texture._0,
+                    convert_pixel_storage(storage),
+                    texture_level,
+                    convert_uint3(texture_size));
+            }
+            case api::Command::Tag::TEXTURE_UPLOAD: {
+                auto [texture, storage, level, size, data] = cmd.TEXTURE_UPLOAD._0;
+                return make_unique<TextureUploadCommand>(
+                    texture._0,
+                    convert_pixel_storage(storage),
+                    level,
+                    convert_uint3(size),
+                    (const void *)data);
+            }
+            case api::Command::Tag::TEXTURE_DOWNLOAD: {
+                auto [texture, storage, level, size, data] = cmd.TEXTURE_DOWNLOAD._0;
+                return make_unique<TextureDownloadCommand>(
+                    texture._0,
+                    convert_pixel_storage(storage),
+                    level,
+                    convert_uint3(size),
+                    (void *)data);
+            }
+            case api::Command::Tag::TEXTURE_COPY: {
+                auto [storage, src, dst, size, src_level, dst_level] = cmd.TEXTURE_COPY._0;
+                return make_unique<TextureCopyCommand>(
+                    convert_pixel_storage(storage),
+                    src._0,
+                    dst._0,
+                    src_level,
+                    dst_level,
+                    convert_uint3(size));
+            }
+            case api::Command::Tag::MESH_BUILD: {
+                auto [mesh, request,
+                      vertex_buffer, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
+                      index_buffer, index_buffer_offset, index_buffer_size, index_stride] = cmd.MESH_BUILD._0;
+                LUISA_ASSERT(index_stride == 12, "Index stride must be 12.");
+                return make_unique<MeshBuildCommand>(
+                    mesh._0,
+                    convert_accel_request(request),
+                    vertex_buffer._0, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
+                    index_buffer._0, index_buffer_offset, index_buffer_size);
+            }
+            case api::Command::Tag::PROCEDURAL_PRIMITIVE_BUILD: {
+                auto [primitive, request, aabb_buffer, aabb_offset, aabb_count] = cmd.PROCEDURAL_PRIMITIVE_BUILD._0;
+                return make_unique<ProceduralPrimitiveBuildCommand>(
+                    primitive._0,
+                    convert_accel_request(request),
+                    aabb_buffer._0,
+                    aabb_offset,
+                    aabb_count);
+            }
+            case api::Command::Tag::ACCEL_BUILD: {
+                auto [accel, request, instance_count, api_modifications, modifications_count, build_accel] = cmd.ACCEL_BUILD._0;
+                auto modifications = luisa::vector<AccelBuildCommand::Modification>(modifications_count);
+                for (auto i = 0u; i < modifications_count; i++) {
+                    auto [index, flags, visibility, mesh, affine] = api_modifications[i];
+                    auto modification = AccelBuildCommand::Modification(index);
+                    modification.flags = flags.bits;
+                    modification.set_visibility(visibility);
+                    modification.set_primitive(mesh);
+                    std::memcpy(modification.affine, affine, sizeof(float) * 12);
+
+                    modifications.emplace_back(std::move(modification));
                 }
-                return make_unique<ShaderDispatchExCommand>(
-                    std::move(c));
+                return make_unique<AccelBuildCommand>(
+                    accel._0,
+                    instance_count,
+                    convert_accel_request(request),
+                    modifications,
+                    build_accel);
             }
-            default:
-                LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
+            default: LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
         }
     }
 
 public:
-    CommandListConverter(const LCCommandList list, bool is_c_api)
+    CommandListConverter(const api::CommandList list, bool is_c_api)
         : _list(list), _is_c_api(is_c_api) {}
-
-    static const LCCommandList *get(const CommandList &list) {
-        if (list._c_list.has_value()) {
-            return &list._c_list.value();
-        }
-        return nullptr;
-    }
 
     [[nodiscard]] auto convert() const noexcept {
         auto cmd_list = CommandList();
@@ -162,11 +289,11 @@ T from_ptr(void *ptr) {
         ._0 = reinterpret_cast<uint64_t>(ptr)};
 }
 
-LUISA_EXPORT_API LCContext luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT {
-    return from_ptr<LCContext>(new_with_allocator<Context>(exe_path));
+LUISA_EXPORT_API api::Context luisa_compute_context_create(const char *exe_path) LUISA_NOEXCEPT {
+    return from_ptr<api::Context>(new_with_allocator<Context>(exe_path));
 }
 
-LUISA_EXPORT_API void luisa_compute_context_destroy(LCContext ctx) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_context_destroy(api::Context ctx) LUISA_NOEXCEPT {
     delete_with_allocator(reinterpret_cast<Context *>(ctx._0));
 }
 
@@ -179,398 +306,262 @@ inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
 
 LUISA_EXPORT_API void luisa_compute_free_c_string(char *cs) LUISA_NOEXCEPT { free(cs); }
 
-LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(LCContext ctx) LUISA_NOEXCEPT {
+LUISA_EXPORT_API char *luisa_compute_context_runtime_directory(api::Context ctx) LUISA_NOEXCEPT {
     return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().runtime_directory());
 }
 
-LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUISA_NOEXCEPT {
+LUISA_EXPORT_API char *luisa_compute_context_cache_directory(api::Context ctx) LUISA_NOEXCEPT {
     return path_to_c_str(reinterpret_cast<Context *>(ctx._0)->paths().cache_directory());
 }
 
-LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
-                                                      const char *name,
-                                                      const char *properties) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::Device luisa_compute_device_create(api::Context ctx,
+                                                         const char *name,
+                                                         const char *properties) LUISA_NOEXCEPT {
     // TODO: handle properties? or convert it to DeviceConfig?
     auto device = new Device(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr)));
-    return from_ptr<LCDevice>(new_with_allocator<RC<Device>>(
+    return from_ptr<api::Device>(new_with_allocator<RC<Device>>(
         device, [](Device *d) { delete d; }));
 }
 
-LUISA_EXPORT_API void luisa_compute_device_destroy(LCDevice device) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_device_destroy(api::Device device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device._0)->release();
 }
 
-LUISA_EXPORT_API void luisa_compute_device_retain(LCDevice device) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_device_retain(api::Device device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device._0)->retain();
 }
 
-LUISA_EXPORT_API void luisa_compute_device_release(LCDevice device) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_device_release(api::Device device) LUISA_NOEXCEPT {
     reinterpret_cast<RC<Device> *>(device._0)->release();
 }
 
-LUISA_EXPORT_API void *luisa_compute_device_native_handle(LCDevice device) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void *luisa_compute_device_native_handle(api::Device device) LUISA_NOEXCEPT {
     return reinterpret_cast<RC<Device> *>(device._0)->object()->impl()->native_handle();
 }
 
-LUISA_EXPORT_API LCBuffer luisa_compute_buffer_create(LCDevice device, size_t size) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedBufferInfo luisa_compute_buffer_create(api::Device device, const ir::CArc<ir::Type> *element, size_t elem_count) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto handle = d->retain()->object()->impl()->create_buffer(size);
-    return LCBuffer{handle};
+    auto info = d->retain()->object()->impl()->create_buffer(element, elem_count);
+    return api::CreatedBufferInfo{
+        .resource = api::CreatedResourceInfo{
+            .handle = info.handle,
+            .native_handle = info.native_handle,
+        },
+        .element_stride = info.element_stride,
+        .total_size_bytes = info.total_size_bytes,
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buffer) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_buffer_destroy(api::Device device, api::Buffer buffer) LUISA_NOEXCEPT {
     auto handle = buffer._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_buffer(handle);
     d->release();
 }
 
-LUISA_EXPORT_API LCTexture luisa_compute_texture_create(LCDevice device,
-                                                        uint32_t format, uint32_t dim,
-                                                        uint32_t w, uint32_t h, uint32_t d,
-                                                        uint32_t mips) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedResourceInfo luisa_compute_texture_create(api::Device device,
+                                                                       api::PixelFormat format, uint32_t dim,
+                                                                       uint32_t w, uint32_t h, uint32_t d,
+                                                                       uint32_t mips) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<RC<Device> *>(device._0);
-    return LCTexture{dev->retain()->object()->impl()->create_texture(
-        static_cast<PixelFormat>(format), dim, w, h, d, mips)};
+    auto pixel_format = PixelFormat{(uint8_t)to_underlying(format)};
+    auto info = dev->retain()->object()->impl()->create_texture(pixel_format, dim, w, h, d, mips);
+    return api::CreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_texture_destroy(LCDevice device, LCTexture texture) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_texture_destroy(api::Device device, api::Texture texture) LUISA_NOEXCEPT {
     auto handle = texture._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_texture(handle);
     d->release();
 }
 
-LUISA_EXPORT_API LCStream luisa_compute_stream_create(LCDevice device) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedResourceInfo luisa_compute_stream_create(api::Device device, api::StreamTag stream_tag) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return LCStream{d->retain()->object()->impl()->create_stream(StreamTag::COMPUTE /* TODO */)};
+    auto tag = StreamTag{(uint8_t)to_underlying(stream_tag)};
+    auto info = d->retain()->object()->impl()->create_stream(tag);
+    return api::CreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_stream_destroy(LCDevice device, LCStream stream) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_stream_destroy(api::Device device, api::Stream stream) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_stream(handle);
     d->release();
 }
 
-LUISA_EXPORT_API void luisa_compute_stream_synchronize(LCDevice device, LCStream stream) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_stream_synchronize(api::Device device, api::Stream stream) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->synchronize_stream(handle);
 }
 
-LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList c_cmd_list) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_stream_dispatch(api::Device device, api::Stream stream, api::CommandList c_cmd_list) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto converter = luisa::compute::detail::CommandListConverter(c_cmd_list, d->object()->impl()->is_c_api());
     d->object()->impl()->dispatch(handle, converter.convert());
 }
 
-LUISA_EXPORT_API LCShader luisa_compute_shader_create(LCDevice device, LCKernelModule m, const char *options) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedShaderInfo luisa_compute_shader_create(api::Device device, api::KernelModule m, const api::ShaderOption &option) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto ir = reinterpret_cast<const ir::KernelModule *>(m.ptr);
-    // return (LCShader)d->retain()->object()->impl()->create_shader(
-    //     luisa::compute::Function{reinterpret_cast<luisa::shared_ptr<luisa::compute::detail::FunctionBuilder> *>(function)->get()},
-    //     std::string_view{options});
-    // FIXME: akr help
-    auto handle = d->retain()->object()->impl()->create_shader_ex(ir, options);
-    return LCShader{handle};
+
+    auto shader_option = ShaderOption{
+        .enable_cache = option.enable_cache,
+        .enable_fast_math = option.enable_fast_math,
+        .enable_debug_info = option.enable_debug_info,
+        .compile_only = option.compile_only,
+        .name = luisa::string{option.name}};
+
+    auto info = d->retain()->object()->impl()->create_shader(shader_option, ir);
+    return api::CreatedShaderInfo{
+        .resource = api::CreatedResourceInfo{
+            .handle = info.handle,
+            .native_handle = info.native_handle,
+        },
+        .block_size = {info.block_size[0], info.block_size[1], info.block_size[2]},
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_shader_destroy(LCDevice device, LCShader shader) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_shader_destroy(api::Device device, api::Shader shader) LUISA_NOEXCEPT {
     auto handle = shader._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_shader(handle);
     d->release();
 }
 
-LUISA_EXPORT_API LCEvent luisa_compute_event_create(LCDevice device) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedResourceInfo luisa_compute_event_create(api::Device device) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return {d->retain()->object()->impl()->create_event()};
+    auto info = d->retain()->object()->impl()->create_event();
+    return api::CreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_event_destroy(LCDevice device, LCEvent event) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_event_destroy(api::Device device, api::Event event) LUISA_NOEXCEPT {
     auto handle = event._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_event(handle);
     d->release();
 }
 
-LUISA_EXPORT_API void luisa_compute_event_signal(LCDevice device, LCEvent event, LCStream stream) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_event_signal(api::Device device, api::Event event, api::Stream stream) LUISA_NOEXCEPT {
     auto handle = event._0;
     auto stream_handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->signal_event(handle, stream_handle);
 }
 
-LUISA_EXPORT_API void luisa_compute_event_wait(LCDevice device, LCEvent event, LCStream stream) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_event_wait(api::Device device, api::Event event, api::Stream stream) LUISA_NOEXCEPT {
     auto handle = event._0;
     auto stream_handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->wait_event(handle, stream_handle);
 }
 
-LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent event) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_event_synchronize(api::Device device, api::Event event) LUISA_NOEXCEPT {
     auto handle = event._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->synchronize_event(handle);
 }
 
-LUISA_EXPORT_API LCMesh luisa_compute_mesh_create(LCDevice device,
-                                                  LCBuffer v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-                                                  LCBuffer t_buffer, size_t t_offset, size_t t_count,
-                                                  LCAccelUsageHint hint) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedResourceInfo luisa_compute_mesh_create(api::Device device, const api::AccelOption &option) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return LCMesh{d->retain()->object()->impl()->create_mesh(
-        AccelOption{static_cast<AccelOption::UsageHint>(hint), true, true},
-        v_buffer._0, v_offset, v_stride, v_count,
-        t_buffer._0, t_offset, t_count)};
+    auto accel_option = AccelOption{
+        .hint = AccelOption::UsageHint{(uint32_t)to_underlying(option.hint)},
+        .allow_compaction = option.allow_compaction,
+        .allow_update = option.allow_update,
+    };
+    auto info = d->retain()->object()->impl()->create_mesh(accel_option);
+    return api::CreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_mesh_destroy(api::Device device, api::Mesh mesh) LUISA_NOEXCEPT {
     auto handle = mesh._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_mesh(handle);
     d->release();
 }
 
-LUISA_EXPORT_API LCAccel luisa_compute_accel_create(LCDevice device, LCAccelUsageHint hint) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedResourceInfo luisa_compute_accel_create(api::Device device, const api::AccelOption &option) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    return LCAccel{d->retain()->object()->impl()->create_accel(AccelOption{
-        static_cast<AccelOption::UsageHint>(hint), true, true})};
+    auto accel_option = AccelOption{
+        .hint = AccelOption::UsageHint{(uint32_t)to_underlying(option.hint)},
+        .allow_compaction = option.allow_compaction,
+        .allow_update = option.allow_update,
+    };
+    auto info = d->retain()->object()->impl()->create_accel(accel_option);
+    return api::CreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_accel_destroy(api::Device device, api::Accel accel) LUISA_NOEXCEPT {
     auto handle = accel._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_accel(handle);
     d->release();
 }
 
-// LCCommand luisa_compute_command_update_mesh(uint64_t handle) LUISA_NOEXCEPT {
-//     return (LCCommand)MeshUpdateCommand::create(handle);
+// api::Command luisa_compute_command_update_mesh(uint64_t handle) LUISA_NOEXCEPT {
+//     return (api::Command)MeshUpdateCommand::create(handle);
 // }
 
-// LCCommand luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
-//     return (LCCommand)AccelUpdateCommand::create(handle);
+// api::Command luisa_compute_command_update_accel(uint64_t handle) LUISA_NOEXCEPT {
+//     return (api::Command)AccelUpdateCommand::create(handle);
 // }
 
-LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format) LUISA_NOEXCEPT {
-    return static_cast<LCPixelStorage>(
+LUISA_EXPORT_API api::PixelStorage luisa_compute_pixel_format_to_storage(api::PixelFormat format) LUISA_NOEXCEPT {
+    return static_cast<api::PixelStorage>(
         to_underlying(pixel_format_to_storage(static_cast<PixelFormat>(format))));
 }
 
-inline Sampler convert_sampler(LCSampler sampler) {
-    Sampler s;
-    switch (sampler.address) {
-        case LC_SAMPLER_ADDRESS_ZERO:
-            s.set_address(Sampler::Address::ZERO);
-            break;
-        case LC_SAMPLER_ADDRESS_EDGE:
-            s.set_address(Sampler::Address::EDGE);
-            break;
-        case LC_SAMPLER_ADDRESS_REPEAT:
-            s.set_address(Sampler::Address::REPEAT);
-            break;
-        case LC_SAMPLER_ADDRESS_MIRROR:
-            s.set_address(Sampler::Address::MIRROR);
-            break;
-        default:
-            LUISA_ERROR_WITH_LOCATION("Invalid sampler address mode {}", static_cast<int>(sampler.address));
-    }
-    switch (sampler.filter) {
-        case LC_SAMPLER_FILTER_POINT:
-            s.set_filter(Sampler::Filter::POINT);
-            break;
-        case LC_SAMPLER_FILTER_LINEAR_LINEAR:
-            s.set_filter(Sampler::Filter::LINEAR_LINEAR);
-            break;
-        case LC_SAMPLER_FILTER_ANISOTROPIC:
-            s.set_filter(Sampler::Filter::ANISOTROPIC);
-            break;
-        case LC_SAMPLER_FILTER_LINEAR_POINT:
-            s.set_filter(Sampler::Filter::LINEAR_POINT);
-            break;
-        default:
-            LUISA_ERROR_WITH_LOCATION("Invalid sampler filter mode {}", static_cast<int>(sampler.filter));
-    }
-    LUISA_ERROR("Unreachable.");
+inline Sampler convert_sampler(api::Sampler sampler) {
+    auto address = [&sampler]() noexcept -> Sampler::Address {
+        switch (sampler.address) {
+            case api::SamplerAddress::ZERO: return Sampler::Address::ZERO;
+            case api::SamplerAddress::EDGE: return Sampler::Address::EDGE;
+            case api::SamplerAddress::REPEAT: return Sampler::Address::REPEAT;
+            case api::SamplerAddress::MIRROR: return Sampler::Address::MIRROR;
+            default: LUISA_ERROR_WITH_LOCATION("Invalid sampler address mode {}", static_cast<int>(sampler.address));
+        }
+    }();
+    auto filter = [&sampler]() noexcept -> Sampler::Filter {
+        switch (sampler.filter) {
+            case api::SamplerFilter::POINT: return Sampler::Filter::POINT;
+            case api::SamplerFilter::LINEAR_LINEAR: return Sampler::Filter::LINEAR_LINEAR;
+            case api::SamplerFilter::ANISOTROPIC: return Sampler::Filter::ANISOTROPIC;
+            case api::SamplerFilter::LINEAR_POINT: return Sampler::Filter::LINEAR_POINT;
+            default: LUISA_ERROR_WITH_LOCATION("Invalid sampler filter mode {}", static_cast<int>(sampler.filter));
+        }
+    }();
+    return Sampler(filter, address);
 }
 
-LUISA_EXPORT_API LCBindlessArray luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT {
+LUISA_EXPORT_API api::CreatedResourceInfo luisa_compute_bindless_array_create(api::Device device, size_t n) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto bindless_array = d->retain()->object()->impl()->create_bindless_array(n);
-    return LCBindlessArray{bindless_array};
+    auto info = d->retain()->object()->impl()->create_bindless_array(n);
+    return api::CreatedResourceInfo{
+        .handle = info.handle,
+        .native_handle = info.native_handle,
+    };
 }
 
-LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(api::Device device, api::BindlessArray array) LUISA_NOEXCEPT {
     auto handle = array._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_bindless_array(handle);
     d->release();
-}
-
-class ExternDevice : public DeviceInterface {
-    LCDeviceInterface *impl;
-
-public:
-    ExternDevice(LCContext ctx, LCDeviceInterface *impl)
-        : Interface{Context(*(Context *)ctx._0)}, impl{impl} {}
-
-    ~ExternDevice() override {
-        impl->dtor(impl);
-    }
-
-    // native handle
-    [[nodiscard]] void *native_handle() const noexcept override {
-        return impl;
-    }
-
-    // buffer
-    [[nodiscard]] uint64_t create_buffer(size_t size_bytes) noexcept override {
-        return impl->create_buffer(impl, size_bytes);
-    }
-    void destroy_buffer(uint64_t handle) noexcept override {
-        impl->destroy_buffer(impl, handle);
-    }
-
-    // texture
-    [[nodiscard]] uint64_t create_texture(PixelFormat format, uint dimension,
-                                          uint width, uint height, uint depth,
-                                          uint mipmap_levels) noexcept override {
-        return impl->create_texture(impl, static_cast<LCPixelFormat>(format), dimension,
-                                    width, height, depth, mipmap_levels);
-    }
-    void destroy_texture(uint64_t handle) noexcept override {
-        impl->destroy_texture(impl, handle);
-    }
-
-    // bindless array
-    [[nodiscard]] uint64_t create_bindless_array(size_t size) noexcept override {
-        return impl->create_bindless_array(impl, size);
-    }
-    void destroy_bindless_array(uint64_t handle) noexcept override {
-        impl->destroy_bindless_array(impl, handle);
-    }
-
-    // stream
-    [[nodiscard]] uint64_t create_stream(bool for_present) noexcept override {
-        return impl->create_stream(impl, for_present);
-    }
-    void destroy_stream(uint64_t handle) noexcept override {
-        impl->destroy_stream(impl, handle);
-    }
-    void synchronize_stream(uint64_t stream_handle) noexcept override {
-        impl->synchronize_stream(impl, stream_handle);
-    }
-    void dispatch(uint64_t stream_handle, const CommandList &list) noexcept override {
-        auto c_cmd_list = compute::detail::CommandListConverter::get(list);
-        LUISA_ASSERT(c_cmd_list != nullptr, "null!");
-        impl->dispatch(impl, stream_handle, *c_cmd_list);
-    }
-
-    void dispatch(uint64_t stream_handle, luisa::span<const CommandList> lists) noexcept override {
-        for (auto &&list : lists) { dispatch(stream_handle, list); }
-    }
-
-    void dispatch(uint64_t stream_handle, luisa::move_only_function<void()> &&func) noexcept override {
-        func();
-    }
-
-    // swap chain
-    [[nodiscard]] uint64_t create_swap_chain(
-        uint64_t window_handle, uint64_t stream_handle, uint width, uint height,
-        bool allow_hdr, uint back_buffer_size) noexcept override {
-        return impl->create_swap_chain(impl, window_handle, stream_handle, width, height, allow_hdr, back_buffer_size);
-    }
-
-    void destroy_swap_chain(uint64_t handle) noexcept override {
-        impl->destroy_swap_chain(impl, handle);
-    }
-
-    PixelStorage swap_chain_pixel_storage(uint64_t handle) noexcept override {
-        return static_cast<PixelStorage>(impl->swap_chain_pixel_storage(impl, handle));
-    }
-
-    void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override {
-        impl->present_display_in_stream(impl, stream_handle, swapchain_handle, image_handle);
-    }
-
-    // kernel
-    [[nodiscard]] uint64_t create_shader(Function kernel, std::string_view meta_options) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("create_shader() is deprecated.");
-    }
-
-    [[nodiscard]] uint64_t create_shader_ex(const ir::KernelModule &kernel, std::string_view meta_options) noexcept override {
-        return impl->create_shader_ex(impl, {.ptr = reinterpret_cast<uint64_t>(&kernel)}, meta_options.data());
-    }
-
-    void destroy_shader(uint64_t handle) noexcept override {
-        impl->destroy_shader(impl, handle);
-    }
-
-    // event
-    [[nodiscard]] uint64_t create_event() noexcept override {
-        return impl->create_event(impl);
-    }
-    void destroy_event(uint64_t handle) noexcept override {
-        impl->destroy_event(impl, handle);
-    }
-    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override {
-        impl->signal_event(impl, handle, stream_handle);
-    }
-    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override {
-        impl->wait_event(impl, handle, stream_handle);
-    }
-    void synchronize_event(uint64_t handle) noexcept override {
-        impl->synchronize_event(impl, handle);
-    }
-
-    // accel
-    [[nodiscard]] uint64_t create_mesh(
-        uint64_t v_buffer, size_t v_offset, size_t v_stride, size_t v_count,
-        uint64_t t_buffer, size_t t_offset, size_t t_count, AccelUsageHint hint) noexcept override {
-        return impl->create_mesh(impl, v_buffer, v_offset, v_stride, v_count, t_buffer, t_offset, t_count, static_cast<LCAccelUsageHint>(hint));
-    }
-    void destroy_mesh(uint64_t handle) noexcept override {
-        impl->destroy_mesh(impl, handle);
-    }
-
-    [[nodiscard]] uint64_t create_accel(AccelUsageHint hint) noexcept override {
-        return impl->create_accel(impl, static_cast<LCAccelUsageHint>(hint));
-    }
-    void destroy_accel(uint64_t handle) noexcept override {
-        impl->destroy_accel(impl, handle);
-    }
-
-    // query
-    [[nodiscard]] luisa::string query(std::string_view meta_expr) noexcept override { return {}; }
-    [[nodiscard]] bool requires_command_reordering() const noexcept override { return impl->requires_command_reordering(impl); }
-
-    [[nodiscard]] bool is_c_api() const noexcept override final { return true; }
-};
-
-LUISA_EXPORT_API LCDevice luisa_compute_create_external_device(LCContext ctx, LCDeviceInterface *impl) {
-    auto ext_device = luisa::make_shared<ExternDevice>(ctx, impl);
-    auto device = new Device{Device::Handle{ext_device}};
-    return from_ptr<LCDevice>(new RC<Device>(device, [](Device *d) { delete d; }));
-}
-
-LUISA_EXPORT_API void luisa_compute_init() LUISA_NOEXCEPT {
-    auto gc_ctx = ir::luisa_compute_gc_create_context();
-    auto ir_ctx = ir::luisa_compute_ir_new_context();
-    ir::luisa_compute_gc_set_context(gc_ctx);
-    ir::luisa_compute_ir_set_context(ir_ctx);
-}
-
-LUISA_EXPORT_API LCAppContext luisa_compute_app_context() LUISA_NOEXCEPT {
-    return LCAppContext{.gc_context = ir::luisa_compute_gc_context(),
-                        .ir_context = ir::luisa_compute_ir_context()};
-}
-
-LUISA_EXPORT_API void luisa_compute_set_app_context(LCAppContext ctx) LUISA_NOEXCEPT {
-    if (ctx.gc_context)
-        ir::luisa_compute_gc_set_context((ir::GcContext *)ctx.gc_context);
-    if (ctx.ir_context)
-        ir::luisa_compute_ir_set_context(ctx.ir_context);
 }

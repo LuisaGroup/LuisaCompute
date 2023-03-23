@@ -20,7 +20,6 @@ enum class AccelBuildRequest {
 enum class AccelUsageHint {
     FAST_TRACE,
     FAST_BUILD,
-    FAST_UPDATE,
 };
 
 enum class BindlessArrayUpdateOperation {
@@ -92,6 +91,12 @@ enum class SamplerFilter {
     LINEAR_POINT,
     LINEAR_LINEAR,
     ANISOTROPIC,
+};
+
+enum class StreamTag {
+    GRAPHICS,
+    COMPUTE,
+    COPY,
 };
 
 struct Buffer {
@@ -255,11 +260,11 @@ struct UniformArgument {
     size_t size;
 };
 
-struct Accel {
+struct BindlessArray {
     uint64_t _0;
 };
 
-struct BindlessArray {
+struct Accel {
     uint64_t _0;
 };
 
@@ -268,8 +273,8 @@ struct Argument {
         BUFFER,
         TEXTURE,
         UNIFORM,
-        ACCEL,
         BINDLESS_ARRAY,
+        ACCEL,
     };
 
     struct Buffer_Body {
@@ -284,12 +289,12 @@ struct Argument {
         UniformArgument _0;
     };
 
-    struct Accel_Body {
-        Accel _0;
-    };
-
     struct BindlessArray_Body {
         BindlessArray _0;
+    };
+
+    struct Accel_Body {
+        Accel _0;
     };
 
     Tag tag;
@@ -297,8 +302,8 @@ struct Argument {
         Buffer_Body BUFFER;
         Texture_Body TEXTURE;
         Uniform_Body UNIFORM;
-        Accel_Body ACCEL;
         BindlessArray_Body BINDLESS_ARRAY;
+        Accel_Body ACCEL;
     };
 };
 
@@ -334,7 +339,7 @@ struct ProceduralPrimitiveBuildCommand {
     ProceduralPrimitive handle;
     AccelBuildRequest request;
     Buffer aabb_buffer;
-    size_t aabb_ffset;
+    size_t aabb_offset;
     size_t aabb_count;
 };
 
@@ -493,6 +498,14 @@ struct AccelOption {
     AccelUsageHint hint;
     bool allow_compaction;
     bool allow_update;
+};
+
+struct ShaderOption {
+    bool enable_cache;
+    bool enable_fast_math;
+    bool enable_debug_info;
+    bool compile_only;
+    const char *name;
 };
 
 } // namespace luisa::compute::api

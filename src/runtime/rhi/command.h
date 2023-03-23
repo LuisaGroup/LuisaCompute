@@ -164,6 +164,7 @@ protected:
         : _handle{shader_handle},
           _argument_buffer{std::move(argument_buffer)},
           _argument_count{argument_count} {}
+    ~ShaderDispatchCommandBase() noexcept = default;
 
 public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -616,6 +617,9 @@ public:
 
         explicit Modification(size_t slot) noexcept
             : slot{slot}, buffer{}, tex2d{}, tex3d{} {}
+
+        explicit Modification(size_t slot, Buffer buffer, Texture tex2d, Texture tex3d) noexcept
+            : slot{slot}, buffer{buffer}, tex2d{tex2d}, tex3d{tex3d} {}
     };
 
     static_assert(sizeof(Modification) == 64u);

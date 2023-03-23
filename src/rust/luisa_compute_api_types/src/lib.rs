@@ -109,7 +109,6 @@ pub struct NodeRef(pub u64);
 pub enum AccelUsageHint {
     FastTrace,
     FastBuild,
-    FastUpdate,
 }
 
 #[repr(C)]
@@ -349,8 +348,8 @@ pub enum Argument {
     Buffer(BufferArgument),
     Texture(TextureArgument),
     Uniform(UniformArgument),
-    Accel(Accel),
     BindlessArray(BindlessArray),
+    Accel(Accel),
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
@@ -489,7 +488,7 @@ pub struct ProceduralPrimitiveBuildCommand {
     pub handle: ProceduralPrimitive,
     pub request: AccelBuildRequest,
     pub aabb_buffer: Buffer,
-    pub aabb_ffset: usize,
+    pub aabb_offset: usize,
     pub aabb_count: usize,
 }
 #[repr(C)]
@@ -590,6 +589,14 @@ pub struct CommandList {
 pub struct AppContext {
     pub gc_context: *mut c_void,
     pub ir_context: *mut c_void,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub enum StreamTag {
+    Graphics,
+    Compute,
+    Copy
 }
 
 pub fn __dummy() {}

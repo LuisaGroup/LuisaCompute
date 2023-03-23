@@ -60,7 +60,7 @@ usize_is_size_t = true
 include = [ "Buffer", "Context", "Device", "Event", "Stream", "Shader",
             "AccelUsageHint", "AccelBuildRequest", "AccelBuildModificationFlags", "AccelBuildModification", "PixelStorage",
             "PixelFormat", "SamplerFilter", "SamplerAddress", "Sampler", "CommandList", "AppContext", "KernelModule", 
-            "CreatedResourceInfo", "CreatedBufferInfo", "CreatedShaderInfo", "AccelOption"]
+            "CreatedResourceInfo", "CreatedBufferInfo", "CreatedShaderInfo", "AccelOption", "ShaderOption", "StreamTag"]
 exclude = []
 # prefix = "CAPI_"
 item_types = []

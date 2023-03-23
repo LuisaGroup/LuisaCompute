@@ -50,7 +50,6 @@ impl MeshImpl {
         let flags = match hint {
             AccelUsageHint::FastBuild => sys::RTC_BUILD_QUALITY_LOW,
             AccelUsageHint::FastTrace => sys::RTC_BUILD_QUALITY_HIGH,
-            AccelUsageHint::FastUpdate => sys::RTC_BUILD_QUALITY_REFIT,
         };
 
         sys::rtcSetSceneFlags(handle, flags);
