@@ -14,6 +14,7 @@ function add_lc_includedirs(lc_dir, is_public)
 		public = is_public
 	})
 end
+
 -- Add project's link dir
 function add_lc_linkdirs(lc_dir, is_public)
 	if is_mode("debug") then
@@ -26,6 +27,7 @@ function add_lc_linkdirs(lc_dir, is_public)
 		})
 	end
 end
+
 -- Add project's defines
 function add_lc_defines(lc_dir, is_public)
 	add_defines(
