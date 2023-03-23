@@ -5,10 +5,6 @@
 #include <luisa-compute.h>
 #include <ast/function_builder.h>
 #include <api/runtime.h>
-#include <runtime/rhi/resource.h>
-#include <rust/luisa_compute_api_types/bindings.hpp>
-#include <utility>
-// #include <ir/ir.hpp>
 
 #define LC_RC_TOMBSTONE 0xdeadbeef
 

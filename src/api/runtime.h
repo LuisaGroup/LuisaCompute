@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "luisa_compute_api_types/bindings.hpp"
 #include <api/common.h>
 #include <api/device.h>
 
