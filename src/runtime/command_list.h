@@ -8,8 +8,9 @@
 #include <core/stl/optional.h>
 #include <core/stl/functional.h>
 #include <runtime/rhi/command.h>
+#ifdef LC_ENABLE_API
 #include <api/common.h>
-
+#endif
 namespace luisa::compute {
 
 class CmdDeser;
