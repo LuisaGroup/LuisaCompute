@@ -1,17 +1,17 @@
 -- Global config
 rule("basic_settings")
 on_config(function(target)
+	local _, cc = target:tool("cxx")
+	local _, ld = target:tool("ld")
+	local function _add_link(...)
+		target:add("ldflags", ...)
+		target:add("shflags", ...)
+	end
 	if (not is_mode("debug")) then
-		local _, cc = target:tool("cxx")
-		local _, ld = target:tool("ld")
 		if cc == "gcc" or cc == "gxx" then
 			target:add("cxflags", "-flto")
 			-- elseif (cc == "clang" or cc == "clangxx") then
 			-- 	target:add("cxflags", "-flto=thin")
-		end
-		local function _add_link(...)
-			target:add("ldflags", ...)
-			target:add("shflags", ...)
 		end
 		if ld == "link" then
 			_add_link("/INCREMENTAL:NO", "/LTCG")
@@ -19,6 +19,30 @@ on_config(function(target)
 			-- 	_add_link("-flto=thin")
 		elseif ld == "gcc" or ld == "gxx" then
 			_add_link("-flto")
+		end
+	end
+	if is_plat("windows") then
+		if is_mode("debug") then
+			if (cc == "clang" or cc == "clangxx") then
+				target:add("cxflags", "-fms-runtime-lib=dll_dbg")
+				target:add("syslinks", "ucrtd")
+				_add_link("-nostdlib", {
+					force = true
+				})
+			else
+				-- TODO: set_runtimes with clang only supported by 2.7.8 and later
+				target:set("runtimes", "MDd")
+			end
+		else
+			if (cc == "clang" or cc == "clangxx") then
+				target:add("cxflags", "-fms-runtime-lib=dll")
+				target:add("syslinks", "ucrt")
+				_add_link("-nostdlib", {
+					force = true
+				})
+			else
+				target:set("runtimes", "MD")
+			end
 		end
 	end
 end)
@@ -47,7 +71,6 @@ on_load(function(target)
 		target:set("exceptions", "no-cxx")
 	end
 	if is_mode("debug") then
-		target:set("runtimes", "MDd")
 		target:set("optimize", "none")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS", "/Gd", {
@@ -57,7 +80,6 @@ on_load(function(target)
 			tools = "cl"
 		});
 	else
-		target:set("runtimes", "MD")
 		target:set("optimize", "aggressive")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS-", "/Gd", {
