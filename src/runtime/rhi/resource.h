@@ -142,6 +142,7 @@ public:
     [[nodiscard]] void *native_handle() const noexcept { return _info.native_handle; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] explicit operator bool() const noexcept { return _info.valid(); }
+    void set_name(luisa::string_view name) noexcept;
 };
 
 }// namespace luisa::compute

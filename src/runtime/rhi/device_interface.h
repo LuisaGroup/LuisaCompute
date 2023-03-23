@@ -120,6 +120,7 @@ public:
     // query
     [[nodiscard]] virtual luisa::string query(luisa::string_view property) noexcept { return {}; }
     [[nodiscard]] virtual DeviceExtension *extension(luisa::string_view name) noexcept { return nullptr; }
+    virtual void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept = 0;
 };
 
 }// namespace luisa::compute

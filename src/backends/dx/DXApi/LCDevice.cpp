@@ -458,6 +458,74 @@ DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
     }
     return v.ext;
 }
+void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
+    vstd::vector<wchar_t> vec;
+    vec.push_back_uninitialized(name.size() + 1);
+    vec[name.size()] = 0;
+    for (auto i : vstd::range(name.size())) {
+        vec[i] = name[i];
+    }
+    using Tag = luisa::compute::Resource::Tag;
+    switch (resource_tag) {
+        case Tag::ACCEL: {
+            auto accelBuffer = reinterpret_cast<TopAccel *>(resource_handle)->GetAccelBuffer();
+            if (accelBuffer) {
+                accelBuffer->GetResource()->SetName(vec.data());
+            }
+            auto instBuffer = reinterpret_cast<TopAccel *>(resource_handle)->GetInstBuffer();
+            constexpr auto inst = L"_Instance"sv;
+            vec.resize_uninitialized(name.size() + inst.size() + 1);
+            vec[vec.size() - 1] = 0;
+            for (auto i : vstd::range(inst.size())) {
+                vec[name.size() + i] = inst[i];
+            }
+            instBuffer->GetResource()->SetName(vec.data());
+        } break;
+        case Tag::BINDLESS_ARRAY: {
+            reinterpret_cast<BindlessArray *>(resource_handle)->BindlessBuffer()->GetResource()->SetName(vec.data());
+        } break;
+        case Tag::DEPTH_BUFFER:
+        case Tag::TEXTURE: {
+            reinterpret_cast<TextureBase *>(resource_handle)->GetResource()->SetName(vec.data());
+        } break;
+        case Tag::PROCEDURAL_PRIMITIVE:
+        case Tag::MESH: {
+            auto accelBuffer = reinterpret_cast<BottomAccel *>(resource_handle)->GetAccelBuffer();
+            if (accelBuffer) {
+                accelBuffer->GetResource()->SetName(vec.data());
+            }
+        } break;
+        case Tag::STREAM: {
+            reinterpret_cast<LCCmdBuffer *>(resource_handle)->queue.Queue()->SetName(vec.data());
+        } break;
+        case Tag::EVENT: {
+            reinterpret_cast<LCEvent *>(resource_handle)->Fence()->SetName(vec.data());
+        } break;
+        case Tag::SHADER: {
+            reinterpret_cast<ComputeShader *>(resource_handle)->Pso()->SetName(vec.data());
+        } break;
+        case Tag::RASTER_SHADER: {
+            reinterpret_cast<RasterShader *>(resource_handle)->Pso()->SetName(vec.data());
+        } break;
+        case Tag::SWAP_CHAIN: {
+            size_t backBuffer = 0;
+            for (auto &&i : reinterpret_cast<LCSwapChain *>(resource_handle)->m_renderTargets) {
+                vec.resize_uninitialized(name.size());
+                vec.push_back(L'_');
+                auto num = vstd::to_string(backBuffer);
+                for (auto &&i : num) {
+                    vec.push_back(i);
+                }
+                vec.push_back(0);
+                i.GetResource()->SetName(vec.data());
+                backBuffer += 1;
+            }
+        } break;
+        default: {
+            LUISA_ERROR("Unknown resource tag.");
+        } break;
+    }
+}
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }

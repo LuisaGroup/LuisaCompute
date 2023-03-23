@@ -98,5 +98,6 @@ public:
     // TODO: un-implemented
     void destroy_procedural_primitive(uint64_t handle) noexcept override;
     DeviceExtension *extension(string_view name) noexcept override;
+    void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 };
 }// namespace toolhub::directx
