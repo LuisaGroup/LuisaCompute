@@ -571,7 +571,9 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     }
     return _optix_context;
 }
-
+void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
+// TODO: set resource name
+}
 }// namespace luisa::compute::cuda
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
