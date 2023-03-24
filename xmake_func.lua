@@ -29,7 +29,6 @@ on_config(function(target)
 				target:add("cxflags", "-fms-runtime-lib=dll_dbg", {
 					force = true
 				})
-				target:add("syslinks", "ucrtd")
 				_add_link("-nostdlib", {
 					force = true
 				})
@@ -42,7 +41,6 @@ on_config(function(target)
 				target:add("cxflags", "-fms-runtime-lib=dll", {
 					force = true
 				})
-				target:add("syslinks", "ucrt")
 				_add_link("-nostdlib", {
 					force = true
 				})
