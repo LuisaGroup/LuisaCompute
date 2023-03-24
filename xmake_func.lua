@@ -14,7 +14,9 @@ on_config(function(target)
 			-- 	target:add("cxflags", "-flto=thin")
 		end
 		if ld == "link" then
-			_add_link("/INCREMENTAL:NO", "/LTCG")
+			_add_link("/INCREMENTAL:NO", "/LTCG", {
+				force = true
+			})
 			-- elseif (ld == "clang" or ld == "clangxx") then
 			-- 	_add_link("-flto=thin")
 		elseif ld == "gcc" or ld == "gxx" then
@@ -24,8 +26,9 @@ on_config(function(target)
 	if is_plat("windows") then
 		if is_mode("debug") then
 			if (cc == "clang" or cc == "clangxx") then
-				target:add("cxflags", "-fms-runtime-lib=dll_dbg")
-				target:add("syslinks", "ucrtd")
+				target:add("cxflags", "-fms-runtime-lib=dll_dbg", {
+					force = true
+				})
 				_add_link("-nostdlib", {
 					force = true
 				})
@@ -35,14 +38,23 @@ on_config(function(target)
 			end
 		else
 			if (cc == "clang" or cc == "clangxx") then
-				target:add("cxflags", "-fms-runtime-lib=dll")
-				target:add("syslinks", "ucrt")
+				target:add("cxflags", "-fms-runtime-lib=dll", {
+					force = true
+				})
 				_add_link("-nostdlib", {
 					force = true
 				})
 			else
 				target:set("runtimes", "MD")
 			end
+		end
+	elseif is_plat("linux") then
+		-- Linux should use -stdlib=libc++
+		-- https://github.com/LuisaGroup/LuisaCompute/issues/58
+		if (cc == "clang" or cc == "clangxx" or cc == "gcc" or cc == "gxx") then
+			target:add("cxflags", "-stdlib=libc++", {
+				force = true
+			})
 		end
 	end
 end)

@@ -196,11 +196,22 @@ int main(int argc, char *argv[]) {
     static constexpr auto height = 720u;
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
 #if ENABLE_DISPLAY
     auto stream = device.create_stream(StreamTag::GRAPHICS);
+    Window window{"SDF Renderer", width, height, false};
+    auto swap_chain{device.create_swapchain(
+        window.native_handle(),
+        stream,
+        make_uint2(width, height),
+        true, false, 2)};
+    static constexpr auto interval = 4u;
+    static constexpr auto total_spp = 16384u;
+    auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
 #else
     auto stream = device.create_stream(StreamTag::COMPUTE);
+    static constexpr auto interval = 64u;
+    static constexpr auto total_spp = 16384u;
+    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
 #endif
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -219,21 +230,6 @@ int main(int argc, char *argv[]) {
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
-
-#if ENABLE_DISPLAY
-    Window window{"SDF Renderer", width, height, false};
-    auto swap_chain{device.create_swapchain(
-        window.native_handle(),
-        stream,
-        make_uint2(width, height),
-        true, false, 2)};
-    static constexpr auto interval = 4u;
-    static constexpr auto total_spp = 16384u;
-#else
-    static constexpr auto interval = 64u;
-    static constexpr auto total_spp = 16384u;
-#endif
-
     auto t0 = clock.toc();
     auto last_t = t0;
     auto spp_count = 0u;
@@ -260,7 +256,7 @@ int main(int argc, char *argv[]) {
     auto average_fps = spp_count / (clock.toc() - t0) * 1000;
     LUISA_INFO("{} samples/s", average_fps);
 
-    luisa::vector<uint8_t> host_image(width * height * 4u);
+    luisa::vector<uint8_t> host_image(width * height * 4u);// FIXME: this is unsafe for swapchain formats
     stream << hdr2ldr_shader(accum_image, ldr_image, 2.0).dispatch(width, height)
            << ldr_image.copy_to(host_image.data())
            << synchronize();

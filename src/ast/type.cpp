@@ -114,7 +114,7 @@ public:
 const Type *TypeRegistry::decode_type(luisa::string_view desc) noexcept {
     using namespace std::literals;
     if (desc == "void"sv) { return nullptr; }
-    std::scoped_lock lock{_mutex};
+    std::lock_guard lock{_mutex};
     return _decode(desc);
 }
 
@@ -139,7 +139,7 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
     LUISA_ASSERT(std::all_of(name.cbegin(), name.cend(),
                              [](char c) { return isalnum(c) || c == '_'; }),
                  "Invalid custom type name: {}", name);
-    std::scoped_lock lock{_mutex};
+    std::lock_guard lock{_mutex};
     auto h = _compute_hash(name);
     if (auto iter = _type_set.find(TypeDescAndHash{name, h});
         iter != _type_set.end()) { return *iter; }
@@ -155,7 +155,7 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
 }
 
 size_t TypeRegistry::type_count() const noexcept {
-    std::scoped_lock lock{_mutex};
+    std::lock_guard lock{_mutex};
     return _types.size();
 }
 

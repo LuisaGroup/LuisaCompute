@@ -34,7 +34,7 @@ CreatedResourceInfo lc_rs_create_procedural_primitive(void *backend, AccelOption
 
 CreatedShaderInfo lc_rs_create_shader(void *backend, CArc<KernelModule> kernel);
 
-CreatedResourceInfo lc_rs_create_stream(void *backend);
+CreatedResourceInfo lc_rs_create_stream(void *backend, StreamTag tag);
 
 CreatedResourceInfo lc_rs_create_texture(void *backend,
                                          PixelFormat format,

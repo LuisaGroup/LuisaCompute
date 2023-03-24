@@ -117,7 +117,7 @@ impl Backend for RustBackend {
         }
     }
 
-    fn create_stream(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+    fn create_stream(&self, _tag:api::StreamTag) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
         let stream = Box::into_raw(Box::new(StreamImpl::new(self.shared_pool.clone())));
         Ok(CreatedResourceInfo {
             handle: stream as u64,

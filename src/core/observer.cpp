@@ -8,14 +8,14 @@
 namespace luisa {
 
 void Subject::_add(Observer *observer) noexcept {
-    std::scoped_lock lock{_mutex};
+    std::lock_guard lock{_mutex};
     if (auto [iter, first] = _observers.try_emplace(observer, 1u); !first) {
         iter->second++;
     }
 }
 
 void Subject::_remove(Observer *observer) noexcept {
-    std::scoped_lock lock{_mutex};
+    std::lock_guard lock{_mutex};
     if (auto iter = _observers.find(observer);
         iter != _observers.end()) {
         if (--iter->second == 0) {
@@ -25,7 +25,7 @@ void Subject::_remove(Observer *observer) noexcept {
 }
 
 void Subject::notify_all() noexcept {
-    std::scoped_lock lock{_mutex};
+    std::lock_guard lock{_mutex};
     for (auto o : _observers) {
         o.first->notify();
     }

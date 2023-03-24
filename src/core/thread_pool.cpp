@@ -133,7 +133,7 @@ void ThreadPool::synchronize() noexcept {
 
 void ThreadPool::_dispatch(luisa::SharedFunction<void()> &&task) noexcept {
     {
-        std::scoped_lock lock{_impl->mutex};
+        std::lock_guard lock{_impl->mutex};
         _impl->tasks.emplace(std::move(task));
     }
     _impl->cv.notify_one();
@@ -141,7 +141,7 @@ void ThreadPool::_dispatch(luisa::SharedFunction<void()> &&task) noexcept {
 
 void ThreadPool::_dispatch_all(luisa::SharedFunction<void()> &&task, size_t max_threads) noexcept {
     {
-        std::scoped_lock lock{_impl->mutex};
+        std::lock_guard lock{_impl->mutex};
         for (auto i = 0u; i < std::min(_impl->threads.size(), max_threads) - 1u; i++) {
             _impl->tasks.emplace(task);
         }
@@ -152,7 +152,7 @@ void ThreadPool::_dispatch_all(luisa::SharedFunction<void()> &&task, size_t max_
 
 ThreadPool::~ThreadPool() noexcept {
     {
-        std::scoped_lock lock{_impl->mutex};
+        std::lock_guard lock{_impl->mutex};
         _impl->should_stop = true;
     }
     _impl->cv.notify_all();

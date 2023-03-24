@@ -48,7 +48,17 @@ int main(int argc, char *argv[]) {
     auto J = device.create_buffer<float>(n_particles);
     auto grid_v = device.create_buffer<float>(n_grid * n_grid * n_grid * 4u);
     auto grid_m = device.create_buffer<float>(n_grid * n_grid * n_grid);
-    auto display = device.create_image<float>(PixelStorage::BYTE4, make_uint2(resolution));
+    Window window{"MPM3D", resolution, resolution, false};
+    // luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
+    // std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
+    // file << "Frame, Time(ms)\n";
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    auto swap_chain{device.create_swapchain(
+        window.native_handle(),
+        stream,
+        make_uint2(resolution),
+        true, false, 2)};
+    auto display = device.create_image<float>(swap_chain.backend_storage(), make_uint2(resolution));
 
     auto index = [](auto xyz) noexcept {
         using T = vector_expr_element_t<decltype(xyz)>;
@@ -209,17 +219,8 @@ int main(int argc, char *argv[]) {
         }
     });
 
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
     init(stream);
-    Window window{"MPM3D", resolution, resolution, false};
-    // luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
-    // std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
-    // file << "Frame, Time(ms)\n";
-    auto swap_chain{device.create_swapchain(
-        window.native_handle(),
-        stream,
-        make_uint2(resolution),
-        true, false, 2)};
+    
     while (!window.should_close()) {
         CommandList cmd_list;
         for (auto i = 0u; i < n_steps; i++) { substep(cmd_list); }

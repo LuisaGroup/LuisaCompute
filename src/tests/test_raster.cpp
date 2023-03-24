@@ -53,14 +53,6 @@ int main(int argc, char *argv[]) {
     RasterState state{.cull_mode = CullMode::None};
     static constexpr uint32_t width = 1024;
     static constexpr uint32_t height = 1024;
-    auto out_img = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    auto img_format = out_img.format();
-    auto shader = device.compile(
-        kernel,
-        mesh_format,
-        state,
-        {&img_format, 1},
-        DepthFormat::None);
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Test raster", width, height, false};
     Window window2{"Test raster 2", width, height, false};
@@ -74,6 +66,14 @@ int main(int argc, char *argv[]) {
         stream,
         make_uint2(width, height),
         true, false, 2);
+    auto out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
+    auto img_format = out_img.format();
+    auto shader = device.compile(
+        kernel,
+        mesh_format,
+        state,
+        {&img_format, 1},
+        DepthFormat::None);
     auto vert_buffer = device.create_buffer<Vertex>(3);
     auto idx_buffer = device.create_buffer<uint32_t>(3);
     Vertex vertices[3];

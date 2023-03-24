@@ -34,7 +34,7 @@ ConstantData ConstantData::create(ConstantData::View data) noexcept {
             static auto seed = hash_value("__hash_constant_data"sv);
             auto hash = hash_value(type->hash(), seed);
             hash = luisa::hash64(view.data(), view.size_bytes(), hash);
-            std::scoped_lock lock{detail::constant_registry_mutex()};
+            std::lock_guard lock{detail::constant_registry_mutex()};
             if (auto iter = std::find_if(
                     detail::constant_registry().cbegin(),
                     detail::constant_registry().cend(),

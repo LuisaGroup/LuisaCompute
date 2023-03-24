@@ -34,14 +34,14 @@ public:
     }
 
     [[nodiscard]] auto fetch(const Key &key) noexcept -> luisa::optional<Value> {
-        std::scoped_lock lock{_mutex};
+        std::lock_guard lock{_mutex};
         auto value = _cache.at(key);
         _cache.touch(key);
         return value;
     }
 
     void update(const Key &key, Value value) noexcept {
-        std::scoped_lock lock{_mutex};
+        std::lock_guard lock{_mutex};
         _cache.emplace(key, std::move(value));
     }
 };
