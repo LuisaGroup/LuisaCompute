@@ -27,6 +27,7 @@
 #include <backends/cuda/cuda_shader_native.h>
 #include <backends/cuda/cuda_shader_optix.h>
 #include <backends/cuda/optix_api.h>
+#include <backends/cuda/cuda_swapchain.h>
 
 namespace luisa::compute::cuda {
 
@@ -239,15 +240,48 @@ SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint
                                                     uint width, uint height,
                                                     bool allow_hdr, bool vsync,
                                                     uint back_buffer_size) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Swap chains are not supported on CUDA.");
+#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+    auto chain = with_handle([&] {
+        return new_with_allocator<CUDASwapchain>(
+            this, window_handle, width, height,
+            allow_hdr, vsync, back_buffer_size);
+    });
+    SwapChainCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(chain);
+    info.native_handle = chain;
+    info.storage = chain->pixel_storage();
+    return info;
+#else
+    LUISA_ERROR_WITH_LOCATION("Swapchains are not enabled on the CUDA backend. "
+                              "You need to enable the GUI module and install "
+                              "the Vulkan SDK (>= 1.1) to enable it.");
+#endif
 }
 
 void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Swap chains are not supported on CUDA.");
+#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+    with_handle([chain = reinterpret_cast<CUDASwapchain *>(handle)] {
+        delete_with_allocator(chain);
+    });
+#else
+    LUISA_ERROR_WITH_LOCATION("Swapchains are not enabled on the CUDA backend. "
+                              "You need to enable the GUI module and install "
+                              "the Vulkan SDK (>= 1.1) to enable it.");
+#endif
 }
 
 void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Swap chains are not supported on CUDA.");
+#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+    with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
+                 chain = reinterpret_cast<CUDASwapchain *>(swapchain_handle),
+                 image = reinterpret_cast<CUDAMipmapArray *>(image_handle)] {
+        chain->present(stream, image);
+    });
+#else
+    LUISA_ERROR_WITH_LOCATION("Swapchains are not enabled on the CUDA backend. "
+                              "You need to enable the GUI module and install "
+                              "the Vulkan SDK (>= 1.1) to enable it.");
+#endif
 }
 
 ShaderCreationInfo CUDADevice::_create_shader(const string &source,
@@ -571,9 +605,11 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     }
     return _optix_context;
 }
+
 void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
-// TODO: set resource name
+    // TODO: set resource name
 }
+
 }// namespace luisa::compute::cuda
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
