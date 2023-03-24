@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <core/platform.h>
+#include <api/common.h>
 
 LUISA_EXPORT_API void luisa_compute_set_log_level_verbose() LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_set_log_level_info() LUISA_NOEXCEPT;
