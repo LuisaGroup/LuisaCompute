@@ -93,17 +93,18 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 1024u;
     static constexpr auto height = 1024u;
-    auto device_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    stream << clear(device_image).dispatch(width, height);
-
     Window window{"Display", make_uint2(width, height), false};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         window.size(),
         true, false, 2)};
+    auto device_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
+
+    stream << clear(device_image).dispatch(width, height);
+
+    
     Clock clock;
     while (!window.should_close()) {
         auto time = static_cast<float>(clock.toc() * 1e-3);

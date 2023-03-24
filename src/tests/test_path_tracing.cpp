@@ -313,7 +313,6 @@ int main(int argc, char *argv[]) {
     static constexpr auto resolution = make_uint2(1024u);
     auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
     CommandList cmd_list;
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
@@ -326,6 +325,7 @@ int main(int argc, char *argv[]) {
         stream,
         resolution,
         true, false, 2)};
+    auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     auto last_time = 0.0;
     auto frame_count = 0u;
     Clock clock;

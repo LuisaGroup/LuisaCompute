@@ -49,19 +49,20 @@ int main(int argc, char *argv[]) {
         i = device.create_event();
     }
     static constexpr auto resolution = make_uint2(1024u);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
-    Kernel2D kernel = [&](Float time) {
-        auto coord = dispatch_id().xy();
-        auto uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
-        ldr_image->write(coord, make_float4(uv, sin(time) * 0.5f + 0.5f, 1.f));
-    };
-    auto shader = device.compile(kernel);
     Window window{"test runtime", resolution.x, resolution.x, false};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         graphics_stream,
         resolution,
         true, false, framebuffer_count - 1)};
+    auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
+    Kernel2D kernel = [&](Float time) {
+        auto coord = dispatch_id().xy();
+        auto uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
+        ldr_image->write(coord, make_float4(uv, sin(time) * 0.5f + 0.5f, 1.f));
+    };
+    auto shader = device.compile(kernel);
+
     Clock clk;
     clk.tic();
     while (!window.should_close()) {
