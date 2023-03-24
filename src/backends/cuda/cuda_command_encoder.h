@@ -8,6 +8,8 @@
 
 #include <runtime/rhi/command.h>
 #include <backends/cuda/cuda_stream.h>
+#include <nvtx3/nvToolsExt.h>
+#include <nvtx3/nvToolsExtCuda.h>
 
 namespace luisa::compute::cuda {
 

@@ -116,19 +116,19 @@ private:
         switch (cmd.tag) {
             case LC_COMMAND_BUFFER_COPY: {
                 auto c = cmd.buffer_copy;
-                return make_unique<BufferCopyCommand>(
+                return luisa::make_unique<BufferCopyCommand>(
                     c.src._0, c.dst._0,
                     c.src_offset, c.dst_offset, c.size);
             }
             case LC_COMMAND_BUFFER_UPLOAD: {
                 auto c = cmd.buffer_upload;
-                return make_unique<BufferUploadCommand>(
+                return luisa::make_unique<BufferUploadCommand>(
                     c.buffer._0, c.offset,
                     c.size, c.data);
             }
             case LC_COMMAND_BUFFER_DOWNLOAD: {
                 auto c = cmd.buffer_download;
-                return make_unique<BufferDownloadCommand>(
+                return luisa::make_unique<BufferDownloadCommand>(
                     c.buffer._0, c.offset,
                     c.size, c.data);
             }
@@ -154,7 +154,7 @@ private:
                         convert_op(api_tex3d.op));
                     modifications.emplace_back(slot, buffer, tex2d, tex3d);
                 }// Manually conversion is painful...
-                return make_unique<BindlessArrayUpdateCommand>(
+                return luisa::make_unique<BindlessArrayUpdateCommand>(
                     c.handle._0,
                     modifications);
             }
@@ -165,17 +165,16 @@ private:
                 auto buffer = luisa::vector<std::byte>(first, first + c.args_count);
                 auto dispatch_size = luisa::uint3{c.dispatch_size[0], c.dispatch_size[1], c.dispatch_size[2]};
 
-                return make_unique<ShaderDispatchCommand>(
+                return luisa::make_unique<ShaderDispatchCommand>(
                     c.shader._0,
                     std::move(buffer),
                     c.args_count,
-                    ShaderDispatchCommand::DispatchSize{dispatch_size}
-                );
+                    ShaderDispatchCommand::DispatchSize{dispatch_size});
             }
             case LC_COMMAND_BUFFER_TO_TEXTURE_COPY: {
                 auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.buffer_to_texture_copy;
 
-                return make_unique<BufferToTextureCopyCommand>(
+                return luisa::make_unique<BufferToTextureCopyCommand>(
                     buffer._0,
                     buffer_offset,
                     texture._0,
@@ -185,7 +184,7 @@ private:
             }
             case LC_COMMAND_TEXTURE_TO_BUFFER_COPY: {
                 auto [buffer, buffer_offset, texture, storage, texture_level, texture_size] = cmd.texture_to_buffer_copy;
-                return make_unique<TextureToBufferCopyCommand>(
+                return luisa::make_unique<TextureToBufferCopyCommand>(
                     buffer._0,
                     buffer_offset,
                     texture._0,
@@ -195,7 +194,7 @@ private:
             }
             case LC_COMMAND_TEXTURE_UPLOAD: {
                 auto [texture, storage, level, size, data] = cmd.texture_upload;
-                return make_unique<TextureUploadCommand>(
+                return luisa::make_unique<TextureUploadCommand>(
                     texture._0,
                     convert_pixel_storage(storage),
                     level,
@@ -204,7 +203,7 @@ private:
             }
             case LC_COMMAND_TEXTURE_DOWNLOAD: {
                 auto [texture, storage, level, size, data] = cmd.texture_download;
-                return make_unique<TextureDownloadCommand>(
+                return luisa::make_unique<TextureDownloadCommand>(
                     texture._0,
                     convert_pixel_storage(storage),
                     level,
@@ -213,7 +212,7 @@ private:
             }
             case LC_COMMAND_TEXTURE_COPY: {
                 auto [storage, src, dst, size, src_level, dst_level] = cmd.texture_copy;
-                return make_unique<TextureCopyCommand>(
+                return luisa::make_unique<TextureCopyCommand>(
                     convert_pixel_storage(storage),
                     src._0,
                     dst._0,
@@ -226,7 +225,7 @@ private:
                       vertex_buffer, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
                       index_buffer, index_buffer_offset, index_buffer_size, index_stride] = cmd.mesh_build;
                 LUISA_ASSERT(index_stride == 12, "Index stride must be 12.");
-                return make_unique<MeshBuildCommand>(
+                return luisa::make_unique<MeshBuildCommand>(
                     mesh._0,
                     convert_accel_request(request),
                     vertex_buffer._0, vertex_buffer_offset, vertex_buffer_size, vertex_stride,
@@ -234,7 +233,7 @@ private:
             }
             case LC_COMMAND_PROCEDURAL_PRIMITIVE_BUILD: {
                 auto [primitive, request, aabb_buffer, aabb_offset, aabb_count] = cmd.procedural_primitive_build;
-                return make_unique<ProceduralPrimitiveBuildCommand>(
+                return luisa::make_unique<ProceduralPrimitiveBuildCommand>(
                     primitive._0,
                     convert_accel_request(request),
                     aabb_buffer._0,
@@ -254,7 +253,7 @@ private:
 
                     modifications.emplace_back(std::move(modification));
                 }
-                return make_unique<AccelBuildCommand>(
+                return luisa::make_unique<AccelBuildCommand>(
                     accel._0,
                     instance_count,
                     convert_accel_request(request),
@@ -312,8 +311,8 @@ LUISA_EXPORT_API char *luisa_compute_context_cache_directory(LCContext ctx) LUIS
 }
 
 LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx,
-                                                         const char *name,
-                                                         const char *properties) LUISA_NOEXCEPT {
+                                                      const char *name,
+                                                      const char *properties) LUISA_NOEXCEPT {
     // TODO: handle properties? or convert it to DeviceConfig?
     auto device = new Device(std::move(reinterpret_cast<Context *>(ctx._0)->create_device(name, nullptr)));
     return from_ptr<LCDevice>(new_with_allocator<RC<Device>>(
@@ -358,9 +357,9 @@ LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buf
 }
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_texture_create(LCDevice device,
-                                                                       LCPixelFormat format, uint32_t dim,
-                                                                       uint32_t w, uint32_t h, uint32_t d,
-                                                                       uint32_t mips) LUISA_NOEXCEPT {
+                                                                    LCPixelFormat format, uint32_t dim,
+                                                                    uint32_t w, uint32_t h, uint32_t d,
+                                                                    uint32_t mips) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<RC<Device> *>(device._0);
     auto pixel_format = PixelFormat{(uint8_t)to_underlying(format)};
     auto info = dev->retain()->object()->impl()->create_texture(pixel_format, dim, w, h, d, mips);
