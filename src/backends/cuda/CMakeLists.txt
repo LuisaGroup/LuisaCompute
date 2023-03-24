@@ -28,7 +28,7 @@ if (CUDAToolkit_FOUND)
             optix_api.cpp optix_api.h)
 
     add_library(lc-backend-cuda-dependency INTERFACE)
-    if (LUISA_COMPUTE_ENABLE_GUI AND WIN32) # TODO: support Linux
+    if (WIN32) # TODO: support Linux
         find_package(Vulkan)
         if (Vulkan_FOUND AND Vulkan_VERSION VERSION_GREATER_EQUAL 1.1)
             message(STATUS "Build CUDA backend with Vulkan Swapchain: ${Vulkan_VERSION}")
@@ -36,7 +36,7 @@ if (CUDAToolkit_FOUND)
                     ../common/vulkan_swapchain.cpp ../common/vulkan_swapchain.h)
             target_link_libraries(lc-backend-cuda-dependency INTERFACE Vulkan::Vulkan)
             target_compile_definitions(lc-backend-cuda-dependency INTERFACE LC_CUDA_ENABLE_VULKAN_SWAPCHAIN)
-        endif()
+        endif ()
     endif ()
 
     set(LUISA_COMPUTE_CUDA_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cuda_builtin")
