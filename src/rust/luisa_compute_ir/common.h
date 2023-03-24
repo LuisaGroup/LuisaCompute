@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <cstddef>// size_t
-#include <core/stl.h>
 #include <atomic>
 
 const static inline size_t usize_MAX = (size_t)-1;

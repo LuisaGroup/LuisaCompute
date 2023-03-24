@@ -59,7 +59,7 @@ usize_is_size_t = true
 [export]
 include = [ "Buffer", "Context", "Device", "Event", "Stream", "Shader",
             "AccelUsageHint", "AccelBuildRequest", "AccelBuildModificationFlags", "AccelBuildModification", "PixelStorage",
-            "PixelFormat", "SamplerFilter", "SamplerAddress", "Sampler", "CommandList", "AppContext", "KernelModule", 
+            "PixelFormat", "SamplerFilter", "SamplerAddress", "Sampler", "CommandList", "AppContext", "KernelModule",
             "CreatedResourceInfo", "CreatedBufferInfo", "CreatedShaderInfo", "AccelOption", "ShaderOption", "StreamTag"]
 exclude = []
 # prefix = "CAPI_"
