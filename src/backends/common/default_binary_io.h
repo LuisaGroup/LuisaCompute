@@ -16,7 +16,7 @@ public:
     friend class LockedBinaryFileStream;
     struct FileMutex {
         std::shared_mutex mtx;
-        size_t ref_count{0};
+        std::atomic_size_t ref_count{1};
     };
     using MutexMap = vstd::HashMap<luisa::string, FileMutex>;
     using MapIndex = MutexMap::Index;

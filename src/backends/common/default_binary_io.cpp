@@ -38,7 +38,6 @@ DefaultBinaryIO::MapIndex DefaultBinaryIO::_lock(luisa::string const &name, bool
         std::lock_guard lck{_global_mtx};
         iter = _mutex_map.emplace(name);
         ptr = &iter.value();
-        ptr->ref_count++;
     }
     if (is_write) {
         ptr->mtx.lock();
@@ -55,11 +54,9 @@ void DefaultBinaryIO::_unlock(MapIndex const &idx, bool is_write) const noexcept
     } else {
         v.mtx.unlock_shared();
     }
-    {
+    if ((--v.ref_count) == 0) {
         std::lock_guard lck{_global_mtx};
-        if (--v.ref_count == 0) {
-            _mutex_map.remove(idx);
-        }
+        _mutex_map.remove(idx);
     }
 }
 

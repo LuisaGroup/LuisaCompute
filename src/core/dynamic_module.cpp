@@ -29,7 +29,7 @@ inline luisa::vector<std::pair<std::filesystem::path, size_t>> &DynamicModule::_
 }
 
 void DynamicModule::add_search_path(const std::filesystem::path &path) noexcept {
-    std::scoped_lock lock{_search_path_mutex()};
+    std::lock_guard lock{_search_path_mutex()};
     auto canonical_path = std::filesystem::canonical(path);
     auto &&paths = _search_paths();
     if (auto iter = std::find_if(paths.begin(), paths.end(), [&canonical_path](auto &&p) noexcept {
@@ -43,7 +43,7 @@ void DynamicModule::add_search_path(const std::filesystem::path &path) noexcept 
 }
 
 void DynamicModule::remove_search_path(const std::filesystem::path &path) noexcept {
-    std::scoped_lock lock{_search_path_mutex()};
+    std::lock_guard lock{_search_path_mutex()};
     auto canonical_path = std::filesystem::canonical(path);
     auto &&paths = _search_paths();
     if (auto iter = std::find_if(paths.begin(), paths.end(), [&canonical_path](auto &&p) noexcept {
@@ -57,7 +57,7 @@ void DynamicModule::remove_search_path(const std::filesystem::path &path) noexce
 }
 
 DynamicModule DynamicModule::load(std::string_view name) noexcept {
-    std::scoped_lock lock{_search_path_mutex()};
+    std::lock_guard lock{_search_path_mutex()};
     Clock clock;
     auto &&paths = _search_paths();
     for (auto iter = paths.crbegin(); iter != paths.crend(); iter++) {
