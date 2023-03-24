@@ -15,12 +15,9 @@ protected:
     size_t _argument_count;
     size_t _argument_idx{0};
     luisa::vector<std::byte> _argument_buffer;
-    luisa::span<const Function::Binding> _bindings;
     ShaderDispatchCmdEncoder(uint64_t handle,
                              size_t arg_count,
-                             size_t uniform_size,
-                             luisa::span<const Function::Binding> bindings) noexcept;
-    void _encode_pending_bindings() noexcept;
+                             size_t uniform_size) noexcept;
     void _encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept;
     void _encode_texture(uint64_t handle, uint32_t level) noexcept;
     void _encode_uniform(const void *data, size_t size) noexcept;
@@ -40,8 +37,7 @@ private:
     luisa::variant<uint3, IndirectDispatchArg> _dispatch_size;
 
 public:
-    explicit ComputeDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
-                                       luisa::span<const Function::Binding> bindings) noexcept;
+    explicit ComputeDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept;
     ComputeDispatchCmdEncoder(ComputeDispatchCmdEncoder &&) noexcept = default;
     ComputeDispatchCmdEncoder &operator=(ComputeDispatchCmdEncoder &&) noexcept = default;
     ~ComputeDispatchCmdEncoder() noexcept = default;
@@ -66,6 +62,7 @@ private:
     ShaderDispatchCommandBase::Argument::Texture _dsv_tex{};
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport{};
+    luisa::span<const Function::Binding> _bindings;
 
 public:
     explicit RasterDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
@@ -84,6 +81,7 @@ public:
     void encode_uniform(const void *data, size_t size) noexcept;
     void encode_bindless_array(uint64_t handle) noexcept;
     void encode_accel(uint64_t handle) noexcept;
+    void _encode_pending_bindings() noexcept;
     luisa::unique_ptr<DrawRasterSceneCommand> build() &&noexcept;
 };
 

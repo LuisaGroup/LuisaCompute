@@ -15,7 +15,7 @@ void export_commands(py::module &m) {
         .def_static(
             "create", [](size_t arg_size, uint64_t handle, Function func) {
                 auto uniform_size = ComputeDispatchCmdEncoder::compute_uniform_size(func.arguments());
-                return make_unique<ComputeDispatchCmdEncoder>(handle, arg_size, uniform_size, func.argument_bindings()).release();
+                return make_unique<ComputeDispatchCmdEncoder>(handle, arg_size, uniform_size).release();
             },
             pyref)
         .def("set_dispatch_size", [](ComputeDispatchCmdEncoder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_dispatch_size(uint3{sx, sy, sz}); })

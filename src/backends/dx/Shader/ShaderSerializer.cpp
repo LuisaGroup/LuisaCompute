@@ -116,6 +116,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
     luisa::BinaryIO const &streamFunc,
     vstd::optional<vstd::MD5> const &checkMD5,
     vstd::MD5 &typeMD5,
+    vstd::vector<luisa::compute::Argument> &&bindings,
     bool &clearCache) {
     using namespace shader_ser;
     auto binStream = ReadBinaryIO(cacheType, &streamFunc, name);
@@ -193,6 +194,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
         device,
         std::move(properties),
         std::move(kernelArgs),
+        std::move(bindings),
         std::move(rootSig),
         std::move(pso));
     cs->bindlessCount = header.bindlessCount;
@@ -209,8 +211,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     MeshFormat const &meshFormat,
     RasterState const &state,
     vstd::span<PixelFormat const> rtv,
-    DepthFormat dsv,
-    bool &clearCache) {
+    DepthFormat dsv, bool &clearCache) {
     using namespace shader_ser;
     auto binStream = ReadBinaryIO(cacheType, &streamFunc, name);
     if (binStream == nullptr || binStream->length() <= sizeof(RasterHeader)) return nullptr;

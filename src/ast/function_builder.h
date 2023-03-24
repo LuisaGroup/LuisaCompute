@@ -133,8 +133,13 @@ private:
     template<typename Def>
     static auto _define(Function::Tag tag, Def &&def) {
         auto f = make_shared<FunctionBuilder>(tag);
-        FunctionStackGuard guard{f.get()};
-        f->with(&f->_body, std::forward<Def>(def));
+        {
+            FunctionStackGuard guard{f.get()};
+            f->with(&f->_body, std::forward<Def>(def));
+        }
+        if (tag == Function::Tag::KERNEL) {
+            f->reorder_capture();
+        }
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
 
@@ -354,6 +359,8 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
+    /// separate arguments and capture
+    void reorder_capture() noexcept;
 
     /// Return a Function object constructed from this
     [[nodiscard]] auto function() const noexcept { return Function{this}; }

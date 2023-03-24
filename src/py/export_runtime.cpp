@@ -406,7 +406,7 @@ void export_runtime(py::module &m) {
             result);
     });
     py::class_<Function>(m, "Function")
-        .def("argument_size", [](Function &func) { return func.arguments().size(); });
+        .def("argument_size", [](Function &func) { return func.arguments().size() - func.argument_bindings().size(); });
     py::class_<IntEval>(m, "IntEval")
         .def("value", [](IntEval &self) { return self.value; })
         .def("exist", [](IntEval &self) { return self.exist; });

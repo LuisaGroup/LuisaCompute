@@ -25,6 +25,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
         *fileIo,
         {},
         typeMD5,
+        {},
         oldDeleted);
     //Cached
 
@@ -45,6 +46,7 @@ ComputeShader *ComputeShader::CompileCompute(
     Function kernel,
     vstd::function<CodegenResult()> const &codegen,
     vstd::optional<vstd::MD5> const &checkMD5,
+    vstd::vector<luisa::compute::Argument> &&bindings,
     uint3 blockSize,
     uint shaderModel,
     vstd::string_view fileName,
@@ -98,6 +100,7 @@ ComputeShader *ComputeShader::CompileCompute(
                     std::move(kernelArgs),
                     {buffer->GetBufferPtr(),
                      buffer->GetBufferSize()},
+                    std::move(bindings),
                     device);
                 cs->bindlessCount = str.bdlsBufferCount;
                 if (WriteCache) {
@@ -123,6 +126,7 @@ ComputeShader *ComputeShader::CompileCompute(
             *fileIo,
             checkMD5,
             typeMD5,
+            std::move(bindings),
             oldDeleted);
         if (result) {
             if (oldDeleted) {
@@ -196,8 +200,9 @@ ComputeShader::ComputeShader(
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     vstd::span<std::byte const> binData,
+    vstd::vector<luisa::compute::Argument> &&bindings,
     Device *device)
-    : Shader(std::move(prop), std::move(args), device->device, false),
+    : Shader(std::move(prop), std::move(args), device->device, std::move(bindings), false),
       device(device),
       blockSize(blockSize) {
     D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
@@ -212,9 +217,10 @@ ComputeShader::ComputeShader(
     Device *device,
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
+    vstd::vector<luisa::compute::Argument> &&bindings,
     ComPtr<ID3D12RootSignature> &&rootSig,
     ComPtr<ID3D12PipelineState> &&pso)
-    : Shader(std::move(prop), std::move(args), std::move(rootSig)),
+    : Shader(std::move(prop), std::move(args), std::move(rootSig), std::move(bindings)),
       device(device),
       blockSize(blockSize) {
     this->pso = std::move(pso);

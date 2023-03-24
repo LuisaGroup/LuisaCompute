@@ -15,11 +15,11 @@
 #include <core/logging.h>
 #include <runtime/rtx/aabb.h>
 namespace toolhub::directx {
-using Argument = ShaderDispatchCommandBase::Argument;
+using Argument = luisa::compute::Argument;
 template<typename Visitor>
-void DecodeCmd(ShaderDispatchCommandBase const &cmd, Visitor &&visitor) {
+void DecodeCmd(vstd::span<const Argument> args, Visitor &&visitor) {
     using Tag = Argument::Tag;
-    for (auto &&i : cmd.arguments()) {
+    for (auto &&i : args) {
         switch (i.tag) {
             case Tag::BUFFER: {
                 visitor(i.buffer);
@@ -227,7 +227,9 @@ public:
     void visit(const ShaderDispatchCommand *cmd) noexcept override {
         auto cs = reinterpret_cast<ComputeShader *>(cmd->handle());
         size_t beforeSize = argBuffer->size();
-        DecodeCmd(*cmd, Visitor{this, cs->Args().data(), *cmd});
+        Visitor visitor{this, cs->Args().data(), *cmd};
+        DecodeCmd(cs->ArgBindings(), visitor);
+        DecodeCmd(cmd->arguments(), visitor);
         UniformAlign(16);
         size_t afterSize = argBuffer->size();
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
@@ -309,7 +311,7 @@ public:
         size_t beforeSize = argBuffer->size();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
-        DecodeCmd(*cmd, Visitor{this, cs->Args().data(), *cmd});
+        DecodeCmd(cmd->arguments(), Visitor{this, cs->Args().data(), *cmd});
         UniformAlign(16);
         size_t afterSize = argBuffer->size();
         argVecs->emplace_back(beforeSize, afterSize - beforeSize);
@@ -460,7 +462,9 @@ public:
             }
             DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
             vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
-            DecodeCmd(*cmd, Visitor{this, cs->Args().data()});
+            Visitor visitor{this, cs->Args().data()};
+            DecodeCmd(shader->ArgBindings(), visitor);
+            DecodeCmd(cmd->arguments(), visitor);
         };
         if (cmd->is_indirect()) {
             auto &&t = cmd->indirect_dispatch_size();
@@ -756,7 +760,7 @@ public:
         }
         DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
         vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
-        DecodeCmd(*cmd, Visitor{this, shader->Args().data()});
+        DecodeCmd(cmd->arguments(), Visitor{this, shader->Args().data()});
         bd->SetRasterShader(shader, *bindProps);
         cmdList->IASetPrimitiveTopology([&] {
             switch (shader->TopoType()) {

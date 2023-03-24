@@ -213,6 +213,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel,
             [&]() { return std::move(code); },
             checkMD5,
+            Shader::BindingToArg(kernel.argument_bindings()),
             kernel.block_size(),
             kShaderModel,
             file_name,

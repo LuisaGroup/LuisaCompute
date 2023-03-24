@@ -15,6 +15,7 @@ private:
         Device *device,
         vstd::vector<Property> &&prop,
         vstd::vector<SavedArgument> &&args,
+        vstd::vector<luisa::compute::Argument> &&bindings,
         ComPtr<ID3D12RootSignature> &&rootSig,
         ComPtr<ID3D12PipelineState> &&pso);
 
@@ -32,6 +33,7 @@ public:
         Function kernel,
         vstd::function<CodegenResult()> const &codegen,
         vstd::optional<vstd::MD5> const &md5,
+        vstd::vector<luisa::compute::Argument> &&bindings,
         uint3 blockSize,
         uint shaderModel,
         vstd::string_view fileName,
@@ -53,6 +55,7 @@ public:
         vstd::vector<Property> &&properties,
         vstd::vector<SavedArgument> &&args,
         vstd::span<std::byte const> binData,
+        vstd::vector<luisa::compute::Argument> &&bindings,
         Device *device);
     ~ComputeShader();
     KILL_COPY_CONSTRUCT(ComputeShader)

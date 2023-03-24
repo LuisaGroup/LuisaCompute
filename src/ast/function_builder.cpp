@@ -207,14 +207,14 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
                     if constexpr (std::is_same_v<T, Function::BufferBinding>) {
                         return *_arguments[i].type() == *type &&
                                binding.handle == handle &&
-                               binding.offset_bytes == offset_bytes;
+                               binding.offset == offset_bytes;
                     } else {
                         return false;
                     }
                 },
                 _argument_bindings[i])) {
             auto &binding = luisa::get<Function::BufferBinding>(_argument_bindings[i]);
-            binding.size_bytes = std::max(binding.size_bytes, size_bytes);
+            binding.size = std::max(binding.size, size_bytes);
             return _ref(_arguments[i]);
         }
     }
@@ -365,7 +365,11 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
             return _ref(_arguments[i]);
         }
     }
-    Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid(),};
+    Variable v{
+        type,
+        Variable::Tag::TEXTURE,
+        _next_variable_uid(),
+    };
     _arguments.emplace_back(v);
     _argument_bindings.emplace_back(Function::TextureBinding{handle, level});
     return _ref(v);
@@ -501,7 +505,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
             call_args[i] = luisa::visit(
                 [&]<typename T>(T binding) noexcept -> const Expression * {
                     if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                        return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset_bytes, binding.size_bytes);
+                        return buffer_binding(f->_arguments[i].type(), binding.handle, binding.offset, binding.size);
                     } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
                         return texture_binding(f->_arguments[i].type(), binding.handle, binding.level);
                     } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
@@ -577,6 +581,28 @@ bool FunctionBuilder::requires_atomic() const noexcept {
 
 bool FunctionBuilder::requires_atomic_float() const noexcept {
     return _requires_atomic_float;
+}
+void FunctionBuilder::reorder_capture() noexcept {
+    luisa::vector<Variable> new_args;
+    luisa::vector<Binding> new_bindings;
+    new_args.reserve(_arguments.size());
+    new_bindings.reserve(_argument_bindings.size());
+    // get capture first
+    for(size_t i = 0; i < _arguments.size(); ++i){
+        auto &bind = _argument_bindings[i];
+        if (!holds_alternative<monostate>(bind)) {
+            new_args.emplace_back(_arguments[i]);
+            new_bindings.emplace_back(bind);
+        }
+    }
+    for(size_t i = 0; i < _arguments.size(); ++i){
+        auto &bind = _argument_bindings[i];
+        if(holds_alternative<monostate>(bind)){
+            new_args.emplace_back(_arguments[i]);
+        }
+    }
+    _arguments = std::move(new_args);
+    _argument_bindings = std::move(new_bindings);
 }
 
 }// namespace luisa::compute::detail

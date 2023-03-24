@@ -7,6 +7,7 @@
 #include <ast/variable.h>
 #include <ast/expression.h>
 #include <ast/constant_data.h>
+#include <runtime/rhi/argument.h>
 
 namespace luisa::compute {
 
@@ -43,13 +44,13 @@ public:
      *
      * Bind buffer handle and offset.
      */
-    struct BufferBinding {
-        uint64_t handle;
-        size_t offset_bytes;
-        size_t size_bytes;
+    struct BufferBinding : public Argument::Buffer {
         BufferBinding() noexcept = default;
-        BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
-            : handle{handle}, offset_bytes{offset_bytes}, size_bytes{size_bytes} {}
+        explicit BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept {
+            this->handle = handle;
+            this->offset = offset_bytes;
+            this->size = size_bytes;
+        }
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
@@ -58,12 +59,12 @@ public:
      *
      * Bind texture handle and level.
      */
-    struct TextureBinding {
-        uint64_t handle;
-        uint32_t level;
+    struct TextureBinding : public Argument::Texture {
         TextureBinding() noexcept = default;
-        TextureBinding(uint64_t handle, uint32_t level) noexcept
-            : handle{handle}, level{level} {}
+        explicit TextureBinding(uint64_t handle, uint32_t level) noexcept {
+            this->handle = handle;
+            this->level = level;
+        }
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
@@ -72,11 +73,11 @@ public:
      *
      * Bind array handle.
      */
-    struct BindlessArrayBinding {
-        uint64_t handle;
+    struct BindlessArrayBinding : public Argument::BindlessArray {
         BindlessArrayBinding() noexcept = default;
-        explicit BindlessArrayBinding(uint64_t handle) noexcept
-            : handle{handle} {}
+        explicit BindlessArrayBinding(uint64_t handle) noexcept {
+            this->handle = handle;
+        }
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
@@ -85,11 +86,11 @@ public:
      *
      * Bind accel handle.
      */
-    struct AccelBinding {
-        uint64_t handle;
+    struct AccelBinding : public Argument::Accel{
         AccelBinding() noexcept = default;
-        explicit AccelBinding(uint64_t handle) noexcept
-            : handle{handle} {}
+        explicit AccelBinding(uint64_t handle) noexcept {
+            this->handle = handle;
+        }
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
@@ -100,7 +101,7 @@ public:
      */
     struct CpuCallback {
         CpuCustomOpExpr::Callback callback;
-        void * user_data;
+        void *user_data;
     };
 
     using Binding = luisa::variant<
@@ -165,6 +166,5 @@ public:
     /// Cast to bool, true if builder is not nullptr
     [[nodiscard]] explicit operator bool() const noexcept { return _builder != nullptr; }
 };
-
 
 }// namespace luisa::compute

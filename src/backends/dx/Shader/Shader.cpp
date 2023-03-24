@@ -37,15 +37,17 @@ SavedArgument::SavedArgument(Type const *type) {
 Shader::Shader(
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
-    ComPtr<ID3D12RootSignature> &&rootSig)
-    : rootSig(std::move(rootSig)), properties(std::move(prop)), kernelArguments(std::move(args)) {
+    ComPtr<ID3D12RootSignature> &&rootSig,
+    vstd::vector<luisa::compute::Argument> argBindings)
+    : rootSig(std::move(rootSig)), argBindings{std::move(argBindings)}, properties(std::move(prop)), kernelArguments(std::move(args)) {
 }
 
 Shader::Shader(
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ID3D12Device *device,
-    bool isRaster) : properties(std::move(prop)), kernelArguments(std::move(args)) {
+    vstd::vector<luisa::compute::Argument> argBindings,
+    bool isRaster) : properties(std::move(prop)), argBindings{std::move(argBindings)}, kernelArguments(std::move(args)) {
     auto serializedRootSig = ShaderSerializer::SerializeRootSig(
         properties,
         isRaster);
@@ -189,5 +191,35 @@ vstd::string Shader::PSOName(Device const *device, vstd::string_view fileName) {
     memcpy(data.data() + 16, fileName.data(), fileName.size());
     vstd::MD5 hash{data};
     return hash.to_string(false);
+}
+
+vstd::vector<Argument> Shader::BindingToArg(vstd::span<const Function::Binding> bindings) {
+    vstd::vector<Argument> r;
+    vstd::push_back_func(
+        r, bindings.size(),
+        [&](size_t i) {
+            return luisa::visit(
+                [&]<typename T>(T const &a) -> Argument {
+                    Argument arg;
+                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                        arg.tag = Argument::Tag::BUFFER;
+                        arg.buffer = a;
+                    } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                        arg.tag = Argument::Tag::TEXTURE;
+                        arg.texture = a;
+                    } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                        arg.tag = Argument::Tag::BINDLESS_ARRAY;
+                        arg.bindless_array = a;
+                    } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                        arg.tag = Argument::Tag::ACCEL;
+                        arg.accel = a;
+                    } else {
+                        LUISA_ERROR("Binding Contain unwanted variable.");
+                    }
+                    return arg;
+                },
+                bindings[i]);
+        });
+    return r;
 }
 }// namespace toolhub::directx

@@ -37,7 +37,7 @@ RasterShader::RasterShader(
     ComPtr<ID3D12RootSignature> &&rootSig,
     ComPtr<ID3D12PipelineState> &&pso,
     TopologyType type)
-    : Shader(std::move(prop), std::move(args), std::move(rootSig)), device(device), type(type) {
+    : Shader(std::move(prop), std::move(args), std::move(rootSig), {}), device(device), type(type) {
     this->pso = std::move(pso);
 }
 void RasterShader::GetMeshFormatState(
@@ -124,7 +124,7 @@ RasterShader::RasterShader(
     DepthFormat dsv,
     vstd::span<std::byte const> vertBinData,
     vstd::span<std::byte const> pixelBinData)
-    : Shader(std::move(prop), std::move(args), device->device.Get(), true),
+    : Shader(std::move(prop), std::move(args), device->device.Get(), {}, true),
       device(device),
       type(state.topology) {
     vstd::vector<D3D12_INPUT_ELEMENT_DESC> layouts;
