@@ -13,7 +13,7 @@
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_swapchain.h>
 
-#ifdef LUISA_PLATFORM_WINDOWS
+#if defined(LUISA_PLATFORM_WINDOWS)
 #include <Windows.h>
 #include <AclAPI.h>
 #include <dxgi1_2.h>
@@ -23,7 +23,7 @@
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
 #else
-#error TODO
+#error "Unsupported platform"
 #endif
 
 #include <backends/common/vulkan_swapchain.h>
