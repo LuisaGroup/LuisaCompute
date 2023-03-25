@@ -162,7 +162,7 @@ private:
                 // TODO: this is incorrect
                 auto c = cmd.shader_dispatch;
                 auto first = (std::byte *)c.args;
-                auto buffer = luisa::vector<std::byte>(first, first + c.args_count);
+                auto buffer = luisa::vector<std::byte>(first, first + sizeof(api::Argument) * c.args_count);
                 auto dispatch_size = luisa::uint3{c.dispatch_size[0], c.dispatch_size[1], c.dispatch_size[2]};
 
                 return luisa::make_unique<ShaderDispatchCommand>(
@@ -263,15 +263,23 @@ private:
             default: LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
         }
     }
-
+    void (*_callback)(uint8_t*) = nullptr;
+    uint8_t* _callback_ctx = nullptr;
 public:
-    CommandListConverter(const LCCommandList list, bool is_c_api)
-        : _list(list), _is_c_api(is_c_api) {}
+    CommandListConverter(const LCCommandList list, bool is_c_api,  void(*callback)(uint8_t*), uint8_t* callback_ctx)
+        : _list(list), _is_c_api(is_c_api), _callback(callback), _callback_ctx(callback_ctx) {}
 
     [[nodiscard]] auto convert() const noexcept {
         auto cmd_list = CommandList();
         for (int i = 0; i < _list.commands_count; i++) {
             cmd_list.append(convert_one(_list.commands[i]));
+        }
+        if(_callback != nullptr && _callback_ctx!= nullptr) {
+            auto _callback = this->_callback;
+            auto _callback_ctx = this->_callback_ctx;
+            cmd_list.append([=](){
+                _callback(_callback_ctx);
+            });
         }
         return cmd_list;
     }
@@ -399,10 +407,10 @@ LUISA_EXPORT_API void luisa_compute_stream_synchronize(LCDevice device, LCStream
     d->object()->impl()->synchronize_stream(handle);
 }
 
-LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList c_cmd_list) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list, void(*callback)(uint8_t*), uint8_t* callback_ctx) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
-    auto converter = luisa::compute::detail::CommandListConverter(c_cmd_list, d->object()->impl()->is_c_api());
+    auto converter = luisa::compute::detail::CommandListConverter(cmd_list, d->object()->impl()->is_c_api(), callback, callback_ctx);
     d->object()->impl()->dispatch(handle, converter.convert());
 }
 
@@ -564,4 +572,13 @@ LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBi
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     d->object()->impl()->destroy_bindless_array(handle);
     d->release();
+}
+
+size_t luisa_compute_device_query(LCDevice device, const char * query, char * result, size_t maxlen) LUISA_NOEXCEPT {
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    auto result_s = d->object()->impl()->query(luisa::string_view{query});
+    auto len = std::min(result_s.size(), maxlen);
+    std::memcpy(result, result_s.data(), len);
+    result[len] = '\0';
+    return len;
 }

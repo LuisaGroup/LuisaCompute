@@ -56,13 +56,17 @@ pub trait Backend: Sync + Send {
     //     swapchain_handle: u64,
     //     image_handle: u64,
     // );
-    fn create_shader(&self, kernel: CArc<KernelModule>) -> Result<api::CreatedShaderInfo>;
+    fn create_shader(
+        &self,
+        kernel: CArc<KernelModule>,
+        options: &api::ShaderOption,
+    ) -> Result<api::CreatedShaderInfo>;
     fn shader_cache_dir(&self, shader: api::Shader) -> Option<PathBuf>;
     fn destroy_shader(&self, shader: api::Shader);
     fn create_event(&self) -> Result<api::CreatedResourceInfo>;
     fn destroy_event(&self, event: api::Event);
-    fn signal_event(&self, event: api::Event);
-    fn wait_event(&self, event: api::Event) -> Result<()>;
+    fn signal_event(&self, event: api::Event, stream:api::Stream);
+    fn wait_event(&self, event: api::Event, stream:api::Stream) -> Result<()>;
     fn synchronize_event(&self, event: api::Event) -> Result<()>;
     fn create_mesh(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
     fn create_procedural_primitive(
@@ -192,9 +196,10 @@ pub extern "C" fn lc_rs_dispatch(
 pub extern "C" fn lc_rs_create_shader(
     backend: *mut c_void,
     kernel: CArc<KernelModule>,
+    option: &api::ShaderOption,
 ) -> api::CreatedShaderInfo {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_shader(kernel).unwrap()
+    backend.create_shader(kernel, option).unwrap()
 }
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_shader(backend: *mut c_void, shader: api::Shader) {

@@ -36,7 +36,7 @@ LUISA_EXPORT_API void luisa_compute_texture_destroy(LCDevice device, LCTexture t
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_stream_create(LCDevice device, LCStreamTag stream_tag) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_destroy(LCDevice device, LCStream stream) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_synchronize(LCDevice device, LCStream stream) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list, void(*callback)(uint8_t*), uint8_t* callback_ctx) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_native_handle(LCDevice device, LCStream stream, void *handle) LUISA_NOEXCEPT;
 
 
@@ -51,21 +51,11 @@ LUISA_EXPORT_API void luisa_compute_event_synchronize(LCDevice device, LCEvent e
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_bindless_array_create(LCDevice device, size_t n) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBindlessArray array) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_buffer(LCDevice device, LCBindlessArray array, size_t index, LCBuffer buffer) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex2d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_emplace_tex3d(LCDevice device, LCBindlessArray array, size_t index, LCTexture texture, LCSampler sampler) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_buffer(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex2d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_bindless_array_remove_tex3d(LCDevice device, LCBindlessArray array, size_t index) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_mesh_create(LCDevice device, const LCAccelOption *option) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_mesh_destroy(LCDevice device, LCMesh mesh) LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_accel_create(LCDevice device, const LCAccelOption *option) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_accel_emplace_back(LCAccel accel, void *mesh, const void *transform, int visibility) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_accel_emplace(LCAccel accel, size_t index, void *mesh, const void *transform, int visibility) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_accel_set_transform(LCAccel accel, size_t index, const void *transform) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_accel_set_visibility(LCAccel accel, size_t index, int visibility) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_accel_pop_back(LCAccel accel) LUISA_NOEXCEPT;
+LUISA_EXPORT_API size_t luisa_compute_device_query(LCDevice device, const char * query, char * result, size_t maxlen) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format) LUISA_NOEXCEPT;

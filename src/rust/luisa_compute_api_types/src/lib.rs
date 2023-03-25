@@ -43,6 +43,8 @@ pub struct ShaderOption {
     pub compile_only: bool,
     pub name: *const std::ffi::c_char,
 }
+unsafe impl Send for ShaderOption {}
+unsafe impl Sync for ShaderOption {}
 impl Default for ShaderOption {
     fn default() -> Self {
         Self {
