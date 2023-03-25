@@ -1138,4 +1138,278 @@ void VulkanSwapchain::present(VkSemaphore wait, VkSemaphore signal,
     _impl->present(wait, signal, image, image_layout);
 }
 
+
+class VulkanSwapchainForCPU {
+
+private:
+    VulkanSwapchain _base;
+    size_t _stage_buffer_size{};
+    luisa::vector<VkBuffer> _stage_buffers;
+    luisa::vector<VkDeviceMemory> _stage_buffer_memories;
+    VkExtent2D _image_extent;
+    VkFormat _image_format{};
+    VkImage _image{nullptr};
+    VkDeviceMemory _image_memory{nullptr};
+    VkImageView _image_view{nullptr};
+    luisa::vector<VkCommandBuffer> _command_buffers;
+    uint _current_frame{0u};
+
+private:
+    [[nodiscard]] auto _find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) noexcept {
+        VkPhysicalDeviceMemoryProperties memory_properties;
+        vkGetPhysicalDeviceMemoryProperties(_base.physical_device(), &memory_properties);
+        for (auto i = 0u; i < memory_properties.memoryTypeCount; i++) {
+            if ((type_filter & (1u << i)) && (memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+        LUISA_ERROR_WITH_LOCATION("Failed to find suitable memory type.");
+    }
+
+    void _create_image() noexcept {
+
+        // choose format
+        _image_format = _base.is_hdr() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+
+        // create image
+        VkImageCreateInfo image_info{};
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        image_info.imageType = VK_IMAGE_TYPE_2D;
+        image_info.extent.width = _image_extent.width;
+        image_info.extent.height = _image_extent.height;
+        image_info.extent.depth = 1;
+        image_info.mipLevels = 1;
+        image_info.arrayLayers = 1;
+        image_info.format = _image_format;
+        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        LUISA_CHECK_VULKAN(vkCreateImage(_base.device(), &image_info, nullptr, &_image));
+
+        // allocate memory
+        VkMemoryRequirements mem_requirements;
+        vkGetImageMemoryRequirements(_base.device(), _image, &mem_requirements);
+        VkMemoryAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize = mem_requirements.size;
+        alloc_info.memoryTypeIndex = _find_memory_type(mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        LUISA_CHECK_VULKAN(vkAllocateMemory(_base.device(), &alloc_info, nullptr, &_image_memory));
+        LUISA_CHECK_VULKAN(vkBindImageMemory(_base.device(), _image, _image_memory, 0));
+    }
+
+    void _transition_image_layout() noexcept {
+
+        // create a single-use command buffer
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool = _base.command_pool();
+        alloc_info.commandBufferCount = 1;
+        VkCommandBuffer command_buffer;
+        LUISA_CHECK_VULKAN(vkAllocateCommandBuffers(_base.device(), &alloc_info, &command_buffer));
+
+        // begin recording
+        VkCommandBufferBeginInfo begin_info{};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        LUISA_CHECK_VULKAN(vkBeginCommandBuffer(command_buffer, &begin_info));
+
+        // transition image layout
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = _image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(command_buffer,
+                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0,
+                             0, nullptr,
+                             0, nullptr,
+                             1, &barrier);
+
+        // end recording
+        LUISA_CHECK_VULKAN(vkEndCommandBuffer(command_buffer));
+
+        // submit command buffer
+        VkSubmitInfo submit_info{};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &command_buffer;
+        LUISA_CHECK_VULKAN(vkQueueSubmit(_base.queue(), 1, &submit_info, VK_NULL_HANDLE));
+        LUISA_CHECK_VULKAN(vkQueueWaitIdle(_base.queue()));
+
+        // free command buffer
+        vkFreeCommandBuffers(_base.device(), _base.command_pool(), 1, &command_buffer);
+    }
+
+    void _create_image_view() noexcept {
+        VkImageViewCreateInfo view_info{};
+        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_info.image = _image;
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = _image_format;
+        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_info.subresourceRange.baseMipLevel = 0;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.baseArrayLayer = 0;
+        view_info.subresourceRange.layerCount = 1;
+        LUISA_CHECK_VULKAN(vkCreateImageView(_base.device(), &view_info, nullptr, &_image_view));
+    }
+
+    void _create_buffers() noexcept {
+
+        // compute stage buffer size
+        auto pixel_size = [this] {
+            switch (_image_format) {
+                case VK_FORMAT_R8G8B8A8_UNORM:
+                    return 4u;
+                case VK_FORMAT_R16G16B16A16_SFLOAT:
+                    return 8u;
+                default:
+                    break;
+            }
+            LUISA_ERROR_WITH_LOCATION("Unsupported image format.");
+        }();
+        _stage_buffer_size = _image_extent.width * _image_extent.height * pixel_size;
+
+        // create stage buffers
+        _stage_buffers.resize(_base.back_buffer_count());
+        _stage_buffer_memories.resize(_base.back_buffer_count());
+        VkBufferCreateInfo buffer_info{};
+        buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer_info.size = _stage_buffer_size;
+        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        for (auto i = 0u; i < _base.back_buffer_count(); i++) {
+            LUISA_CHECK_VULKAN(vkCreateBuffer(_base.device(), &buffer_info, nullptr, &_stage_buffers[i]));
+            VkMemoryRequirements mem_requirements;
+            vkGetBufferMemoryRequirements(_base.device(), _stage_buffers[i], &mem_requirements);
+            VkMemoryAllocateInfo alloc_info{};
+            alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            alloc_info.allocationSize = mem_requirements.size;
+            alloc_info.memoryTypeIndex = _find_memory_type(mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            LUISA_CHECK_VULKAN(vkAllocateMemory(_base.device(), &alloc_info, nullptr, &_stage_buffer_memories[i]));
+            LUISA_CHECK_VULKAN(vkBindBufferMemory(_base.device(), _stage_buffers[i], _stage_buffer_memories[i], 0));
+        }
+    }
+
+    void _create_command_buffers() noexcept {
+        _command_buffers.resize(_base.back_buffer_count());
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.commandPool = _base.command_pool();
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandBufferCount = static_cast<uint>(_command_buffers.size());
+        LUISA_CHECK_VULKAN(vkAllocateCommandBuffers(_base.device(), &alloc_info, _command_buffers.data()));
+    }
+
+    void _initialize() noexcept {
+        _create_image();
+        _transition_image_layout();
+        _create_image_view();
+        _create_buffers();
+        _create_command_buffers();
+    }
+
+    void _clean_up() noexcept {
+        vkDeviceWaitIdle(_base.device());
+        auto device = _base.device();
+        for (auto i = 0u; i < _base.back_buffer_count(); i++) {
+            vkDestroyBuffer(device, _stage_buffers[i], nullptr);
+            vkFreeMemory(device, _stage_buffer_memories[i], nullptr);
+        }
+        vkDestroyImageView(device, _image_view, nullptr);
+        vkDestroyImage(device, _image, nullptr);
+        vkFreeMemory(device, _image_memory, nullptr);
+    }
+
+public:
+    VulkanSwapchainForCPU(uint64_t window_handle, uint width, uint height,
+                          bool allow_hdr, bool vsync, uint back_buffer_count) noexcept
+        : _base{VulkanSwapchain::DeviceUUID{/* any */},
+                window_handle,
+                width,
+                height,
+                allow_hdr,
+                vsync,
+                back_buffer_count,
+                {/* not required */}},
+          _image_extent{width, height} { _initialize(); }
+
+    ~VulkanSwapchainForCPU() noexcept { _clean_up(); }
+
+    [[nodiscard]] auto format() const noexcept { return _image_format; }
+
+    void present(luisa::span<const std::byte> pixels) noexcept {
+
+        LUISA_ASSERT(pixels.size_bytes() >= _stage_buffer_size,
+                     "Pixel buffer is too small.");
+
+        _base.wait_for_fence();
+
+        // update stage buffer
+        void *mapped = nullptr;
+        LUISA_CHECK_VULKAN(vkMapMemory(_base.device(), _stage_buffer_memories[_current_frame], 0u, _stage_buffer_size, 0u, &mapped));
+        std::memcpy(mapped, pixels.data(), pixels.size_bytes());
+        vkUnmapMemory(_base.device(), _stage_buffer_memories[_current_frame]);
+
+        // copy buffer to image
+        auto command_buffer = _command_buffers[_current_frame];
+        LUISA_CHECK_VULKAN(vkResetCommandBuffer(command_buffer, 0u));
+
+        // encode command buffer
+        VkCommandBufferBeginInfo begin_info{};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        LUISA_CHECK_VULKAN(vkBeginCommandBuffer(command_buffer, &begin_info));
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0u;
+        region.bufferRowLength = 0u;
+        region.bufferImageHeight = 0u;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0u;
+        region.imageSubresource.baseArrayLayer = 0u;
+        region.imageSubresource.layerCount = 1u;
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = {_image_extent.width, _image_extent.height, 1u};
+        vkCmdCopyBufferToImage(command_buffer, _stage_buffers[_current_frame], _image, VK_IMAGE_LAYOUT_GENERAL, 1u, &region);
+        vkEndCommandBuffer(command_buffer);
+
+        // submit command buffer
+        VkSubmitInfo submit_info{};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1u;
+        submit_info.pCommandBuffers = &command_buffer;
+        LUISA_CHECK_VULKAN(vkQueueSubmit(_base.queue(), 1u, &submit_info, nullptr));
+
+        // present
+        _base.present(nullptr, nullptr, _image_view, VK_IMAGE_LAYOUT_GENERAL);
+
+        // update frame index
+        _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
+    }
+};
+
+LUISA_EXPORT_API void * luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
+    return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
+}
+
+LUISA_EXPORT_API void luisa_compute_destroy_cpu_swapchain(void *swapchain) noexcept {
+    delete static_cast<VulkanSwapchainForCPU *>(swapchain);
+}
+LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const void *pixels, uint64_t size) noexcept {
+    static_cast<VulkanSwapchainForCPU *>(swapchain)->present(luisa::span{static_cast<const std::byte *>(pixels), size});
+}
 }// namespace luisa::compute
