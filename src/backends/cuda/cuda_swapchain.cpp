@@ -137,9 +137,7 @@ private:
         image_info.format = _choose_image_format();
         image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
         image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
-                           VK_IMAGE_USAGE_STORAGE_BIT |
-                           VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
         image_info.pNext = &external_memory_info;
@@ -180,7 +178,8 @@ private:
         LUISA_CHECK_VULKAN(vkBindImageMemory(_base.device(), _image, _image_memory, 0));
     }
 
-    void _transition_image_layout() noexcept {
+    void _transition_image_layout(VkImageLayout old_layout,
+                                  VkImageLayout new_layout) noexcept {
 
         // create a single-use command buffer
         VkCommandBufferAllocateInfo alloc_info{};
@@ -200,8 +199,8 @@ private:
         // transition image layout
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = _image;
@@ -210,15 +209,25 @@ private:
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(command_buffer,
-                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                             0,
-                             0, nullptr,
-                             0, nullptr,
-                             1, &barrier);
+
+        VkPipelineStageFlags  src_stage;
+        VkPipelineStageFlags  dst_stage;
+
+        if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = 0;
+            src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        } else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            barrier.srcAccessMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else {
+            LUISA_ERROR_WITH_LOCATION("Unsupported layout transition.");
+        }
+        vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         // end recording
         LUISA_CHECK_VULKAN(vkEndCommandBuffer(command_buffer));
@@ -416,7 +425,8 @@ private:
     void _initialize() noexcept {
         // vulkan objects
         _create_image();
-        _transition_image_layout();
+        _transition_image_layout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        _transition_image_layout(VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         _create_image_view();
         _create_semaphores();
         // cuda objects
@@ -488,8 +498,8 @@ public:
             &_cuda_ext_semaphores[_current_frame], &signal_params, 1, stream));
 
         // present
-        _base.present(_semaphores[_current_frame], nullptr,
-                      _image_view, VK_IMAGE_LAYOUT_GENERAL);
+        _base.present(_semaphores[_current_frame], nullptr, _image_view,
+                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         // update current frame index
         _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
