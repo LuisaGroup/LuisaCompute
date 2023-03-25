@@ -7,7 +7,7 @@
 #include <core/platform.h>
 #include <vulkan/vulkan.h>
 
-#include <backends/common/vulkan_swapchain.h>
+
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_mipmap_array.h>
@@ -26,7 +26,7 @@
 #error TODO
 #endif
 
-
+#include <backends/common/vulkan_swapchain.h>
 
 namespace luisa::compute::cuda {
 
@@ -403,7 +403,7 @@ private:
             fd_info.pNext = nullptr;
             fd_info.semaphore = vk_semaphore;
             fd_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-            LUISA_CHECK_VULKAN(vkGetSemaphoreFdKHR(device, &fd_info, &fd));
+            LUISA_CHECK_VULKAN(fp_vkGetSemaphoreFdKHR(device, &fd_info, &fd));
             return fd;
 #endif
         };

@@ -35,6 +35,8 @@ struct WindowImpl : public Window::IWindowImpl {
         // TODO: other platform
 #ifdef _WIN32
         window_handle = reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
+#elif __linux__
+        window_handle = reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
         glfwMakeContextCurrent(window);
         glfwSwapInterval(vsync ? 1 : 0);

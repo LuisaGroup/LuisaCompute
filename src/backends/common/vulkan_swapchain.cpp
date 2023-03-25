@@ -371,28 +371,10 @@ private:
             VkPhysicalDeviceProperties2 properties2{};
             properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
             properties2.pNext = &id_properties;
-            LUISA_INFO("Checking device properties...");
 
             vkGetPhysicalDeviceProperties2(device, &properties2);
-            // LUISA_INFO("Expected uuid: {}", device_uuid.bytes);
-            // LUISA_INFO("Device uuid: {}-{}-{}-{}",
-            //            id_properties.deviceUUID[0], id_properties.deviceUUID[1],
-            //            id_properties.deviceUUID[2], id_properties.deviceUUID[3]);
-            LUISA_INFO("Device name: {}", properties2.properties.deviceName);
-            LUISA_INFO("API version: {}.{}.{}",
-                       VK_VERSION_MAJOR(properties2.properties.apiVersion),
-                       VK_VERSION_MINOR(properties2.properties.apiVersion),
-                       VK_VERSION_PATCH(properties2.properties.apiVersion));
             if (properties2.properties.apiVersion < REQUIRED_VULKAN_VERSION) { return false; }
             if (device_uuid == DeviceUUID{} /* any uuid */) { return true; }
-            LUISA_INFO("Checking device uuid...");
-            LUISA_INFO("Found uuid:");
-            for(int i =0; i<16; i++)
-                printf("%02x", id_properties.deviceUUID[i]);
-            printf("\n");
-            for(int i =0; i<16; i++)
-                printf("%02x", device_uuid.bytes[i]);
-            printf("\n");
             return std::memcmp(id_properties.deviceUUID, device_uuid.bytes, sizeof(device_uuid.bytes)) == 0;
         };
 
@@ -402,17 +384,8 @@ private:
             luisa::vector<VkExtensionProperties> available_extensions(extension_count);
             vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, available_extensions.data());
             luisa::unordered_set<luisa::string_view> required_extensions(device_extensions.begin(), device_extensions.end());
-            LUISA_INFO("Checking device extensions...");
-            LUISA_INFO("Required extensions:");
-            for (const auto &extension : device_extensions) {
-                LUISA_INFO("{}", extension);
-            }
             for (const auto &extension : available_extensions) {
                 required_extensions.erase(extension.extensionName);
-            }
-            LUISA_INFO("Missing extensions:");
-            for (const auto &extension : required_extensions) {
-                LUISA_INFO("{}", extension);
             }
 
             return required_extensions.empty();
@@ -434,7 +407,6 @@ private:
         };
 
         auto check_swapchain_support = [this](auto device, bool requires_hdr) noexcept {
-            LUISA_INFO("Checking swapchain support...");
             auto details = _query_swapchain_support(device);
             if (requires_hdr) {
                 details.formats.erase(
@@ -442,10 +414,6 @@ private:
                         return _is_hdr_colorspace(format.colorSpace);
                     }),
                     details.formats.end());
-            }
-            LUISA_INFO("Available formats:");
-            for (const auto &format : details.formats) {
-                LUISA_INFO("{}", format.format);
             }
             return !details.formats.empty() && !details.present_modes.empty();
         };
@@ -459,7 +427,6 @@ private:
         luisa::optional<uint32_t> queue_family;
         for (auto device : devices) {
             if (check_properties(device) && check_extensions(device) && check_swapchain_support(device, allow_hdr)) {
-                LUISA_INFO("Found a suitable GPU.");
                 if (auto present_queue_family = find_queue_family(device)) {
                     _physical_device = device;
                     queue_family = present_queue_family;
@@ -471,7 +438,6 @@ private:
         if (_physical_device == nullptr && allow_hdr) {
             for (auto device : devices) {
                 if (check_properties(device) && check_extensions(device) && check_swapchain_support(device, false)) {
-                    LUISA_INFO("Found a suitable GPU.");
                     if (auto present_queue_family = find_queue_family(device)) {
                         _physical_device = device;
                         queue_family = present_queue_family;
