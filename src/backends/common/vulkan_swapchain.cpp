@@ -1413,8 +1413,8 @@ LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const
     static_cast<VulkanSwapchainForCPU *>(swapchain)->present(luisa::span{static_cast<const std::byte *>(pixels), size});
 }
 
-luisa::string to_string(VkResult input_value) noexcept {
-    switch (input_value) {
+luisa::string to_string(VkResult x) noexcept {
+    switch (x) {
         case VK_ERROR_DEVICE_LOST:
             return "VK_ERROR_DEVICE_LOST";
         case VK_ERROR_EXTENSION_NOT_PRESENT:
@@ -1427,8 +1427,6 @@ luisa::string to_string(VkResult input_value) noexcept {
             return "VK_ERROR_FRAGMENTATION";
         case VK_ERROR_FRAGMENTED_POOL:
             return "VK_ERROR_FRAGMENTED_POOL";
-        case VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR:
-            return "VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR";
         case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR:
             return "VK_ERROR_INCOMPATIBLE_DISPLAY_KHR";
         case VK_ERROR_INCOMPATIBLE_DRIVER:
@@ -1447,7 +1445,7 @@ luisa::string to_string(VkResult input_value) noexcept {
             return "VK_ERROR_MEMORY_MAP_FAILED";
         case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR:
             return "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR";
-        case VK_ERROR_NOT_PERMITTED_KHR:
+        case VK_ERROR_NOT_PERMITTED_EXT:
             return "VK_ERROR_NOT_PERMITTED_KHR";
         case VK_ERROR_OUT_OF_DATE_KHR:
             return "VK_ERROR_OUT_OF_DATE_KHR";
@@ -1463,16 +1461,6 @@ luisa::string to_string(VkResult input_value) noexcept {
             return "VK_ERROR_TOO_MANY_OBJECTS";
         case VK_ERROR_UNKNOWN:
             return "VK_ERROR_UNKNOWN";
-        case VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR:
-            return "VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR";
-        case VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR:
-            return "VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR";
-        case VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR:
-            return "VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR";
-        case VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR:
-            return "VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR";
-        case VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR:
-            return "VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR";
         case VK_EVENT_RESET:
             return "VK_EVENT_RESET";
         case VK_EVENT_SET:
@@ -1481,25 +1469,16 @@ luisa::string to_string(VkResult input_value) noexcept {
             return "VK_INCOMPLETE";
         case VK_NOT_READY:
             return "VK_NOT_READY";
-        case VK_OPERATION_DEFERRED_KHR:
-            return "VK_OPERATION_DEFERRED_KHR";
-        case VK_OPERATION_NOT_DEFERRED_KHR:
-            return "VK_OPERATION_NOT_DEFERRED_KHR";
-        case VK_PIPELINE_COMPILE_REQUIRED:
-            return "VK_PIPELINE_COMPILE_REQUIRED";
         case VK_SUBOPTIMAL_KHR:
             return "VK_SUBOPTIMAL_KHR";
         case VK_SUCCESS:
             return "VK_SUCCESS";
-        case VK_THREAD_DONE_KHR:
-            return "VK_THREAD_DONE_KHR";
-        case VK_THREAD_IDLE_KHR:
-            return "VK_THREAD_IDLE_KHR";
         case VK_TIMEOUT:
             return "VK_TIMEOUT";
         default: break;
     }
-    return "Unhandled VkResult";
+    return luisa::format("Unhandled VkResult {}",
+                         to_underlying(x));
 }
 
 }// namespace luisa::compute

@@ -14,8 +14,7 @@
     do {                                                 \
         auto ret = x;                                    \
         if (ret != VK_SUCCESS) [[unlikely]] {            \
-            if (ret == VK_ERROR_OUT_OF_DATE_KHR ||       \
-                ret == VK_SUBOPTIMAL_KHR) [[likely]] {   \
+            if (ret > 0) [[likely]] {                    \
                 LUISA_WARNING_WITH_LOCATION(             \
                     "Vulkan call `" #x "` returned {}.", \
                     ::luisa::compute::to_string(ret));   \
@@ -29,7 +28,7 @@
 
 namespace luisa::compute {
 
-[[nodiscard]] luisa::string to_string(VkResult input_value) noexcept;
+[[nodiscard]] luisa::string to_string(VkResult x) noexcept;
 
 class VulkanSwapchain {
 
