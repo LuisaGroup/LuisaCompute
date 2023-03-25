@@ -7,21 +7,26 @@
 #include <core/platform.h>
 #include <vulkan/vulkan.h>
 
+#include <backends/common/vulkan_swapchain.h>
+#include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_swapchain.h>
+
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <Windows.h>
 #include <AclAPI.h>
 #include <dxgi1_2.h>
 #include <VersionHelpers.h>
 #include <vulkan/vulkan_win32.h>
+#elif defined(LUISA_PLATFORM_UNIX)
+#include <X11/Xlib.h>
+#include <vulkan/vulkan_xlib.h>
 #else
 #error TODO
 #endif
 
-#include <backends/common/vulkan_swapchain.h>
-#include <backends/cuda/cuda_device.h>
-#include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_mipmap_array.h>
-#include <backends/cuda/cuda_swapchain.h>
+
 
 namespace luisa::compute::cuda {
 

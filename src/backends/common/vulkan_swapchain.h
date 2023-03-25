@@ -9,6 +9,7 @@
 
 #include <core/basic_types.h>
 #include <core/stl/memory.h>
+#include <cstring>
 
 #define LUISA_CHECK_VULKAN(x)                            \
     do {                                                 \
