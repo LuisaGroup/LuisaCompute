@@ -1415,8 +1415,6 @@ LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const
 
 luisa::string to_string(VkResult input_value) noexcept {
     switch (input_value) {
-        case VK_ERROR_COMPRESSION_EXHAUSTED_EXT:
-            return "VK_ERROR_COMPRESSION_EXHAUSTED_EXT";
         case VK_ERROR_DEVICE_LOST:
             return "VK_ERROR_DEVICE_LOST";
         case VK_ERROR_EXTENSION_NOT_PRESENT:
@@ -1429,8 +1427,6 @@ luisa::string to_string(VkResult input_value) noexcept {
             return "VK_ERROR_FRAGMENTATION";
         case VK_ERROR_FRAGMENTED_POOL:
             return "VK_ERROR_FRAGMENTED_POOL";
-        case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
-            return "VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT";
         case VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR:
             return "VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR";
         case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR:
@@ -1439,8 +1435,6 @@ luisa::string to_string(VkResult input_value) noexcept {
             return "VK_ERROR_INCOMPATIBLE_DRIVER";
         case VK_ERROR_INITIALIZATION_FAILED:
             return "VK_ERROR_INITIALIZATION_FAILED";
-        case VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT:
-            return "VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT";
         case VK_ERROR_INVALID_EXTERNAL_HANDLE:
             return "VK_ERROR_INVALID_EXTERNAL_HANDLE";
         case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS:
@@ -1469,8 +1463,6 @@ luisa::string to_string(VkResult input_value) noexcept {
             return "VK_ERROR_TOO_MANY_OBJECTS";
         case VK_ERROR_UNKNOWN:
             return "VK_ERROR_UNKNOWN";
-        case VK_ERROR_VALIDATION_FAILED_EXT:
-            return "VK_ERROR_VALIDATION_FAILED_EXT";
         case VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR:
             return "VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR";
         case VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR:
