@@ -171,9 +171,9 @@ private:
                                                    const VkDebugUtilsMessengerCallbackDataEXT *data,
                                                    void * /* user data */) noexcept {
                 if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                    LUISA_ERROR("Vulkan Validation: {}", data->pMessage);
+                    LUISA_WARNING("Vulkan Validation Error: {}", data->pMessage);
                 } else {
-                    LUISA_WARNING("Vulkan Validation: {}", data->pMessage);
+                    LUISA_WARNING("Vulkan Validation Warning: {}", data->pMessage);
                 }
                 return VK_FALSE;
             };
