@@ -46,6 +46,7 @@ struct LCBuffer<const T> {
     size_t size_bytes;
     LCBuffer(LCBuffer<T> buffer) noexcept
         : ptr{buffer.ptr}, size_bytes{buffer.size_bytes} {}
+    LCBuffer() noexcept = default;
 };
 
 template<typename T, typename Index>

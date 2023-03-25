@@ -98,8 +98,7 @@ private:
     VkDeviceMemory _image_memory{nullptr};
     VkDeviceSize _image_memory_size{};
     VkImageView _image_view{nullptr};
-    VkSemaphore _pre_frame_semaphore{};
-    VkSemaphore _post_frame_semaphore{};
+    luisa::vector<VkSemaphore> _semaphores{};
 
 private:
     [[nodiscard]] auto _find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) noexcept {
@@ -118,6 +117,15 @@ private:
     }
 
     void _create_image() noexcept {
+
+        VkExternalMemoryImageCreateInfo external_memory_info{};
+        external_memory_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+#ifdef LUISA_PLATFORM_WINDOWS
+        external_memory_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+#else
+        external_memory_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+#endif
+
         VkImageCreateInfo image_info{};
         image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -134,17 +142,40 @@ private:
                            VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-        // TODO: export memory
+        image_info.pNext = &external_memory_info;
         LUISA_CHECK_VULKAN(vkCreateImage(_base.device(), &image_info, nullptr, &_image));
 
-        // allocate memory
+        // compute memory requirements
         VkMemoryRequirements mem_requirements;
         vkGetImageMemoryRequirements(_base.device(), _image, &mem_requirements);
         _image_memory_size = mem_requirements.size;
+
+#ifdef LUISA_PLATFORM_WINDOWS
+        WindowsSecurityAttributes security_attributes;
+        VkExportMemoryWin32HandleInfoKHR export_memory_info{};
+        export_memory_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
+        export_memory_info.pAttributes = security_attributes.get();
+        export_memory_info.dwAccess = DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE;
+        export_memory_info.name = nullptr;
+#endif
+
+        VkExportMemoryAllocateInfo export_allocate_info{};
+        export_allocate_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+
+#ifdef LUISA_PLATFORM_WINDOWS
+        export_allocate_info.pNext = IsWindows8OrGreater() ? &export_memory_info : nullptr;
+        export_allocate_info.handleTypes =
+            IsWindows8OrGreater() ? VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT : VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT;
+#else
+        export_allocate_info.pNext = nullptr;
+        export_allocate_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+#endif
+
         VkMemoryAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = mem_requirements.size;
         alloc_info.memoryTypeIndex = _find_memory_type(mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        alloc_info.pNext = &export_allocate_info;
         LUISA_CHECK_VULKAN(vkAllocateMemory(_base.device(), &alloc_info, nullptr, &_image_memory));
         LUISA_CHECK_VULKAN(vkBindImageMemory(_base.device(), _image, _image_memory, 0));
     }
@@ -247,17 +278,19 @@ private:
         semaphore_info.pNext = &export_info;
 
         auto device = _base.device();
-        auto back_buffer_count = _base.back_buffer_count();
-        LUISA_CHECK_VULKAN(vkCreateSemaphore(device, &semaphore_info, nullptr, &_pre_frame_semaphore));
-        LUISA_CHECK_VULKAN(vkCreateSemaphore(device, &semaphore_info, nullptr, &_post_frame_semaphore));
+        auto n = _base.back_buffer_count();
+        _semaphores.resize(n);
+        for (uint32_t i = 0u; i < n; i++) {
+            LUISA_CHECK_VULKAN(vkCreateSemaphore(device, &semaphore_info, nullptr, &_semaphores[i]));
+        }
     }
 
 private:
     // cuda objects
-    CUexternalMemory _cuda_ext_image_memory;
-    CUmipmappedArray _cuda_ext_image_array;
-    CUexternalSemaphore _cuda_ext_pre_frame_semaphore;
-    CUexternalSemaphore _cuda_ext_post_frame_semaphore;
+    CUexternalMemory _cuda_ext_image_memory{};
+    CUmipmappedArray _cuda_ext_image_mipmapped_array{};
+    CUarray _cuda_ext_image_array{};
+    luisa::vector<CUexternalSemaphore> _cuda_ext_semaphores;
 
 private:
     void _cuda_import_image() noexcept {
@@ -321,8 +354,10 @@ private:
         cuda_ext_mipmapped_array_desc.arrayDesc.NumChannels = 4;
         cuda_ext_mipmapped_array_desc.numLevels = 1;
         LUISA_CHECK_CUDA(cuExternalMemoryGetMappedMipmappedArray(
-            &_cuda_ext_image_array, _cuda_ext_image_memory,
+            &_cuda_ext_image_mipmapped_array, _cuda_ext_image_memory,
             &cuda_ext_mipmapped_array_desc));
+        LUISA_CHECK_CUDA(cuMipmappedArrayGetLevel(
+            &_cuda_ext_image_array, _cuda_ext_image_mipmapped_array, 0));
     }
 
     void _cuda_import_semaphore(VkSemaphore vk_semaphore,
@@ -386,24 +421,30 @@ private:
         _create_semaphores();
         // cuda objects
         _cuda_import_image();
-        _cuda_import_semaphore(_pre_frame_semaphore, _cuda_ext_pre_frame_semaphore);
-        _cuda_import_semaphore(_post_frame_semaphore, _cuda_ext_post_frame_semaphore);
+        auto n = _base.back_buffer_count();
+        _cuda_ext_semaphores.resize(n);
+        for (auto i = 0u; i < n; i++) {
+            _cuda_import_semaphore(_semaphores[i], _cuda_ext_semaphores[i]);
+        }
     }
 
     void _cleanup() noexcept {
-        vkDeviceWaitIdle(_base.device());
+        auto device = _base.device();
+        auto n = _base.back_buffer_count();
+        vkDeviceWaitIdle(device);
         // cuda objects
         LUISA_CHECK_CUDA(cuDestroyExternalMemory(_cuda_ext_image_memory));
-        LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(_cuda_ext_image_array));
-        LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_ext_pre_frame_semaphore));
-        LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_ext_post_frame_semaphore));
+        LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(_cuda_ext_image_mipmapped_array));
+        for (auto i = 0u; i < n; i++) {
+            LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_ext_semaphores[i]));
+        }
         // vulkan objects
-        auto device = _base.device();
         vkDestroyImageView(device, _image_view, nullptr);
         vkDestroyImage(device, _image, nullptr);
         vkFreeMemory(device, _image_memory, nullptr);
-        vkDestroySemaphore(device, _pre_frame_semaphore, nullptr);
-        vkDestroySemaphore(device, _post_frame_semaphore, nullptr);
+        for (auto i = 0u; i < n; i++) {
+            vkDestroySemaphore(device, _semaphores[i], nullptr);
+        }
     }
 
 public:
@@ -426,6 +467,32 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 
     void present(CUstream stream, CUarray image) noexcept {
+
+        // wait for the frame to be ready
+        _base.wait_for_fence();
+
+        // copy image to swapchain image
+        CUDA_MEMCPY3D copy{};
+        copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
+        copy.srcArray = image;
+        copy.dstMemoryType = CU_MEMORYTYPE_ARRAY;
+        copy.dstArray = _cuda_ext_image_array;
+        copy.WidthInBytes = pixel_storage_size(pixel_storage(), make_uint3(_size.x, 1u, 1u));
+        copy.Height = _size.y;
+        copy.Depth = 1u;
+        LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, stream));
+
+        // signal that the frame is ready
+        CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signal_params{};
+        LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(
+            &_cuda_ext_semaphores[_current_frame], &signal_params, 1, stream));
+
+        // present
+        _base.present(_semaphores[_current_frame], nullptr,
+                      _image_view, VK_IMAGE_LAYOUT_GENERAL);
+
+        // update current frame index
+        _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
     }
 };
 
