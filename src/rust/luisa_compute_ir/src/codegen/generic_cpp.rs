@@ -418,6 +418,8 @@ impl GenericCppCodeGen {
             Func::Min => Some("lc_min"),
             Func::Max => Some("lc_max"),
             Func::Clamp => Some("lc_clamp"),
+
+            Func::Lerp=> Some("lc_lerp"),
             _ => None,
         };
         if let Some(func) = func {
