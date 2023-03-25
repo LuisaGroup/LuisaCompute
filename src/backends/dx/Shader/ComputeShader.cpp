@@ -202,7 +202,8 @@ ComputeShader::ComputeShader(
     vstd::span<std::byte const> binData,
     vstd::vector<luisa::compute::Argument> &&bindings,
     Device *device)
-    : Shader(std::move(prop), std::move(args), device->device, std::move(bindings), false),
+    : Shader(std::move(prop), std::move(args), device->device, false),
+      argBindings(std::move(bindings)),
       device(device),
       blockSize(blockSize) {
     D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
@@ -220,7 +221,8 @@ ComputeShader::ComputeShader(
     vstd::vector<luisa::compute::Argument> &&bindings,
     ComPtr<ID3D12RootSignature> &&rootSig,
     ComPtr<ID3D12PipelineState> &&pso)
-    : Shader(std::move(prop), std::move(args), std::move(rootSig), std::move(bindings)),
+    : Shader(std::move(prop), std::move(args), std::move(rootSig)),
+      argBindings(std::move(bindings)),
       device(device),
       blockSize(blockSize) {
     this->pso = std::move(pso);

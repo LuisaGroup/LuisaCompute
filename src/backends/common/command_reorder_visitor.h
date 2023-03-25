@@ -511,8 +511,8 @@ private:
         }
     }
     FuncTable _func_table;
-    template<typename... Callbacks>
-    void visit(const ShaderDispatchCommandBase *command, const Command* cmd_base, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
+    template<bool contain_binding, typename... Callbacks>
+    void visit(const ShaderDispatchCommandBase *command, const Command *cmd_base, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
@@ -522,7 +522,7 @@ private:
         _shader_handle = shader_handle;
         using Argument = ShaderDispatchCommandBase::Argument;
         using Tag = Argument::Tag;
-         auto ite_arg = [&](auto &&i) {   
+        auto ite_arg = [&](auto &&i) {
             switch (i.tag) {
                 case Tag::BUFFER: {
                     auto &&bf = i.buffer;
@@ -567,8 +567,10 @@ private:
                 } break;
             }
         };
-        for (auto &&i : _func_table.shader_bindings(shader_handle)){
-            ite_arg(i);
+        if constexpr (contain_binding) {
+            for (auto &&i : _func_table.shader_bindings(shader_handle)) {
+                ite_arg(i);
+            }
         }
         for (auto &&i : command->arguments()) {
             ite_arg(i);
@@ -645,7 +647,7 @@ public:
 
     // Shader : function, read/write multi resources
     void visit(const ShaderDispatchCommand *command) noexcept override {
-        visit(command, command, command->handle(), [&] {
+        visit<true>(command, command, command->handle(), [&] {
             if (command->is_indirect()) {
                 auto &&t = command->indirect_dispatch_size();
                 add_dispatch_handle(
@@ -664,7 +666,7 @@ public:
                 Range(a.level),
                 true);
         };
-        visit(command, command, command->handle(), [&] {
+        visit<false>(command, command, command->handle(), [&] {
             auto &&rtv = command->rtv_texs();
             auto &&dsv = command->dsv_tex();
             for (auto &&i : rtv) {

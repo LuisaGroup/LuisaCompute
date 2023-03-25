@@ -23,32 +23,7 @@ on_config(function(target)
 			_add_link("-flto")
 		end
 	end
-	if is_plat("windows") then
-		if is_mode("debug") then
-			if (cc == "clang" or cc == "clangxx") then
-				target:add("cxflags", "-fms-runtime-lib=dll_dbg", {
-					force = true
-				})
-				_add_link("-nostdlib", {
-					force = true
-				})
-			else
-				-- TODO: set_runtimes with clang only supported by 2.7.8 and later
-				target:set("runtimes", "MDd")
-			end
-		else
-			if (cc == "clang" or cc == "clangxx") then
-				target:add("cxflags", "-fms-runtime-lib=dll", {
-					force = true
-				})
-				_add_link("-nostdlib", {
-					force = true
-				})
-			else
-				target:set("runtimes", "MD")
-			end
-		end
-	elseif is_plat("linux") then
+	if is_plat("linux") then
 		-- Linux should use -stdlib=libc++
 		-- https://github.com/LuisaGroup/LuisaCompute/issues/58
 		if (cc == "clang" or cc == "clangxx" or cc == "gcc" or cc == "gxx") then
@@ -83,6 +58,7 @@ on_load(function(target)
 		target:set("exceptions", "no-cxx")
 	end
 	if is_mode("debug") then
+		target:set("runtimes", "MDd")
 		target:set("optimize", "none")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS", "/Gd", {
@@ -92,6 +68,7 @@ on_load(function(target)
 			tools = "cl"
 		});
 	else
+		target:set("runtimes", "MD")
 		target:set("optimize", "aggressive")
 		target:set("warnings", "none")
 		target:add("cxflags", "/GS-", "/Gd", {

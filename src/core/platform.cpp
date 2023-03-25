@@ -1,16 +1,21 @@
 //
 // Created by Mike Smith on 2021/3/15.
 //
-#if (!defined __clang__) && (!defined _MSC_VER) && (!defined __GNUC__) && (!defined __MINGW64__)
-static_assert(false, "unsupported compiler.");
-#endif
-static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1, "legal environment test");
+
 #include <sstream>
 
 #include <core/clock.h>
 #include <core/platform.h>
 #include <core/logging.h>
 #include <core/stl/filesystem.h>
+
+#if (!defined __clang__) && (!defined _MSC_VER) && (!defined __GNUC__) && (!defined __MINGW64__)
+static_assert(false, "Unsupported compiler.");
+#endif
+static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1, "legal environment test");
+#if defined( __clang__) && defined(LUISA_PLATFORM_WINDOWS)
+static_assert(__clang_major__ >= 16, "Due to runtime limitation, only Clang-16 or later version is supported");
+#endif
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #ifndef UNICODE

@@ -63,7 +63,6 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSig;
     vstd::vector<Property> properties;
     vstd::vector<SavedArgument> kernelArguments;
-    vstd::vector<luisa::compute::Argument> argBindings;
     uint bindlessCount;
     void SavePSO(vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const;
 
@@ -74,20 +73,15 @@ public:
     uint BindlessCount() const { return bindlessCount; }
     vstd::span<Property const> Properties() const { return properties; }
     vstd::span<SavedArgument const> Args() const { return kernelArguments; }
-    vstd::span<luisa::compute::Argument const> ArgBindings() const {
-        return argBindings;
-    }
     Shader(
         vstd::vector<Property> &&properties,
         vstd::vector<SavedArgument> &&args,
         ID3D12Device *device,
-        vstd::vector<luisa::compute::Argument> argBindings,
         bool isRaster);
     Shader(
         vstd::vector<Property> &&properties,
         vstd::vector<SavedArgument> &&args,
-        ComPtr<ID3D12RootSignature> &&rootSig,
-        vstd::vector<luisa::compute::Argument> argBindings);
+        ComPtr<ID3D12RootSignature> &&rootSig);
     ID3D12RootSignature *RootSig() const { return rootSig.Get(); }
     ID3D12PipelineState *Pso() const { return pso.Get(); }
 

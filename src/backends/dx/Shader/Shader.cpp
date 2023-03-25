@@ -37,17 +37,15 @@ SavedArgument::SavedArgument(Type const *type) {
 Shader::Shader(
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
-    ComPtr<ID3D12RootSignature> &&rootSig,
-    vstd::vector<luisa::compute::Argument> argBindings)
-    : rootSig(std::move(rootSig)), argBindings{std::move(argBindings)}, properties(std::move(prop)), kernelArguments(std::move(args)) {
+    ComPtr<ID3D12RootSignature> &&rootSig)
+    : rootSig(std::move(rootSig)), properties(std::move(prop)), kernelArguments(std::move(args)) {
 }
 
 Shader::Shader(
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ID3D12Device *device,
-    vstd::vector<luisa::compute::Argument> argBindings,
-    bool isRaster) : properties(std::move(prop)), argBindings{std::move(argBindings)}, kernelArguments(std::move(args)) {
+    bool isRaster) : properties(std::move(prop)), kernelArguments(std::move(args)) {
     auto serializedRootSig = ShaderSerializer::SerializeRootSig(
         properties,
         isRaster);

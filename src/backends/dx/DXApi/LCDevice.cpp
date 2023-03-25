@@ -536,4 +536,5 @@ VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings)
 VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<LCDevice *>(device);
 }
+
 }// namespace toolhub::directx
