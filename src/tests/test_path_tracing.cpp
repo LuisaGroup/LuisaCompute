@@ -297,14 +297,17 @@ int main(int argc, char *argv[]) {
         image.write(dispatch_id().xy(), make_float4(0.0f));
     };
 
-    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
+    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
         //        Shared<float> s1{13u};
         //        Shared<float> s2{1024u};
         //        s2[thread_x()] = 1.f;
         //        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
-        auto ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
+        auto ldr = hdr.xyz() / hdr.w * scale;
+        $if (!is_hdr) {
+            ldr = linear_to_srgb(ldr);
+        };
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -328,7 +331,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         resolution,
-        true, false, 2)};
+        false, false, 3)};
     auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     auto last_time = 0.0;
     auto frame_count = 0u;
@@ -339,7 +342,7 @@ int main(int argc, char *argv[]) {
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
-        cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f).dispatch(resolution);
+        cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
         stream << cmd_list.commit()
                << swap_chain.present(ldr_image);
         window.pool_event();
