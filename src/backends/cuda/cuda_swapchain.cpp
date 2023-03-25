@@ -9,6 +9,9 @@
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <Windows.h>
+#include <AclAPI.h>
+#include <dxgi1_2.h>
+#include <VersionHelpers.h>
 #include <vulkan/vulkan_win32.h>
 #else
 #error TODO
@@ -21,6 +24,53 @@
 #include <backends/cuda/cuda_swapchain.h>
 
 namespace luisa::compute::cuda {
+
+#ifdef LUISA_PLATFORM_WINDOWS
+
+class WindowsSecurityAttributes {
+
+protected:
+    SECURITY_ATTRIBUTES m_winSecurityAttributes{};
+    PSECURITY_DESCRIPTOR m_winPSecurityDescriptor{};
+
+public:
+    WindowsSecurityAttributes() noexcept {
+        m_winPSecurityDescriptor = (PSECURITY_DESCRIPTOR)calloc(
+            1, SECURITY_DESCRIPTOR_MIN_LENGTH + 2 * sizeof(void **));
+        PSID *ppSID = (PSID *)((PBYTE)m_winPSecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
+        PACL *ppACL = (PACL *)((PBYTE)ppSID + sizeof(PSID *));
+        InitializeSecurityDescriptor(m_winPSecurityDescriptor, SECURITY_DESCRIPTOR_REVISION);
+        SID_IDENTIFIER_AUTHORITY sidIdentifierAuthority = SECURITY_WORLD_SID_AUTHORITY;
+        AllocateAndInitializeSid(&sidIdentifierAuthority, 1, SECURITY_WORLD_RID,
+                                 0, 0, 0, 0, 0, 0, 0, ppSID);
+        EXPLICIT_ACCESS explicitAccess;
+        ZeroMemory(&explicitAccess, sizeof(EXPLICIT_ACCESS));
+        explicitAccess.grfAccessPermissions = STANDARD_RIGHTS_ALL | SPECIFIC_RIGHTS_ALL;
+        explicitAccess.grfAccessMode = SET_ACCESS;
+        explicitAccess.grfInheritance = INHERIT_ONLY;
+        explicitAccess.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        explicitAccess.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+        explicitAccess.Trustee.ptstrName = (LPTSTR)*ppSID;
+        SetEntriesInAcl(1, &explicitAccess, nullptr, ppACL);
+        SetSecurityDescriptorDacl(m_winPSecurityDescriptor, true, *ppACL, false);
+        m_winSecurityAttributes.nLength = sizeof(m_winSecurityAttributes);
+        m_winSecurityAttributes.lpSecurityDescriptor = m_winPSecurityDescriptor;
+        m_winSecurityAttributes.bInheritHandle = true;
+    }
+    ~WindowsSecurityAttributes() noexcept {
+        PSID *ppSID = (PSID *)((PBYTE)m_winPSecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
+        PACL *ppACL = (PACL *)((PBYTE)ppSID + sizeof(PSID *));
+        if (*ppSID) { FreeSid(*ppSID); }
+        if (*ppACL) { LocalFree(*ppACL); }
+        free(m_winPSecurityDescriptor);
+    }
+
+    [[nodiscard]] auto get() const noexcept {
+        return &m_winSecurityAttributes;
+    }
+};
+
+#endif
 
 class CUDASwapchain::Impl {
 
@@ -39,6 +89,322 @@ private:
 
 private:
     VulkanSwapchain _base;
+    uint2 _size;
+    uint _current_frame{0u};
+
+private:
+    // vulkan objects
+    VkImage _image{nullptr};
+    VkDeviceMemory _image_memory{nullptr};
+    VkDeviceSize _image_memory_size{};
+    VkImageView _image_view{nullptr};
+    VkSemaphore _pre_frame_semaphore{};
+    VkSemaphore _post_frame_semaphore{};
+
+private:
+    [[nodiscard]] auto _find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) noexcept {
+        VkPhysicalDeviceMemoryProperties memory_properties;
+        vkGetPhysicalDeviceMemoryProperties(_base.physical_device(), &memory_properties);
+        for (auto i = 0u; i < memory_properties.memoryTypeCount; i++) {
+            if ((type_filter & (1u << i)) && (memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+        LUISA_ERROR_WITH_LOCATION("Failed to find suitable memory type.");
+    }
+
+    [[nodiscard]] auto _choose_image_format() const noexcept {
+        return _base.is_hdr() ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+    }
+
+    void _create_image() noexcept {
+        VkImageCreateInfo image_info{};
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        image_info.imageType = VK_IMAGE_TYPE_2D;
+        image_info.extent.width = _size.x;
+        image_info.extent.height = _size.y;
+        image_info.extent.depth = 1;
+        image_info.mipLevels = 1;
+        image_info.arrayLayers = 1;
+        image_info.format = _choose_image_format();
+        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_STORAGE_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        // TODO: export memory
+        LUISA_CHECK_VULKAN(vkCreateImage(_base.device(), &image_info, nullptr, &_image));
+
+        // allocate memory
+        VkMemoryRequirements mem_requirements;
+        vkGetImageMemoryRequirements(_base.device(), _image, &mem_requirements);
+        _image_memory_size = mem_requirements.size;
+        VkMemoryAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize = mem_requirements.size;
+        alloc_info.memoryTypeIndex = _find_memory_type(mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        LUISA_CHECK_VULKAN(vkAllocateMemory(_base.device(), &alloc_info, nullptr, &_image_memory));
+        LUISA_CHECK_VULKAN(vkBindImageMemory(_base.device(), _image, _image_memory, 0));
+    }
+
+    void _transition_image_layout() noexcept {
+
+        // create a single-use command buffer
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool = _base.command_pool();
+        alloc_info.commandBufferCount = 1;
+        VkCommandBuffer command_buffer;
+        LUISA_CHECK_VULKAN(vkAllocateCommandBuffers(_base.device(), &alloc_info, &command_buffer));
+
+        // begin recording
+        VkCommandBufferBeginInfo begin_info{};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        LUISA_CHECK_VULKAN(vkBeginCommandBuffer(command_buffer, &begin_info));
+
+        // transition image layout
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = _image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(command_buffer,
+                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0,
+                             0, nullptr,
+                             0, nullptr,
+                             1, &barrier);
+
+        // end recording
+        LUISA_CHECK_VULKAN(vkEndCommandBuffer(command_buffer));
+
+        // submit command buffer
+        VkSubmitInfo submit_info{};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &command_buffer;
+        LUISA_CHECK_VULKAN(vkQueueSubmit(_base.queue(), 1, &submit_info, VK_NULL_HANDLE));
+        LUISA_CHECK_VULKAN(vkQueueWaitIdle(_base.queue()));
+
+        // free command buffer
+        vkFreeCommandBuffers(_base.device(), _base.command_pool(), 1, &command_buffer);
+    }
+
+    void _create_image_view() noexcept {
+        VkImageViewCreateInfo view_info{};
+        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_info.image = _image;
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = _choose_image_format();
+        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_info.subresourceRange.baseMipLevel = 0;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.baseArrayLayer = 0;
+        view_info.subresourceRange.layerCount = 1;
+        LUISA_CHECK_VULKAN(vkCreateImageView(_base.device(), &view_info, nullptr, &_image_view));
+    }
+
+    void _create_semaphores() noexcept {
+
+        VkSemaphoreCreateInfo semaphore_info = {};
+        semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+#ifdef LUISA_PLATFORM_WINDOWS
+        WindowsSecurityAttributes win_security_attributes;
+        VkExportSemaphoreWin32HandleInfoKHR win_handle_info = {};
+        win_handle_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR;
+        win_handle_info.pNext = nullptr;
+        win_handle_info.pAttributes = win_security_attributes.get();
+        win_handle_info.dwAccess = DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE;
+        win_handle_info.name = nullptr;
+#endif
+
+        VkExportSemaphoreCreateInfoKHR export_info = {};
+        export_info.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR;
+#ifdef LUISA_PLATFORM_WINDOWS
+        export_info.pNext = IsWindows8OrGreater() ? &win_handle_info : nullptr;
+        export_info.handleTypes = IsWindows8OrGreater() ?
+                                      VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT :
+                                      VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT;
+#else
+        export_info.pNext = nullptr;
+        export_info.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+#endif
+        semaphore_info.pNext = &export_info;
+
+        auto device = _base.device();
+        auto back_buffer_count = _base.back_buffer_count();
+        LUISA_CHECK_VULKAN(vkCreateSemaphore(device, &semaphore_info, nullptr, &_pre_frame_semaphore));
+        LUISA_CHECK_VULKAN(vkCreateSemaphore(device, &semaphore_info, nullptr, &_post_frame_semaphore));
+    }
+
+private:
+    // cuda objects
+    CUexternalMemory _cuda_ext_image_memory;
+    CUmipmappedArray _cuda_ext_image_array;
+    CUexternalSemaphore _cuda_ext_pre_frame_semaphore;
+    CUexternalSemaphore _cuda_ext_post_frame_semaphore;
+
+private:
+    void _cuda_import_image() noexcept {
+
+        auto vulkan_image_memory_handle = [this](auto type) noexcept {
+            auto device = _base.device();
+#ifdef LUISA_PLATFORM_WINDOWS
+            auto fp_vkGetMemoryWin32HandleKHR = reinterpret_cast<PFN_vkGetMemoryWin32HandleKHR>(
+                vkGetDeviceProcAddr(device, "vkGetMemoryWin32HandleKHR"));
+            LUISA_ASSERT(fp_vkGetMemoryWin32HandleKHR != nullptr,
+                         "Failed to load vkGetMemoryWin32HandleKHR function.");
+            HANDLE handle{};
+            VkMemoryGetWin32HandleInfoKHR handle_info{};
+            handle_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
+            handle_info.pNext = nullptr;
+            handle_info.memory = _image_memory;
+            handle_info.handleType = static_cast<VkExternalMemoryHandleTypeFlagBits>(type);
+            LUISA_CHECK_VULKAN(fp_vkGetMemoryWin32HandleKHR(device, &handle_info, &handle));
+            return handle;
+#else
+            auto fp_vkGetMemoryFdKHR = reinterpret_cast<PFN_vkGetMemoryFdKHR>(
+                vkGetDeviceProcAddr(device, "vkGetMemoryFdKHR"));
+            LUISA_ASSERT(fp_vkGetMemoryFdKHR != nullptr,
+                         "Failed to load vkGetMemoryFdKHR function.");
+            auto fd = 0;
+            VkMemoryGetFdInfoKHR fd_info{};
+            fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+            fd_info.pNext = nullptr;
+            fd_info.memory = _image_memory;
+            fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+            LUISA_CHECK_VULKAN(fp_vkGetMemoryFdKHR(device, &fd_info, &fd));
+            return fd;
+#endif
+        };
+
+        CUDA_EXTERNAL_MEMORY_HANDLE_DESC cuda_ext_memory_handle{};
+#ifdef _WIN64
+        cuda_ext_memory_handle.type = IsWindows8OrGreater() ?
+                                          CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32 :
+                                          CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT;
+        cuda_ext_memory_handle.handle.win32.handle = vulkan_image_memory_handle(
+            IsWindows8OrGreater() ?
+                VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT :
+                VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT);
+#else
+        cuda_ext_memory_handle.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD;
+        cuda_ext_memory_handle.handle.fd = vulkan_image_memory_handle(
+            VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR);
+#endif
+        cuda_ext_memory_handle.size = _image_memory_size;
+        LUISA_CHECK_CUDA(cuImportExternalMemory(&_cuda_ext_image_memory, &cuda_ext_memory_handle));
+
+        CUDA_EXTERNAL_MEMORY_MIPMAPPED_ARRAY_DESC cuda_ext_mipmapped_array_desc{};
+        cuda_ext_mipmapped_array_desc.offset = 0;
+        cuda_ext_mipmapped_array_desc.arrayDesc.Width = _size.x;
+        cuda_ext_mipmapped_array_desc.arrayDesc.Height = _size.y;
+        cuda_ext_mipmapped_array_desc.arrayDesc.Depth = 0;
+        cuda_ext_mipmapped_array_desc.arrayDesc.Format = _base.is_hdr() ?
+                                                             CU_AD_FORMAT_HALF :
+                                                             CU_AD_FORMAT_UNSIGNED_INT8;
+        cuda_ext_mipmapped_array_desc.arrayDesc.NumChannels = 4;
+        cuda_ext_mipmapped_array_desc.numLevels = 1;
+        LUISA_CHECK_CUDA(cuExternalMemoryGetMappedMipmappedArray(
+            &_cuda_ext_image_array, _cuda_ext_image_memory,
+            &cuda_ext_mipmapped_array_desc));
+    }
+
+    void _cuda_import_semaphore(VkSemaphore vk_semaphore,
+                                CUexternalSemaphore &ext_semaphore) noexcept {
+
+        auto vulkan_semaphore_handle = [this, vk_semaphore](auto type) noexcept {
+            auto device = _base.device();
+#ifdef LUISA_PLATFORM_WINDOWS
+            auto fp_vkGetSemaphoreWin32HandleKHR = reinterpret_cast<PFN_vkGetSemaphoreWin32HandleKHR>(
+                vkGetDeviceProcAddr(device, "vkGetSemaphoreWin32HandleKHR"));
+            LUISA_ASSERT(fp_vkGetSemaphoreWin32HandleKHR != nullptr,
+                         "Failed to load vkGetSemaphoreWin32HandleKHR function.");
+            HANDLE handle{};
+            VkSemaphoreGetWin32HandleInfoKHR handle_info{};
+            handle_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
+            handle_info.pNext = nullptr;
+            handle_info.semaphore = vk_semaphore;
+            handle_info.handleType = type;
+            LUISA_CHECK_VULKAN(fp_vkGetSemaphoreWin32HandleKHR(device, &handle_info, &handle));
+            return handle;
+#else
+            auto fp_vkGetSemaphoreFdKHR = reinterpret_cast<PFN_vkGetSemaphoreFdKHR>(
+                vkGetDeviceProcAddr(device, "vkGetSemaphoreFdKHR"));
+            LUISA_ASSERT(fp_vkGetSemaphoreFdKHR != nullptr,
+                         "Failed to load vkGetSemaphoreFdKHR function.");
+            auto fd = 0;
+            VkSemaphoreGetFdInfoKHR fd_info{};
+            fd_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
+            fd_info.pNext = nullptr;
+            fd_info.semaphore = vk_semaphore;
+            fd_info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+            LUISA_CHECK_VULKAN(vkGetSemaphoreFdKHR(device, &fd_info, &fd));
+            return fd;
+#endif
+        };
+
+        CUDA_EXTERNAL_SEMAPHORE_HANDLE_DESC cuda_ext_semaphore_handle_desc{};
+#ifdef _WIN64
+        cuda_ext_semaphore_handle_desc.type =
+            IsWindows8OrGreater() ?
+                CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32 :
+                CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT;
+        cuda_ext_semaphore_handle_desc.handle.win32.handle = vulkan_semaphore_handle(
+            IsWindows8OrGreater() ? VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT : VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT);
+#else
+        cuda_ext_semaphore_handle_desc.type = CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD;
+        cuda_ext_semaphore_handle_desc.handle.fd = vulkan_semaphore_handle(
+            VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT);
+#endif
+
+        LUISA_CHECK_CUDA(cuImportExternalSemaphore(
+            &ext_semaphore, &cuda_ext_semaphore_handle_desc));
+    }
+
+private:
+    void _initialize() noexcept {
+        // vulkan objects
+        _create_image();
+        _transition_image_layout();
+        _create_image_view();
+        _create_semaphores();
+        // cuda objects
+        _cuda_import_image();
+        _cuda_import_semaphore(_pre_frame_semaphore, _cuda_ext_pre_frame_semaphore);
+        _cuda_import_semaphore(_post_frame_semaphore, _cuda_ext_post_frame_semaphore);
+    }
+
+    void _cleanup() noexcept {
+        vkDeviceWaitIdle(_base.device());
+        // cuda objects
+        LUISA_CHECK_CUDA(cuDestroyExternalMemory(_cuda_ext_image_memory));
+        LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(_cuda_ext_image_array));
+        LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_ext_pre_frame_semaphore));
+        LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_ext_post_frame_semaphore));
+        // vulkan objects
+        auto device = _base.device();
+        vkDestroyImageView(device, _image_view, nullptr);
+        vkDestroyImage(device, _image, nullptr);
+        vkFreeMemory(device, _image_memory, nullptr);
+        vkDestroySemaphore(device, _pre_frame_semaphore, nullptr);
+        vkDestroySemaphore(device, _post_frame_semaphore, nullptr);
+    }
 
 public:
     Impl(CUuuid device_uuid, uint64_t window_handle,
@@ -51,10 +417,16 @@ public:
                 allow_hdr,
                 vsync,
                 back_buffer_size,
-                required_extensions} {}
-    [[nodiscard]] auto pixel_storage() const noexcept { return PixelStorage::BYTE4; }
-    [[nodiscard]] auto size() const noexcept { return make_uint2(); }
-    void present(CUstream stream, CUarray image) noexcept {}
+                required_extensions},
+          _size{make_uint2(width, height)} { _initialize(); }
+    ~Impl() noexcept { _cleanup(); }
+    [[nodiscard]] auto pixel_storage() const noexcept {
+        return _base.is_hdr() ? PixelStorage::HALF4 : PixelStorage::BYTE4;
+    }
+    [[nodiscard]] auto size() const noexcept { return _size; }
+
+    void present(CUstream stream, CUarray image) noexcept {
+    }
 };
 
 CUDASwapchain::CUDASwapchain(CUDADevice *device, uint64_t window_handle,

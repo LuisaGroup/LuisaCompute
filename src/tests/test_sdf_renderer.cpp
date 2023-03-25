@@ -23,7 +23,7 @@ using namespace luisa::compute;
 
 #ifndef ENABLE_DISPLAY
 #ifdef LUISA_GUI_ENABLED
-#define ENABLE_DISPLAY 0
+#define ENABLE_DISPLAY 1
 #endif
 #endif
 

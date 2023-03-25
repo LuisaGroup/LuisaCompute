@@ -206,8 +206,12 @@ void CUDADevice::destroy_depth_buffer(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_stream(StreamTag stream_tag) noexcept {
-    LUISA_ASSERT(stream_tag != StreamTag::GRAPHICS,
-                 "Graphics streams are not supported by CUDA.");
+#ifndef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+    if (stream_tag == StreamTag::GRAPHICS) {
+        LUISA_WARNING_WITH_LOCATION("Swapchains are not enabled on CUDA backend, "
+                                    "Graphics streams might not work properly.");
+    }
+#endif
     auto p = with_handle([&] { return new_with_allocator<CUDAStream>(this); });
     return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
 }

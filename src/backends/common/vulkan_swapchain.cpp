@@ -165,7 +165,11 @@ private:
                                                    VkDebugUtilsMessageTypeFlagsEXT /* types */,
                                                    const VkDebugUtilsMessengerCallbackDataEXT *data,
                                                    void * /* user data */) noexcept {
-                LUISA_WARNING("validation layer: {}", data->pMessage);
+                if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+                    LUISA_ERROR("Vulkan Validation: {}", data->pMessage);
+                } else {
+                    LUISA_WARNING("Vulkan Validation: {}", data->pMessage);
+                }
                 return VK_FALSE;
             };
             create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
@@ -182,7 +186,7 @@ private:
             LUISA_CHECK_VULKAN(func(_instance, &debug_create_info, nullptr, &_debug_messenger));
         }
 #endif
-        LUISA_VERBOSE_WITH_LOCATION("Vulkan instance created.");
+        LUISA_INFO_WITH_LOCATION("Created vulkan instance.");
     }
 
 public:
@@ -195,7 +199,7 @@ public:
         }
 #endif
         vkDestroyInstance(_instance, nullptr);
-        LUISA_VERBOSE_WITH_LOCATION("Vulkan instance destroyed.");
+        LUISA_INFO_WITH_LOCATION("Destroyed vulkan instance.");
     }
 
     [[nodiscard]] static auto instance() noexcept {
