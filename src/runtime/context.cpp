@@ -128,7 +128,9 @@ Device Context::create_device(std::string_view backend_name_in, const DeviceConf
         impl->device_creators.emplace_back(creator);
         impl->device_deleters.emplace_back(deleter);
     }
-    return Device{Device::Handle{creator(Context{_impl}, settings), deleter}};
+    auto interface = creator(Context{_impl}, settings);
+    interface->_backend_name = backend_name;
+    return Device{Device::Handle{interface, deleter}};
 }
 
 Context::Context(luisa::shared_ptr<Impl> impl) noexcept

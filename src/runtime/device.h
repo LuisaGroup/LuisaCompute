@@ -92,6 +92,7 @@ public:
 
 private:
     Handle _impl;
+    
 
     template<typename T, typename... Args>
     [[nodiscard]] auto _create(Args &&...args) noexcept {
@@ -101,9 +102,11 @@ private:
 
 public:
     // Device construct from backend handle, use Context::create_device for convenient usage
-    explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
+    explicit Device(Handle handle) noexcept : _impl{std::move(handle)}{}
     // see definition in runtime/context.h
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
+    // The backend name in lower case, can be used to recognize the corresponding backend
+    [[nodiscard]] auto backend_name() const noexcept { return _impl->backend_name(); }
     // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
     // backend native plugins & extensions interface
