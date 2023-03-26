@@ -58,4 +58,11 @@ LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_accel_create(LCDevice devic
 LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel) LUISA_NOEXCEPT;
 LUISA_EXPORT_API size_t luisa_compute_device_query(LCDevice device, const char * query, char * result, size_t maxlen) LUISA_NOEXCEPT;
 
+LUISA_EXPORT_API LCCreatedSwapchainInfo luisa_compute_swapchain_create(
+        LCDevice device, uint64_t window_handle, LCStream stream_handle,
+        uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_swapchain_destroy(LCDevice device, LCSwapchain swapchain) LUISA_NOEXCEPT;
+LUISA_EXPORT_API void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapchain swapchain, LCTexture image) LUISA_NOEXCEPT;
+
+
 LUISA_EXPORT_API LCPixelStorage luisa_compute_pixel_format_to_storage(LCPixelFormat format) LUISA_NOEXCEPT;

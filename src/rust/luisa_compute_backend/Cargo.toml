@@ -31,5 +31,5 @@ cbindgen = "0.24.3"
 
 
 [lib]
-crate-type = ["staticlib", "rlib"]
+crate-type = ["rlib", "cdylib"]
 name = "luisa_compute_backend"

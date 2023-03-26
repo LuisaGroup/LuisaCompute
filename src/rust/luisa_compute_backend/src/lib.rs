@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use api::PixelFormat;
+use api::{CreatedSwapchainInfo, PixelFormat};
 use libc::c_void;
+use libloading::Library;
 use luisa_compute_api_types as api;
 use luisa_compute_ir::{
-    ir::{self, KernelModule, Type},
+    ir::{self, KernelModule},
     CArc,
 };
 #[cfg(feature = "remote")]
@@ -15,7 +16,44 @@ pub mod rust;
 #[derive(Debug)]
 pub struct BackendError {}
 pub type Result<T> = std::result::Result<T, BackendError>;
+
+pub struct SwapChainForCpuContext {
+    #[allow(dead_code)]
+    lib: Library,
+    pub create_cpu_swapchain: unsafe extern "C" fn(
+        window_handle: u64,
+        width: u32,
+        height: u32,
+        allow_hdr: bool,
+        vsync: bool,
+        back_buffer_size: u32,
+    ) -> *mut c_void,
+    pub cpu_swapchain_storage: unsafe extern "C" fn(swapchain: *mut c_void) -> u8,
+    pub destroy_cpu_swapchain: unsafe extern "C" fn(swapchain: *mut c_void),
+    pub cpu_swapchain_present:
+        unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
+}
+unsafe impl Send for SwapChainForCpuContext {}
+unsafe impl Sync for SwapChainForCpuContext {}
+
+impl SwapChainForCpuContext {
+    pub unsafe fn new(libpath: impl AsRef<Path>) -> std::result::Result<Self, libloading::Error> {
+        let lib = Library::new(libpath.as_ref())?;
+        let create_cpu_swapchain = *lib.get(b"luisa_compute_create_cpu_swapchain\0")?;
+        let destroy_cpu_swapchain = *lib.get(b"luisa_compute_destroy_cpu_swapchain\0")?;
+        let cpu_swapchain_present = *lib.get(b"luisa_compute_cpu_swapchain_present\0")?;
+        let cpu_swapchain_storage = *lib.get(b"luisa_compute_cpu_swapchain_storage\0")?;
+        Ok(Self {
+            lib,
+            create_cpu_swapchain,
+            destroy_cpu_swapchain,
+            cpu_swapchain_present,
+            cpu_swapchain_storage,
+        })
+    }
+}
 pub trait Backend: Sync + Send {
+    unsafe fn set_swapchain_contex(&self, ctx: SwapChainForCpuContext);
     fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> Result<api::CreatedBufferInfo>;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
@@ -39,23 +77,23 @@ pub trait Backend: Sync + Send {
         command_list: &[api::Command],
         callback: (extern "C" fn(*mut u8), *mut u8),
     ) -> Result<()>;
-    // fn create_swap_chain(
-    //     &self,
-    //     window_handle: u64,
-    //     stream_handle: u64,
-    //     width: u32,
-    //     height: u32,
-    //     allow_hdr: bool,
-    //     back_buffer_size: u32,
-    // ) -> u64;
-    // fn destroy_swap_chain(&self, swap_chain: u64);
-    // fn swap_chain_pixel_storage(&self, swap_chain: u64) -> api::PixelStorage;
-    // fn present_display_in_stream(
-    //     &self,
-    //     stream_handle: u64,
-    //     swapchain_handle: u64,
-    //     image_handle: u64,
-    // );
+    fn create_swapchain(
+        &self,
+        window_handle: u64,
+        stream_handle: api::Stream,
+        width: u32,
+        height: u32,
+        allow_hdr: bool,
+        vsync: bool,
+        back_buffer_size: u32,
+    ) -> Result<CreatedSwapchainInfo>;
+    fn destroy_swapchain(&self, swap_chain: api::Swapchain);
+    fn present_display_in_stream(
+        &self,
+        stream_handle: api::Stream,
+        swapchain_handle: api::Swapchain,
+        image_handle: api::Texture,
+    );
     fn create_shader(
         &self,
         kernel: CArc<KernelModule>,
@@ -65,8 +103,8 @@ pub trait Backend: Sync + Send {
     fn destroy_shader(&self, shader: api::Shader);
     fn create_event(&self) -> Result<api::CreatedResourceInfo>;
     fn destroy_event(&self, event: api::Event);
-    fn signal_event(&self, event: api::Event, stream:api::Stream);
-    fn wait_event(&self, event: api::Event, stream:api::Stream) -> Result<()>;
+    fn signal_event(&self, event: api::Event, stream: api::Stream);
+    fn wait_event(&self, event: api::Event, stream: api::Stream) -> Result<()>;
     fn synchronize_event(&self, event: api::Event) -> Result<()>;
     fn create_mesh(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
     fn create_procedural_primitive(

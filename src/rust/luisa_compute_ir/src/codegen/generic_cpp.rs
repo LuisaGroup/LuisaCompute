@@ -378,7 +378,7 @@ impl GenericCppCodeGen {
             Func::Log2 => Some("lc_log2"),
             Func::Log10 => Some("lc_log10"),
             Func::Powi => Some("lc_lc_powi"),
-            Func::Powf => Some("lc_powf"),
+            Func::Powf => Some("lc_pow"),
 
             Func::Sqrt => Some("lc_sqrt"),
             Func::Rsqrt => Some("lc_rsqrt"),

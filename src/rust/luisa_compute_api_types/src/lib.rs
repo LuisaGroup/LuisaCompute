@@ -25,6 +25,12 @@ pub struct CreatedBufferInfo {
     pub element_stride: usize,
     pub total_size_bytes: usize,
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct CreatedSwapchainInfo {
+    pub resource: CreatedResourceInfo,
+    pub storage: PixelStorage,
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
@@ -79,6 +85,10 @@ pub struct Stream(pub u64);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct Event(pub u64);
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct Swapchain(pub u64);
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
@@ -598,7 +608,7 @@ pub struct AppContext {
 pub enum StreamTag {
     Graphics,
     Compute,
-    Copy
+    Copy,
 }
 
 pub fn __dummy() {}
