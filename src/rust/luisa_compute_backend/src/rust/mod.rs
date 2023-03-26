@@ -302,7 +302,7 @@ impl Backend for RustBackend {
             drop(Box::from_raw(accel));
         }
     }
-    fn create_swap_chain(
+    fn create_swapchain(
         &self,
         window_handle: u64,
         stream_handle: api::Stream,
@@ -336,7 +336,7 @@ impl Backend for RustBackend {
             })
         }
     }
-    fn destroy_swap_chain(&self, swap_chain: api::Swapchain) {
+    fn destroy_swapchain(&self, swap_chain: api::Swapchain) {
         let ctx = self.swapchain_context.read();
         let ctx = ctx
             .as_ref()

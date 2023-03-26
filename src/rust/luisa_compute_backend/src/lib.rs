@@ -78,7 +78,7 @@ pub trait Backend: Sync + Send {
         command_list: &[api::Command],
         callback: (extern "C" fn(*mut u8), *mut u8),
     ) -> Result<()>;
-    fn create_swap_chain(
+    fn create_swapchain(
         &self,
         window_handle: u64,
         stream_handle: api::Stream,
@@ -88,7 +88,7 @@ pub trait Backend: Sync + Send {
         vsync: bool,
         back_buffer_size: u32,
     ) -> Result<CreatedSwapchainInfo>;
-    fn destroy_swap_chain(&self, swap_chain: api::Swapchain);
+    fn destroy_swapchain(&self, swap_chain: api::Swapchain);
     fn present_display_in_stream(
         &self,
         stream_handle: api::Stream,
