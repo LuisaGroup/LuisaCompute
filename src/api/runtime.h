@@ -7,7 +7,6 @@
 #include <api/common.h>
 #include <api/device.h>
 
-
 LUISA_EXPORT_API void luisa_compute_init() LUISA_NOEXCEPT;
 LUISA_EXPORT_API LCAppContext luisa_compute_app_context() LUISA_NOEXCEPT;
 
@@ -60,7 +59,7 @@ LUISA_EXPORT_API size_t luisa_compute_device_query(LCDevice device, const char *
 
 LUISA_EXPORT_API LCCreatedSwapchainInfo luisa_compute_swapchain_create(
         LCDevice device, uint64_t window_handle, LCStream stream_handle,
-        uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT;
+        uint32_t width, uint32_t height, bool allow_hdr, bool vsync, uint32_t back_buffer_size) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_swapchain_destroy(LCDevice device, LCSwapchain swapchain) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapchain swapchain, LCTexture image) LUISA_NOEXCEPT;
 
