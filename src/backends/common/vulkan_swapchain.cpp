@@ -214,9 +214,16 @@ public:
         LUISA_INFO_WITH_LOCATION("Destroyed vulkan instance.");
     }
 
-    [[nodiscard]] static auto instance() noexcept {
-        static VulkanInstance instance;
-        return &instance;
+    [[nodiscard]] static auto retain() noexcept {
+        static std::mutex mutex;
+        static luisa::weak_ptr<VulkanInstance> weak_instance;
+        std::scoped_lock lock{mutex};
+        if (auto ptr = weak_instance.lock()) { return ptr; }
+        luisa::shared_ptr<VulkanInstance> instance{
+            new(luisa::allocate_with_allocator<VulkanInstance>()) VulkanInstance,
+            [](auto *ptr) noexcept { luisa::delete_with_allocator(ptr); }};
+        weak_instance = instance;
+        return instance;
     }
 
     [[nodiscard]] auto handle() const noexcept { return _instance; }
@@ -226,6 +233,9 @@ public:
 class VulkanSwapchain::Impl {
 
 private:
+    // instance, must go first to ensure destruction order
+    luisa::shared_ptr<VulkanInstance> _instance;
+
     // surface
     VkSurfaceKHR _surface{nullptr};
 
@@ -294,19 +304,19 @@ private:
         return details;
     };
 
-    void _create_surface(const VulkanInstance *instance, uint64_t window_handle) noexcept {
+    void _create_surface(uint64_t window_handle) noexcept {
 #ifdef LUISA_PLATFORM_WINDOWS
         VkWin32SurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
         create_info.hwnd = reinterpret_cast<HWND>(window_handle);
         create_info.hinstance = GetModuleHandle(nullptr);
-        LUISA_CHECK_VULKAN(vkCreateWin32SurfaceKHR(instance->handle(), &create_info, nullptr, &_surface));
+        LUISA_CHECK_VULKAN(vkCreateWin32SurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
 #elif defined(LUISA_PLATFORM_UNIX)
         VkXlibSurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
         create_info.dpy = XOpenDisplay(nullptr);
         create_info.window = static_cast<Window>(window_handle);
-        LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(instance->handle(), &create_info, nullptr, &_surface));
+        LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
 #else
 #error "Unsupported platform."
 #endif
@@ -358,8 +368,7 @@ private:
         return "Unknown";
     }
 
-    void _create_device(const VulkanInstance *instance,
-                        VulkanSwapchain::DeviceUUID device_uuid,
+    void _create_device(VulkanSwapchain::DeviceUUID device_uuid,
                         luisa::span<const char *const> required_device_extensions,
                         bool allow_hdr) noexcept {
 
@@ -427,10 +436,10 @@ private:
 
         // find the suitable physical device
         auto device_count = 0u;
-        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(instance->handle(), &device_count, nullptr));
+        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(_instance->handle(), &device_count, nullptr));
         LUISA_ASSERT(device_count > 0u, "Failed to find GPUs with Vulkan support.");
         luisa::vector<VkPhysicalDevice> devices(device_count);
-        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(instance->handle(), &device_count, devices.data()));
+        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(_instance->handle(), &device_count, devices.data()));
         luisa::optional<uint32_t> queue_family;
         for (auto device : devices) {
             if (check_properties(device) && check_extensions(device) && check_swapchain_support(device, allow_hdr)) {
@@ -499,7 +508,7 @@ private:
 
         // enable validation layers if necessary
         static constexpr std::array validation_layers{"VK_LAYER_KHRONOS_validation"};
-        if (instance->has_debug_layer()) {
+        if (_instance->has_debug_layer()) {
             device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
             device_create_info.ppEnabledLayerNames = validation_layers.data();
         } else {
@@ -518,8 +527,7 @@ private:
         LUISA_CHECK_VULKAN(vkCreateCommandPool(_device, &pool_create_info, nullptr, &_command_pool));
     }
 
-    void _create_swapchain(const VulkanInstance *instance,
-                           uint width, uint height, uint back_buffers,
+    void _create_swapchain(uint width, uint height, uint back_buffers,
                            bool allow_hdr, bool vsync) noexcept {
 
         auto support = _query_swapchain_support(_physical_device);
@@ -1004,11 +1012,11 @@ public:
          uint width, uint height,
          bool allow_hdr, bool vsync,
          uint back_buffer_count,
-         luisa::span<const char *const> required_device_extensions) noexcept {
-        auto vulkan_instance = VulkanInstance::instance();
-        _create_surface(vulkan_instance, window_handle);
-        _create_device(vulkan_instance, device_uuid, required_device_extensions, allow_hdr);
-        _create_swapchain(vulkan_instance, width, height, back_buffer_count, allow_hdr, vsync);
+         luisa::span<const char *const> required_device_extensions) noexcept
+    : _instance{VulkanInstance::retain()} {
+        _create_surface(window_handle);
+        _create_device(device_uuid, required_device_extensions, allow_hdr);
+        _create_swapchain(width, height, back_buffer_count, allow_hdr, vsync);
         _create_render_pass();
         _create_descriptor_set_layout();
         _create_pipeline();
@@ -1040,7 +1048,7 @@ public:
         vkFreeMemory(_device, _vertex_buffer_memory, nullptr);
         vkDestroyCommandPool(_device, _command_pool, nullptr);
         vkDestroyDevice(_device, nullptr);
-        vkDestroySurfaceKHR(VulkanInstance::instance()->handle(), _surface, nullptr);
+        vkDestroySurfaceKHR(_instance->handle(), _surface, nullptr);
     }
 
     void wait_for_fence() noexcept {
