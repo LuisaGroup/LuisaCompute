@@ -152,8 +152,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     optix::ProgramGroupOptions program_group_options_miss{};
     optix::ProgramGroupDesc program_group_desc_miss{};
     program_group_desc_miss.kind = optix::PROGRAM_GROUP_KIND_MISS;
-    program_group_desc_ch_any.miss.module = _module;
-    program_group_desc_ch_any.miss.entryFunctionName = "__miss__miss";
+//    program_group_desc_ch_any.miss.module = _module;
+//    program_group_desc_ch_any.miss.entryFunctionName = "__miss__miss";
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().programGroupCreate(

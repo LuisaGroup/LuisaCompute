@@ -164,7 +164,7 @@ int main(int argc, char *argv[]) {
                << mesh.build();
     }
 
-    auto accel = device.create_accel({});
+    auto accel = device.create_accel();
     for (auto &&m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f));
     }
@@ -331,7 +331,7 @@ int main(int argc, char *argv[]) {
                         auto photon = photon_buffer->read(photon_index);
                         auto dis = distance(Float3{photon.position}, p);
                         $if(dis < r) {
-                            radiance += material.albedo * inv_pi *Float3{photon.power};
+                            radiance += material.albedo * inv_pi * Float3{photon.power};
                         };
                         photon_index = photon.nxt;
                     };

@@ -1249,8 +1249,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto t_min = ray.m1;
     auto t_max = ray.m3;
     [[maybe_unused]] unsigned int
-        p0, p1, p2, p3, p4, p5,
-        p6, p7, p8, p9, p10, p11, p12, p13,
+        p5, p6, p7, p8, p9, p10, p11, p12, p13,
         p14, p15, p16, p17, p18, p19, p20, p21, p22,
         p23, p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
@@ -1261,27 +1260,22 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
         "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,"
         "%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63,"
         "%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
-        : "=r"(p0), "=r"(p1), "=r"(p2), "=r"(p3), "=r"(p4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
+        : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3), "=r"(r4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
           "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
+          "r"(0u), "r"(reg_count), "r"(r0), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
           "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
           "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
           "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u)
         :);
-    r0 = p0;
-    r1 = p1;
-    r2 = p2;
-    r3 = p3;
-    r4 = p4;
 }
 
 [[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = 1u;// disable any hit
-    auto r0 = 0u;
+    auto r0 = ~0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
