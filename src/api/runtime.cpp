@@ -582,3 +582,27 @@ size_t luisa_compute_device_query(LCDevice device, const char * query, char * re
     result[len] = '\0';
     return len;
 }
+
+LCCreatedSwapchainInfo luisa_compute_swapchain_create(
+        LCDevice device, uint64_t window_handle, LCStream stream_handle,
+        uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT{
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    auto ret = d->object()->impl()->create_swap_chain(
+        window_handle, stream_handle._0,
+        width, height, allow_hdr, vsync, back_buffer_size);
+    return LCCreatedSwapchainInfo{
+        .resource = LCCreatedResourceInfo {
+            .handle = ret.handle,
+            .native_handle = ret.native_handle,
+        },
+        .storage = static_cast<LCPixelStorage>(ret.storage),
+    };
+}
+void luisa_compute_swapchain_destroy(LCDevice device, LCSwapchain swapchain) LUISA_NOEXCEPT {
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->destroy_swap_chain(swapchain._0);
+}
+void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapchain swapchain, LCTexture image) LUISA_NOEXCEPT {
+    auto d = reinterpret_cast<RC<Device> *>(device._0);
+    d->object()->impl()->present_display_in_stream(stream._0, swapchain._0, image._0);
+}

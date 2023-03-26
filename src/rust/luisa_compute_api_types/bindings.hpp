@@ -123,6 +123,10 @@ struct Shader {
     uint64_t _0;
 };
 
+struct Swapchain {
+    uint64_t _0;
+};
+
 struct AccelBuildModificationFlags {
     uint32_t bits;
 
@@ -492,6 +496,11 @@ struct CreatedBufferInfo {
 struct CreatedShaderInfo {
     CreatedResourceInfo resource;
     uint32_t block_size[3];
+};
+
+struct CreatedSwapchainInfo {
+    CreatedResourceInfo resource;
+    PixelStorage storage;
 };
 
 struct AccelOption {

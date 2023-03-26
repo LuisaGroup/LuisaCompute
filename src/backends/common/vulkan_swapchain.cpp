@@ -12,6 +12,7 @@
 #include <core/stl/optional.h>
 #include <core/stl/vector.h>
 #include <core/stl/unordered_map.h>
+#include <runtime/rhi/pixel.h>
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <Windows.h>
@@ -1138,7 +1139,6 @@ void VulkanSwapchain::present(VkSemaphore wait, VkSemaphore signal,
     _impl->present(wait, signal, image, image_layout);
 }
 
-
 class VulkanSwapchainForCPU {
 
 private:
@@ -1153,6 +1153,7 @@ private:
     VkImageView _image_view{nullptr};
     luisa::vector<VkCommandBuffer> _command_buffers;
     uint _current_frame{0u};
+    
 
 private:
     [[nodiscard]] auto _find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) noexcept {
@@ -1347,7 +1348,14 @@ public:
                 vsync,
                 back_buffer_count,
                 {/* not required */}},
-          _image_extent{width, height} { _initialize(); }
+          _image_extent{width, height} {
+        if (allow_hdr) {
+            _pixel_storage = PixelStorage::HALF4;
+        } else {
+            _pixel_storage = PixelStorage::BYTE4;
+        }
+        _initialize();
+    }
 
     ~VulkanSwapchainForCPU() noexcept { _clean_up(); }
 
@@ -1400,12 +1408,15 @@ public:
         // update frame index
         _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
     }
+    PixelStorage _pixel_storage{};
 };
 
-LUISA_EXPORT_API void * luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
+LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
     return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
 }
-
+LUISA_EXPORT_API uint8_t luisa_compute_cpu_swapchain_storage(void *swapchain) noexcept {
+    return static_cast<uint8_t>(static_cast<VulkanSwapchainForCPU *>(swapchain)->_pixel_storage);
+}
 LUISA_EXPORT_API void luisa_compute_destroy_cpu_swapchain(void *swapchain) noexcept {
     delete static_cast<VulkanSwapchainForCPU *>(swapchain);
 }
