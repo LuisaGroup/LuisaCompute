@@ -1199,7 +1199,7 @@ private:
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = mem_requirements.size;
         alloc_info.memoryTypeIndex = _find_memory_type(mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        LUISA_INFO("Image extent: {}x{}.", _image_extent.width, _image_extent.height);
+
         LUISA_CHECK_VULKAN(vkAllocateMemory(_base.device(), &alloc_info, nullptr, &_image_memory));
         LUISA_CHECK_VULKAN(vkBindImageMemory(_base.device(), _image, _image_memory, 0));
     }
@@ -1352,8 +1352,6 @@ public:
                 back_buffer_count,
                 {/* not required */}},
           _image_extent{width, height} {
-        LUISA_INFO("Window: {}.", window_handle);
-        LUISA_INFO("Image extent: {}x{}.", width, height);
         if (allow_hdr) {
             _pixel_storage = PixelStorage::HALF4;
         } else {

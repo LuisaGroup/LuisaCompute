@@ -305,7 +305,7 @@ impl Backend for RustBackend {
     fn create_swapchain(
         &self,
         window_handle: u64,
-        stream_handle: api::Stream,
+        _stream_handle: api::Stream,
         width: u32,
         height: u32,
         allow_hdr: bool,
@@ -319,7 +319,6 @@ impl Backend for RustBackend {
         unsafe {
             let sc_ctx = (ctx.create_cpu_swapchain)(
                 window_handle,
-                stream_handle.0,
                 width,
                 height,
                 allow_hdr,

@@ -22,7 +22,6 @@ pub struct SwapChainForCpuContext {
     lib: Library,
     pub create_cpu_swapchain: unsafe extern "C" fn(
         window_handle: u64,
-        stream_handle: u64,
         width: u32,
         height: u32,
         allow_hdr: bool,
