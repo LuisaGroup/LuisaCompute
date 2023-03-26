@@ -68,6 +68,7 @@ protected:
 
 public:
     static vstd::string PSOName(Device const *device, vstd::string_view fileName);
+    static vstd::vector<Argument> BindingToArg(vstd::span<const Function::Binding> bindings);
     virtual ~Shader() noexcept = default;
     uint BindlessCount() const { return bindlessCount; }
     vstd::span<Property const> Properties() const { return properties; }

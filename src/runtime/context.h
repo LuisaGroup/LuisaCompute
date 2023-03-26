@@ -7,6 +7,7 @@
 #include <core/stl/memory.h>
 #include <core/stl/string.h>
 #include <core/stl/hash.h>
+#include <core/stl/vector.h>
 
 namespace luisa {
 class DynamicModule;
@@ -47,11 +48,10 @@ public:
     // installed backends automatically detacted
     // The compiled backends' name is returned
     [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;
-    // loaded backends' modules
-    [[nodiscard]] luisa::span<const DynamicModule> loaded_modules() const noexcept;
     // choose one backend randomly when multiple installed backends compiled
     // program panic when no installed backends compiled
     [[nodiscard]] Device create_default_device() noexcept;
+    [[nodiscard]] luisa::vector<luisa::string> backend_device_names(luisa::string_view backend_name) const noexcept;
 };
 
 }// namespace luisa::compute

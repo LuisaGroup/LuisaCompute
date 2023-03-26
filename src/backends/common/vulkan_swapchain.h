@@ -4,31 +4,31 @@
 
 #pragma once
 
-#include <vulkan/vk_enum_string_helper.h>
 #include <vulkan/vulkan_core.h>
 
 #include <core/basic_types.h>
 #include <core/stl/memory.h>
-#include <cstring>
+#include <core/stl/string.h>
 
 #define LUISA_CHECK_VULKAN(x)                            \
     do {                                                 \
         auto ret = x;                                    \
         if (ret != VK_SUCCESS) [[unlikely]] {            \
-            if (ret == VK_ERROR_OUT_OF_DATE_KHR ||       \
-                ret == VK_SUBOPTIMAL_KHR) [[likely]] {   \
+            if (ret > 0) [[likely]] {                    \
                 LUISA_WARNING_WITH_LOCATION(             \
                     "Vulkan call `" #x "` returned {}.", \
-                    string_VkResult(ret));               \
+                    ::luisa::compute::to_string(ret));   \
             } else [[unlikely]] {                        \
                 LUISA_ERROR_WITH_LOCATION(               \
                     "Vulkan call `" #x "` failed: {}.",  \
-                    string_VkResult(ret));               \
+                    ::luisa::compute::to_string(ret));   \
             }                                            \
         }                                                \
     } while (false)
 
 namespace luisa::compute {
+
+[[nodiscard]] luisa::string to_string(VkResult x) noexcept;
 
 class VulkanSwapchain {
 

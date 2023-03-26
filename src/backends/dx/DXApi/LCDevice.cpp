@@ -213,6 +213,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel,
             [&]() { return std::move(code); },
             checkMD5,
+            Shader::BindingToArg(kernel.argument_bindings()),
             kernel.block_size(),
             kShaderModel,
             file_name,
@@ -535,4 +536,5 @@ VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings)
 VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<LCDevice *>(device);
 }
+
 }// namespace toolhub::directx

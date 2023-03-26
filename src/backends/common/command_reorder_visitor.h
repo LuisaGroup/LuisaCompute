@@ -7,6 +7,7 @@
 #include <runtime/rhi/command.h>
 #include <runtime/buffer.h>
 #include <runtime/raster/raster_scene.h>
+#include <runtime/rhi/argument.h>
 
 namespace luisa::compute {
 
@@ -17,6 +18,7 @@ struct ReorderFuncTable{
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {}
     size_t aabb_stride() const noexcept {}
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {}
+    luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {}
 }
 */
 concept ReorderFuncTable =
@@ -25,6 +27,7 @@ concept ReorderFuncTable =
         requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
         requires(std::is_same_v<size_t, decltype(t.aabb_stride())>);
         t.update_bindless(uint64_v, modification);
+        requires(std::is_same_v<luisa::span<const Argument>, decltype(t.shader_bindings(uint64_v))>);
     };
 
 template<ReorderFuncTable FuncTable, bool supportConcurrentCopy>
@@ -508,8 +511,8 @@ private:
         }
     }
     FuncTable _func_table;
-    template<typename... Callbacks>
-    void visit(const ShaderDispatchCommandBase *command, const Command* cmd_base, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
+    template<bool contain_binding, typename... Callbacks>
+    void visit(const ShaderDispatchCommandBase *command, const Command *cmd_base, uint64_t shader_handle, Callbacks &&...callbacks) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
         _use_bindless_in_pass = false;
@@ -519,7 +522,7 @@ private:
         _shader_handle = shader_handle;
         using Argument = ShaderDispatchCommandBase::Argument;
         using Tag = Argument::Tag;
-        for (auto &&i : command->arguments()) {
+        auto ite_arg = [&](auto &&i) {
             switch (i.tag) {
                 case Tag::BUFFER: {
                     auto &&bf = i.buffer;
@@ -563,6 +566,14 @@ private:
                     ++_arg_idx;
                 } break;
             }
+        };
+        if constexpr (contain_binding) {
+            for (auto &&i : _func_table.shader_bindings(shader_handle)) {
+                ite_arg(i);
+            }
+        }
+        for (auto &&i : command->arguments()) {
+            ite_arg(i);
         }
         if constexpr (sizeof...(callbacks) > 0) {
             auto cb = {(callbacks(), 0)...};
@@ -636,7 +647,7 @@ public:
 
     // Shader : function, read/write multi resources
     void visit(const ShaderDispatchCommand *command) noexcept override {
-        visit(command, command, command->handle(), [&] {
+        visit<true>(command, command, command->handle(), [&] {
             if (command->is_indirect()) {
                 auto &&t = command->indirect_dispatch_size();
                 add_dispatch_handle(
@@ -655,7 +666,7 @@ public:
                 Range(a.level),
                 true);
         };
-        visit(command, command, command->handle(), [&] {
+        visit<false>(command, command, command->handle(), [&] {
             auto &&rtv = command->rtv_texs();
             auto &&dsv = command->dsv_tex();
             for (auto &&i : rtv) {

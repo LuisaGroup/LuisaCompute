@@ -13,7 +13,7 @@
 #include <backends/cuda/cuda_mipmap_array.h>
 #include <backends/cuda/cuda_swapchain.h>
 
-#ifdef LUISA_PLATFORM_WINDOWS
+#if defined(LUISA_PLATFORM_WINDOWS)
 #include <Windows.h>
 #include <AclAPI.h>
 #include <dxgi1_2.h>
@@ -23,7 +23,7 @@
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
 #else
-#error TODO
+#error "Unsupported platform"
 #endif
 
 #include <backends/common/vulkan_swapchain.h>
@@ -446,14 +446,15 @@ private:
     void _cleanup() noexcept {
         auto device = _base.device();
         auto n = _base.back_buffer_count();
-        vkDeviceWaitIdle(device);
         // cuda objects
+        LUISA_CHECK_CUDA(cuCtxSynchronize());
         LUISA_CHECK_CUDA(cuDestroyExternalMemory(_cuda_ext_image_memory));
         LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(_cuda_ext_image_mipmapped_array));
         for (auto i = 0u; i < n; i++) {
             LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_ext_semaphores[i]));
         }
         // vulkan objects
+        LUISA_CHECK_VULKAN(vkDeviceWaitIdle(device));
         vkDestroyImageView(device, _image_view, nullptr);
         vkDestroyImage(device, _image, nullptr);
         vkFreeMemory(device, _image_memory, nullptr);

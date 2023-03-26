@@ -66,7 +66,7 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
       bc7TryMode137(BuiltinKernel::LoadBC7TryMode137CSKernel),
       bc7TryMode02(BuiltinKernel::LoadBC7TryMode02CSKernel),
       bc7EncodeBlock(BuiltinKernel::LoadBC7EncodeBlockCSKernel),
-      ctx(ctx){
+      ctx(ctx) {
     using Microsoft::WRL::ComPtr;
     size_t index = 0;
     bool useRuntime = true;
@@ -76,9 +76,9 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         fileIo = settings->binary_io;
     }
-    if (fileIo == nullptr) { 
+    if (fileIo == nullptr) {
         serVisitor = vstd::make_unique<luisa::compute::DefaultBinaryIO>(ctx, "dx"sv);
-        fileIo = serVisitor.get(); 
+        fileIo = serVisitor.get();
     }
     auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
         struct AdapterInfo {
@@ -133,7 +133,7 @@ Device::Device(Context &ctx, DeviceConfig const *settings)
                             adapter.Get(), D3D_FEATURE_LEVEL_12_1,
                             IID_PPV_ARGS(device.GetAddressOf())));
                         vstd::wstring s{desc.Description};
-                        vstd::string ss(s.size(), ' ');
+                        vstd::string ss(s.size(), '\0');
                         std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
                         LUISA_INFO("Found capable DirectX device at index {}: {}.", index, ss);
                         adapterID = GenAdapterGUID(desc);
@@ -175,5 +175,20 @@ bool Device::SupportMeshShader() const {
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 featureData = {};
     device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &featureData, sizeof(featureData));
     return (featureData.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1);
+}
+VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
+    ComPtr<IDXGIFactory4> dxgiFactory;
+    ComPtr<IDXGIAdapter1> adapter;
+    ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));
+    auto capableAdapterIndex = 0u;
+    for (auto adapterIndex = 0u; dxgiFactory->EnumAdapters1(adapterIndex, adapter.GetAddressOf()) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
+        DXGI_ADAPTER_DESC1 desc;
+        adapter->GetDesc1(&desc);
+        if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
+            vstd::wstring s{desc.Description};
+            auto &ss = r.emplace_back(s.size(), '\0');
+            std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
+        }
+    }
 }
 }// namespace toolhub::directx

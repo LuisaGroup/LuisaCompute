@@ -11,19 +11,43 @@
 #include <core/binary_io.h>
 #include <vstl/pdqsort.h>
 #include <core/stl/filesystem.h>
+#include <core/stl/unordered_map.h>
 
 namespace luisa::compute {
-
+struct BackendModule {
+    using BackendDeviceNames = void(luisa::vector<luisa::string> &);
+    DynamicModule module;
+    Device::Creator *creator;
+    Device::Deleter *deleter;
+    BackendDeviceNames *backend_device_names;
+};
 // Make context global, so dynamic modules cannot be over-loaded
 struct Context::Impl {
     std::filesystem::path runtime_directory;
     std::filesystem::path cache_directory;
     std::filesystem::path data_directory;
-    luisa::vector<DynamicModule> loaded_modules;
-    luisa::vector<luisa::string> device_identifiers;
-    luisa::vector<Device::Creator *> device_creators;
-    luisa::vector<Device::Deleter *> device_deleters;
+    luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
+    const BackendModule &create_module(const luisa::string &backend_name) noexcept {
+        if (std::find(installed_backends.cbegin(),
+                      installed_backends.cend(),
+                      backend_name) == installed_backends.cend()) {
+            LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
+        }
+        auto create_new = [&]() {
+            BackendModule m{
+                .module = DynamicModule::load(
+                    runtime_directory,
+                    luisa::format("lc-backend-{}", backend_name))};
+            m.creator = m.module.function<Device::Creator>("create");
+            m.deleter = m.module.function<Device::Deleter>("destroy");
+            m.backend_device_names = m.module.function<BackendModule::BackendDeviceNames>("backend_device_names");
+            return m;
+        };
+        return loaded_backends
+            .try_emplace(backend_name, luisa::lazy_construct(std::move(create_new)))
+            .first->second;
+    }
 };
 
 namespace detail {
@@ -97,40 +121,13 @@ ContextPaths Context::paths() const noexcept {
 }
 
 Device Context::create_device(std::string_view backend_name_in, const DeviceConfig *settings) noexcept {
+    auto impl = _impl.get();
     luisa::string backend_name{backend_name_in};
     for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
-    auto impl = _impl.get();
-    if (std::find(impl->installed_backends.cbegin(),
-                  impl->installed_backends.cend(),
-                  backend_name) == impl->installed_backends.cend()) {
-        LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
-    }
-    LUISA_ASSERT(impl->device_identifiers.size() == impl->device_creators.size() &&
-                     impl->device_identifiers.size() == impl->device_deleters.size(),
-                 "Internal error.");
-    Device::Creator *creator;
-    Device::Deleter *deleter;
-    if (auto iter = std::find(impl->device_identifiers.cbegin(),
-                              impl->device_identifiers.cend(),
-                              backend_name);
-        iter != impl->device_identifiers.cend()) {
-        auto index = std::distance(impl->device_identifiers.cbegin(), iter);
-        creator = impl->device_creators[index];
-        deleter = impl->device_deleters[index];
-    } else {
-        auto &&m = impl->loaded_modules.emplace_back(
-            DynamicModule::load(
-                impl->runtime_directory,
-                luisa::format("lc-backend-{}", backend_name)));
-        creator = m.function<Device::Creator>("create");
-        deleter = m.function<Device::Deleter>("destroy");
-        impl->device_identifiers.emplace_back(backend_name);
-        impl->device_creators.emplace_back(creator);
-        impl->device_deleters.emplace_back(deleter);
-    }
-    auto interface = creator(Context{_impl}, settings);
-    interface->_backend_name = backend_name;
-    return Device{Device::Handle{interface, deleter}};
+    auto &&m = impl->create_module(backend_name);
+    auto interface = m.creator(Context{_impl}, settings);
+    interface->_backend_name = std::move(backend_name);
+    return Device{Device::Handle{interface, m.deleter}};
 }
 
 Context::Context(luisa::shared_ptr<Impl> impl) noexcept
@@ -146,13 +143,17 @@ Context::~Context() noexcept {
 luisa::span<const luisa::string> Context::installed_backends() const noexcept {
     return _impl->installed_backends;
 }
-luisa::span<const DynamicModule> Context::loaded_modules() const noexcept {
-    return _impl->loaded_modules;
-}
-
 Device Context::create_default_device() noexcept {
     LUISA_ASSERT(!installed_backends().empty(), "No backends installed.");
     return create_device(installed_backends().front());
 }
-
+luisa::vector<luisa::string> Context::backend_device_names(luisa::string_view backend_name_in) const noexcept {
+    auto impl = _impl.get();
+    luisa::string backend_name{backend_name_in};
+    for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
+    auto &&m = impl->create_module(backend_name);
+    luisa::vector<luisa::string> names;
+    m.backend_device_names(names);
+    return names;
+}
 }// namespace luisa::compute

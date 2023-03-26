@@ -92,8 +92,8 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
                         c.node = node;
                         c.binding.tag = ir::Binding::Tag::Buffer;
                         c.binding.buffer = {{.handle = b.handle,
-                                             .offset = b.offset_bytes,
-                                             .size = b.size_bytes}};
+                                             .offset = b.offset,
+                                             .size = b.size}};
                         captures.ptr[capture_index++] = c;
                     },
                     [&](Function::TextureBinding b) noexcept {

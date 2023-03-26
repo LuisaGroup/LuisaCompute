@@ -33,9 +33,11 @@ struct WindowImpl : public Window::IWindowImpl {
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         window = glfwCreateWindow(size.x, size.y, name, nullptr, nullptr);
         // TODO: other platform
-#ifdef _WIN32
+#if defined(LUISA_PLATFORM_WINDOWS)
         window_handle = reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
-#elif __linux__
+#elif defined(LUISA_PLATFORM_APPLE)
+#error TODO: Apple
+#else
         window_handle = reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
         glfwMakeContextCurrent(window);

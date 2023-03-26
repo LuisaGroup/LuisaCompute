@@ -11,7 +11,7 @@ namespace luisa::compute {
 uint64_t Function::BufferBinding::hash() const noexcept {
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_buffer_binding"sv);
-    return hash_combine({handle, static_cast<uint64_t>(offset_bytes)}, seed);
+    return hash_combine({handle, static_cast<uint64_t>(offset)}, seed);
 }
 
 uint64_t Function::TextureBinding::hash() const noexcept {

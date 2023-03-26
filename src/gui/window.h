@@ -16,7 +16,7 @@ public:
     using KeyCallback = luisa::function<void(int key, int action)>;
     using ScrollCallback = luisa::function<void(float2 dxdy)>;
     struct IWindowImpl {
-        virtual ~IWindowImpl() = default;
+        virtual ~IWindowImpl() noexcept = default;
     };
 
 private:
