@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         make_uint2(resolution),
-        true, false, 2)};
+        false, false, 2)};
     auto display = device.create_image<float>(swap_chain.backend_storage(), make_uint2(resolution));
 
     auto index = [](auto xy) noexcept {

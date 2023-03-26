@@ -326,7 +326,7 @@ int main(int argc, char *argv[]) {
     cmd_list << clear_shader(accum_image).dispatch(resolution)
              << make_sampler_shader(seed_image).dispatch(resolution);
 
-    Window window{"path tracing", resolution.x, resolution.x, false};
+    Window window{"path tracing", resolution, false};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
