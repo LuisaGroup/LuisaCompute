@@ -5,7 +5,7 @@
 #elif defined(LUISA_PLATFORM_APPLE)
 #define GLFW_EXPOSE_NATIVE_COCOA
 #else
-#define GLFW_EXPOSE_NATIVE_X11 // TODO: other window compositors
+#define GLFW_EXPOSE_NATIVE_X11// TODO: other window compositors
 #endif
 
 #include <GLFW/glfw3.h>
@@ -36,7 +36,7 @@ struct WindowImpl : public Window::IWindowImpl {
 #if defined(LUISA_PLATFORM_WINDOWS)
         window_handle = reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
 #elif defined(LUISA_PLATFORM_APPLE)
-#error TODO: Apple
+// TODO: Apple
 #else
         window_handle = reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
