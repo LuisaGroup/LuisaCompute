@@ -9,13 +9,17 @@
 #include <core/logging.h>
 #include <core/stl/filesystem.h>
 
-#if (!defined __clang__) && (!defined _MSC_VER) && (!defined __GNUC__) && (!defined __MINGW64__)
-static_assert(false, "Unsupported compiler.");
-#endif
+// Don't do this
+// #if (!defined __clang__) && (!defined _MSC_VER) && (!defined __GNUC__) && (!defined __MINGW64__)
+// static_assert(false, "Unsupported compiler.");
+// #endif
+
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1, "legal environment test");
-#if defined(LUISA_CLANG) && defined(LUISA_PLATFORM_WINDOWS)
-static_assert(__clang_major__ >= 16, "Due to runtime limitation, only Clang-cl, Clang-16 or later version is supported");
-#endif
+
+// Don't do this here
+// #if defined(LUISA_CLANG) && defined(LUISA_PLATFORM_WINDOWS)
+// static_assert(__clang_major__ >= 16, "Due to runtime limitation, only Clang-cl, Clang-16 or later version is supported");
+// #endif
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #ifndef UNICODE
@@ -25,7 +29,7 @@ static_assert(__clang_major__ >= 16, "Due to runtime limitation, only Clang-cl, 
 #define NOMINMAX 1
 #endif
 #include <windows.h>
-#include <dbghelp.h>
+#include <DbgHelp.h>
 
 namespace luisa {
 
