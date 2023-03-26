@@ -1199,6 +1199,10 @@ pub struct Module {
 pub struct CallableModule {
     pub module: Module,
     pub args: CBoxedSlice<NodeRef>,
+    pub captures: CBoxedSlice<Capture>,
+    pub cpu_custom_ops: CBoxedSlice<CArc<CpuCustomOp>>,
+    #[serde(skip)]
+    pub pools: CArc<ModulePools>,
 }
 
 #[repr(C)]
@@ -1284,6 +1288,7 @@ pub struct KernelModule {
     pub args: CBoxedSlice<NodeRef>,
     pub shared: CBoxedSlice<NodeRef>,
     pub cpu_custom_ops: CBoxedSlice<CArc<CpuCustomOp>>,
+    pub callables: CBoxedSlice<CallableModuleRef>,
     pub block_size: [u32; 3],
     #[serde(skip)]
     pub pools: CArc<ModulePools>,
