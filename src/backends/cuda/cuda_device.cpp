@@ -369,8 +369,8 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (is_raytracing) {
             return new_with_allocator<CUDAShaderOptiX>(
-                this, ptx.data(), ptx.size(),
-                "__raygen__main", std::move(bound_arguments));
+                this, ptx.data(), ptx.size(), "__raygen__main",
+                option.enable_debug_info, std::move(bound_arguments));
         }
         return new_with_allocator<CUDAShaderNative>(
             ptx.data(), ptx.size(), "kernel_main",
@@ -625,8 +625,8 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
         optix::DeviceContextOptions optix_options{};
         optix_options.logCallbackLevel = 4u;
 #ifndef NDEBUG
-// Disable due to too much overhead
-//    optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+        // Disable due to too much overhead
+        // optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
 #endif
         optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
             auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);

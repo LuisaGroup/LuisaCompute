@@ -1160,6 +1160,19 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
                  : "r"(t)                               \
                  :)
 
+
+enum LCPayloadTypeID : unsigned int {
+    LC_PAYLOAD_TYPE_DEFAULT = 0u,
+    LC_PAYLOAD_TYPE_ID_0 = 1u << 0u,
+    LC_PAYLOAD_TYPE_ID_1 = 1u << 1u,
+    LC_PAYLOAD_TYPE_ID_2 = 1u << 2u,
+    LC_PAYLOAD_TYPE_ID_3 = 1u << 3u,
+    LC_PAYLOAD_TYPE_ID_4 = 1u << 4u,
+    LC_PAYLOAD_TYPE_ID_5 = 1u << 5u,
+    LC_PAYLOAD_TYPE_ID_6 = 1u << 6u,
+    LC_PAYLOAD_TYPE_ID_7 = 1u << 7u,
+};
+
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
     asm volatile("call _optix_set_payload, (%0, %1);"
@@ -1201,7 +1214,7 @@ inline void lc_set_payload(lc_uint x) noexcept {
 }
 
 extern "C" __global__ void __closesthit__trace_closest() {
-//    LC_SET_PAYLOAD_TYPE(1u);
+//    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_0);
     auto inst = lc_get_instance_index();
     auto prim = lc_get_primitive_index();
     auto bary = lc_get_bary_coords();
@@ -1214,18 +1227,18 @@ extern "C" __global__ void __closesthit__trace_closest() {
 }
 
 extern "C" __global__ void __closesthit__trace_any() {
-//    LC_SET_PAYLOAD_TYPE(2u);
+//    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
     lc_set_payload<0u>(1u);
 }
 
 extern "C" __global__ void __miss__miss() {
-//    LC_SET_PAYLOAD_TYPE(2u);
+//    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
     lc_set_payload<0u>(~0u);
 }
 
-template<lc_uint payload_type, lc_uint ray_type, lc_uint reg_count, lc_uint flags>
+template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 [[nodiscard]] inline auto lc_trace_impl(
-    LCAccel accel, LCRay ray, lc_uint mask,
+    lc_uint payload_type, LCAccel accel, LCRay ray, lc_uint mask,
     lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3, lc_uint &r4) noexcept {
     auto ox = ray.m0[0];
     auto oy = ray.m0[1];
@@ -1236,7 +1249,7 @@ template<lc_uint payload_type, lc_uint ray_type, lc_uint reg_count, lc_uint flag
     auto t_min = ray.m1;
     auto t_max = ray.m3;
     [[maybe_unused]] unsigned int
-        p5,
+        p0, p1, p2, p3, p4, p5,
         p6, p7, p8, p9, p10, p11, p12, p13,
         p14, p15, p16, p17, p18, p19, p20, p21, p22,
         p23, p24, p25, p26, p27, p28, p29, p30, p31;
@@ -1248,17 +1261,22 @@ template<lc_uint payload_type, lc_uint ray_type, lc_uint reg_count, lc_uint flag
         "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,"
         "%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63,"
         "%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
-        : "=r"(r0), "=r"(r1), "=r"(r2), "=r"(r3), "=r"(r4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
+        : "=r"(p0), "=r"(p1), "=r"(p2), "=r"(p3), "=r"(p4), "=r"(p5), "=r"(p6), "=r"(p7), "=r"(p8),
           "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4), "r"(p5), "r"(p6),
-          "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
-          "r"(p16), "r"(p17), "r"(p18), "r"(p19), "r"(p20), "r"(p21), "r"(p22), "r"(p23), "r"(p24),
-          "r"(p25), "r"(p26), "r"(p27), "r"(p28), "r"(p29), "r"(p30), "r"(p31)
+          "r"(0u), "r"(reg_count), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
+          "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
+          "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
+          "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u)
         :);
+    r0 = p0;
+    r1 = p1;
+    r2 = p2;
+    r3 = p3;
+    r4 = p4;
 }
 
 [[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
@@ -1268,7 +1286,7 @@ template<lc_uint payload_type, lc_uint ray_type, lc_uint reg_count, lc_uint flag
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<0u, 0u, 5u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<0u, 5u, flags>(LC_PAYLOAD_TYPE_DEFAULT, accel, ray, mask, r0, r1, r2, r3, r4);
     return LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
 }
 
@@ -1279,7 +1297,7 @@ template<lc_uint payload_type, lc_uint ray_type, lc_uint reg_count, lc_uint flag
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<0u, 1u, 1u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<1u, 1u, flags>(LC_PAYLOAD_TYPE_DEFAULT, accel, ray, mask, r0, r1, r2, r3, r4);
     return r0 == 1u;
 }
 
@@ -1310,6 +1328,7 @@ template<lc_uint payload_type, lc_uint ray_type, lc_uint reg_count, lc_uint flag
         :);
     return lc_make_uint3(u0, u1, u2);
 }
+
 [[nodiscard]] inline auto lc_thread_id() noexcept {
     return lc_dispatch_id() % lc_block_size();
 }

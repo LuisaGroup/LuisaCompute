@@ -23,14 +23,20 @@ private:
     optix::ProgramGroup _program_group_ch_any{};
     optix::ProgramGroup _program_group_miss{};
     optix::Pipeline _pipeline{};
-    CUdeviceptr _sbt_buffer{};
-    optix::ShaderBindingTable _sbt{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
+    mutable CUdeviceptr _sbt_buffer{};
+    mutable luisa::spin_mutex _mutex;
+    mutable CUevent _sbt_event{};
+    mutable optix::ShaderBindingTable _sbt{};
+    mutable luisa::unordered_set<uint64_t> _sbt_recorded_streams;
+
+private:
+    void _prepare_sbt(CUDACommandEncoder &encoder) const noexcept;
 
 public:
     CUDAShaderOptiX(CUDADevice *device,
                     const char *ptx, size_t ptx_size,
-                    const char *entry,
+                    const char *entry, bool enable_debug,
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
     ~CUDAShaderOptiX() noexcept override;
     void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;

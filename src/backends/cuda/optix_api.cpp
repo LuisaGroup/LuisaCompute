@@ -49,8 +49,6 @@
 
 namespace luisa::compute::optix {
 
-static constexpr auto ABI_VERSION = 47u;
-
 [[nodiscard]] void *find_optix_library() noexcept {
 
 #ifdef LUISA_PLATFORM_WINDOWS
@@ -162,7 +160,7 @@ static constexpr auto ABI_VERSION = 47u;
     auto handle = find_optix_library();
     LUISA_ASSERT(handle != nullptr, "OptiX library could not be loaded.");
     using QueryFunctionTable_t =
-        Result (*)(uint, uint, void *, const void **, void *, size_t);
+        Result (*)(uint32_t, uint32_t, void *, const void **, void *, size_t);
     auto optixQueryFunctionTable = reinterpret_cast<QueryFunctionTable_t>(
         dynamic_module_find_symbol(handle, "optixQueryFunctionTable"));
     FunctionTable t{};
