@@ -331,7 +331,7 @@ int main(int argc, char *argv[]) {
                         auto photon = photon_buffer->read(photon_index);
                         auto dis = distance(Float3{photon.position}, p);
                         $if(dis < r) {
-                            radiance += material.albedo * inv_pi * Float3{photon.power};
+                            radiance += material.albedo * inv_pi *Float3{photon.power};
                         };
                         photon_index = photon.nxt;
                     };
@@ -544,7 +544,6 @@ int main(int argc, char *argv[]) {
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
 
     stream << clear_shader(accum_image).dispatch(resolution)
@@ -562,6 +561,7 @@ int main(int argc, char *argv[]) {
         stream,
         resolution,
         true, false, 2)};
+    auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     Clock clk;
     while (!window.should_close()) {
         auto cmd_list = CommandList::create();

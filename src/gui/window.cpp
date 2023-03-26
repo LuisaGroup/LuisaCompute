@@ -25,16 +25,20 @@ struct WindowImpl : public Window::IWindowImpl {
     Window::WindowSizeCallback _window_size_callback;
     Window::KeyCallback _key_callback;
     Window::ScrollCallback _scroll_callback;
-    uint64_t window_handle{window_handle};
+    uint64_t window_handle{};
 
     WindowImpl(uint2 size, char const *name, bool vsync) {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         window = glfwCreateWindow(size.x, size.y, name, nullptr, nullptr);
         // TODO: other platform
-#ifdef _WIN32
+#if defined(LUISA_PLATFORM_WINDOWS)
         window_handle = reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
+#elif defined(LUISA_PLATFORM_APPLE)
+#error TODO: Apple
+#else
+        window_handle = reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
         glfwMakeContextCurrent(window);
         glfwSwapInterval(vsync ? 1 : 0);

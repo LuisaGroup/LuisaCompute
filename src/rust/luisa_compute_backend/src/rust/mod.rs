@@ -20,7 +20,6 @@ use luisa_compute_ir::{
     CArc,
 };
 
-use sha2::Digest;
 mod accel;
 mod resource;
 mod shader;
@@ -117,7 +116,10 @@ impl Backend for RustBackend {
         }
     }
 
-    fn create_stream(&self) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
+    fn create_stream(
+        &self,
+        _tag: api::StreamTag,
+    ) -> super::Result<luisa_compute_api_types::CreatedResourceInfo> {
         let stream = Box::into_raw(Box::new(StreamImpl::new(self.shared_pool.clone())));
         Ok(CreatedResourceInfo {
             handle: stream as u64,
@@ -162,6 +164,7 @@ impl Backend for RustBackend {
     fn create_shader(
         &self,
         kernel: CArc<luisa_compute_ir::ir::KernelModule>,
+        _options: &api::ShaderOption,
     ) -> super::Result<luisa_compute_api_types::CreatedShaderInfo> {
         // let debug =
         //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
@@ -227,11 +230,15 @@ impl Backend for RustBackend {
         todo!()
     }
 
-    fn signal_event(&self, _event: luisa_compute_api_types::Event) {
+    fn signal_event(&self, _event: api::Event, _stream: api::Stream) {
         todo!()
     }
 
-    fn wait_event(&self, _event: luisa_compute_api_types::Event) -> super::Result<()> {
+    fn wait_event(
+        &self,
+        _event: luisa_compute_api_types::Event,
+        _stream: api::Stream,
+    ) -> super::Result<()> {
         todo!()
     }
 
@@ -259,9 +266,9 @@ impl Backend for RustBackend {
         }
     }
     fn create_procedural_primitive(
-            &self,
-            _option: api::AccelOption,
-        ) -> crate::Result<api::CreatedResourceInfo> {
+        &self,
+        _option: api::AccelOption,
+    ) -> crate::Result<api::CreatedResourceInfo> {
         todo!()
     }
     fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {

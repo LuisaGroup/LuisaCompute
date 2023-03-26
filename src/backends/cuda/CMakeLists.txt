@@ -2,6 +2,11 @@ find_package(CUDAToolkit)
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
     set(LUISA_COMPUTE_CUDA_SOURCES
+
+            ../common/default_binary_io.cpp ../common/default_binary_io.h
+            ../common/resource_tracker.h
+            ../common/string_scratch.cpp ../common/string_scratch.h
+
             cuda_error.h
             cuda_bindless_array.cpp cuda_bindless_array.h
             cuda_buffer.cpp cuda_buffer.h
@@ -18,13 +23,30 @@ if (CUDAToolkit_FOUND)
             cuda_shader.h
             cuda_shader_native.cpp cuda_shader_native.h
             cuda_shader_optix.cpp cuda_shader_optix.h
+            cuda_swapchain.cpp cuda_swapchain.h
             cuda_callback_context.h
             optix_api.cpp optix_api.h)
+
+    add_library(lc-backend-cuda-dependency INTERFACE)
+    # if (WIN32) # TODO: support Linux
+        find_package(Vulkan)
+        if (Vulkan_FOUND AND Vulkan_VERSION VERSION_GREATER_EQUAL 1.1)
+            message(STATUS "Build CUDA backend with Vulkan Swapchain: ${Vulkan_VERSION}")
+            list(APPEND LUISA_COMPUTE_CUDA_SOURCES
+                    ../common/vulkan_swapchain.cpp ../common/vulkan_swapchain.h)
+            target_link_libraries(lc-backend-cuda-dependency INTERFACE Vulkan::Vulkan)
+            target_compile_definitions(lc-backend-cuda-dependency INTERFACE LC_CUDA_ENABLE_VULKAN_SWAPCHAIN)
+        endif ()
+    # endif ()
+
     set(LUISA_COMPUTE_CUDA_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cuda_builtin")
     luisa_compute_add_backend(cuda
             SOURCES ${LUISA_COMPUTE_CUDA_SOURCES}
             BUILTIN_DIR ${LUISA_COMPUTE_CUDA_BUILTIN_DIR})
-    target_link_libraries(lc-backend-cuda PRIVATE CUDA::cuda_driver CUDA::nvrtc)
+    target_link_libraries(lc-backend-cuda PRIVATE
+            CUDA::cuda_driver
+            CUDA::nvrtc
+            lc-backend-cuda-dependency)
     if (WIN32)
         target_link_libraries(lc-backend-cuda PRIVATE cfgmgr32)
     endif ()

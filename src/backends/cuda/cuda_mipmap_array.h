@@ -41,52 +41,14 @@ private:
     mutable spin_mutex _mutex;
 
 public:
-    /**
-     * @brief Construct a new CUDAMipmapArray object
-     * 
-     * @param array handle of array on CUDA
-     * @param format pixel format
-     * @param levels mipmap level
-     */
     CUDAMipmapArray(uint64_t array, PixelFormat format, uint32_t levels) noexcept;
     ~CUDAMipmapArray() noexcept;
-    /**
-     * @brief Return handle of array
-     * 
-     * @return handle of array
-     */
     [[nodiscard]] auto handle() const noexcept { return _array; }
-    /**
-     * @brief Return pixel format
-     * 
-     * @return pixel format
-     */
     [[nodiscard]] auto format() const noexcept { return static_cast<PixelFormat>(_format); }
-    /**
-     * @brief Return mipmap level
-     * 
-     * @return mipmap level
-     */
+    [[nodiscard]] auto storage() const noexcept { return pixel_format_to_storage(format()); }
     [[nodiscard]] auto levels() const noexcept { return static_cast<size_t>(_levels); }
-    /**
-     * @brief Return array at given level
-     * 
-     * @param i given level
-     * @return CUarray 
-     */
     [[nodiscard]] CUarray level(uint32_t i) const noexcept;
-    /**
-     * @brief Return surface at given level
-     * 
-     * @param level given level
-     * @return CUDASurface 
-     */
     [[nodiscard]] CUDASurface surface(uint32_t level) const noexcept;
-    /**
-     * @brief Return size of mipmap array
-     * 
-     * @return uint3 (width, height, depth)
-     */
     [[nodiscard]] uint3 size() const noexcept;
     [[nodiscard]] auto binding(uint32_t level) const noexcept { return surface(level); }
 };

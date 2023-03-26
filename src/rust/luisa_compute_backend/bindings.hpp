@@ -32,9 +32,11 @@ CreatedResourceInfo lc_rs_create_mesh(void *backend, AccelOption option);
 
 CreatedResourceInfo lc_rs_create_procedural_primitive(void *backend, AccelOption option);
 
-CreatedShaderInfo lc_rs_create_shader(void *backend, CArc<KernelModule> kernel);
+CreatedShaderInfo lc_rs_create_shader(void *backend,
+                                      CArc<KernelModule> kernel,
+                                      const ShaderOption *option);
 
-CreatedResourceInfo lc_rs_create_stream(void *backend);
+CreatedResourceInfo lc_rs_create_stream(void *backend, StreamTag tag);
 
 CreatedResourceInfo lc_rs_create_texture(void *backend,
                                          PixelFormat format,

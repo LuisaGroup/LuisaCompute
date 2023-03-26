@@ -20,7 +20,7 @@ struct KernelModule;
 struct Type;
 template<class T>
 struct CArc;
-}
+}// namespace ir
 
 class Type;
 struct AccelOption;
@@ -47,12 +47,15 @@ class DeviceInterface : public luisa::enable_shared_from_this<DeviceInterface> {
 
 protected:
     Context _ctx;
+    friend class Context;
+    luisa::string _backend_name;
 
 public:
-    explicit DeviceInterface(Context &&ctx) noexcept : _ctx{std::move(ctx)} {}
+    explicit DeviceInterface(Context &&ctx) noexcept : _ctx{std::move(ctx)}{}
     virtual ~DeviceInterface() noexcept = default;
 
     [[nodiscard]] const Context &context() const noexcept { return _ctx; }
+    [[nodiscard]] auto backend_name() const noexcept { return luisa::string_view{_backend_name}; }
 
     // native handle
     [[nodiscard]] virtual void *native_handle() const noexcept = 0;

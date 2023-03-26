@@ -4,6 +4,11 @@ if (WIN32)
     set(LC_BACKEND_DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
     set(LC_BACKEND_DX_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
     set(LC_BACKEND_DX_SOURCE
+
+            ../common/command_reorder_visitor.h
+            ../common/default_binary_io.cpp ../common/default_binary_io.h
+            ../common/resource_generator.h
+
             DXApi/ext.cpp
             DXApi/LCCmdBuffer.cpp DXApi/LCCmdBuffer.h
             DXApi/LCDevice.cpp DXApi/LCDevice.h
@@ -62,7 +67,7 @@ if (WIN32)
             SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR}
             BUILTIN_DIR ${LC_BACKEND_DX_BUILTIN_DIR})
     target_include_directories(lc-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(lc-backend-dx PRIVATE D3D12 d3dcompiler dxgi)
+    target_link_libraries(lc-backend-dx PRIVATE D3D12 d3dcompiler dxgi luisa-compute-vstl)
     target_compile_definitions(lc-backend-dx PRIVATE UNICODE)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_definitions(lc-backend-dx PRIVATE

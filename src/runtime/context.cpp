@@ -28,9 +28,7 @@ struct Context::Impl {
     std::filesystem::path data_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
-    const BackendModule &create_module(luisa::string_view backend_name_in) noexcept {
-        luisa::string backend_name{backend_name_in};
-        for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
+    const BackendModule &create_module(const luisa::string &backend_name) noexcept {
         if (std::find(installed_backends.cbegin(),
                       installed_backends.cend(),
                       backend_name) == installed_backends.cend()) {
@@ -124,8 +122,12 @@ ContextPaths Context::paths() const noexcept {
 
 Device Context::create_device(std::string_view backend_name_in, const DeviceConfig *settings) noexcept {
     auto impl = _impl.get();
-    auto &&m = impl->create_module(backend_name_in);
-    return Device{Device::Handle{m.creator(Context{_impl}, settings), m.deleter}};
+    luisa::string backend_name{backend_name_in};
+    for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
+    auto &&m = impl->create_module(backend_name);
+    auto interface = m.creator(Context{_impl}, settings);
+    interface->_backend_name = std::move(backend_name);
+    return Device{Device::Handle{interface, m.deleter}};
 }
 
 Context::Context(luisa::shared_ptr<Impl> impl) noexcept
@@ -147,7 +149,9 @@ Device Context::create_default_device() noexcept {
 }
 luisa::vector<luisa::string> Context::backend_device_names(luisa::string_view backend_name_in) const noexcept {
     auto impl = _impl.get();
-    auto &&m = impl->create_module(backend_name_in);
+    luisa::string backend_name{backend_name_in};
+    for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
+    auto &&m = impl->create_module(backend_name);
     luisa::vector<luisa::string> names;
     m.backend_device_names(names);
     return names;

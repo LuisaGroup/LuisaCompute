@@ -7,9 +7,9 @@ use luisa_compute_ir::{
     ir::{self, KernelModule, Type},
     CArc,
 };
-#[cfg(feature="remote")]
+#[cfg(feature = "remote")]
 pub mod remote;
-#[cfg(feature="cpu")]
+#[cfg(feature = "cpu")]
 pub mod rust;
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ pub trait Backend: Sync + Send {
     fn destroy_texture(&self, texture: api::Texture);
     fn create_bindless_array(&self, size: usize) -> Result<api::CreatedResourceInfo>;
     fn destroy_bindless_array(&self, array: api::BindlessArray);
-    fn create_stream(&self) -> Result<api::CreatedResourceInfo>;
+    fn create_stream(&self, tag: api::StreamTag) -> Result<api::CreatedResourceInfo>;
     fn destroy_stream(&self, stream: api::Stream);
     fn synchronize_stream(&self, stream: api::Stream) -> Result<()>;
     fn dispatch(
@@ -56,13 +56,17 @@ pub trait Backend: Sync + Send {
     //     swapchain_handle: u64,
     //     image_handle: u64,
     // );
-    fn create_shader(&self, kernel: CArc<KernelModule>) -> Result<api::CreatedShaderInfo>;
+    fn create_shader(
+        &self,
+        kernel: CArc<KernelModule>,
+        options: &api::ShaderOption,
+    ) -> Result<api::CreatedShaderInfo>;
     fn shader_cache_dir(&self, shader: api::Shader) -> Option<PathBuf>;
     fn destroy_shader(&self, shader: api::Shader);
     fn create_event(&self) -> Result<api::CreatedResourceInfo>;
     fn destroy_event(&self, event: api::Event);
-    fn signal_event(&self, event: api::Event);
-    fn wait_event(&self, event: api::Event) -> Result<()>;
+    fn signal_event(&self, event: api::Event, stream:api::Stream);
+    fn wait_event(&self, event: api::Event, stream:api::Stream) -> Result<()>;
     fn synchronize_event(&self, event: api::Event) -> Result<()>;
     fn create_mesh(&self, option: api::AccelOption) -> Result<api::CreatedResourceInfo>;
     fn create_procedural_primitive(
@@ -89,9 +93,9 @@ pub extern "C" fn lc_rs_create_backend(name: *const std::ffi::c_char) -> *mut c_
     let name = unsafe { std::ffi::CStr::from_ptr(name) };
     let name = name.to_str().unwrap();
     let backend = match name {
-        #[cfg(feature="cpu")]
+        #[cfg(feature = "cpu")]
         "rust" => Box::new(rust::RustBackend::new()),
-        #[cfg(feature="remote")]
+        #[cfg(feature = "remote")]
         "remote" => Box::new(remote::RemoteBackend::new()),
         _ => panic!("unknown backend"),
     };
@@ -148,9 +152,12 @@ pub extern "C" fn lc_rs_destroy_bindless_array(backend: *mut c_void, array: api:
     backend.destroy_bindless_array(array)
 }
 #[no_mangle]
-pub extern "C" fn lc_rs_create_stream(backend: *mut c_void) -> api::CreatedResourceInfo {
+pub extern "C" fn lc_rs_create_stream(
+    backend: *mut c_void,
+    tag: api::StreamTag,
+) -> api::CreatedResourceInfo {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_stream().unwrap()
+    backend.create_stream(tag).unwrap()
 }
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_stream(backend: *mut c_void, stream: api::Stream) {
@@ -189,9 +196,10 @@ pub extern "C" fn lc_rs_dispatch(
 pub extern "C" fn lc_rs_create_shader(
     backend: *mut c_void,
     kernel: CArc<KernelModule>,
+    option: &api::ShaderOption,
 ) -> api::CreatedShaderInfo {
     let backend = unsafe { &*(backend as *mut Box<dyn Backend>) };
-    backend.create_shader(kernel).unwrap()
+    backend.create_shader(kernel, option).unwrap()
 }
 #[no_mangle]
 pub extern "C" fn lc_rs_destroy_shader(backend: *mut c_void, shader: api::Shader) {
