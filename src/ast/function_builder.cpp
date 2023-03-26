@@ -562,6 +562,11 @@ void FunctionBuilder::comment_(luisa::string comment) noexcept {
 
 void FunctionBuilder::set_block_size(uint3 size) noexcept {
     if (_tag == Tag::KERNEL) {
+        auto kernel_size = size.x * size.y * size.z;
+        if (kernel_size == 0 || kernel_size > 1024) [[unlikely]] {
+            LUISA_ERROR("Function block size must be in range [1, 1024], Current block size is: {}.",
+            kernel_size);
+        }
         _block_size = size;
     } else {
         LUISA_WARNING_WITH_LOCATION(
@@ -583,7 +588,7 @@ bool FunctionBuilder::requires_atomic_float() const noexcept {
     return _requires_atomic_float;
 }
 
-void FunctionBuilder::reorder_capture() noexcept {
+void FunctionBuilder::sort_bindings() noexcept {
     luisa::vector<Variable> new_args;
     luisa::vector<Binding> new_bindings;
     new_args.reserve(_arguments.size());

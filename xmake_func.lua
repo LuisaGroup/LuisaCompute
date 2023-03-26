@@ -23,9 +23,6 @@ on_config(function(target)
             _add_link("-flto")
         end
     end
-    if (cc == "clang" or cc == "clangxx") then
-        target:add("defines", "LUISA_CLANG")
-    end
     if is_plat("linux") then
         -- Linux should use -stdlib=libc++
         -- https://github.com/LuisaGroup/LuisaCompute/issues/58

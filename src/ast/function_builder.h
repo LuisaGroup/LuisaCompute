@@ -138,7 +138,7 @@ private:
             f->with(&f->_body, std::forward<Def>(def));
         }
         if (tag == Function::Tag::KERNEL) {
-            f->reorder_capture();
+            f->sort_bindings();
         }
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }
@@ -361,8 +361,8 @@ public:
     void pop_scope(const ScopeStmt *) noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
-    /// separate arguments and capture
-    void reorder_capture() noexcept;
+    /// separate arguments and bindings, make command need no bindings info, only work with kernel.
+    void sort_bindings() noexcept;
 
     /// Return a Function object constructed from this
     [[nodiscard]] auto function() const noexcept { return Function{this}; }

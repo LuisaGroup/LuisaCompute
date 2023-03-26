@@ -16,11 +16,6 @@
 
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1, "legal environment test");
 
-// Don't do this here
-// #if defined(LUISA_CLANG) && defined(LUISA_PLATFORM_WINDOWS)
-// static_assert(__clang_major__ >= 16, "Due to runtime limitation, only Clang-cl, Clang-16 or later version is supported");
-// #endif
-
 #if defined(LUISA_PLATFORM_WINDOWS)
 #ifndef UNICODE
 #define UNICODE 1

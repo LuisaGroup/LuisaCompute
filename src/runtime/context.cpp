@@ -31,12 +31,12 @@ struct Context::Impl {
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
     const BackendModule &create_module(const luisa::string &backend_name) noexcept {
-        if (std::find(installed_backends.cbegin(),
-                      installed_backends.cend(),
-                      backend_name) == installed_backends.cend()) {
-            LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
-        }
         auto create_new = [&]() {
+            if (std::find(installed_backends.cbegin(),
+                          installed_backends.cend(),
+                          backend_name) == installed_backends.cend()) {
+                LUISA_ERROR_WITH_LOCATION("Backend '{}' is not installed.", backend_name);
+            }
             BackendModule m{
                 .module = DynamicModule::load(
                     runtime_directory,

@@ -5,7 +5,7 @@ from .globalvars import stream, get_global_device
 
 
 class GUI:
-    def __init__(self, title: str, resolution, vsync=True, show_FPS=True):
+    def __init__(self, title: str, resolution, vsync=False, show_FPS=True):
         if not globalvars.stream_support_gui:
             raise RuntimeError(
                 "Stream no support GUI, use init(support_gui=True).")
@@ -13,12 +13,16 @@ class GUI:
         self.window.reset(get_global_device(), globalvars.stream,
                           title, resolution[0], resolution[1], vsync)
         self.resolution = resolution
-        self.clock = lcapi.Clock()
-        self.tic = False
+        self.show_FPS = show_FPS
+        if show_FPS:
+            self.clock = lcapi.Clock()
+            self.tic = False
 
     def show(self):
         self.window.present(globalvars.stream, self.tex.handle,
                             self.resolution[0], self.resolution[1], 0, self.tex.storage)
+        if not self.show_FPS:
+            return 0.0
         if self.tic:
             time = self.clock.toc()
         else:
