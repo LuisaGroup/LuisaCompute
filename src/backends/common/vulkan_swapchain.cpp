@@ -220,7 +220,7 @@ public:
         std::scoped_lock lock{mutex};
         if (auto ptr = weak_instance.lock()) { return ptr; }
         luisa::shared_ptr<VulkanInstance> instance{
-            new(luisa::allocate_with_allocator<VulkanInstance>()) VulkanInstance,
+            new (luisa::allocate_with_allocator<VulkanInstance>()) VulkanInstance,
             [](auto *ptr) noexcept { luisa::delete_with_allocator(ptr); }};
         weak_instance = instance;
         return instance;
@@ -1013,7 +1013,7 @@ public:
          bool allow_hdr, bool vsync,
          uint back_buffer_count,
          luisa::span<const char *const> required_device_extensions) noexcept
-    : _instance{VulkanInstance::retain()} {
+        : _instance{VulkanInstance::retain()} {
         _create_surface(window_handle);
         _create_device(device_uuid, required_device_extensions, allow_hdr);
         _create_swapchain(width, height, back_buffer_count, allow_hdr, vsync);
@@ -1169,7 +1169,6 @@ private:
     uint _current_frame{0u};
     uint8_t _pad[64];
     VkExtent2D _image_extent;
-
 
 private:
     [[nodiscard]] auto _find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) noexcept {
@@ -1366,17 +1365,21 @@ public:
                 back_buffer_count,
                 {/* not required */}},
           _image_extent{width, height} {
-        if (allow_hdr) {
-            _pixel_storage = PixelStorage::HALF4;
-        } else {
-            _pixel_storage = PixelStorage::BYTE4;
-        }
         _initialize();
     }
 
     ~VulkanSwapchainForCPU() noexcept { _clean_up(); }
 
     [[nodiscard]] auto format() const noexcept { return _image_format; }
+
+    [[nodiscard]] auto pixel_storage() const noexcept {
+        LUISA_ASSERT(_image_format == VK_FORMAT_R8G8B8A8_UNORM ||
+                         _image_format == VK_FORMAT_R16G16B16A16_SFLOAT,
+                     "Unsupported image format.");
+        return _image_format == VK_FORMAT_R8G8B8A8_UNORM ?
+                   PixelStorage::BYTE4 :
+                   PixelStorage::HALF4;
+    }
 
     void present(luisa::span<const std::byte> pixels) noexcept {
 
@@ -1425,14 +1428,13 @@ public:
         // update frame index
         _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
     }
-    PixelStorage _pixel_storage{};
 };
 
 LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
     return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
 }
 LUISA_EXPORT_API uint8_t luisa_compute_cpu_swapchain_storage(void *swapchain) noexcept {
-    return static_cast<uint8_t>(static_cast<VulkanSwapchainForCPU *>(swapchain)->_pixel_storage);
+    return static_cast<uint8_t>(static_cast<VulkanSwapchainForCPU *>(swapchain)->pixel_storage());
 }
 LUISA_EXPORT_API void luisa_compute_destroy_cpu_swapchain(void *swapchain) noexcept {
     delete static_cast<VulkanSwapchainForCPU *>(swapchain);
