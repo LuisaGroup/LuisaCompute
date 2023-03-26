@@ -256,8 +256,10 @@ public:
                 log, &log_size, &_program_group_miss));
 
         // create pipeline
-        optix::ProgramGroup program_groups[]{
-            _program_group_rg, _program_group_ch_closest, _program_group_ch_any};
+        optix::ProgramGroup program_groups[]{_program_group_rg,
+                                             _program_group_ch_closest,
+                                             _program_group_ch_any,
+                                             _program_group_miss};
         optix::PipelineLinkOptions pipeline_link_options{};
         pipeline_link_options.debugLevel = optix::COMPILE_DEBUG_LEVEL_NONE;
         pipeline_link_options.maxTraceDepth = 1u;
@@ -267,7 +269,7 @@ public:
                 device->handle().optix_context(),
                 &pipeline_compile_options,
                 &pipeline_link_options,
-                program_groups, 2u,
+                program_groups, 4u,
                 log, &log_size,
                 &_pipeline));
 
