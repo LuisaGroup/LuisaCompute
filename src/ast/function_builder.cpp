@@ -35,10 +35,10 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
         LUISA_ERROR_WITH_LOCATION("Shared variables and block synchronization "
                                   "are only allowed in kernels.");
     }
-    if (f->_arguments.size() != f->_argument_bindings.size()) {
+    if (f->_arguments.size() != f->_bound_arguments.size()) {
         LUISA_ERROR_WITH_LOCATION(
             "Arguments and their bindings have different sizes ({} and {}).",
-            f->_arguments.size(), f->_argument_bindings.size());
+            f->_arguments.size(), f->_bound_arguments.size());
     }
 
     // hash
@@ -180,7 +180,7 @@ inline const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
     // for callables, builtin variables are treated like arguments
     if (_tag != Function::Tag::KERNEL) [[unlikely]] {
         _arguments.emplace_back(v);
-        _argument_bindings.emplace_back();
+        _bound_arguments.emplace_back();
     }
     return _ref(v);
 }
@@ -188,14 +188,14 @@ inline const RefExpr *FunctionBuilder::_builtin(Variable::Tag tag) noexcept {
 const RefExpr *FunctionBuilder::argument(const Type *type) noexcept {
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back();
+    _bound_arguments.emplace_back();
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::buffer(const Type *type) noexcept {
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back();
+    _bound_arguments.emplace_back();
     return _ref(v);
 }
 
@@ -212,15 +212,15 @@ const RefExpr *FunctionBuilder::buffer_binding(const Type *type, uint64_t handle
                         return false;
                     }
                 },
-                _argument_bindings[i])) {
-            auto &binding = luisa::get<Function::BufferBinding>(_argument_bindings[i]);
+                _bound_arguments[i])) {
+            auto &binding = luisa::get<Function::BufferBinding>(_bound_arguments[i]);
             binding.size = std::max(binding.size, size_bytes);
             return _ref(_arguments[i]);
         }
     }
     Variable v{type, Variable::Tag::BUFFER, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::BufferBinding{handle, offset_bytes, size_bytes});
+    _bound_arguments.emplace_back(Function::BufferBinding{handle, offset_bytes, size_bytes});
     return _ref(v);
 }
 
@@ -345,7 +345,7 @@ FunctionBuilder::FunctionBuilder(FunctionBuilder::Tag tag) noexcept
 const RefExpr *FunctionBuilder::texture(const Type *type) noexcept {
     Variable v{type, Variable::Tag::TEXTURE, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back();
+    _bound_arguments.emplace_back();
     return _ref(v);
 }
 
@@ -361,7 +361,7 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
                         return false;
                     }
                 },
-                _argument_bindings[i])) {
+                _bound_arguments[i])) {
             return _ref(_arguments[i]);
         }
     }
@@ -371,7 +371,7 @@ const RefExpr *FunctionBuilder::texture_binding(const Type *type, uint64_t handl
         _next_variable_uid(),
     };
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::TextureBinding{handle, level});
+    _bound_arguments.emplace_back(Function::TextureBinding{handle, level});
     return _ref(v);
 }
 
@@ -421,20 +421,20 @@ const RefExpr *FunctionBuilder::bindless_array_binding(uint64_t handle) noexcept
                         return false;
                     }
                 },
-                _argument_bindings[i])) {
+                _bound_arguments[i])) {
             return _ref(_arguments[i]);
         }
     }
     Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::BindlessArrayBinding{handle});
+    _bound_arguments.emplace_back(Function::BindlessArrayBinding{handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::bindless_array() noexcept {
     Variable v{Type::of<BindlessArray>(), Variable::Tag::BINDLESS_ARRAY, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back();
+    _bound_arguments.emplace_back();
     return _ref(v);
 }
 
@@ -448,20 +448,20 @@ const RefExpr *FunctionBuilder::accel_binding(uint64_t handle) noexcept {
                         return false;
                     }
                 },
-                _argument_bindings[i])) {
+                _bound_arguments[i])) {
             return _ref(_arguments[i]);
         }
     }
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back(Function::AccelBinding{handle});
+    _bound_arguments.emplace_back(Function::AccelBinding{handle});
     return _ref(v);
 }
 
 const RefExpr *FunctionBuilder::accel() noexcept {
     Variable v{Type::of<Accel>(), Variable::Tag::ACCEL, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back();
+    _bound_arguments.emplace_back();
     return _ref(v);
 }
 
@@ -516,7 +516,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
                         return *(in_iter++);
                     }
                 },
-                f->_argument_bindings[i]);
+                f->_bound_arguments[i]);
         }
     }
     if (in_iter != args.end()) [[unlikely]] {
@@ -552,7 +552,7 @@ void FunctionBuilder::call(Function custom, luisa::span<const Expression *const>
 const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {
     Variable v{type, Variable::Tag::REFERENCE, _next_variable_uid()};
     _arguments.emplace_back(v);
-    _argument_bindings.emplace_back();
+    _bound_arguments.emplace_back();
     return _ref(v);
 }
 
@@ -587,27 +587,28 @@ bool FunctionBuilder::requires_atomic() const noexcept {
 bool FunctionBuilder::requires_atomic_float() const noexcept {
     return _requires_atomic_float;
 }
+
 void FunctionBuilder::sort_bindings() noexcept {
     luisa::vector<Variable> new_args;
     luisa::vector<Binding> new_bindings;
     new_args.reserve(_arguments.size());
-    new_bindings.reserve(_argument_bindings.size());
+    new_bindings.reserve(_bound_arguments.size());
     // get capture first
-    for(size_t i = 0; i < _arguments.size(); ++i){
-        auto &bind = _argument_bindings[i];
+    for (size_t i = 0; i < _arguments.size(); ++i) {
+        auto &bind = _bound_arguments[i];
         if (!holds_alternative<monostate>(bind)) {
             new_args.emplace_back(_arguments[i]);
             new_bindings.emplace_back(bind);
         }
     }
-    for(size_t i = 0; i < _arguments.size(); ++i){
-        auto &bind = _argument_bindings[i];
-        if(holds_alternative<monostate>(bind)){
+    for (size_t i = 0; i < _arguments.size(); ++i) {
+        auto &bind = _bound_arguments[i];
+        if (holds_alternative<monostate>(bind)) {
             new_args.emplace_back(_arguments[i]);
         }
     }
     _arguments = std::move(new_args);
-    _argument_bindings = std::move(new_bindings);
+    _bound_arguments = std::move(new_bindings);
 }
 
 }// namespace luisa::compute::detail

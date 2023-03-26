@@ -131,8 +131,10 @@ public:
     [[nodiscard]] luisa::span<const Constant> constants() const noexcept;
     /// Return arguments
     [[nodiscard]] luisa::span<const Variable> arguments() const noexcept;
-    /// Return argument bindings
-    [[nodiscard]] luisa::span<const Binding> argument_bindings() const noexcept;
+    /// Return bound arguments
+    [[nodiscard]] luisa::span<const Binding> bound_arguments() const noexcept;
+    /// Return unbound arguments
+    [[nodiscard]] luisa::span<const Variable> unbound_arguments() const noexcept;
     /// Return custom callables
     [[nodiscard]] luisa::span<const luisa::shared_ptr<const detail::FunctionBuilder>> custom_callables() const noexcept;
     /// Return builtin callables that are *directly* used by this function

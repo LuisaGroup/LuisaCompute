@@ -90,6 +90,27 @@ constexpr auto PROGRAM_GROUP_KIND_EXCEPTION = 0x2423u;
 constexpr auto PROGRAM_GROUP_KIND_HITGROUP = 0x2424u;
 constexpr auto PROGRAM_GROUP_KIND_CALLABLES = 0x2425u;
 
+constexpr auto PAYLOAD_SEMANTICS_TRACE_CALLER_NONE       = 0u;
+constexpr auto PAYLOAD_SEMANTICS_TRACE_CALLER_READ       = 1u << 0u;
+constexpr auto PAYLOAD_SEMANTICS_TRACE_CALLER_WRITE      = 2u << 0u;
+constexpr auto PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE = 3u << 0u;
+constexpr auto PAYLOAD_SEMANTICS_CH_NONE                 = 0u;
+constexpr auto PAYLOAD_SEMANTICS_CH_READ                 = 1u << 2u;
+constexpr auto PAYLOAD_SEMANTICS_CH_WRITE                = 2u << 2u;
+constexpr auto PAYLOAD_SEMANTICS_CH_READ_WRITE           = 3u << 2u;
+constexpr auto PAYLOAD_SEMANTICS_MS_NONE                 = 0u;
+constexpr auto PAYLOAD_SEMANTICS_MS_READ                 = 1u << 4u;
+constexpr auto PAYLOAD_SEMANTICS_MS_WRITE                = 2u << 4u;
+constexpr auto PAYLOAD_SEMANTICS_MS_READ_WRITE           = 3u << 4u;
+constexpr auto PAYLOAD_SEMANTICS_AH_NONE                 = 0u;
+constexpr auto PAYLOAD_SEMANTICS_AH_READ                 = 1u << 6u;
+constexpr auto PAYLOAD_SEMANTICS_AH_WRITE                = 2u << 6u;
+constexpr auto PAYLOAD_SEMANTICS_AH_READ_WRITE           = 3u << 6u;
+constexpr auto PAYLOAD_SEMANTICS_IS_NONE                 = 0u;
+constexpr auto PAYLOAD_SEMANTICS_IS_READ                 = 1u << 8u;
+constexpr auto PAYLOAD_SEMANTICS_IS_WRITE                = 2u << 8u;
+constexpr auto PAYLOAD_SEMANTICS_IS_READ_WRITE           = 3u << 8u;
+
 struct PipelineCompileOptions {
     int usesMotionBlur;
     uint traversableGraphFlags;

@@ -5,6 +5,7 @@
 #include <runtime/raster/viewport.h>
 
 namespace luisa::compute {
+
 class LC_RUNTIME_API ShaderDispatchCmdEncoder {
 
 public:

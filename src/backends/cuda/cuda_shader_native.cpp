@@ -15,9 +15,12 @@
 namespace luisa::compute::cuda {
 
 CUDAShaderNative::CUDAShaderNative(const char *ptx, size_t ptx_size,
-                                   const char *entry, uint3 block_size) noexcept
+                                   const char *entry, uint3 block_size,
+                                   luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
     : _entry{entry},
-      _block_size{block_size.x, block_size.y, block_size.z} {
+      _block_size{block_size.x, block_size.y, block_size.z},
+      _bound_arguments{std::move(bound_arguments)} {
+
     auto ret = cuModuleLoadData(&_module, ptx);
     if (ret == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
 
@@ -69,7 +72,7 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         return arguments[argument_count++] = argument_buffer.data() + offset;
     };
 
-    for (auto &&arg : command->arguments()) {
+    auto encode_argument = [&allocate_argument, command](const auto &arg) noexcept {
         using Tag = ShaderDispatchCommand::Argument::Tag;
         switch (arg.tag) {
             case Tag::BUFFER: {
@@ -107,7 +110,9 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                 break;
             }
         }
-    }
+    };
+    for (auto &&arg : _bound_arguments) { encode_argument(arg); }
+    for (auto &&arg : command->arguments()) { encode_argument(arg); }
     // the last argument is the launch size
     auto launch_size = command->dispatch_size();
     auto ptr = allocate_argument(sizeof(launch_size));

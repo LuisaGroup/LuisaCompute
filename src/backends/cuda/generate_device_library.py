@@ -112,6 +112,22 @@ public:
                             file=file)
             print(file=file)
 
+        
+        def define_array_unary():
+            unary = ["+", "-", "!", "~"]
+            for op in unary:            
+                func = f"""
+template<typename T, size_t N>
+__device__ lc_array<T, N> operator{op}(lc_array<T, N> arg) {{
+    lc_array<T, N> ret;
+    for(size_t i = 0u; i < N; ++i) {{
+        ret[i] = {op}arg[i];
+    }}
+    return ret;
+}}
+"""             
+                print(func, file=file)
+        define_array_unary()
 
         def gen_binary_op(arg_t, ret_t, op):
             for i in range(2, 5):

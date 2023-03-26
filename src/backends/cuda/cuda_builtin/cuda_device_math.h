@@ -364,6 +364,46 @@ struct alignas(4) lc_bool4 {
 [[nodiscard]] __device__ constexpr auto operator!(lc_bool3 v) noexcept { return lc_make_bool3(!v.x, !v.y, !v.z); }
 [[nodiscard]] __device__ constexpr auto operator!(lc_bool4 v) noexcept { return lc_make_bool4(!v.x, !v.y, !v.z, !v.w); }
 
+
+template<typename T, size_t N>
+__device__ lc_array<T, N> operator+(lc_array<T, N> arg) {
+    lc_array<T, N> ret;
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = +arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+__device__ lc_array<T, N> operator-(lc_array<T, N> arg) {
+    lc_array<T, N> ret;
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = -arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+__device__ lc_array<T, N> operator!(lc_array<T, N> arg) {
+    lc_array<T, N> ret;
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = !arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+__device__ lc_array<T, N> operator~(lc_array<T, N> arg) {
+    lc_array<T, N> ret;
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = ~arg[i];
+    }
+    return ret;
+}
+
 [[nodiscard]] __device__ constexpr auto operator==(lc_int2 lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs.x == rhs.x, lhs.y == rhs.y); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_int2 lhs, lc_int rhs) noexcept { return lc_make_bool2(lhs.x == rhs, lhs.y == rhs); }
 [[nodiscard]] __device__ constexpr auto operator==(lc_int lhs, lc_int2 rhs) noexcept { return lc_make_bool2(lhs == rhs.x, lhs == rhs.y); }

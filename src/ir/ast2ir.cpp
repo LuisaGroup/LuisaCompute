@@ -66,7 +66,7 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
     _function = function;
     _pools = ir::CppOwnedCArc<ir::ModulePools>(std::move(ir::luisa_compute_ir_new_module_pools()));
     auto m = _with_builder([this](auto builder) noexcept {
-        auto bindings = _function.builder()->argument_bindings();
+        auto bindings = _function.builder()->bound_arguments();
         auto capture_count = std::count_if(
             bindings.cbegin(), bindings.cend(), [](auto &&b) {
                 return !luisa::holds_alternative<luisa::monostate>(b);
@@ -92,8 +92,8 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
                         c.node = node;
                         c.binding.tag = ir::Binding::Tag::Buffer;
                         c.binding.buffer = {{.handle = b.handle,
-                                             .offset = b.offset_bytes,
-                                             .size = b.size_bytes}};
+                                             .offset = b.offset,
+                                             .size = b.size}};
                         captures.ptr[capture_index++] = c;
                     },
                     [&](Function::TextureBinding b) noexcept {

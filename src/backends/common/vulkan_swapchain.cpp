@@ -12,6 +12,7 @@
 #include <core/stl/optional.h>
 #include <core/stl/vector.h>
 #include <core/stl/unordered_map.h>
+#include <runtime/rhi/pixel.h>
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <Windows.h>
@@ -96,6 +97,22 @@ static const std::array vulkan_swapchain_screen_shader_fragment_bytecode = {
 
 static constexpr auto REQUIRED_VULKAN_VERSION = VK_API_VERSION_1_1;
 
+namespace detail {
+
+static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                           VkDebugUtilsMessageTypeFlagsEXT /* types */,
+                                           const VkDebugUtilsMessengerCallbackDataEXT *data,
+                                           void * /* user data */) noexcept {
+    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        LUISA_WARNING("Vulkan Validation Error: {}", data->pMessage);
+    } else {
+        LUISA_WARNING("Vulkan Validation Warning: {}", data->pMessage);
+    }
+    return VK_FALSE;
+}
+
+}// namespace detail
+
 class VulkanInstance {
 
 private:
@@ -166,17 +183,7 @@ private:
             debug_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-            debug_create_info.pfnUserCallback = [](VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-                                                   VkDebugUtilsMessageTypeFlagsEXT /* types */,
-                                                   const VkDebugUtilsMessengerCallbackDataEXT *data,
-                                                   void * /* user data */) noexcept {
-                if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                    LUISA_WARNING("Vulkan Validation Error: {}", data->pMessage);
-                } else {
-                    LUISA_WARNING("Vulkan Validation Warning: {}", data->pMessage);
-                }
-                return VK_FALSE;
-            };
+            debug_create_info.pfnUserCallback = detail::vulkan_validation_callback;
             create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
             create_info.ppEnabledLayerNames = validation_layers.data();
             create_info.pNext = &debug_create_info;
@@ -207,9 +214,16 @@ public:
         LUISA_INFO_WITH_LOCATION("Destroyed vulkan instance.");
     }
 
-    [[nodiscard]] static auto instance() noexcept {
-        static VulkanInstance instance;
-        return &instance;
+    [[nodiscard]] static auto retain() noexcept {
+        static std::mutex mutex;
+        static luisa::weak_ptr<VulkanInstance> weak_instance;
+        std::scoped_lock lock{mutex};
+        if (auto ptr = weak_instance.lock()) { return ptr; }
+        luisa::shared_ptr<VulkanInstance> instance{
+            new (luisa::allocate_with_allocator<VulkanInstance>()) VulkanInstance,
+            [](auto *ptr) noexcept { luisa::delete_with_allocator(ptr); }};
+        weak_instance = instance;
+        return instance;
     }
 
     [[nodiscard]] auto handle() const noexcept { return _instance; }
@@ -219,6 +233,9 @@ public:
 class VulkanSwapchain::Impl {
 
 private:
+    // instance, must go first to ensure destruction order
+    luisa::shared_ptr<VulkanInstance> _instance;
+
     // surface
     VkSurfaceKHR _surface{nullptr};
 
@@ -287,19 +304,19 @@ private:
         return details;
     };
 
-    void _create_surface(const VulkanInstance *instance, uint64_t window_handle) noexcept {
+    void _create_surface(uint64_t window_handle) noexcept {
 #ifdef LUISA_PLATFORM_WINDOWS
         VkWin32SurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
         create_info.hwnd = reinterpret_cast<HWND>(window_handle);
         create_info.hinstance = GetModuleHandle(nullptr);
-        LUISA_CHECK_VULKAN(vkCreateWin32SurfaceKHR(instance->handle(), &create_info, nullptr, &_surface));
+        LUISA_CHECK_VULKAN(vkCreateWin32SurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
 #elif defined(LUISA_PLATFORM_UNIX)
         VkXlibSurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
         create_info.dpy = XOpenDisplay(nullptr);
         create_info.window = static_cast<Window>(window_handle);
-        LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(instance->handle(), &create_info, nullptr, &_surface));
+        LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
 #else
 #error "Unsupported platform."
 #endif
@@ -351,8 +368,7 @@ private:
         return "Unknown";
     }
 
-    void _create_device(const VulkanInstance *instance,
-                        VulkanSwapchain::DeviceUUID device_uuid,
+    void _create_device(VulkanSwapchain::DeviceUUID device_uuid,
                         luisa::span<const char *const> required_device_extensions,
                         bool allow_hdr) noexcept {
 
@@ -420,10 +436,10 @@ private:
 
         // find the suitable physical device
         auto device_count = 0u;
-        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(instance->handle(), &device_count, nullptr));
+        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(_instance->handle(), &device_count, nullptr));
         LUISA_ASSERT(device_count > 0u, "Failed to find GPUs with Vulkan support.");
         luisa::vector<VkPhysicalDevice> devices(device_count);
-        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(instance->handle(), &device_count, devices.data()));
+        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(_instance->handle(), &device_count, devices.data()));
         luisa::optional<uint32_t> queue_family;
         for (auto device : devices) {
             if (check_properties(device) && check_extensions(device) && check_swapchain_support(device, allow_hdr)) {
@@ -492,7 +508,7 @@ private:
 
         // enable validation layers if necessary
         static constexpr std::array validation_layers{"VK_LAYER_KHRONOS_validation"};
-        if (instance->has_debug_layer()) {
+        if (_instance->has_debug_layer()) {
             device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
             device_create_info.ppEnabledLayerNames = validation_layers.data();
         } else {
@@ -511,8 +527,7 @@ private:
         LUISA_CHECK_VULKAN(vkCreateCommandPool(_device, &pool_create_info, nullptr, &_command_pool));
     }
 
-    void _create_swapchain(const VulkanInstance *instance,
-                           uint width, uint height, uint back_buffers,
+    void _create_swapchain(uint width, uint height, uint back_buffers,
                            bool allow_hdr, bool vsync) noexcept {
 
         auto support = _query_swapchain_support(_physical_device);
@@ -997,11 +1012,11 @@ public:
          uint width, uint height,
          bool allow_hdr, bool vsync,
          uint back_buffer_count,
-         luisa::span<const char *const> required_device_extensions) noexcept {
-        auto vulkan_instance = VulkanInstance::instance();
-        _create_surface(vulkan_instance, window_handle);
-        _create_device(vulkan_instance, device_uuid, required_device_extensions, allow_hdr);
-        _create_swapchain(vulkan_instance, width, height, back_buffer_count, allow_hdr, vsync);
+         luisa::span<const char *const> required_device_extensions) noexcept
+        : _instance{VulkanInstance::retain()} {
+        _create_surface(window_handle);
+        _create_device(device_uuid, required_device_extensions, allow_hdr);
+        _create_swapchain(width, height, back_buffer_count, allow_hdr, vsync);
         _create_render_pass();
         _create_descriptor_set_layout();
         _create_pipeline();
@@ -1033,7 +1048,7 @@ public:
         vkFreeMemory(_device, _vertex_buffer_memory, nullptr);
         vkDestroyCommandPool(_device, _command_pool, nullptr);
         vkDestroyDevice(_device, nullptr);
-        vkDestroySurfaceKHR(VulkanInstance::instance()->handle(), _surface, nullptr);
+        vkDestroySurfaceKHR(_instance->handle(), _surface, nullptr);
     }
 
     void wait_for_fence() noexcept {
@@ -1138,7 +1153,6 @@ void VulkanSwapchain::present(VkSemaphore wait, VkSemaphore signal,
     _impl->present(wait, signal, image, image_layout);
 }
 
-
 class VulkanSwapchainForCPU {
 
 private:
@@ -1146,13 +1160,15 @@ private:
     size_t _stage_buffer_size{};
     luisa::vector<VkBuffer> _stage_buffers;
     luisa::vector<VkDeviceMemory> _stage_buffer_memories;
-    VkExtent2D _image_extent;
+
     VkFormat _image_format{};
     VkImage _image{nullptr};
     VkDeviceMemory _image_memory{nullptr};
     VkImageView _image_view{nullptr};
     luisa::vector<VkCommandBuffer> _command_buffers;
     uint _current_frame{0u};
+    uint8_t _pad[64];
+    VkExtent2D _image_extent;
 
 private:
     [[nodiscard]] auto _find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) noexcept {
@@ -1196,6 +1212,7 @@ private:
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = mem_requirements.size;
         alloc_info.memoryTypeIndex = _find_memory_type(mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
         LUISA_CHECK_VULKAN(vkAllocateMemory(_base.device(), &alloc_info, nullptr, &_image_memory));
         LUISA_CHECK_VULKAN(vkBindImageMemory(_base.device(), _image, _image_memory, 0));
     }
@@ -1347,11 +1364,22 @@ public:
                 vsync,
                 back_buffer_count,
                 {/* not required */}},
-          _image_extent{width, height} { _initialize(); }
+          _image_extent{width, height} {
+        _initialize();
+    }
 
     ~VulkanSwapchainForCPU() noexcept { _clean_up(); }
 
     [[nodiscard]] auto format() const noexcept { return _image_format; }
+
+    [[nodiscard]] auto pixel_storage() const noexcept {
+        LUISA_ASSERT(_image_format == VK_FORMAT_R8G8B8A8_UNORM ||
+                         _image_format == VK_FORMAT_R16G16B16A16_SFLOAT,
+                     "Unsupported image format.");
+        return _image_format == VK_FORMAT_R8G8B8A8_UNORM ?
+                   PixelStorage::BYTE4 :
+                   PixelStorage::HALF4;
+    }
 
     void present(luisa::span<const std::byte> pixels) noexcept {
 
@@ -1402,10 +1430,12 @@ public:
     }
 };
 
-LUISA_EXPORT_API void * luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
+LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
     return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
 }
-
+LUISA_EXPORT_API uint8_t luisa_compute_cpu_swapchain_storage(void *swapchain) noexcept {
+    return static_cast<uint8_t>(static_cast<VulkanSwapchainForCPU *>(swapchain)->pixel_storage());
+}
 LUISA_EXPORT_API void luisa_compute_destroy_cpu_swapchain(void *swapchain) noexcept {
     delete static_cast<VulkanSwapchainForCPU *>(swapchain);
 }

@@ -1050,8 +1050,8 @@ struct LCTriangleHit {
 };
 
 struct LCProceduralHit {
-    lc_uint m0;  // instance index
-    lc_uint m1;  // primitive index
+    lc_uint m0;// instance index
+    lc_uint m1;// primitive index
 };
 
 enum struct LCHitType {
@@ -1154,6 +1154,12 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
 
 #ifdef LC_ENABLE_OPTIX
 
+#define LC_SET_PAYLOAD_TYPE(t)                          \
+    asm volatile("call _optix_set_payload_types, (%0);" \
+                 :                                      \
+                 : "r"(t)                               \
+                 :)
+
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
     asm volatile("call _optix_set_payload, (%0, %1);"
@@ -1194,11 +1200,8 @@ inline void lc_set_payload(lc_uint x) noexcept {
     return f0;
 }
 
-extern "C" __global__ void __closesthit__trace_any() {
-    lc_set_payload<0u>(1u);
-}
-
 extern "C" __global__ void __closesthit__trace_closest() {
+//    LC_SET_PAYLOAD_TYPE(1u);
     auto inst = lc_get_instance_index();
     auto prim = lc_get_primitive_index();
     auto bary = lc_get_bary_coords();
@@ -1210,7 +1213,17 @@ extern "C" __global__ void __closesthit__trace_closest() {
     lc_set_payload<4u>(__float_as_uint(t_hit));
 }
 
-template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
+extern "C" __global__ void __closesthit__trace_any() {
+//    LC_SET_PAYLOAD_TYPE(2u);
+    lc_set_payload<0u>(1u);
+}
+
+extern "C" __global__ void __miss__miss() {
+//    LC_SET_PAYLOAD_TYPE(2u);
+    lc_set_payload<0u>(~0u);
+}
+
+template<lc_uint payload_type, lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 [[nodiscard]] inline auto lc_trace_impl(
     LCAccel accel, LCRay ray, lc_uint mask,
     lc_uint &r0, lc_uint &r1, lc_uint &r2, lc_uint &r3, lc_uint &r4) noexcept {
@@ -1239,7 +1252,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "=r"(p9), "=r"(p10), "=r"(p11), "=r"(p12), "=r"(p13), "=r"(p14), "=r"(p15), "=r"(p16),
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
-        : "r"(0u), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
+        : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
           "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4), "r"(p5), "r"(p6),
           "r"(p7), "r"(p8), "r"(p9), "r"(p10), "r"(p11), "r"(p12), "r"(p13), "r"(p14), "r"(p15),
@@ -1250,12 +1263,12 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 
 [[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = 1u;// disable any hit
-    auto r0 = ~0u;
+    auto r0 = 0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<0u, 5u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<0u, 0u, 5u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
     return LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
 }
 
@@ -1266,8 +1279,8 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<1u, 1u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
-    return static_cast<bool>(r0);
+    lc_trace_impl<0u, 1u, 1u, flags>(accel, ray, mask, r0, r1, r2, r3, r4);
+    return r0 == 1u;
 }
 
 [[nodiscard]] inline auto lc_dispatch_id() noexcept {

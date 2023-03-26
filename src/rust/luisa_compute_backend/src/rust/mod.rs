@@ -1,6 +1,8 @@
 // A Rust implementation of LuisaCompute backend.
 
-use std::sync::Arc;
+use std::{cell::RefCell, sync::Arc};
+
+use crate::SwapChainForCpuContext;
 
 use self::{
     accel::{AccelImpl, MeshImpl},
@@ -9,7 +11,8 @@ use self::{
     texture::TextureImpl,
 };
 use super::Backend;
-use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo};
+use api::{AccelOption, CreatedBufferInfo, CreatedResourceInfo, PixelStorage};
+use libc::c_void;
 use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
@@ -19,6 +22,7 @@ use luisa_compute_ir::{
     ir::{self, Type},
     CArc,
 };
+use parking_lot::RwLock;
 
 mod accel;
 mod resource;
@@ -27,9 +31,17 @@ mod stream;
 mod texture;
 pub struct RustBackend {
     shared_pool: Arc<rayon::ThreadPool>,
+    swapchain_context: RwLock<Option<SwapChainForCpuContext>>,
 }
 
 impl Backend for RustBackend {
+    unsafe fn set_swapchain_contex(&self, ctx: SwapChainForCpuContext) {
+        let mut self_ctx = self.swapchain_context.write();
+        if self_ctx.is_some() {
+            panic!("swapchain context already set");
+        }
+        *self_ctx = Some(ctx);
+    }
     fn query(&self, property: &str) -> Option<String> {
         match property {
             "device_name" => Some("cpu".to_string()),
@@ -274,7 +286,7 @@ impl Backend for RustBackend {
     fn destroy_procedural_primitive(&self, _primitive: api::ProceduralPrimitive) {
         todo!()
     }
-    fn create_accel(&self, option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
+    fn create_accel(&self, _option: AccelOption) -> super::Result<api::CreatedResourceInfo> {
         unsafe {
             let accel = Box::new(AccelImpl::new());
             let accel = Box::into_raw(accel);
@@ -288,6 +300,80 @@ impl Backend for RustBackend {
         unsafe {
             let accel = accel.0 as *mut AccelImpl;
             drop(Box::from_raw(accel));
+        }
+    }
+    fn create_swapchain(
+        &self,
+        window_handle: u64,
+        _stream_handle: api::Stream,
+        width: u32,
+        height: u32,
+        allow_hdr: bool,
+        vsync: bool,
+        back_buffer_size: u32,
+    ) -> crate::Result<api::CreatedSwapchainInfo> {
+        let ctx = self.swapchain_context.read();
+        let ctx = ctx
+            .as_ref()
+            .unwrap_or_else(|| panic!("swapchain context is not initialized"));
+        unsafe {
+            let sc_ctx = (ctx.create_cpu_swapchain)(
+                window_handle,
+                width,
+                height,
+                allow_hdr,
+                vsync,
+                back_buffer_size,
+            );
+            let storage = (ctx.cpu_swapchain_storage)(sc_ctx);
+            Ok(api::CreatedSwapchainInfo {
+                resource: api::CreatedResourceInfo {
+                    handle: sc_ctx as u64,
+                    native_handle: sc_ctx as *mut std::ffi::c_void,
+                },
+                storage: std::mem::transmute(storage as u32),
+            })
+        }
+    }
+    fn destroy_swapchain(&self, swap_chain: api::Swapchain) {
+        let ctx = self.swapchain_context.read();
+        let ctx = ctx
+            .as_ref()
+            .unwrap_or_else(|| panic!("swapchain context is not initialized"));
+        unsafe {
+            (ctx.destroy_cpu_swapchain)(swap_chain.0 as *mut c_void);
+        }
+    }
+    fn present_display_in_stream(
+        &self,
+        stream_handle: api::Stream,
+        swapchain_handle: api::Swapchain,
+        image_handle: api::Texture,
+    ) {
+        let ctx = self.swapchain_context.read();
+        let ctx = ctx
+            .as_ref()
+            .unwrap_or_else(|| panic!("swapchain context is not initialized"));
+        unsafe {
+            let stream = &*(stream_handle.0 as *mut StreamImpl);
+            let img = &*(image_handle.0 as *mut TextureImpl);
+            let storage = (ctx.cpu_swapchain_storage)(swapchain_handle.0 as *mut c_void);
+            let storage: api::PixelStorage = std::mem::transmute(storage as u32);
+            assert_eq!(storage, img.storage);
+            extern "C" fn empty_callback(_: *mut u8) {}
+            let present = ctx.cpu_swapchain_present;
+            stream.enqueue(
+                move || {
+                    let pixels = img.view(0).copy_to_vec_par_2d();
+
+                    present(
+                        swapchain_handle.0 as *mut c_void,
+                        pixels.as_ptr() as *const c_void,
+                        pixels.len() as u64,
+                    );
+                },
+                (empty_callback, std::ptr::null_mut()),
+            )
         }
     }
 }
@@ -305,6 +391,7 @@ impl RustBackend {
                     .build()
                     .unwrap(),
             ),
+            swapchain_context: RwLock::new(None),
         })
     }
 }

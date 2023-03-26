@@ -120,6 +120,10 @@ typedef struct LCShader {
     uint64_t _0;
 } LCShader;
 
+typedef struct LCSwapchain {
+    uint64_t _0;
+} LCSwapchain;
+
 typedef struct LCAccelBuildModificationFlags {
     uint32_t bits;
 } LCAccelBuildModificationFlags;
@@ -426,6 +430,11 @@ typedef struct LCCreatedShaderInfo {
     struct LCCreatedResourceInfo resource;
     uint32_t block_size[3];
 } LCCreatedShaderInfo;
+
+typedef struct LCCreatedSwapchainInfo {
+    struct LCCreatedResourceInfo resource;
+    enum LCPixelStorage storage;
+} LCCreatedSwapchainInfo;
 
 typedef struct LCAccelOption {
     enum LCAccelUsageHint hint;

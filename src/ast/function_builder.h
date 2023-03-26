@@ -80,7 +80,7 @@ private:
     luisa::vector<Variable> _builtin_variables;
     luisa::vector<Constant> _captured_constants;
     luisa::vector<Variable> _arguments;
-    luisa::vector<Binding> _argument_bindings;
+    luisa::vector<Binding> _bound_arguments;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Variable> _local_variables;
     luisa::vector<Variable> _shared_variables;
@@ -177,7 +177,9 @@ public:
     /// Return a span of arguments.
     [[nodiscard]] auto arguments() const noexcept { return luisa::span{_arguments}; }
     /// Return a span of argument bindings.
-    [[nodiscard]] auto argument_bindings() const noexcept { return luisa::span{_argument_bindings}; }
+    [[nodiscard]] auto bound_arguments() const noexcept { return luisa::span{_bound_arguments}; }
+    /// Return a span of unbound arguments.
+    [[nodiscard]] auto unbound_arguments() const noexcept { return luisa::span{_arguments}.subspan(_bound_arguments.size()); }
     /// Return a span of cpu callbacks
     [[nodiscard]] auto cpu_callbacks() const noexcept { return luisa::span{_cpu_callbacks}; }
     /// Return a span of custom callables.

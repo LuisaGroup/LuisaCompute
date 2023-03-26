@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         make_uint2(width, height),
-        true, false, 2)};
+        false, false, 2)};
     static constexpr auto interval = 4u;
     static constexpr auto total_spp = 16384u;
     auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
