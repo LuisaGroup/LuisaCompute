@@ -14,6 +14,7 @@
 #include <core/stl/unordered_map.h>
 
 namespace luisa::compute {
+
 struct BackendModule {
     using BackendDeviceNames = void(luisa::vector<luisa::string> &);
     DynamicModule module;
@@ -21,7 +22,8 @@ struct BackendModule {
     Device::Deleter *deleter;
     BackendDeviceNames *backend_device_names;
 };
-// Make context global, so dynamic modules cannot be over-loaded
+
+// Make context global, so dynamic modules cannot be redundantly loaded
 struct Context::Impl {
     std::filesystem::path runtime_directory;
     std::filesystem::path cache_directory;
@@ -143,10 +145,12 @@ Context::~Context() noexcept {
 luisa::span<const luisa::string> Context::installed_backends() const noexcept {
     return _impl->installed_backends;
 }
+
 Device Context::create_default_device() noexcept {
     LUISA_ASSERT(!installed_backends().empty(), "No backends installed.");
     return create_device(installed_backends().front());
 }
+
 luisa::vector<luisa::string> Context::backend_device_names(luisa::string_view backend_name_in) const noexcept {
     auto impl = _impl.get();
     luisa::string backend_name{backend_name_in};
@@ -156,4 +160,5 @@ luisa::vector<luisa::string> Context::backend_device_names(luisa::string_view ba
     m.backend_device_names(names);
     return names;
 }
+
 }// namespace luisa::compute

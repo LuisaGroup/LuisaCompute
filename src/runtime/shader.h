@@ -179,7 +179,7 @@ class Shader final : public Resource {
 private:
     friend class Device;
     uint3 _block_size{};
-    size_t _uniform_size;
+    size_t _uniform_size{};
 
 private:
     // base ctor

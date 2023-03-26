@@ -291,7 +291,8 @@ void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swap
 ShaderCreationInfo CUDADevice::_create_shader(const string &source,
                                               ShaderOption option,
                                               uint3 block_size,
-                                              bool is_raytracing) noexcept {
+                                              bool is_raytracing,
+                                              luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept {
 
     // NVRTC options
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
@@ -368,10 +369,12 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (is_raytracing) {
             return new_with_allocator<CUDAShaderOptiX>(
-                this, ptx.data(), ptx.size(), "__raygen__main");
+                this, ptx.data(), ptx.size(),
+                "__raygen__main", std::move(bound_arguments));
         }
         return new_with_allocator<CUDAShaderNative>(
-            ptx.data(), ptx.size(), "kernel_main", block_size);
+            ptx.data(), ptx.size(), "kernel_main",
+            block_size, std::move(bound_arguments));
     });
 
     ShaderCreationInfo info{};
@@ -388,9 +391,38 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     codegen.emit(kernel);
     LUISA_INFO("Generated CUDA source in {} ms:\n{}",
                clk.toc(), scratch.string());
+    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments;
+    bound_arguments.reserve(kernel.bound_arguments().size());
+    for (auto &&arg : kernel.bound_arguments()) {
+        luisa::visit(
+            [&bound_arguments]<typename T>(T binding) noexcept {
+                ShaderDispatchCommand::Argument argument{};
+                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::BUFFER;
+                    argument.buffer.handle = binding.handle;
+                    argument.buffer.offset = binding.offset;
+                    argument.buffer.size = binding.size;
+                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::TEXTURE;
+                    argument.texture.handle = binding.handle;
+                    argument.texture.level = binding.level;
+                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::BINDLESS_ARRAY;
+                    argument.bindless_array.handle = binding.handle;
+                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                    argument.tag = ShaderDispatchCommand::Argument::Tag::ACCEL;
+                    argument.accel.handle = binding.handle;
+                } else {
+                    LUISA_ERROR_WITH_LOCATION("Unsupported binding type.");
+                }
+                bound_arguments.emplace_back(argument);
+            },
+            arg);
+    }
     return _create_shader(scratch.string(), option,
                           kernel.block_size(),
-                          kernel.requires_raytracing());
+                          kernel.requires_raytracing(),
+                          std::move(bound_arguments));
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
@@ -634,4 +666,19 @@ LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept 
     auto p = dynamic_cast<luisa::compute::cuda::CUDADevice *>(device);
     LUISA_ASSERT(p != nullptr, "Deleting a null CUDA device.");
     luisa::delete_with_allocator(p);
+}
+
+LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
+    auto device_count = 0;
+    LUISA_CHECK_CUDA(cuDeviceGetCount(&device_count));
+    if (device_count > 0) {
+        names.reserve(device_count);
+        for (auto i = 0; i < device_count; i++) {
+            CUdevice device{};
+            LUISA_CHECK_CUDA(cuDeviceGet(&device, i));
+            static thread_local char name[1024];
+            LUISA_CHECK_CUDA(cuDeviceGetName(name, 1024, device));
+            names.emplace_back(name);
+        }
+    }
 }

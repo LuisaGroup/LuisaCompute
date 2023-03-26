@@ -198,8 +198,8 @@ private:
             detail::rastershader_check_vertex_func(vert);
             detail::rastershader_check_pixel_func(pixel);
 #endif
-            auto vert_bindings = vert.argument_bindings().subspan(1);
-            auto pixel_bindings = pixel.argument_bindings().subspan(1);
+            auto vert_bindings = vert.bound_arguments().subspan(1);
+            auto pixel_bindings = pixel.bound_arguments().subspan(1);
             _bindings.reserve(vert_bindings.size() + pixel_bindings.size());
             for(auto&& i : vert_bindings){
                 _bindings.emplace_back(i);

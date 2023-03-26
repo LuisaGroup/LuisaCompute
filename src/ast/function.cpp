@@ -111,8 +111,12 @@ luisa::span<const Variable> Function::shared_variables() const noexcept {
     return _builder->shared_variables();
 }
 
-luisa::span<const Function::Binding> Function::argument_bindings() const noexcept {
-    return _builder->argument_bindings();
+luisa::span<const Function::Binding> Function::bound_arguments() const noexcept {
+    return _builder->bound_arguments();
+}
+
+luisa::span<const Variable> Function::unbound_arguments() const noexcept {
+    return _builder->unbound_arguments();
 }
 
 }// namespace luisa::compute

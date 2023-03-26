@@ -96,6 +96,22 @@ static const std::array vulkan_swapchain_screen_shader_fragment_bytecode = {
 
 static constexpr auto REQUIRED_VULKAN_VERSION = VK_API_VERSION_1_1;
 
+namespace detail {
+
+static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                           VkDebugUtilsMessageTypeFlagsEXT /* types */,
+                                           const VkDebugUtilsMessengerCallbackDataEXT *data,
+                                           void * /* user data */) noexcept {
+    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        LUISA_WARNING("Vulkan Validation Error: {}", data->pMessage);
+    } else {
+        LUISA_WARNING("Vulkan Validation Warning: {}", data->pMessage);
+    }
+    return VK_FALSE;
+}
+
+}// namespace detail
+
 class VulkanInstance {
 
 private:
@@ -166,17 +182,7 @@ private:
             debug_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                             VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-            debug_create_info.pfnUserCallback = [](VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-                                                   VkDebugUtilsMessageTypeFlagsEXT /* types */,
-                                                   const VkDebugUtilsMessengerCallbackDataEXT *data,
-                                                   void * /* user data */) noexcept {
-                if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                    LUISA_WARNING("Vulkan Validation Error: {}", data->pMessage);
-                } else {
-                    LUISA_WARNING("Vulkan Validation Warning: {}", data->pMessage);
-                }
-                return VK_FALSE;
-            };
+            debug_create_info.pfnUserCallback = detail::vulkan_validation_callback;
             create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
             create_info.ppEnabledLayerNames = validation_layers.data();
             create_info.pNext = &debug_create_info;
@@ -1138,7 +1144,6 @@ void VulkanSwapchain::present(VkSemaphore wait, VkSemaphore signal,
     _impl->present(wait, signal, image, image_layout);
 }
 
-
 class VulkanSwapchainForCPU {
 
 private:
@@ -1402,7 +1407,7 @@ public:
     }
 };
 
-LUISA_EXPORT_API void * luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
+LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
     return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
 }
 

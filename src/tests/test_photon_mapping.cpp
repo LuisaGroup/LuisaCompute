@@ -560,7 +560,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         resolution,
-        true, false, 2)};
+        false, false, 2)};
     auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     Clock clk;
     while (!window.should_close()) {

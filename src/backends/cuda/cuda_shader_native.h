@@ -17,10 +17,12 @@ private:
     CUfunction _function{};
     luisa::string _entry;
     uint _block_size[3];
+    luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
 
 public:
     CUDAShaderNative(const char *ptx, size_t ptx_size,
-                     const char *entry, uint3 block_size) noexcept;
+                     const char *entry, uint3 block_size,
+                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
     ~CUDAShaderNative() noexcept override;
     void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 };

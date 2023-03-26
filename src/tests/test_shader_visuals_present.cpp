@@ -153,7 +153,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(),
         stream,
         window.size(),
-        true, false, 2)};
+        false, false, 2)};
     auto device_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
     stream << clear(device_image).dispatch(width, height);
 

@@ -88,7 +88,8 @@ private:
     [[nodiscard]] ShaderCreationInfo _create_shader(const string &source,
                                                     ShaderOption option,
                                                     uint3 block_size,
-                                                    bool is_raytracing) noexcept;
+                                                    bool is_raytracing,
+                                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
 
 public:
     CUDADevice(Context &&ctx,
