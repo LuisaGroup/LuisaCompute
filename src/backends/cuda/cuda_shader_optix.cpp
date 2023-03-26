@@ -89,13 +89,13 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     module_compile_options.debugLevel = enable_debug ? optix::COMPILE_DEBUG_LEVEL_MINIMAL :
                                                        optix::COMPILE_DEBUG_LEVEL_NONE;
     module_compile_options.optLevel = optix::COMPILE_OPTIMIZATION_LEVEL_3;
-//    module_compile_options.numPayloadTypes = payload_types.size();
-//    module_compile_options.payloadTypes = payload_types.data();
+    module_compile_options.numPayloadTypes = payload_types.size();
+    module_compile_options.payloadTypes = payload_types.data();
 
     optix::PipelineCompileOptions pipeline_compile_options{};
     pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
     pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
-    pipeline_compile_options.numPayloadValues = 5u;
+    pipeline_compile_options.numPayloadValues = 0u;
     pipeline_compile_options.usesPrimitiveTypeFlags = optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
@@ -152,8 +152,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     optix::ProgramGroupOptions program_group_options_miss{};
     optix::ProgramGroupDesc program_group_desc_miss{};
     program_group_desc_miss.kind = optix::PROGRAM_GROUP_KIND_MISS;
-//    program_group_desc_ch_any.miss.module = _module;
-//    program_group_desc_ch_any.miss.entryFunctionName = "__miss__miss";
+    program_group_desc_miss.miss.module = _module;
+    program_group_desc_miss.miss.entryFunctionName = "__miss__miss";
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().programGroupCreate(

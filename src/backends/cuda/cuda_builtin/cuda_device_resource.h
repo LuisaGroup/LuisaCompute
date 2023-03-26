@@ -1214,7 +1214,7 @@ inline void lc_set_payload(lc_uint x) noexcept {
 }
 
 extern "C" __global__ void __closesthit__trace_closest() {
-//    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_0);
+    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_0);
     auto inst = lc_get_instance_index();
     auto prim = lc_get_primitive_index();
     auto bary = lc_get_bary_coords();
@@ -1227,12 +1227,12 @@ extern "C" __global__ void __closesthit__trace_closest() {
 }
 
 extern "C" __global__ void __closesthit__trace_any() {
-//    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
+    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
     lc_set_payload<0u>(1u);
 }
 
 extern "C" __global__ void __miss__miss() {
-//    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
+    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
     lc_set_payload<0u>(~0u);
 }
 
@@ -1266,7 +1266,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(r0), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
+          "r"(0u), "r"(reg_count), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
           "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
           "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
           "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u)
@@ -1275,12 +1275,12 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 
 [[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = 1u;// disable any hit
-    auto r0 = ~0u;
+    auto r0 = 0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<0u, 5u, flags>(LC_PAYLOAD_TYPE_DEFAULT, accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<0u, 5u, flags>(LC_PAYLOAD_TYPE_ID_0, accel, ray, mask, r0, r1, r2, r3, r4);
     return LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
 }
 
@@ -1291,7 +1291,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<1u, 1u, flags>(LC_PAYLOAD_TYPE_DEFAULT, accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<1u, 1u, flags>(LC_PAYLOAD_TYPE_ID_1, accel, ray, mask, r0, r1, r2, r3, r4);
     return r0 == 1u;
 }
 

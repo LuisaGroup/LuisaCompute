@@ -6,8 +6,8 @@
 namespace luisa::compute::optix {
 
 // versions
-static constexpr auto VERSION = 70600u;
-static constexpr auto ABI_VERSION = 68u;
+static constexpr auto VERSION = 70400u;
+static constexpr auto ABI_VERSION = 55u;
 
 // types
 using TraversableHandle = unsigned long long;
@@ -31,16 +31,6 @@ static constexpr auto TRANSFORM_BYTE_ALIGNMENT = 64ull;
 static constexpr auto COMPILE_DEFAULT_MAX_REGISTER_COUNT = 0u;
 static constexpr auto COMPILE_DEFAULT_MAX_PAYLOAD_TYPE_COUNT = 8u;
 static constexpr auto COMPILE_DEFAULT_MAX_PAYLOAD_VALUE_COUNT = 32u;
-static constexpr auto OPACITY_MICROMAP_STATE_TRANSPARENT = (0);
-static constexpr auto OPACITY_MICROMAP_STATE_OPAQUE = (1);
-static constexpr auto OPACITY_MICROMAP_STATE_UNKNOWN_TRANSPARENT = (2);
-static constexpr auto OPACITY_MICROMAP_STATE_UNKNOWN_OPAQUE = (3);
-static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_TRANSPARENT = (-1);
-static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_OPAQUE = (-2);
-static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_UNKNOWN_TRANSPARENT = (-3);
-static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_UNKNOWN_OPAQUE = (-4);
-static constexpr auto OPACITY_MICROMAP_ARRAY_BUFFER_BYTE_ALIGNMENT = 128ull;
-static constexpr auto OPACITY_MICROMAP_MAX_SUBDIVISION_LEVEL = 12u;
 
 enum Result : unsigned int {
     RESULT_SUCCESS = 0u,
@@ -69,7 +59,7 @@ enum Result : unsigned int {
     RESULT_ERROR_INTERNAL_COMPILER_ERROR = 7299u,
     RESULT_ERROR_DENOISER_MODEL_NOT_SET = 7300u,
     RESULT_ERROR_DENOISER_NOT_INITIALIZED = 7301u,
-    RESULT_ERROR_NOT_COMPATIBLE = 7400u,
+    RESULT_ERROR_ACCEL_NOT_COMPATIBLE = 7400u,
     RESULT_ERROR_PAYLOAD_TYPE_MISMATCH = 7500u,
     RESULT_ERROR_PAYLOAD_TYPE_RESOLUTION_FAILED = 7501u,
     RESULT_ERROR_PAYLOAD_TYPE_ID_INVALID = 7502u,
@@ -80,7 +70,6 @@ enum Result : unsigned int {
     RESULT_ERROR_LIBRARY_NOT_FOUND = 7804u,
     RESULT_ERROR_ENTRY_SYMBOL_NOT_FOUND = 7805u,
     RESULT_ERROR_LIBRARY_UNLOAD_FAILURE = 7806u,
-    RESULT_ERROR_DEVICE_OUT_OF_MEMORY = 7807u,
     RESULT_ERROR_CUDA_ERROR = 7900u,
     RESULT_ERROR_INTERNAL_ERROR = 7990u,
     RESULT_ERROR_UNKNOWN = 7999u,
@@ -114,7 +103,6 @@ enum GeometryFlags : unsigned int {
     GEOMETRY_FLAG_NONE = 0u,
     GEOMETRY_FLAG_DISABLE_ANYHIT = 1u << 0u,
     GEOMETRY_FLAG_REQUIRE_SINGLE_ANYHIT_CALL = 1u << 1u,
-    GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 2u,
 };
 
 enum HitKind : unsigned int {
@@ -143,39 +131,6 @@ enum TransformFormat : unsigned int {
     TRANSFORM_FORMAT_MATRIX_FLOAT12 = 0x21e1u,
 };
 
-enum OpacityMicromapFormat : unsigned int {
-    OPACITY_MICROMAP_FORMAT_NONE = 0u,
-    OPACITY_MICROMAP_FORMAT_2_STATE = 1u,
-    OPACITY_MICROMAP_FORMAT_4_STATE = 2u,
-};
-
-enum OpacityMicromapArrayIndexingMode : unsigned int {
-    OPACITY_MICROMAP_ARRAY_INDEXING_MODE_NONE = 0u,
-    OPACITY_MICROMAP_ARRAY_INDEXING_MODE_LINEAR = 1u,
-    OPACITY_MICROMAP_ARRAY_INDEXING_MODE_INDEXED = 2u,
-};
-
-struct OpacityMicromapUsageCount {
-    unsigned int count;
-    unsigned int subdivisionLevel;
-    OpacityMicromapFormat format;
-};
-
-struct BuildInputOpacityMicromap {
-    OpacityMicromapArrayIndexingMode indexingMode;
-    CUdeviceptr opacityMicromapArray;
-    CUdeviceptr indexBuffer;
-    unsigned int indexSizeInBytes;
-    unsigned int indexStrideInBytes;
-    unsigned int indexOffset;
-    unsigned int numMicromapUsageCounts;
-    const OpacityMicromapUsageCount *micromapUsageCounts;
-};
-
-struct RelocateInputOpacityMicromap {
-    CUdeviceptr opacityMicromapArray;
-};
-
 struct BuildInputTriangleArray {
     const CUdeviceptr *vertexBuffers;
     unsigned int numVertices;
@@ -193,12 +148,6 @@ struct BuildInputTriangleArray {
     unsigned int sbtIndexOffsetStrideInBytes;
     unsigned int primitiveIndexOffset;
     TransformFormat transformFormat;
-    BuildInputOpacityMicromap opacityMicromap;
-};
-
-struct RelocateInputTriangleArray {
-    unsigned int numSbtRecords;
-    RelocateInputOpacityMicromap opacityMicromap;
 };
 
 enum PrimitiveType : unsigned int {
@@ -207,7 +156,6 @@ enum PrimitiveType : unsigned int {
     PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE = 0x2502u,
     PRIMITIVE_TYPE_ROUND_LINEAR = 0x2503u,
     PRIMITIVE_TYPE_ROUND_CATMULLROM = 0x2504u,
-    PRIMITIVE_TYPE_SPHERE = 0x2506u,
     PRIMITIVE_TYPE_TRIANGLE = 0x2531u,
 };
 
@@ -217,7 +165,6 @@ enum PrimitiveTypeFlags : unsigned int {
     PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BSPLINE = 1u << 2u,
     PRIMITIVE_TYPE_FLAGS_ROUND_LINEAR = 1u << 3u,
     PRIMITIVE_TYPE_FLAGS_ROUND_CATMULLROM = 1u << 4u,
-    PRIMITIVE_TYPE_FLAGS_SPHERE = 1u << 6u,
     PRIMITIVE_TYPE_FLAGS_TRIANGLE = 1u << 31u,
 };
 
@@ -241,21 +188,6 @@ struct BuildInputCurveArray {
     unsigned int flag;
     unsigned int primitiveIndexOffset;
     unsigned int endcapFlags;
-};
-
-struct BuildInputSphereArray {
-    const CUdeviceptr *vertexBuffers;
-    unsigned int vertexStrideInBytes;
-    unsigned int numVertices;
-    const CUdeviceptr *radiusBuffers;
-    unsigned int radiusStrideInBytes;
-    int singleRadius;
-    const unsigned int *flags;
-    unsigned int numSbtRecords;
-    CUdeviceptr sbtIndexOffsetBuffer;
-    unsigned int sbtIndexOffsetSizeInBytes;
-    unsigned int sbtIndexOffsetStrideInBytes;
-    unsigned int primitiveIndexOffset;
 };
 
 struct Aabb {
@@ -282,12 +214,6 @@ struct BuildInputCustomPrimitiveArray {
 struct BuildInputInstanceArray {
     CUdeviceptr instances;
     unsigned int numInstances;
-    unsigned int instanceStride;
-};
-
-struct RelocateInputInstanceArray {
-    unsigned int numInstances;
-    CUdeviceptr traversableHandles;
 };
 
 enum BuildInputType : unsigned int {
@@ -296,7 +222,6 @@ enum BuildInputType : unsigned int {
     BUILD_INPUT_TYPE_INSTANCES = 0x2143u,
     BUILD_INPUT_TYPE_INSTANCE_POINTERS = 0x2144u,
     BUILD_INPUT_TYPE_CURVES = 0x2145u,
-    BUILD_INPUT_TYPE_SPHERES = 0x2146u,
 };
 
 struct BuildInput {
@@ -304,18 +229,9 @@ struct BuildInput {
     union {
         BuildInputTriangleArray triangleArray;
         BuildInputCurveArray curveArray;
-        BuildInputSphereArray sphereArray;
         BuildInputCustomPrimitiveArray customPrimitiveArray;
         BuildInputInstanceArray instanceArray;
         char pad[1024];
-    };
-};
-
-struct RelocateInput {
-    BuildInputType type;
-    union {
-        RelocateInputInstanceArray instanceArray;
-        RelocateInputTriangleArray triangleArray;
     };
 };
 
@@ -325,8 +241,6 @@ enum InstanceFlags : unsigned int {
     INSTANCE_FLAG_FLIP_TRIANGLE_FACING = 1u << 1u,
     INSTANCE_FLAG_DISABLE_ANYHIT = 1u << 2u,
     INSTANCE_FLAG_ENFORCE_ANYHIT = 1u << 3u,
-    INSTANCE_FLAG_FORCE_OPACITY_MICROMAP_2_STATE = 1u << 4u,
-    INSTANCE_FLAG_DISABLE_OPACITY_MICROMAPS = 1u << 5u,
 };
 
 struct Instance {
@@ -347,47 +261,6 @@ enum BuildFlags : unsigned int {
     BUILD_FLAG_PREFER_FAST_BUILD = 1u << 3u,
     BUILD_FLAG_ALLOW_RANDOM_VERTEX_ACCESS = 1u << 4u,
     BUILD_FLAG_ALLOW_RANDOM_INSTANCE_ACCESS = 1u << 5u,
-    BUILD_FLAG_ALLOW_OPACITY_MICROMAP_UPDATE = 1u << 6u,
-    BUILD_FLAG_ALLOW_DISABLE_OPACITY_MICROMAPS = 1u << 7u,
-};
-
-enum OpacityMicromapFlags : unsigned int {
-    OPACITY_MICROMAP_FLAG_NONE = 0u,
-    OPACITY_MICROMAP_FLAG_PREFER_FAST_TRACE = 1u << 0u,
-    OPACITY_MICROMAP_FLAG_PREFER_FAST_BUILD = 1u << 1u,
-};
-
-struct OpacityMicromapDesc {
-    unsigned int byteOffset;
-    unsigned short subdivisionLevel;
-    unsigned short format;
-};
-
-struct OpacityMicromapHistogramEntry {
-    unsigned int count;
-    unsigned int subdivisionLevel;
-    OpacityMicromapFormat format;
-};
-
-struct OpacityMicromapArrayBuildInput {
-    OpacityMicromapFlags flags;
-    CUdeviceptr inputBuffer;
-    CUdeviceptr perMicromapDescBuffer;
-    unsigned int perMicromapDescStrideInBytes;
-    unsigned int numMicromapHistogramEntries;
-    const OpacityMicromapHistogramEntry *micromapHistogramEntries;
-};
-
-struct MicromapBufferSizes {
-    size_t outputSizeInBytes;
-    size_t tempSizeInBytes;
-};
-
-struct MicromapBuffers {
-    CUdeviceptr output;
-    size_t outputSizeInBytes;
-    CUdeviceptr temp;
-    size_t tempSizeInBytes;
 };
 
 enum BuildOperation : unsigned int {
@@ -430,7 +303,7 @@ struct AccelEmitDesc {
     AccelPropertyType type;
 };
 
-struct RelocationInfo {
+struct AccelRelocationInfo {
     unsigned long long info[4];
 };
 
@@ -474,7 +347,6 @@ enum PixelFormat : unsigned int {
     PIXEL_FORMAT_FLOAT4 = 0x2204u,
     PIXEL_FORMAT_UCHAR3 = 0x2205u,
     PIXEL_FORMAT_UCHAR4 = 0x2206u,
-    PIXEL_FORMAT_INTERNAL_GUIDE_LAYER = 0x2209u,
 };
 
 struct Image2D {
@@ -492,8 +364,6 @@ enum DenoiserModelKind : unsigned int {
     DENOISER_MODEL_KIND_AOV = 0x2324u,
     DENOISER_MODEL_KIND_TEMPORAL = 0x2325u,
     DENOISER_MODEL_KIND_TEMPORAL_AOV = 0x2326u,
-    DENOISER_MODEL_KIND_UPSCALE2X = 0x2327u,
-    DENOISER_MODEL_KIND_TEMPORAL_UPSCALE2X = 0x2328u,
 };
 
 struct DenoiserOptions {
@@ -505,8 +375,6 @@ struct DenoiserGuideLayer {
     Image2D albedo;
     Image2D normal;
     Image2D flow;
-    Image2D previousOutputInternalGuideLayer;
-    Image2D outputInternalGuideLayer;
 };
 
 struct DenoiserLayer {
@@ -515,18 +383,11 @@ struct DenoiserLayer {
     Image2D output;
 };
 
-enum DenoiserAlphaMode : unsigned int {
-    DENOISER_ALPHA_MODE_COPY = 0u,
-    DENOISER_ALPHA_MODE_ALPHA_AS_AOV = 1u,
-    DENOISER_ALPHA_MODE_FULL_DENOISE_PASS = 2u,
-};
-
 struct DenoiserParams {
-    DenoiserAlphaMode denoiseAlpha;
+    unsigned int denoiseAlpha;
     CUdeviceptr hdrIntensity;
     float blendFactor;
     CUdeviceptr hdrAverageColor;
-    unsigned int temporalModeUsePreviousLayers;
 };
 
 struct DenoiserSizes {
@@ -534,9 +395,6 @@ struct DenoiserSizes {
     size_t withOverlapScratchSizeInBytes;
     size_t withoutOverlapScratchSizeInBytes;
     unsigned int overlapWindowSizeInPixels;
-    size_t computeAverageColorSizeInBytes;
-    size_t computeIntensitySizeInBytes;
-    size_t internalGuideLayerPixelSizeInBytes;
 };
 
 enum RayFlags : unsigned int {
@@ -549,7 +407,6 @@ enum RayFlags : unsigned int {
     RAY_FLAG_CULL_FRONT_FACING_TRIANGLES = 1u << 5u,
     RAY_FLAG_CULL_DISABLED_ANYHIT = 1u << 6u,
     RAY_FLAG_CULL_ENFORCED_ANYHIT = 1u << 7u,
-    RAY_FLAG_FORCE_OPACITY_MICROMAP_2_STATE = 1u << 10u,
 };
 
 enum TransformType : unsigned int {
@@ -734,7 +591,6 @@ struct PipelineCompileOptions {
     unsigned int exceptionFlags;
     const char *pipelineLaunchParamsVariableName;
     unsigned int usesPrimitiveTypeFlags;
-    int allowOpacityMicromaps;
 };
 
 struct PipelineLinkOptions {
@@ -922,17 +778,17 @@ struct FunctionTable {
 
     Result (*accelGetRelocationInfo)(DeviceContext context,
                                      TraversableHandle handle,
-                                     RelocationInfo *info);
+                                     AccelRelocationInfo *info);
 
-    Result (*checkRelocationCompatibility)(DeviceContext context,
-                                           const RelocationInfo *info,
-                                           int *compatible);
+    Result (*accelCheckRelocationCompatibility)(DeviceContext context,
+                                                const AccelRelocationInfo *info,
+                                                int *compatible);
 
     Result (*accelRelocate)(DeviceContext context,
                             CUstream stream,
-                            const RelocationInfo *info,
-                            const RelocateInput *relocateInputs,
-                            size_t numRelocateInputs,
+                            const AccelRelocationInfo *info,
+                            CUdeviceptr instanceTraversableHandles,
+                            size_t numInstanceTraversableHandles,
                             CUdeviceptr targetAccel,
                             size_t targetAccelSizeInBytes,
                             TraversableHandle *targetHandle);
@@ -948,25 +804,6 @@ struct FunctionTable {
                                                 CUdeviceptr pointer,
                                                 TraversableType traversableType,
                                                 TraversableHandle *traversableHandle);
-
-    Result (*opacityMicromapArrayComputeMemoryUsage)(DeviceContext context,
-                                                     const OpacityMicromapArrayBuildInput *buildInput,
-                                                     MicromapBufferSizes *bufferSizes);
-
-    Result (*opacityMicromapArrayBuild)(DeviceContext context,
-                                        CUstream stream,
-                                        const OpacityMicromapArrayBuildInput *buildInput,
-                                        const MicromapBuffers *buffers);
-
-    Result (*opacityMicromapArrayGetRelocationInfo)(DeviceContext context,
-                                                    CUdeviceptr opacityMicromapArray,
-                                                    RelocationInfo *info);
-
-    Result (*opacityMicromapArrayRelocate)(DeviceContext context,
-                                           CUstream stream,
-                                           const RelocationInfo *info,
-                                           CUdeviceptr targetOpacityMicromapArray,
-                                           size_t targetOpacityMicromapArraySizeInBytes);
 
     void (*reserved1)(void);
 
