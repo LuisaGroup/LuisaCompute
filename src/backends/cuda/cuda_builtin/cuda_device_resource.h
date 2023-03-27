@@ -1236,6 +1236,14 @@ extern "C" __global__ void __miss__miss() {
     lc_set_payload<0u>(~0u);
 }
 
+[[nodiscard]] inline auto lc_undef() noexcept {
+    auto u0 = 0u;
+    asm("call (%0), _optix_undef_value, ();"
+        : "=r"(u0)
+        :);
+    return u0;
+}
+
 template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 [[nodiscard]] inline auto lc_trace_impl(
     lc_uint payload_type, LCAccel accel, LCRay ray, lc_uint mask,
@@ -1248,6 +1256,7 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto dz = ray.m2[2];
     auto t_min = ray.m1;
     auto t_max = ray.m3;
+    auto u = lc_undef();
     [[maybe_unused]] unsigned int
         p5, p6, p7, p8, p9, p10, p11, p12, p13,
         p14, p15, p16, p17, p18, p19, p20, p21, p22,
@@ -1266,10 +1275,10 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
           "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
-          "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
-          "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u),
-          "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u), "r"(0u)
+          "r"(0u), "r"(reg_count), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
+          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
+          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
+          "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u)
         :);
 }
 
