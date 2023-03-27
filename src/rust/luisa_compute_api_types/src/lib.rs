@@ -1,6 +1,7 @@
 use bitflags::bitflags;
 use std::ffi::c_void;
 pub const INVALID_RESOURCE_HANDLE: u64 = u64::MAX;
+pub type DispatchCallback = extern "C" fn(*mut u8);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct CreatedResourceInfo {

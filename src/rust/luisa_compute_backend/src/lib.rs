@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use api::{CreatedSwapchainInfo, PixelFormat};
+use binding::Binding;
 use libc::c_void;
 use libloading::Library;
 use luisa_compute_api_types as api;
@@ -8,14 +12,76 @@ use luisa_compute_ir::{
     ir::{self, KernelModule},
     CArc,
 };
+pub mod binding;
+pub mod cpp_proxy_backend;
 #[cfg(feature = "remote")]
 pub mod remote;
 #[cfg(feature = "cpu")]
 pub mod rust;
-
 #[derive(Debug)]
 pub struct BackendError {}
 pub type Result<T> = std::result::Result<T, BackendError>;
+
+pub struct Context {
+    pub(crate) binding: Option<Arc<Binding>>,
+    pub(crate) swapchain: Option<Arc<SwapChainForCpuContext>>,
+    pub(crate) context: Option<api::Context>,
+}
+impl Context {
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        unsafe {
+            let lib_path = path.as_ref().to_path_buf();
+            let api_dll = if cfg!(target_os = "windows") {
+                lib_path.join("libluisa-compute-api.dll")
+            } else if cfg!(target_os = "linux") {
+                lib_path.join("libluisa-compute-api.so")
+            } else {
+                todo!()
+            };
+            let swapchain_dll = if cfg!(target_os = "windows") {
+                "libluisa-compute-vulkan-swapchain.dll"
+            } else if cfg!(target_os = "linux") {
+                "libluisa-compute-vulkan-swapchain.so"
+            } else {
+                todo!()
+            };
+            let swapchain = lib_path.join(swapchain_dll);
+            let binding = Binding::new(&api_dll).ok().map(Arc::new);
+            let swapchain = SwapChainForCpuContext::new(swapchain)
+                .ok()
+                .map(|x| Arc::new(x));
+            let lib_path_c_str = std::ffi::CString::new(lib_path.to_str().unwrap()).unwrap();
+            let context = binding.as_ref().map(|binding| {
+                (binding.luisa_compute_context_create)(lib_path_c_str.as_c_str().as_ptr())
+            });
+            Self {
+                binding,
+                swapchain,
+                context,
+            }
+        }
+    }
+
+    pub fn create_device(&self, device: &str) -> crate::Result<Arc<dyn Backend>> {
+        let backend: Arc<dyn Backend> = match device {
+            "cpu" => {
+                let device = rust::RustBackend::new();
+                unsafe {
+                    if let Some(swapchain) = &self.swapchain {
+                        device.set_swapchain_contex(swapchain.clone());
+                    }
+                }
+                device
+            }
+            "remote" => {
+                todo!()
+            }
+            "cuda" | "dx" | "metal" => cpp_proxy_backend::CppProxyBackend::new(self, device),
+            _ => panic!("unsupported device: {}", device),
+        };
+        Ok(backend)
+    }
+}
 
 pub struct SwapChainForCpuContext {
     #[allow(dead_code)]
@@ -53,7 +119,7 @@ impl SwapChainForCpuContext {
     }
 }
 pub trait Backend: Sync + Send {
-    unsafe fn set_swapchain_contex(&self, ctx: SwapChainForCpuContext);
+    unsafe fn set_swapchain_contex(&self, ctx: Arc<SwapChainForCpuContext>);
     fn create_buffer(&self, ty: &CArc<ir::Type>, count: usize) -> Result<api::CreatedBufferInfo>;
     fn destroy_buffer(&self, buffer: api::Buffer);
     fn create_texture(
