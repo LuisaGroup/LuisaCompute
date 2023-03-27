@@ -9,10 +9,12 @@ on_load(function(target)
 		return os.getenv("VK_SDK_PATH")
 	end
 	local vk_path = get_path()
-	if vk_path == nil then
-		target:set("enabled", false)
-		utils.error("Vulkan enviroment illegal.")
+	if not vk_path then
 		return
+	end
+	local macro_value = target:values("LC_CUDA_ENABLE_VULKAN_SWAPCHAIN")
+	if macro_value and type(macro_value) == "string" then
+		target:add("defines", macro_value)
 	end
 	target:add("linkdirs", path.join(vk_path, "Lib"))
 	target:add("links", "vulkan-1")
