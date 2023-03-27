@@ -38,15 +38,27 @@ struct lc_half {
     unsigned short bits;
 };
 
+struct alignas(4) lc_half2 {
+    lc_half x, y;
+};
+
+struct alignas(8) lc_half4 {
+    lc_half x, y, z, w;
+};
+
 [[nodiscard]] __device__ inline auto lc_half_to_float(lc_half x) noexcept {
     lc_float val;
-    asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(x.bits));
+    asm("{  cvt.f32.f16 %0, %1;}\n"
+        : "=f"(val)
+        : "h"(x.bits));
     return val;
 }
 
 [[nodiscard]] __device__ inline auto lc_float_to_half(lc_float x) noexcept {
     lc_half val;
-    asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val.bits) : "f"(x));
+    asm("{  cvt.rn.f16.f32 %0, %1;}\n"
+        : "=h"(val.bits)
+        : "f"(x));
     return val;
 }
 
@@ -191,7 +203,7 @@ template<typename P>
 }
 
 template<typename P>
-[[nodiscard]] __device__ inline auto lc_int_to_texel(int x) noexcept {
+[[nodiscard]] __device__ inline auto lc_int_to_texel(lc_int x) noexcept {
     if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<char>(x);
     } else if constexpr (lc_is_same<P, short>::value()) {
@@ -203,7 +215,7 @@ template<typename P>
 }
 
 template<typename P>
-[[nodiscard]] __device__ inline auto lc_uint_to_texel(P x) noexcept {
+[[nodiscard]] __device__ inline auto lc_uint_to_texel(lc_uint x) noexcept {
     if constexpr (lc_is_same<P, char>::value()) {
         return static_cast<char>(static_cast<unsigned char>(x));
     } else if constexpr (lc_is_same<P, short>::value()) {
@@ -346,34 +358,34 @@ template<typename T>
             break;
         }
         case LCPixelStorage::HALF1: {
-            int x;
+            lc_uint x;
             asm("suld.b.2d.b16.zero %0, [%1, {%2, %3}];"
                 : "=r"(x)
-                : "l"(surf.handle), "r"(p.x * (int)sizeof(short)), "r"(p.y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half)), "r"(p.y)
                 : "memory");
-            result.x = lc_texel_read_convert<T, unsigned short>(x);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
             break;
         }
         case LCPixelStorage::HALF2: {
-            int x, y;
+            lc_uint x, y;
             asm("suld.b.2d.v2.b16.zero {%0, %1}, [%2, {%3, %4}];"
                 : "=r"(x), "=r"(y)
-                : "l"(surf.handle), "r"(p.x * (int)sizeof(short2)), "r"(p.y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half2)), "r"(p.y)
                 : "memory");
-            result.x = lc_texel_read_convert<T, unsigned short>(x);
-            result.y = lc_texel_read_convert<T, unsigned short>(y);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
             break;
         }
         case LCPixelStorage::HALF4: {
-            int x, y, z, w;
+            lc_uint x, y, z, w;
             asm("suld.b.2d.v4.b16.zero {%0, %1, %2, %3}, [%4, {%5, %6}];"
                 : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
-                : "l"(surf.handle), "r"(p.x * (int)sizeof(short4)), "r"(p.y)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half4)), "r"(p.y)
                 : "memory");
-            result.x = lc_texel_read_convert<T, unsigned short>(x);
-            result.y = lc_texel_read_convert<T, unsigned short>(y);
-            result.z = lc_texel_read_convert<T, unsigned short>(z);
-            result.w = lc_texel_read_convert<T, unsigned short>(w);
+            result.x = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(x)});
+            result.y = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(y)});
+            result.z = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(z)});
+            result.w = lc_texel_read_convert<T, lc_half>(lc_half{static_cast<lc_ushort>(w)});
             break;
         }
         case LCPixelStorage::FLOAT1: {
@@ -500,30 +512,30 @@ __device__ inline void lc_surf2d_write(LCSurface surf, lc_uint2 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF1: {
-            int v = lc_texel_write_convert<unsigned short>(value.x);
+            lc_uint v = lc_texel_write_convert<lc_half>(value.x).bits;
             asm volatile("sust.b.2d.b16.zero [%0, {%1, %2}], %3;"
                          :
-                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short))), "r"(p.y), "r"(v)
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half))), "r"(p.y), "r"(v)
                          : "memory");
             break;
         }
         case LCPixelStorage::HALF2: {
-            int vx = lc_texel_write_convert<unsigned short>(value.x);
-            int vy = lc_texel_write_convert<unsigned short>(value.y);
+            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
+            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
             asm volatile("sust.b.2d.v2.b16.zero [%0, {%1, %2}], {%3, %4};"
                          :
-                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short2))), "r"(p.y), "r"(vx), "r"(vy)
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half2))), "r"(p.y), "r"(vx), "r"(vy)
                          : "memory");
             break;
         }
         case LCPixelStorage::HALF4: {
-            int vx = lc_texel_write_convert<unsigned short>(value.x);
-            int vy = lc_texel_write_convert<unsigned short>(value.y);
-            int vz = lc_texel_write_convert<unsigned short>(value.z);
-            int vw = lc_texel_write_convert<unsigned short>(value.w);
+            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
+            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
+            lc_uint vz = lc_texel_write_convert<lc_half>(value.z).bits;
+            lc_uint vw = lc_texel_write_convert<lc_half>(value.w).bits;
             asm volatile("sust.b.2d.v4.b16.zero [%0, {%1, %2}], {%3, %4, %5, %6};"
                          :
-                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short4))), "r"(p.y), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half4))), "r"(p.y), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
                          : "memory");
             break;
         }
@@ -657,34 +669,34 @@ template<typename T>
             break;
         }
         case LCPixelStorage::HALF1: {
-            int x;
+            lc_uint x;
             asm("suld.b.3d.b16.zero %0, [%1, {%2, %3, %4, %5}];"
                 : "=r"(x)
-                : "l"(surf.handle), "r"(p.x * (int)sizeof(short)), "r"(p.y), "r"(p.z), "r"(0)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, unsigned short>(x);
+            result.x = lc_texel_read_convert<T, lc_half>(x);
             break;
         }
         case LCPixelStorage::HALF2: {
-            int x, y;
+            lc_uint x, y;
             asm("suld.b.3d.v2.b16.zero {%0, %1}, [%2, {%3, %4, %5, %6}];"
                 : "=r"(x), "=r"(y)
-                : "l"(surf.handle), "r"(p.x * (int)sizeof(short2)), "r"(p.y), "r"(p.z), "r"(0)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half2)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, unsigned short>(x);
-            result.y = lc_texel_read_convert<T, unsigned short>(y);
+            result.x = lc_texel_read_convert<T, lc_half>(x);
+            result.y = lc_texel_read_convert<T, lc_half>(y);
             break;
         }
         case LCPixelStorage::HALF4: {
-            int x, y, z, w;
+            lc_uint x, y, z, w;
             asm("suld.b.3d.v4.b16.zero {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
                 : "=r"(x), "=r"(y), "=r"(z), "=r"(w)
-                : "l"(surf.handle), "r"(p.x * (int)sizeof(short4)), "r"(p.y), "r"(p.z), "r"(0)
+                : "l"(surf.handle), "r"(p.x * (int)sizeof(lc_half4)), "r"(p.y), "r"(p.z), "r"(0)
                 : "memory");
-            result.x = lc_texel_read_convert<T, unsigned short>(x);
-            result.y = lc_texel_read_convert<T, unsigned short>(y);
-            result.z = lc_texel_read_convert<T, unsigned short>(z);
-            result.w = lc_texel_read_convert<T, unsigned short>(w);
+            result.x = lc_texel_read_convert<T, lc_half>(x);
+            result.y = lc_texel_read_convert<T, lc_half>(y);
+            result.z = lc_texel_read_convert<T, lc_half>(z);
+            result.w = lc_texel_read_convert<T, lc_half>(w);
             break;
         }
         case LCPixelStorage::FLOAT1: {
@@ -811,16 +823,16 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF1: {
-            int v = lc_texel_write_convert<unsigned short>(value.x);
+            lc_uint v = lc_texel_write_convert<lc_half>(value.x).bits;
             asm volatile("sust.b.3d.b16.zero [%0, {%1, %2, %3, %4}], %5;"
                          :
-                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short))), "r"(p.y), "r"(p.z), "r"(0), "r"(v)
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half))), "r"(p.y), "r"(p.z), "r"(0), "r"(v)
                          : "memory");
             break;
         }
         case LCPixelStorage::HALF2: {
-            int vx = lc_texel_write_convert<unsigned short>(value.x);
-            int vy = lc_texel_write_convert<unsigned short>(value.y);
+            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
+            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
             asm volatile("sust.b.3d.v2.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6};"
                          :
                          : "l"(surf.handle), "r"(p.x * (int)(sizeof(short2))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy)
@@ -828,13 +840,13 @@ __device__ inline void lc_surf3d_write(LCSurface surf, lc_uint3 p, V value) noex
             break;
         }
         case LCPixelStorage::HALF4: {
-            int vx = lc_texel_write_convert<unsigned short>(value.x);
-            int vy = lc_texel_write_convert<unsigned short>(value.y);
-            int vz = lc_texel_write_convert<unsigned short>(value.z);
-            int vw = lc_texel_write_convert<unsigned short>(value.w);
+            lc_uint vx = lc_texel_write_convert<lc_half>(value.x).bits;
+            lc_uint vy = lc_texel_write_convert<lc_half>(value.y).bits;
+            lc_uint vz = lc_texel_write_convert<lc_half>(value.z).bits;
+            lc_uint vw = lc_texel_write_convert<lc_half>(value.w).bits;
             asm volatile("sust.b.3d.v4.b16.zero [%0, {%1, %2, %3, %4}], {%5, %6, %7, %8};"
                          :
-                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(short4))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
+                         : "l"(surf.handle), "r"(p.x * (int)(sizeof(lc_half4))), "r"(p.y), "r"(p.z), "r"(0), "r"(vx), "r"(vy), "r"(vz), "r"(vw)
                          : "memory");
             break;
         }
@@ -1176,7 +1188,6 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
                  : "r"(t)                               \
                  :)
 
-
 enum LCPayloadTypeID : unsigned int {
     LC_PAYLOAD_TYPE_DEFAULT = 0u,
     LC_PAYLOAD_TYPE_ID_0 = 1u << 0u,
@@ -1274,7 +1285,8 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
     auto t_max = ray.m3;
     auto u = lc_undef();
     [[maybe_unused]] unsigned int
-        p5, p6, p7, p8, p9, p10, p11, p12, p13,
+        p5,
+        p6, p7, p8, p9, p10, p11, p12, p13,
         p14, p15, p16, p17, p18, p19, p20, p21, p22,
         p23, p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
