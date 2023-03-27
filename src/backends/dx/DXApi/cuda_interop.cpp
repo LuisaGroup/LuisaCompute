@@ -11,6 +11,7 @@
 #include <core/logging.h>
 #endif
 namespace lc::dx {
+#ifdef LCDX_ENABLE_CUDA
 class WindowsSecurityAttributes {
 protected:
     SECURITY_ATTRIBUTES m_winSecurityAttributes;
@@ -68,7 +69,6 @@ WindowsSecurityAttributes::~WindowsSecurityAttributes() {
 SECURITY_ATTRIBUTES *WindowsSecurityAttributes::operator&() {
     return &m_winSecurityAttributes;
 }
-#ifdef LCDX_ENABLE_CUDA
 uint64_t DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle) noexcept {
     auto dxBuffer = reinterpret_cast<Buffer const *>(dx_buffer_handle);
     WindowsSecurityAttributes windowsSecurityAttributes;
