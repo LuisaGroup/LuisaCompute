@@ -49,11 +49,13 @@ public:
     CompileResult CompileCompute(
         vstd::string_view code,
         bool optimize,
-        uint shaderModel);
+        uint shaderModel,
+        bool enableUnsafeMath);
     RasterBin CompileRaster(
         vstd::string_view code,
         bool optimize,
-        uint shaderModel);
+        uint shaderModel,
+        bool enableUnsafeMath);
 #ifdef SHADER_COMPILER_TEST
     CompileResult CustomCompile(
         vstd::string_view code,

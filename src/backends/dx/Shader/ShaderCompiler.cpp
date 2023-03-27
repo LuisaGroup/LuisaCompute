@@ -88,8 +88,13 @@ static void AddCompileFlags(Vec &args) {
         {L"-Gfa",
          L"-all-resources-bound",
          L"-no-warnings",
-         L"-HV 2021",
-         L"-opt-enable",
+         L"-HV 2021"});
+}
+template<typename Vec>
+static void AddUnsafeMathFlags(Vec &args) {
+    vstd::push_back_all(
+        args,
+        {L"-opt-enable",
          L"-funsafe-math-optimizations",
          L"-opt-enable",
          L"-fassociative-math",
@@ -99,7 +104,8 @@ static void AddCompileFlags(Vec &args) {
 CompileResult ShaderCompiler::CompileCompute(
     vstd::string_view code,
     bool optimize,
-    uint shaderModel) {
+    uint shaderModel,
+    bool enableUnsafeMath) {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -111,6 +117,9 @@ CompileResult ShaderCompiler::CompileCompute(
     args.push_back(L"/T");
     args.push_back(smStr.c_str());
     AddCompileFlags(args);
+    if (enableUnsafeMath) {
+        AddUnsafeMathFlags(args);
+    }
     if (optimize) {
         args.push_back(L"-O3");
     }
@@ -119,7 +128,8 @@ CompileResult ShaderCompiler::CompileCompute(
 RasterBin ShaderCompiler::CompileRaster(
     vstd::string_view code,
     bool optimize,
-    uint shaderModel) {
+    uint shaderModel,
+    bool enableUnsafeMath) {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -127,6 +137,9 @@ RasterBin ShaderCompiler::CompileRaster(
 #endif
     vstd::fixed_vector<LPCWSTR, 32> args;
     AddCompileFlags(args);
+    if (enableUnsafeMath) {
+        AddUnsafeMathFlags(args);
+    }
     if (optimize) {
         args.push_back(L"-O3");
     }

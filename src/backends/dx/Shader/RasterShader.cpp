@@ -321,7 +321,7 @@ vstd::MD5 RasterShader::GenMD5(
             sizeof(Hashes)});
 }
 RasterShader *RasterShader::CompileRaster(
-    BinaryIO const*fileIo,
+    BinaryIO const *fileIo,
     Device *device,
     Function vertexKernel,
     Function pixelKernel,
@@ -333,7 +333,8 @@ RasterShader *RasterShader::CompileRaster(
     vstd::span<PixelFormat const> rtv,
     DepthFormat dsv,
     vstd::string_view fileName,
-    CacheType cacheType) {
+    CacheType cacheType,
+    bool enableUnsafeMath) {
     vstd::optional<vstd::MD5> psoMd5 = GenMD5(md5, meshFormat, state, rtv, dsv);
     auto CompileNewCompute = [&](bool writeCache, vstd::string_view psoName) -> RasterShader * {
         auto str = codegen();
@@ -345,7 +346,7 @@ RasterShader *RasterShader::CompileRaster(
         auto compResult = Device::Compiler()->CompileRaster(
             str.result.view(),
             true,
-            shaderModel);
+            shaderModel, enableUnsafeMath);
         if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
             LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
             return nullptr;
@@ -401,14 +402,15 @@ RasterShader *RasterShader::CompileRaster(
     }
 }
 void RasterShader::SaveRaster(
-    BinaryIO const*fileIo,
+    BinaryIO const *fileIo,
     Device *device,
     CodegenResult const &str,
     vstd::MD5 const &md5,
     vstd::string_view fileName,
     Function vertexKernel,
     Function pixelKernel,
-    uint shaderModel) {
+    uint shaderModel,
+    bool enableUnsafeMath) {
     if constexpr (RasterShaderDetail::PRINT_CODE) {
         auto f = fopen("hlsl_output.hlsl", "ab");
         fwrite(str.result.data(), str.result.size(), 1, f);
@@ -418,7 +420,8 @@ void RasterShader::SaveRaster(
     auto compResult = Device::Compiler()->CompileRaster(
         str.result.view(),
         true,
-        shaderModel);
+        shaderModel,
+        enableUnsafeMath);
 
     if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
         LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
@@ -438,7 +441,7 @@ void RasterShader::SaveRaster(
     fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
 }
 RasterShader *RasterShader::LoadRaster(
-    BinaryIO const*fileIo,
+    BinaryIO const *fileIo,
     Device *device,
     const MeshFormat &mesh_format,
     const RasterState &raster_state,

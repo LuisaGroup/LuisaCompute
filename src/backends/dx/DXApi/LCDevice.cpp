@@ -190,7 +190,8 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             code,
             kernel.block_size(),
             kShaderModel,
-            option.name);
+            option.name,
+            option.enable_fast_math);
         info.invalidate();
         info.block_size = kernel.block_size();
 
@@ -217,7 +218,8 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel.block_size(),
             kShaderModel,
             file_name,
-            cacheType);
+            cacheType,
+            option.enable_fast_math);
         info.block_size = kernel.block_size();
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->Pso();
@@ -349,7 +351,8 @@ void DxRasterExt::save_raster_shader(
         name,
         vert,
         pixel,
-        kShaderModel);
+        kShaderModel,
+        enable_fast_math);
 }
 ResourceCreationInfo DxRasterExt::create_raster_shader(
     const MeshFormat &mesh_format,
@@ -371,7 +374,8 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
             option.name,
             vert,
             pixel,
-            kShaderModel);
+            kShaderModel,
+            option.enable_fast_math);
         return ResourceCreationInfo::make_invalid();
     } else {
         vstd::string_view file_name;
@@ -399,7 +403,8 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
             rtv_format,
             dsv_format,
             file_name,
-            cacheType);
+            cacheType,
+            option.enable_fast_math);
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->Pso();
         return info;

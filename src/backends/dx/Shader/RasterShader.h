@@ -80,7 +80,8 @@ public:
         vstd::span<PixelFormat const> rtv,
         DepthFormat dsv,
         vstd::string_view fileName,
-        CacheType cacheType);
+        CacheType cacheType,
+        bool enableUnsafeMath);
     static void SaveRaster(
         luisa::BinaryIO const*fileIo,
         Device *device,
@@ -89,7 +90,8 @@ public:
         vstd::string_view fileName,
         Function vertexKernel,
         Function pixelKernel,
-        uint shaderModel);
+        uint shaderModel,
+        bool enableUnsafeMath);
     static RasterShader *LoadRaster(
         luisa::BinaryIO const*fileIo,
         Device *device,

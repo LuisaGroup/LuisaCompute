@@ -39,14 +39,16 @@ public:
         uint3 blockSize,
         uint shaderModel,
         vstd::string_view fileName,
-        CacheType cacheType);
+        CacheType cacheType,
+        bool enableUnsafeMath);
     static void SaveCompute(
         luisa::BinaryIO const *fileIo,
         Function kernel,
         CodegenResult &codegen,
         uint3 blockSize,
         uint shaderModel,
-        vstd::string_view fileName);
+        vstd::string_view fileName,
+        bool enableUnsafeMath);
     static ComputeShader *LoadPresetCompute(
         luisa::BinaryIO const *fileIo,
         Device *device,

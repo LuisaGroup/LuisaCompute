@@ -50,7 +50,8 @@ ComputeShader *ComputeShader::CompileCompute(
     uint3 blockSize,
     uint shaderModel,
     vstd::string_view fileName,
-    CacheType cacheType) {
+    CacheType cacheType,
+    bool enableUnsafeMath) {
 
     using namespace ComputeShaderDetail;
     auto CompileNewCompute = [&](bool WriteCache, vstd::string_view psoName) {
@@ -72,7 +73,8 @@ ComputeShader *ComputeShader::CompileCompute(
         auto compResult = Device::Compiler()->CompileCompute(
             str.result.view(),
             true,
-            shaderModel);
+            shaderModel,
+            enableUnsafeMath);
         return compResult.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
@@ -146,7 +148,8 @@ void ComputeShader::SaveCompute(
     CodegenResult &str,
     uint3 blockSize,
     uint shaderModel,
-    vstd::string_view fileName) {
+    vstd::string_view fileName,
+    bool enableUnsafeMath) {
     using namespace ComputeShaderDetail;
     vstd::MD5 md5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
     if constexpr (PRINT_CODE) {
@@ -158,7 +161,8 @@ void ComputeShader::SaveCompute(
     auto compResult = Device::Compiler()->CompileCompute(
         str.result.view(),
         true,
-        shaderModel);
+        shaderModel,
+        enableUnsafeMath);
     compResult.multi_visit(
         [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);
