@@ -24,11 +24,9 @@ LUISA_EXPORT_API LCDevice luisa_compute_device_create(LCContext ctx, ConstCharPt
 LUISA_EXPORT_API void luisa_compute_device_destroy(LCDevice device) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_device_retain(LCDevice device) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_device_release(LCDevice device) LUISA_NOEXCEPT;
-LUISA_EXPORT_API VoidPtr luisa_compute_device_native_handle(LCDevice device) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCreatedBufferInfo luisa_compute_buffer_create(LCDevice device, ConstVoidPtr element, size_t elem_count) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buffer) LUISA_NOEXCEPT;
-LUISA_EXPORT_API VoidPtr luisa_compute_buffer_native_handle(LCDevice device, LCBuffer buffer) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_texture_create(LCDevice device, LCPixelFormat format, uint32_t dim, uint32_t w, uint32_t h, uint32_t d, uint32_t mips) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_texture_destroy(LCDevice device, LCTexture texture) LUISA_NOEXCEPT;
@@ -37,7 +35,6 @@ LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_stream_create(LCDevice devi
 LUISA_EXPORT_API void luisa_compute_stream_destroy(LCDevice device, LCStream stream) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_synchronize(LCDevice device, LCStream stream) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list, LCDispatchCallback callback, BytePtr callback_ctx) LUISA_NOEXCEPT;
-LUISA_EXPORT_API void luisa_compute_stream_native_handle(LCDevice device, LCStream stream, VoidPtr handle) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCreatedShaderInfo luisa_compute_shader_create(LCDevice device, LCKernelModule func, ShaderOptionPtr option) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_shader_destroy(LCDevice device, LCShader shader) LUISA_NOEXCEPT;

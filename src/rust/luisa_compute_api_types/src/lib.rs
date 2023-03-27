@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+use serde::{Serialize, Deserialize};
 use std::ffi::c_void;
 pub const INVALID_RESOURCE_HANDLE: u64 = u64::MAX;
 pub type DispatchCallback = extern "C" fn(*mut u8);
@@ -8,7 +9,10 @@ pub struct CreatedResourceInfo {
     pub handle: u64,
     pub native_handle: *mut c_void,
 }
-
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
+pub struct CreatedResourceInfoRemote {
+    pub handle: u64,
+}
 impl CreatedResourceInfo {
     pub const INVALID: Self = Self {
         handle: INVALID_RESOURCE_HANDLE,
@@ -18,6 +22,19 @@ impl CreatedResourceInfo {
     pub fn valid(&self) -> bool {
         self.handle != INVALID_RESOURCE_HANDLE
     }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
+pub struct CreatedBufferInfoRemote {
+    pub resource: CreatedResourceInfoRemote,
+    pub element_stride: usize,
+    pub total_size_bytes: usize,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
+pub struct CreatedSwapchainInfoRemote {
+    pub resource: CreatedResourceInfoRemote,
+    pub storage: PixelStorage,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
@@ -64,74 +81,74 @@ impl Default for ShaderOption {
     }
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Buffer(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Context(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Device(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Texture(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Stream(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Event(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Swapchain(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct BindlessArray(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Mesh(pub u64);
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct ProceduralPrimitive(pub u64);
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Accel(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct IrModule(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Shader(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeRef(pub u64);
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum AccelUsageHint {
     FastTrace,
     FastBuild,
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum AccelBuildRequest {
     PreferUpdate,
     ForceBuild,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct AccelOption {
     pub hint: AccelUsageHint,
     pub allow_compaction: bool,
@@ -149,6 +166,7 @@ impl Default for AccelOption {
 
 bitflags! {
     #[repr(C)]
+    #[derive(Serialize, Deserialize)]
     pub struct AccelBuildModificationFlags : u32 {
         const EMPTY = 0;
         const PRIMITIVE = 1 << 0;
@@ -160,13 +178,13 @@ bitflags! {
     }
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum MeshType {
     Mesh,
     ProceduralPrimitive,
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct AccelBuildModification {
     pub index: u32,
     pub flags: AccelBuildModificationFlags,
@@ -176,7 +194,7 @@ pub struct AccelBuildModification {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum PixelStorage {
     Byte1,
     Byte2,
@@ -218,7 +236,7 @@ impl PixelStorage {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum PixelFormat {
     R8Sint,
     R8Uint,
@@ -294,7 +312,7 @@ impl PixelFormat {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum SamplerFilter {
     Point,
     LinearPoint,
@@ -303,7 +321,7 @@ pub enum SamplerFilter {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum SamplerAddress {
     Edge,
     Repeat,
@@ -312,7 +330,7 @@ pub enum SamplerAddress {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Sampler {
     pub filter: SamplerFilter,
     pub address: SamplerAddress,
@@ -598,14 +616,7 @@ pub struct CommandList {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
-pub struct AppContext {
-    pub gc_context: *mut c_void,
-    pub ir_context: *mut c_void,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum StreamTag {
     Graphics,
     Compute,

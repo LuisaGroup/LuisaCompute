@@ -16,6 +16,8 @@ pub mod binding;
 pub mod cpp_proxy_backend;
 #[cfg(feature = "remote")]
 pub mod remote;
+#[cfg(feature = "remote")]
+pub mod api_message;
 #[cfg(feature = "cpu")]
 pub mod rust;
 #[derive(Debug)]

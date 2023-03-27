@@ -406,11 +406,6 @@ typedef struct LCCommandList {
     size_t commands_count;
 } LCCommandList;
 
-typedef struct LCAppContext {
-    void *gc_context;
-    void *ir_context;
-} LCAppContext;
-
 typedef struct LCKernelModule {
     uint64_t ptr;
 } LCKernelModule;

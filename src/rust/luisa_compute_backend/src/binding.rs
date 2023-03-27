@@ -15,14 +15,12 @@ pub struct Binding {
     pub luisa_compute_device_native_handle: unsafe extern "C" fn(device: api::Device, ) -> *mut c_void,
     pub luisa_compute_buffer_create: unsafe extern "C" fn(device: api::Device, element: *const c_void, elem_count: usize, ) -> api::CreatedBufferInfo,
     pub luisa_compute_buffer_destroy: unsafe extern "C" fn(device: api::Device, buffer: api::Buffer, ) -> (),
-    pub luisa_compute_buffer_native_handle: unsafe extern "C" fn(device: api::Device, buffer: api::Buffer, ) -> *mut c_void,
     pub luisa_compute_texture_create: unsafe extern "C" fn(device: api::Device, format: api::PixelFormat, dim: u32, w: u32, h: u32, d: u32, mips: u32, ) -> api::CreatedResourceInfo,
     pub luisa_compute_texture_destroy: unsafe extern "C" fn(device: api::Device, texture: api::Texture, ) -> (),
     pub luisa_compute_stream_create: unsafe extern "C" fn(device: api::Device, stream_tag: api::StreamTag, ) -> api::CreatedResourceInfo,
     pub luisa_compute_stream_destroy: unsafe extern "C" fn(device: api::Device, stream: api::Stream, ) -> (),
     pub luisa_compute_stream_synchronize: unsafe extern "C" fn(device: api::Device, stream: api::Stream, ) -> (),
     pub luisa_compute_stream_dispatch: unsafe extern "C" fn(device: api::Device, stream: api::Stream, cmd_list: api::CommandList, callback: api::DispatchCallback, callback_ctx: *mut u8, ) -> (),
-    pub luisa_compute_stream_native_handle: unsafe extern "C" fn(device: api::Device, stream: api::Stream, handle: *mut c_void, ) -> (),
     pub luisa_compute_shader_create: unsafe extern "C" fn(device: api::Device, func: api::KernelModule, option: &api::ShaderOption, ) -> api::CreatedShaderInfo,
     pub luisa_compute_shader_destroy: unsafe extern "C" fn(device: api::Device, shader: api::Shader, ) -> (),
     pub luisa_compute_event_create: unsafe extern "C" fn(device: api::Device, ) -> api::CreatedResourceInfo,
@@ -63,14 +61,12 @@ impl Binding {
         let luisa_compute_device_native_handle =  *lib.get(b"luisa_compute_device_native_handle")? ;
         let luisa_compute_buffer_create =  *lib.get(b"luisa_compute_buffer_create")? ;
         let luisa_compute_buffer_destroy =  *lib.get(b"luisa_compute_buffer_destroy")? ;
-        let luisa_compute_buffer_native_handle =  *lib.get(b"luisa_compute_buffer_native_handle")? ;
         let luisa_compute_texture_create =  *lib.get(b"luisa_compute_texture_create")? ;
         let luisa_compute_texture_destroy =  *lib.get(b"luisa_compute_texture_destroy")? ;
         let luisa_compute_stream_create =  *lib.get(b"luisa_compute_stream_create")? ;
         let luisa_compute_stream_destroy =  *lib.get(b"luisa_compute_stream_destroy")? ;
         let luisa_compute_stream_synchronize =  *lib.get(b"luisa_compute_stream_synchronize")? ;
         let luisa_compute_stream_dispatch =  *lib.get(b"luisa_compute_stream_dispatch")? ;
-        let luisa_compute_stream_native_handle =  *lib.get(b"luisa_compute_stream_native_handle")? ;
         let luisa_compute_shader_create =  *lib.get(b"luisa_compute_shader_create")? ;
         let luisa_compute_shader_destroy =  *lib.get(b"luisa_compute_shader_destroy")? ;
         let luisa_compute_event_create =  *lib.get(b"luisa_compute_event_create")? ;
@@ -108,14 +104,12 @@ impl Binding {
             luisa_compute_device_native_handle,
             luisa_compute_buffer_create,
             luisa_compute_buffer_destroy,
-            luisa_compute_buffer_native_handle,
             luisa_compute_texture_create,
             luisa_compute_texture_destroy,
             luisa_compute_stream_create,
             luisa_compute_stream_destroy,
             luisa_compute_stream_synchronize,
             luisa_compute_stream_dispatch,
-            luisa_compute_stream_native_handle,
             luisa_compute_shader_create,
             luisa_compute_shader_destroy,
             luisa_compute_event_create,

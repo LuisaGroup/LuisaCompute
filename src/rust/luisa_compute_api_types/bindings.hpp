@@ -473,11 +473,6 @@ struct CommandList {
     size_t commands_count;
 };
 
-struct AppContext {
-    void *gc_context;
-    void *ir_context;
-};
-
 struct KernelModule {
     uint64_t ptr;
 };
