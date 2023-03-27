@@ -4,7 +4,7 @@
 #include <Shader/ShaderCompiler.h>
 #include <core/logging.h>
 #include <vstl/md5.h>
-namespace toolhub::directx {
+namespace lc::dx {
 namespace ComputeShaderDetail {
 static constexpr bool PRINT_CODE = false;
 }// namespace ComputeShaderDetail
@@ -234,4 +234,4 @@ ComputeShader::ComputeShader(
 
 ComputeShader::~ComputeShader() {
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

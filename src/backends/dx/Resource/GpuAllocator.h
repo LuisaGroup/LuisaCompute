@@ -3,7 +3,7 @@
 namespace D3D12MA {
 class Allocator;
 }
-namespace toolhub::directx {
+namespace lc::dx {
 class GpuAllocator : public vstd::IOperatorNewBase {
     D3D12MA::Allocator *allocator = nullptr;
 
@@ -26,4 +26,4 @@ public:
 	GpuAllocator(Device* device);
     ~GpuAllocator();
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

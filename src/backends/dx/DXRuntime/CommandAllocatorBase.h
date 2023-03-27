@@ -6,7 +6,7 @@
 #include <Resource/DefaultBuffer.h>
 #include <Resource/ReadbackBuffer.h>
 #include <vstl/lockfree_array_queue.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandAllocatorBase : public vstd::IOperatorNewBase {
     friend class CommandQueue;
     friend class CommandBuffer;
@@ -35,4 +35,4 @@ public:
     void ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex, IDXGISwapChain3 *swapchain, bool vsync);
     void Complete(CommandQueue *queue, ID3D12Fence *fence, uint64 fenceIndex);
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

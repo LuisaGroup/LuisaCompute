@@ -1,7 +1,7 @@
 #pragma once
 #include <Resource/TextureBase.h>
 #include <Resource/AllocHandle.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class ExternalTexture final : public TextureBase {
 private:
     mutable vstd::unordered_map<uint, uint> uavIdcs;
@@ -35,4 +35,4 @@ public:
     Tag GetTag() const override { return Tag::ExternalTexture; }
     VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -4,7 +4,7 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <Resource/GpuAllocator.h>
 #include <DXApi/LCEvent.h>
-namespace toolhub::directx {
+namespace lc::dx {
 CommandQueue::CommandQueue(
     Device *device,
     GpuAllocator *resourceAllocator,
@@ -208,4 +208,4 @@ void CommandQueue::Complete() {
     }
 }
 
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -1,7 +1,7 @@
 #pragma once
 #include <Resource/TextureBase.h>
 #include <Resource/AllocHandle.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class RenderTexture final : public TextureBase {
 private:
     AllocHandle allocHandle;
@@ -36,4 +36,4 @@ public:
     uint GetGlobalUAVIndex(uint mipLevel) const override;
     VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

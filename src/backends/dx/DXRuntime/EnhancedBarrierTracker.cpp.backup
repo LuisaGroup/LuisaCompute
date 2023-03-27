@@ -3,7 +3,7 @@
 #include <Resource/TextureBase.h>
 #include <Resource/TopAccel.h>
 #include <DXRuntime/CommandBuffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 namespace detail {
 static constexpr D3D12_BARRIER_SYNC BarrierSyncMap[] = {
 	D3D12_BARRIER_SYNC_COMPUTE_SHADING,							 // ComputeRead,
@@ -176,4 +176,4 @@ void EnhancedBarrierTracker::UpdateState(CommandBufferBuilder const& cmdBuffer) 
 void EnhancedBarrierTracker::RestoreState(CommandBufferBuilder const& cmdBuffer) {
     frameStates.Clear();
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

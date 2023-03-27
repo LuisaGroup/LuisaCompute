@@ -5,7 +5,7 @@
 #include <Shader/ShaderCompiler.h>
 #include <vstl/md5.h>
 #include <core/logging.h>
-namespace toolhub::directx {
+namespace lc::dx {
 namespace RasterShaderDetail {
 static constexpr bool PRINT_CODE = false;
 static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function pixelKernel) {
@@ -505,4 +505,4 @@ ID3D12CommandSignature *RasterShader::CmdSig(size_t vertexCount, bool index) {
     ThrowIfFailed(device->device->CreateCommandSignature(&desc, rootSig.Get(), IID_PPV_ARGS(&cmd)));
     return cmd.Get();
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

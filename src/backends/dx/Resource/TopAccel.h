@@ -4,7 +4,7 @@
 #include <runtime/rhi/command.h>
 #include <runtime/device.h>
 using namespace luisa::compute;
-namespace toolhub::directx {
+namespace lc::dx {
 class DefaultBuffer;
 class BottomAccel;
 class BboxAccel;
@@ -78,4 +78,4 @@ public:
         CommandBufferBuilder &builder);
     ~TopAccel();
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

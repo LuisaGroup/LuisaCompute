@@ -4,7 +4,7 @@
 #include <Resource/Buffer.h>
 #include <Shader/ComputeShader.h>
 #include <Shader/RasterShader.h>
-namespace toolhub::directx {
+namespace lc::dx {
 CommandBuffer::CommandBuffer(CommandBuffer &&v)
     : cmdList(std::move(v.cmdList)),
       alloc(v.alloc) {
@@ -289,4 +289,4 @@ CommandBuffer::~CommandBuffer() {
     Close();
 }
 
-}// namespace toolhub::directx
+}// namespace lc::dx

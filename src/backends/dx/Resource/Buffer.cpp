@@ -1,6 +1,6 @@
 
 #include <Resource/Buffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 BufferView::BufferView(Buffer const *buffer)
     : buffer(buffer),
       offset(0),
@@ -19,4 +19,4 @@ Buffer::Buffer(
 }
 Buffer::~Buffer() {
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

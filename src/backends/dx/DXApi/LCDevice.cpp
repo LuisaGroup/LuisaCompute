@@ -25,8 +25,8 @@
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
 #include <ext.h>
-using namespace toolhub::directx;
-namespace toolhub::directx {
+namespace lc::dx {
+using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
@@ -542,4 +542,4 @@ VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<LCDevice *>(device);
 }
 
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -1,6 +1,6 @@
 #pragma once
 #include <DXRuntime/CommandAllocatorBase.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandQueue;
 class IPipelineEvent;
 class CommandAllocator final : public CommandAllocatorBase {
@@ -63,4 +63,4 @@ class IPipelineEvent : public vstd::IOperatorNewBase {
 public:
     virtual ~IPipelineEvent() = default;
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

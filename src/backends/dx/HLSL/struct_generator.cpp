@@ -3,7 +3,7 @@
 #include "struct_generator.h"
 #include "dx_codegen.h"
 #include <HLSL/common_iterator.h>
-namespace toolhub::directx {
+namespace lc::dx {
 /*
 size_t StructureType::size() const {
     switch (mTag) {
@@ -118,4 +118,4 @@ StructGenerator::StructGenerator(
     }
 }
 StructGenerator::~StructGenerator() = default;
-}// namespace toolhub::directx
+}// namespace lc::dx

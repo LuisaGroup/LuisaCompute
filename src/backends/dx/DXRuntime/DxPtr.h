@@ -1,6 +1,6 @@
 #pragma once
 #include <stddef.h>
-namespace toolhub::directx {
+namespace lc::dx {
 template<typename T>
 class DxPtr {
     T *ptr;
@@ -59,4 +59,4 @@ public:
         return ptr;
     }
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

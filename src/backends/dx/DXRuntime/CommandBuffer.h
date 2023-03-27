@@ -2,7 +2,7 @@
 #include <Resource/BindProperty.h>
 #include <Resource/TextureBase.h>
 #include <DXRuntime/DxPtr.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandAllocator;
 class CommandAllocatorBase;
 class Resource;
@@ -113,4 +113,4 @@ public:
     KILL_COPY_CONSTRUCT(CommandBuffer)
 };
 
-}// namespace toolhub::directx
+}// namespace lc::dx

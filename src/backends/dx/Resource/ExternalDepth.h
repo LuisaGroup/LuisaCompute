@@ -1,7 +1,7 @@
 #pragma once
 #include <Resource/TextureBase.h>
 #include <runtime/depth_format.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class ExternalDepth final : public TextureBase {
 private:
     ID3D12Resource *resource;
@@ -32,4 +32,4 @@ public:
     uint GetGlobalSRVIndex(uint mipOffset = 0) const override;
     VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

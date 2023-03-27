@@ -1,6 +1,6 @@
 
 #include <Resource/TextureBase.h>
-namespace toolhub::directx {
+namespace lc::dx {
 TextureBase::TextureBase(
     Device *device,
     uint width,
@@ -132,4 +132,4 @@ D3D12_RESOURCE_STATES TextureBase::GetNonSimulCurrentState() const {
 void TextureBase::SetNonSimulCurrentState(D3D12_RESOURCE_STATES state) const {
     initState = state;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -1,7 +1,7 @@
 #include "dx_codegen.h"
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
-namespace toolhub::directx {
+namespace lc::dx {
 
 void StringStateVisitor::visit(const UnaryExpr *expr) {
     literalBrace = true;
@@ -482,4 +482,4 @@ StringStateVisitor::Scope::Scope(StringStateVisitor *self)
 StringStateVisitor::Scope::~Scope() {
     self->str << "}\n"sv;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

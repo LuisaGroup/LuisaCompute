@@ -1,6 +1,6 @@
 
 #include <Resource/Resource.h>
-namespace toolhub::directx {
+namespace lc::dx {
 uint64 Resource::GetTextureSize(
     Device *device,
     uint width,
@@ -136,4 +136,4 @@ uint64 Resource::GetTexturePixelSize(GFXFormat format) {
         default: return 0;
     }
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

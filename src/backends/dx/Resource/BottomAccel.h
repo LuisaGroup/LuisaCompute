@@ -2,7 +2,7 @@
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
 #include <runtime/rhi/command.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandBufferBuilder;
 class ResourceStateTracker;
 class TopAccel;
@@ -82,4 +82,4 @@ public:
         BufferView const &scratchBuffer);
     ~BottomAccel();
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -5,8 +5,8 @@
 #include <ast/expression.h>
 #include <ast/statement.h>
 #include <HLSL/string_builder.h>
+namespace lc::dx {
 using namespace luisa::compute;
-namespace toolhub::directx {
 class StructGenerator : public vstd::IOperatorNewBase {
 public:
     using Callback = vstd::function<void(Type const *)>;
@@ -41,4 +41,4 @@ public:
     void Init(Callback const &visitor);
     ~StructGenerator();
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -3,9 +3,10 @@
 #include <backends/ext/tex_compress_ext.h>
 #include <backends/ext/native_resource_ext.h>
 #include <backends/ext/raster_ext.h>
+#include <backends/ext/dx_cuda_interop.h>
 #include <backends/dx/d3dx12.h>
+namespace lc::dx {
 using namespace luisa::compute;
-namespace toolhub::directx {
 class Device;
 class DxTexCompressExt final : public TexCompressExt, public vstd::IOperatorNewBase {
 public:
@@ -154,4 +155,13 @@ public:
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept override;
 };
-}// namespace toolhub::directx
+class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
+    Device &_device;
+
+public:
+    uint64_t cuda_buffer(uint64_t dx_buffer) noexcept override;
+    uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
+    uint64_t cuda_event(uint64_t dx_event) noexcept override;
+    DxCudaInteropImpl(Device &device) : _device{device} {}
+};
+}// namespace lc::dx

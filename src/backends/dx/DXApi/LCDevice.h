@@ -2,9 +2,9 @@
 #include <vstl/common.h>
 #include <runtime/device.h>
 #include <DXRuntime/Device.h>
+namespace lc::dx {
 using namespace luisa;
 using namespace luisa::compute;
-namespace toolhub::directx {
 class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
     struct Ext {
         using Ctor = vstd::func_ptr_t<DeviceExtension *(LCDevice *)>;
@@ -100,4 +100,4 @@ public:
     DeviceExtension *extension(string_view name) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -5,7 +5,7 @@
 #include <core/binary_io.h>
 #include <core/stl/unordered_map.h>
 #include <vstl/hash.h>
-namespace toolhub::directx {
+namespace lc::dx {
 struct CodegenResult;
 class ShaderSerializer;
 class RasterShader final : public Shader {
@@ -102,4 +102,4 @@ public:
         luisa::span<Type const *const> types,
         vstd::string_view fileName);
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

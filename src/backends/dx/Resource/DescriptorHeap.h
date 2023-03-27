@@ -1,6 +1,6 @@
 #pragma once
 #include <Resource/Resource.h>
-namespace toolhub::directx {
+namespace lc::dx {
 
 class DescriptorHeap final : public Resource {
 private:
@@ -50,4 +50,4 @@ struct DescriptorHeapView {
         : heap(heap),
           index(0) {}
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

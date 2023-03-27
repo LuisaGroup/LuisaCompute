@@ -1,7 +1,7 @@
 #include <Resource/ExternalDepth.h>
 #include <Resource/DepthBuffer.h>
 #include <Resource/DescriptorHeap.h>
-namespace toolhub::directx {
+namespace lc::dx {
 ExternalDepth::ExternalDepth(
     ID3D12Resource *res,
     Device *device,
@@ -61,4 +61,4 @@ D3D12_SHADER_RESOURCE_VIEW_DESC ExternalDepth::GetColorSrvDesc(uint mipOffset) c
 ExternalDepth::~ExternalDepth() {
     if (srvIdx != ~0u) device->globalHeap->ReturnIndex(srvIdx);
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

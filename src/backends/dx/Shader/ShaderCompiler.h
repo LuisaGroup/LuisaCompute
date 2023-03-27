@@ -3,7 +3,7 @@
 #include <core/dynamic_module.h>
 #include <DXRuntime/Device.h>
 #include <dxc/dxcapi.h>
-namespace toolhub::directx {
+namespace lc::dx {
 
 class DXByteBlob final : public vstd::IOperatorNewBase {
 private:
@@ -66,4 +66,4 @@ public:
         bool optimize,
         uint shaderModel = 63);*/
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

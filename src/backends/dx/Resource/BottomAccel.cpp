@@ -3,7 +3,7 @@
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/ResourceStateTracker.h>
 #include <Resource/TopAccel.h>
-namespace toolhub::directx {
+namespace lc::dx {
 namespace detail {
 void MeshPreprocess(
     Buffer const *vHandle,
@@ -246,4 +246,4 @@ void MeshHandle::DestroyHandle(MeshHandle *handle) {
     using namespace detail;
     meshHandlePool.destroy_lock(meshHandleMtx, handle);
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

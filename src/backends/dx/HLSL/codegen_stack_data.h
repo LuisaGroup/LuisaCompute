@@ -2,7 +2,7 @@
 #include <vstl/common.h>
 #include "dx_codegen.h"
 #include "struct_generator.h"
-namespace toolhub::directx {
+namespace lc::dx {
 
 struct CodegenStackData : public vstd::IOperatorNewBase {
     luisa::compute::Function kernel;
@@ -49,4 +49,4 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     static void DeAllocate(vstd::unique_ptr<CodegenStackData> &&v);
     // static bool& ThreadLocalSpirv();
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

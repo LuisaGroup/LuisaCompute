@@ -2,7 +2,7 @@
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
 #include <ast/type_registry.h>
-namespace toolhub::directx {
+namespace lc::dx {
 CodegenStackData::CodegenStackData()
     : generateStruct(
           [this](Type const *t) {
@@ -123,4 +123,4 @@ vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate() {
 void CodegenStackData::DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
     detail::codegenGlobalPool.DeAllocate(std::move(v));
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

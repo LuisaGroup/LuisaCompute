@@ -1,6 +1,6 @@
 #include <DXRuntime/CommandAllocator.h>
 #include <DXRuntime/CommandQueue.h>
-namespace toolhub::directx {
+namespace lc::dx {
 template<typename Pack>
 uint64 CommandAllocator::Visitor<Pack>::allocate(uint64 size) {
     auto packPtr = new Pack(
@@ -224,4 +224,4 @@ void CommandAllocator::DescHeapVisitor::deallocate(uint64 handle) {
 }
 CommandAllocatorBase::~CommandAllocatorBase() {
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

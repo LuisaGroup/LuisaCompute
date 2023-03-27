@@ -4,7 +4,7 @@
 #include <DXApi/LCDevice.h>
 #include <Resource/SwapChain.h>
 #include <DXRuntime/CommandQueue.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class LCSwapChain : public vstd::IOperatorNewBase {
 public:
     vstd::vector<SwapChain> m_renderTargets;
@@ -22,4 +22,4 @@ public:
         bool vsync,
         uint backBufferCount);
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

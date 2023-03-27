@@ -1,6 +1,6 @@
 #pragma once
 #include <d3dx12.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandBufferBuilder;
 class Resource;
 class TextureBase;
@@ -45,4 +45,4 @@ public:
     void UpdateState(CommandBufferBuilder const &cmdBuffer);
     void RestoreState(CommandBufferBuilder const &cmdBuffer);
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

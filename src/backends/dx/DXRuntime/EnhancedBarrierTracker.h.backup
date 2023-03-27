@@ -3,7 +3,7 @@
 #include <Resource/BufferView.h>
 #include <Resource/Resource.h>
 #include <vstl/small_vector.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandBufferBuilder;
 class TopAccel;
 class EnhancedBarrierTracker : public vstd::IOperatorNewBase {
@@ -86,4 +86,4 @@ public:
 	void UpdateState(CommandBufferBuilder const& cmdBuffer);
 	void RestoreState(CommandBufferBuilder const& cmdBuffer);
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

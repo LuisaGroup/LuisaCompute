@@ -1,5 +1,5 @@
 #include <Resource/ExternalBuffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 ExternalBuffer::ExternalBuffer(Device *device, ID3D12Resource *resource, D3D12_RESOURCE_STATES initState)
     : Buffer(device), resource(resource), initState(initState) {
     auto desc = resource->GetDesc();
@@ -52,4 +52,4 @@ vstd::optional<D3D12_UNORDERED_ACCESS_VIEW_DESC> ExternalBuffer::GetColorUavDesc
     }
     return res;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

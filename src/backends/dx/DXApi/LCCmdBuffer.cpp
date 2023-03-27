@@ -14,7 +14,7 @@
 #include <runtime/dispatch_buffer.h>
 #include <core/logging.h>
 #include <runtime/rtx/aabb.h>
-namespace toolhub::directx {
+namespace lc::dx {
 using Argument = luisa::compute::Argument;
 template<typename Visitor>
 void DecodeCmd(vstd::span<const Argument> args, Visitor &&visitor) {
@@ -1160,4 +1160,4 @@ void LCCmdBuffer::CompressBC(
         std::move(alloc),
         [backBuffer = std::move(backBuffer)] {});
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

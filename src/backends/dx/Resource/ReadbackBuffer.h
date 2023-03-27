@@ -2,7 +2,7 @@
 #include <Resource/Buffer.h>
 #include <Resource/AllocHandle.h>
 
-namespace toolhub::directx {
+namespace lc::dx {
 class ReadbackBuffer final : public Buffer {
 private:
 	AllocHandle allocHandle;
@@ -28,4 +28,4 @@ public:
 	KILL_COPY_CONSTRUCT(ReadbackBuffer)
 	VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

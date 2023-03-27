@@ -3,7 +3,7 @@
 #include <Shader/Shader.h>
 #include <core/binary_io.h>
 #include <runtime/raster/raster_state.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class ComputeShader;
 class RasterShader;
 class RTShader;
@@ -72,4 +72,4 @@ public:
     ShaderSerializer() = delete;
     ~ShaderSerializer() = delete;
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

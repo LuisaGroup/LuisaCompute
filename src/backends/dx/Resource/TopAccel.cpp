@@ -5,7 +5,7 @@
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <Resource/BottomAccel.h>
-namespace toolhub::directx {
+namespace lc::dx {
 
 namespace detail {
 void GetRayTransform(D3D12_RAYTRACING_INSTANCE_DESC &inst, float4x4 const &tr) {
@@ -341,4 +341,4 @@ bool TopAccel::CheckAccel(
     accelBuffer = std::move(newAccelBuffer);
     return true;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

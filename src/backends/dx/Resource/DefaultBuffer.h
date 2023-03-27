@@ -1,7 +1,7 @@
 #pragma once
 #include <Resource/Buffer.h>
 #include <Resource/AllocHandle.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class DefaultBuffer final : public Buffer {
 private:
 	AllocHandle allocHandle;
@@ -33,4 +33,4 @@ public:
 	KILL_COPY_CONSTRUCT(DefaultBuffer)
 	VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -7,8 +7,8 @@
 #include <Resource/DescriptorHeap.h>
 #include <ast/function.h>
 #include <core/binary_io.h>
+namespace lc::dx {
 using namespace luisa::compute;
-namespace toolhub::directx {
 struct SavedArgument {
     Type::Tag tag;
     Usage varUsage;
@@ -122,4 +122,4 @@ public:
     KILL_COPY_CONSTRUCT(Shader)
     KILL_MOVE_CONSTRUCT(Shader)
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

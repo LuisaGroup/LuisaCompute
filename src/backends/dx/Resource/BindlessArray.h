@@ -3,8 +3,8 @@
 #include <Resource/DefaultBuffer.h>
 #include <vstl/lockfree_array_queue.h>
 #include <runtime/rhi/command.h>
+namespace lc::dx {
 using namespace luisa::compute;
-namespace toolhub::directx {
 class TextureBase;
 class CommandBufferBuilder;
 class ResourceStateTracker;
@@ -64,4 +64,4 @@ public:
     ~BindlessArray();
     VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

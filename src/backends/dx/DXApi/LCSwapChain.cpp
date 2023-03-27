@@ -2,7 +2,7 @@
 #include <dxgi1_2.h>
 #include <DXRuntime/Device.h>
 #include <Resource/RenderTexture.h>
-namespace toolhub::directx {
+namespace lc::dx {
 LCSwapChain::LCSwapChain(
     Device *device,
     CommandQueue *queue,
@@ -44,4 +44,4 @@ LCSwapChain::LCSwapChain(
     }
 }
 
-}// namespace toolhub::directx
+}// namespace lc::dx

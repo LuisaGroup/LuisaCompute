@@ -2,7 +2,7 @@
 #include <Resource/TextureBase.h>
 #include <runtime/depth_format.h>
 #include <Resource/AllocHandle.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class DepthBuffer final : public TextureBase {
 private:
     AllocHandle allocHandle;
@@ -33,4 +33,4 @@ public:
     uint GetGlobalSRVIndex(uint mipOffset = 0) const override;
     VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

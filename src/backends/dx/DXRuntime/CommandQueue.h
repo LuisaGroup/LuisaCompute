@@ -2,7 +2,7 @@
 #include <DXRuntime/Device.h>
 #include <vstl/lockfree_array_queue.h>
 #include <DxRuntime/DxPtr.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandBuffer;
 class CommandAllocator;
 class CommandAllocatorBase;
@@ -63,4 +63,4 @@ public:
     KILL_MOVE_CONSTRUCT(CommandQueue)
     KILL_COPY_CONSTRUCT(CommandQueue)
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

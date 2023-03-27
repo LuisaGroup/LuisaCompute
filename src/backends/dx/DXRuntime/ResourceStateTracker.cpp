@@ -1,7 +1,7 @@
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandBuffer.h>
 #include <Resource/TextureBase.h>
-namespace toolhub::directx {
+namespace lc::dx {
 namespace detail {
 static bool IsReadState(D3D12_RESOURCE_STATES state) {
     switch (state) {
@@ -225,4 +225,4 @@ D3D12_RESOURCE_STATES ResourceStateTracker::ReadState(ResourceReadUsage usage, R
         }
     }
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

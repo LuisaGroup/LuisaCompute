@@ -2,7 +2,7 @@
 #include <Shader/BuiltinKernel.h>
 #include "HLSL/dx_codegen.h"
 #include <core/stl/filesystem.h>
-namespace toolhub::directx {
+namespace lc::dx {
 ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO const *ctx) {
     auto func = [&] {
         CodegenResult code;
@@ -154,4 +154,4 @@ ComputeShader *BuiltinKernel::LoadBC7EncodeBlockCSKernel(Device *device, luisa::
         [&] { return CodegenUtility::ReadInternalHLSLFileByte("bc7_encode_block", ctx); },
         "bc7_encodeblock"sv);
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

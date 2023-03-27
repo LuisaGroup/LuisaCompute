@@ -1,5 +1,5 @@
 #include <Resource/DefaultBuffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 DefaultBuffer::DefaultBuffer(
     Device *device,
     uint64 byteSize,
@@ -82,4 +82,4 @@ vstd::optional<D3D12_UNORDERED_ACCESS_VIEW_DESC> DefaultBuffer::GetColorUavDesc(
 }
 DefaultBuffer::~DefaultBuffer() {
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -1,7 +1,7 @@
 
 
 #include <DXRuntime/CommandBuffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 wchar_t const *RTShader::GetClosestHitFuncName() {
     return L"closest_hit";
 }
@@ -164,4 +164,4 @@ RTShader::RTShader(
     Init(closestHit, anyHit, intersectHit, binData, device);
 }
 RTShader::~RTShader() {}
-}// namespace toolhub::directx
+}// namespace lc::dx

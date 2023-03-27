@@ -5,7 +5,7 @@
 #include <DXRuntime/GlobalSamplers.h>
 #include <vstl/small_vector.h>
 #include <core/logging.h>
-namespace toolhub::directx {
+namespace lc::dx {
 namespace shader_ser {
 struct Header {
     vstd::MD5 md5;
@@ -422,4 +422,4 @@ vstd::vector<SavedArgument> ShaderSerializer::SerializeKernel(
     }
     return result;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

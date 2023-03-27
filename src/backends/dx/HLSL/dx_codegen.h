@@ -12,9 +12,9 @@
 #include <filesystem>
 #include <core/binary_io.h>
 #include <HLSL/string_builder.h>
+namespace lc::dx {
 using namespace luisa;
 using namespace luisa::compute;
-namespace toolhub::directx {
 class StringStateVisitor;
 class StructVariableTracker;
 class StructGenerator;
@@ -239,4 +239,4 @@ struct PrintValue<Matrix<N>> {
     }
 };
 
-}// namespace toolhub::directx
+}// namespace lc::dx

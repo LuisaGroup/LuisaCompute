@@ -5,7 +5,7 @@
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <vstl/pdqsort.h>
-namespace toolhub::directx {
+namespace lc::dx {
 vstd::StringBuilder CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx) {
     auto bin = ctx->read_internal_shader(name);
     vstd::StringBuilder str;
@@ -1723,4 +1723,4 @@ uint iid:SV_INSTANCEID;
         immutableHeaderSize,
         GetTypeMD5(funcs)};
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

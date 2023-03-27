@@ -1,7 +1,7 @@
 #pragma once
 #include <Resource/Resource.h>
 #include <Resource/BufferView.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class Buffer : public Resource{
 public:
 	Buffer(Device* device);
@@ -15,4 +15,4 @@ public:
 	Buffer(Buffer&&) = default;
 	KILL_COPY_CONSTRUCT(Buffer)
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

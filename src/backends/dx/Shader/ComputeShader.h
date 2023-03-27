@@ -1,7 +1,7 @@
 #pragma once
 #include <Shader/Shader.h>
 #include <core/binary_io.h>
-namespace toolhub::directx {
+namespace lc::dx {
 struct CodegenResult;
 class ShaderSerializer;
 class ComputeShader final : public Shader {
@@ -65,4 +65,4 @@ public:
     KILL_COPY_CONSTRUCT(ComputeShader)
     KILL_MOVE_CONSTRUCT(ComputeShader)
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

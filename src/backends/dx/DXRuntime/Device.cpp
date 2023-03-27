@@ -11,7 +11,7 @@
 #include <runtime/context.h>
 #include <ext_settings.h>
 #include <runtime/context_paths.h>
-namespace toolhub::directx {
+namespace lc::dx {
 static std::mutex gDxcMutex;
 static vstd::optional<ShaderCompiler> gDxcCompiler;
 static int32 gDxcRefCount = 0;
@@ -191,4 +191,4 @@ VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
         }
     }
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -1,6 +1,6 @@
 #pragma once
 #include <DXRuntime/Device.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandQueue;
 class LCEvent : public vstd::IOperatorNewBase {
     friend class CommandQueue;
@@ -20,4 +20,4 @@ public:
     void Signal(CommandQueue *queue) const;
     void Wait(CommandQueue *queue) const;
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

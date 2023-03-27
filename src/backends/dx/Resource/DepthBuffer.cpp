@@ -1,6 +1,6 @@
 #include <Resource/DepthBuffer.h>
 #include <Resource/DescriptorHeap.h>
-namespace toolhub::directx {
+namespace lc::dx {
 GFXFormat DepthBuffer::GetDepthFormat(DepthFormat f) {
     using namespace luisa::compute;
     switch (f) {
@@ -117,4 +117,4 @@ D3D12_DEPTH_STENCIL_VIEW_DESC DepthBuffer::GetDepthDesc() const {
     dsv.Texture2D.MipSlice = 0;
     return dsv;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

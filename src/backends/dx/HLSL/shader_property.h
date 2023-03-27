@@ -1,5 +1,5 @@
 #pragma once
-namespace toolhub::directx {
+namespace lc::dx {
 
 enum class ShaderVariableType : uint8_t {
     ConstantBuffer,
@@ -17,4 +17,4 @@ struct Property {
     uint registerIndex;
     uint arrSize;
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

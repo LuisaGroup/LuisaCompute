@@ -1,6 +1,6 @@
 #pragma once
 #include <vstl/common.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class Buffer;
 class TextureBase;
 struct BufferView {
@@ -36,4 +36,4 @@ struct TexView {
         uint64 mipStart);
     VSTD_TRIVIAL_COMPARABLE(TexView)
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

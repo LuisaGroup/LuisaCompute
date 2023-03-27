@@ -2,7 +2,7 @@
 #include <core/dynamic_module.h>
 #include <vstl/string_utility.h>
 #include <core/logging.h>
-namespace toolhub::directx {
+namespace lc::dx {
 DXByteBlob::DXByteBlob(
     ComPtr<IDxcBlob> &&b,
     ComPtr<IDxcResult> &&rr)
@@ -212,4 +212,4 @@ CompileResult ShaderCompiler::CompileRayTracing(
     return Compile(code, args);
 }*/
 
-}// namespace toolhub::directx
+}// namespace lc::dx

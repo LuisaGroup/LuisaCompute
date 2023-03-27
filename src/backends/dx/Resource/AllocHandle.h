@@ -1,6 +1,6 @@
 #pragma once
 #include <Resource/GpuAllocator.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class AllocHandle {
 public:
     uint64 allocateHandle = 0;
@@ -20,4 +20,4 @@ public:
         }
     }
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

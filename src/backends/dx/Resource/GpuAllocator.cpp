@@ -4,7 +4,7 @@
 #include <Resource/GpuAllocator.h>
 #include <Resource/Resource.h>
 
-namespace toolhub::directx {
+namespace lc::dx {
 namespace ma_detail {
 class AllocateCallback {
 public:
@@ -80,4 +80,4 @@ GpuAllocator::GpuAllocator(Device *device) {
     desc.PreferredBlockSize = 0;
     D3D12MA::CreateAllocator(&desc, &allocator);
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

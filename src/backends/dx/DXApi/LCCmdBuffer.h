@@ -12,8 +12,8 @@
 #include <Shader/ComputeShader.h>
 #include <Resource/BottomAccel.h>
 #include <runtime/buffer.h>
+namespace lc::dx {
 using namespace luisa::compute;
-namespace toolhub::directx {
 class RenderTexture;
 class LCSwapChain;
 class BottomAccel;
@@ -80,4 +80,4 @@ public:
         size_t maxAlloc);
 };
 
-}// namespace toolhub::directx
+}// namespace lc::dx

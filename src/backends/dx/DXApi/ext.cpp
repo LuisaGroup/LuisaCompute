@@ -7,7 +7,7 @@
 #include <Resource/ExternalBuffer.h>
 #include <Resource/ExternalTexture.h>
 #include <Resource/ExternalDepth.h>
-namespace toolhub::directx {
+namespace lc::dx {
 // IUtil *LCDevice::get_util() noexcept {
 //     if (!util) {
 //         util = vstd::create_unique(new DxTexCompressExt(&nativeDevice));
@@ -129,4 +129,4 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
         external_ptr};
 }
 
-}// namespace toolhub::directx
+}// namespace lc::dx

@@ -3,8 +3,8 @@
 #include <Resource/GpuAllocator.h>
 #include <runtime/rhi/pixel.h>
 #include <core/logging.h>
+namespace lc::dx {
 using namespace luisa::compute;
-namespace toolhub::directx {
 class TextureBase : public Resource {
 protected:
     uint width;
@@ -59,4 +59,4 @@ public:
     bool IsNonSimulResource() const override { return true; }
     KILL_COPY_CONSTRUCT(TextureBase)
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

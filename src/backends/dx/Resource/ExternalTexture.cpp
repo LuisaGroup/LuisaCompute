@@ -1,6 +1,6 @@
 #include <Resource/ExternalTexture.h>
 #include <Resource/DescriptorHeap.h>
-namespace toolhub::directx {
+namespace lc::dx {
 ExternalTexture::ExternalTexture(
     Device *device,
     ID3D12Resource *resource,
@@ -72,4 +72,4 @@ uint ExternalTexture::GetGlobalUAVIndex(uint mipLevel) const {
         }));
     return ite.first->second;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

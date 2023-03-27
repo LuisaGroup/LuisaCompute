@@ -1,6 +1,6 @@
 
 #include <DXRuntime/GlobalSamplers.h>
-namespace toolhub::directx {
+namespace lc::dx {
 struct SamplerHash{
     size_t operator()(Sampler const& s) const {
         return luisa::hash64(&s, sizeof(Sampler), luisa::hash64_default_seed);
@@ -75,4 +75,4 @@ size_t GlobalSamplers::GetIndex(
         return std::numeric_limits<size_t>::max();
     return ite->second;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

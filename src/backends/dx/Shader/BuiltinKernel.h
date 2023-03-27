@@ -1,6 +1,6 @@
 #pragma once
 #include <Shader/ComputeShader.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class BuiltinKernel {
 public:
     static ComputeShader *LoadAccelSetKernel(Device *device, luisa::BinaryIO const *ctx);
@@ -12,4 +12,4 @@ public:
     static ComputeShader *LoadBC7TryMode02CSKernel(Device *device, luisa::BinaryIO const *ctx);
     static ComputeShader *LoadBC7EncodeBlockCSKernel(Device *device, luisa::BinaryIO const *ctx);
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

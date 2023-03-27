@@ -1,6 +1,6 @@
 #pragma once
 #include <Resource/Resource.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class SwapChain : public Resource {
 public:
     ComPtr<ID3D12Resource> rt;
@@ -15,4 +15,4 @@ public:
     }
     VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

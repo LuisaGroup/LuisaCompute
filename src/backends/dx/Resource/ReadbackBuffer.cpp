@@ -1,6 +1,6 @@
 
 #include <Resource/ReadbackBuffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 ReadbackBuffer::ReadbackBuffer(
     Device *device,
     uint64 byteSize,
@@ -46,4 +46,4 @@ void ReadbackBuffer::CopyData(
     memcpy(data.data(), reinterpret_cast<uint8_t const *>(mapPtr) + offset, data.size());
 }
 
-}// namespace toolhub::directx
+}// namespace lc::dx

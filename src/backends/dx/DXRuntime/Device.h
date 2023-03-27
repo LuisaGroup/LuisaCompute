@@ -18,7 +18,7 @@ class Context;
 }// namespace luisa::compute
 class ElementAllocator;
 using Microsoft::WRL::ComPtr;
-namespace toolhub::directx {
+namespace lc::dx {
 class GpuAllocator;
 class DescriptorHeap;
 class ComputeShader;
@@ -78,4 +78,4 @@ public:
     void WaitFence(ID3D12Fence *fence, uint64 fenceIndex);
     static ShaderCompiler *Compiler();
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

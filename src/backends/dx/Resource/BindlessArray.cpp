@@ -8,7 +8,7 @@
 #include <DXRuntime/ResourceStateTracker.h>
 #include <DXRuntime/CommandAllocator.h>
 #include <Resource/Buffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 
 BindlessArray::BindlessArray(
     Device *device, uint arraySize)
@@ -163,4 +163,4 @@ void BindlessArray::UpdateStates(
             });
     }
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

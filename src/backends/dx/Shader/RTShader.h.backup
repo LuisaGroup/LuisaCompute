@@ -1,7 +1,7 @@
 #pragma once
 #include <Shader/Shader.h>
 #include <Resource/DefaultBuffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class CommandBufferBuilder;
 class RTShader final : public Shader {
 protected:
@@ -54,4 +54,4 @@ public:
     KILL_COPY_CONSTRUCT(RTShader)
     KILL_MOVE_CONSTRUCT(RTShader)
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

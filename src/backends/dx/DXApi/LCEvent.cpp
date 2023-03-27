@@ -1,7 +1,7 @@
 
 #include <DXApi/LCEvent.h>
 #include <DXRuntime/CommandQueue.h>
-namespace toolhub::directx {
+namespace lc::dx {
 LCEvent::LCEvent(Device *device)
     : device(device) {
     ThrowIfFailed(device->device->CreateFence(
@@ -26,4 +26,4 @@ void LCEvent::Signal(CommandQueue *queue) const {
 void LCEvent::Wait(CommandQueue *queue) const {
     queue->Queue()->Wait(fence.Get(), fenceIndex);
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

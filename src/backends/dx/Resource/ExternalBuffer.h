@@ -1,6 +1,6 @@
 #pragma once
 #include <Resource/Buffer.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class ExternalBuffer final : public Buffer {
 private:
     ID3D12Resource *resource;
@@ -25,4 +25,4 @@ public:
     KILL_COPY_CONSTRUCT(ExternalBuffer)
     VSTD_SELF_PTR
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

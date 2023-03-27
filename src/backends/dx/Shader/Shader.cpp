@@ -7,7 +7,7 @@
 #include <Resource/DefaultBuffer.h>
 #include <Shader/ShaderSerializer.h>
 
-namespace toolhub::directx {
+namespace lc::dx {
 SavedArgument::SavedArgument(Usage usage, Variable const &var)
     : SavedArgument(var.type()) {
     varUsage = usage;
@@ -220,4 +220,4 @@ vstd::vector<Argument> Shader::BindingToArg(vstd::span<const Function::Binding> 
         });
     return r;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

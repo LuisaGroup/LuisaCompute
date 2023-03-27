@@ -1,6 +1,6 @@
 #pragma once
 #include <DXRuntime/Device.h>
-namespace toolhub::directx {
+namespace lc::dx {
 class Resource : public vstd::ISelfPtr {
 public:
     enum class Tag : uint8_t {
@@ -50,4 +50,4 @@ public:
     }
     virtual void SetNonSimulCurrentState(D3D12_RESOURCE_STATES state) const {}
 };
-}// namespace toolhub::directx
+}// namespace lc::dx

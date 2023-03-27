@@ -2,7 +2,7 @@
 #include <Resource/RenderTexture.h>
 #include <Resource/DescriptorHeap.h>
 #include <Resource/BufferView.h>
-namespace toolhub::directx {
+namespace lc::dx {
 GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
     switch (format) {
         case PixelFormat::R8SInt:
@@ -211,4 +211,4 @@ TexView::TexView(
       mipStart(mipStart) {
     mipCount = tex->Mip() - mipStart;
 }
-}// namespace toolhub::directx
+}// namespace lc::dx

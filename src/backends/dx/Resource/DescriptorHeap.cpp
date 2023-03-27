@@ -1,6 +1,6 @@
 
 #include <Resource/DescriptorHeap.h>
-namespace toolhub::directx {
+namespace lc::dx {
 DescriptorHeap::DescriptorHeap(
     Device *device,
     D3D12_DESCRIPTOR_HEAP_TYPE Type,
@@ -70,4 +70,4 @@ void DescriptorHeap::CreateDSV(ID3D12Resource *resource, const D3D12_DEPTH_STENC
 void DescriptorHeap::CreateSampler(D3D12_SAMPLER_DESC const &desc, uint64 index) {
     device->device->CreateSampler(&desc, hCPU(index));
 }
-}// namespace toolhub::directx
+}// namespace lc::dx
