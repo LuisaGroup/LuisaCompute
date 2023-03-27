@@ -34,6 +34,22 @@ template<typename T>
 inline __device__ void lc_assert(bool) noexcept {}
 #endif
 
+struct lc_half {
+    unsigned short bits;
+};
+
+[[nodiscard]] __device__ inline auto lc_half_to_float(lc_half x) noexcept {
+    lc_float val;
+    asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(x.bits));
+    return val;
+}
+
+[[nodiscard]] __device__ inline auto lc_float_to_half(lc_float x) noexcept {
+    lc_half val;
+    asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val.bits) : "f"(x));
+    return val;
+}
+
 template<typename T>
 struct LCBuffer {
     T *__restrict__ ptr;
