@@ -1,5 +1,5 @@
 use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer};
+use serde::{Serialize, Serializer, Deserialize};
 
 use crate::usage_detect::detect_usage;
 use crate::*;
@@ -11,7 +11,7 @@ use std::ops::Deref;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub enum Primitive {
     Bool,
     Int16,
@@ -54,6 +54,12 @@ pub enum VectorElementType {
 }
 
 impl VectorElementType {
+    pub fn as_primitive(&self) -> Option<Primitive> {
+        match self {
+            VectorElementType::Scalar(p) => Some(*p),
+            _ => None,
+        }
+    }
     pub fn is_float(&self) -> bool {
         match self {
             VectorElementType::Scalar(Primitive::Float32) => true,
@@ -1222,7 +1228,7 @@ impl Hash for CallableModuleRef {
 }
 // buffer binding
 #[repr(C)]
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct BufferBinding {
     pub handle: u64,
     pub offset: u64,
@@ -1231,7 +1237,7 @@ pub struct BufferBinding {
 
 // texture binding
 #[repr(C)]
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct TextureBinding {
     pub handle: u64,
     pub level: u32,
@@ -1239,20 +1245,20 @@ pub struct TextureBinding {
 
 // bindless array binding
 #[repr(C)]
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct BindlessArrayBinding {
     pub handle: u64,
 }
 
 // accel binding
 #[repr(C)]
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct AccelBinding {
     pub handle: u64,
 }
 
 #[repr(C)]
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Copy, Clone, Deserialize)]
 pub enum Binding {
     Buffer(BufferBinding),
     Texture(TextureBinding),

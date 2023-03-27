@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::Index;
 use std::sync::atomic::AtomicUsize;
 
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Copy)]
 #[repr(C)]

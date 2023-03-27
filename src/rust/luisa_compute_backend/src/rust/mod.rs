@@ -182,6 +182,10 @@ impl Backend for RustBackend {
         //     luisa_compute_ir::ir::debug::luisa_compute_ir_dump_human_readable(&kernel.module);
         // let debug = std::ffi::CString::new(debug.as_ref()).unwrap();
         // println!("{}", debug.to_str().unwrap());
+        // {
+        //     let debug = luisa_compute_ir::serialize::serialize_kernel_module_to_json_str(&kernel);
+        //     println!("{}", debug);
+        // }
         let tic = std::time::Instant::now();
         let gened_src = luisa_compute_ir::codegen::generic_cpp::CpuCodeGen::run(&kernel);
         info!(
