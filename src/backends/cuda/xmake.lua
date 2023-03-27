@@ -3,6 +3,7 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 4
 })
+add_rules("lc_vulkan")
 on_load(function(target)
 	local cuda_path = os.getenv("CUDA_PATH")
 	if cuda_path then
@@ -12,6 +13,10 @@ on_load(function(target)
 	else
 		target:set("enabled", false)
 	end
+	if is_plat("windows") then
+		target:add("defines", "NOMINMAX", "UNICODE")
+		target:add("syslinks", "Cfgmgr32", "Advapi32")
+	end
 end)
 add_deps("lc-runtime")
 add_files("**.cpp", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
@@ -20,7 +25,3 @@ after_build(function(target)
 	local binDir = target:targetdir()
 	os.cp("src/backends/cuda/cuda_builtin", path.join(binDir, ".data/"))
 end)
-if is_plat("windows") then	
-	add_defines("NOMINMAX", "UNICODE")
-	add_syslinks("Cfgmgr32", "Advapi32")
-end
