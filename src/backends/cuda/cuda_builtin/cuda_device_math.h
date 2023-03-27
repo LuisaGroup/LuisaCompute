@@ -4682,3 +4682,47 @@ template<> struct element_type_<lc_long4> { using type = lc_long; };
 template<> struct element_type_<lc_ulong2> { using type = lc_ulong; };
 template<> struct element_type_<lc_ulong3> { using type = lc_ulong; };
 template<> struct element_type_<lc_ulong4> { using type = lc_ulong; };
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator+(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = +arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator-(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = -arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator!(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = !arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator~(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = ~arg[i];
+    }
+    return ret;
+}
+
