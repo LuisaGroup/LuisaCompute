@@ -7,8 +7,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     # endif()
     set(LUISA_COMPUTE_API_SOURCES
             device.h
-            runtime.cpp runtime.h
-            logging.cpp logging.h
+            runtime.cpp api.h
+            logging.cpp
             )
     add_library(luisa-compute-api SHARED ${LUISA_COMPUTE_API_SOURCES})
     target_link_libraries(luisa-compute-api PRIVATE

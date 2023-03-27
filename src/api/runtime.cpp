@@ -4,7 +4,7 @@
 
 #include <luisa-compute.h>
 #include <ast/function_builder.h>
-#include <api/runtime.h>
+#include <api/api.h>
 
 #define LC_RC_TOMBSTONE 0xdeadbeef
 

@@ -31,11 +31,11 @@ mod stream;
 mod texture;
 pub struct RustBackend {
     shared_pool: Arc<rayon::ThreadPool>,
-    swapchain_context: RwLock<Option<SwapChainForCpuContext>>,
+    swapchain_context: RwLock<Option<Arc<SwapChainForCpuContext>>>,
 }
 
 impl Backend for RustBackend {
-    unsafe fn set_swapchain_contex(&self, ctx: SwapChainForCpuContext) {
+    unsafe fn set_swapchain_contex(&self, ctx: Arc<SwapChainForCpuContext>) {
         let mut self_ctx = self.swapchain_context.write();
         if self_ctx.is_some() {
             panic!("swapchain context already set");
