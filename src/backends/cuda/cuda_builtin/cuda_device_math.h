@@ -4386,8 +4386,8 @@ template<typename T>
 
 [[nodiscard]] __device__ constexpr auto lc_determinant(const lc_float3x3 m) noexcept {// from GLM
     return m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
-           - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
-           + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z);
+         - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
+         + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z);
 }
 
 [[nodiscard]] __device__ constexpr auto lc_determinant(const lc_float4x4 m) noexcept {// from GLM
@@ -4436,16 +4436,16 @@ template<typename T>
 [[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float2x2 m) noexcept {
     const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
     return lc_make_float2x2(m[1][1] * one_over_determinant,
-                            -m[0][1] * one_over_determinant,
-                            -m[1][0] * one_over_determinant,
-                            +m[0][0] * one_over_determinant);
+                          - m[0][1] * one_over_determinant,
+                          - m[1][0] * one_over_determinant,
+                          + m[0][0] * one_over_determinant);
 }
 
 [[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float3x3 m) noexcept {// from GLM
     const auto one_over_determinant = 1.0f
                                       / (m[0].x * (m[1].y * m[2].z - m[2].y * m[1].z)
-                                         - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
-                                         + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
+                                       - m[1].x * (m[0].y * m[2].z - m[2].y * m[0].z)
+                                       + m[2].x * (m[0].y * m[1].z - m[1].y * m[0].z));
     return lc_make_float3x3(
         (m[1].y * m[2].z - m[2].y * m[1].z) * one_over_determinant,
         (m[2].y * m[0].z - m[0].y * m[2].z) * one_over_determinant,
@@ -4524,7 +4524,7 @@ template<>
     return lc_int(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<float>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_float>() noexcept{
     return lc_float(1.0f);
 }
 template<>
@@ -4540,7 +4540,7 @@ template<>
     return lc_ulong(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<bool>() noexcept {
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_bool>() noexcept {
     return true;
 }
 template<typename T, size_t N>
@@ -4562,7 +4562,7 @@ public:
 public:
     [[nodiscard]] __device__ static auto one() noexcept {
         lc_array<T, N> ret;
-#pragma unroll
+        #pragma unroll
         for (auto i = 0u; i < N; i++) { ret[i] = lc_one<T>(); }
         return ret;
     }
@@ -4570,7 +4570,7 @@ public:
 
 template<typename T, size_t N>
 __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> grad) noexcept {
-#pragma unroll
+    #pragma unroll
     for (auto i = 0u; i < N; i++) { lc_accumulate_grad(&(*dst)[i], grad[i]); }
 }
 

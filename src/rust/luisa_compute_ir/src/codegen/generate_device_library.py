@@ -1,13 +1,16 @@
 from os.path import realpath, dirname
+from sys import argv
 
 if __name__ == "__main__":
-    curr_dir = dirname(realpath(__file__))
-    math_library_name = "device_math"
-    with open(f"{curr_dir}/{math_library_name}.h", "w") as file:
+    if len(argv) < 2:
+        print("usage: python generate_device_library.py <output_file>")
+        exit(1)
+    output_file_name = argv[1]
+    with open(f"{output_file_name}", "w") as file:
         # scalar types
         scalar_types = ["short", "ushort", "int",
                         "uint", "float", "bool", "long", "ulong"]
-        native_types = ["int16_t", "uint16_t", "int", "unsigned int",
+        native_types = ["short", "unsigned short", "int", "unsigned int",
                         "float", "bool", "long long", "unsigned long long"]
         for t, native_t in zip(scalar_types, native_types):
             print(f"using lc_{t} = {native_t};", file=file)
@@ -560,9 +563,9 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
 [[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float2x2 m) noexcept {
     const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
     return lc_make_float2x2(m[1][1] * one_over_determinant,
-                           -m[0][1] * one_over_determinant,
-                           -m[1][0] * one_over_determinant,
-                           +m[0][0] * one_over_determinant);
+                          - m[0][1] * one_over_determinant,
+                          - m[1][0] * one_over_determinant,
+                          + m[0][0] * one_over_determinant);
 }
 
 [[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float3x3 m) noexcept {// from GLM
@@ -630,18 +633,6 @@ __device__ constexpr void operator+=(lc_float{i}x{i}& lhs, const lc_float{i}x{i}
                             inv_3 * one_over_determinant);
 }
 
-// [[nodiscard]] __device__ inline auto lc_half_to_float(unsigned short x) noexcept {
-//     lc_float val;
-//     asm("{  cvt.f32.f16 %0, %1;}\\n" : "=f"(val) : "h"(x));
-//     return val;
-// }
-//
-// [[nodiscard]] __device__ inline auto lc_float_to_half(lc_float x) noexcept {
-//     unsigned short val;
-//     asm("{  cvt.rn.f16.f32 %0, %1;}\\n" : "=h"(val) : "f"(x));
-//     return val;
-// }
-
 template<typename D, typename S>
 [[nodiscard]] __device__ inline auto lc_bit_cast(S s) noexcept {
     static_assert(sizeof(D) == sizeof(S));
@@ -656,27 +647,27 @@ template<class T>
     return T::one();
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<int32_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_int>() noexcept{
     return lc_int(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<float>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_float>() noexcept{
     return lc_float(1.0f);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<uint32_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_uint>() noexcept{
     return lc_uint(1u);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<int64_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_long>() noexcept{
     return lc_long(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<uint64_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ulong>() noexcept{
     return lc_ulong(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<bool>() noexcept {
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_bool>() noexcept {
     return true;
 }
 template<typename T, size_t N>
@@ -760,7 +751,7 @@ __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> gr
 """, file=file)
         # accumlate_grad(T*, const T) for all types
         float_types = [
-            "float",
+            "lc_float",
             "lc_float2x2", "lc_float3x3", "lc_float4x4",
             "lc_float2", "lc_float3", "lc_float4",
         ]
@@ -788,7 +779,7 @@ template<class T> using element_type = typename element_type_<T>::type;
         def gen_element_type(vt, et):
             print(f'''template<> struct element_type_<{vt}> {{ using type = {et}; }};''', file=file)
         for vt in ['lc_float2', 'lc_float3', 'lc_float4']:
-            gen_element_type(vt, "float")
+            gen_element_type(vt, "lc_float")
         for vt in ['lc_short2', 'lc_short3', 'lc_short4']:
             gen_element_type(vt, 'lc_short')
         for vt in ['lc_ushort2', 'lc_ushort3', 'lc_ushort4']:
