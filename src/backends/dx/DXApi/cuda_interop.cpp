@@ -88,7 +88,23 @@ uint64_t DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle) noexcept {
     return reinterpret_cast<uint64_t>(externalMemory);
 }
 uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture_handle) noexcept {
-    return 0;
+    auto dxTex = reinterpret_cast<TextureBase const *>(dx_texture_handle);
+    auto allocateInfo = _device.device->GetResourceAllocationInfo(0, 1, vstd::get_rval_ptr(dxTex->GetResource()->GetDesc()));
+    WindowsSecurityAttributes windowsSecurityAttributes;
+    HANDLE sharedHandle;
+    _device.device->CreateSharedHandle(dxTex->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
+
+    cudaExternalMemoryHandleDesc externalMemoryHandleDesc;
+    memset(&externalMemoryHandleDesc, 0, sizeof(externalMemoryHandleDesc));
+
+    externalMemoryHandleDesc.type = cudaExternalMemoryHandleTypeD3D12Resource;
+    externalMemoryHandleDesc.handle.win32.handle = sharedHandle;
+    externalMemoryHandleDesc.size = allocateInfo.SizeInBytes;
+    externalMemoryHandleDesc.flags = cudaExternalMemoryDedicated;
+    cudaExternalMemory_t externalMemory;
+    assert(cudaImportExternalMemory(&externalMemory, &externalMemoryHandleDesc));
+    // TODO: need cuda buffer here
+    return reinterpret_cast<uint64_t>(externalMemory);
 }
 uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event_handle) noexcept {
     auto dxEvent = reinterpret_cast<LCEvent const *>(dx_event_handle);
