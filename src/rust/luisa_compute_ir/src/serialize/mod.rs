@@ -176,7 +176,6 @@ pub enum SerializedFunc {
     RayTracingTraceAny,
 
     RayQueryProceed,
-    RayQueryIsCandidateTriangle,
     RayQueryProceduralCandidateHit,
     RayQueryTriangleCandidateHit,
     RayQueryCommittedHit,

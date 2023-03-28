@@ -235,7 +235,6 @@ enum struct CallOp : uint32_t {
 
     // ray query
     RAY_QUERY_PROCEED,                 // Proceed(RayQuery): bool return: is bvh completed?
-    RAY_QUERY_IS_CANDIDATE_TRIANGLE,   // (RayQuery): bool
     RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
     RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
     RAY_QUERY_COMMITTED_HIT,           // (RayQuery): CommittedHit

@@ -22,8 +22,8 @@ public:
     [[nodiscard]] Var<TriangleHit> triangle_candidate() const noexcept;
     [[nodiscard]] Var<ProceduralHit> procedural_candidate() const noexcept;
     [[nodiscard]] Var<CommittedHit> committed_hit() const noexcept;
-    [[nodiscard]] Var<bool> is_candidate_triangle() const noexcept;
-    [[nodiscard]] Var<bool> is_candidate_procedural() const noexcept;
+    // [[nodiscard]] Var<bool> is_candidate_triangle() const noexcept;
+    // [[nodiscard]] Var<bool> is_candidate_procedural() const noexcept;
     void commit_triangle() const noexcept;
     void commit_procedural(Expr<float> distance) const noexcept;
 };

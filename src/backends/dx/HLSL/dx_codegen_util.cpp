@@ -857,10 +857,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             args[0]->accept(vis);
             str << ".Proceed()"sv;
             return;
-        case CallOp::RAY_QUERY_IS_CANDIDATE_TRIANGLE:
-            args[0]->accept(vis);
-            str << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE"sv;
-            return;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
             str << "GetTriangleCandidateHit"sv;
             break;
@@ -879,6 +875,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ".CommitProceduralPrimitiveHit("sv;
             args[1]->accept(vis);
             str << ')';
+            return;
+        case CallOp::RAY_QUERY_TERMINATE:
+            args[0]->accept(vis);
+            str << ".Abort()"sv;
             return;
         default: {
             LUISA_ERROR("Function Not Implemented");

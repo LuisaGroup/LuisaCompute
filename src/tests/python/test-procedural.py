@@ -85,10 +85,11 @@ def kernel(pos):
     ray = make_ray(ray_origin, direction, 1e-3, 1e3)
     q = acc.trace_all(ray, -1)
     sphere_dist = 1e3
-    while q.proceed():
-        if q.is_candidate_triangle():
+    match(q):
+        case is_triangle():
             q.commit_triangle()
-        else:
+            q.terminate()
+        case is_procedural():
             h = q.procedural_candidate()
             aabb = aabb_buffer.read(h.prim)
             origin = (aabb.get_min() + aabb.get_max()) * .5
@@ -107,6 +108,7 @@ def kernel(pos):
                             ray_origin + direction * dist - origin)
                         sphere_color = normal * .5 + .5
                     q.commit_procedural(dist)
+
     hit = q.committed_hit()
     if hit.hit_procedural():
         image.write(coord, float4(sphere_color, 1.))

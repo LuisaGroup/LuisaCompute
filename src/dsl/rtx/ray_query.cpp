@@ -26,15 +26,6 @@ Var<ProceduralHit> RayQuery::procedural_candidate() const noexcept {
         Type::of<ProceduralHit>(), CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT, {_expr}));
 }
 
-Var<bool> RayQuery::is_candidate_triangle() const noexcept {
-    return def<bool>(detail::FunctionBuilder::current()->call(
-        Type::of<bool>(), CallOp::RAY_QUERY_IS_CANDIDATE_TRIANGLE, {_expr}));
-}
-
-Var<bool> RayQuery::is_candidate_procedural() const noexcept {
-    return !is_candidate_triangle();
-}
-
 void RayQuery::commit_triangle() const noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::RAY_QUERY_COMMIT_TRIANGLE, {_expr});

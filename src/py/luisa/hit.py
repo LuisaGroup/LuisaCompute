@@ -1,13 +1,12 @@
 import lcapi
 from .struct import StructType
 from .func import func
-from .types import uint
+from .types import uint, BuiltinFuncBuilder
 from .mathtypes import *
 
 CommittedHit = StructType(inst=uint, prim=uint, bary=float2, hit_type=uint, ray_t=float)
 TriangleHit = StructType(inst=uint, prim=uint, bary=float2, ray_t=float)
 ProceduralHit = StructType(inst=uint, prim=uint)
-
 @func
 def _miss(self):
     return self.hit_type==0
