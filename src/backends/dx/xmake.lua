@@ -3,9 +3,6 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 8
 })
-if is_mode("debug") then
-	add_defines("SHADER_COMPILER_TEST")
-end
 add_deps("lc-runtime", "lc-vstl")
 add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp", "HLSL/**.cpp",
 				"../common/default_binary_io.cpp")
