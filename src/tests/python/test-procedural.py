@@ -88,7 +88,6 @@ def kernel(pos):
     match(q):
         case is_triangle():
             q.commit_triangle()
-            q.terminate()
         case is_procedural():
             h = q.procedural_candidate()
             aabb = aabb_buffer.read(h.prim)
