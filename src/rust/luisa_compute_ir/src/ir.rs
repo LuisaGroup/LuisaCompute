@@ -1228,7 +1228,7 @@ impl Hash for CallableModuleRef {
 }
 // buffer binding
 #[repr(C)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct BufferBinding {
     pub handle: u64,
     pub offset: u64,
@@ -1237,7 +1237,7 @@ pub struct BufferBinding {
 
 // texture binding
 #[repr(C)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct TextureBinding {
     pub handle: u64,
     pub level: u32,
@@ -1245,20 +1245,20 @@ pub struct TextureBinding {
 
 // bindless array binding
 #[repr(C)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct BindlessArrayBinding {
     pub handle: u64,
 }
 
 // accel binding
 #[repr(C)]
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct AccelBinding {
     pub handle: u64,
 }
 
 #[repr(C)]
-#[derive(Debug, Serialize, Copy, Clone, Deserialize)]
+#[derive(Debug, Serialize, Copy, Clone, Deserialize, Hash, PartialEq, Eq)]
 pub enum Binding {
     Buffer(BufferBinding),
     Texture(TextureBinding),

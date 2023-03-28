@@ -187,7 +187,7 @@ impl Backend for RustBackend {
         //     println!("{}", debug);
         // }
         let tic = std::time::Instant::now();
-        let gened_src = luisa_compute_ir::codegen::generic_cpp::CpuCodeGen::run(&kernel);
+        let gened_src = luisa_compute_ir::codegen::cpp::CpuCodeGen::run(&kernel);
         info!(
             "kernel source generated in {:.3}ms",
             (std::time::Instant::now() - tic).as_secs_f64() * 1e3
