@@ -2,7 +2,7 @@
 // Created by Mike on 8/1/2021.
 //
 
-#include "backends/cuda/cuda_error.h"
+#include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_host_buffer_pool.h>
 
 namespace luisa::compute::cuda {

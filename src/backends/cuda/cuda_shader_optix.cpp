@@ -21,9 +21,14 @@ struct alignas(optix::SBT_RECORD_ALIGNMENT) OptiXSBTRecord {
 /// Retrieves direct and continuation stack sizes for each program in the program group and accumulates the upper bounds
 /// in the correponding output variables based on the semantic type of the program. Before the first invocation of this
 /// function with a given instance of #OptixStackSizes, the members of that instance should be set to 0.
-inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup programGroup) noexcept {
+inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup group) noexcept {
     optix::StackSizes local{};
-    LUISA_CHECK_OPTIX(optix::api().programGroupGetStackSize(programGroup, &local));
+    LUISA_CHECK_OPTIX(optix::api().programGroupGetStackSize(group, &local));
+    LUISA_VERBOSE("OptiX program group stack sizes: "
+                  "CSS_RG = {}, CSS_MS = {}, CSS_CH = {}, CSS_AH = {}, "
+                  "CSS_IS = {}, CSS_CC = {}, DSS_DC = {}.",
+                  local.cssRG, local.cssMS, local.cssCH, local.cssAH,
+                  local.cssIS, local.cssCC, local.dssDC);
     sizes.cssRG = std::max(sizes.cssRG, local.cssRG);
     sizes.cssMS = std::max(sizes.cssMS, local.cssMS);
     sizes.cssCH = std::max(sizes.cssCH, local.cssCH);
@@ -31,10 +36,17 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
     sizes.cssIS = std::max(sizes.cssIS, local.cssIS);
     sizes.cssCC = std::max(sizes.cssCC, local.cssCC);
     sizes.dssDC = std::max(sizes.dssDC, local.dssDC);
+    LUISA_VERBOSE("Accumulated OptiX stack sizes: "
+                  "CSS_RG = {}, CSS_MS = {}, CSS_CH = {}, CSS_AH = {}, "
+                  "CSS_IS = {}, CSS_CC = {}, DSS_DC = {}.",
+                  sizes.cssRG, sizes.cssMS, sizes.cssCH, sizes.cssAH,
+                  sizes.cssIS, sizes.cssCC, sizes.dssDC);
 }
 
 [[nodiscard]] inline uint compute_continuation_stack_size(optix::StackSizes ss) noexcept {
-    return ss.cssRG + std::max(std::max(ss.cssCH, ss.cssMS), ss.cssIS + ss.cssAH);
+    auto size = ss.cssRG + std::max(std::max(ss.cssCH, ss.cssMS), ss.cssIS + ss.cssAH);
+    LUISA_INFO("Computed OptiX continuation stack size: {}.", size);
+    return size;
 }
 
 CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
@@ -186,9 +198,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
 
     // compute stack sizes
     optix::StackSizes stack_sizes{};
-    for (auto pg : program_groups) {
-        accumulate_stack_sizes(stack_sizes, pg);
-    }
+    for (auto pg : program_groups) { accumulate_stack_sizes(stack_sizes, pg); }
     auto continuation_stack_size = compute_continuation_stack_size(stack_sizes);
     LUISA_CHECK_OPTIX(optix::api().pipelineSetStackSize(
         _pipeline, 0u, 0u, continuation_stack_size, 2u));
@@ -298,7 +308,7 @@ void CUDAShaderOptiX::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand 
         for (auto &&arg : command->arguments()) { encode_argument(arg); }
         auto s = command->dispatch_size();
         auto cuda_stream = encoder.stream()->handle();
-        if (argument_buffer->is_pooled()) {// if the argument buffer is pooled, we can use the device pointer directly
+        if (argument_buffer->is_pooled()) [[likely]] {// if the argument buffer is pooled, we can use the device pointer directly
             auto device_argument_buffer = 0ull;
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(
                 &device_argument_buffer, argument_buffer->address(), 0u));

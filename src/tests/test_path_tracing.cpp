@@ -14,7 +14,6 @@
 #include <runtime/rtx/accel.h>
 #include <tests/cornell_box.h>
 #include <stb/stb_image_write.h>
-#include <core/thread_pool.h>
 #include <gui/window.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -46,7 +45,7 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 
 int main(int argc, char *argv[]) {
 
-    log_level_info();
+    log_level_verbose();
 
     Context context{argv[0]};
     if (argc <= 1) {

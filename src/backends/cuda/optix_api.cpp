@@ -40,7 +40,6 @@
 #endif
 #include <windows.h>
 // The cfgmgr32 header is necessary for interrogating driver information in the registry.
-// For convenience the library is also linked in automatically using the #pragma command.
 #include <cfgmgr32.h>
 #else
 #include <dlfcn.h>

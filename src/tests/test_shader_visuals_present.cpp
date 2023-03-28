@@ -122,7 +122,7 @@ int main(int argc, char *argv[]) {
         auto n = norm(p);
         auto r = reflect(cam, n);
         auto ss = smoothstep(-.3f, .3f, scene(p + make_float3(.3f))) + .5f;
-        auto fact = length(sin(r * (ite(dl != 0.f, 4.f, 3.f))) * .5f + .5f) / sqrt(3.f) * .7f + .3f;
+        auto fact = length(sin(r * (ite(dl, 4.f, 3.f))) * .5f + .5f) / sqrt(3.f) * .7f + .3f;
         auto matcol = lerp(make_float3(.9f, .4f, .3f), make_float3(.3f, .4f, .8f), smoothstep(-1.f, 1.f, sin(d1 * 5.f + time * 2.f)));
         matcol = lerp(matcol, make_float3(.5f, .4f, 1.f), smoothstep(0.f, 1.f, sin(d2 * 5.f + time * 2.f)));
         matcol = ite(dl, lerp(1.f, matcol, .1f) * .2f + .1f, matcol);

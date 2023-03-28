@@ -120,12 +120,6 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
     // launch configuration
     auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
     auto blocks = (launch_size + block_size - 1u) / block_size;
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Dispatching native shader #{} ({}) with {} argument(s) "
-        "in ({}, {}, {}) blocks of size ({}, {}, {}).",
-        command->handle(), _entry, arguments.size(),
-        blocks.x, blocks.y, blocks.z,
-        block_size.x, block_size.y, block_size.z);
     // launch
     auto cuda_stream = encoder.stream()->handle();
     LUISA_CHECK_CUDA(cuLaunchKernel(

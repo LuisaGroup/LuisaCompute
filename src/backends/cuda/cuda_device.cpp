@@ -106,7 +106,6 @@ CUDADevice::CUDADevice(Context &&ctx,
                        "-w",
                        "-ewp"};
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, options);
-    LUISA_INFO_WITH_LOCATION("CUDA Builtin Kernel PTX:\n{}", builtin_kernel_ptx);
 
     // prepare default shaders
     with_handle([this, &builtin_kernel_ptx] {
@@ -389,8 +388,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     StringScratch scratch;
     CUDACodegenAST codegen{scratch};
     codegen.emit(kernel);
-    LUISA_INFO("Generated CUDA source in {} ms:\n{}",
-               clk.toc(), scratch.string());
+    LUISA_INFO("Generated CUDA source in {} ms.", clk.toc());
     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments;
     bound_arguments.reserve(kernel.bound_arguments().size());
     for (auto &&arg : kernel.bound_arguments()) {
