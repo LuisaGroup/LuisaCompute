@@ -1100,6 +1100,14 @@ struct LCRayQuery {
     // TODO: add support for ray query
 };
 
+enum LCInstanceFlags : unsigned int {
+    LC_INSTANCE_FLAG_NONE = 0u,
+    LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
+    LC_INSTANCE_FLAG_FLIP_TRIANGLE_FACING = 1u << 1u,
+    LC_INSTANCE_FLAG_DISABLE_ANYHIT = 1u << 2u,
+    LC_INSTANCE_FLAG_ENFORCE_ANYHIT = 1u << 3u,
+};
+
 struct alignas(16) LCAccelInstance {
     lc_array<lc_float4, 3> m;
     lc_uint instance_id;
@@ -1144,7 +1152,9 @@ __device__ inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint i
 }
 
 __device__ inline void lc_accel_set_instance_opacity(LCAccel accel, lc_uint index, bool opaque) noexcept {
-    // no-op
+    accel.instances[index].flags = opaque ?
+                                       LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING | LC_INSTANCE_FLAG_DISABLE_ANYHIT :
+                                       LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
 }
 
 __device__ inline float atomicCAS(float *a, float cmp, float v) noexcept {
@@ -1182,12 +1192,6 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
 
 #ifdef LC_ENABLE_OPTIX
 
-#define LC_SET_PAYLOAD_TYPE(t)                          \
-    asm volatile("call _optix_set_payload_types, (%0);" \
-                 :                                      \
-                 : "r"(t)                               \
-                 :)
-
 enum LCPayloadTypeID : unsigned int {
     LC_PAYLOAD_TYPE_DEFAULT = 0u,
     LC_PAYLOAD_TYPE_ID_0 = 1u << 0u,
@@ -1199,6 +1203,13 @@ enum LCPayloadTypeID : unsigned int {
     LC_PAYLOAD_TYPE_ID_6 = 1u << 6u,
     LC_PAYLOAD_TYPE_ID_7 = 1u << 7u,
 };
+
+inline void lc_set_payload_types(LCPayloadTypeID type) noexcept {
+    asm volatile("call _optix_set_payload_types, (%0);"
+                 :
+                 : "r"(type)
+                 :);
+}
 
 template<lc_uint i>
 inline void lc_set_payload(lc_uint x) noexcept {
@@ -1241,7 +1252,7 @@ inline void lc_set_payload(lc_uint x) noexcept {
 }
 
 extern "C" __global__ void __closesthit__trace_closest() {
-    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_0);
+    lc_set_payload_types(LC_PAYLOAD_TYPE_ID_0);
     auto inst = lc_get_instance_index();
     auto prim = lc_get_primitive_index();
     auto bary = lc_get_bary_coords();
@@ -1253,13 +1264,13 @@ extern "C" __global__ void __closesthit__trace_closest() {
     lc_set_payload<4u>(__float_as_uint(t_hit));
 }
 
-extern "C" __global__ void __closesthit__trace_any() {
-    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
-    lc_set_payload<0u>(1u);
+extern "C" __global__ void __miss__trace_closest() {
+    lc_set_payload_types(LC_PAYLOAD_TYPE_ID_0);
+    lc_set_payload<0u>(~0u);
 }
 
-extern "C" __global__ void __miss__miss() {
-    LC_SET_PAYLOAD_TYPE(LC_PAYLOAD_TYPE_ID_1);
+extern "C" __global__ void __miss__trace_any() {
+    lc_set_payload_types(LC_PAYLOAD_TYPE_ID_1);
     lc_set_payload<0u>(~0u);
 }
 
@@ -1302,16 +1313,28 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
-          "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(ray_type), "r"(0u),
-          "r"(0u), "r"(reg_count), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
+          "f"(t_max), "f"(0.0f), "r"(mask & 0xffu), "r"(flags), "r"(0u), "r"(0u),
+          "r"(ray_type), "r"(reg_count), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u)
         :);
 }
 
+enum LCRayFlags : unsigned int {
+    LC_RAY_FLAG_NONE = 0u,
+    LC_RAY_FLAG_DISABLE_ANYHIT = 1u << 0u,
+    LC_RAY_FLAG_ENFORCE_ANYHIT = 1u << 1u,
+    LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT = 1u << 2u,
+    LC_RAY_FLAG_DISABLE_CLOSESTHIT = 1u << 3u,
+    LC_RAY_FLAG_CULL_BACK_FACING_TRIANGLES = 1u << 4u,
+    LC_RAY_FLAG_CULL_FRONT_FACING_TRIANGLES = 1u << 5u,
+    LC_RAY_FLAG_CULL_DISABLED_ANYHIT = 1u << 6u,
+    LC_RAY_FLAG_CULL_ENFORCED_ANYHIT = 1u << 7u,
+};
+
 [[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = 1u;// disable any hit
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT;
     auto r0 = 0u;
     auto r1 = 0u;
     auto r2 = 0u;
@@ -1322,14 +1345,16 @@ template<lc_uint ray_type, lc_uint reg_count, lc_uint flags>
 }
 
 [[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    constexpr auto flags = 1u | 4u;// disable any hit and terminate on first hit
+    constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
+                           LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
+                           LC_RAY_FLAG_DISABLE_CLOSESTHIT;
     auto r0 = 0u;
     auto r1 = 0u;
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
     lc_trace_impl<1u, 1u, flags>(LC_PAYLOAD_TYPE_ID_1, accel, ray, mask, r0, r1, r2, r3, r4);
-    return r0 == 1u;
+    return r0 != ~0u;
 }
 
 [[nodiscard]] inline auto lc_dispatch_id() noexcept {
