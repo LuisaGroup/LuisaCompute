@@ -1,11 +1,20 @@
 #pragma once
-#include <stdint.h>
+#include <vstl/common.h>
+#include <runtime/rhi/resource.h>
 namespace lc::validation {
-class Resource {
+class Resource : public vstd::IOperatorNewBase{
+public:
+    using Tag = luisa::compute::Resource::Tag;
+
+private:
     uint64_t _handle;
+    Tag _tag;
 
 public:
-    Resource(uint64_t handle) : _handle{handle} {}
+    vstd::string name;
+    static vstd::string get_tag_name(Tag tag);
+    vstd::string get_name() const;
+    Resource(uint64_t handle, Tag tag) : _handle{handle}, _tag{tag} {}
     auto handle() const { return _handle; }
     virtual ~Resource() = default;
 };

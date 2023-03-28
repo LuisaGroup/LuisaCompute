@@ -71,8 +71,8 @@ public:
     void destroy_accel(uint64_t handle) noexcept override;
 
     // query
-    luisa::string query(luisa::string_view property) noexcept { return {}; }
-    DeviceExtension *extension(luisa::string_view name) noexcept { return nullptr; }
+    luisa::string query(luisa::string_view property) noexcept;
+    DeviceExtension *extension(luisa::string_view name) noexcept;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 };
 }// namespace lc::validation
