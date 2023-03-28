@@ -80,7 +80,7 @@ public:
             _task_count.fetch_add(1u);
             auto counter = luisa::make_unique<std::atomic_uint>(0u);
             _dispatch_all(
-                [=, this]() mutable noexcept {
+                [counter = std::move(counter), n, f = std::forward<F>(f), this]() mutable noexcept {
                     auto i = 0u;
                     while ((i = counter->fetch_add(1u)) < n) { f(i); }
                     if (i == n) { _task_count.fetch_sub(1u); }
@@ -93,7 +93,7 @@ public:
     template<typename F>
         requires std::is_invocable_v<F, uint, uint>
     void parallel(uint nx, uint ny, F &&f) noexcept {
-        parallel(nx * ny, [=, f = std::move(f)](auto i) mutable noexcept {
+        parallel(nx * ny, [nx, f = std::move(f)](auto i) mutable noexcept {
             f(i % nx, i / nx);
         });
     }
@@ -102,7 +102,7 @@ public:
     template<typename F>
         requires std::is_invocable_v<F, uint, uint, uint>
     void parallel(uint nx, uint ny, uint nz, F &&f) noexcept {
-        parallel(nx * ny * nz, [=, f = std::move(f)](auto i) mutable noexcept {
+        parallel(nx * ny * nz, [nx, ny, f = std::move(f)](auto i) mutable noexcept {
             f(i % nx, i / nx % ny, i / nx / ny);
         });
     }
