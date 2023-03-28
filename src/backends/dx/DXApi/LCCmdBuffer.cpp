@@ -14,6 +14,7 @@
 #include <runtime/dispatch_buffer.h>
 #include <core/logging.h>
 #include <runtime/rtx/aabb.h>
+#include <vstl/atomic.h>
 namespace lc::dx {
 using Argument = luisa::compute::Argument;
 template<typename Visitor>
@@ -829,9 +830,10 @@ void LCCmdBuffer::Execute(
     auto commands = cmdList.commands();
     auto funcs = std::move(cmdList).steal_callbacks();
     auto allocator = queue.CreateAllocator(maxAlloc);
-    tracker.listType = allocator->Type();
     bool cmdListIsEmpty = true;
     {
+        std::lock_guard lck{mtx};
+        tracker.listType = allocator->Type();
         LCPreProcessVisitor ppVisitor;
         ppVisitor.stateTracker = &tracker;
         ppVisitor.backState = &backState;
@@ -946,12 +948,12 @@ void LCCmdBuffer::Execute(
         if (cmdListIsEmpty)
             queue.ExecuteEmpty(std::move(allocator));
         else
-            lastFence = queue.Execute(std::move(allocator));
+            vstd::atomic_max(lastFence, queue.Execute(std::move(allocator)));
     } else {
         if (cmdListIsEmpty)
             queue.ExecuteEmptyCallbacks(std::move(allocator), std::move(funcs));
         else
-            lastFence = queue.ExecuteCallbacks(std::move(allocator), std::move(funcs));
+            vstd::atomic_max(lastFence, queue.ExecuteCallbacks(std::move(allocator), std::move(funcs)));
     }
 }
 void LCCmdBuffer::Sync() {
@@ -962,8 +964,9 @@ void LCCmdBuffer::Present(
     TextureBase *img,
     size_t maxAlloc) {
     auto alloc = queue.CreateAllocator(maxAlloc);
-    tracker.listType = alloc->Type();
     {
+        std::lock_guard lck{mtx};
+        tracker.listType = alloc->Type();
         swapchain->frameIndex = swapchain->swapChain->GetCurrentBackBufferIndex();
         auto &&rt = &swapchain->m_renderTargets[swapchain->frameIndex];
         auto cb = alloc->GetBuffer();
@@ -990,7 +993,7 @@ void LCCmdBuffer::Present(
             nullptr);
         tracker.RestoreState(bd);
     }
-    lastFence = queue.ExecuteAndPresent(std::move(alloc), swapchain->swapChain.Get(), swapchain->vsync);
+    vstd::atomic_max(lastFence, queue.ExecuteAndPresent(std::move(alloc), swapchain->swapChain.Get(), swapchain->vsync));
 }
 void LCCmdBuffer::CompressBC(
     TextureBase *rt,
@@ -1016,7 +1019,6 @@ void LCCmdBuffer::CompressBC(
     uint numBlocks = xBlocks * yBlocks;
     uint numTotalBlocks = numBlocks;
     static constexpr size_t BLOCK_SIZE = 16;
-    auto bufferReadState = tracker.ReadState(ResourceReadUsage::Srv);
     if (result.size_bytes() != BLOCK_SIZE * numBlocks) [[unlikely]] {
         LUISA_ERROR("Texture compress output buffer incorrect size!");
     }
@@ -1024,15 +1026,17 @@ void LCCmdBuffer::CompressBC(
         device,
         BLOCK_SIZE * numBlocks,
         allocator,
-        bufferReadState);
+        D3D12_RESOURCE_STATE_COMMON);
     auto outBufferPtr = reinterpret_cast<Buffer *>(result.handle());
     BufferView outBuffer{
         outBufferPtr,
         result.offset_bytes(),
         result.size_bytes()};
     auto alloc = queue.CreateAllocator(maxAlloc);
-    tracker.listType = alloc->Type();
     {
+        std::lock_guard lck{mtx};
+        tracker.listType = alloc->Type();
+        auto bufferReadState = tracker.ReadState(ResourceReadUsage::Srv);
         auto cmdBuffer = alloc->GetBuffer();
         auto cmdBuilder = cmdBuffer->Build();
         ID3D12DescriptorHeap *h[2] = {
@@ -1156,8 +1160,10 @@ void LCCmdBuffer::CompressBC(
         tracker.RecordState(outBufferPtr, D3D12_RESOURCE_STATE_COPY_SOURCE);
         tracker.RestoreState(cmdBuilder);
     }
-    lastFence = queue.ExecuteCallback(
-        std::move(alloc),
-        [backBuffer = std::move(backBuffer)] {});
+    vstd::atomic_max(
+        lastFence,
+        queue.ExecuteCallback(
+            std::move(alloc),
+            [backBuffer = std::move(backBuffer)] {}));
 }
 }// namespace lc::dx

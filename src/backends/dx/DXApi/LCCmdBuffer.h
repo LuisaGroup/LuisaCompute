@@ -44,12 +44,13 @@ class LCCmdBuffer final : public vstd::IOperatorNewBase {
 protected:
     Device *device;
     ResourceStateTracker tracker;
-    uint64 lastFence = 0;
+    std::atomic_uint64_t lastFence{0};
     ReorderFuncTable reorderFuncTable;
     CommandReorderVisitor<ReorderFuncTable, false> reorder;
     vstd::vector<BindProperty> bindProps;
     vstd::vector<ButtomCompactCmd> updateAccel;
     vstd::vector<D3D12_VERTEX_BUFFER_VIEW> vbv;
+    std::mutex mtx;
 
     vstd::vector<Resource const *> backState;
     vstd::vector<std::pair<size_t, size_t>> argVecs;

@@ -10,7 +10,6 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
 public:
     void *native_handle() const noexcept override;
     Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
-    std::mutex device_mtx;
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept
         : DeviceInterface{std::move(ctx)},
           _native{std::move(native)} {}
