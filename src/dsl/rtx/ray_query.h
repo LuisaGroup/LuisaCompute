@@ -5,6 +5,7 @@
 #include <dsl/rtx/hit.h>
 
 namespace luisa::compute {
+
 // RayQuery DSL module, see test_procedural.cpp as example
 class LC_DSL_API RayQuery {
 
@@ -15,6 +16,8 @@ public:
     explicit RayQuery(const CallExpr *func) noexcept;
     RayQuery(RayQuery &&) noexcept = default;
     RayQuery(RayQuery const &) noexcept = delete;
+    RayQuery &operator=(RayQuery &&) noexcept = delete;
+    RayQuery &operator=(RayQuery const &) noexcept = delete;
     [[nodiscard]] Var<bool> proceed() const noexcept;
     [[nodiscard]] Var<TriangleHit> triangle_candidate() const noexcept;
     [[nodiscard]] Var<ProceduralHit> procedural_candidate() const noexcept;

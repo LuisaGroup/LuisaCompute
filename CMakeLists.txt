@@ -19,6 +19,7 @@ option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" OFF)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
 option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" OFF)
+option(LUISA_COMPUTE_ENABLE_VALIDATION "Enable the validation backend" ON)
 
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)

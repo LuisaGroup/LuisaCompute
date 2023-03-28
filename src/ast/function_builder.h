@@ -327,6 +327,8 @@ public:
     [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
     /// Add for statement
     [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
+    /// Add ray query statement
+    [[nodiscard]] RayQueryStmt *ray_query_(const Expression *query) noexcept;
 
     // For autodiff use only
     [[nodiscard]] const Statement *pop_stmt() noexcept;

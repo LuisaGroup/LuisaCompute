@@ -35,7 +35,8 @@ public:
         SWITCH_DEFAULT,
         ASSIGN,
         FOR,
-        COMMENT
+        COMMENT,
+        RAY_QUERY
     };
 
 private:
@@ -69,7 +70,7 @@ class SwitchDefaultStmt;
 class AssignStmt;
 class ForStmt;
 class CommentStmt;
-class LetStmt;
+class RayQueryStmt;
 
 struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -85,6 +86,7 @@ struct StmtVisitor {
     virtual void visit(const AssignStmt *) = 0;
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
+    virtual void visit(const RayQueryStmt *) {/* TODO */}
 };
 
 #define LUISA_STATEMENT_COMMON() \
@@ -374,6 +376,62 @@ public:
         : Statement{Tag::COMMENT},
           _comment{std::move(comment)} {}
     [[nodiscard]] auto comment() const noexcept { return std::string_view{_comment}; }
+    LUISA_STATEMENT_COMMON()
+};
+
+// Example:
+// auto q = accel->trace_all(ray, mask);
+// auto hit = q
+//   .on_triangle_candidate([&] {
+//     << triangle candidate handling >>
+//   })
+//   .on_procedural_candidate([&] {
+//     << procedural candidate handling >>
+//   })
+//   .committed_hit();
+//
+// Translates to
+// in caller:
+// auto q = lc_accel_trace_all(accel, ray, mask);
+// auto hit = lc_ray_query_committed_hit(q);
+//
+// anyhit shader for triangle:
+// __global__ void__ __anyhit__ray_query() {
+//   auto committed = false;
+//   << triangle candidate handling >>
+//   if (!committed) { lc_ignore_intersection(); }
+// }
+//
+// intersection shader for procedural geometry:
+// __global__ void __intersection__ray_query() {
+//   << procedural candidate handling >>
+// }
+//
+// closest hit shader
+// __global__ void __closesthit__ray_query() {
+//   ...
+// }
+
+class RayQueryStmt : public Statement {
+
+private:
+    const Expression *_query;
+    ScopeStmt _on_triangle_candidate;
+    ScopeStmt _on_procedural_candidate;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit RayQueryStmt(const Expression *query) noexcept
+        : Statement{Tag::RAY_QUERY}, _query{query} {
+        _query->mark(Usage::READ_WRITE);
+    }
+    [[nodiscard]] auto query() const noexcept { return _query; }
+    [[nodiscard]] auto on_triangle_candidate() noexcept { return &_on_triangle_candidate; }
+    [[nodiscard]] auto on_triangle_candidate() const noexcept { return &_on_triangle_candidate; }
+    [[nodiscard]] auto on_procedural_candidate() noexcept { return &_on_procedural_candidate; }
+    [[nodiscard]] auto on_procedural_candidate() const noexcept { return &_on_procedural_candidate; }
     LUISA_STATEMENT_COMMON()
 };
 
