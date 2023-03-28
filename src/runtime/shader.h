@@ -203,8 +203,7 @@ private:
     Shader(DeviceInterface *device, string_view file_path) noexcept
         : Shader{device,
                  device->load_shader(file_path, detail::shader_argument_types<Args...>()),
-                 ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>()),
-                 {}} {}
+                 ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>())} {}
 
 public:
     Shader() noexcept = default;
