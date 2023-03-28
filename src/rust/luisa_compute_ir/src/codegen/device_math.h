@@ -1,5 +1,5 @@
-using lc_short = int16_t;
-using lc_ushort = uint16_t;
+using lc_short = short;
+using lc_ushort = unsigned short;
 using lc_int = int;
 using lc_uint = unsigned int;
 using lc_float = float;
@@ -4436,9 +4436,9 @@ template<typename T>
 [[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float2x2 m) noexcept {
     const auto one_over_determinant = 1.0f / (m[0][0] * m[1][1] - m[1][0] * m[0][1]);
     return lc_make_float2x2(m[1][1] * one_over_determinant,
-                           -m[0][1] * one_over_determinant,
-                           -m[1][0] * one_over_determinant,
-                           +m[0][0] * one_over_determinant);
+                          - m[0][1] * one_over_determinant,
+                          - m[1][0] * one_over_determinant,
+                          + m[0][0] * one_over_determinant);
 }
 
 [[nodiscard]] __device__ constexpr auto lc_inverse(const lc_float3x3 m) noexcept {// from GLM
@@ -4506,18 +4506,6 @@ template<typename T>
                             inv_3 * one_over_determinant);
 }
 
-// [[nodiscard]] __device__ inline auto lc_half_to_float(unsigned short x) noexcept {
-//     lc_float val;
-//     asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(x));
-//     return val;
-// }
-//
-// [[nodiscard]] __device__ inline auto lc_float_to_half(lc_float x) noexcept {
-//     unsigned short val;
-//     asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val) : "f"(x));
-//     return val;
-// }
-
 template<typename D, typename S>
 [[nodiscard]] __device__ inline auto lc_bit_cast(S s) noexcept {
     static_assert(sizeof(D) == sizeof(S));
@@ -4532,27 +4520,27 @@ template<class T>
     return T::one();
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<int32_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_int>() noexcept{
     return lc_int(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<float>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_float>() noexcept{
     return lc_float(1.0f);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<uint32_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_uint>() noexcept{
     return lc_uint(1u);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<int64_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_long>() noexcept{
     return lc_long(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<uint64_t>() noexcept{
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ulong>() noexcept{
     return lc_ulong(1);
 }
 template<>
-[[nodiscard]] __device__ inline constexpr auto lc_one<bool>() noexcept {
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_bool>() noexcept {
     return true;
 }
 template<typename T, size_t N>
@@ -4634,7 +4622,7 @@ __device__ inline void lc_accumulate_grad(lc_array<T, N> *dst, lc_array<T, N> gr
     return v;
 }
 
-__device__ inline void lc_accumulate_grad(float *dst, float grad) noexcept { *dst += lc_remove_nan(grad); }
+__device__ inline void lc_accumulate_grad(lc_float *dst, lc_float grad) noexcept { *dst += lc_remove_nan(grad); }
 __device__ inline void lc_accumulate_grad(lc_float2x2 *dst, lc_float2x2 grad) noexcept { *dst += lc_remove_nan(grad); }
 __device__ inline void lc_accumulate_grad(lc_float3x3 *dst, lc_float3x3 grad) noexcept { *dst += lc_remove_nan(grad); }
 __device__ inline void lc_accumulate_grad(lc_float4x4 *dst, lc_float4x4 grad) noexcept { *dst += lc_remove_nan(grad); }
@@ -4673,9 +4661,9 @@ struct lc_user_data_t{}; constexpr lc_user_data_t _lc_user_data{};
 template<class T> struct element_type_;
 template<class T> using element_type = typename element_type_<T>::type;
 
-template<> struct element_type_<lc_float2> { using type = float; };
-template<> struct element_type_<lc_float3> { using type = float; };
-template<> struct element_type_<lc_float4> { using type = float; };
+template<> struct element_type_<lc_float2> { using type = lc_float; };
+template<> struct element_type_<lc_float3> { using type = lc_float; };
+template<> struct element_type_<lc_float4> { using type = lc_float; };
 template<> struct element_type_<lc_short2> { using type = lc_short; };
 template<> struct element_type_<lc_short3> { using type = lc_short; };
 template<> struct element_type_<lc_short4> { using type = lc_short; };
@@ -4694,3 +4682,47 @@ template<> struct element_type_<lc_long4> { using type = lc_long; };
 template<> struct element_type_<lc_ulong2> { using type = lc_ulong; };
 template<> struct element_type_<lc_ulong3> { using type = lc_ulong; };
 template<> struct element_type_<lc_ulong4> { using type = lc_ulong; };
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator+(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = +arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator-(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = -arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator!(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = !arg[i];
+    }
+    return ret;
+}
+
+
+template<typename T, size_t N>
+[[nodiscard]] __device__ inline lc_array<T, N> operator~(lc_array<T, N> arg) noexcept {
+    lc_array<T, N> ret;
+    #pragma unroll
+    for(size_t i = 0u; i < N; ++i) {
+        ret[i] = ~arg[i];
+    }
+    return ret;
+}
+

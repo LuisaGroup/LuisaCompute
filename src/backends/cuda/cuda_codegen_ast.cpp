@@ -736,7 +736,7 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(v, false);
-            _scratch << "{};";
+            _scratch << ";";
         }
     }
     for (auto v : f.local_variables()) {
