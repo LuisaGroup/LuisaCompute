@@ -50,6 +50,9 @@ void export_expr(py::module &m) {
         .def("body", py::overload_cast<>(&LoopStmt::body), pyref);
     py::class_<ForStmt>(m, "ForStmt")
         .def("body", py::overload_cast<>(&ForStmt::body), pyref);
+    py::class_<RayQueryStmt>(m, "RayQueryStmt")
+        .def("on_triangle_candidate", py::overload_cast<>(&RayQueryStmt::on_triangle_candidate), pyref)
+        .def("on_procedural_candidate", py::overload_cast<>(&RayQueryStmt::on_procedural_candidate), pyref);
 
     py::class_<Type, raw_ptr<Type>>(m, "Type")
         .def_static("from_", &Type::from, pyref)
