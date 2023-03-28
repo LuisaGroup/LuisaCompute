@@ -7,7 +7,7 @@ RWResource::RWResource(uint64_t handle, Tag tag, bool non_simultaneous)
     : Resource{handle, tag}, _non_simultaneous{non_simultaneous} {
 }
 void RWResource::set_usage(Stream *stream, RWResource *res, Usage usage) {
-    LUISA_ASSERT(usage == Usage::READ || usage == Usage::WRITE, "Usage need to be read or write.");
+    LUISA_ASSERT(usage != Usage::NONE, "Usage cannot be NONE.");
     {
         auto iter = stream->res_usages.try_emplace(res, Usage::NONE);
         iter.first->second = static_cast<Usage>(luisa::to_underlying(iter.first->second) | luisa::to_underlying(usage));

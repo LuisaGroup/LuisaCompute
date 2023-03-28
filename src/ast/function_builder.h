@@ -13,7 +13,9 @@
 #include <ast/expression.h>
 #include <ast/constant_data.h>
 #include <ast/type_registry.h>
-
+namespace lc::validation {
+class Device;
+}
 namespace luisa::compute {
 class Statement;
 class Expression;
@@ -28,7 +30,7 @@ namespace luisa::compute::detail {
  * Build kernel or callable function
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
-
+    friend class lc::validation::Device;
     friend class compute::AstSerializer;
 
 private:

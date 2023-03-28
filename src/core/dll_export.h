@@ -72,12 +72,6 @@
 #define LC_SERDE_LIB_API __declspec(dllimport)
 #endif
 
-#ifdef LC_SHADERGRAPH_LIB_EXPORT_DLL
-#define LC_SHADER_GRAPH_LIB_API extern "C" __declspec(dllexport)
-#else
-#define LC_SHADER_GRAPH_LIB_API extern "C" __declspec(dllimport)
-#endif
-
 #ifdef LC_REMOTE_EXPORT_DLL
 #define LC_REMOTE_API __declspec(dllexport)
 #else

@@ -8,7 +8,6 @@
 #include <ast/expression.h>
 #include <ast/constant_data.h>
 #include <runtime/rhi/argument.h>
-
 namespace luisa::compute {
 
 namespace detail {
@@ -24,7 +23,6 @@ class AstSerializer;
  * 
  */
 class LC_AST_API Function {
-
 public:
     /// Function types
     enum struct Tag : uint {
@@ -86,7 +84,7 @@ public:
      *
      * Bind accel handle.
      */
-    struct AccelBinding : public Argument::Accel{
+    struct AccelBinding : public Argument::Accel {
         AccelBinding() noexcept = default;
         explicit AccelBinding(uint64_t handle) noexcept {
             this->handle = handle;

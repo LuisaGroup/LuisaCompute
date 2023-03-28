@@ -1,12 +1,14 @@
 #include "resource.h"
+#include "texture.h"
+#include "stream.h"
+#include <core/stl/format.h>
 namespace lc::validation {
-vstd::string Resource::get_tag_name(Tag tag) {
+vstd::string Resource::get_tag_name(Tag tag) const {
     switch (tag) {
         case Tag::BUFFER:
             return "Buffer";
         case Tag::TEXTURE:
-        // TODO: 2D and 3D name
-            return "Texture";
+            return luisa::format("{}D-image", static_cast<Texture const *>(this)->dim());
         case Tag::BINDLESS_ARRAY:
             return "Bindless-Array";
         case Tag::MESH:
@@ -16,7 +18,7 @@ vstd::string Resource::get_tag_name(Tag tag) {
         case Tag::ACCEL:
             return "Accel";
         case Tag::STREAM:
-            return "Stream";
+            return luisa::format("{} stream", static_cast<Stream const *>(this)->stream_tag());
         case Tag::EVENT:
             return "Event";
         case Tag::SHADER:

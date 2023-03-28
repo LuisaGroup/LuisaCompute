@@ -90,4 +90,6 @@ int main(int argc, char *argv[]) {
         window.pool_event();
         frame++;
     }
+    compute_stream << synchronize();
+    graphics_stream << synchronize();
 }

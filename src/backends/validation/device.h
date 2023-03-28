@@ -1,16 +1,19 @@
 #pragma once
+#include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>
 namespace lc::validation {
 using namespace luisa;
 using namespace luisa::compute;
-class Device : public DeviceInterface {
-    DeviceInterface *_native;
+class Device : public DeviceInterface, public vstd::IOperatorNewBase {
+    luisa::shared_ptr<DeviceInterface> _native;
 
 public:
+    void *native_handle() const noexcept override;
+    Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
     std::mutex device_mtx;
-    Device(Context &&ctx, DeviceInterface *native) noexcept
+    Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept
         : DeviceInterface{std::move(ctx)},
-          _native{native} {}
+          _native{std::move(native)} {}
     ~Device() = default;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;

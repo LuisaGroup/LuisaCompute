@@ -65,6 +65,7 @@ public:
         return info;
     }
     ShaderCreationInfo load_shader(vstd::string_view file_name, vstd::span<Type const *const> types) noexcept override;
+    Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
 
     // event
