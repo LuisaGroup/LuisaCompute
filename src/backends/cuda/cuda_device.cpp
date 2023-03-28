@@ -456,6 +456,12 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
     LUISA_ERROR_WITH_LOCATION("TODO");
 }
 
+Usage CUDADevice::shader_arg_usage(uint64_t handle, size_t index) noexcept {
+    // TODO
+    LUISA_ASSERT(false, "Un-Implemented");
+    return Usage::NONE;
+}
+
 void CUDADevice::destroy_shader(uint64_t handle) noexcept {
     with_handle([shader = reinterpret_cast<CUDAShader *>(handle)] {
         delete_with_allocator(shader);

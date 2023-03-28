@@ -496,6 +496,7 @@ void export_runtime(py::module &m) {
 
         .def("if_", &FunctionBuilder::if_, pyref)
         .def("switch_", &FunctionBuilder::switch_, pyref)
+        .def("ray_query_", &FunctionBuilder::ray_query_, pyref)
         .def("case_", &FunctionBuilder::case_, pyref)
         .def("loop_", &FunctionBuilder::loop_, pyref)
         // .def("switch_")

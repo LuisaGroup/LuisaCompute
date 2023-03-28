@@ -100,6 +100,7 @@ public:
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
+    virtual Usage shader_arg_usage(uint64_t handle, size_t index) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
     // event
     [[nodiscard]] virtual ResourceCreationInfo create_event() noexcept = 0;

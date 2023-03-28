@@ -21,15 +21,16 @@ class Stream : public Resource {
     uint64_t _synced_layer{0};
     vstd::unordered_map<Stream const *, uint64_t> waited_stream;
     uint64_t stream_synced_frame(Stream const *stream) const;
+    void mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd);
 
 public:
-
     vstd::unordered_map<RWResource const *, Usage> res_usages;
     auto executed_layer() const { return _executed_layer; }
     auto synced_layer() const { return _synced_layer; }
+    vstd::string stream_tag() const;
     Stream(uint64_t handle, StreamTag stream_tag);
     void dispatch();
-    void dispatch(CommandList &cmd_list);
+    void dispatch(DeviceInterface *dev, CommandList &cmd_list);
     void sync();
     void sync_layer(uint64_t layer);
     void signal(Event *evt);

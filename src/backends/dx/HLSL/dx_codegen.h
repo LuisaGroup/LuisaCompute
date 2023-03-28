@@ -112,6 +112,7 @@ class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
         ~Scope();
     };
     size_t accessCount = 0;
+    size_t rayQuery = 0;
     bool literalBrace = false;
 
 public:
@@ -140,6 +141,7 @@ public:
     void visit(const ForStmt *) override;
     void VisitFunction(Function func);
     void visit(const CommentStmt *) override;
+    void visit(const RayQueryStmt *) override;
     StringStateVisitor(
         Function f,
         vstd::StringBuilder &str);

@@ -428,17 +428,26 @@ class ASTVisitor:
         case_map = {}
         if type(node.subject.dtype).__name__ == "RayQueryType":
             # rayquery expr
+            query_stmt = lcapi.builder().ray_query_(node.subject.expr)
             for c in node.cases:
-                if type(c.pattern) != ast.MatchValue:
-                    raise TypeError("Rayquery condition must be Triangle(0) and Procedural-Primitive(1), got default value.")
-                const_value = c.pattern.value.value
-                if case_map[const_value] == True:
-                        raise SyntaxError("Case value can only have one.")
-                case_map[const_value] = True
-                if const_value != 0 and const_value != 1:
-                    raise TypeError(f"Rayquery condition must be Triangle(0) and Procedural-Primitive(1), got {const_value}.")
-                
-            raise TypeError("Rayquery Unimplemented.")
+                if type(c.pattern) != ast.MatchClass or ((c.pattern.cls.id) != "is_triangle" and (c.pattern.cls.id) != "is_procedural"):
+                    raise TypeError("Rayquery condition must be \"case is_triangle():\" or \"case is_procedural():\"")
+                if case_map.get(c.pattern) == True:
+                    raise SyntaxError("Case value can only have one.")
+                case_map[c.pattern] = True
+                if (c.pattern.cls.id) == "is_triangle":
+                    lcapi.begin_branch(True)
+                    with query_stmt.on_triangle_candidate():
+                        for x in c.body:
+                            build(x)
+                    lcapi.end_branch()
+                else:
+                    lcapi.begin_branch(True)
+                    with query_stmt.on_procedural_candidate():
+                        for x in c.body:
+                            build(x)
+                    lcapi.end_branch()
+            return
         if node.subject.dtype != int and node.subject.dtype != uint:
             raise TypeError(f"Match condition must be int or uint, got {node.subject.dtype}")
         eval_value = lcapi.builder().try_eval_int(node.subject.expr)
@@ -449,7 +458,7 @@ class ASTVisitor:
                 if type(c.pattern) == ast.MatchValue:
                     if type(c.pattern.value.value) != int:
                         raise TypeError(f"Match case condition must be int or uint, got {type(c.pattern.value.value)}")
-                    if case_map[c.pattern.value.value] == True:
+                    if case_map.get(c.pattern.value.value) == True:
                         raise SyntaxError("Case value can only have one.")
                     case_map[c.pattern.value.value] = True
                     # constant switch
@@ -459,7 +468,7 @@ class ASTVisitor:
                             build(x)
                         break
                 else:
-                    if case_map["default"] == True:
+                    if case_map.get("default") == True:
                         raise SyntaxError("Case value can only have one.")
                     case_map["default"] = True
                     default_value = c

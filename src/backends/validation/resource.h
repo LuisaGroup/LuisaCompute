@@ -12,7 +12,7 @@ private:
 
 public:
     vstd::string name;
-    static vstd::string get_tag_name(Tag tag);
+    vstd::string get_tag_name(Tag tag) const;
     vstd::string get_name() const;
     Resource(uint64_t handle, Tag tag) : _handle{handle}, _tag{tag} {}
     auto handle() const { return _handle; }

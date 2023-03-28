@@ -9,7 +9,7 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         procedural_primitives.h
         resource.cpp resource.h
         rw_resource.cpp rw_resource.h
-        shader.h
+        shader.cpp shader.h
         stream.cpp stream.h
         swap_chain.h
         texture.h)

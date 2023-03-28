@@ -97,7 +97,7 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
-RayQueryStmt *FunctionBuilder::ray_query_(const Expression *query) noexcept {
+RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
     return _create_and_append_statement<RayQueryStmt>(query);
 }
 

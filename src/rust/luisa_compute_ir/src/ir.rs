@@ -471,7 +471,6 @@ pub enum Func {
     RayTracingTraceAny,
 
     RayQueryProceed,
-    RayQueryIsCandidateTriangle,
     RayQueryProceduralCandidateHit,
     RayQueryTriangleCandidateHit,
     RayQueryCommittedHit,

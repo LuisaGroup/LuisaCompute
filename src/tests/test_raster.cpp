@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    auto device = context.create_device(argv[1], nullptr, false /*currently raster can not use validation*/);
     auto clear_shader = device.compile(clear_kernel);
     MeshFormat mesh_format;
     VertexAttribute attributes[] = {
@@ -103,5 +103,6 @@ int main(int argc, char *argv[]) {
         window.pool_event();
         window2.pool_event();
     }
+    stream << synchronize();
     return 0;
 }

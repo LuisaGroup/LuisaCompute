@@ -46,14 +46,23 @@ void ProceduralCandidate::terminate() const noexcept {
 
 namespace detail {
 
+[[nodiscard]] inline auto make_ray_query_object(const Expression *accel,
+                                                const Expression *ray,
+                                                const Expression *mask) noexcept {
+    auto builder = detail::FunctionBuilder::current();
+    auto local = builder->local(Type::of<RayQuery>());
+    auto call = builder->call(Type::of<RayQuery>(),
+                              CallOp::RAY_TRACING_TRACE_ALL,
+                              {accel, ray, mask});
+    builder->assign(local, call);
+    return local;
+}
+
 RayQueryBuilder::RayQueryBuilder(const Expression *accel,
                                  const Expression *ray,
                                  const Expression *mask) noexcept
     : _stmt{detail::FunctionBuilder::current()->ray_query_(
-          detail::FunctionBuilder::current()->call(
-              Type::of<RayQuery>(),
-              CallOp::RAY_TRACING_TRACE_ANY,
-              {accel, ray, mask}))} {}
+          make_ray_query_object(accel, ray, mask))} {}
 
 RayQuery RayQueryBuilder::query() &&noexcept {
     _queried = true;

@@ -415,7 +415,7 @@ public:
 class RayQueryStmt : public Statement {
 
 private:
-    const Expression *_query;
+    const RefExpr *_query;
     ScopeStmt _on_triangle_candidate;
     ScopeStmt _on_procedural_candidate;
 
@@ -423,7 +423,7 @@ private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
-    explicit RayQueryStmt(const Expression *query) noexcept
+    explicit RayQueryStmt(const RefExpr *query) noexcept
         : Statement{Tag::RAY_QUERY}, _query{query} {
         _query->mark(Usage::READ_WRITE);
     }

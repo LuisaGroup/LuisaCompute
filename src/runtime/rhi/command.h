@@ -18,7 +18,10 @@
 #include <runtime/raster/viewport.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/rhi/argument.h>
-
+// for validation
+namespace lc::validation {
+class Stream;
+}
 namespace luisa::compute {
 
 struct IndirectDispatchArg {
@@ -88,6 +91,7 @@ class CommandList;
     StreamTag stream_tag() const noexcept override { return Type; }
 
 class Command {
+    friend lc::validation::Stream;
 
 public:
     enum struct Tag {
@@ -108,6 +112,7 @@ public:
     [[nodiscard]] virtual StreamTag stream_tag() const noexcept = 0;
 };
 class ShaderDispatchCommandBase {
+    friend lc::validation::Stream;
 
 public:
     using Argument = luisa::compute::Argument;
@@ -137,6 +142,7 @@ public:
 };
 
 class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
+    friend lc::validation::Stream;
 
 public:
     using DispatchSize = luisa::variant<uint3, IndirectDispatchArg>;
@@ -163,6 +169,7 @@ public:
 };
 
 class BufferUploadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -189,6 +196,7 @@ public:
 };
 
 class BufferDownloadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -212,6 +220,7 @@ public:
 };
 
 class BufferCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _src_handle{};
@@ -238,6 +247,7 @@ public:
 };
 
 class BufferToTextureCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _buffer_handle{};
@@ -269,6 +279,7 @@ public:
 };
 
 class TextureToBufferCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _buffer_handle{};
@@ -300,6 +311,7 @@ public:
 };
 
 class TextureCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     PixelStorage _storage{};
@@ -329,6 +341,7 @@ public:
 };
 
 class TextureUploadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -356,6 +369,7 @@ public:
 };
 
 class TextureDownloadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -388,6 +402,7 @@ enum struct AccelBuildRequest : uint32_t {
 };
 
 class MeshBuildCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -427,6 +442,7 @@ public:
 };
 
 class ProceduralPrimitiveBuildCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -450,6 +466,7 @@ public:
 };
 
 class AccelBuildCommand final : public Command {
+    friend lc::validation::Stream;
 
 public:
     struct alignas(16) Modification {
@@ -528,6 +545,7 @@ public:
 };
 
 class BindlessArrayUpdateCommand final : public Command {
+    friend lc::validation::Stream;
 
 public:
     struct Modification {
@@ -600,6 +618,8 @@ public:
 };
 
 class CustomCommand : public Command {
+    friend lc::validation::Stream;
+
 private:
     uint64_t _uuid{};
 
@@ -610,6 +630,7 @@ public:
 };
 
 class LC_RUNTIME_API DrawRasterSceneCommand final : public CustomCommand, public ShaderDispatchCommandBase {
+    friend lc::validation::Stream;
 
 private:
     std::array<Argument::Texture, 8u> _rtv_texs;
@@ -640,6 +661,7 @@ public:
 };
 
 class ClearDepthCommand final : public CustomCommand {
+    friend lc::validation::Stream;
     uint64_t _handle;
     float _value;
 

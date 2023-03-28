@@ -13,7 +13,9 @@
 #include <ast/expression.h>
 #include <ast/constant_data.h>
 #include <ast/type_registry.h>
-
+namespace lc::validation {
+class Device;
+}
 namespace luisa::compute {
 class Statement;
 class Expression;
@@ -28,7 +30,7 @@ namespace luisa::compute::detail {
  * Build kernel or callable function
  */
 class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
-
+    friend class lc::validation::Device;
     friend class compute::AstSerializer;
 
 private:
@@ -328,7 +330,7 @@ public:
     /// Add for statement
     [[nodiscard]] ForStmt *for_(const Expression *var, const Expression *condition, const Expression *update) noexcept;
     /// Add ray query statement
-    [[nodiscard]] RayQueryStmt *ray_query_(const Expression *query) noexcept;
+    [[nodiscard]] RayQueryStmt *ray_query_(const RefExpr *query) noexcept;
 
     // For autodiff use only
     [[nodiscard]] const Statement *pop_stmt() noexcept;

@@ -24,12 +24,6 @@ class RayQueryType:
     def proceed(self):
         return _builtin_call(bool, "RAY_QUERY_PROCEED", self)
     @func
-    def is_candidate_triangle(self):
-        return _builtin_call(bool, "RAY_QUERY_IS_CANDIDATE_TRIANGLE", self)
-    @func
-    def is_candidate_procedural(self):
-        return not _builtin_call(bool, "RAY_QUERY_IS_CANDIDATE_TRIANGLE", self)
-    @func
     def procedural_candidate(self):
         return _builtin_call(ProceduralHit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)
         
@@ -39,6 +33,9 @@ class RayQueryType:
     @func
     def committed_hit(self):
         return _builtin_call(CommittedHit, "RAY_QUERY_COMMITTED_HIT", self)
+    @func
+    def terminate(self):
+        _builtin_call("RAY_QUERY_TERMINATE", self)
     @func
     def commit_triangle(self):
         _builtin_call("RAY_QUERY_COMMIT_TRIANGLE", self)
@@ -50,11 +47,11 @@ class RayQuery:
     def __init__(self):
         self.queryType = rayQueryType
         self.proceed = self.queryType.proceed
-        self.is_candidate_triangle = self.queryType.is_candidate_triangle
-        self.is_candidate_procedural = self.queryType.is_candidate_procedural
         self.procedural_candidate = self.queryType.procedural_candidate
         self.triangle_candidate = self.queryType.triangle_candidate
         self.committed_hit = self.queryType.committed_hit
         self.commit_triangle = self.queryType.commit_triangle
         self.commit_procedural = self.queryType.commit_procedural
 rayQuery = RayQuery()
+def is_triangle(): ...
+def is_procedural(): ...

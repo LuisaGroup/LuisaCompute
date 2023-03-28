@@ -10,6 +10,7 @@
 #include "procedural_primitives.h"
 #include "shader.h"
 #include "swap_chain.h"
+#include <ast/function_builder.h>
 namespace lc::validation {
 static uint64_t origin_handle(uint64_t handle) {
     return reinterpret_cast<Resource *>(handle)->handle();
@@ -99,7 +100,8 @@ void Device::synchronize_stream(uint64_t stream_handle) noexcept {
 void Device::dispatch(
     uint64_t stream_handle, CommandList &&list) noexcept {
     std::lock_guard lck{device_mtx};
-    reinterpret_cast<Stream *>(stream_handle)->dispatch(list);
+    reinterpret_cast<Stream *>(stream_handle)->dispatch(_native.get(), list);
+    reinterpret_cast<Stream *>(stream_handle)->check_compete();
     _native->dispatch(origin_handle(stream_handle), std::move(list));
 }
 
@@ -109,7 +111,7 @@ SwapChainCreationInfo Device::create_swap_chain(
     uint width, uint height, bool allow_hdr,
     bool vsync, uint back_buffer_size) noexcept {
     std::lock_guard lck{device_mtx};
-    auto chain = _native->create_swap_chain(window_handle, stream_handle, width, height, allow_hdr, vsync, back_buffer_size);
+    auto chain = _native->create_swap_chain(window_handle, origin_handle(stream_handle), width, height, allow_hdr, vsync, back_buffer_size);
     chain.handle = reinterpret_cast<uint64_t>(new SwapChain(chain.handle));
     return chain;
 }
@@ -125,26 +127,30 @@ void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchai
     stream->dispatch();
     reinterpret_cast<Texture *>(image_handle)->set(stream, Usage::READ);
     reinterpret_cast<SwapChain *>(swapchain_handle)->set(stream, Usage::WRITE);
+    reinterpret_cast<Stream *>(stream_handle)->check_compete();
     _native->present_display_in_stream(origin_handle(stream_handle), origin_handle(swapchain_handle), origin_handle(image_handle));
 }
 
 // kernel
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
     std::lock_guard lck{device_mtx};
+    auto old_bound = Shader::fallback_binding(const_cast<luisa::compute::detail::FunctionBuilder *>(kernel.builder())->_bound_arguments);
     auto shader = _native->create_shader(option, kernel);
-    shader.handle = reinterpret_cast<uint64_t>(new Shader(shader.handle));
+    shader.handle = reinterpret_cast<uint64_t>(new Shader(shader.handle, old_bound));
+    const_cast<luisa::compute::detail::FunctionBuilder *>(kernel.builder())->_bound_arguments = std::move(old_bound);
     return shader;
 }
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
     std::lock_guard lck{device_mtx};
     auto shader = _native->create_shader(option, kernel);
-    shader.handle = reinterpret_cast<uint64_t>(new Shader(shader.handle));
+    // TODO: IR binding test
+    shader.handle = reinterpret_cast<uint64_t>(new Shader(shader.handle, {}));
     return shader;
 }
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {
     std::lock_guard lck{device_mtx};
     auto shader = _native->load_shader(name, arg_types);
-    shader.handle = reinterpret_cast<uint64_t>(new Shader(shader.handle));
+    shader.handle = reinterpret_cast<uint64_t>(new Shader(shader.handle, {}));
     return shader;
 }
 void Device::destroy_shader(uint64_t handle) noexcept {
@@ -228,7 +234,12 @@ void Device::destroy_accel(uint64_t handle) noexcept {
     _native->destroy_accel(acc->handle());
     delete acc;
 }
-
+void *Device::native_handle() const noexcept {
+    return _native->native_handle();
+}
+Usage Device::shader_arg_usage(uint64_t handle, size_t index) noexcept {
+    return _native->shader_arg_usage(handle, index);
+}
 // query
 luisa::string Device::query(luisa::string_view property) noexcept {
     return _native->query(property);
@@ -238,5 +249,11 @@ void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resou
     std::lock_guard lck{device_mtx};
     reinterpret_cast<Resource *>(resource_handle)->name = name;
     _native->set_name(resource_tag, resource_handle, name);
+}
+VSTL_EXPORT_C void destroy(DeviceInterface *d) {
+    delete d;
+}
+VSTL_EXPORT_C DeviceInterface *create(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) {
+    return new Device{std::move(ctx), std::move(native)};
 }
 }// namespace lc::validation

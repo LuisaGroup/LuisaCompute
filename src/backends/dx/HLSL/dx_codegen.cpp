@@ -433,6 +433,20 @@ void StringStateVisitor::visit(const ForStmt *state) {
         state->body()->accept(*this);
     }
 }
+void StringStateVisitor::visit(const RayQueryStmt *stmt) {
+    str << "{\n"sv;
+    auto qstr = vstd::string("q"sv).append(vstd::to_string(rayQuery));
+    str << "LC_RayQuery "sv << qstr << '=';
+    rayQuery++;
+    stmt->query()->accept(*this);
+    str << ";\n"sv;
+    str << "while("sv << qstr << ".Proceed()){\n"sv
+        << "if("sv << qstr << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){\n"sv;
+    stmt->on_triangle_candidate()->accept(*this);
+    str << "}else{\n"sv;
+    stmt->on_procedural_candidate()->accept(*this);
+    str << "}}}\n"sv;
+}
 StringStateVisitor::StringStateVisitor(
     Function f,
     vstd::StringBuilder &str)

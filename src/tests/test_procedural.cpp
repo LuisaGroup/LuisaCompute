@@ -72,6 +72,7 @@ int main(int argc, char *argv[]) {
         auto q = accel->trace_all(ray)
                      .on_triangle_candidate([](auto &candidate) noexcept {
                          candidate.commit();
+                         candidate.terminate();
                      })
                      .on_procedural_candidate([&](auto &candidate) noexcept {
                          auto h = candidate.hit();
