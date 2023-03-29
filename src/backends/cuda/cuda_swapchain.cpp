@@ -2,7 +2,7 @@
 // Created by Mike on 3/24/2023.
 //
 
-#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
 
 #include <core/platform.h>
 #include <vulkan/vulkan.h>
