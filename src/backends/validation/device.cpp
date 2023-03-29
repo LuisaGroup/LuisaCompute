@@ -22,7 +22,7 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
       _native{std::move(native)} {
     auto raster_ext = static_cast<RasterExt *>(_native->extension(RasterExt::name));
     if (raster_ext) {
-        _raster_ext = new RasterExtImpl{raster_ext};
+        exts.try_emplace(RasterExt::name, ExtPtr{raster_ext, detail::ext_deleter{[](void *ptr) { delete reinterpret_cast<RasterExtImpl *>(ptr); }}});
     }
 }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept {
@@ -255,15 +255,11 @@ luisa::string Device::query(luisa::string_view property) noexcept {
     return _native->query(property);
 }
 DeviceExtension *Device::extension(luisa::string_view name) noexcept {
-    if (name == RasterExt::name) {
-        return _raster_ext;
-    }
+    auto iter = exts.find(name);
+    if (iter != exts.end()) return iter->second.get();
     return _native->extension(name);
 }
 Device::~Device() {
-    if (_raster_ext) {
-        delete _raster_ext;
-    }
 }
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
     std::lock_guard lck{global_mtx};

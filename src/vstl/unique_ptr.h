@@ -19,8 +19,8 @@ struct unique_ptr_deleter {
         }
     }
 };
-template<typename T>
-using unique_ptr = eastl::unique_ptr<T, unique_ptr_deleter>;
+template<typename T, typename Deleter = unique_ptr_deleter>
+using unique_ptr = eastl::unique_ptr<T, Deleter>;
 template<typename T>
 unique_ptr<T> create_unique(T *ptr) {
     return unique_ptr<T>(ptr);
@@ -28,7 +28,7 @@ unique_ptr<T> create_unique(T *ptr) {
 template<typename T>
 using shared_ptr = eastl::shared_ptr<T>;
 template<typename T>
-unique_ptr<T> create_shared(T *ptr) {
+shared_ptr<T> create_shared(T *ptr) {
     return shared_ptr<T>(ptr);
 }
 

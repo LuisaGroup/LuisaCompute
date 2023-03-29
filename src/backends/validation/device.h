@@ -2,12 +2,23 @@
 #include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>
 namespace lc::validation {
-class RasterExtImpl;
 using namespace luisa;
 using namespace luisa::compute;
+namespace detail {
+class ext_deleter {
+    vstd::func_ptr_t<void(void *)> _deleter;
+
+public:
+    ext_deleter(vstd::func_ptr_t<void(void *)> deleter) : _deleter{deleter} {}
+    void operator()(void *ptr) const {
+        _deleter(ptr);
+    }
+};
+}// namespace detail
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::shared_ptr<DeviceInterface> _native;
-    RasterExtImpl *_raster_ext{};
+    using ExtPtr = vstd::unique_ptr<DeviceExtension, detail::ext_deleter>;
+    vstd::unordered_map<vstd::string, ExtPtr> exts;
 
 public:
     void *native_handle() const noexcept override;
