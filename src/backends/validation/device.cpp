@@ -19,10 +19,10 @@ static uint64_t origin_handle(uint64_t handle) {
 }
 Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept
     : DeviceInterface{std::move(ctx)},
-      _native{std::move(native)},
-      _raster_ext{static_cast<RasterExt *>(_native->extension(RasterExt::name))} {
-    if (_raster_ext) {
-        _raster_ext = new RasterExtImpl{_raster_ext};
+      _native{std::move(native)} {
+    auto raster_ext = static_cast<RasterExt *>(_native->extension(RasterExt::name));
+    if (raster_ext) {
+        _raster_ext = new RasterExtImpl{raster_ext};
     }
 }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept {
@@ -262,7 +262,7 @@ DeviceExtension *Device::extension(luisa::string_view name) noexcept {
 }
 Device::~Device() {
     if (_raster_ext) {
-        delete static_cast<RasterExtImpl *>(_raster_ext);
+        delete _raster_ext;
     }
 }
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {

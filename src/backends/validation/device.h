@@ -1,15 +1,13 @@
 #pragma once
 #include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>
-namespace luisa::compute {
-class RasterExt;
-}
 namespace lc::validation {
+class RasterExtImpl;
 using namespace luisa;
 using namespace luisa::compute;
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::shared_ptr<DeviceInterface> _native;
-    RasterExt *_raster_ext{};
+    RasterExtImpl *_raster_ext{};
 
 public:
     void *native_handle() const noexcept override;
