@@ -8,7 +8,7 @@
 #include <core/stl/optional.h>
 #include <core/stl/functional.h>
 #include <runtime/rhi/command.h>
-#ifdef LC_ENABLE_API
+#ifdef LUISA_ENABLE_API
 #include <api/common.h>
 #endif
 namespace luisa::compute {
@@ -36,7 +36,7 @@ private:
     CallbackContainer _callbacks;
     bool _committed{false};
 
-#ifdef LC_ENABLE_API
+#ifdef LUISA_ENABLE_API
     // For backends that use C API only
     // DO NOT USE THIS FIELD OTHERWISE
     luisa::optional<LCCommandList> _c_list;
