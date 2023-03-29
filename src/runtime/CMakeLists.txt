@@ -14,7 +14,6 @@ set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
         raster/app_data.h
         raster/depth_buffer.cpp
         raster/depth_buffer.h
-        raster/dsl.h
         raster/raster.cpp
         raster/raster_scene.h
         raster/raster_shader.h
