@@ -9,7 +9,9 @@
 #include <runtime/rhi/command.h>
 #include <runtime/rhi/resource.h>
 #include <runtime/rhi/device_interface.h>
-
+namespace lc::validation {
+class Stream;
+}
 namespace luisa::compute {
 
 namespace detail {
@@ -56,7 +58,7 @@ private:
         : Buffer{
               device,
               [&] {
-                  if (size == 0)[[unlikely]] {
+                  if (size == 0) [[unlikely]] {
                       detail::buffer_size_zero_error();
                   }
                   return device->create_buffer(Type::of<T>(), size);
@@ -90,7 +92,7 @@ public:
 // BufferView represents a reference to a Buffer. Use a BufferView that referenced to a destructed Buffer is an undefined behavior.
 template<typename T>
 class BufferView {
-
+    friend class lc::validation::Stream;
     static_assert(is_valid_buffer_element_v<T>);
 
 private:
@@ -100,7 +102,6 @@ private:
     size_t _element_stride;
     size_t _size;
     size_t _total_size;
-    
 
 private:
     friend class Buffer<T>;

@@ -11,6 +11,7 @@
 #include "shader.h"
 #include "swap_chain.h"
 #include <core/logging.h>
+#include <runtime/raster/raster_scene.h>
 namespace lc::validation {
 Stream::Stream(uint64_t handle, StreamTag stream_tag) : Resource{handle, Tag::STREAM}, _stream_tag{stream_tag} {}
 void Stream::signal(Event *evt) {
@@ -79,9 +80,9 @@ void Stream::dispatch() {
     _executed_layer++;
     res_usages.clear();
 }
-void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd) {
+void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd, bool contain_bindings) {
     size_t arg_idx = 0;
-    auto shader = reinterpret_cast<Shader *>(cmd->handle());
+    auto shader = reinterpret_cast<RWResource *>(cmd->handle());
     auto native_shader = shader->handle();
     auto set_arg = [&](Argument &arg) {
         switch (arg.tag) {
@@ -108,42 +109,78 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
         }
         ++arg_idx;
     };
-    for (auto &&i : shader->bound_arguments()) {
-        auto arg = luisa::visit(
-            [&]<typename T>(T const &a) -> Argument {
-                Argument arg;
-                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                    arg.tag = Argument::Tag::BUFFER;
-                    arg.buffer = a;
-                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                    arg.tag = Argument::Tag::TEXTURE;
-                    arg.texture = a;
-                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                    arg.tag = Argument::Tag::BINDLESS_ARRAY;
-                    arg.bindless_array = a;
-                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                    arg.tag = Argument::Tag::ACCEL;
-                    arg.accel = a;
-                } else {
-                    LUISA_ERROR("Binding Contain unwanted variable.");
-                }
-                return arg;
-            },
-            i);
-        set_arg(arg);
+    if (contain_bindings) {
+        for (auto &&i : static_cast<Shader *>(shader)->bound_arguments()) {
+            auto arg = luisa::visit(
+                [&]<typename T>(T const &a) -> Argument {
+                    Argument arg;
+                    if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                        arg.tag = Argument::Tag::BUFFER;
+                        arg.buffer = a;
+                    } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                        arg.tag = Argument::Tag::TEXTURE;
+                        arg.texture = a;
+                    } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                        arg.tag = Argument::Tag::BINDLESS_ARRAY;
+                        arg.bindless_array = a;
+                    } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                        arg.tag = Argument::Tag::ACCEL;
+                        arg.accel = a;
+                    } else {
+                        LUISA_ERROR("Binding Contain unwanted variable.");
+                    }
+                    return arg;
+                },
+                i);
+            set_arg(arg);
+        }
     }
     for (auto &&i : cmd->arguments()) {
         set_arg(const_cast<Argument &>(i));
+    }
+    swap_handle(cmd->_handle, Usage::READ);
+}
+void Stream::swap_handle(uint64_t &v, Usage usage) {
+    reinterpret_cast<RWResource *>(v)->set(this, usage);
+    v = reinterpret_cast<RWResource *>(v)->handle();
+};
+void Stream::custom(DeviceInterface *dev, Command *cmd) {
+    switch (static_cast<CustomCommand *>(cmd)->uuid()) {
+        case clear_depth_command_uuid: {
+            auto c = static_cast<ClearDepthCommand *>(cmd);
+            swap_handle(c->_handle, Usage::WRITE);
+        } break;
+        case draw_raster_command_uuid: {
+            auto c = static_cast<DrawRasterSceneCommand *>(cmd);
+            mark_shader_dispatch(dev, c, false);
+            if (c->_dsv_tex.handle && c->_dsv_tex.handle != invalid_resource_handle) {
+                swap_handle(c->_dsv_tex.handle, Usage::READ_WRITE);
+            }
+            for (auto i : vstd::range(c->_rtv_count)) {
+                swap_handle(c->_rtv_texs[i].handle, Usage::WRITE);
+            }
+            for (auto &&i : c->_scene) {
+                for (auto &&vb : i._vertex_buffers) {
+                    swap_handle(const_cast<uint64_t &>(vb._handle), Usage::READ);
+                }
+                luisa::visit(
+                    [&]<typename T>(T &t) {
+                        if constexpr (std::is_same_v<T, BufferView<uint>>) {
+                            swap_handle(t._handle, Usage::READ);
+                        }
+                    },
+                    i._index_buffer);
+            }
+        } break;
+        default:
+            LUISA_ERROR("Custom command not supported by validation layer.");
+            break;
     }
 }
 void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
     _executed_layer++;
     res_usages.clear();
     using CmdTag = luisa::compute::Command::Tag;
-    auto swap_handle = [&](uint64_t &v, Usage usage) {
-        reinterpret_cast<RWResource *>(v)->set(this, usage);
-        v = reinterpret_cast<RWResource *>(v)->handle();
-    };
     for (auto &&cmd_ptr : cmd_list.commands()) {
         Command *cmd = cmd_ptr.get();
         switch (cmd->tag()) {
@@ -167,8 +204,7 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             } break;
             case CmdTag::EShaderDispatchCommand: {
                 auto c = static_cast<ShaderDispatchCommand *>(cmd);
-                mark_shader_dispatch(dev, c);
-                swap_handle(c->_handle, Usage::READ);
+                mark_shader_dispatch(dev, c, true);
             } break;
             case CmdTag::ETextureUploadCommand: {
                 auto c = static_cast<TextureUploadCommand *>(cmd);
@@ -231,7 +267,7 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 swap_handle(c->_handle, Usage::WRITE);
             } break;
             case CmdTag::ECustomCommand: {
-                LUISA_ERROR("Custom command not supported by validation layer.");
+                custom(dev, cmd);
             } break;
         }
         // TODO: resources record

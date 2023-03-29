@@ -246,7 +246,7 @@ ShaderCreationInfo LCDevice::load_shader(
     }
     return info;
 }
-Usage LCDevice::shader_arg_usage(uint64_t handle, size_t index) noexcept{
+Usage LCDevice::shader_arg_usage(uint64_t handle, size_t index) noexcept {
     auto shader = reinterpret_cast<Shader *>(handle);
     return shader->Args()[index].varUsage;
 }
@@ -440,6 +440,9 @@ ResourceCreationInfo DxRasterExt::load_raster_shader(
     } else {
         return ResourceCreationInfo::make_invalid();
     }
+}
+void DxRasterExt::destroy_raster_shader(uint64_t handle) noexcept {
+    delete reinterpret_cast<RasterShader *>(handle);
 }
 ResourceCreationInfo LCDevice::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
     ResourceCreationInfo info;

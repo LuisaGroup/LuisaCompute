@@ -11,10 +11,19 @@
 #include "shader.h"
 #include "swap_chain.h"
 #include <ast/function_builder.h>
+#include "raster_ext_impl.h"
 namespace lc::validation {
 static std::mutex global_mtx;
 static uint64_t origin_handle(uint64_t handle) {
     return reinterpret_cast<Resource *>(handle)->handle();
+}
+Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept
+    : DeviceInterface{std::move(ctx)},
+      _native{std::move(native)},
+      _raster_ext{static_cast<RasterExt *>(_native->extension(RasterExt::name))} {
+    if (_raster_ext) {
+        _raster_ext = new RasterExtImpl{_raster_ext};
+    }
 }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept {
     std::lock_guard lck{global_mtx};
@@ -245,7 +254,17 @@ Usage Device::shader_arg_usage(uint64_t handle, size_t index) noexcept {
 luisa::string Device::query(luisa::string_view property) noexcept {
     return _native->query(property);
 }
-DeviceExtension *Device::extension(luisa::string_view name) noexcept { return _native->extension(name); }
+DeviceExtension *Device::extension(luisa::string_view name) noexcept {
+    if (name == RasterExt::name) {
+        return _raster_ext;
+    }
+    return _native->extension(name);
+}
+Device::~Device() {
+    if (_raster_ext) {
+        delete static_cast<RasterExtImpl *>(_raster_ext);
+    }
+}
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
     std::lock_guard lck{global_mtx};
     reinterpret_cast<Resource *>(resource_handle)->name = name;

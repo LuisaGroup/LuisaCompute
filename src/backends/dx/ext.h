@@ -154,6 +154,7 @@ public:
         DepthFormat dsv_format,
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept override;
+    void destroy_raster_shader(uint64_t handle) noexcept override;
 };
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
     Device &_device;

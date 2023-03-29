@@ -70,6 +70,7 @@ private:
     CommandList _list;
 
 private:
+    friend class lc::validation::Stream;
     friend class Stream;
     friend class CommandList;
     explicit Commit(CommandList &&list) noexcept

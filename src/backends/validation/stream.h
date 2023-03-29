@@ -21,7 +21,9 @@ class Stream : public Resource {
     uint64_t _synced_layer{0};
     vstd::unordered_map<Stream const *, uint64_t> waited_stream;
     uint64_t stream_synced_frame(Stream const *stream) const;
-    void mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd);
+    void swap_handle(uint64_t &v, Usage usage);
+    void custom(DeviceInterface *dev, Command *cmd);
+    void mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBase *cmd, bool contain_bindings);
 
 public:
     vstd::unordered_map<RWResource const *, Usage> res_usages;

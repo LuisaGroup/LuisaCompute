@@ -1,19 +1,21 @@
 #pragma once
 #include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>
+namespace luisa::compute {
+class RasterExt;
+}
 namespace lc::validation {
 using namespace luisa;
 using namespace luisa::compute;
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::shared_ptr<DeviceInterface> _native;
+    RasterExt *_raster_ext{};
 
 public:
     void *native_handle() const noexcept override;
     Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
-    Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept
-        : DeviceInterface{std::move(ctx)},
-          _native{std::move(native)} {}
-    ~Device() = default;
+    Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
+    ~Device();
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
