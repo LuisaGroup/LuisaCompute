@@ -23,11 +23,11 @@ public:
     public:
         iterator_type(T value, T end, T step) noexcept
             : _value{value}, _end{end}, _step{step} {}
-        [[nodiscard]] auto &operator++() noexcept {
+        auto &operator++() noexcept {
             _value += _step;
             return *this;
         }
-        [[nodiscard]] auto operator++(int) noexcept {
+        auto operator++(int) noexcept {
             auto copy = *this;
             _value += _step;
             return copy;
