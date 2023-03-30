@@ -56,7 +56,7 @@ private:
         : Buffer{
               device,
               [&] {
-                  if (size == 0)[[unlikely]] {
+                  if (size == 0) [[unlikely]] {
                       detail::buffer_size_zero_error();
                   }
                   return device->create_buffer(Type::of<T>(), size);
@@ -100,7 +100,6 @@ private:
     size_t _element_stride;
     size_t _size;
     size_t _total_size;
-    
 
 private:
     friend class Buffer<T>;
@@ -115,7 +114,7 @@ private:
     }
 
 public:
-    BufferView() noexcept : BufferView{invalid_resource_handle, 0, 0, 0} {}
+    BufferView() noexcept : BufferView{nullptr, invalid_resource_handle, 0, 0, 0, 0} {}
     [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
     // properties
