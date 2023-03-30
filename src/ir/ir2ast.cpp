@@ -281,7 +281,6 @@ namespace luisa::compute {
             case ir::Func::Tag::RayTracingSetInstanceOpacity: return builtin_func(3, "RayTracingSetInstanceOpacity", CallOp::RAY_TRACING_SET_INSTANCE_OPACITY);
             case ir::Func::Tag::RayTracingTraceClosest: return builtin_func(3, "RayTracingTraceClosest", CallOp::RAY_TRACING_TRACE_CLOSEST);
             case ir::Func::Tag::RayTracingTraceAny: return builtin_func(3, "RayTracingTraceAny", CallOp::RAY_TRACING_TRACE_ANY);
-            case ir::Func::Tag::RayQueryProceed: return builtin_func(3, "RayQueryProceed", CallOp::RAY_QUERY_PROCEED);
             case ir::Func::Tag::RayQueryProceduralCandidateHit: return builtin_func(1, "RayQueryProceduralCandidateHit", CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT);
             case ir::Func::Tag::RayQueryTriangleCandidateHit: return builtin_func(1, "RayQueryTriangleCandidateHit", CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT);
             case ir::Func::Tag::RayQueryCommittedHit: return builtin_func(1, "RayQueryCommittedHit", CallOp::RAY_QUERY_COMMITTED_HIT);

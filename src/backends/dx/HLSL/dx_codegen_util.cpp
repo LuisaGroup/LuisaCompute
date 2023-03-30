@@ -853,10 +853,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << "EmplaceDispInd3D"sv;
             }
         } break;
-        case CallOp::RAY_QUERY_PROCEED:
-            args[0]->accept(vis);
-            str << ".Proceed()"sv;
-            return;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
             str << "GetTriangleCandidateHit"sv;
             break;
