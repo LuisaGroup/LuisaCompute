@@ -134,16 +134,18 @@ LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(>>)
 // disable the address-of operator for dsl objects
 template<typename T>
     requires ::luisa::compute::is_dsl_v<T>
-[[nodiscard]] inline auto operator&(T &&) noexcept {
+[[nodiscard]] inline T *operator&(T &&) noexcept {
     static_assert(::luisa::always_false_v<T>,
                   LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE);
+    std::abort();
 }
 
 // convenience macro to disable the address-of operator for specific types
 #define LUISA_DISABLE_DSL_ADDRESS_OF_OPERATOR(...)           \
     template<typename T>                                     \
         requires std::same_as<T, __VA_ARGS__>                \
-    [[nodiscard]] inline auto operator&(T &&) noexcept {     \
+    [[nodiscard]] inline T *operator&(T &&) noexcept {       \
         static_assert(::luisa::always_false_v<T>,            \
                       LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE); \
+        std::abort();                                        \
     }
