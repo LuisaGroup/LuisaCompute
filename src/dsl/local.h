@@ -88,13 +88,15 @@ public:
 
 // disable address-of operators
 template<typename T>
-[[nodiscard]] inline auto operator&(::luisa::compute::Local<T> &) noexcept {
+[[nodiscard]] inline ::luisa::compute::Local<T> *operator&(::luisa::compute::Local<T> &) noexcept {
     static_assert(::luisa::always_false_v<T>,
                   LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE);
+    std::abort();
 }
 
 template<typename T>
-[[nodiscard]] inline auto operator&(const ::luisa::compute::Local<T> &) noexcept {
+[[nodiscard]] inline const ::luisa::compute::Local<T> *operator&(const ::luisa::compute::Local<T> &) noexcept {
     static_assert(::luisa::always_false_v<T>,
                   LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE);
+    std::abort();
 }
