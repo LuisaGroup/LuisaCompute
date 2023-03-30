@@ -9,5 +9,8 @@ if EnableRust then
 	add_defines("LUISA_ENABLE_API", {
 		public = true
 	})
+	add_defines("LUISA_ENABLE_IR", {
+		public = true
+	})
 end
 add_files("**.cpp")

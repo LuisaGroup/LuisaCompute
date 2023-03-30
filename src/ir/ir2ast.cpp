@@ -1131,6 +1131,11 @@ namespace luisa::compute {
         return ctx.function_builder;
     }
 
+    [[nodiscard]] const Type *IR2AST::get_type(const ir::NodeRef node_ref) noexcept {
+        auto node = ir::luisa_compute_ir_node_get(node_ref);
+        return _convert_type(node->type_.get());
+    }
+
     [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::build(const ir::KernelModule *kernel) noexcept {
         IR2AST builder;
         return builder.convert_kernel(kernel);

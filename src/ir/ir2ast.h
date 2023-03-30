@@ -53,14 +53,14 @@ private:
 
     IR2ASTContext *_ctx;
     
-    [[nodiscard]] const Type *_convert_primitive_type(const ir::Primitive &type) noexcept;
+    [[nodiscard]] static const Type *_convert_primitive_type(const ir::Primitive &type) noexcept;
+    [[nodiscard]] static const Type *_convert_type(const ir::Type *type) noexcept;
     [[nodiscard]] CallOp _decide_make_vector_op(const Type *primitive, size_t length) noexcept;
     [[nodiscard]] CallOp _decide_make_matrix_op(size_t dimension) noexcept;
 
     [[nodiscard]] const Expression *_convert_constant(const ir::Const &const_) noexcept;
     [[nodiscard]] const Expression *_convert_node(const ir::NodeRef node_ref) noexcept;
     [[nodiscard]] const Expression *_convert_node(const ir::Node *node) noexcept;
-    [[nodiscard]] const Type *_convert_type(const ir::Type *type) noexcept;
     [[nodiscard]] const RefExpr * _convert_argument(const ir::Node *node) noexcept;
     [[nodiscard]] const RefExpr *_convert_captured (const ir::Capture &captured) noexcept;
     
@@ -88,6 +88,7 @@ private:
     [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_kernel(const ir::KernelModule *kernel) noexcept;
     [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_callable(const ir::CallableModule *callable) noexcept;
 public:
+    [[nodiscard]] static const Type *get_type(const ir::NodeRef node) noexcept;
     [[nodiscard]] static luisa::shared_ptr<detail::FunctionBuilder> build(const ir::KernelModule *kernel) noexcept;
 };
 

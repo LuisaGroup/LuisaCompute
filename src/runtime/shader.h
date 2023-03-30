@@ -4,6 +4,9 @@
 
 #pragma once
 
+#ifdef LUISA_ENABLE_IR
+#include "ir/ir2ast.h"
+#endif
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
 #include <runtime/rhi/resource.h>
@@ -198,6 +201,20 @@ private:
            const ShaderOption &option) noexcept
         : Shader{device, device->create_shader(option, kernel),
                  ShaderDispatchCmdEncoder::compute_uniform_size(kernel.arguments())} {}
+
+#ifdef LUISA_ENABLE_IR
+    // JIT shader from IR module
+    Shader(DeviceInterface *device,
+           const ir::KernelModule *const module,
+           const ShaderOption &option) noexcept
+        : Shader{device, device->create_shader(option, module), 0u} {
+            auto arg_types = luisa::vector<const Type *>(module->args.len);
+            for (auto i = 0u; i < module->args.len; i++) {
+                arg_types.push_back(IR2AST::get_type(module->args.ptr[i]));
+            }
+            _uniform_size = ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span{arg_types});
+        }
+#endif
 
     // AOT shader
     Shader(DeviceInterface *device, string_view file_path) noexcept

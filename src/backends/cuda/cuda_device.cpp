@@ -2,6 +2,7 @@
 // Created by Mike on 7/28/2021.
 //
 
+#include "ir/ir2ast.h"
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -424,7 +425,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    LUISA_ERROR_WITH_LOCATION("TODO");
+    Clock clk;
+    auto function = IR2AST{}.build(kernel);
+    LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+    return create_shader(option, function->function());
 }
 
 ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
