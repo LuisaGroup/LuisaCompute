@@ -1,8 +1,9 @@
 //
 // Created by Mike on 7/28/2021.
 //
-
+#ifdef LUISA_ENABLE_IR
 #include "ir/ir2ast.h"
+#endif
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -143,7 +144,13 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+#ifdef LUISA_ENABLE_IR
+    // TODO
+    LUISA_ERROR_WITH_LOCATION("Un-implemented.");
+#else
     LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating buffer from IR types.");
+#endif
+    return {};
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
@@ -425,10 +432,15 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
+#ifdef LUISA_ENABLE_IR
     Clock clk;
     auto function = IR2AST{}.build(kernel);
     LUISA_INFO("IR2AST done in {} ms.", clk.toc());
     return create_shader(option, function->function());
+#else
+    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
+    return {};
+#endif
 }
 
 ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,

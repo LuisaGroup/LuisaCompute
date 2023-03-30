@@ -84,27 +84,24 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
     size_t arg_idx = 0;
     auto shader = reinterpret_cast<RWResource *>(cmd->handle());
     auto native_shader = shader->handle();
+    auto mark_handle = [&](uint64_t &handle) {
+        auto res = reinterpret_cast<RWResource *>(handle);
+        res->set(this, dev->shader_arg_usage(native_shader, arg_idx));
+        handle = res->handle();
+    };
     auto set_arg = [&](Argument &arg) {
         switch (arg.tag) {
             case Argument::Tag::BUFFER: {
-                reinterpret_cast<RWResource *>(arg.buffer.handle)
-                    ->set(this, dev->shader_arg_usage(native_shader, arg_idx));
-                arg.buffer.handle = reinterpret_cast<RWResource *>(arg.buffer.handle)->handle();
+                mark_handle(arg.buffer.handle);
             } break;
             case Argument::Tag::TEXTURE: {
-                reinterpret_cast<RWResource *>(arg.texture.handle)
-                    ->set(this, dev->shader_arg_usage(native_shader, arg_idx));
-                arg.texture.handle = reinterpret_cast<RWResource *>(arg.texture.handle)->handle();
+                mark_handle(arg.texture.handle);
             } break;
             case Argument::Tag::BINDLESS_ARRAY: {
-                reinterpret_cast<RWResource *>(arg.bindless_array.handle)
-                    ->set(this, dev->shader_arg_usage(native_shader, arg_idx));
-                arg.bindless_array.handle = reinterpret_cast<RWResource *>(arg.bindless_array.handle)->handle();
+                mark_handle(arg.bindless_array.handle);
             } break;
             case Argument::Tag::ACCEL: {
-                reinterpret_cast<RWResource *>(arg.accel.handle)
-                    ->set(this, dev->shader_arg_usage(native_shader, arg_idx));
-                arg.accel.handle = reinterpret_cast<RWResource *>(arg.accel.handle)->handle();
+                mark_handle(arg.accel.handle);
             } break;
         }
         ++arg_idx;
@@ -153,7 +150,7 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         case draw_raster_command_uuid: {
             auto c = static_cast<DrawRasterSceneCommand *>(cmd);
             mark_shader_dispatch(dev, c, false);
-            if (c->_dsv_tex.handle && c->_dsv_tex.handle != invalid_resource_handle) {
+            if (c->_dsv_tex.handle != invalid_resource_handle) {
                 swap_handle(c->_dsv_tex.handle, Usage::READ_WRITE);
             }
             for (auto i : vstd::range(c->_rtv_count)) {
@@ -252,15 +249,16 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 swap_handle(c->_handle, Usage::WRITE);
             } break;
             case CmdTag::EBindlessArrayUpdateCommand: {
+                using Operation = BindlessArrayUpdateCommand::Modification::Operation;
                 auto c = static_cast<BindlessArrayUpdateCommand *>(cmd);
                 for (auto &&i : c->_modifications) {
-                    if (i.buffer.handle && i.buffer.handle != invalid_resource_handle) {
+                    if (i.buffer.op == Operation::EMPLACE) {
                         i.buffer.handle = reinterpret_cast<RWResource *>(i.buffer.handle)->handle();
                     }
-                    if (i.tex2d.handle && i.tex2d.handle != invalid_resource_handle) {
+                    if (i.tex2d.op == Operation::EMPLACE) {
                         i.tex2d.handle = reinterpret_cast<RWResource *>(i.tex2d.handle)->handle();
                     }
-                    if (i.tex3d.handle && i.tex3d.handle != invalid_resource_handle) {
+                    if (i.tex3d.op == Operation::EMPLACE) {
                         i.tex3d.handle = reinterpret_cast<RWResource *>(i.tex3d.handle)->handle();
                     }
                 }

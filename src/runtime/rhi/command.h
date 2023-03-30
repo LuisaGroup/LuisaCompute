@@ -561,7 +561,7 @@ public:
             size_t offset_bytes;
             Operation op;
             Buffer() noexcept
-                : handle{0u}, offset_bytes{0u}, op{Operation::NONE} {}
+                : handle{0}, offset_bytes{0u}, op{Operation::NONE} {}
             Buffer(uint64_t handle, size_t offset_bytes, Operation op) noexcept
                 : handle{handle}, offset_bytes{offset_bytes}, op{op} {}
             [[nodiscard]] static auto emplace(uint64_t handle, size_t offset_bytes) noexcept {
