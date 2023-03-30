@@ -1,7 +1,9 @@
 //
 // Created by Mike on 7/28/2021.
 //
-
+#ifdef LUISA_ENABLE_IR
+#include "ir/ir2ast.h"
+#endif
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -142,7 +144,13 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
+#ifdef LUISA_ENABLE_IR
+    // TODO
+    LUISA_ERROR_WITH_LOCATION("Un-implemented.");
+#else
     LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating buffer from IR types.");
+#endif
+    return {};
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
@@ -205,7 +213,7 @@ void CUDADevice::destroy_depth_buffer(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_stream(StreamTag stream_tag) noexcept {
-#ifndef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifndef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
     if (stream_tag == StreamTag::GRAPHICS) {
         LUISA_WARNING_WITH_LOCATION("Swapchains are not enabled on CUDA backend, "
                                     "Graphics streams might not work properly.");
@@ -243,7 +251,7 @@ SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint
                                                     uint width, uint height,
                                                     bool allow_hdr, bool vsync,
                                                     uint back_buffer_size) noexcept {
-#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
     auto chain = with_handle([&] {
         return new_with_allocator<CUDASwapchain>(
             this, window_handle, width, height,
@@ -262,7 +270,7 @@ SwapChainCreationInfo CUDADevice::create_swap_chain(uint64_t window_handle, uint
 }
 
 void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
-#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
     with_handle([chain = reinterpret_cast<CUDASwapchain *>(handle)] {
         delete_with_allocator(chain);
     });
@@ -274,7 +282,7 @@ void CUDADevice::destroy_swap_chain(uint64_t handle) noexcept {
 }
 
 void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
     with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
                  chain = reinterpret_cast<CUDASwapchain *>(swapchain_handle),
                  image = reinterpret_cast<CUDAMipmapArray *>(image_handle)] {
@@ -424,7 +432,15 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 }
 
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    LUISA_ERROR_WITH_LOCATION("TODO");
+#ifdef LUISA_ENABLE_IR
+    Clock clk;
+    auto function = IR2AST{}.build(kernel);
+    LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+    return create_shader(option, function->function());
+#else
+    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
+    return {};
+#endif
 }
 
 ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,

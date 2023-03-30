@@ -246,7 +246,7 @@ ShaderCreationInfo LCDevice::load_shader(
     }
     return info;
 }
-Usage LCDevice::shader_arg_usage(uint64_t handle, size_t index) noexcept{
+Usage LCDevice::shader_arg_usage(uint64_t handle, size_t index) noexcept {
     auto shader = reinterpret_cast<Shader *>(handle);
     return shader->Args()[index].varUsage;
 }
@@ -441,6 +441,9 @@ ResourceCreationInfo DxRasterExt::load_raster_shader(
         return ResourceCreationInfo::make_invalid();
     }
 }
+void DxRasterExt::destroy_raster_shader(uint64_t handle) noexcept {
+    delete reinterpret_cast<RasterShader *>(handle);
+}
 ResourceCreationInfo LCDevice::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
     ResourceCreationInfo info;
     auto res =
@@ -538,6 +541,11 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
 }
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    return {};
+}
+ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
+    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    return {};
 }
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);

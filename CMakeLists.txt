@@ -31,6 +31,9 @@ if(NOT LUISA_COMPUTE_ENABLE_RUST AND NOT LUISA_COMPUTE_DISABLE_RUST_OVERRIDE)
     or download and run the installer from https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe on windows environment.\n\
     please set LUISA_COMPUTE_DISABLE_RUST_OVERRIDE to ON to acknowledge this")
 endif()
+if (LUISA_COMPUTE_ENABLE_RUST)
+    add_definitions(-DLUISA_ENABLE_IR)
+endif()
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
 if (APPLE AND LUISA_COMPUTE_ENABLE_METAL)

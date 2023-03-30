@@ -120,7 +120,7 @@ public:
         if (dsv) {
             _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{dsv->handle(), 0});
         } else {
-            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{~0ull, 0});
+            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{invalid_resource_handle, 0});
         }
         if constexpr (sizeof...(Rtv) > 0) {
             auto tex_args = {detail::PixelDst<std::remove_cvref_t<Rtv>>::get(rtv)...};

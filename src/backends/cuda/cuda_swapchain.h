@@ -4,7 +4,7 @@
 
 #pragma once
 
-#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
 
 #include <core/basic_types.h>
 #include <core/stl/memory.h>

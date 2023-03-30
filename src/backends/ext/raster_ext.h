@@ -37,7 +37,7 @@ public:
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept = 0;
 
-    virtual void destroy_raster_shader(uint64_t handle) noexcept {}
+    virtual void destroy_raster_shader(uint64_t handle) noexcept = 0;
 };
 
 template<typename V, typename P>

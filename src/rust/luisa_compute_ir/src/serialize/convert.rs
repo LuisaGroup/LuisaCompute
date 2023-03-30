@@ -280,7 +280,6 @@ impl KernelSerializer {
             }
             Func::RayTracingTraceClosest => SerializedFunc::RayTracingTraceClosest,
             Func::RayTracingTraceAny => SerializedFunc::RayTracingTraceAny,
-            Func::RayQueryProceed => SerializedFunc::RayQueryProceed,
             Func::RayQueryProceduralCandidateHit => SerializedFunc::RayQueryProceduralCandidateHit,
             Func::RayQueryTriangleCandidateHit => SerializedFunc::RayQueryTriangleCandidateHit,
             Func::RayQueryCommittedHit => SerializedFunc::RayQueryCommittedHit,

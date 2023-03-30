@@ -1190,7 +1190,7 @@ __device__ inline float atomicMax(float *a, float v) noexcept {
     return LC_BLOCK_SIZE;
 }
 
-#ifdef LC_ENABLE_OPTIX
+#ifdef LUISA_ENABLE_OPTIX
 
 enum LCPayloadTypeID : unsigned int {
     LC_PAYLOAD_TYPE_DEFAULT = 0u,

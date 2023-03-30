@@ -1,10 +1,13 @@
 #pragma once
 
 #include <runtime/buffer.h>
-
+namespace lc::validation {
+class Stream;
+}
 namespace luisa::compute {
 
 class VertexBufferView {
+    friend class lc::validation::Stream;
     uint64_t _handle{};
     uint64_t _offset{};
     uint64_t _size{};
@@ -35,7 +38,8 @@ public:
     VertexBufferView() noexcept = default;
 };
 class RasterMesh {
-    luisa::span<VertexBufferView const> _vertex_buffers{};
+    friend class lc::validation::Stream;
+    luisa::fixed_vector<VertexBufferView, 4> _vertex_buffers{};
     luisa::variant<BufferView<uint>, uint> _index_buffer;
     uint _instance_count{};
     uint _object_id{};
@@ -50,10 +54,11 @@ public:
         BufferView<uint> index_buffer,
         uint instance_count,
         uint object_id) noexcept
-        : _vertex_buffers(vertex_buffers),
-          _index_buffer(index_buffer),
+        : _index_buffer(index_buffer),
           _instance_count(instance_count),
           _object_id(object_id) {
+        _vertex_buffers.push_back_uninitialized(vertex_buffers.size());
+        std::memcpy(_vertex_buffers.data(), vertex_buffers.data(), vertex_buffers.size_bytes());
     }
     RasterMesh() noexcept = default;
     RasterMesh(RasterMesh &&) noexcept = default;
@@ -65,10 +70,11 @@ public:
         uint vertex_count,
         uint instance_count,
         uint object_id) noexcept
-        : _vertex_buffers(vertex_buffers),
-          _index_buffer(vertex_count),
+        : _index_buffer(vertex_count),
           _instance_count(instance_count),
           _object_id(object_id) {
+        _vertex_buffers.push_back_uninitialized(vertex_buffers.size());
+        std::memcpy(_vertex_buffers.data(), vertex_buffers.data(), vertex_buffers.size_bytes());
     }
 };
 

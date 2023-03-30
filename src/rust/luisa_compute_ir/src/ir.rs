@@ -470,7 +470,6 @@ pub enum Func {
     // (handle, Ray, mask) -> bool
     RayTracingTraceAny,
 
-    RayQueryProceed,
     RayQueryProceduralCandidateHit,
     RayQueryTriangleCandidateHit,
     RayQueryCommittedHit,

@@ -24,27 +24,6 @@ rule_end()
 rule("lc_basic_settings")
 on_config(function(target)
 	local _, cc = target:tool("cxx")
-	local function _add_link(...)
-		target:add("ldflags", ...)
-		target:add("shflags", ...)
-	end
-	if (not is_mode("debug")) then
-		local _, ld = target:tool("ld")
-		if cc == "gcc" or cc == "gxx" then
-			target:add("cxflags", "-flto")
-			-- elseif (cc == "clang" or cc == "clangxx") then
-			-- 	target:add("cxflags", "-flto=thin")
-		end
-		if ld == "link" then
-			_add_link("/INCREMENTAL:NO", "/LTCG", {
-				force = true
-			})
-			-- elseif (ld == "clang" or ld == "clangxx") then
-			-- 	_add_link("-flto=thin")
-		elseif ld == "gcc" or ld == "gxx" then
-			_add_link("-flto")
-		end
-	end
 	if is_plat("linux") then
 		-- Linux should use -stdlib=libc++
 		-- https://github.com/LuisaGroup/LuisaCompute/issues/58

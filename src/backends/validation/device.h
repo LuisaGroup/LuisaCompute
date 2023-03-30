@@ -4,16 +4,27 @@
 namespace lc::validation {
 using namespace luisa;
 using namespace luisa::compute;
+namespace detail {
+class ext_deleter {
+    vstd::func_ptr_t<void(void *)> _deleter;
+
+public:
+    ext_deleter(vstd::func_ptr_t<void(void *)> deleter) : _deleter{deleter} {}
+    void operator()(void *ptr) const {
+        _deleter(ptr);
+    }
+};
+}// namespace detail
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::shared_ptr<DeviceInterface> _native;
+    using ExtPtr = vstd::unique_ptr<DeviceExtension, detail::ext_deleter>;
+    vstd::unordered_map<vstd::string, ExtPtr> exts;
 
 public:
     void *native_handle() const noexcept override;
     Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
-    Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept
-        : DeviceInterface{std::move(ctx)},
-          _native{std::move(native)} {}
-    ~Device() = default;
+    Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
+    ~Device();
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

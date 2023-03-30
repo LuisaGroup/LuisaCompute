@@ -14,19 +14,13 @@ from .hit import TriangleHit, CommittedHit, ProceduralHit
 class RayQueryType:
     def __init__(self):
         self.luisa_type = lcapi.Type.custom("LC_RayQuery")
-
     def __eq__(self, other):
         return type(other) is RayQueryType and self.dtype == other.dtype
-
     def __hash__(self):
         return hash("LC_RayQuery") ^ 1641414112621983
     @func
-    def proceed(self):
-        return _builtin_call(bool, "RAY_QUERY_PROCEED", self)
-    @func
     def procedural_candidate(self):
         return _builtin_call(ProceduralHit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)
-        
     @func
     def triangle_candidate(self):
         return _builtin_call(TriangleHit, "RAY_QUERY_TRIANGLE_CANDIDATE_HIT", self)
@@ -46,7 +40,6 @@ rayQueryType = RayQueryType()
 class RayQuery:
     def __init__(self):
         self.queryType = rayQueryType
-        self.proceed = self.queryType.proceed
         self.procedural_candidate = self.queryType.procedural_candidate
         self.triangle_candidate = self.queryType.triangle_candidate
         self.committed_hit = self.queryType.committed_hit

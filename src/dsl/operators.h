@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include <string_view>
-
 #include <core/basic_types.h>
 #include <dsl/expr.h>
 
@@ -32,8 +30,8 @@ LUISA_MAKE_GLOBAL_DSL_UNARY_OP(~, BIT_NOT)
 #define LUISA_MAKE_GLOBAL_DSL_BINARY_OP(op, op_tag_name)                              \
     template<typename Lhs, typename Rhs>                                              \
         requires luisa::compute::any_dsl_v<Lhs, Rhs> &&                               \
-            luisa::is_basic_v<luisa::compute::expr_value_t<Lhs>> &&                   \
-            luisa::is_basic_v<luisa::compute::expr_value_t<Rhs>>                      \
+                 luisa::is_basic_v<luisa::compute::expr_value_t<Lhs>> &&              \
+                 luisa::is_basic_v<luisa::compute::expr_value_t<Rhs>>                 \
     [[nodiscard]] inline auto operator op(Lhs &&lhs, Rhs &&rhs) noexcept {            \
         using namespace std::string_view_literals;                                    \
         static constexpr auto is_logic_op = #op == "||"sv || #op == "&&"sv;           \
@@ -89,14 +87,14 @@ LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>=, GREATER_EQUAL)
 #undef LUISA_MAKE_GLOBAL_DSL_BINARY_OP
 
 /// Define global assign operation of dsl objects
-#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                        \
-    template<typename T, typename U>                                               \
-        requires requires { std::declval<T &>() op## =                             \
+#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                                               \
+    template<typename T, typename U>                                                                      \
+        requires requires { std::declval<T &>() op## =                                                    \
                                 std::declval<luisa::compute::expr_value_t<U>>(); } \
-    void operator op##=(luisa::compute::Var<T> &lhs, U &&rhs) noexcept {           \
-        auto x = lhs op std::forward<U>(rhs);                                      \
-        luisa::compute::detail::FunctionBuilder::current()->assign(                \
-            lhs.expression(), x.expression());                                     \
+    void operator op##=(luisa::compute::Var<T> &lhs, U &&rhs) noexcept {                                  \
+        auto x = lhs op std::forward<U>(rhs);                                                             \
+        luisa::compute::detail::FunctionBuilder::current()->assign(                                       \
+            lhs.expression(), x.expression());                                                            \
     }
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(+)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(-)
@@ -109,3 +107,45 @@ LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(^)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(<<)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(>>)
 #undef LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP
+
+#define LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE                 \
+    "\n"                                                     \
+    "Address-of operator is not allowed for DSL objects,\n"  \
+    "as it is only valid during the AST recording phrase\n"  \
+    "and will not behave as expected like a real pointer\n"  \
+    "during kernel execution.\n"                             \
+    "\n"                                                     \
+    "For example, if allowed, the following code\n"          \
+    "```\n"                                                  \
+    "UInt *a = nullptr;\n"                                   \
+    "$if (cond) {\n"                                         \
+    "  a = &b;\n"                                            \
+    "} $else {\n"                                            \
+    "  a = &c;\n"                                            \
+    "};\n"                                                   \
+    "```\n"                                                  \
+    "will make `a` **always** pointing to `c`.\n"            \
+    "\n"                                                     \
+    "Please use references to pass variables between\n"      \
+    "functions. Or, if you fully understand the semantics\n" \
+    "and effects, please use `std::addressof` instead for\n" \
+    "advanced usage.\n"
+
+// disable the address-of operator for dsl objects
+template<typename T>
+    requires ::luisa::compute::is_dsl_v<T>
+[[nodiscard]] inline T *operator&(T &&) noexcept {
+    static_assert(::luisa::always_false_v<T>,
+                  LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE);
+    std::abort();
+}
+
+// convenience macro to disable the address-of operator for specific types
+#define LUISA_DISABLE_DSL_ADDRESS_OF_OPERATOR(...)           \
+    template<typename T>                                     \
+        requires std::same_as<T, __VA_ARGS__>                \
+    [[nodiscard]] inline T *operator&(T &&) noexcept {       \
+        static_assert(::luisa::always_false_v<T>,            \
+                      LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE); \
+        std::abort();                                        \
+    }

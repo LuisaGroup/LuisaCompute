@@ -380,17 +380,30 @@ public:
 };
 
 // Example:
-// auto q = accel->trace_all(ray, mask);
-// auto hit = q
-//   .on_triangle_candidate([&] {
+// auto q = accel->trace_all(ray, mask)
+//   .on_triangle_candidate([](auto &candidate) {
 //     << triangle candidate handling >>
 //   })
-//   .on_procedural_candidate([&] {
+//   .on_procedural_candidate([](auto &candidate) {
 //     << procedural candidate handling >>
 //   })
-//   .committed_hit();
+//   .query();
+// auto hit = q.committed_hit();
 //
-// Translates to
+// On inline RT, translates to
+// auto q = lc_accel_trace_all(accel, ray, mask);
+// while (lc_ray_query_next(q)) {
+//   if (lc_ray_query_is_triangle(q)) {
+//     auto candidate = lc_ray_query_triangle_candidate(q);
+//     << triangle candidate handling >>
+//   } else {
+//     auto candidate = lc_ray_query_procedural_candidate(q);
+//     << procedural candidate handling >>
+//   }
+// }
+// auto hit = lc_ray_query_committed_hit(q);
+//
+// On RT-pipelines, translates to
 // in caller:
 // auto q = lc_accel_trace_all(accel, ray, mask);
 // auto hit = lc_ray_query_committed_hit(q);
@@ -398,12 +411,14 @@ public:
 // anyhit shader for triangle:
 // __global__ void__ __anyhit__ray_query() {
 //   auto committed = false;
+//   auto candidate = lc_ray_query_triangle_candidate();
 //   << triangle candidate handling >>
 //   if (!committed) { lc_ignore_intersection(); }
 // }
 //
 // intersection shader for procedural geometry:
 // __global__ void __intersection__ray_query() {
+//   auto candidate = lc_ray_query_procedural_candidate();
 //   << procedural candidate handling >>
 // }
 //

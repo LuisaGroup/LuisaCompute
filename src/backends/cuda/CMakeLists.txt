@@ -35,7 +35,7 @@ if (CUDAToolkit_FOUND)
         list(APPEND LUISA_COMPUTE_CUDA_SOURCES
                 ../common/vulkan_swapchain.cpp ../common/vulkan_swapchain.h)
         target_link_libraries(lc-backend-cuda-dependency INTERFACE Vulkan::Vulkan)
-        target_compile_definitions(lc-backend-cuda-dependency INTERFACE LC_CUDA_ENABLE_VULKAN_SWAPCHAIN)
+        target_compile_definitions(lc-backend-cuda-dependency INTERFACE LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN)
     endif ()
 
     set(LUISA_COMPUTE_CUDA_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cuda_builtin")

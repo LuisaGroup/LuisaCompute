@@ -66,59 +66,58 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
     _function = function;
     _pools = ir::CppOwnedCArc<ir::ModulePools>(std::move(ir::luisa_compute_ir_new_module_pools()));
     auto m = _with_builder([this](auto builder) noexcept {
-        auto bindings = _function.builder()->bound_arguments();
-        auto capture_count = std::count_if(
-            bindings.cbegin(), bindings.cend(), [](auto &&b) {
-                return !luisa::holds_alternative<luisa::monostate>(b);
-            });
-        auto non_capture_count = bindings.size() - capture_count;
-        auto captures = _boxed_slice<ir::Capture>(capture_count);
-        auto non_captures = _boxed_slice<ir::NodeRef>(non_capture_count);
-        auto capture_index = 0u;
-        auto non_capture_index = 0u;
-        // process arguments
-        for (auto i = 0u; i < bindings.size(); i++) {
-            using FB = detail::FunctionBuilder;
-            auto binding = bindings[i];
-            auto arg = _function.arguments()[i];
-            auto node = _convert_argument(arg);
+        auto total_args = _function.builder()->arguments();
+        auto bound_args = _function.builder()->bound_arguments();
+        auto captures = _boxed_slice<ir::Capture>(bound_args.size());
+        for (auto i = 0u; i < bound_args.size(); i++) {
+            auto node = _convert_argument(total_args[i]);
+            auto binding = bound_args[i];
             luisa::visit(
                 luisa::overloaded{
                     [&](luisa::monostate) noexcept {
-                        non_captures.ptr[non_capture_index++] = node;
+                        LUISA_ERROR_WITH_LOCATION("unbound argument found in bound_arguments.");
                     },
                     [&](Function::BufferBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::Buffer;
-                        c.binding.buffer = {{.handle = b.handle,
-                                             .offset = b.offset,
-                                             .size = b.size}};
-                        captures.ptr[capture_index++] = c;
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Buffer;
+                        capture.binding.buffer._0.handle = b.handle;
+                        capture.binding.buffer._0.offset = b.offset;
+                        capture.binding.buffer._0.size = b.size;
+                        captures.ptr[i] = capture;
                     },
                     [&](Function::TextureBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::Texture;
-                        c.binding.texture = {{.handle = b.handle,
-                                              .level = b.level}};
-                        captures.ptr[capture_index++] = c;
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Texture;
+                        capture.binding.texture._0.handle = b.handle;
+                        capture.binding.texture._0.level = b.level;
+                        captures.ptr[i] = capture;
                     },
                     [&](Function::BindlessArrayBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::BindlessArray;
-                        c.binding.bindless_array = {b.handle};
-                        captures.ptr[capture_index++] = c;
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::BindlessArray;
+                        capture.binding.bindless_array._0.handle = b.handle;
+                        captures.ptr[i] = capture;
                     },
                     [&](Function::AccelBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::Accel;
-                        c.binding.accel = {b.handle};
-                    }},
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Accel;
+                        capture.binding.accel._0.handle = b.handle;
+                        captures.ptr[i] = capture;
+                    },
+                },
                 binding);
         }
+
+        auto unbound_args = _function.builder()->unbound_arguments();
+        auto non_captures = _boxed_slice<ir::NodeRef>(unbound_args.size());
+        for (auto i = 0u; i < unbound_args.size(); i++) {
+            non_captures.ptr[i] = _convert_argument(unbound_args[i]);
+        }
+
         // process built-in variables
         for (auto v : _function.builtin_variables()) {
             static_cast<void>(_convert_builtin_variable(v));
@@ -150,20 +149,24 @@ ir::CArc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcep
                  "Invalid function tag.");
 
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
-                    _variables.empty() && _builder_stack.empty() &&
-                    !_function,
-                "Invalid state.");
+                     _variables.empty() && _builder_stack.empty() &&
+                     !_function,
+                 "Invalid state.");
     _function = function;
     _pools = ir::CppOwnedCArc{ir::luisa_compute_ir_new_module_pools()};
     auto m = _with_builder([this](auto builder) noexcept {
-        auto arg_count = _function.arguments().size();
-        auto args = _boxed_slice<ir::NodeRef>(arg_count);
-        for (auto i = 0u; i < arg_count; i++) {
-            args.ptr[i] = _convert_argument(_function.arguments()[i]);
+        auto args = _function.builder()->arguments();
+        auto arguments = _boxed_slice<ir::NodeRef>(args.size());
+        for (auto i = 0u; i < args.size(); i++) {
+            arguments.ptr[i] = _convert_argument(args[i]);
         }
+
         return ir::luisa_compute_ir_new_callable_module(
-                ir::CallableModule{.module = _convert_body(),
-                                   .args = args});
+            ir::CallableModule{
+                .module = _convert_body(),
+                .args = arguments,
+                .pools = _pools,
+            });
     });
     return m._0;
 }

@@ -759,6 +759,8 @@ public:
             case draw_raster_command_uuid:
                 visit(static_cast<DrawRasterSceneCommand const *>(command));
                 break;
+            default:
+                LUISA_ERROR("Custom command not supported by reorder.");
         }
     }
 };

@@ -2,11 +2,14 @@
 // Created by Mike Smith on 2021/10/17.
 //
 
+#include "luisa_compute_api_types/bindings.h"
+#include "luisa_compute_ir/bindings.hpp"
+#include "runtime/rhi/resource.h"
 #include <luisa-compute.h>
 #include <ast/function_builder.h>
 #include <api/api.h>
 
-#define LC_RC_TOMBSTONE 0xdeadbeef
+#define LUISA_RC_TOMBSTONE 0xdeadbeef
 
 template<class T>
 struct RC {
@@ -24,7 +27,7 @@ struct RC {
     ~RC() { _deleter(_object); }
 
     void check() const {
-        if (tombstone == LC_RC_TOMBSTONE) {
+        if (tombstone == LUISA_RC_TOMBSTONE) {
             LUISA_ERROR_WITH_LOCATION("Object has been destroyed");
         }
     }
@@ -39,7 +42,7 @@ struct RC {
         check();
         if (_ref_count.fetch_sub(1, std::memory_order_release) == 0) {
             std::atomic_thread_fence(std::memory_order_acquire);
-            tombstone = LC_RC_TOMBSTONE;
+            tombstone = LUISA_RC_TOMBSTONE;
             delete this;
         }
     }
@@ -84,6 +87,21 @@ struct ShaderResource : public Resource {
                       .compile_only = option.compile_only,
                       .name = luisa::string{option.name}},
                   function)} {}
+
+    ShaderResource(DeviceInterface *device,
+                   const ir::KernelModule *module,
+                   const LCShaderOption &option) noexcept
+        : Resource{
+              device,
+              Tag::SHADER,
+              device->create_shader(
+                  ShaderOption{
+                      .enable_cache = option.enable_cache,
+                      .enable_fast_math = option.enable_fast_math,
+                      .enable_debug_info = option.enable_debug_info,
+                      .compile_only = option.compile_only,
+                      .name = luisa::string{option.name}},
+                  module)} {}
 };
 
 }// namespace luisa::compute
@@ -263,10 +281,11 @@ private:
             default: LUISA_ERROR_WITH_LOCATION("unimplemented command {}", (int)cmd.tag);
         }
     }
-    void (*_callback)(uint8_t*) = nullptr;
-    uint8_t* _callback_ctx = nullptr;
+    void (*_callback)(uint8_t *) = nullptr;
+    uint8_t *_callback_ctx = nullptr;
+
 public:
-    CommandListConverter(const LCCommandList list, bool is_c_api,  void(*callback)(uint8_t*), uint8_t* callback_ctx)
+    CommandListConverter(const LCCommandList list, bool is_c_api, void (*callback)(uint8_t *), uint8_t *callback_ctx)
         : _list(list), _is_c_api(is_c_api), _callback(callback), _callback_ctx(callback_ctx) {}
 
     [[nodiscard]] auto convert() const noexcept {
@@ -274,10 +293,10 @@ public:
         for (int i = 0; i < _list.commands_count; i++) {
             cmd_list.append(convert_one(_list.commands[i]));
         }
-        if(_callback != nullptr && _callback_ctx!= nullptr) {
+        if (_callback != nullptr && _callback_ctx != nullptr) {
             auto _callback = this->_callback;
             auto _callback_ctx = this->_callback_ctx;
-            cmd_list.append([=](){
+            cmd_list.append([=]() {
                 _callback(_callback_ctx);
             });
         }
@@ -407,7 +426,7 @@ LUISA_EXPORT_API void luisa_compute_stream_synchronize(LCDevice device, LCStream
     d->object()->impl()->synchronize_stream(handle);
 }
 
-LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list, void(*callback)(uint8_t*), uint8_t* callback_ctx) LUISA_NOEXCEPT {
+LUISA_EXPORT_API void luisa_compute_stream_dispatch(LCDevice device, LCStream stream, LCCommandList cmd_list, void (*callback)(uint8_t *), uint8_t *callback_ctx) LUISA_NOEXCEPT {
     auto handle = stream._0;
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto converter = luisa::compute::detail::CommandListConverter(cmd_list, d->object()->impl()->is_c_api(), callback, callback_ctx);
@@ -574,7 +593,7 @@ LUISA_EXPORT_API void luisa_compute_bindless_array_destroy(LCDevice device, LCBi
     d->release();
 }
 
-size_t luisa_compute_device_query(LCDevice device, const char * query, char * result, size_t maxlen) LUISA_NOEXCEPT {
+size_t luisa_compute_device_query(LCDevice device, const char *query, char *result, size_t maxlen) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto result_s = d->object()->impl()->query(luisa::string_view{query});
     auto len = std::min(result_s.size(), maxlen);
@@ -584,14 +603,14 @@ size_t luisa_compute_device_query(LCDevice device, const char * query, char * re
 }
 
 LCCreatedSwapchainInfo luisa_compute_swapchain_create(
-        LCDevice device, uint64_t window_handle, LCStream stream_handle,
-        uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT{
+    LCDevice device, uint64_t window_handle, LCStream stream_handle,
+    uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) LUISA_NOEXCEPT {
     auto d = reinterpret_cast<RC<Device> *>(device._0);
     auto ret = d->object()->impl()->create_swap_chain(
         window_handle, stream_handle._0,
         width, height, allow_hdr, vsync, back_buffer_size);
     return LCCreatedSwapchainInfo{
-        .resource = LCCreatedResourceInfo {
+        .resource = LCCreatedResourceInfo{
             .handle = ret.handle,
             .native_handle = ret.native_handle,
         },

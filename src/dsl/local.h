@@ -5,7 +5,7 @@
 #pragma once
 
 #include <dsl/expr.h>
-#include <core/stl.h>
+#include <dsl/operators.h>
 
 namespace luisa::compute {
 
@@ -87,3 +87,18 @@ public:
 };
 
 }// namespace luisa::compute
+
+// disable address-of operators
+template<typename T>
+[[nodiscard]] inline ::luisa::compute::Local<T> *operator&(::luisa::compute::Local<T> &) noexcept {
+    static_assert(::luisa::always_false_v<T>,
+                  LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE);
+    std::abort();
+}
+
+template<typename T>
+[[nodiscard]] inline const ::luisa::compute::Local<T> *operator&(const ::luisa::compute::Local<T> &) noexcept {
+    static_assert(::luisa::always_false_v<T>,
+                  LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE);
+    std::abort();
+}

@@ -406,7 +406,7 @@ void CUDACodegenAST::visit(const AssignStmt *stmt) {
 }
 
 void CUDACodegenAST::emit(Function f) {
-    if (f.requires_raytracing()) { _scratch << "#define LC_ENABLE_OPTIX\n"; }
+    if (f.requires_raytracing()) { _scratch << "#define LUISA_ENABLE_OPTIX\n"; }
     _scratch << "#define LC_BLOCK_SIZE lc_make_uint3("
              << f.block_size().x << ", "
              << f.block_size().y << ", "
