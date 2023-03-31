@@ -23,16 +23,11 @@ private:
     string _name;
     unique_ptr<IWindowImpl> _impl;
     uint2 _size;
-    bool _vsync;
 
 public:
-    Window(string name,
-           uint width, uint height,
-           bool vsync) noexcept;
-    Window(string name,
-           uint2 size,
-           bool vsync) noexcept
-        : Window{std::move(name), size.x, size.y, vsync} {}
+    Window(string name, uint width, uint height) noexcept;
+    Window(string name, uint2 size) noexcept
+        : Window{std::move(name), size.x, size.y} {}
     ~Window() noexcept;
     Window(const Window &) = delete;
     Window(Window &&) = default;

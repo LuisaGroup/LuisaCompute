@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
         i = device.create_event();
     }
     static constexpr auto resolution = make_uint2(1024u);
-    Window window{"test runtime", resolution.x, resolution.x, false};
+    Window window{"test runtime", resolution.x, resolution.x};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         graphics_stream,

@@ -52,7 +52,7 @@ void export_gui(py::module &m) {
                 w.window.destroy();
             }
             w.size = float2(width, height);
-            w.window.create(string{name}, width, height, vsync);
+            w.window.create(string{name}, width, height);
             auto set_action = [](auto &&map, int key, auto &&action) {
                 auto iter = map.try_emplace(key, PyWindow::KeyState::None).first;
                 if (action == kPress) {

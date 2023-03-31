@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
 #if ENABLE_DISPLAY
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    Window window{"SDF Renderer", width, height, false};
+    Window window{"SDF Renderer", width, height};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,

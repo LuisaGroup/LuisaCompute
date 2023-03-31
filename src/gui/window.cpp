@@ -19,6 +19,7 @@ namespace luisa::compute {
 namespace detail {
 
 struct WindowImpl : public Window::IWindowImpl {
+
     GLFWwindow *window;
     Window::MouseButtonCallback _mouse_button_callback;
     Window::CursorPositionCallback _cursor_position_callback;
@@ -27,7 +28,7 @@ struct WindowImpl : public Window::IWindowImpl {
     Window::ScrollCallback _scroll_callback;
     uint64_t window_handle{};
 
-    WindowImpl(uint2 size, char const *name, bool vsync) {
+    WindowImpl(uint2 size, char const *name) noexcept {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
@@ -40,8 +41,6 @@ struct WindowImpl : public Window::IWindowImpl {
 #else
         window_handle = reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
-        glfwMakeContextCurrent(window);
-        glfwSwapInterval(vsync ? 1 : 0);
         glfwSetWindowUserPointer(window, this);
         // TODO: imgui
         glfwSetMouseButtonCallback(window, [](GLFWwindow *window, int button, int action, int mods) noexcept {
@@ -93,14 +92,10 @@ struct WindowImpl : public Window::IWindowImpl {
 
 }// namespace detail
 
-Window::Window(
-    string name,
-    uint width, uint height,
-    bool vsync) noexcept
+Window::Window(string name, uint width, uint height) noexcept
     : _size{width, height},
-      _vsync{vsync},
       _name{std::move(name)} {
-    _impl = make_unique<detail::WindowImpl>(_size, _name.c_str(), vsync);
+    _impl = make_unique<detail::WindowImpl>(_size, _name.c_str());
 }
 
 Window::~Window() noexcept = default;

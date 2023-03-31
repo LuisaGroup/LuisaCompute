@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
         image.write(p, color);
     });
 
-    Window window{"Display", resolution, false};
+    Window window{"Display", resolution};
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     auto swap_chain = device.create_swapchain(
         window.native_handle(), stream,

@@ -555,7 +555,7 @@ int main(int argc, char *argv[]) {
 
     auto frame_count = 0;
 
-    Window window{"Display", resolution.x, resolution.y, false};
+    Window window{"Display", resolution.x, resolution.y};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,

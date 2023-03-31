@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    Window window{"Display", make_uint2(width, height), false};
+    Window window{"Display", make_uint2(width, height)};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,

@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
     auto grid_v = device.create_buffer<float>(n_grid * n_grid * 2u);
     auto grid_m = device.create_buffer<float>(n_grid * n_grid);
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    Window window{"MPM88", resolution, resolution, false};
+    Window window{"MPM88", resolution, resolution};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,

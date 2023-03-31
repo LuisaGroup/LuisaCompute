@@ -54,8 +54,8 @@ int main(int argc, char *argv[]) {
     static constexpr uint32_t width = 1024;
     static constexpr uint32_t height = 1024;
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    Window window{"Test raster", width, height, false};
-    Window window2{"Test raster 2", width, height, false};
+    Window window{"Test raster", width, height};
+    Window window2{"Test raster 2", width, height};
     auto swap_chain = device.create_swapchain(
         window.native_handle(),
         stream,
