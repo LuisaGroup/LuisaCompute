@@ -29,7 +29,13 @@ void Resource::_destroy() noexcept {
 }
 
 Resource &Resource::operator=(Resource &&rhs) noexcept {
-    if (this == &rhs) [[unlikely]] { return *this; }
+
+    if (!rhs) [[unlikely]] {
+        _destroy();
+        return *this;
+    } else if (this == &rhs) [[unlikely]] {
+        return *this;
+    }
     if (*this) {
         LUISA_ASSERT(_device == rhs._device, "Cannot move resources between different devices.");
         LUISA_ASSERT(_tag == rhs._tag, "Cannot move resources of different types.");
