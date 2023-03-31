@@ -18,7 +18,7 @@ if (CUDAToolkit_FOUND)
             cuda_codegen_ast.cpp cuda_codegen_ast.h
             cuda_compiler.cpp cuda_compiler.h
             cuda_accel.cpp cuda_accel.h
-            cuda_primitive.h
+            cuda_primitive.cpp cuda_primitive.h
             cuda_procedural_primitive.cpp cuda_procedural_primitive.h
             cuda_mesh.cpp cuda_mesh.h
             cuda_shader.h

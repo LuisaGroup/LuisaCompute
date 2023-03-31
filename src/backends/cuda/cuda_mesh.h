@@ -23,9 +23,6 @@ class CUDACommandEncoder;
 class CUDAMesh final : public CUDAPrimitive {
 
 private:
-    CUdeviceptr _bvh_buffer_handle{};
-    size_t _bvh_buffer_size{};
-    size_t _update_buffer_size{};
     CUdeviceptr _vertex_buffer{};
     size_t _vertex_buffer_size{};
     size_t _vertex_stride{};
@@ -33,14 +30,13 @@ private:
     size_t _triangle_buffer_size{};
 
 private:
-    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept;
-    void _build(CUDACommandEncoder &encoder) noexcept;
-    void _update(CUDACommandEncoder &encoder) noexcept;
+    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept override;
 
 public:
     explicit CUDAMesh(const AccelOption &option) noexcept;
-    ~CUDAMesh() noexcept override;
-    void build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noexcept;
+    ~CUDAMesh() noexcept override = default;
+    void build(CUDACommandEncoder &encoder,
+               MeshBuildCommand *command) noexcept;
 };
 
 }// namespace luisa::compute::cuda

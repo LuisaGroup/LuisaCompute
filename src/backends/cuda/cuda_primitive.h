@@ -9,6 +9,8 @@
 
 namespace luisa::compute::cuda {
 
+class CUDACommandEncoder;
+
 class CUDAPrimitive {
 
 public:
@@ -21,14 +23,18 @@ private:
     Tag _tag;
     AccelOption _option;
     optix::TraversableHandle _handle;
+    CUdeviceptr _bvh_buffer_handle{};
+    size_t _bvh_buffer_size{};
+    size_t _update_buffer_size{};
 
 protected:
-    void _set_handle(optix::TraversableHandle handle) noexcept { _handle = handle; }
+    [[nodiscard]] virtual optix::BuildInput _make_build_input() const noexcept = 0;
+    void _build(CUDACommandEncoder &encoder) noexcept;
+    void _update(CUDACommandEncoder &encoder) noexcept;
 
 public:
-    CUDAPrimitive(Tag tag, const AccelOption &option) noexcept
-        : _tag{tag}, _option{option}, _handle{} {}
-    virtual ~CUDAPrimitive() noexcept = default;
+    CUDAPrimitive(Tag tag, const AccelOption &option) noexcept;
+    virtual ~CUDAPrimitive() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto option() const noexcept { return _option; }
