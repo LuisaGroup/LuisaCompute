@@ -16,6 +16,7 @@
 #include <dsl/builtin.h>
 #include <dsl/operators.h>
 #include <dsl/resource.h>
+#include <dsl/stmt.h>
 
 namespace luisa::compute {
 
@@ -130,8 +131,8 @@ void Printer::_log(luisa::log_level level, luisa::string fmt, const Args &...arg
     auto size = static_cast<uint>(_buffer.size() - 1u);
     auto offset = _buffer->atomic(size).fetch_add(count);
     auto item = static_cast<uint>(_items.size());
-    if_(offset < size, [&] { _buffer->write(offset, item); });
-    if_(offset + count <= size, [&] { _log_to_buffer(offset, 0u, args...); });
+    dsl::if_(offset < size, [&] { _buffer->write(offset, item); });
+    dsl::if_(offset + count <= size, [&] { _log_to_buffer(offset, 0u, args...); });
     // create decoder...
     auto counter = 0u;
     auto convert = [&counter]<typename T>(const T &arg) noexcept {
