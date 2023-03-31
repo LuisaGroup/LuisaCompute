@@ -123,8 +123,8 @@ void export_runtime(py::module &m) {
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.aabb_buffer = aabb_buffer;
-            cmd.aabb_offset = aabb_offset;
-            cmd.aabb_count = aabb_count;
+            cmd.aabb_offset = aabb_offset * sizeof(AABB);
+            cmd.aabb_size = aabb_count * sizeof(AABB);
             accel.emplace(cmd, transform, visibility_mask, opaque);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
@@ -148,8 +148,8 @@ void export_runtime(py::module &m) {
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.aabb_buffer = aabb_buffer;
-            cmd.aabb_offset = aabb_offset;
-            cmd.aabb_count = aabb_count;
+            cmd.aabb_offset = aabb_offset * sizeof(AABB);
+            cmd.aabb_size = aabb_count * sizeof(AABB);
             accel.set(index, cmd, transform, visibility_mask, opaque);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })

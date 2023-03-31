@@ -55,7 +55,7 @@ public:
     struct AABBOptions {
         Buffer const *aabbBuffer;
         size_t offset;
-        size_t count;
+        size_t size;
     };
     bool RequireCompact() const;
     Buffer const *GetAccelBuffer() const {

@@ -135,8 +135,8 @@ void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchai
     std::lock_guard lck{global_mtx};//TODO
     auto stream = reinterpret_cast<Stream *>(stream_handle);
     stream->dispatch();
-    reinterpret_cast<Texture *>(image_handle)->set(stream, Usage::READ);
-    reinterpret_cast<SwapChain *>(swapchain_handle)->set(stream, Usage::WRITE);
+    reinterpret_cast<Texture *>(image_handle)->set(stream, Usage::READ, Range{});
+    reinterpret_cast<SwapChain *>(swapchain_handle)->set(stream, Usage::WRITE, Range{});
     reinterpret_cast<Stream *>(stream_handle)->check_compete();
     _native->present_display_in_stream(origin_handle(stream_handle), origin_handle(swapchain_handle), origin_handle(image_handle));
 }
@@ -264,7 +264,7 @@ Device::~Device() {
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
     std::lock_guard lck{global_mtx};
     reinterpret_cast<Resource *>(resource_handle)->name = name;
-    _native->set_name(resource_tag, resource_handle, name);
+    _native->set_name(resource_tag, origin_handle(resource_handle), name);
 }
 VSTL_EXPORT_C void destroy(DeviceInterface *d) {
     delete d;

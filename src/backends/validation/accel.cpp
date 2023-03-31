@@ -4,22 +4,22 @@
 #include "accel.h"
 #include <core/logging.h>
 namespace lc::validation {
-void Mesh::set(Stream *stream, Usage usage) {
-    set_usage(stream, this, usage);
+void Mesh::set(Stream *stream, Usage usage, Range range) {
+    set_usage(stream, this, usage, range);
     LUISA_ASSERT(vert, "{}'s vertex-buffer must be set before use.", get_name());
-    set_usage(stream, vert, Usage::READ);
+    set_usage(stream, vert, Usage::READ, vert_range);
     LUISA_ASSERT(index, "{}'s index-buffer must be set before use.", get_name());
-    set_usage(stream, index, Usage::READ);
+    set_usage(stream, index, Usage::READ, index_range);
 }
-void ProceduralPrimitives::set(Stream *stream, Usage usage) {
-    set_usage(stream, this, usage);
+void ProceduralPrimitives::set(Stream *stream, Usage usage, Range range) {
+    set_usage(stream, this, usage, range);
     LUISA_ASSERT(bbox, "{}'s bounding-boxes must be set before use.", get_name());
-    set_usage(stream, bbox, Usage::READ);
+    set_usage(stream, bbox, Usage::READ, this->range);
 }
-void Accel::set(Stream *stream, Usage usage) {
-    set_usage(stream, this, usage);
+void Accel::set(Stream *stream, Usage usage, Range range) {
+    set_usage(stream, this, usage, range);
     for (auto &&i : _ref_count) {
-        set_usage(stream, reinterpret_cast<RWResource *>(i.first), Usage::READ);
+        set_usage(stream, reinterpret_cast<RWResource *>(i.first), Usage::READ, Range{});
     }
 }
 void Accel::modify(size_t size, Stream *stream, luisa::span<AccelBuildCommand::Modification const> modifies) {

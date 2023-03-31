@@ -32,6 +32,7 @@ luisa_compute_add_executable(test_procedural test_procedural.cpp)
 luisa_compute_add_executable(test_mipmap test_mipmap.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
+    luisa_compute_add_executable(test_swapchain test_swapchain.cpp)
     luisa_compute_add_executable(test_game_of_life test_game_of_life.cpp)
     luisa_compute_add_executable(test_photon_mapping test_photon_mapping.cpp)
     luisa_compute_add_executable(test_raster test_raster.cpp)

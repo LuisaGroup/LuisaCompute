@@ -280,7 +280,7 @@ public:
         BottomAccel::AABBOptions aabbOptions{
             .aabbBuffer = reinterpret_cast<Buffer const *>(cmd->aabb_buffer()),
             .offset = cmd->aabb_offset(),
-            .count = cmd->aabb_count()};
+            .size = cmd->aabb_size()};
         AddBuildAccel(
             accel->PreProcessStates(
                 *bd,

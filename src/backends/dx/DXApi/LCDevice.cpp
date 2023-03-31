@@ -77,11 +77,8 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
             info.element_stride = 28;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
             res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));
-
-        } else if (element == Type::of<AABB>()) {
-            info.element_stride = 32;
-            info.total_size_bytes = info.element_stride * elem_count;
-            res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));
+        }else{
+            LUISA_ERROR("Un-known custom type in dx-backend.");
         }
     } else {
         info.total_size_bytes = element->size() * elem_count;

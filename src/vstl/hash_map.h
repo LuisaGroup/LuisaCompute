@@ -653,6 +653,7 @@ public:
         mSize = 0;
     }
     [[nodiscard]] size_t size() const noexcept { return mSize; }
+    [[nodiscard]] bool empty() const noexcept { return mSize == 0; }
     [[nodiscard]] size_t capacity() const noexcept { return mCapacity; }
 };
 }// namespace vstd

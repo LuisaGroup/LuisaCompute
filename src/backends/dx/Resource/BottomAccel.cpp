@@ -3,7 +3,9 @@
 #include <DXRuntime/CommandBuffer.h>
 #include <DXRuntime/ResourceStateTracker.h>
 #include <Resource/TopAccel.h>
+#include <runtime/rtx/aabb.h>
 namespace lc::dx {
+using namespace luisa::compute;
 namespace detail {
 void MeshPreprocess(
     Buffer const *vHandle,
@@ -41,12 +43,12 @@ void GetStaticTriangleGeometryDesc(
 }
 void GetStaticAABBGeometryDesc(
     D3D12_RAYTRACING_GEOMETRY_DESC &geometryDesc,
-    Buffer const *aabbBuffer, size_t aabbObjectOffset, size_t aabbObjectCount) {
+    Buffer const *aabbBuffer, size_t aabbObjectOffset, size_t aabbObjectSize) {
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
     geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-    geometryDesc.AABBs.AABBCount = aabbObjectCount;
-    geometryDesc.AABBs.AABBs.StartAddress = aabbBuffer->GetAddress() + aabbObjectOffset * 24;
-    geometryDesc.AABBs.AABBs.StrideInBytes = 24;
+    geometryDesc.AABBs.AABBCount = aabbObjectSize / sizeof(AABB);
+    geometryDesc.AABBs.AABBs.StartAddress = aabbBuffer->GetAddress() + aabbObjectOffset;
+    geometryDesc.AABBs.AABBs.StrideInBytes = sizeof(AABB);
 }
 }// namespace detail
 bool BottomAccel::RequireCompact() const {
@@ -114,7 +116,7 @@ size_t BottomAccel::PreProcessStates(
         detail::AABBPreprocess(aabbOption.aabbBuffer, tracker);
         detail::GetStaticAABBGeometryDesc(
             geometryDesc,
-            aabbOption.aabbBuffer, aabbOption.offset, aabbOption.count);
+            aabbOption.aabbBuffer, aabbOption.offset, aabbOption.size);
     }
 
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO bottomLevelPrebuildInfo = {};
