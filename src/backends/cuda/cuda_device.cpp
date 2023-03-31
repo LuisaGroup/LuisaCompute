@@ -1,9 +1,7 @@
 //
 // Created by Mike on 7/28/2021.
 //
-#ifdef LUISA_ENABLE_IR
-#include "ir/ir2ast.h"
-#endif
+
 #include <cstring>
 #include <fstream>
 #include <future>
@@ -11,14 +9,19 @@
 
 #include <core/clock.h>
 #include <core/binary_io.h>
-
 #include <runtime/rhi/sampler.h>
 #include <runtime/bindless_array.h>
+
+#ifdef LUISA_ENABLE_IR
+#include <ir/ir2ast.h>
+#endif
+
 #include <backends/common/string_scratch.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_mesh.h>
+#include <backends/cuda/cuda_procedural_primitive.h>
 #include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_codegen_ast.h>
@@ -144,13 +147,7 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
-#ifdef LUISA_ENABLE_IR
-    // TODO
-    LUISA_ERROR_WITH_LOCATION("Un-implemented.");
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating buffer from IR types.");
-#endif
-    return {};
+    LUISA_ERROR_WITH_LOCATION("TODO");
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
@@ -539,11 +536,18 @@ void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_procedural_primitive(const AccelOption &option) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    auto primitive_handle = with_handle([&option] {
+        return new_with_allocator<CUDAProceduralPrimitive>(option);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(primitive_handle),
+            .native_handle = primitive_handle};
 }
 
 void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+    with_handle([=] {
+        auto primitive = reinterpret_cast<CUDAProceduralPrimitive *>(handle);
+        delete_with_allocator(primitive);
+    });
 }
 
 ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcept {
