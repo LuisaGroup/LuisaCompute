@@ -86,6 +86,6 @@
 #include <runtime/rtx/ray.h>
 
 #ifdef LUISA_ENABLE_GUI
-#include <gui/backup/framerate.h>
-#include <gui/backup/window.h>
+#include <gui/framerate.h>
+#include <gui/window.h>
 #endif
