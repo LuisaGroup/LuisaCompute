@@ -5,8 +5,9 @@ class Buffer;
 class ProceduralPrimitives : public RWResource {
 public:
     Buffer *bbox{};
+    Range range;
     ProceduralPrimitives(uint64_t handle)
         : RWResource(handle, Tag::PROCEDURAL_PRIMITIVE, false) {}
-    void set(Stream *stream, Usage usage) override;
+    void set(Stream *stream, Usage usage, Range range) override;
 };
 }// namespace lc::validation

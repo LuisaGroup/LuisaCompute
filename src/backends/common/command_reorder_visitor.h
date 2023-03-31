@@ -16,7 +16,6 @@ template<typename T>
 struct ReorderFuncTable{
     bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept {}
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {}
-    size_t aabb_stride() const noexcept {}
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {}
     luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {}
 }
@@ -25,7 +24,6 @@ concept ReorderFuncTable =
     requires(const T t, uint64_t uint64_v, size_t size_v, luisa::span<const BindlessArrayUpdateCommand::Modification> modification) {
         requires(std::is_same_v<bool, decltype(t.is_res_in_bindless(uint64_v, uint64_v))>);
         requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
-        requires(std::is_same_v<size_t, decltype(t.aabb_stride())>);
         t.update_bindless(uint64_v, modification);
         requires(std::is_same_v<luisa::span<const Argument>, decltype(t.shader_bindings(uint64_v))>);
     };
@@ -742,13 +740,12 @@ public:
                       command->triangle_buffer_size())));
     }
     void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
-        auto stride = _func_table.aabb_stride();
         add_command(
             command,
             set_aabb(
                 command->handle(),
                 command->aabb_buffer(),
-                Range(command->aabb_offset() * stride, command->aabb_count() * stride)));
+                Range(command->aabb_offset(), command->aabb_size())));
     }
 
     void visit(const CustomCommand *command) noexcept override {

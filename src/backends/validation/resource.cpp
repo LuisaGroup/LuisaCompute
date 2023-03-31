@@ -6,41 +6,43 @@ namespace lc::validation {
 vstd::string Resource::get_tag_name(Tag tag) const {
     switch (tag) {
         case Tag::BUFFER:
-            return "Buffer";
+            return "buffer";
         case Tag::TEXTURE:
             return luisa::format("{}D-image", static_cast<Texture const *>(this)->dim());
         case Tag::BINDLESS_ARRAY:
-            return "Bindless-Array";
+            return "bindless-array";
         case Tag::MESH:
-            return "Mesh";
+            return "mesh";
         case Tag::PROCEDURAL_PRIMITIVE:
-            return "Procedural-Primitive";
+            return "procedural-primitive";
         case Tag::ACCEL:
-            return "Accel";
+            return "accel";
         case Tag::STREAM:
-            return luisa::format("{} stream", static_cast<Stream const *>(this)->stream_tag());
+            return luisa::format("{}-stream", static_cast<Stream const *>(this)->stream_tag());
         case Tag::EVENT:
-            return "Event";
+            return "event";
         case Tag::SHADER:
-            return "Shader";
+            return "shader";
         case Tag::RASTER_SHADER:
-            return "Raster-Shader";
+            return "raster-shader";
         case Tag::SWAP_CHAIN:
-            return "Swap-chain";
+            return "swap-chain";
         case Tag::DEPTH_BUFFER:
-            return "Depth-Buffer";
+            return "depth-buffer";
         default:
-            return {};
+            return "unknown-resource";
     }
 }
 vstd::string Resource::get_name() const {
+    auto result = get_tag_name(_tag);
+    result += " ";
     if (name.empty()) {
-        return vstd::string{"Unnamed "}.append(get_tag_name(_tag));
+        result += "\"un-named\""sv;
     } else {
-        auto result = get_tag_name(_tag);
-        result += " ";
+        result += "\""sv;
         result += name;
-        return result;
+        result += "\""sv;
     }
+    return result;
 }
 }// namespace lc::validation

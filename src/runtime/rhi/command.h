@@ -449,19 +449,19 @@ private:
     AccelBuildRequest _request{};
     uint64_t _aabb_buffer{};
     size_t _aabb_offset{};
-    size_t _aabb_count{};
+    size_t _aabb_size{};
 
 public:
     ProceduralPrimitiveBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t aabb_buffer,
-                                    size_t aabb_offset, size_t aabb_count)
+                                    size_t aabb_offset, size_t aabb_size)
         : Command(Command::Tag::EProceduralPrimitiveBuildCommand),
           _handle(handle), _request(request), _aabb_buffer(aabb_buffer),
-          _aabb_offset(aabb_offset), _aabb_count(aabb_count) {}
+          _aabb_offset(aabb_offset), _aabb_size(aabb_size) {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto aabb_buffer() const noexcept { return _aabb_buffer; }
     [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
-    [[nodiscard]] auto aabb_count() const noexcept { return _aabb_count; }
+    [[nodiscard]] auto aabb_size() const noexcept { return _aabb_size; }
     LUISA_MAKE_COMMAND_COMMON(ProceduralPrimitiveBuildCommand, StreamTag::COMPUTE)
 };
 

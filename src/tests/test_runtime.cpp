@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
         .device_index = 0,
         // To avoid memory overflows, the backend automatically waits 2 - 3 frames before committing, set .inqueue_buffer_limit to false when multi-stream interactions are involved
         .inqueue_buffer_limit = false};
-    auto device = context.create_device(argv[1]);
+    auto device = context.create_device(argv[1], nullptr, true/*use validation layer for debug*/);
     // graphics stream for present
     auto graphics_stream = device.create_stream(StreamTag::GRAPHICS);
     // compute stream for kernel
@@ -56,6 +56,9 @@ int main(int argc, char *argv[]) {
         resolution,
         true, false, framebuffer_count - 1)};
     auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
+    ldr_image.set_name("present");
+    compute_stream.set_name("my compute");
+    graphics_stream.set_name("my present");
     Kernel2D kernel = [&](Float time) {
         auto coord = dispatch_id().xy();
         auto uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
@@ -72,11 +75,15 @@ int main(int argc, char *argv[]) {
         // Use Commandlist to store commands
         CommandList cmd_list;
         cmd_list << shader(clk.toc() / 200.0f).dispatch(resolution);
-        // compute stream must wait last frame's graphics stream
+        // Try this: without synchronize, texture will be used by two streams simultaneously, this is illegal.
+        // #define NO_SYNC_ERROR
+// compute stream must wait last frame's graphics stream
+#ifndef NO_SYNC_ERROR
         if (frame > 0) [[likely]] {
             auto &last_event = graphics_events[(frame - 1) % framebuffer_count];
             compute_stream << last_event.wait();
         }
+#endif
         compute_stream
             << cmd_list.commit()
             // make a signal after compute_stream's tasks
