@@ -27,10 +27,14 @@ private:
 
 public:
     Event() noexcept = default;
+    ~Event() noexcept override;
     using Resource::operator bool;
     Event(Event &&) noexcept = default;
     Event(Event const &) noexcept = delete;
-    Event &operator=(Event &&) noexcept = default;
+    Event &operator=(Event &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Event &operator=(Event const &) noexcept = delete;
     [[nodiscard]] auto signal() const noexcept { return Signal{handle()}; }
     [[nodiscard]] auto wait() const noexcept { return Wait{handle()}; }

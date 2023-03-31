@@ -28,10 +28,14 @@ private:
 
 public:
     SwapChain() noexcept = default;
+    ~SwapChain() noexcept override;
     using Resource::operator bool;
     SwapChain(SwapChain &&) noexcept = default;
     SwapChain(SwapChain const &) noexcept = delete;
-    SwapChain &operator=(SwapChain &&) noexcept = default;
+    SwapChain &operator=(SwapChain &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     SwapChain &operator=(SwapChain const &) noexcept = delete;
     [[nodiscard]] PixelStorage backend_storage() const { return _storage; }
     [[nodiscard]] Present present(ImageView<float> frame) const noexcept;

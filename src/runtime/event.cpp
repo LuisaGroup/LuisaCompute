@@ -21,4 +21,8 @@ void Event::synchronize() const noexcept {
     device()->synchronize_event(handle());
 }
 
+Event::~Event() noexcept {
+    if (*this) { device()->destroy_event(handle()); }
+}
+
 }// namespace luisa::compute

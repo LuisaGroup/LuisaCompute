@@ -208,12 +208,12 @@ private:
            const ir::KernelModule *const module,
            const ShaderOption &option) noexcept
         : Shader{device, device->create_shader(option, module), 0u} {
-            auto arg_types = luisa::vector<const Type *>(module->args.len);
-            for (auto i = 0u; i < module->args.len; i++) {
-                arg_types.push_back(IR2AST::get_type(module->args.ptr[i]));
-            }
-            _uniform_size = ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span{arg_types});
+        auto arg_types = luisa::vector<const Type *>(module->args.len);
+        for (auto i = 0u; i < module->args.len; i++) {
+            arg_types.push_back(IR2AST::get_type(module->args.ptr[i]));
         }
+        _uniform_size = ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span{arg_types});
+    }
 #endif
 
     // AOT shader
@@ -224,9 +224,15 @@ private:
 
 public:
     Shader() noexcept = default;
+    ~Shader() noexcept override {
+        if (*this) { device()->destroy_shader(handle()); }
+    }
     Shader(Shader &&) noexcept = default;
     Shader(Shader const &) noexcept = delete;
-    Shader &operator=(Shader &&) noexcept = default;
+    Shader &operator=(Shader &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Shader &operator=(Shader const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {

@@ -65,9 +65,13 @@ private:
 
 public:
     Stream() noexcept = default;
+    ~Stream() noexcept override;
     Stream(Stream &&) noexcept = default;
     Stream(Stream const &) noexcept = delete;
-    Stream &operator=(Stream &&) noexcept = default;
+    Stream &operator=(Stream &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Stream &operator=(Stream const &) noexcept = delete;
     using Resource::operator bool;
     Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;

@@ -123,19 +123,32 @@ private:
     Tag _tag{};
 
 protected:
-    void _destroy() noexcept;
+    static void _check_same_derived_types(const Resource &lhs,
+                                          const Resource &rhs) noexcept;
+
+    template<typename Derived>
+        requires std::derived_from<Derived, Resource> &&
+                 (!std::same_as<Derived, Resource>)
+    void _move_from(Derived &&rhs) noexcept {
+        if (this != &rhs) [[unlikely]] {
+            // check if the two resources are compatible if both are valid
+            _check_same_derived_types(*this, rhs);
+            using Self = std::remove_cvref_t<Derived>;
+            auto self = static_cast<Self *>(this);
+            // destroy the old resource
+            self->~Self();
+            // move the new resource
+            new (std::launder(self)) Self{static_cast<Self &&>(rhs)};
+        }
+    }
 
 public:
-    Resource() noexcept {
-        _info.invalidate();
-    }
+    Resource() noexcept { _info.invalidate(); }
     Resource(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
-    virtual ~Resource() noexcept {
-        if (*this) { _destroy(); }
-    }
+    virtual ~Resource() noexcept = default;
     Resource(Resource &&) noexcept;
     Resource(const Resource &) noexcept = delete;
-    Resource &operator=(Resource &&) noexcept;
+    Resource &operator=(Resource &&) noexcept = delete;// use _move_from in derived classes
     Resource &operator=(const Resource &) noexcept = delete;
     [[nodiscard]] auto device() const noexcept { return _device.get(); }
     [[nodiscard]] auto handle() const noexcept { return _info.handle; }

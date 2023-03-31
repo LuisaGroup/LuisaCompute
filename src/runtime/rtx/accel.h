@@ -38,9 +38,13 @@ private:
 
 public:
     Accel() noexcept = default;
+    ~Accel() noexcept override;
     Accel(Accel &&) noexcept = default;
     Accel(Accel const &) noexcept = delete;
-    Accel &operator=(Accel &&) noexcept = default;
+    Accel &operator=(Accel &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Accel &operator=(Accel const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _mesh_handles.size(); }

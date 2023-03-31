@@ -250,16 +250,12 @@ public:
     RasterShader(RasterShader &&) noexcept = default;
     RasterShader(RasterShader const &) noexcept = delete;
     RasterShader &operator=(RasterShader &&rhs) noexcept {
-        if (this == &rhs) [[unlikely]] { return *this; }
-        this->~RasterShader();
-        new (std::launder(this)) RasterShader{std::move(rhs)};
+        _move_from(std::move(rhs));
         return *this;
     }
     RasterShader &operator=(RasterShader const &) noexcept = delete;
-    ~RasterShader() noexcept {
-        if (*this) {
-            _raster_ext->destroy_raster_shader(handle());
-        }
+    ~RasterShader() noexcept override {
+        if (*this) { _raster_ext->destroy_raster_shader(handle()); }
     }
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {

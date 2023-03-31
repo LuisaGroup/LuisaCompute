@@ -11,13 +11,18 @@ class LC_RUNTIME_API DepthBuffer : public Resource {
 private:
     uint2 _size{};
     DepthFormat _format{};
-    DepthBuffer(const ResourceCreationInfo &create_info, DeviceInterface *device, DepthFormat format, uint2 size) noexcept;
+    DepthBuffer(const ResourceCreationInfo &create_info,
+                DeviceInterface *device,
+                DepthFormat format, uint2 size) noexcept;
 
 public:
     DepthBuffer(DeviceInterface *device, DepthFormat format, uint2 size) noexcept;
     DepthBuffer(DepthBuffer &&) noexcept = default;
     DepthBuffer(DepthBuffer const &) noexcept = delete;
-    DepthBuffer &operator=(DepthBuffer &&) noexcept = default;
+    DepthBuffer &operator=(DepthBuffer &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     DepthBuffer &operator=(DepthBuffer const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }

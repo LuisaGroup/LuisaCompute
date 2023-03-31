@@ -57,9 +57,13 @@ private:
 
 public:
     Mesh() noexcept = default;
+    ~Mesh() noexcept override;
     Mesh(Mesh &&) noexcept = default;
     Mesh(Mesh const &) noexcept = delete;
-    Mesh &operator=(Mesh &&) noexcept = default;
+    Mesh &operator=(Mesh &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Mesh &operator=(Mesh const &) noexcept = delete;
     using Resource::operator bool;
     // build triangle based bottom-level acceleration structure

@@ -63,10 +63,16 @@ private:
 
 public:
     Volume() noexcept = default;
+    ~Volume() noexcept override {
+        if (*this) { device()->destroy_texture(handle()); }
+    }
     using Resource::operator bool;
     Volume(Volume &&) noexcept = default;
     Volume(Volume const &) noexcept = delete;
-    Volume &operator=(Volume &&) noexcept = default;
+    Volume &operator=(Volume &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Volume &operator=(Volume const &) noexcept = delete;
     // properties
     [[nodiscard]] auto mip_levels() const noexcept { return _mip_levels; }

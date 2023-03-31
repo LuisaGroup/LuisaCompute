@@ -72,10 +72,16 @@ private:
 
 public:
     Image() noexcept = default;
+    ~Image() noexcept override {
+        if (*this) { device()->destroy_texture(handle()); }
+    }
     using Resource::operator bool;
     Image(Image &&) noexcept = default;
     Image(Image const &) noexcept = delete;
-    Image &operator=(Image &&) noexcept = default;
+    Image &operator=(Image &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Image &operator=(Image const &) noexcept = delete;
     // properties
     [[nodiscard]] auto size() const noexcept { return _size; }
