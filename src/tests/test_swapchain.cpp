@@ -24,8 +24,8 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     auto device = context.create_device(argv[1]);
-    static constexpr auto width = 2560u;
-    static constexpr auto height = 1440u;
+    static constexpr auto width = 3000u;
+    static constexpr auto height = 2000u;
     static constexpr auto resolution = make_uint2(width, height);
 
     auto draw = device.compile<2>([](ImageFloat image, Float time) noexcept {
@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     auto swap_chain = device.create_swapchain(
         window.native_handle(), stream,
-        resolution, false, false, 3);
+        resolution, false, false, 8);
     auto image = device.create_image<float>(
         PixelStorage::BYTE4, resolution);
 

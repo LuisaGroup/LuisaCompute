@@ -1,6 +1,4 @@
 add_library(luisa-compute-ext SHARED dummy.cpp)
-set_target_properties(luisa-compute-ext PROPERTIES
-        WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 add_custom_target(luisa-compute-ext-copy ALL
         COMMENT "Copy necessary files for third-party libraries")
