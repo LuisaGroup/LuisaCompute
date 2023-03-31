@@ -16,8 +16,6 @@
 
 namespace luisa::compute::cuda {
 
-// TODO: fix this
-
 void CUDACodegenAST::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
         case UnaryOp::PLUS: _scratch << "+"; break;

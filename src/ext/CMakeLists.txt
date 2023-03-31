@@ -52,12 +52,6 @@ add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext PUBLIC stb)
 luisa_compute_install_extension(stb INCLUDE stb)
 
-#set(JSON_MultipleHeaders ON CACHE BOOL "" FORCE)
-#set(JSON_SystemInclude ON CACHE BOOL "" FORCE)
-#add_subdirectory(json)
-#target_link_libraries(luisa-compute-ext PUBLIC nlohmann_json::nlohmann_json)
-#luisa_compute_install_extension(nlohmann_json INCLUDE json/include/nlohmann)
-
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(glad)
     target_link_libraries(luisa-compute-ext PUBLIC glad)
@@ -73,10 +67,6 @@ if (LUISA_COMPUTE_ENABLE_GUI)
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
     target_link_libraries(luisa-compute-ext PUBLIC glfw)
     luisa_compute_install_extension(glfw INCLUDE glfw/include)
-
-    add_subdirectory(imgui)
-    target_link_libraries(luisa-compute-ext PUBLIC imgui)
-    luisa_compute_install_extension(imgui INCLUDE imgui)
 endif ()
 
 add_subdirectory(EASTL)
