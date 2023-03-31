@@ -4,12 +4,13 @@
 
 #pragma once
 
+#include <core/dll_export.h>
 #include <chrono>
 #include <core/stl/vector.h>
 
 namespace luisa::compute {
 
-class Framerate {
+class LC_GUI_API Framerate {
 
 public:
     using Clock = std::chrono::steady_clock;

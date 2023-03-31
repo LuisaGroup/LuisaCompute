@@ -9,7 +9,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::unordered_map<Type const *, uint64> structTypes;
     vstd::unordered_map<uint64, uint64> constTypes;
     vstd::unordered_map<void const *, uint64> funcTypes;
-    vstd::unordered_map<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
+    vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::unordered_map<uint, uint> arguments;
     vstd::unordered_map<Type const*, vstd::string> internalStruct;
     enum class FuncType : uint8_t {

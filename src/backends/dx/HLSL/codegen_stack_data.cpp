@@ -59,10 +59,10 @@ vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
             return vstd::create_unique(newPtr);
         }));
     if (ite.second) {
-        auto newPtr = ite.first->second.get();
+        auto newPtr = ite.first.value().get();
         newPtr->Init(generateStruct);
     }
-    return ite.first->second->GetStructName();
+    return ite.first.value()->GetStructName();
 }
 std::pair<uint64, bool> CodegenStackData::GetConstCount(uint64 data) {
     bool newValue = false;
