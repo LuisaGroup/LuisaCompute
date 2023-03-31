@@ -745,7 +745,7 @@ public:
             set_aabb(
                 command->handle(),
                 command->aabb_buffer(),
-                Range(command->aabb_offset(), command->aabb_size())));
+                Range(command->aabb_buffer_offset(), command->aabb_buffer_size())));
     }
 
     void visit(const CustomCommand *command) noexcept override {

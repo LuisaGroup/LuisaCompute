@@ -14,9 +14,11 @@ class LC_RUNTIME_API ProceduralPrimitive final : public Resource {
 
 private:
     uint64_t _aabb_buffer{};
-    size_t _aabb_offset{};
-    size_t _aabb_size{};
-    ProceduralPrimitive(DeviceInterface *device, BufferView<AABB> aabb, const AccelOption &option) noexcept;
+    size_t _aabb_buffer_offset{};
+    size_t _aabb_buffer_size{};
+    ProceduralPrimitive(DeviceInterface *device,
+                        BufferView<AABB> aabb,
+                        const AccelOption &option) noexcept;
 
 public:
     ProceduralPrimitive() noexcept = default;
@@ -33,8 +35,8 @@ public:
     // build procedural primitives' based bottom-level acceleration structure
     [[nodiscard]] luisa::unique_ptr<Command> build(
         AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
-    [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
-    [[nodiscard]] auto aabb_size() const noexcept { return _aabb_size; }
+    [[nodiscard]] auto aabb_buffer_offset() const noexcept { return _aabb_buffer_offset; }
+    [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
 };
 
 template<typename AABBBuffer>

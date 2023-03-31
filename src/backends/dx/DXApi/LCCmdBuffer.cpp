@@ -279,8 +279,8 @@ public:
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         BottomAccel::AABBOptions aabbOptions{
             .aabbBuffer = reinterpret_cast<Buffer const *>(cmd->aabb_buffer()),
-            .offset = cmd->aabb_offset(),
-            .size = cmd->aabb_size()};
+            .offset = cmd->aabb_buffer_offset(),
+            .size = cmd->aabb_buffer_size()};
         AddBuildAccel(
             accel->PreProcessStates(
                 *bd,

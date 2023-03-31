@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
         window.native_handle(), stream,
         resolution, false, false, 8);
     auto image = device.create_image<float>(
-        PixelStorage::BYTE4, resolution);
+        swap_chain.backend_storage(), resolution);
 
     Clock clk;
     Framerate framerate;

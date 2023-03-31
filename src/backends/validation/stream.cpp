@@ -251,7 +251,7 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::EProceduralPrimitiveBuildCommand: {
                 auto c = static_cast<ProceduralPrimitiveBuildCommand *>(cmd);
                 auto prim = reinterpret_cast<ProceduralPrimitives *>(c->handle());
-                prim->range = Range{c->_aabb_offset, c->_aabb_size};
+                prim->range = Range{c->_aabb_buffer_offset, c->_aabb_buffer_size};
                 prim->bbox = reinterpret_cast<Buffer *>(c->aabb_buffer());
                 swap_handle(c->_handle, Usage::WRITE, Range{});
             } break;

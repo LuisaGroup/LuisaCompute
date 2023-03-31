@@ -448,20 +448,20 @@ private:
     uint64_t _handle{};
     AccelBuildRequest _request{};
     uint64_t _aabb_buffer{};
-    size_t _aabb_offset{};
-    size_t _aabb_size{};
+    size_t _aabb_buffer_offset{};
+    size_t _aabb_buffer_size{};
 
 public:
     ProceduralPrimitiveBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t aabb_buffer,
-                                    size_t aabb_offset, size_t aabb_size)
-        : Command(Command::Tag::EProceduralPrimitiveBuildCommand),
-          _handle(handle), _request(request), _aabb_buffer(aabb_buffer),
-          _aabb_offset(aabb_offset), _aabb_size(aabb_size) {}
+                                    size_t aabb_buffer_offset, size_t aabb_buffer_size)
+        : Command{Command::Tag::EProceduralPrimitiveBuildCommand},
+          _handle{handle}, _request{request}, _aabb_buffer{aabb_buffer},
+          _aabb_buffer_offset{aabb_buffer_offset}, _aabb_buffer_size{aabb_buffer_size} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto aabb_buffer() const noexcept { return _aabb_buffer; }
-    [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
-    [[nodiscard]] auto aabb_size() const noexcept { return _aabb_size; }
+    [[nodiscard]] auto aabb_buffer_offset() const noexcept { return _aabb_buffer_offset; }
+    [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
     LUISA_MAKE_COMMAND_COMMON(ProceduralPrimitiveBuildCommand, StreamTag::COMPUTE)
 };
 

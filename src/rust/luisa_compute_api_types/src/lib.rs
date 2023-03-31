@@ -519,7 +519,7 @@ pub struct ProceduralPrimitiveBuildCommand {
     pub handle: ProceduralPrimitive,
     pub request: AccelBuildRequest,
     pub aabb_buffer: Buffer,
-    pub aabb_offset: usize,
+    pub aabb_buffer_offset: usize,
     pub aabb_count: usize,
 }
 #[repr(C)]
