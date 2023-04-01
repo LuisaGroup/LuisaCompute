@@ -35,7 +35,7 @@ SwapChain::Present SwapChain::present(ImageView<float> frame) const noexcept {
 }
 
 SwapChain::~SwapChain() noexcept {
-    if (handle()) { device()->destroy_swap_chain(handle()); }
+    if (*this) { device()->destroy_swap_chain(handle()); }
 }
 
 }// namespace luisa::compute
