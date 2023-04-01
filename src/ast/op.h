@@ -238,7 +238,7 @@ enum struct CallOp : uint32_t {
     RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
     RAY_QUERY_COMMITTED_HIT,           // (RayQuery): CommittedHit
     RAY_QUERY_COMMIT_TRIANGLE,         // (RayQuery): void
-    RAY_QUERY_COMMIT_PROCEDURAL,       // (RayQuery): void
+    RAY_QUERY_COMMIT_PROCEDURAL,       // (RayQuery, float): void
     RAY_QUERY_TERMINATE,               // (RayQuery): void
 
     // rasterization

@@ -86,7 +86,8 @@ struct StmtVisitor {
     virtual void visit(const AssignStmt *) = 0;
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
-    virtual void visit(const RayQueryStmt *) {/* TODO */}
+    virtual void visit(const RayQueryStmt *) = 0;
+    virtual ~StmtVisitor() noexcept = default;
 };
 
 #define LUISA_STATEMENT_COMMON() \

@@ -242,6 +242,7 @@ class Type;
 
 struct TypeVisitor {
     virtual void visit(const Type *) noexcept = 0;
+    virtual ~TypeVisitor() noexcept = default;
 };
 
 /// Type class

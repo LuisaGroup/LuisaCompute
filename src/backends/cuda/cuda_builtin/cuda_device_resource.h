@@ -1432,10 +1432,15 @@ enum LCHitTypePrefix : lc_uint {
     LC_HIT_TYPE_PREFIX_MASK = 0xfu << 28u,
 };
 
-using LCRayQuery = LCCommittedHit;
+struct LCRayQuery {
+    LCAccel accel;
+    LCRay ray;
+    lc_uint mask;
+    LCCommittedHit hit;
+};
 
 [[nodiscard]] inline auto lc_ray_query_decode_hit(lc_uint u0, lc_uint u1, lc_uint u2, lc_uint u3, lc_uint u4) noexcept {
-    LCRayQuery hit;
+    LCCommittedHit hit;
     hit.m0 = u0 & ~LC_HIT_TYPE_PREFIX_MASK;
     hit.m1 = u1;
     hit.m2 = lc_make_float2(__uint_as_float(u2), __uint_as_float(u3));
@@ -1444,21 +1449,25 @@ using LCRayQuery = LCCommittedHit;
     return hit;
 }
 
-[[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery q) noexcept {
-    return static_cast<LCCommittedHit>(q);
-}
-
-[[nodiscard]] inline auto lc_accel_trace_all(LCAccel accel, LCRay ray, lc_uint mask, lc_uint impl_tag, void *ctx) noexcept {
+[[nodiscard]] inline auto lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     constexpr auto flags = LC_RAY_FLAG_ENFORCE_ANYHIT;
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
-    auto p_instances = reinterpret_cast<lc_ulong>(accel.instances);
+    auto p_instances = reinterpret_cast<lc_ulong>(q.accel.instances);
     auto r0 = impl_tag;
     auto r1 = static_cast<lc_uint>(p_ctx >> 32u);
     auto r2 = static_cast<lc_uint>(p_ctx);
     auto r3 = static_cast<lc_uint>(p_instances >> 32u);
     auto r4 = static_cast<lc_uint>(p_instances);
-    lc_trace_impl<2u, 1u, 5u, flags>(LC_PAYLOAD_TYPE_RAY_QUERY, accel, ray, mask, r0, r1, r2, r3, r4);
-    return lc_ray_query_decode_hit(r0, r1, r2, r3, r4);
+    lc_trace_impl<2u, 1u, 5u, flags>(LC_PAYLOAD_TYPE_RAY_QUERY, q.accel, q.ray, q.mask, r0, r1, r2, r3, r4);
+    q.hit = lc_ray_query_decode_hit(r0, r1, r2, r3, r4);
+}
+
+[[nodiscard]] inline auto lc_trace_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    return LCRayQuery{accel, ray, mask, LCCommittedHit{}};
+}
+
+[[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery q) noexcept {
+    return q.hit;
 }
 
 [[nodiscard]] inline auto lc_ray_query_triangle_candidate() noexcept {
@@ -1512,6 +1521,12 @@ struct LCTriangleIntersectionResult {
 
 #define LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(index) \
     [[nodiscard]] inline LCTriangleIntersectionResult lc_ray_query_triangle_intersection_##index(LCTriangleHit candidate, void *ctx) noexcept
+
+#define LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT(q) candidate
+#define LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT(q) candidate
+#define LC_RAY_QUERY_COMMIT_TRIANGLE(q) result.committed = true
+#define LC_RAY_QUERY_COMMIT_PROCEDURAL(q) result.committed = true
+#define LC_RAY_QUERY_TERMINATE(q) result.terminated = true
 
 // declare `lc_ray_query_intersection` for at most 32 implementations
 LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(0);

@@ -60,6 +60,7 @@ struct CommandVisitor {
     virtual void visit(const CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
+    virtual ~CommandVisitor() noexcept = default;
 };
 
 struct MutableCommandVisitor {
@@ -67,6 +68,7 @@ struct MutableCommandVisitor {
     virtual void visit(CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
+    virtual ~MutableCommandVisitor() noexcept = default;
 };
 
 class Command;

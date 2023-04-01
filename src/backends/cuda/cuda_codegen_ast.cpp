@@ -16,6 +16,79 @@
 
 namespace luisa::compute::cuda {
 
+class CUDACodegenAST::RayQueryLowering {
+
+private:
+    CUDACodegenAST *_codegen;
+
+private:
+    [[nodiscard]] uint _count_ray_query_statements(const ScopeStmt *scope) noexcept {
+        auto count = 0u;
+        for (auto s : scope->statements()) {
+            switch (s->tag()) {
+                case Statement::Tag::BREAK: break;
+                case Statement::Tag::CONTINUE: break;
+                case Statement::Tag::RETURN: break;
+                case Statement::Tag::SCOPE:
+                    count += _count_ray_query_statements(
+                        static_cast<const ScopeStmt *>(s));
+                    break;
+                case Statement::Tag::IF: {
+                    auto if_stmt = static_cast<const IfStmt *>(s);
+                    count += _count_ray_query_statements(if_stmt->true_branch());
+                    count += _count_ray_query_statements(if_stmt->false_branch());
+                    break;
+                }
+                case Statement::Tag::LOOP: {
+                    auto loop_stmt = static_cast<const LoopStmt *>(s);
+                    count += _count_ray_query_statements(loop_stmt->body());
+                    break;
+                }
+                case Statement::Tag::EXPR: break;
+                case Statement::Tag::SWITCH: {
+                    auto switch_stmt = static_cast<const SwitchStmt *>(s);
+                    count += _count_ray_query_statements(switch_stmt->body());
+                    break;
+                }
+                case Statement::Tag::SWITCH_CASE: {
+                    auto case_stmt = static_cast<const SwitchCaseStmt *>(s);
+                    count += _count_ray_query_statements(case_stmt->body());
+                    break;
+                }
+                case Statement::Tag::SWITCH_DEFAULT: {
+                    auto default_stmt = static_cast<const SwitchDefaultStmt *>(s);
+                    count += _count_ray_query_statements(default_stmt->body());
+                    break;
+                }
+                case Statement::Tag::ASSIGN: break;
+                case Statement::Tag::FOR: {
+                    auto for_stmt = static_cast<const ForStmt *>(s);
+                    count += _count_ray_query_statements(for_stmt->body());
+                    break;
+                }
+                case Statement::Tag::COMMENT: break;
+                case Statement::Tag::RAY_QUERY: count++; break;
+            }
+        }
+        return count;
+    }
+
+public:
+    explicit RayQueryLowering(CUDACodegenAST *codegen) noexcept
+        : _codegen{codegen} {}
+
+    void preprocess(Function f) noexcept {
+        _codegen->_scratch << "#define LUISA_RAY_QUERY_IMPL_COUNT "
+                           << _count_ray_query_statements(f.body()) << "\n";
+    }
+
+    void lower(const RayQueryStmt *stmt) noexcept {
+    }
+
+    void postprocess() noexcept {
+    }
+};
+
 void CUDACodegenAST::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
         case UnaryOp::PLUS: _scratch << "+"; break;
@@ -292,11 +365,18 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
+        case CallOp::RAY_TRACING_TRACE_ALL: _scratch << "lc_accel_trace_all"; break;
+        case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
+        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
+        case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
+        case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "LC_RAY_QUERY_COMMIT_TRIANGLE"; break;
+        case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "LC_RAY_QUERY_COMMIT_PROCEDURAL"; break;
+        case CallOp::RAY_QUERY_TERMINATE: _scratch << "LC_RAY_QUERY_TERMINATE"; break;
     }
     _scratch << "(";
     if (auto args = expr->arguments(); !args.empty()) {
@@ -403,8 +483,15 @@ void CUDACodegenAST::visit(const AssignStmt *stmt) {
     _scratch << ";";
 }
 
+void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
+    _ray_query_lowering->lower(stmt);
+}
+
 void CUDACodegenAST::emit(Function f) {
-    if (f.requires_raytracing()) { _scratch << "#define LUISA_ENABLE_OPTIX\n"; }
+    if (f.requires_raytracing()) {
+        _scratch << "#define LUISA_ENABLE_OPTIX\n";
+        _ray_query_lowering->preprocess(f);
+    }
     _scratch << "#define LC_BLOCK_SIZE lc_make_uint3("
              << f.block_size().x << ", "
              << f.block_size().y << ", "
@@ -412,6 +499,7 @@ void CUDACodegenAST::emit(Function f) {
              << "#include \"device_library.h\"\n\n";
     _emit_type_decl();
     _emit_function(f);
+    _ray_query_lowering->postprocess();
 }
 
 void CUDACodegenAST::_emit_function(Function f) noexcept {
@@ -763,6 +851,9 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},
       _committed_hit_type{Type::of<CommittedHit>()},
-      _ray_query_type{Type::of<RayQuery>()} {}
+      _ray_query_type{Type::of<RayQuery>()},
+      _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)} {}
+
+CUDACodegenAST::~CUDACodegenAST() noexcept = default;
 
 }// namespace luisa::compute::cuda

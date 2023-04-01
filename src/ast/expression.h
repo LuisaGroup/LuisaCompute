@@ -97,6 +97,7 @@ struct LC_AST_API ExprVisitor {
     virtual void visit(const CastExpr *) = 0;
     virtual void visit(const CpuCustomOpExpr *);
     virtual void visit(const GpuCustomOpExpr *);
+    virtual ~ExprVisitor() noexcept = default;
 };
 
 #define LUISA_EXPRESSION_COMMON() \

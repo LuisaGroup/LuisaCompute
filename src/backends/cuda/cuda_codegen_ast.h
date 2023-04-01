@@ -16,11 +16,15 @@ namespace luisa::compute::cuda {
  */
 class CUDACodegenAST final : private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
+public:
+    class RayQueryLowering;
+
 private:
     StringScratch &_scratch;
     Function _function;
     luisa::vector<Function> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
+    luisa::unique_ptr<RayQueryLowering> _ray_query_lowering;
     uint32_t _indent{0u};
 
 private:
@@ -54,6 +58,7 @@ private:
     void visit(const ForStmt *stmt) override;
     void visit(const ConstantExpr *expr) override;
     void visit(const CommentStmt *stmt) override;
+    void visit(const RayQueryStmt *stmt) override;
     void visit(const CpuCustomOpExpr *expr) override;
     void visit(const GpuCustomOpExpr *expr) override;
 
@@ -70,6 +75,7 @@ private:
 
 public:
     explicit CUDACodegenAST(StringScratch &scratch) noexcept;
+    ~CUDACodegenAST() noexcept override;
     void emit(Function f);
 };
 
