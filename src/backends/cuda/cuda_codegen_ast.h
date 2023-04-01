@@ -8,10 +8,6 @@
 #include <ast/statement.h>
 #include <ast/expression.h>
 
-namespace luisa {
-class StringScratch;
-}
-
 namespace luisa::compute::cuda {
 
 /**

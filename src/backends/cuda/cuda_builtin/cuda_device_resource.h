@@ -12,7 +12,7 @@ inline __device__ void lc_assume(bool) noexcept {}
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
 #endif
 
-template<typename T>
+template<typename T = void>
 [[noreturn]] inline __device__ T lc_unreachable() noexcept {
 #if LC_NVRTC_VERSION < 110300
     asm("trap;");
@@ -1096,10 +1096,6 @@ struct LCCommittedHit {
     lc_float m4; // t_hit
 };
 
-struct LCRayQuery {
-    // TODO: add support for ray query
-};
-
 enum LCInstanceFlags : unsigned int {
     LC_INSTANCE_FLAG_NONE = 0u,
     LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
@@ -1204,6 +1200,10 @@ enum LCPayloadTypeID : unsigned int {
     LC_PAYLOAD_TYPE_ID_7 = 1u << 7u,
 };
 
+#define LC_PAYLOAD_TYPE_TRACE_CLOSEST (LC_PAYLOAD_TYPE_ID_0)
+#define LC_PAYLOAD_TYPE_TRACE_ANY (LC_PAYLOAD_TYPE_ID_1)
+#define LC_PAYLOAD_TYPE_RAY_QUERY (LC_PAYLOAD_TYPE_ID_2)
+
 inline void lc_set_payload_types(LCPayloadTypeID type) noexcept {
     asm volatile("call _optix_set_payload_types, (%0);"
                  :
@@ -1217,6 +1217,16 @@ inline void lc_set_payload(lc_uint x) noexcept {
                  :
                  : "r"(i), "r"(x)
                  :);
+}
+
+template<lc_uint i>
+[[nodiscard]] auto lc_get_payload() noexcept {
+    auto r = 0u;
+    asm volatile("call (%0), _optix_get_payload, (%1);"
+                 : "=r"(r)
+                 : "r"(i)
+                 :);
+    return r;
 }
 
 [[nodiscard]] inline auto lc_get_primitive_index() noexcept {
@@ -1252,7 +1262,7 @@ inline void lc_set_payload(lc_uint x) noexcept {
 }
 
 extern "C" __global__ void __closesthit__trace_closest() {
-    lc_set_payload_types(LC_PAYLOAD_TYPE_ID_0);
+    lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_CLOSEST);
     auto inst = lc_get_instance_index();
     auto prim = lc_get_primitive_index();
     auto bary = lc_get_bary_coords();
@@ -1265,12 +1275,12 @@ extern "C" __global__ void __closesthit__trace_closest() {
 }
 
 extern "C" __global__ void __miss__trace_closest() {
-    lc_set_payload_types(LC_PAYLOAD_TYPE_ID_0);
+    lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_CLOSEST);
     lc_set_payload<0u>(~0u);
 }
 
 extern "C" __global__ void __miss__trace_any() {
-    lc_set_payload_types(LC_PAYLOAD_TYPE_ID_1);
+    lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_ANY);
     lc_set_payload<0u>(~0u);
 }
 
@@ -1340,7 +1350,7 @@ enum LCRayFlags : unsigned int {
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<0u, 5u, flags>(LC_PAYLOAD_TYPE_ID_0, accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<0u, 5u, flags>(LC_PAYLOAD_TYPE_TRACE_CLOSEST, accel, ray, mask, r0, r1, r2, r3, r4);
     return LCTriangleHit{r0, r1, lc_make_float2(__uint_as_float(r2), __uint_as_float(r3)), __uint_as_float(r4)};
 }
 
@@ -1353,7 +1363,7 @@ enum LCRayFlags : unsigned int {
     auto r2 = 0u;
     auto r3 = 0u;
     auto r4 = 0u;
-    lc_trace_impl<1u, 1u, flags>(LC_PAYLOAD_TYPE_ID_1, accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<1u, 1u, flags>(LC_PAYLOAD_TYPE_TRACE_ANY, accel, ray, mask, r0, r1, r2, r3, r4);
     return r0 != ~0u;
 }
 
@@ -1393,7 +1403,425 @@ enum LCRayFlags : unsigned int {
     return lc_dispatch_id() / lc_block_size();
 }
 
+#ifdef LUISA_ENABLE_RAY_QUERY
+
+// ray query
+enum LCHitKind : lc_uint {
+    LC_HIT_KIND_NONE = 0x00u,
+    LC_HIT_KIND_PROCEDURAL = 0x01u,
+    LC_HIT_KIND_PROCEDURAL_TERMINATED = 0x02u,
+    LC_HIT_KIND_TRIANGLE_FRONT_FACE = 0xfeu,
+    LC_HIT_KIND_TRIANGLE_BACK_FACE = 0xffu,
+};
+
+[[nodiscard]] inline auto lc_get_hit_kind() noexcept {
+    auto u0 = 0u;
+    asm("call (%0), _optix_get_hit_kind, ();"
+        : "=r"(u0)
+        :);
+    return u0;
+}
+
+enum LCHitTypePrefix : lc_uint {
+    LC_HIT_TYPE_PREFIX_TRIANGLE = 0x0u << 28u,
+    LC_HIT_TYPE_PREFIX_PROCEDURAL = 0x1u << 28u,
+    LC_HIT_TYPE_PREFIX_MASK = 0xfu << 28u,
+};
+
+[[nodiscard]] inline auto lc_ray_query_committed_hit(LCTriangleHit h) noexcept {
+    LCCommittedHit hit;
+    hit.m0 = h.m0 & ~LC_HIT_TYPE_PREFIX_MASK;
+    hit.m1 = h.m1;
+    hit.m2 = h.m2;
+    hit.m3 = ((h.m0 >> 28u) + 1u) & 0x3u;
+    hit.m4 = h.m3;
+    return hit;
+}
+
+[[nodiscard]] inline auto lc_ray_query_triangle_candidate() noexcept {
+    auto inst = lc_get_instance_index();
+    auto prim = lc_get_primitive_index();
+    auto bary = lc_get_bary_coords();
+    auto t_hit = lc_get_hit_distance();
+    return LCTriangleHit{inst, prim, bary, t_hit};
+}
+
+[[nodiscard]] inline auto lc_ray_query_procedural_candidate() noexcept {
+    auto inst = lc_get_instance_index();
+    auto prim = lc_get_primitive_index();
+    return LCProceduralHit{inst, prim};
+}
+
+inline void lc_ray_query_report_intersection(lc_uint kind, lc_float t) noexcept {
+    auto ret = 0u;
+    asm volatile("call (%0), _optix_report_intersection_0"
+                 ", (%1, %2);"
+                 : "=r"(ret)
+                 : "f"(t), "r"(kind)
+                 :);
+}
+
+inline void lc_ray_query_ignore_intersection() noexcept {
+    asm volatile("call _optix_ignore_intersection, ();");
+}
+
+inline void lc_ray_query_terminate() noexcept {
+    asm volatile("call _optix_terminate_ray, ();");
+}
+
+#if LUISA_RAY_QUERY_IMPL_COUNT > 32
+#error "LUISA_RAY_QUERY_IMPL_COUNT must be less than or equal to 32"
+#endif
+
+struct LCProceduralIntersectionResult {
+    lc_float t_hit;
+    lc_bool committed;
+    lc_bool terminated;
+};
+
+struct LCTriangleIntersectionResult {
+    lc_bool committed;
+    lc_bool terminated;
+};
+
+#define LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(index) \
+    [[nodiscard]] inline LCProceduralIntersectionResult lc_ray_query_procedural_intersection_##index(LCProceduralHit candidate, void *ctx) noexcept
+
+#define LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(index) \
+    [[nodiscard]] inline LCTriangleIntersectionResult lc_ray_query_triangle_intersection_##index(LCTriangleHit candidate, void *ctx) noexcept
+
+// declare `lc_ray_query_intersection` for at most 32 implementations
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(0);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(1);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(2);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(3);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(4);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(5);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(6);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(7);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(8);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(9);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(10);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(11);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(12);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(13);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(14);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(15);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(16);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(17);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(18);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(19);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(20);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(21);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(22);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(23);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(24);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(25);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(26);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(27);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(28);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(29);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(30);
+LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(31);
+
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(0);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(1);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(2);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(3);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(4);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(5);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(6);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(7);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(8);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(9);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(10);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(11);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(12);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(13);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(14);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(15);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(16);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(17);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(18);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(19);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(20);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(21);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(22);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(23);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(24);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(25);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(26);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(27);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(28);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(29);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(30);
+LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(31);
+
+extern "C" __global__ void __intersection__ray_query() {
+    lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
+    auto candidate = lc_ray_query_procedural_candidate();
+    auto query_id = lc_get_payload<0u>();
+    auto p_ctx_hi = lc_get_payload<1u>();
+    auto p_ctx_lo = lc_get_payload<2u>();
+    auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
+    LCProceduralIntersectionResult r{};
+    switch (query_id) {
+#if LUISA_RAY_QUERY_IMPL_COUNT > 0
+        case 0u: r = lc_ray_query_procedural_intersection_0(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 1
+        case 1u: r = lc_ray_query_procedural_intersection_1(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 2
+        case 2u: r = lc_ray_query_procedural_intersection_2(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 3
+        case 3u: r = lc_ray_query_procedural_intersection_3(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 4
+        case 4u: r = lc_ray_query_procedural_intersection_4(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 5
+        case 5u: r = lc_ray_query_procedural_intersection_5(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 6
+        case 6u: r = lc_ray_query_procedural_intersection_6(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 7
+        case 7u: r = lc_ray_query_procedural_intersection_7(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 8
+        case 8u: r = lc_ray_query_procedural_intersection_8(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 9
+        case 9u: r = lc_ray_query_procedural_intersection_9(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 10
+        case 10u: r = lc_ray_query_procedural_intersection_10(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 11
+        case 11u: r = lc_ray_query_procedural_intersection_11(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 12
+        case 12u: r = lc_ray_query_procedural_intersection_12(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 13
+        case 13u: r = lc_ray_query_procedural_intersection_13(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 14
+        case 14u: r = lc_ray_query_procedural_intersection_14(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 15
+        case 15u: r = lc_ray_query_procedural_intersection_15(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 16
+        case 16u: r = lc_ray_query_procedural_intersection_16(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 17
+        case 17u: r = lc_ray_query_procedural_intersection_17(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 18
+        case 18u: r = lc_ray_query_procedural_intersection_18(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 19
+        case 19u: r = lc_ray_query_procedural_intersection_19(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 20
+        case 20u: r = lc_ray_query_procedural_intersection_20(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 21
+        case 21u: r = lc_ray_query_procedural_intersection_21(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 22
+        case 22u: r = lc_ray_query_procedural_intersection_22(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 23
+        case 23u: r = lc_ray_query_procedural_intersection_23(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 24
+        case 24u: r = lc_ray_query_procedural_intersection_24(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 25
+        case 25u: r = lc_ray_query_procedural_intersection_25(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 26
+        case 26u: r = lc_ray_query_procedural_intersection_26(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 27
+        case 27u: r = lc_ray_query_procedural_intersection_27(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 28
+        case 28u: r = lc_ray_query_procedural_intersection_28(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 29
+        case 29u: r = lc_ray_query_procedural_intersection_29(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 30
+        case 30u: r = lc_ray_query_procedural_intersection_30(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 31
+        case 31u: r = lc_ray_query_procedural_intersection_31(candidate, ctx); break;
+#endif
+        default: lc_unreachable();
+    }
+    if (r.committed) {
+        lc_ray_query_report_intersection(
+            r.terminated ?
+                LC_HIT_KIND_PROCEDURAL_TERMINATED :
+                LC_HIT_KIND_PROCEDURAL,
+            r.t_hit);
+    }
+}
+
+extern "C" __global__ void __closesthit__ray_query() {
+    lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
+    auto hit_kind = lc_get_hit_kind();
+    auto prefix = (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+                   hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) ?
+                      LC_HIT_TYPE_PREFIX_TRIANGLE :
+                      LC_HIT_TYPE_PREFIX_PROCEDURAL;
+    auto inst = lc_get_instance_index();
+    auto prim = lc_get_primitive_index();
+    auto bary = lc_get_bary_coords();
+    auto t_hit = lc_get_hit_distance();
+    lc_set_payload<0u>(prefix | inst);
+    lc_set_payload<1u>(prim);
+    lc_set_payload<2u>(__float_as_uint(bary.x));
+    lc_set_payload<3u>(__float_as_uint(bary.y));
+    lc_set_payload<4u>(__float_as_uint(t_hit));
+}
+
+extern "C" __global__ void __anyhit__ray_query() {
+    lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
+    auto hit_kind = lc_get_hit_kind();
+    auto should_terminate = false;
+    if (hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
+        hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE) {// triangle
+        auto query_id = lc_get_payload<0u>();
+        auto p_ctx_hi = lc_get_payload<1u>();
+        auto p_ctx_lo = lc_get_payload<2u>();
+        auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
+        auto candidate = lc_ray_query_triangle_candidate();
+        LCTriangleIntersectionResult r{};
+        switch (query_id) {
+#if LUISA_RAY_QUERY_IMPL_COUNT > 0
+            case 0u: r = lc_ray_query_triangle_intersection_0(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 1
+            case 1u: r = lc_ray_query_triangle_intersection_1(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 2
+            case 2u: r = lc_ray_query_triangle_intersection_2(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 3
+            case 3u: r = lc_ray_query_triangle_intersection_3(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 4
+            case 4u: r = lc_ray_query_triangle_intersection_4(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 5
+            case 5u: r = lc_ray_query_triangle_intersection_5(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 6
+            case 6u: r = lc_ray_query_triangle_intersection_6(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 7
+            case 7u: r = lc_ray_query_triangle_intersection_7(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 8
+            case 8u: r = lc_ray_query_triangle_intersection_8(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 9
+            case 9u: r = lc_ray_query_triangle_intersection_9(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 10
+            case 10u: r = lc_ray_query_triangle_intersection_10(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 11
+            case 11u: r = lc_ray_query_triangle_intersection_11(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 12
+            case 12u: r = lc_ray_query_triangle_intersection_12(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 13
+            case 13u: r = lc_ray_query_triangle_intersection_13(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 14
+            case 14u: r = lc_ray_query_triangle_intersection_14(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 15
+            case 15u: r = lc_ray_query_triangle_intersection_15(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 16
+            case 16u: r = lc_ray_query_triangle_intersection_16(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 17
+            case 17u: r = lc_ray_query_triangle_intersection_17(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 18
+            case 18u: r = lc_ray_query_triangle_intersection_18(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 19
+            case 19u: r = lc_ray_query_triangle_intersection_19(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 20
+            case 20u: r = lc_ray_query_triangle_intersection_20(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 21
+            case 21u: r = lc_ray_query_triangle_intersection_21(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 22
+            case 22u: r = lc_ray_query_triangle_intersection_22(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 23
+            case 23u: r = lc_ray_query_triangle_intersection_23(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 24
+            case 24u: r = lc_ray_query_triangle_intersection_24(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 25
+            case 25u: r = lc_ray_query_triangle_intersection_25(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 26
+            case 26u: r = lc_ray_query_triangle_intersection_26(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 27
+            case 27u: r = lc_ray_query_triangle_intersection_27(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 28
+            case 28u: r = lc_ray_query_triangle_intersection_28(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 29
+            case 29u: r = lc_ray_query_triangle_intersection_29(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 30
+            case 30u: r = lc_ray_query_triangle_intersection_30(candidate, ctx); break;
+#endif
+#if LUISA_RAY_QUERY_IMPL_COUNT > 31
+            case 31u: r = lc_ray_query_triangle_intersection_31(candidate, ctx); break;
+#endif
+            default: lc_unreachable();
+        }
+        // ignore the intersection if not committed
+        if (!r.committed) { lc_ray_query_ignore_intersection(); }
+        should_terminate = r.terminated;
+    } else {// procedural
+        should_terminate = hit_kind == LC_HIT_KIND_PROCEDURAL_TERMINATED;
+    }
+    if (should_terminate) {
+        lc_ray_query_terminate();
+    }
+}
+
+extern "C" __global__ void __miss__ray_query() {
+    lc_set_payload_types(LC_PAYLOAD_TYPE_RAY_QUERY);
+    lc_set_payload<0u>(~0u);
+}
+
+#endif// LUISA_ENABLE_RAY_QUERY
+
 #else
+
 #define lc_dispatch_size() dispatch_size
 
 [[nodiscard]] __device__ inline auto lc_thread_id() noexcept {
