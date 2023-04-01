@@ -115,8 +115,6 @@ public:
     void destroy_texture(uint64_t handle) noexcept override;
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
-    ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
-    void destroy_depth_buffer(uint64_t handle) noexcept override;
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;

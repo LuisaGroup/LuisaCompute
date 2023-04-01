@@ -201,14 +201,6 @@ void CUDADevice::destroy_bindless_array(uint64_t handle) noexcept {
     });
 }
 
-ResourceCreationInfo CUDADevice::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Depth buffers are not supported on CUDA.");
-}
-
-void CUDADevice::destroy_depth_buffer(uint64_t handle) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Depth buffers are not supported on CUDA.");
-}
-
 ResourceCreationInfo CUDADevice::create_stream(StreamTag stream_tag) noexcept {
 #ifndef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
     if (stream_tag == StreamTag::GRAPHICS) {
