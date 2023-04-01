@@ -27,8 +27,6 @@ public:
     RayQuery &operator=(RayQuery &&) noexcept = delete;
     RayQuery &operator=(RayQuery const &) noexcept = delete;
     [[nodiscard]] Var<CommittedHit> committed_hit() const noexcept;
-    void commit_triangle() const noexcept;
-    void commit_procedural(Expr<float> distance) const noexcept;
 };
 
 class LC_DSL_API TriangleCandidate {

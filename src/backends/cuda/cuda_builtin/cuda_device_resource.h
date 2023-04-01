@@ -1449,13 +1449,14 @@ using LCRayQuery = LCCommittedHit;
 }
 
 [[nodiscard]] inline auto lc_accel_trace_all(LCAccel accel, LCRay ray, lc_uint mask, lc_uint impl_tag, void *ctx) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_NONE;
+    constexpr auto flags = LC_RAY_FLAG_ENFORCE_ANYHIT;
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
+    auto p_instances = reinterpret_cast<lc_ulong>(accel.instances);
     auto r0 = impl_tag;
     auto r1 = static_cast<lc_uint>(p_ctx >> 32u);
     auto r2 = static_cast<lc_uint>(p_ctx);
-    auto r3 = lc_undef();
-    auto r4 = lc_undef();
+    auto r3 = static_cast<lc_uint>(p_instances >> 32u);
+    auto r4 = static_cast<lc_uint>(p_instances);
     lc_trace_impl<2u, 1u, 5u, flags>(LC_PAYLOAD_TYPE_RAY_QUERY, accel, ray, mask, r0, r1, r2, r3, r4);
     return lc_ray_query_decode_hit(r0, r1, r2, r3, r4);
 }
@@ -1830,7 +1831,11 @@ extern "C" __global__ void __anyhit__ray_query() {
             default: lc_unreachable();
         }
         // ignore the intersection if not committed
-        if (!r.committed) { lc_ray_query_ignore_intersection(); }
+        auto p_instances_hi = lc_get_payload<3u>();
+        auto p_instances_lo = lc_get_payload<4u>();
+        auto instances = reinterpret_cast<const LCAccelInstance *>((static_cast<lc_ulong>(p_instances_hi) << 32u) | p_instances_lo);
+        auto opaque = (instances[candidate.m0].flags & LC_INSTANCE_FLAG_DISABLE_ANYHIT) != 0u;
+        if (!opaque && !r.committed) { lc_ray_query_ignore_intersection(); }
         should_terminate = r.terminated;
     } else {// procedural
         should_terminate = hit_kind == LC_HIT_KIND_PROCEDURAL_TERMINATED;
