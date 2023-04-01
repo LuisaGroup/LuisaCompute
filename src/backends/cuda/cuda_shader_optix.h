@@ -20,8 +20,10 @@ private:
     optix::Module _module{};
     optix::ProgramGroup _program_group_rg{};
     optix::ProgramGroup _program_group_ch_closest{};
+    optix::ProgramGroup _program_group_ch_query{};
     optix::ProgramGroup _program_group_miss_closest{};
     optix::ProgramGroup _program_group_miss_any{};
+    optix::ProgramGroup _program_group_miss_query{};
     optix::Pipeline _pipeline{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     mutable CUdeviceptr _sbt_buffer{};
