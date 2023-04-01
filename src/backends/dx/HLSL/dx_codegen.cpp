@@ -244,12 +244,15 @@ void StringStateVisitor::visit(const CastExpr *expr) {
                 type = type->element();
             }
             switch (type->tag()) {
+                case Type::Tag::FLOAT16:
                 case Type::Tag::FLOAT32:
                     str << "asfloat"sv;
                     break;
+                case Type::Tag::INT16:
                 case Type::Tag::INT32:
                     str << "asint"sv;
                     break;
+                case Type::Tag::UINT16:
                 case Type::Tag::UINT32:
                     str << "asuint"sv;
                     break;

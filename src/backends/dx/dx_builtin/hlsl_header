@@ -133,16 +133,14 @@ template<typename T>
 T _exp10(const T v){return pow(10,v);};
 template<typename T>
 float _length_sqr(const T x){return dot(x,x);}
-bool _isnan(const float x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
-bool2 _isnan(const float2 x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
-bool3 _isnan(const float3 x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
-bool4 _isnan(const float4 x){return (asuint(x)&0x7FFFFFFF)>0x7F800000;}
-bool _isinf(const float x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
-bool2 _isinf(const float2 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
-bool3 _isinf(const float3 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
-bool4 _isinf(const float4 x){return (asuint(x)&0x7FFFFFFF)==0x7F800000;}
-template<typename T>
-T copysign(const T a,const T b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float copysign(const float a,const float b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float2 copysign(const float2 a,const float2 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float3 copysign(const float3 a,const float3 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float4 copysign(const float4 a,const float4 b){return asfloat((asuint(a)&0x7fffffffu) | (asuint(b)&0x80000000u));}
+float16_t copysign(const float16_t a,const float16_t b){return copysign((float)a,(float)b);}
+float16_t copysign(const float16_t2 a,const float16_t2 b){return copysign((float2)a,(float2)b);}
+float16_t copysign(const float16_t3 a,const float16_t3 b){return copysign((float3)a,(float3)b);}
+float16_t copysign(const float16_t4 a,const float16_t4 b){return copysign((float4)a,(float4)b);}
 template<typename T>
 T _fma(const T a,const T b,const T c){return a*b+c;}
 // TODO
@@ -170,6 +168,9 @@ float2x2 Mul(const float2x2 a,const float2x2 b){return mul(a,b);}
 float4 Mul(const float4x4 b,const float4 a){return mul(a,b);}
 float3 Mul(const float3x4 b,const float3 a){return mul(a,b).xyz;}
 float2 Mul(const float2x2 b,const float2 a){return mul(a,b);}
+float16_t4 Mul(const float16_t4x4 b,const float16_t4 a){return mul(a,b);}
+float16_t3 Mul(const float16_t3x4 b,const float16_t3 a){return mul(a,b).xyz;}
+float16_t2 Mul(const float16_t2x2 b,const float16_t2 a){return mul(a,b);}
 struct wbool3 {bool3 v; bool a;};
 struct wfloat3 {float3 v; float a;};
 struct wuint3 {uint3 v; uint a;};

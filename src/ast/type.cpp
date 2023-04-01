@@ -234,7 +234,13 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     info->hash = hash;
 
     auto type_identifier = read_identifier();
-
+#define TRY_PARSE_SCALAR_TYPE_16(T, TAG) \
+    if (type_identifier == #T##sv) {     \
+        info->tag = Type::Tag::TAG;      \
+        info->size = 2u;                 \
+        info->alignment = 2u;            \
+        info->dimension = 1u;            \
+    } else
 #define TRY_PARSE_SCALAR_TYPE(T, TAG) \
     if (type_identifier == #T##sv) {  \
         info->tag = Type::Tag::TAG;   \
@@ -246,6 +252,10 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     TRY_PARSE_SCALAR_TYPE(float, FLOAT32)
     TRY_PARSE_SCALAR_TYPE(int, INT32)
     TRY_PARSE_SCALAR_TYPE(uint, UINT32)
+    TRY_PARSE_SCALAR_TYPE_16(float16, FLOAT16)
+    TRY_PARSE_SCALAR_TYPE_16(int16, INT16)
+    TRY_PARSE_SCALAR_TYPE_16(uint16, UINT16)
+#undef TRY_PARSE_SCALAR_TYPE_16
 #undef TRY_PARSE_SCALAR_TYPE
     if (type_identifier == "vector"sv) {
         info->tag = Type::Tag::VECTOR;
@@ -555,5 +565,11 @@ bool Type::is_bool_vector() const noexcept { return is_vector() && element()->is
 bool Type::is_int32_vector() const noexcept { return is_vector() && element()->is_int32(); }
 bool Type::is_uint32_vector() const noexcept { return is_vector() && element()->is_uint32(); }
 bool Type::is_float32_vector() const noexcept { return is_vector() && element()->is_float32(); }
+bool Type::is_int16() const noexcept { return tag() == Tag::INT16; }
+bool Type::is_uint16() const noexcept { return tag() == Tag::UINT16; }
+bool Type::is_float16() const noexcept { return tag() == Tag::FLOAT16; }
+bool Type::is_int16_vector() const noexcept { return is_vector() && element()->is_int16(); }
+bool Type::is_uint16_vector() const noexcept { return is_vector() && element()->is_uint16(); }
+bool Type::is_float16_vector() const noexcept { return is_vector() && element()->is_float16(); }
 
 }// namespace luisa::compute
