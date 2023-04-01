@@ -47,8 +47,6 @@ public:
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
 
-    ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
-    void destroy_depth_buffer(uint64_t handle) noexcept override;
     // IUtil *get_util() noexcept override;
     // stream
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;

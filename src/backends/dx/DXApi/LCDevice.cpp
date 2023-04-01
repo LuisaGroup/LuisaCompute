@@ -441,7 +441,7 @@ ResourceCreationInfo DxRasterExt::load_raster_shader(
 void DxRasterExt::destroy_raster_shader(uint64_t handle) noexcept {
     delete reinterpret_cast<RasterShader *>(handle);
 }
-ResourceCreationInfo LCDevice::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
+ResourceCreationInfo DxRasterExt::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
     ResourceCreationInfo info;
     auto res =
         static_cast<TextureBase *>(
@@ -453,7 +453,7 @@ ResourceCreationInfo LCDevice::create_depth_buffer(DepthFormat format, uint widt
     info.native_handle = res->GetResource();
     return info;
 }
-void LCDevice::destroy_depth_buffer(uint64_t handle) noexcept {
+void DxRasterExt::destroy_depth_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<TextureBase *>(handle);
 }
 DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {

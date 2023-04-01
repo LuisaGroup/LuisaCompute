@@ -11,7 +11,7 @@ class RasterExt : public DeviceExtension {
 
 public:
     static constexpr luisa::string_view name = "RasterExt";
-
+    // shader
     [[nodiscard]] virtual ResourceCreationInfo create_raster_shader(
         const MeshFormat &mesh_format,
         const RasterState &raster_state,
@@ -38,6 +38,10 @@ public:
         luisa::string_view ser_path) noexcept = 0;
 
     virtual void destroy_raster_shader(uint64_t handle) noexcept = 0;
+
+    // depth buffer
+    [[nodiscard]] virtual ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept = 0;
+    virtual void destroy_depth_buffer(uint64_t handle) noexcept = 0;
 };
 
 template<typename V, typename P>
@@ -48,7 +52,7 @@ template<typename V, typename P>
     luisa::span<PixelFormat const> rtv_format,
     DepthFormat dsv_format,
     const ShaderOption &option) noexcept {
-    return _create<typename RasterKernel<V, P>::RasterShaderType>(static_cast<RasterExt *>(_impl->extension(RasterExt::name)), mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
+    return _create<typename RasterKernel<V, P>::RasterShaderType>(extension<RasterExt>(), mesh_format, raster_state, rtv_format, dsv_format, kernel.vert(), kernel.pixel(), option);
 }
 
 template<typename V, typename P>
@@ -60,7 +64,7 @@ void Device::compile_to(
     bool enable_fast_math) noexcept {
     _check_no_implicit_binding(kernel.vert(), serialization_path);
     _check_no_implicit_binding(kernel.pixel(), serialization_path);
-    static_cast<RasterExt *>(_impl->extension(RasterExt::name))->save_raster_shader(format, kernel.vert(), kernel.pixel(), serialization_path, enable_debug_info, enable_fast_math);
+    extension<RasterExt>()->save_raster_shader(format, kernel.vert(), kernel.pixel(), serialization_path, enable_debug_info, enable_fast_math);
 }
 
 template<typename... Args>
@@ -70,6 +74,6 @@ RasterShader<Args...> Device::load_raster_shader(
     luisa::span<PixelFormat const> rtv_format,
     DepthFormat dsv_format,
     luisa::string_view shader_name) noexcept {
-    return _create<RasterShader<Args...>>(static_cast<RasterExt *>(_impl->extension(RasterExt::name)), mesh_format, raster_state, rtv_format, dsv_format, shader_name);
+    return _create<RasterShader<Args...>>(extension<RasterExt>(), mesh_format, raster_state, rtv_format, dsv_format, shader_name);
 }
 }// namespace luisa::compute

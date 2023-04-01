@@ -77,10 +77,6 @@ public:
     [[nodiscard]] virtual ResourceCreationInfo create_bindless_array(size_t size) noexcept = 0;
     virtual void destroy_bindless_array(uint64_t handle) noexcept = 0;
 
-    // depth buffer
-    [[nodiscard]] virtual ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept = 0;
-    virtual void destroy_depth_buffer(uint64_t handle) noexcept = 0;
-
     // stream
     [[nodiscard]] virtual ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept = 0;
     virtual void destroy_stream(uint64_t handle) noexcept = 0;
