@@ -5,22 +5,24 @@ namespace lc::validation {
 using namespace luisa;
 using namespace luisa::compute;
 namespace detail {
+template<typename T>
 class ext_deleter {
-    vstd::func_ptr_t<void(void *)> _deleter;
+    vstd::func_ptr_t<void(T *)> _deleter;
 
 public:
-    ext_deleter(vstd::func_ptr_t<void(void *)> deleter) : _deleter{deleter} {}
-    void operator()(void *ptr) const {
+    ext_deleter(vstd::func_ptr_t<void(T *)> deleter) : _deleter{deleter} {}
+    void operator()(T *ptr) const {
         _deleter(ptr);
     }
 };
 }// namespace detail
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::shared_ptr<DeviceInterface> _native;
-    using ExtPtr = vstd::unique_ptr<DeviceExtension, detail::ext_deleter>;
+    using ExtPtr = vstd::unique_ptr<DeviceExtension, detail::ext_deleter<DeviceExtension>>;
     vstd::unordered_map<vstd::string, ExtPtr> exts;
 
 public:
+    static std::mutex &global_mtx() noexcept;
     void *native_handle() const noexcept override;
     Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
@@ -39,10 +41,6 @@ public:
     // bindless array
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
-
-    // depth buffer
-    ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
-    void destroy_depth_buffer(uint64_t handle) noexcept override;
 
     // stream
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;

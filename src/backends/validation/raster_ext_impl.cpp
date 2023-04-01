@@ -1,5 +1,7 @@
 #include "raster_ext_impl.h"
 #include "rw_resource.h"
+#include "device.h"
+#include "depth_buffer.h"
 namespace lc::validation {
 ResourceCreationInfo RasterExtImpl::create_raster_shader(
     const MeshFormat &mesh_format,
@@ -39,5 +41,18 @@ void RasterExtImpl::destroy_raster_shader(uint64_t handle) noexcept {
     auto res = reinterpret_cast<RWResource *>(handle);
     _impl->destroy_raster_shader(res->handle());
     delete res;
+}
+// depth buffer
+ResourceCreationInfo RasterExtImpl::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
+    std::lock_guard lck{Device::global_mtx()};
+    auto buffer = _impl->create_depth_buffer(format, width, height);
+    buffer.handle = reinterpret_cast<uint64_t>(new DepthBuffer(buffer.handle));
+    return buffer;
+}
+void RasterExtImpl::destroy_depth_buffer(uint64_t handle) noexcept {
+    std::lock_guard lck{Device::global_mtx()};
+    auto buffer = reinterpret_cast<DepthBuffer *>(handle);
+    _impl->destroy_depth_buffer(buffer->handle());
+    delete buffer;
 }
 }// namespace lc::validation

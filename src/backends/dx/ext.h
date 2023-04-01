@@ -155,6 +155,9 @@ public:
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept override;
     void destroy_raster_shader(uint64_t handle) noexcept override;
+
+    ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
+    void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
     Device &_device;
