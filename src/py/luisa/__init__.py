@@ -1,6 +1,6 @@
 import lcapi
 from . import globalvars
-# from .types import ref
+from .types import float16, int16, uint16, float16_2, int16_2, uint16_2, float16_3, int16_3, uint16_3, float16_4, int16_4, uint16_4
 
 from .func import func, save_raster_shader
 from .mathtypes import *

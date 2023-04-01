@@ -1441,10 +1441,13 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                 switch (expr->type()->tag()) {
                     case Type::Tag::BOOL:
                         return static_cast<bool>(t);
+                    case Type::Tag::FLOAT16:
                     case Type::Tag::FLOAT32:
                         return static_cast<float>(t);
+                    case Type::Tag::INT16:
                     case Type::Tag::INT32:
                         return static_cast<int>(t);
+                    case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
                         return static_cast<uint>(t);
                     default: return monostate{};
@@ -1460,10 +1463,13 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                 switch (expr->type()->tag()) {
                     case Type::Tag::BOOL:
                         return cast_ele.template operator()<bool>();
+                    case Type::Tag::FLOAT16:
                     case Type::Tag::FLOAT32:
                         return cast_ele.template operator()<float>();
+                    case Type::Tag::INT16:
                     case Type::Tag::INT32:
                         return cast_ele.template operator()<int>();
+                    case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
                         return cast_ele.template operator()<uint>();
                     default: return monostate{};
@@ -1482,10 +1488,13 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                     switch (expr->type()->tag()) {
                         case Type::Tag::BOOL:
                             return temp_func.template operator()<dim, bool>();
+                        case Type::Tag::FLOAT16:
                         case Type::Tag::FLOAT32:
                             return temp_func.template operator()<dim, float>();
+                        case Type::Tag::INT16:
                         case Type::Tag::INT32:
                             return temp_func.template operator()<dim, int>();
+                        case Type::Tag::UINT16:
                         case Type::Tag::UINT32:
                             return temp_func.template operator()<dim, uint>();
                         default: return monostate{};
@@ -1520,10 +1529,13 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                 switch (expr->type()->element()->tag()) {
                     case Type::Tag::BOOL:
                         return cast_func.template operator()<dim, bool>();
+                    case Type::Tag::FLOAT16:
                     case Type::Tag::FLOAT32:
                         return cast_func.template operator()<dim, float>();
+                    case Type::Tag::INT16:
                     case Type::Tag::INT32:
                         return cast_func.template operator()<dim, int>();
+                    case Type::Tag::UINT16:
                     case Type::Tag::UINT32:
                         return cast_func.template operator()<dim, uint>();
                     default: return monostate{};
