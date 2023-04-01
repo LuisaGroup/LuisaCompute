@@ -1,4 +1,4 @@
-add_library(luisa-compute-ext SHARED dummy.cpp)
+add_library(luisa-compute-ext INTERFACE)
 
 add_custom_target(luisa-compute-ext-copy ALL
         COMMENT "Copy necessary files for third-party libraries")
@@ -37,7 +37,7 @@ target_compile_definitions(spdlog PUBLIC
         FMT_EXCEPTIONS=0
         FMT_HEADER_ONLY=1
         FMT_USE_NOEXCEPT=1)
-target_link_libraries(luisa-compute-ext PUBLIC spdlog::spdlog_header_only)
+target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog_header_only)
 luisa_compute_install_extension(spdlog_header_only INCLUDE spdlog/include/spdlog)
 
 add_library(xxhash INTERFACE)
@@ -45,16 +45,16 @@ target_include_directories(xxhash INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SO
 target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
 set_target_properties(xxhash PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
-target_link_libraries(luisa-compute-ext PUBLIC xxhash)
+target_link_libraries(luisa-compute-ext INTERFACE xxhash)
 luisa_compute_install_extension(xxhash INCLUDE xxHash)
 
 add_subdirectory(stb)
-target_link_libraries(luisa-compute-ext PUBLIC stb)
+target_link_libraries(luisa-compute-ext INTERFACE stb)
 luisa_compute_install_extension(stb INCLUDE stb)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(glad)
-    target_link_libraries(luisa-compute-ext PUBLIC glad)
+    target_link_libraries(luisa-compute-ext INTERFACE glad)
     luisa_compute_install_extension(glad INCLUDE glad)
 
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -65,23 +65,23 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(glfw)
     set_target_properties(glfw PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
-    target_link_libraries(luisa-compute-ext PUBLIC glfw)
+    target_link_libraries(luisa-compute-ext INTERFACE glfw)
     luisa_compute_install_extension(glfw INCLUDE glfw/include)
 endif ()
 
 add_subdirectory(EASTL)
-target_link_libraries(luisa-compute-ext PUBLIC EASTL)
+target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
 
 add_library(unordered_dense INTERFACE)
 target_include_directories(unordered_dense INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/unordered_dense/include>)
-target_link_libraries(luisa-compute-ext PUBLIC unordered_dense)
+target_link_libraries(luisa-compute-ext INTERFACE unordered_dense)
 luisa_compute_install_extension(unordered_dense INCLUDE unordered_dense/include)
 
 add_library(parallel-hashmap INTERFACE)
 target_include_directories(parallel-hashmap INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/parallel-hashmap>)
-target_link_libraries(luisa-compute-ext PUBLIC parallel-hashmap)
+target_link_libraries(luisa-compute-ext INTERFACE parallel-hashmap)
 luisa_compute_install_extension(parallel-hashmap INCLUDE parallel-hashmap/parallel_hashmap)
 
 if (LUISA_COMPUTE_ENABLE_PYTHON)
