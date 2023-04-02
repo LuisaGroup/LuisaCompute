@@ -77,7 +77,7 @@ class BindlessArray:
 
     @BuiltinFuncBuilder
     def buffer_read(*argnodes): # (dtype, buffer_index, element_index)
-        check_exact_signature([type, int, uint, int16, uint16], argnodes[1:], "buffer_read")
+        check_exact_signature([type, int, uint], argnodes[1:], "buffer_read")
         dtype = argnodes[1].expr
         expr = lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.BINDLESS_BUFFER_READ, [x.expr for x in [argnodes[0]] + list(argnodes[2:])])
         return dtype, expr

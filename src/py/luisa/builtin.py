@@ -327,7 +327,7 @@ def set_block_size(x, y, z):
         else:
             values.append(a.value)
     for i in range(3):
-        if type(values[i]) in {int, uint, int16, uint16}:
+        if not type(values[i]) in {int, uint, int16, uint16}:
             raise TypeError(f"set_block_size argument {i} must be int or uint")
         elif values[i] == 0:
             raise ValueError(f"block size can not be 0")
