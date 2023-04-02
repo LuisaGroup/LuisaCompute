@@ -34,6 +34,9 @@
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_swapchain.h>
 
+#define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
+#define LUISA_CUDA_DUMP_SOURCE 1
+
 namespace luisa::compute::cuda {
 
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
@@ -348,6 +351,15 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
 
     // compile if not found in cache
     if (ptx.empty()) {
+#if !defined(NDEBUG) && LUISA_CUDA_DUMP_SOURCE
+        luisa::span src_data{reinterpret_cast<const std::byte *>(source.data()), source.size()};
+        auto src_name = luisa::format("{}.cu", option.name);
+        if (uses_user_path) {
+            _io->write_shader_bytecode(src_name, src_data);
+        } else if (option.enable_cache) {
+            _io->write_shader_cache(src_name, src_data);
+        }
+#endif
         ptx = _compiler->compile(source, options, src_hash);
         luisa::span ptx_data{reinterpret_cast<const std::byte *>(ptx.data()), ptx.size()};
         if (uses_user_path) {
@@ -463,8 +475,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
 
 Usage CUDADevice::shader_arg_usage(uint64_t handle, size_t index) noexcept {
     // TODO
-    LUISA_ASSERT(false, "Un-Implemented");
-    return Usage::NONE;
+    LUISA_ASSERT(false, "Not implemented.");
 }
 
 void CUDADevice::destroy_shader(uint64_t handle) noexcept {
@@ -640,9 +651,9 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     if (_optix_context == nullptr) [[unlikely]] {
         optix::DeviceContextOptions optix_options{};
         optix_options.logCallbackLevel = 4u;
-#ifndef NDEBUG
+#if !defined(NDEBUG) && LUISA_CUDA_ENABLE_OPTIX_VALIDATION
         // Disable due to too much overhead
-        // optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+        optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
 #endif
         optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
             auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);

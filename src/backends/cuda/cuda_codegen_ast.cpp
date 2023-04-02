@@ -7,7 +7,6 @@
 #include <core/logging.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
-#include <ast/function_builder.h>
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
 #include <dsl/rtx/ray_query.h>
@@ -21,8 +20,7 @@ class CUDACodegenAST::RayQueryLowering {
 public:
     struct OutlineInfo {
         uint index;
-        luisa::vector<uint> local_variables;   // V(local) = V(all) - V(function - scope)
-        luisa::vector<uint> captured_variables;// V(captured) = V(scope) - V(local)
+        luisa::vector<Variable> captured_variables;
     };
 
 private:
@@ -154,7 +152,7 @@ private:
         }
     }
 
-    void _glob_variables(luisa::span<luisa::unordered_set<uint> *> variable_sets,
+    void _glob_variables(luisa::span<luisa::unordered_set<Variable> *> variable_sets,
                          const Expression *expr) noexcept {
         switch (expr->tag()) {
             case Expression::Tag::UNARY: {
@@ -184,7 +182,7 @@ private:
                 auto e = static_cast<const RefExpr *>(expr);
                 for (auto s : variable_sets) {
                     if (s != nullptr) {
-                        s->emplace(e->variable().uid());
+                        s->emplace(e->variable());
                     }
                 }
                 break;
@@ -192,16 +190,16 @@ private:
             case Expression::Tag::CONSTANT: break;
             case Expression::Tag::CALL: {
                 auto e = static_cast<const CallExpr *>(expr);
-                auto args = e->arguments();
-                if (e->op() == CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT ||
-                    e->op() == CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT ||
-                    e->op() == CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
-                    e->op() == CallOp::RAY_QUERY_COMMIT_PROCEDURAL ||
-                    e->op() == CallOp::RAY_QUERY_TERMINATE) {
-                    // the first argument is the ray query, which
-                    // is provided through the function parameter
-                    args = args.subspan(1u);
-                }
+                //                auto args = e->arguments();
+                //                if (e->op() == CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT ||
+                //                    e->op() == CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT ||
+                //                    e->op() == CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
+                //                    e->op() == CallOp::RAY_QUERY_COMMIT_PROCEDURAL ||
+                //                    e->op() == CallOp::RAY_QUERY_TERMINATE) {
+                //                    // the first argument is the ray query, which
+                //                    // is provided through the function parameter
+                //                    args = args.subspan(1u);
+                //                }
                 for (auto arg : e->arguments()) {
                     _glob_variables(variable_sets, arg);
                 }
@@ -218,17 +216,14 @@ private:
         }
     }
 
-    void _glob_variables(luisa::unordered_set<uint> &all,
-                         luisa::unordered_set<uint> &within_scope,
-                         luisa::unordered_set<uint> &without_scope,
-                         const ScopeStmt *current,
+    void _glob_variables(luisa::unordered_set<Variable> &within_scope,
+                         luisa::unordered_set<Variable> &without_scope,
+                         const ScopeStmt *current, bool inside_targets,
                          luisa::span<const ScopeStmt *const> target_scopes) noexcept {
-        auto current_in_targets = std::find(target_scopes.begin(), target_scopes.end(), current) !=
-                                  target_scopes.end();
-        std::array sets{
-            &all,
-            current_in_targets ? &within_scope : nullptr,
-            current_in_targets ? nullptr : &without_scope};
+        inside_targets |= std::find(target_scopes.begin(), target_scopes.end(), current) !=
+                          target_scopes.end();
+        std::array sets{inside_targets ? &within_scope : nullptr,
+                        inside_targets ? nullptr : &without_scope};
         for (auto s : current->statements()) {
             switch (s->tag()) {
                 case Statement::Tag::BREAK: break;
@@ -242,19 +237,19 @@ private:
                 }
                 case Statement::Tag::SCOPE: {
                     auto scope_stmt = static_cast<const ScopeStmt *>(s);
-                    _glob_variables(all, within_scope, without_scope, scope_stmt, target_scopes);
+                    _glob_variables(within_scope, without_scope, scope_stmt, inside_targets, target_scopes);
                     break;
                 }
                 case Statement::Tag::IF: {
                     auto if_stmt = static_cast<const IfStmt *>(s);
                     _glob_variables(sets, if_stmt->condition());
-                    _glob_variables(all, within_scope, without_scope, if_stmt->true_branch(), target_scopes);
-                    _glob_variables(all, within_scope, without_scope, if_stmt->false_branch(), target_scopes);
+                    _glob_variables(within_scope, without_scope, if_stmt->true_branch(), inside_targets, target_scopes);
+                    _glob_variables(within_scope, without_scope, if_stmt->false_branch(), inside_targets, target_scopes);
                     break;
                 }
                 case Statement::Tag::LOOP: {
                     auto loop_stmt = static_cast<const LoopStmt *>(s);
-                    _glob_variables(all, within_scope, without_scope, loop_stmt->body(), target_scopes);
+                    _glob_variables(within_scope, without_scope, loop_stmt->body(), inside_targets, target_scopes);
                     break;
                 }
                 case Statement::Tag::EXPR: {
@@ -265,17 +260,17 @@ private:
                 case Statement::Tag::SWITCH: {
                     auto switch_stmt = static_cast<const SwitchStmt *>(s);
                     _glob_variables(sets, switch_stmt->expression());
-                    _glob_variables(all, within_scope, without_scope, switch_stmt->body(), target_scopes);
+                    _glob_variables(within_scope, without_scope, switch_stmt->body(), inside_targets, target_scopes);
                     break;
                 }
                 case Statement::Tag::SWITCH_CASE: {
                     auto case_stmt = static_cast<const SwitchCaseStmt *>(s);
-                    _glob_variables(all, within_scope, without_scope, case_stmt->body(), target_scopes);
+                    _glob_variables(within_scope, without_scope, case_stmt->body(), inside_targets, target_scopes);
                     break;
                 }
                 case Statement::Tag::SWITCH_DEFAULT: {
                     auto default_stmt = static_cast<const SwitchDefaultStmt *>(s);
-                    _glob_variables(all, within_scope, without_scope, default_stmt->body(), target_scopes);
+                    _glob_variables(within_scope, without_scope, default_stmt->body(), inside_targets, target_scopes);
                     break;
                 }
                 case Statement::Tag::ASSIGN: {
@@ -289,15 +284,15 @@ private:
                     _glob_variables(sets, for_stmt->variable());
                     _glob_variables(sets, for_stmt->condition());
                     _glob_variables(sets, for_stmt->step());
-                    _glob_variables(all, within_scope, without_scope, for_stmt->body(), target_scopes);
+                    _glob_variables(within_scope, without_scope, for_stmt->body(), inside_targets, target_scopes);
                     break;
                 }
                 case Statement::Tag::COMMENT: break;
                 case Statement::Tag::RAY_QUERY: {
                     auto ray_query_stmt = static_cast<const RayQueryStmt *>(s);
                     _glob_variables(sets, ray_query_stmt->query());
-                    _glob_variables(all, within_scope, without_scope, ray_query_stmt->on_triangle_candidate(), target_scopes);
-                    _glob_variables(all, within_scope, without_scope, ray_query_stmt->on_procedural_candidate(), target_scopes);
+                    _glob_variables(within_scope, without_scope, ray_query_stmt->on_triangle_candidate(), inside_targets, target_scopes);
+                    _glob_variables(within_scope, without_scope, ray_query_stmt->on_procedural_candidate(), inside_targets, target_scopes);
                     break;
                 }
             }
@@ -305,30 +300,114 @@ private:
     }
 
     void _create_outline_definitions(Function f, const RayQueryStmt *s) noexcept {
+        // check if the ray query is already outlined
+        if (_outline_infos.contains(s)) { return; }
+
+        // sort variables used in the ray query
         std::array target_scopes{s->on_triangle_candidate(),
                                  s->on_procedural_candidate()};
-        luisa::unordered_set<uint> all_variables;
-        luisa::unordered_set<uint> within_scope_variables;
-        luisa::unordered_set<uint> without_scope_variables;
-        _glob_variables(all_variables,
-                        within_scope_variables,
+        luisa::unordered_set<Variable> within_scope_variables;
+        luisa::unordered_set<Variable> without_scope_variables;
+        _glob_variables(within_scope_variables,
                         without_scope_variables,
-                        f.body(), target_scopes);
+                        f.body(), false,
+                        target_scopes);
         // find local and captured variables
-        luisa::unordered_set<uint> local_variable_set;   // V(local) = V(all) - V(function - scope)
-        luisa::unordered_set<uint> captured_variable_set;// V(captured) = V(scope) - V(local)
-        for (auto v : all_variables) {
-            if (!without_scope_variables.contains(v)) {
+        luisa::unordered_set<Variable> local_variable_set;// V(local) = V(all) - V(function - scope)
+        for (auto v : f.local_variables()) {
+            if (!without_scope_variables.contains(v) &&
+                v.type() != _codegen->_ray_query_all_type &&
+                v.type() != _codegen->_ray_query_any_type) {
                 local_variable_set.emplace(v);
             }
         }
+        luisa::vector<Variable> captured_variables;// V(captured) = V(scope) - V(local)
         for (auto v : within_scope_variables) {
-            if (!local_variable_set.contains(v)) {
-                captured_variable_set.emplace(v);
+            if (!local_variable_set.contains(v) &&
+                v.type() != _codegen->_ray_query_all_type &&
+                v.type() != _codegen->_ray_query_any_type) {
+                captured_variables.emplace_back(v);
             }
         }
-        // create function context struct
+        std::sort(captured_variables.begin(), captured_variables.end(), [](auto lhs, auto rhs) noexcept {
+            auto lhs_size = lhs.is_resource() ? 16u : lhs.type()->alignment();
+            auto rhs_size = rhs.is_resource() ? 16u : rhs.type()->alignment();
+            return lhs_size > rhs_size;
+        });
 
+        // create outline struct
+        auto rq_index = static_cast<uint>(_outline_infos.size());
+        _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
+        for (auto v : captured_variables) {
+            _codegen->_scratch << "\n  ";
+            _codegen->_emit_variable_decl(v, false);
+            _codegen->_scratch << ";";
+        }
+        _codegen->_scratch << "\n};\n\n";
+
+        auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
+            auto indent = _codegen->_indent;
+            {
+                _codegen->_indent = 1;
+                // copy captured variables
+                for (auto v : captured_variables) {
+                    _codegen->_emit_indent();
+                    _codegen->_emit_variable_decl(v, false);
+                    _codegen->_scratch << " = ctx.";
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ";\n";
+                }
+                // declare local variables
+                for (auto v : local_variable_set) {
+                    _codegen->_emit_indent();
+                    _codegen->_emit_variable_decl(v, false);
+                    _codegen->_scratch << ";\n";
+                }
+                // emit body
+                _codegen->_emit_indent();
+                _codegen->_scratch << "{ // intersection handling body\n";
+                _codegen->_indent++;
+                for (auto s : stmt->statements()) {
+                    _codegen->_emit_indent();
+                    s->accept(*_codegen);
+                    _codegen->_scratch << "\n";
+                }
+                _codegen->_indent--;
+                _codegen->_emit_indent();
+                _codegen->_scratch << "} // intersection handling body\n";
+                // copy back local variables
+                for (auto v : captured_variables) {
+                    if (!v.is_resource()) {
+                        _codegen->_emit_indent();
+                        _codegen->_scratch << "ctx.";
+                        _codegen->_emit_variable_name(v);
+                        _codegen->_scratch << " = ";
+                        _codegen->_emit_variable_name(v);
+                        _codegen->_scratch << ";\n";
+                    }
+                }
+            }
+            _codegen->_indent = indent;
+        };
+
+        // create outlined triangle function
+        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
+                           << "  auto &ctx = *static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
+                           << "  LCTriangleIntersectionResult result{};\n";
+        generate_intersection_body(s->on_triangle_candidate());
+        _codegen->_scratch << "  return result;\n"
+                              "}\n\n";
+
+        // create outlined procedural function
+        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
+                           << "  auto &ctx = *static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
+                           << "  LCProceduralIntersectionResult result{};\n";
+        generate_intersection_body(s->on_procedural_candidate());
+        _codegen->_scratch << "  return result;\n"
+                              "}\n\n";
+
+        // record the outline function
+        _outline_infos.emplace(s, OutlineInfo{rq_index, std::move(captured_variables)});
     }
 
 public:
@@ -348,6 +427,44 @@ public:
     }
 
     void lower(const RayQueryStmt *stmt) noexcept {
+        auto &&[rq_index, captured_variables] = _outline_infos.at(stmt);
+        // create ray query context
+        _codegen->_scratch << "\n";
+        _codegen->_emit_indent();
+        _codegen->_scratch << "{ // ray query #" << rq_index << "\n";
+        _codegen->_indent++;
+        _codegen->_emit_indent();
+        _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
+        // copy captured variables
+        _codegen->_indent++;
+        for (auto v : captured_variables) {
+            _codegen->_emit_indent();
+            // _codegen->_scratch << "  .";
+            // _codegen->_emit_variable_name(v);
+            // _codegen->_scratch << " = ";
+            _codegen->_emit_variable_name(v);
+            _codegen->_scratch << ",\n";
+        }
+        _codegen->_indent--;
+        _codegen->_emit_indent();
+        _codegen->_scratch << "};\n";
+        _codegen->_emit_indent();
+        _codegen->_scratch << "lc_ray_query_trace(";
+        stmt->query()->accept(*_codegen);
+        _codegen->_scratch << ", " << rq_index << ", &ctx);\n";
+        // copy back captured variables
+        for (auto v : captured_variables) {
+            if (!v.is_resource()) {
+                _codegen->_emit_indent();
+                _codegen->_emit_variable_name(v);
+                _codegen->_scratch << " = ctx.";
+                _codegen->_emit_variable_name(v);
+                _codegen->_scratch << ";\n";
+            }
+        }
+        _codegen->_indent--;
+        _codegen->_emit_indent();
+        _codegen->_scratch << "} // ray query #" << rq_index << "\n";
     }
 };
 
@@ -963,12 +1080,20 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCProceduralHit";
             } else if (type == _committed_hit_type) {
                 _scratch << "LCCommittedHit";
-            } else if (type == _ray_query_all_type) {
+            } else {
+                _scratch << "S" << hash_to_string(type->hash());
+            }
+            break;
+        }
+        case Type::Tag::CUSTOM: {
+            if (type == _ray_query_all_type) {
                 _scratch << "LCRayQueryAll";
             } else if (type == _ray_query_any_type) {
                 _scratch << "LCRayQueryAny";
             } else {
-                _scratch << "S" << hash_to_string(type->hash());
+                LUISA_ERROR_WITH_LOCATION(
+                    "Unsupported custom type: {}.",
+                    type->description());
             }
             break;
         }

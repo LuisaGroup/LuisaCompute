@@ -18,7 +18,11 @@ int main(int argc, char *argv[]) {
     constexpr uint32_t width = 1280;
     constexpr uint32_t height = 720;
     Context context{argv[0]};
-    auto device = context.create_device("dx");
+    if (argc <= 1) {
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
+        exit(1);
+    }
+    auto device = context.create_device(argv[1]);
     auto stream = device.create_stream();
     auto device_image1 = device.create_image<float>(PixelStorage::BYTE4, width, height, 0u);
     int count = 1024;

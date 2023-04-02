@@ -6,6 +6,7 @@
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_mesh.h>
+#include <backends/cuda/cuda_procedural_primitive.h>
 #include <backends/cuda/cuda_accel.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_device.h>
@@ -197,13 +198,14 @@ void CUDACommandEncoder::visit(MeshBuildCommand *command) noexcept {
     mesh->build(*this, command);
 }
 
+void CUDACommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
+    auto primitive = reinterpret_cast<CUDAProceduralPrimitive *>(command->handle());
+    primitive->build(*this, command);
+}
+
 void CUDACommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {
     auto bindless_array = reinterpret_cast<CUDABindlessArray *>(command->handle());
     bindless_array->update(*this, command);
-}
-
-void CUDACommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
 }
 
 void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
