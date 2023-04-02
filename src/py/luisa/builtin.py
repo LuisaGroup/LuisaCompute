@@ -132,7 +132,7 @@ def builtin_bin_op(op, lhs, rhs):
     scalar_operation = length0 == length1 == 1
     dtype = None
 
-    if op in (ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift):
+    if op in {ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift}:
         inner_type_0 = element_of(lhs.dtype)
         assert inner_type_0 in [int, uint, int16, uint16], \
             f'operator `{op}` only supports `int` and `uint` types.'
@@ -146,12 +146,12 @@ def builtin_bin_op(op, lhs, rhs):
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
         # and / or: bool allowed
-    elif op in (ast.And, ast.Or):
+    elif op in {ast.And, ast.Or}:
         assert element_of(lhs.dtype) == element_of(rhs.dtype) == bool, f'operator `{op}` only supports `bool` type.'
         dtype = deduce_broadcast(dtype0, dtype1)
         # add / sub / div: int, uint and float allowed
         # relational: int, uint and float allowed
-    elif op in (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
+    elif op in {ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq}:
         inner_type_0 = element_of(lhs.dtype)
         assert inner_type_0 in [int, uint, float, int16, uint16, float16], \
             f'operator `{op}` only supports `int`, `uint` and `float` types.'
@@ -168,7 +168,7 @@ def builtin_bin_op(op, lhs, rhs):
             assert implicit_covertable(element_of(rhs.dtype), inner_type_0), \
                 'operation between vectors of different types not supported.'
             dtype = deduce_broadcast(dtype0, dtype1)
-        if op in (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq):
+        if op in {ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.Eq, ast.NotEq}:
             dtype = to_bool(dtype)
         elif op is ast.Div:
             dtype = to_float(dtype)
@@ -297,7 +297,7 @@ def discard():
 def bitwise_cast(*args):
     assert len(args)==2 and args[0].dtype == type
     dtype = args[0].expr
-    assert dtype in (int, uint, float, int16, uint16, float16)
+    assert dtype in {int, uint, float, int16, uint16, float16}
     op = lcapi.CastOp.BITWISE
     return dtype, lcapi.builder().cast(to_lctype(dtype), op, args[1].expr)
 
@@ -519,7 +519,7 @@ def _tri_arg(name, *args):
     if name == 'clamp':
         assert e in {int, uint, float, int16, uint16, float16}
     else:
-        assert e == float
+        assert e in {float, float16}
     return make_vector_call(e, op, args)
 for name in ('clamp', 'fma'):
     _func_map[name] = _tri_arg
