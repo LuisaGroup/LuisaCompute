@@ -361,7 +361,7 @@ private:
                 for (auto v : local_variable_set) {
                     _codegen->_emit_indent();
                     _codegen->_emit_variable_decl(v, false);
-                    _codegen->_scratch << ";\n";
+                    _codegen->_scratch << "{};\n";
                 }
                 // emit body
                 _codegen->_emit_indent();

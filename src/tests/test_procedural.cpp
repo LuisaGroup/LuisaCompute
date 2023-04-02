@@ -1,4 +1,5 @@
 #include <luisa-compute.h>
+#include <dsl/printer.h>
 #include <dsl/sugar.h>
 #include <stb/stb_image_write.h>
 #include <iostream>
@@ -59,6 +60,9 @@ int main(int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
+    Printer printer{device};
+    stream << printer.reset();
+
     Kernel2D kernel = [&](Float3 pos) {
         Var coord = dispatch_id().xy();
         Var size = dispatch_size().xy();
@@ -74,11 +78,14 @@ int main(int argc, char *argv[]) {
         Var sphere_dist = 1e30f;
         Var<float3> sphere_color;
         auto hit = accel->query_all(ray)
-                       .on_triangle_candidate([](auto &candidate) noexcept {
+                       .on_triangle_candidate([&](auto &candidate) noexcept {
+                           auto h = candidate.hit();
+                           printer.info("Hello from triangle candidate ({}, {})!", h.inst, h.prim);
                            candidate.commit();
                        })
                        .on_procedural_candidate([&](auto &candidate) noexcept {
                            auto h = candidate.hit();
+                           printer.info("Hello from procedural candidate ({}, {})!", h.inst, h.prim);
                            auto aabb = aabb_buffer->read(h.prim);
                            //ray-sphere intersection
                            auto origin = (aabb->min() + aabb->max()) * .5f;
@@ -123,6 +130,7 @@ int main(int argc, char *argv[]) {
     const float3 pos = make_float3(0.f, 0.f, 18.0f);
     stream
         << s(pos).dispatch(width, height)
+        << printer.retrieve()
         << device_image1.copy_to(pixels.data())
         << synchronize();
     stbi_write_png("test_procedural.png", width, height, 4, pixels.data(), 0);

@@ -1524,14 +1524,14 @@ inline void lc_ray_query_terminate() noexcept {
 #endif
 
 struct LCProceduralIntersectionResult {
-    lc_float t_hit;
-    lc_bool committed;
-    lc_bool terminated;
+    lc_float t_hit{};
+    lc_bool committed{};
+    lc_bool terminated{};
 };
 
 struct LCTriangleIntersectionResult {
-    lc_bool committed;
-    lc_bool terminated;
+    lc_bool committed{};
+    lc_bool terminated{};
 };
 
 #define LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(index) \
