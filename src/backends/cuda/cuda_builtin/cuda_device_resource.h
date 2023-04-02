@@ -1463,7 +1463,7 @@ using LCRayQueryAny = LCRayQuery<true>;
 template<bool terminate_on_first>
 [[nodiscard]] inline auto lc_ray_query_trace(LCRayQuery<terminate_on_first> &q, lc_uint impl_tag, void *ctx) noexcept {
     constexpr auto flags = terminate_on_first ?
-                               LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT | LC_RAY_FLAG_DISABLE_CLOSEST_HIT :
+                               LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT :
                                LC_RAY_FLAG_NONE;
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
     auto p_instances = reinterpret_cast<lc_ulong>(q.accel.instances);
@@ -1476,11 +1476,11 @@ template<bool terminate_on_first>
     q.hit = lc_ray_query_decode_hit(r0, r1, r2, r3, r4);
 }
 
-[[nodiscard]] inline auto lc_trace_query_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+[[nodiscard]] inline auto lc_accel_query_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     return LCRayQueryAll{accel, ray, mask, LCCommittedHit{}};
 }
 
-[[nodiscard]] inline auto lc_trace_query_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+[[nodiscard]] inline auto lc_accel_query_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     return LCRayQueryAny{accel, ray, mask, LCCommittedHit{}};
 }
 
