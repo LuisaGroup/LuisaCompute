@@ -33,9 +33,14 @@ struct Test3 {
     bool c;
 };
 
+struct Point3D {
+    float3 v;
+};
+
 LUISA_STRUCT(Test1, something, a) {};
 LUISA_STRUCT(Test2, a, b) {};
 LUISA_STRUCT(Test3, a, b, c) {};
+LUISA_STRUCT(Point3D, v) {};
 
 int main(int argc, char *argv[]) {
 
@@ -54,6 +59,8 @@ int main(int argc, char *argv[]) {
     auto float_buffer = device.create_buffer<float>(1024u);
 
     Callable c1 = [&](UInt a) noexcept {
+        Var<Point3D> p1;
+        Var<Point3D> p2{make_float3(1.f)};
         Var<Test1> t1;
         Var<Test2> t2;
         Var<Test3> t3;
