@@ -11,13 +11,13 @@ from .builtin import check_exact_signature
 from .types import uint
 from .struct import CustomType
 from .hit import TriangleHit, CommittedHit, ProceduralHit
-class RayQueryType:
+class RayQueryAllType:
     def __init__(self):
-        self.luisa_type = lcapi.Type.custom("LC_RayQuery")
+        self.luisa_type = lcapi.Type.custom("LC_RayQueryAll")
     def __eq__(self, other):
-        return type(other) is RayQueryType and self.dtype == other.dtype
+        return type(other) is RayQueryAllType and self.dtype == other.dtype
     def __hash__(self):
-        return hash("LC_RayQuery") ^ 1641414112621983
+        return hash("LC_RayQueryAll") ^ 1641414112621983
     @func
     def procedural_candidate(self):
         return _builtin_call(ProceduralHit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)
@@ -36,15 +36,32 @@ class RayQueryType:
     @func
     def commit_procedural(self, distance:float):
         _builtin_call("RAY_QUERY_COMMIT_PROCEDURAL", self, distance)
-rayQueryType = RayQueryType()
-class RayQuery:
+rayQueryAllType = RayQueryAllType()
+class RayQueryAnyType:
     def __init__(self):
-        self.queryType = rayQueryType
-        self.procedural_candidate = self.queryType.procedural_candidate
-        self.triangle_candidate = self.queryType.triangle_candidate
-        self.committed_hit = self.queryType.committed_hit
-        self.commit_triangle = self.queryType.commit_triangle
-        self.commit_procedural = self.queryType.commit_procedural
-rayQuery = RayQuery()
+        self.luisa_type = lcapi.Type.custom("LC_RayQueryAny")
+    def __eq__(self, other):
+        return type(other) is RayQueryAnyType and self.dtype == other.dtype
+    def __hash__(self):
+        return hash("LC_RayQueryAny") ^ 2239219477752302592
+    @func
+    def procedural_candidate(self):
+        return _builtin_call(ProceduralHit, "RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", self)
+    @func
+    def triangle_candidate(self):
+        return _builtin_call(TriangleHit, "RAY_QUERY_TRIANGLE_CANDIDATE_HIT", self)
+    @func
+    def committed_hit(self):
+        return _builtin_call(CommittedHit, "RAY_QUERY_COMMITTED_HIT", self)
+    @func
+    def terminate(self):
+        _builtin_call("RAY_QUERY_TERMINATE", self)
+    @func
+    def commit_triangle(self):
+        _builtin_call("RAY_QUERY_COMMIT_TRIANGLE", self)
+    @func
+    def commit_procedural(self, distance:float):
+        _builtin_call("RAY_QUERY_COMMIT_PROCEDURAL", self, distance)
+rayQueryAnyType = RayQueryAnyType()
 def is_triangle(): ...
 def is_procedural(): ...

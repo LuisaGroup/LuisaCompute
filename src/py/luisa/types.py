@@ -175,7 +175,7 @@ def dtype_of(val):
         return type(val)
     if type(val) is list:
         raise Exception("list is unsupported. Convert to Array instead.")
-    if type(val).__name__ in {"ArrayType", "StructType", "BufferType", "IndirectBufferType", "RayQueryType", "SharedArrayType"} or val in basic_dtypes:
+    if type(val).__name__ in {"ArrayType", "StructType", "BufferType", "IndirectBufferType", "RayQueryAllType", "RayQueryAnyType", "SharedArrayType"} or val in basic_dtypes:
         return type
     if type(val).__name__ == "function":
         raise Exception(f"dtype_of ({val}): unrecognized type. Did you forget to decorate with luisa.func?")
@@ -184,7 +184,7 @@ def dtype_of(val):
 
 
 def to_lctype(dtype):
-    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType", "Texture3DType", "CustomType", "IndirectBufferType", "RayQueryType", "SharedArrayType"}:
+    if type(dtype).__name__ in {"ArrayType", "StructType", "BufferType", "Texture2DType", "Texture3DType", "CustomType", "IndirectBufferType", "RayQueryAllType", "RayQueryAnyType", "SharedArrayType"}:
         return dtype.luisa_type
     if not hasattr(dtype, "__name__"):
         raise TypeError(f"{dtype} is not a valid data type")

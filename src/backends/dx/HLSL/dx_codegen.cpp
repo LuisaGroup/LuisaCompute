@@ -439,7 +439,8 @@ void StringStateVisitor::visit(const ForStmt *state) {
 void StringStateVisitor::visit(const RayQueryStmt *stmt) {
     str << "{\n"sv;
     auto qstr = vstd::string("q"sv).append(vstd::to_string(rayQuery));
-    str << "LC_RayQuery "sv << qstr << '=';
+    CodegenUtility::GetTypeName(*stmt->query()->type(), str, Usage::READ_WRITE, true);
+    str << ' ' << qstr << '=';
     rayQuery++;
     stmt->query()->accept(*this);
     str << ";\n"sv;

@@ -8,7 +8,7 @@ from .func import func
 from .types import to_lctype
 from .builtin import _builtin_call, bitwise_cast
 from .hit import TriangleHit, CommittedHit, ProceduralHit
-from .rayquery import rayQueryType, rayQuery
+from .rayquery import rayQueryAllType, rayQueryAnyType
 # Ray
 Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
 
@@ -165,5 +165,8 @@ class Accel:
     def set_instance_visibility(self, index: int, visibility_mask: int):
         _builtin_call("RAY_TRACING_SET_INSTANCE_OPACITY", self, index, visibility_mask)
     @func
-    def trace_all(self, ray: Ray, vis_mask: int):
-        return _builtin_call(rayQueryType, "RAY_TRACING_TRACE_ALL", self, ray, vis_mask)
+    def query_all(self, ray: Ray, vis_mask: int):
+        return _builtin_call(rayQueryAllType, "RAY_TRACING_QUERY_ALL", self, ray, vis_mask)
+    @func
+    def query_any(self, ray: Ray, vis_mask: int):
+        return _builtin_call(rayQueryAnyType, "RAY_TRACING_QUERY_ANY", self, ray, vis_mask)

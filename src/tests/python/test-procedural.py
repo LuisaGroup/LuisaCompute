@@ -83,7 +83,7 @@ def kernel(pos):
     ray_origin = pos
     direction = normalize(float3(p * tan(.5 * fov) * float2(aspect, 1.), -1.))
     ray = make_ray(ray_origin, direction, 1e-3, 1e3)
-    q = acc.trace_all(ray, -1)
+    q = acc.query_all(ray, -1)
     sphere_dist = 1e3
     match(q):
         case is_triangle():

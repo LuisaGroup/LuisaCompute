@@ -134,11 +134,11 @@ def builtin_bin_op(op, lhs, rhs):
 
     if op in (ast.Mod, ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift):
         inner_type_0 = element_of(lhs.dtype)
-        assert inner_type_0 in [int, uint], \
+        assert inner_type_0 in [int, uint, int16, uint16], \
             f'operator `{op}` only supports `int` and `uint` types.'
         if scalar_operation:
             inner_type_1 = element_of(rhs.dtype)
-            assert inner_type_1 in [int, uint], \
+            assert inner_type_1 in [int, uint, int16, uint16], \
                 f'operator `{op}` only supports `int` and `uint` types.'
             dtype = upper_scalar_dtype(dtype0, dtype1)
         else:
@@ -327,7 +327,7 @@ def set_block_size(x, y, z):
         else:
             values.append(a.value)
     for i in range(3):
-        if type(values[i]) != int and type(values[i]) != uint:
+        if type(values[i]) in {int, uint, int16, uint16}:
             raise TypeError(f"set_block_size argument {i} must be int or uint")
         elif values[i] == 0:
             raise ValueError(f"block size can not be 0")

@@ -370,7 +370,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
-        case CallOp::RAY_TRACING_TRACE_ALL: _scratch << "lc_accel_trace_all"; break;
+        case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_trace_all"; break;
+        case CallOp::RAY_TRACING_QUERY_ANY: /*TODO: Query Any*/ break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;

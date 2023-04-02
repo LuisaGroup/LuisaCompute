@@ -52,7 +52,7 @@ namespace detail {
     auto builder = detail::FunctionBuilder::current();
     auto local = builder->local(Type::of<RayQuery>());
     auto call = builder->call(Type::of<RayQuery>(),
-                              CallOp::RAY_TRACING_TRACE_ALL,
+                              CallOp::RAY_TRACING_QUERY_ALL,
                               {accel, ray, mask});
     builder->assign(local, call);
     return local;
