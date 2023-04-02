@@ -4,11 +4,6 @@
 
 namespace luisa::compute {
 
-Var<CommittedHit> RayQuery::committed_hit() const noexcept {
-    return def<CommittedHit>(detail::FunctionBuilder::current()->call(
-        Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_expr}));
-}
-
 Var<TriangleHit> TriangleCandidate::hit() const noexcept {
     return def<TriangleHit>(detail::FunctionBuilder::current()->call(
         Type::of<TriangleHit>(),
@@ -46,77 +41,85 @@ void ProceduralCandidate::terminate() const noexcept {
 
 namespace detail {
 
+template<bool terminate_on_first>
 [[nodiscard]] inline auto make_ray_query_object(const Expression *accel,
                                                 const Expression *ray,
                                                 const Expression *mask) noexcept {
     auto builder = detail::FunctionBuilder::current();
-    auto local = builder->local(Type::of<RayQuery>());
-    auto call = builder->call(Type::of<RayQuery>(),
-                              CallOp::RAY_TRACING_TRACE_ALL,
-                              {accel, ray, mask});
+    auto type = Type::of<RayQueryBase<terminate_on_first>>();
+    auto local = builder->local(type);
+    auto op = terminate_on_first ?
+                  CallOp::RAY_TRACING_QUERY_ANY :
+                  CallOp::RAY_TRACING_QUERY_ALL;
+    auto call = builder->call(type, op, {accel, ray, mask});
     builder->assign(local, call);
     return local;
 }
 
-RayQueryBuilder::RayQueryBuilder(const Expression *accel,
-                                 const Expression *ray,
-                                 const Expression *mask) noexcept
+template<bool terminate_on_first>
+RayQueryBase<terminate_on_first>::RayQueryBase(const Expression *accel,
+                                               const Expression *ray,
+                                               const Expression *mask) noexcept
     : _stmt{detail::FunctionBuilder::current()->ray_query_(
-          make_ray_query_object(accel, ray, mask))} {}
+          make_ray_query_object<terminate_on_first>(accel, ray, mask))} {}
 
-RayQuery RayQueryBuilder::query() &&noexcept {
-    _queried = true;
-    return RayQuery{_stmt->query()};
-}
+template<bool terminate_on_first>
+RayQueryBase<terminate_on_first>
+RayQueryBase<terminate_on_first>::on_triangle_candidate(
+    const RayQueryBase::TriangleCandidateHandler &handler) && noexcept {
 
-RayQueryBuilder RayQueryBuilder::on_triangle_candidate(
-    const RayQueryBuilder::TriangleCandidateHandler &handler) &&noexcept {
-
-    LUISA_ASSERT(_stmt != nullptr && !_triangle_handler_set && !_queried &&
+    LUISA_ASSERT(_stmt != nullptr && !_triangle_handler_set &&
                      !_inside_triangle_handler && !_inside_procedural_handler,
-                 "RayQueryBuilder::on_triangle_candidate() is in an invalid state.");
+                 "RayQueryBase::on_triangle_candidate() is in an invalid state.");
     _triangle_handler_set = true;
     _inside_triangle_handler = true;
     auto builder = detail::FunctionBuilder::current();
     builder->with(_stmt->on_triangle_candidate(), [&] {
-        TriangleCandidate candidate{this, _stmt->query()};
+        TriangleCandidate candidate{_stmt->query()};
         handler(candidate);
     });
     _inside_triangle_handler = false;
     return std::move(*this);
 }
 
-RayQueryBuilder detail::RayQueryBuilder::on_procedural_candidate(
-    const RayQueryBuilder::ProceduralCandidateHandler &handler) &&noexcept {
+template<bool terminate_on_first>
+RayQueryBase<terminate_on_first>
+RayQueryBase<terminate_on_first>::on_procedural_candidate(
+    const RayQueryBase::ProceduralCandidateHandler &handler) && noexcept {
 
-    LUISA_ASSERT(_stmt != nullptr && !_procedural_handler_set && !_queried &&
+    LUISA_ASSERT(_stmt != nullptr && !_procedural_handler_set &&
                      !_inside_triangle_handler && !_inside_procedural_handler,
-                 "RayQueryBuilder::on_procedural_candidate() is in an invalid state.");
+                 "RayQueryBase::on_procedural_candidate() is in an invalid state.");
     _procedural_handler_set = true;
     _inside_procedural_handler = true;
     auto builder = detail::FunctionBuilder::current();
     builder->with(_stmt->on_procedural_candidate(), [&] {
-        ProceduralCandidate candidate{this, _stmt->query()};
+        ProceduralCandidate candidate{_stmt->query()};
         handler(candidate);
     });
     _inside_procedural_handler = false;
     return std::move(*this);
 }
 
-RayQueryBuilder::RayQueryBuilder(RayQueryBuilder &&another) noexcept
+template<bool terminate_on_first>
+Var<CommittedHit> RayQueryBase<terminate_on_first>::trace() const noexcept {
+    LUISA_ASSERT(_stmt != nullptr,
+                 "RayQueryBase::trace() called on moved object.");
+    return def<CommittedHit>(detail::FunctionBuilder::current()->call(
+        Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_stmt->query()}));
+}
+
+template<bool terminate_on_first>
+RayQueryBase<terminate_on_first>::RayQueryBase(RayQueryBase &&another) noexcept
     : _stmt{another._stmt},
-      _queried{another._queried},
       _triangle_handler_set{another._triangle_handler_set},
       _procedural_handler_set{another._procedural_handler_set},
       _inside_triangle_handler{another._inside_triangle_handler},
       _inside_procedural_handler{another._inside_procedural_handler} { another._stmt = nullptr; }
 
-RayQueryBuilder::~RayQueryBuilder() noexcept {
-    if (_stmt != nullptr) {
-        LUISA_ASSERT(_queried, "RayQueryBuilder is destructed "
-                               "without calling query().");
-    }
-}
+// export the template instantiations
+template class RayQueryBase<false>;
+template class RayQueryBase<true>;
 
 }// namespace detail
 

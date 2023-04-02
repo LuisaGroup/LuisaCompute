@@ -69,38 +69,37 @@ int main(int argc, char *argv[]) {
         // traversal aceeleration structure with ray-query
         Var sphere_dist = 1e30f;
         Var<float3> sphere_color;
-        auto q = accel->trace_all(ray)
-            .on_triangle_candidate([](auto &candidate) noexcept {
-                candidate.commit();
-            })
-            .on_procedural_candidate([&](auto &candidate) noexcept {
-                auto h = candidate.hit();
-                auto aabb = aabb_buffer->read(h.prim);
-                //ray-sphere intersection
-                auto origin = (aabb->min() + aabb->max()) * .5f;
-                auto ray_origin = ray->origin();
-                auto L = origin - ray_origin;
-                auto dir = ray->direction();
-                auto cos_theta = dot(dir, normalize(L));
-                $if(cos_theta > 0.f) {
-                    auto d_oc = length(L);
-                    auto tc = d_oc * cos_theta;
-                    auto d = sqrt(d_oc * d_oc - tc * tc);
-                    $if(d <= radius) {
-                        auto t1c = sqrt(radius * radius - d * d);
-                        auto dist = tc - t1c;
-                        // save normal as color
-                        $if(dist <= sphere_dist) {
-                            sphere_dist = dist;
-                            auto normal = normalize(ray_origin + dir * dist - origin);
-                            sphere_color = normal * 0.5f + 0.5f;
-                        };
-                        candidate.commit(dist);
-                    };
-                };
-            })
-            .query();
-        auto hit = q.committed_hit();
+        auto hit = accel->query_all(ray)
+                       .on_triangle_candidate([](auto &candidate) noexcept {
+                           candidate.commit();
+                       })
+                       .on_procedural_candidate([&](auto &candidate) noexcept {
+                           auto h = candidate.hit();
+                           auto aabb = aabb_buffer->read(h.prim);
+                           //ray-sphere intersection
+                           auto origin = (aabb->min() + aabb->max()) * .5f;
+                           auto ray_origin = ray->origin();
+                           auto L = origin - ray_origin;
+                           auto dir = ray->direction();
+                           auto cos_theta = dot(dir, normalize(L));
+                           $if(cos_theta > 0.f) {
+                               auto d_oc = length(L);
+                               auto tc = d_oc * cos_theta;
+                               auto d = sqrt(d_oc * d_oc - tc * tc);
+                               $if(d <= radius) {
+                                   auto t1c = sqrt(radius * radius - d * d);
+                                   auto dist = tc - t1c;
+                                   // save normal as color
+                                   $if(dist <= sphere_dist) {
+                                       sphere_dist = dist;
+                                       auto normal = normalize(ray_origin + dir * dist - origin);
+                                       sphere_color = normal * 0.5f + 0.5f;
+                                   };
+                                   candidate.commit(dist);
+                               };
+                           };
+                       })
+                       .trace();
         $if(hit->is_procedural()) {
             // write depth as color
             // device_image1->write(coord, make_float4(make_float3(1.f / log(hit->committed_ray_t)), 1.f));
