@@ -426,7 +426,7 @@ class ASTVisitor:
         # condition
         build(node.subject)
         case_map = {}
-        if type(node.subject.dtype).__name__ == "RayQueryType":
+        if type(node.subject.dtype).__name__ in {"RayQueryAllType", "RayQueryAnyType"}:
             # rayquery expr
             query_stmt = lcapi.builder().ray_query_(node.subject.expr)
             for c in node.cases:

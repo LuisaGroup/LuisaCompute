@@ -742,8 +742,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::RAY_TRACING_TRACE_ANY:
             str << "TraceAny"sv;
             break;
-        case CallOp::RAY_TRACING_TRACE_ALL:
-            str << "TraceAll"sv;
+        case CallOp::RAY_TRACING_QUERY_ALL:
+            str << "QueryAll"sv;
+            break;
+        case CallOp::RAY_TRACING_QUERY_ANY:
+            str << "QueryAny"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
             str << "READ_BUFFER"sv;

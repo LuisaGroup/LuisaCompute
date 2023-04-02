@@ -370,7 +370,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
-        case CallOp::RAY_TRACING_TRACE_ALL: _scratch << "lc_accel_trace_all"; break;
+        case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_trace_all"; break;
+        case CallOp::RAY_TRACING_QUERY_ANY: /*TODO: Query Any*/ break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
@@ -646,7 +647,8 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
         type != _triangle_hit_type &&
         type != _procedural_hit_type &&
         type != _committed_hit_type &&
-        type != _ray_query_type) {
+        type != _ray_query_all_type &&
+        type != _ray_query_any_type) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -691,8 +693,10 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCProceduralHit";
             } else if (type == _committed_hit_type) {
                 _scratch << "LCCommittedHit";
-            } else if (type == _ray_query_type) {
-                _scratch << "LCRayQuery";
+            } else if (type == _ray_query_all_type) {
+                _scratch << "LCRayQueryAll";
+            } else if (type == _ray_query_any_type) {
+                _scratch << "LCRayQueryAny";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
             }
@@ -851,7 +855,8 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},
       _committed_hit_type{Type::of<CommittedHit>()},
-      _ray_query_type{Type::of<RayQuery>()},
+      _ray_query_all_type{Type::of<RayQueryAll>()},
+      _ray_query_any_type{Type::of<RayQueryAny>()},
       _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)} {}
 
 CUDACodegenAST::~CUDACodegenAST() noexcept = default;

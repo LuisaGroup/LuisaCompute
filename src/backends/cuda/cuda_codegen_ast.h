@@ -32,7 +32,8 @@ private:
     const Type *_triangle_hit_type;
     const Type *_procedural_hit_type;
     const Type *_committed_hit_type;
-    const Type *_ray_query_type;
+    const Type *_ray_query_all_type;
+    const Type *_ray_query_any_type;
 
 private:
     void visit(const Type *type) noexcept override;
