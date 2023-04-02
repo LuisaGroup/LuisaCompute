@@ -501,9 +501,9 @@ _func_map["print"] = _print
 def _pow(name, *args):
     assert len(args) == 2
     for arg in args:
-        if not arg.dtype in {float, float16} :
+        if not (arg.dtype in {float, float16}):
             arg.dtype, arg.expr = builtin_type_cast(to_float(arg.dtype), arg)
-    return make_vector_call(arg.dtype, lcapi.CallOp.POW, args)
+    return make_vector_call(element_of(arg.dtype), lcapi.CallOp.POW, args)
 _func_map["pow"] = _pow
 def _aa(name, *args):
     op = getattr(lcapi.CallOp, name.upper())
