@@ -9,8 +9,8 @@ img = Image2D(*res, 4, float, storage="BYTE")
 def shader():
     coord = dispatch_id().xy
     size = dispatch_size().xy
-    uv = (float16_2(coord) + float16(0.5)) / float16_2(size)
-    img.write(coord, float16_4(uv, sin(uv.x), float16(1.)))
+    uv = (float2(coord) + float(0.5)) / float2(size)
+    img.write(coord, float4(uv, 0.5, float(1.)))
 
 
 shader(dispatch_size=(*res, 1))
