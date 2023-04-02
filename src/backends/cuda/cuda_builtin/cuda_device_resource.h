@@ -1148,9 +1148,16 @@ __device__ inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint i
 }
 
 __device__ inline void lc_accel_set_instance_opacity(LCAccel accel, lc_uint index, bool opaque) noexcept {
-    accel.instances[index].flags = opaque ?
-                                       LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING | LC_INSTANCE_FLAG_DISABLE_ANYHIT :
-                                       LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
+    auto flags = accel.instances[index].flags;
+    // procedural primitives ignores the opaque flag, so only
+    // apply the change when the instance is a triangle mesh
+    if (flags & LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING) {
+        flags &= ~(LC_INSTANCE_FLAG_DISABLE_ANYHIT |
+                   LC_INSTANCE_FLAG_ENFORCE_ANYHIT);
+        flags |= opaque ? LC_INSTANCE_FLAG_DISABLE_ANYHIT :
+                          LC_INSTANCE_FLAG_ENFORCE_ANYHIT;
+        accel.instances[index].flags = flags;
+    }
 }
 
 __device__ inline float atomicCAS(float *a, float cmp, float v) noexcept {
@@ -1432,12 +1439,16 @@ enum LCHitTypePrefix : lc_uint {
     LC_HIT_TYPE_PREFIX_MASK = 0xfu << 28u,
 };
 
+template<bool terminate_on_first>
 struct LCRayQuery {
     LCAccel accel;
     LCRay ray;
     lc_uint mask;
     LCCommittedHit hit;
 };
+
+using LCRayQueryAll = LCRayQuery<false>;
+using LCRayQueryAny = LCRayQuery<true>;
 
 [[nodiscard]] inline auto lc_ray_query_decode_hit(lc_uint u0, lc_uint u1, lc_uint u2, lc_uint u3, lc_uint u4) noexcept {
     LCCommittedHit hit;
@@ -1449,8 +1460,11 @@ struct LCRayQuery {
     return hit;
 }
 
-[[nodiscard]] inline auto lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
-    constexpr auto flags = LC_RAY_FLAG_ENFORCE_ANYHIT;
+template<bool terminate_on_first>
+[[nodiscard]] inline auto lc_ray_query_trace(LCRayQuery<terminate_on_first> &q, lc_uint impl_tag, void *ctx) noexcept {
+    constexpr auto flags = terminate_on_first ?
+                               LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT | LC_RAY_FLAG_DISABLE_CLOSEST_HIT :
+                               LC_RAY_FLAG_NONE;
     auto p_ctx = reinterpret_cast<lc_ulong>(ctx);
     auto p_instances = reinterpret_cast<lc_ulong>(q.accel.instances);
     auto r0 = impl_tag;
@@ -1462,11 +1476,16 @@ struct LCRayQuery {
     q.hit = lc_ray_query_decode_hit(r0, r1, r2, r3, r4);
 }
 
-[[nodiscard]] inline auto lc_trace_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
-    return LCRayQuery{accel, ray, mask, LCCommittedHit{}};
+[[nodiscard]] inline auto lc_trace_query_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    return LCRayQueryAll{accel, ray, mask, LCCommittedHit{}};
 }
 
-[[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery q) noexcept {
+[[nodiscard]] inline auto lc_trace_query_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
+    return LCRayQueryAny{accel, ray, mask, LCCommittedHit{}};
+}
+
+template<bool terminate_on_first>
+[[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery<terminate_on_first> q) noexcept {
     return q.hit;
 }
 

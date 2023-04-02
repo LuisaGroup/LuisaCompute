@@ -60,9 +60,9 @@ public:
 
     void emplace_back(const ProceduralPrimitive &prim,
                       float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      bool opaque = true) noexcept {
-        emplace_back_handle(prim.handle(), transform, visibility_mask, opaque);
+                      uint8_t visibility_mask = 0xffu) noexcept {
+        emplace_back_handle(prim.handle(), transform, visibility_mask,
+                            false /* procedural geometry is always non-opaque */);
     }
 
     void emplace_back_handle(uint64_t mesh_handle,
@@ -79,9 +79,8 @@ public:
 
     void set(size_t index, const ProceduralPrimitive &prim,
              float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu,
-             bool opaque = true) noexcept {
-        set_handle(index, prim.handle(), transform, visibility_mask, opaque);
+             uint8_t visibility_mask = 0xffu) noexcept {
+        set_handle(index, prim.handle(), transform, visibility_mask, false);
     }
 
     void set_handle(size_t index, uint64_t mesh_handle,

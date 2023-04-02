@@ -47,6 +47,7 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
         constexpr auto update_flag_opaque_on = 1u << 2u;
         constexpr auto update_flag_opaque_off = 1u << 3u;
         constexpr auto update_flag_visibility = 1u << 4u;
+        constexpr auto update_flag_procedural = 1u << 8u;
         constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
         constexpr auto update_flag_vis_mask_offset = 24u;
 
@@ -54,12 +55,21 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
         auto p = instances[m.index].property;
         p.instance_id = m.index;
         p.sbt_offset = 0u;
-        if (m.flags & update_flag_primitive) { p.traversable = m.primitive; }
+        if (m.flags & update_flag_primitive) {
+            p.traversable = m.primitive;
+            p.flags = (m.flags & update_flag_procedural) ?
+                          INSTANCE_FLAG_ENFORCE_ANYHIT :
+                          INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
+        }
         if (m.flags & update_flag_visibility) { p.mask = m.flags >> update_flag_vis_mask_offset; }
         if (m.flags & update_flag_opaque) {
-            p.flags = (m.flags & update_flag_opaque_on) ?
-                          INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING | INSTANCE_FLAG_DISABLE_ANYHIT :
-                          INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
+            if (p.flags & INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING) {
+                p.flags &= ~(INSTANCE_FLAG_DISABLE_ANYHIT |
+                             INSTANCE_FLAG_ENFORCE_ANYHIT);
+                p.flags |= (m.flags & update_flag_opaque_on) ?
+                               INSTANCE_FLAG_DISABLE_ANYHIT :
+                               INSTANCE_FLAG_ENFORCE_ANYHIT;
+            }
         }
         instances[m.index].property = p;
         if (m.flags & update_flag_transform) {

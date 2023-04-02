@@ -141,9 +141,13 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
             for (auto i = 0u; i < n; i++) {
                 auto m = mods[i];
                 if (m.flags & Mod::flag_primitive) {
+                    static constexpr auto mod_flag_procedural = 1u << 8u;
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
                     _primitives[m.index] = prim;
                     m.primitive = prim->handle();
+                    if (prim->tag() == CUDAPrimitive::Tag::PROCEDURAL) {
+                        m.flags |= mod_flag_procedural;
+                    }
                 }
                 host_updates[i] = m;
             }
