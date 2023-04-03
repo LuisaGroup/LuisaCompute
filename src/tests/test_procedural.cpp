@@ -85,7 +85,12 @@ int main(int argc, char *argv[]) {
                        })
                        .on_procedural_candidate([&](auto &candidate) noexcept {
                            auto h = candidate.hit();
-                           printer.info("Hello from procedural candidate ({}, {})!", h.inst, h.prim);
+                           $if(all(dispatch_id().xy() >= make_uint2(100u, 100u) &&
+                                   dispatch_id().xy() <= make_uint2(200u, 200u))) {
+                               printer.info_with_location(
+                                   "Hello from procedural candidate ({}, {})!",
+                                   h.inst, h.prim);
+                           };
                            auto aabb = aabb_buffer->read(h.prim);
                            //ray-sphere intersection
                            auto origin = (aabb->min() + aabb->max()) * .5f;

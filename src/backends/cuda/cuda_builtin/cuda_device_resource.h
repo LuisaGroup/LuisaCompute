@@ -1268,6 +1268,7 @@ template<lc_uint i>
     return f0;
 }
 
+#ifdef LUISA_ENABLE_OPTIX_TRACE_CLOSEST
 extern "C" __global__ void __closesthit__trace_closest() {
     lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_CLOSEST);
     auto inst = lc_get_instance_index();
@@ -1285,11 +1286,14 @@ extern "C" __global__ void __miss__trace_closest() {
     lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_CLOSEST);
     lc_set_payload<0u>(~0u);
 }
+#endif
 
+#ifdef LUISA_ENABLE_OPTIX_TRACE_ANY
 extern "C" __global__ void __miss__trace_any() {
     lc_set_payload_types(LC_PAYLOAD_TYPE_TRACE_ANY);
     lc_set_payload<0u>(~0u);
 }
+#endif
 
 [[nodiscard]] inline auto lc_undef() noexcept {
     auto u0 = 0u;
@@ -1376,7 +1380,7 @@ enum LCRayFlags : unsigned int {
     auto r2 = lc_undef();
     auto r3 = lc_undef();
     auto r4 = lc_undef();
-    lc_trace_impl<0u, 1u, 1u, flags>(LC_PAYLOAD_TYPE_TRACE_ANY, accel, ray, mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<0u, 2u, 1u, flags>(LC_PAYLOAD_TYPE_TRACE_ANY, accel, ray, mask, r0, r1, r2, r3, r4);
     return r0 != ~0u;
 }
 
@@ -1471,7 +1475,7 @@ template<bool terminate_on_first>
     auto r2 = static_cast<lc_uint>(p_ctx);
     auto r3 = lc_undef();
     auto r4 = lc_undef();
-    lc_trace_impl<1u, 2u, 5u, flags>(LC_PAYLOAD_TYPE_RAY_QUERY, q.accel, q.ray, q.mask, r0, r1, r2, r3, r4);
+    lc_trace_impl<1u, 1u, 5u, flags>(LC_PAYLOAD_TYPE_RAY_QUERY, q.accel, q.ray, q.mask, r0, r1, r2, r3, r4);
     q.hit = lc_ray_query_decode_hit(r0, r1, r2, r3, r4);
 }
 
@@ -1616,6 +1620,8 @@ LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(28);
 LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(29);
 LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(30);
 LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(31);
+
+#ifdef LUISA_ENABLE_OPTIX_RAY_QUERY
 
 extern "C" __global__ void __intersection__ray_query() {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
@@ -1885,6 +1891,8 @@ extern "C" __global__ void __miss__ray_query() {
     lc_set_payload<0u>(~0u);
 #endif
 }
+
+#endif
 
 #else
 

@@ -79,7 +79,14 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
         "Argument buffer size for {}: {}.",
         entry, _argument_buffer_size);
 
-    // TODO: enable ray query only when needed
+    // reflect ray tracing calls
+    auto detect_rtx_entry = [ptx = luisa::string_view{ptx, ptx_size}](luisa::string_view name) noexcept {
+        auto pattern = luisa::format(".visible .entry __miss__{}()", name);
+        return ptx.find(pattern) != luisa::string_view::npos;
+    };
+    auto uses_trace_closest = detect_rtx_entry("trace_closest");
+    auto uses_trace_any = detect_rtx_entry("trace_any");
+    auto uses_ray_query = detect_rtx_entry("ray_query");
 
     // create module
     static constexpr std::array trace_closest_payload_semantics{
@@ -119,7 +126,10 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
     pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
     pipeline_compile_options.numPayloadValues = 0u;
-    pipeline_compile_options.usesPrimitiveTypeFlags = optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
+    auto primitive_flags = uses_ray_query ? (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM |
+                                             optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
+                                            optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE;
+    pipeline_compile_options.usesPrimitiveTypeFlags = primitive_flags;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
     auto optix_ctx = device->handle().optix_context();
@@ -133,6 +143,9 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
             log, &log_size, &_module));
 
     // create program groups
+    luisa::fixed_vector<optix::ProgramGroup, 6u> program_groups;
+
+    // raygen
     optix::ProgramGroupOptions program_group_options_rg{};
     optix::ProgramGroupDesc program_group_desc_rg{};
     program_group_desc_rg.kind = optix::PROGRAM_GROUP_KIND_RAYGEN;
@@ -145,89 +158,98 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
             &program_group_desc_rg, 1u,
             &program_group_options_rg,
             log, &log_size, &_program_group_rg));
+    program_groups.emplace_back(_program_group_rg);
 
-    optix::ProgramGroupOptions program_group_options_ch_closest{};
-    program_group_options_ch_closest.payloadType = &payload_types[0];
-    optix::ProgramGroupDesc program_group_desc_ch_closest{};
-    program_group_desc_ch_closest.kind = optix::PROGRAM_GROUP_KIND_HITGROUP;
-    program_group_desc_ch_closest.hitgroup.moduleCH = _module;
-    program_group_desc_ch_closest.hitgroup.entryFunctionNameCH = "__closesthit__trace_closest";
-    LUISA_CHECK_OPTIX_WITH_LOG(
-        log, log_size,
-        optix::api().programGroupCreate(
-            optix_ctx,
-            &program_group_desc_ch_closest, 1u,
-            &program_group_options_ch_closest,
-            log, &log_size, &_program_group_ch_closest));
+    if (uses_trace_closest) {
+        optix::ProgramGroupOptions program_group_options_ch_closest{};
+        program_group_options_ch_closest.payloadType = &payload_types[0];
+        optix::ProgramGroupDesc program_group_desc_ch_closest{};
+        program_group_desc_ch_closest.kind = optix::PROGRAM_GROUP_KIND_HITGROUP;
+        program_group_desc_ch_closest.hitgroup.moduleCH = _module;
+        program_group_desc_ch_closest.hitgroup.entryFunctionNameCH = "__closesthit__trace_closest";
+        LUISA_CHECK_OPTIX_WITH_LOG(
+            log, log_size,
+            optix::api().programGroupCreate(
+                optix_ctx,
+                &program_group_desc_ch_closest, 1u,
+                &program_group_options_ch_closest,
+                log, &log_size, &_program_group_ch_closest));
 
-    optix::ProgramGroupOptions program_group_options_ch_query{};
-    program_group_options_ch_query.payloadType = &payload_types[2];
-    optix::ProgramGroupDesc program_group_desc_ch_query{};
-    program_group_desc_ch_query.kind = optix::PROGRAM_GROUP_KIND_HITGROUP;
-    program_group_desc_ch_query.hitgroup.moduleCH = _module;
-    program_group_desc_ch_query.hitgroup.entryFunctionNameCH = "__closesthit__ray_query";
-    program_group_desc_ch_query.hitgroup.moduleAH = _module;
-    program_group_desc_ch_query.hitgroup.entryFunctionNameAH = "__anyhit__ray_query";
-    program_group_desc_ch_query.hitgroup.moduleIS = _module;
-    program_group_desc_ch_query.hitgroup.entryFunctionNameIS = "__intersection__ray_query";
+        optix::ProgramGroupOptions program_group_options_miss_closest{};
+        program_group_options_miss_closest.payloadType = &payload_types[0];
+        optix::ProgramGroupDesc program_group_desc_miss_closest{};
+        program_group_desc_miss_closest.kind = optix::PROGRAM_GROUP_KIND_MISS;
+        program_group_desc_miss_closest.miss.module = _module;
+        program_group_desc_miss_closest.miss.entryFunctionName = "__miss__trace_closest";
+        LUISA_CHECK_OPTIX_WITH_LOG(
+            log, log_size,
+            optix::api().programGroupCreate(
+                optix_ctx,
+                &program_group_desc_miss_closest, 1u,
+                &program_group_options_miss_closest,
+                log, &log_size, &_program_group_miss_closest));
 
-    LUISA_CHECK_OPTIX_WITH_LOG(
-        log, log_size,
-        optix::api().programGroupCreate(
-            optix_ctx,
-            &program_group_desc_ch_query, 1u,
-            &program_group_options_ch_query,
-            log, &log_size, &_program_group_ch_query));
+        program_groups.emplace_back(_program_group_ch_closest);
+        program_groups.emplace_back(_program_group_miss_closest);
+    }
 
-    optix::ProgramGroupOptions program_group_options_miss_closest{};
-    program_group_options_miss_closest.payloadType = &payload_types[0];
-    optix::ProgramGroupDesc program_group_desc_miss_closest{};
-    program_group_desc_miss_closest.kind = optix::PROGRAM_GROUP_KIND_MISS;
-    program_group_desc_miss_closest.miss.module = _module;
-    program_group_desc_miss_closest.miss.entryFunctionName = "__miss__trace_closest";
-    LUISA_CHECK_OPTIX_WITH_LOG(
-        log, log_size,
-        optix::api().programGroupCreate(
-            optix_ctx,
-            &program_group_desc_miss_closest, 1u,
-            &program_group_options_miss_closest,
-            log, &log_size, &_program_group_miss_closest));
+    if (uses_ray_query) {
+        optix::ProgramGroupOptions program_group_options_ch_query{};
+        program_group_options_ch_query.payloadType = &payload_types[2];
+        optix::ProgramGroupDesc program_group_desc_ch_query{};
+        program_group_desc_ch_query.kind = optix::PROGRAM_GROUP_KIND_HITGROUP;
+        program_group_desc_ch_query.hitgroup.moduleCH = _module;
+        program_group_desc_ch_query.hitgroup.entryFunctionNameCH = "__closesthit__ray_query";
+        program_group_desc_ch_query.hitgroup.moduleAH = _module;
+        program_group_desc_ch_query.hitgroup.entryFunctionNameAH = "__anyhit__ray_query";
+        program_group_desc_ch_query.hitgroup.moduleIS = _module;
+        program_group_desc_ch_query.hitgroup.entryFunctionNameIS = "__intersection__ray_query";
 
-    optix::ProgramGroupOptions program_group_options_miss_any{};
-    program_group_options_miss_any.payloadType = &payload_types[1];
-    optix::ProgramGroupDesc program_group_desc_miss_any{};
-    program_group_desc_miss_any.kind = optix::PROGRAM_GROUP_KIND_MISS;
-    program_group_desc_miss_any.miss.module = _module;
-    program_group_desc_miss_any.miss.entryFunctionName = "__miss__trace_any";
-    LUISA_CHECK_OPTIX_WITH_LOG(
-        log, log_size,
-        optix::api().programGroupCreate(
-            optix_ctx,
-            &program_group_desc_miss_any, 1u,
-            &program_group_options_miss_any,
-            log, &log_size, &_program_group_miss_any));
+        LUISA_CHECK_OPTIX_WITH_LOG(
+            log, log_size,
+            optix::api().programGroupCreate(
+                optix_ctx,
+                &program_group_desc_ch_query, 1u,
+                &program_group_options_ch_query,
+                log, &log_size, &_program_group_ch_query));
 
-    optix::ProgramGroupOptions program_group_options_ray_query{};
-    program_group_options_ray_query.payloadType = &payload_types[2];
-    optix::ProgramGroupDesc program_group_desc_ray_query{};
-    program_group_desc_ray_query.kind = optix::PROGRAM_GROUP_KIND_MISS;
-    program_group_desc_ray_query.miss.module = _module;
-    program_group_desc_ray_query.miss.entryFunctionName = "__miss__ray_query";
-    LUISA_CHECK_OPTIX_WITH_LOG(
-        log, log_size,
-        optix::api().programGroupCreate(
-            optix_ctx,
-            &program_group_desc_ray_query, 1u,
-            &program_group_options_ray_query,
-            log, &log_size, &_program_group_miss_query));
+        optix::ProgramGroupOptions program_group_options_ray_query{};
+        program_group_options_ray_query.payloadType = &payload_types[2];
+        optix::ProgramGroupDesc program_group_desc_ray_query{};
+        program_group_desc_ray_query.kind = optix::PROGRAM_GROUP_KIND_MISS;
+        program_group_desc_ray_query.miss.module = _module;
+        program_group_desc_ray_query.miss.entryFunctionName = "__miss__ray_query";
+        LUISA_CHECK_OPTIX_WITH_LOG(
+            log, log_size,
+            optix::api().programGroupCreate(
+                optix_ctx,
+                &program_group_desc_ray_query, 1u,
+                &program_group_options_ray_query,
+                log, &log_size, &_program_group_miss_query));
+
+        program_groups.emplace_back(_program_group_ch_query);
+        program_groups.emplace_back(_program_group_miss_query);
+    }
+
+    if (uses_trace_any) {
+        optix::ProgramGroupOptions program_group_options_miss_any{};
+        program_group_options_miss_any.payloadType = &payload_types[1];
+        optix::ProgramGroupDesc program_group_desc_miss_any{};
+        program_group_desc_miss_any.kind = optix::PROGRAM_GROUP_KIND_MISS;
+        program_group_desc_miss_any.miss.module = _module;
+        program_group_desc_miss_any.miss.entryFunctionName = "__miss__trace_any";
+        LUISA_CHECK_OPTIX_WITH_LOG(
+            log, log_size,
+            optix::api().programGroupCreate(
+                optix_ctx,
+                &program_group_desc_miss_any, 1u,
+                &program_group_options_miss_any,
+                log, &log_size, &_program_group_miss_any));
+
+        program_groups.emplace_back(_program_group_miss_any);
+    }
 
     // create pipeline
-    std::array program_groups{_program_group_rg,
-                              _program_group_ch_closest,
-                              _program_group_miss_closest,
-                              _program_group_miss_any,
-                              _program_group_ch_query,
-                              _program_group_miss_query};
     optix::PipelineLinkOptions pipeline_link_options{};
     pipeline_link_options.debugLevel = enable_debug ? optix::COMPILE_DEBUG_LEVEL_MINIMAL :
                                                       optix::COMPILE_DEBUG_LEVEL_NONE;
@@ -250,12 +272,12 @@ CUDAShaderOptiX::~CUDAShaderOptiX() noexcept {
     LUISA_CHECK_CUDA(cuMemFree(_sbt_buffer));
     LUISA_CHECK_CUDA(cuEventDestroy(_sbt_event));
     LUISA_CHECK_OPTIX(optix::api().pipelineDestroy(_pipeline));
-    LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_rg));
-    LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ch_closest));
-    LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ch_query));
-    LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_miss_closest));
-    LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_miss_any));
-    LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_miss_query));
+    if (_program_group_rg) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_rg)); }
+    if (_program_group_ch_closest) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ch_closest)); }
+    if (_program_group_ch_query) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_ch_query)); }
+    if (_program_group_miss_closest) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_miss_closest)); }
+    if (_program_group_miss_any) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_miss_any)); }
+    if (_program_group_miss_query) { LUISA_CHECK_OPTIX(optix::api().programGroupDestroy(_program_group_miss_query)); }
     LUISA_CHECK_OPTIX(optix::api().moduleDestroy(_module));
 }
 
@@ -267,12 +289,12 @@ void CUDAShaderOptiX::_prepare_sbt(CUDACommandEncoder &encoder) const noexcept {
         LUISA_CHECK_CUDA(cuMemAllocAsync(&_sbt_buffer, sbt_buffer_size, cuda_stream));
         encoder.with_upload_buffer(sbt_buffer_size, [&](CUDAHostBufferPool::View *sbt_record_buffer) noexcept {
             auto sbt_records = reinterpret_cast<OptiXSBTRecord *>(sbt_record_buffer->address());
-            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0]));
-            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1]));
-            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_query, &sbt_records[2]));
-            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_closest, &sbt_records[3]));
-            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_any, &sbt_records[4]));
-            LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_query, &sbt_records[5]));
+            if (_program_group_rg) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_rg, &sbt_records[0])); }
+            if (_program_group_ch_closest) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_closest, &sbt_records[1])); }
+            if (_program_group_ch_query) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_ch_query, &sbt_records[2])); }
+            if (_program_group_miss_closest) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_closest, &sbt_records[3])); }
+            if (_program_group_miss_query) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_query, &sbt_records[4])); }
+            if (_program_group_miss_any) { LUISA_CHECK_OPTIX(optix::api().sbtRecordPackHeader(_program_group_miss_any, &sbt_records[5])); }
             LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(_sbt_buffer, sbt_record_buffer->address(),
                                                sbt_buffer_size, cuda_stream));
             LUISA_CHECK_CUDA(cuEventRecord(_sbt_event, cuda_stream));

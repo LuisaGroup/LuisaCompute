@@ -316,6 +316,7 @@ private:
         luisa::unordered_set<Variable> local_variable_set;// V(local) = V(all) - V(function - scope)
         for (auto v : f.local_variables()) {
             if (!without_scope_variables.contains(v) &&
+                !v.is_builtin() &&
                 v.type() != _codegen->_ray_query_all_type &&
                 v.type() != _codegen->_ray_query_any_type) {
                 local_variable_set.emplace(v);
@@ -324,6 +325,7 @@ private:
         luisa::vector<Variable> captured_variables;// V(captured) = V(scope) - V(local)
         for (auto v : within_scope_variables) {
             if (!local_variable_set.contains(v) &&
+                !v.is_builtin() &&
                 v.type() != _codegen->_ray_query_all_type &&
                 v.type() != _codegen->_ray_query_any_type) {
                 captured_variables.emplace_back(v);
@@ -349,11 +351,14 @@ private:
             auto indent = _codegen->_indent;
             {
                 _codegen->_indent = 1;
+                // built-in variables
+                _codegen->_emit_builtin_variables();
+                _codegen->_scratch << "\n";
                 // copy captured variables
                 for (auto v : captured_variables) {
                     _codegen->_emit_indent();
                     _codegen->_emit_variable_decl(v, false);
-                    _codegen->_scratch << " = ctx.";
+                    _codegen->_scratch << " = ctx->";
                     _codegen->_emit_variable_name(v);
                     _codegen->_scratch << ";\n";
                 }
@@ -379,7 +384,7 @@ private:
                 for (auto v : captured_variables) {
                     if (!v.is_resource()) {
                         _codegen->_emit_indent();
-                        _codegen->_scratch << "ctx.";
+                        _codegen->_scratch << "ctx->";
                         _codegen->_emit_variable_name(v);
                         _codegen->_scratch << " = ";
                         _codegen->_emit_variable_name(v);
@@ -392,16 +397,16 @@ private:
 
         // create outlined triangle function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
-                           << "  auto &ctx = *static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
-                           << "  LCTriangleIntersectionResult result{};\n";
+                           << "  auto ctx = static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
+                           << "  LCTriangleIntersectionResult result{};";
         generate_intersection_body(s->on_triangle_candidate());
         _codegen->_scratch << "  return result;\n"
                               "}\n\n";
 
         // create outlined procedural function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
-                           << "  auto &ctx = *static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
-                           << "  LCProceduralIntersectionResult result{};\n";
+                           << "  auto ctx = static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
+                           << "  LCProceduralIntersectionResult result{};";
         generate_intersection_body(s->on_procedural_candidate());
         _codegen->_scratch << "  return result;\n"
                               "}\n\n";
@@ -870,8 +875,15 @@ void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
 void CUDACodegenAST::emit(Function f) {
     if (f.requires_raytracing()) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
+        if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_TRACE_CLOSEST\n";
+        }
+        if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY)) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_TRACE_ANY\n";
+        }
         if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL) ||
             f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY)) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_RAY_QUERY\n";
             _ray_query_lowering->preprocess(f);
         }
     }
@@ -938,33 +950,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     }
     _scratch << "(";
     if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
-        _scratch << ") {"
-                 // block size
-                 << "\n  constexpr auto bs = lc_make_uint3("
-                 << f.block_size().x << ", "
-                 << f.block_size().y << ", "
-                 << f.block_size().z << ");"
-                 // launch size
-                 << "\n  const auto ls = lc_dispatch_size();"
-                 // dispatch id
-                 << "\n  const auto did = lc_dispatch_id();";
-        for (auto builtin : f.builtin_variables()) {
-            switch (builtin.tag()) {
-                case Variable::Tag::THREAD_ID:
-                    _scratch << "\n  const auto tid = lc_make_uint3("
-                                "did.x % bs.x, "
-                                "did.y % bs.y, "
-                                "did.z % bs.z);";
-                    break;
-                case Variable::Tag::BLOCK_ID:
-                    _scratch << "\n  const auto bid = lc_make_uint3("
-                                "did.x / bs.x, "
-                                "did.y / bs.y, "
-                                "did.z / bs.z);";
-                    break;
-                default: break;
-            }
-        }
+        _scratch << ") {";
         for (auto arg : f.arguments()) {
             _scratch << "\n  ";
             if (auto usage = f.variable_usage(arg.uid());
@@ -988,17 +974,17 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         }
         if (f.tag() == Function::Tag::KERNEL) {
             _scratch << "\n"
-                     << "    const lc_uint3 ls) {\n"
-                     << "  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);\n"
-                     << "  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);\n"
-                     << "  const auto did = lc_make_uint3(\n"
-                     << "    blockIdx.x * blockDim.x + threadIdx.x,\n"
-                     << "    blockIdx.y * blockDim.y + threadIdx.y,\n"
-                     << "    blockIdx.z * blockDim.z + threadIdx.z);\n"
-                     << "  if (lc_any(did >= ls)) { return; }";
+                     << "    const lc_uint3 dispatch_size) {";
         } else {
             if (any_arg) { _scratch.pop_back(); }
             _scratch << ") noexcept {";
+        }
+    }
+    // emit built-in variables
+    if (f.tag() == Function::Tag::KERNEL) {
+        _emit_builtin_variables();
+        if (!f.requires_raytracing()) {
+            _scratch << "\n  if (lc_any(did >= dispatch_size)) { return; }";
         }
     }
     _indent = 1;
@@ -1006,6 +992,20 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     _indent = 0;
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
+}
+
+void CUDACodegenAST::_emit_builtin_variables() noexcept {
+    _scratch
+        // block size
+        << "\n  constexpr auto bs = lc_block_size();"
+        // launch size
+        << "\n  const auto ls = lc_dispatch_size();"
+        // dispatch id
+        << "\n  const auto did = lc_dispatch_id();"
+        // thread id
+        << "\n  const auto tid = lc_thread_id();"
+        // block id
+        << "\n  const auto bid = lc_block_id();";
 }
 
 void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
