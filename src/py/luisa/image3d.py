@@ -103,9 +103,9 @@ class Image3D:
     def numpy(self):
         import numpy as np
         if self.dtype == float:
-            npf = {'BYTE': np.uint8, 'SHORT': np.uint16, 'HALF': np.half, 'FLOAT': np.float32}[self.storage_name]
+            npf = {'BYTE': np.uint8, 'SHORT': np.ushort, 'HALF': np.half, 'FLOAT': np.float32}[self.storage_name]
         else:
-            npf = {'BYTE': np.int8, 'SHORT': np.int16, 'INT': np.int32}[self.storage_name]
+            npf = {'BYTE': np.int8, 'SHORT': np.short, 'INT': np.int32}[self.storage_name]
         arr = np.empty((self.height, self.width, self.channel), dtype=npf)
         self.copy_to(arr, sync=True)
         return arr

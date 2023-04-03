@@ -169,6 +169,16 @@ void export_op(py::module &m) {
         .value("MAKE_FLOAT3", CallOp::MAKE_FLOAT3)
         .value("MAKE_FLOAT4", CallOp::MAKE_FLOAT4)
 
+        .value("MAKE_SHORT2", CallOp::MAKE_INT16_2)
+        .value("MAKE_SHORT3", CallOp::MAKE_INT16_3)
+        .value("MAKE_SHORT4", CallOp::MAKE_INT16_4)
+        .value("MAKE_USHORT2", CallOp::MAKE_UINT16_2)
+        .value("MAKE_USHORT3", CallOp::MAKE_UINT16_3)
+        .value("MAKE_USHORT4", CallOp::MAKE_UINT16_4)
+        .value("MAKE_HALF2", CallOp::MAKE_FLOAT16_2)
+        .value("MAKE_HALF3", CallOp::MAKE_FLOAT16_3)
+        .value("MAKE_HALF4", CallOp::MAKE_FLOAT16_4)
+
         .value("MAKE_FLOAT2X2", CallOp::MAKE_FLOAT2X2)
         .value("MAKE_FLOAT3X3", CallOp::MAKE_FLOAT3X3)
         .value("MAKE_FLOAT4X4", CallOp::MAKE_FLOAT4X4)

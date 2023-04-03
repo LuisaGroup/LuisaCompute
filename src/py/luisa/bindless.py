@@ -4,7 +4,7 @@ from . import globalvars
 from .globalvars import get_global_device as device
 from .mathtypes import *
 from . import Buffer, Image2D, Image3D
-from .types import BuiltinFuncBuilder, to_lctype, uint, int16, uint16, int16_2, float16_2, uint16_2, int16_3, float16_3, uint16_3, int16_4, float16_4, uint16_4
+from .types import BuiltinFuncBuilder, to_lctype, uint, short, ushort, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4
 from .builtin import check_exact_signature
 from .func import func
 from .builtin import _builtin_call
