@@ -145,8 +145,10 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
     swap_handle(cmd->_handle, Usage::READ, Range{});
 }
 void Stream::swap_handle(uint64_t &v, Usage usage, Range range) {
-    reinterpret_cast<RWResource *>(v)->set(this, usage, range);
-    v = reinterpret_cast<RWResource *>(v)->handle();
+    if (v != invalid_resource_handle) {
+        reinterpret_cast<RWResource *>(v)->set(this, usage, range);
+        v = reinterpret_cast<RWResource *>(v)->handle();
+    }
 };
 void Stream::custom(DeviceInterface *dev, Command *cmd) {
     switch (static_cast<CustomCommand *>(cmd)->uuid()) {
@@ -246,6 +248,8 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 mesh->index = reinterpret_cast<Buffer *>(c->_triangle_buffer);
                 mesh->vert_range = Range{c->_vertex_buffer_offset, c->_vertex_buffer_size};
                 mesh->index_range = Range{c->_triangle_buffer_offset, c->_triangle_buffer_size};
+                c->_vertex_buffer = reinterpret_cast<RWResource*>(c->_vertex_buffer)->handle();
+                c->_triangle_buffer = reinterpret_cast<RWResource*>(c->_triangle_buffer)->handle();
                 swap_handle(c->_handle, Usage::WRITE, Range{});
             } break;
             case CmdTag::EProceduralPrimitiveBuildCommand: {
@@ -254,6 +258,7 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 prim->range = Range{c->_aabb_buffer_offset, c->_aabb_buffer_size};
                 prim->bbox = reinterpret_cast<Buffer *>(c->aabb_buffer());
                 swap_handle(c->_handle, Usage::WRITE, Range{});
+                c->_aabb_buffer = reinterpret_cast<RWResource*>(c->_aabb_buffer)->handle();
             } break;
             case CmdTag::EBindlessArrayUpdateCommand: {
                 using Operation = BindlessArrayUpdateCommand::Modification::Operation;

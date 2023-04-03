@@ -49,7 +49,6 @@ protected:
     vstd::vector<D3D12_VERTEX_BUFFER_VIEW> vbv;
     std::mutex mtx;
 
-    vstd::vector<Resource const *> backState;
     vstd::vector<std::pair<size_t, size_t>> argVecs;
     vstd::vector<uint8_t> argBuffer;
     vstd::vector<BottomAccelData> bottomAccelDatas;

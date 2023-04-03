@@ -42,6 +42,7 @@ private:
 
 public:
     bool IsPtrInBindless(size_t ptr) const {
+        std::lock_guard lck{mtx};
         return ptrMap.find(ptr);
     }
     using Property = vstd::variant<

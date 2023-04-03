@@ -47,7 +47,6 @@ class LCPreProcessVisitor : public CommandVisitor {
 public:
     CommandBufferBuilder *bd;
     ResourceStateTracker *stateTracker;
-    vstd::vector<Resource const *> *backState;
     vstd::vector<std::pair<size_t, size_t>> *argVecs;
     vstd::vector<uint8_t> *argBuffer;
     vstd::vector<BottomAccelData> *bottomAccelDatas;
@@ -113,15 +112,12 @@ public:
         }
         void operator()(Argument::BindlessArray const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
+            auto readState = self->stateTracker->ReadState(ResourceReadUsage::Srv);
             for (auto &&i : self->stateTracker->WriteStateMap()) {
                 if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
-                    self->backState->emplace_back(i);
+                    self->stateTracker->RecordState(i, readState);
                 }
             }
-            for (auto &&i : *self->backState) {
-                self->stateTracker->RecordState(i, self->stateTracker->ReadState(ResourceReadUsage::Srv));
-            }
-            self->backState->clear();
             ++arg;
         }
         void operator()(Argument::Uniform const &a) {
@@ -836,12 +832,10 @@ void LCCmdBuffer::Execute(
         tracker.listType = allocator->Type();
         LCPreProcessVisitor ppVisitor;
         ppVisitor.stateTracker = &tracker;
-        ppVisitor.backState = &backState;
         ppVisitor.argVecs = &argVecs;
         ppVisitor.argBuffer = &argBuffer;
         ppVisitor.bottomAccelDatas = &bottomAccelDatas;
         ppVisitor.accelOffset = &accelOffset;
-        backState.clear();
         argVecs.clear();
         argBuffer.clear();
         bottomAccelDatas.clear();
