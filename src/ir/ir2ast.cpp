@@ -73,7 +73,6 @@ namespace luisa::compute {
                 }
                 case ir::Instruction::Tag::Accel: return _ctx->function_builder->accel();
                 case ir::Instruction::Tag::Shared: return _ctx->function_builder->shared(type);
-                case ir::Instruction::Tag::Local: return _ctx->function_builder->local(type);
                 case ir::Instruction::Tag::UserData: LUISA_ERROR_WITH_LOCATION("Instruction 'UserData' is not implemented.");
                 case ir::Instruction::Tag::Const: return _convert_constant(node->instruction->const_._0);
                 case ir::Instruction::Tag::Call: {
@@ -91,17 +90,14 @@ namespace luisa::compute {
     }
 
     void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
-        auto type = _convert_type(node->type_.get());
         auto init = _convert_node(node->instruction->local.init);
-
-        auto variable = _ctx->function_builder->local(type);
-        // construct a local variable with certain type
+        auto expr = _ctx->node_to_exprs[node];
         if (_ctx->zero_init) {
             _ctx->zero_init = false;
         } else {
-            _ctx->function_builder->assign(variable, init);
+            _ctx->function_builder->assign(expr, init);
+            // assign the init value to the variable
         }
-        // assign the init value to the variable
 
         // Remark: About zero_init
         // AST variables are zero initialized by default, which is not the case for IR variables.
@@ -337,7 +333,16 @@ namespace luisa::compute {
             case ir::Func::Tag::BitNot: return unary_op("BitNot", UnaryOp::BIT_NOT);
             case ir::Func::Tag::All: return builtin_func(1, "All", CallOp::ALL);
             case ir::Func::Tag::Any: return builtin_func(1, "Any", CallOp::ANY);
-            case ir::Func::Tag::Select: return builtin_func(3, "Select", CallOp::SELECT);
+            case ir::Func::Tag::Select: {
+                LUISA_ASSERT(args.size() == 3u, "Select takes 3 arguments.");
+                // In IR the argument order is (condition, value_true, value_false)
+                // However in AST it is (value_false, value_true, condition)
+                return _ctx->function_builder->call(type, CallOp::SELECT, {
+                    _convert_node(args[2]),
+                    _convert_node(args[1]),
+                    _convert_node(args[0]),
+                });
+            }
             case ir::Func::Tag::Clamp: return builtin_func(3, "Clamp", CallOp::CLAMP);
             case ir::Func::Tag::Lerp: return builtin_func(3, "Lerp", CallOp::LERP);
             case ir::Func::Tag::Step: return builtin_func(2, "Step", CallOp::STEP);
@@ -958,6 +963,16 @@ namespace luisa::compute {
         });
     }
 
+    void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
+        _iterate(bb, [this](const ir::Node *node) {
+            if (node->instruction.get()->tag == ir::Instruction::Tag::Local) {
+                auto type = _convert_type(node->type_.get());
+                auto variable = _ctx->function_builder->local(type);
+                _ctx->node_to_exprs.emplace(node, variable);
+            }
+        });
+    }
+
     [[nodiscard]] CallOp IR2AST::_decide_make_vector_op(const Type *primitive, size_t length) noexcept {
         LUISA_ASSERT(primitive->is_scalar(), "Only scalar types are allowed here.");
         switch (primitive->tag()) {
@@ -1093,7 +1108,8 @@ namespace luisa::compute {
                 auto type = _convert_type(shared_var->type_.get());
                 auto shared_var_expr = _ctx->function_builder->shared(type);
                 _ctx->node_to_exprs.emplace(shared_var, shared_var_expr);
-            }         
+            }
+            _process_local_declarations(entry);
             _convert_block(entry);
         });
 
@@ -1119,6 +1135,7 @@ namespace luisa::compute {
 
             auto entry = callable->module.entry.get();
             _collect_phis(entry);
+            _process_local_declarations(entry);
             _convert_block(entry);
         });
         _ctx = old_ctx;
