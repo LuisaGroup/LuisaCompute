@@ -435,7 +435,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
 #ifdef LUISA_ENABLE_IR
     Clock clk;
-    auto function = IR2AST{}.build(kernel);
+    auto function = IR2AST::build(kernel);
     LUISA_INFO("IR2AST done in {} ms.", clk.toc());
     return create_shader(option, function->function());
 #else

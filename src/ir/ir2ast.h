@@ -1,4 +1,5 @@
 #pragma once
+#include "ast/expression.h"
 #include <ast/function_builder.h>
 #include <luisa_compute_ir/bindings.hpp>
 
@@ -62,8 +63,8 @@ private:
     [[nodiscard]] const Expression *_convert_node(const ir::NodeRef node_ref) noexcept;
     [[nodiscard]] const Expression *_convert_node(const ir::Node *node) noexcept;
     [[nodiscard]] const RefExpr * _convert_argument(const ir::Node *node) noexcept;
-    [[nodiscard]] const RefExpr *_convert_captured (const ir::Capture &captured) noexcept;
-    
+    [[nodiscard]] const RefExpr *_convert_captured(const ir::Capture &captured) noexcept;
+
     void _convert_block(const ir::BasicBlock *block) noexcept;
     void _convert_instr_local(const ir::Node *node) noexcept;
     void _convert_instr_user_data(const ir::Node *node) noexcept;
@@ -84,6 +85,7 @@ private:
     void _convert_instr_comment(const ir::Node *node) noexcept;
     void _convert_instr_debug(const ir::Node *node) noexcept;
     void _collect_phis(const ir::BasicBlock *bb) noexcept;
+    void _process_local_declarations(const ir::BasicBlock *bb) noexcept;
     
     [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_kernel(const ir::KernelModule *kernel) noexcept;
     [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_callable(const ir::CallableModule *callable) noexcept;

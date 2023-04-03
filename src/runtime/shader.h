@@ -210,7 +210,7 @@ private:
         : Shader{device, device->create_shader(option, module), 0u} {
         auto arg_types = luisa::vector<const Type *>(module->args.len);
         for (auto i = 0u; i < module->args.len; i++) {
-            arg_types.push_back(IR2AST::get_type(module->args.ptr[i]));
+            arg_types[i] = IR2AST::get_type(module->args.ptr[i]);
         }
         _uniform_size = ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span{arg_types});
     }

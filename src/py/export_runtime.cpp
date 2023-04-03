@@ -280,7 +280,8 @@ void export_runtime(py::module &m) {
             } else {
                 option.name = str;
             }
-            static_cast<RasterExt *>(self.extension(RasterExt::name))->create_raster_shader(fmt.format, vertex, pixel, option);
+            static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
+                                  ->create_raster_shader(fmt.format, vertex, pixel, option));
         })
         .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.create();
@@ -293,7 +294,8 @@ void export_runtime(py::module &m) {
                 } else {
                     option.name = str;
                 }
-                static_cast<RasterExt *>(self.extension(RasterExt::name))->create_raster_shader(fmt.format, vertex->function(), pixel->function(), option);
+                static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
+                                      ->create_raster_shader(fmt.format, vertex->function(), pixel->function(), option));
             }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
