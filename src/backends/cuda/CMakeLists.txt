@@ -16,6 +16,7 @@ if (CUDAToolkit_FOUND)
             cuda_command_encoder.cpp cuda_command_encoder.h
             cuda_mipmap_array.cpp cuda_mipmap_array.h
             cuda_codegen_ast.cpp cuda_codegen_ast.h
+            cuda_codegen_metadata.h
             cuda_compiler.cpp cuda_compiler.h
             cuda_accel.cpp cuda_accel.h
             cuda_primitive.cpp cuda_primitive.h

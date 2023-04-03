@@ -351,7 +351,7 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
 
     // compile if not found in cache
     if (ptx.empty()) {
-#if !defined(NDEBUG) && LUISA_CUDA_DUMP_SOURCE
+#if LUISA_CUDA_DUMP_SOURCE
         luisa::span src_data{reinterpret_cast<const std::byte *>(source.data()), source.size()};
         auto src_name = luisa::format("{}.cu", option.name);
         if (uses_user_path) {
@@ -473,7 +473,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
     LUISA_ERROR_WITH_LOCATION("TODO");
 }
 
-Usage CUDADevice::shader_arg_usage(uint64_t handle, size_t index) noexcept {
+Usage CUDADevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
     // TODO
     LUISA_ASSERT(false, "Not implemented.");
 }

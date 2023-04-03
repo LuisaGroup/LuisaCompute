@@ -24,7 +24,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
 public:
     static std::mutex &global_mtx() noexcept;
     void *native_handle() const noexcept override;
-    Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
+    Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
     ~Device();
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
