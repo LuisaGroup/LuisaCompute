@@ -23,6 +23,7 @@ struct RasterPSOStateHash {
         }
         hash = luisa::hash64(&v.dsvFormat, sizeof(v.dsvFormat), hash);
         hash = luisa::hash64(&v.rasterState, sizeof(v.rasterState), hash);
+        return hash;
     }
 };
 struct RasterPSOStateEqual {
