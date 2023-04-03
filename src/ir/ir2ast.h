@@ -6,10 +6,10 @@
 namespace luisa::compute {
 
 namespace detail {
-    class FunctionBuilder;
+class FunctionBuilder;
 }
 
-class LC_AST_API IR2AST {
+class LC_IR_API IR2AST {
 public:
     template<typename T>
     struct BoxedSliceHash {
@@ -43,7 +43,7 @@ public:
 
 private:
     template<typename Func>
-    static void _iterate(const ir::BasicBlock *bb, const Func& f) noexcept {
+    static void _iterate(const ir::BasicBlock *bb, const Func &f) noexcept {
         auto node_ref = bb->first;
         while (node_ref != ir::INVALID_REF) {
             auto node = ir::luisa_compute_ir_node_get(node_ref);
@@ -53,7 +53,7 @@ private:
     }
 
     IR2ASTContext *_ctx;
-    
+
     [[nodiscard]] static const Type *_convert_primitive_type(const ir::Primitive &type) noexcept;
     [[nodiscard]] static const Type *_convert_type(const ir::Type *type) noexcept;
     [[nodiscard]] CallOp _decide_make_vector_op(const Type *primitive, size_t length) noexcept;
@@ -62,7 +62,7 @@ private:
     [[nodiscard]] const Expression *_convert_constant(const ir::Const &const_) noexcept;
     [[nodiscard]] const Expression *_convert_node(const ir::NodeRef node_ref) noexcept;
     [[nodiscard]] const Expression *_convert_node(const ir::Node *node) noexcept;
-    [[nodiscard]] const RefExpr * _convert_argument(const ir::Node *node) noexcept;
+    [[nodiscard]] const RefExpr *_convert_argument(const ir::Node *node) noexcept;
     [[nodiscard]] const RefExpr *_convert_captured(const ir::Capture &captured) noexcept;
 
     void _convert_block(const ir::BasicBlock *block) noexcept;
@@ -86,12 +86,14 @@ private:
     void _convert_instr_debug(const ir::Node *node) noexcept;
     void _collect_phis(const ir::BasicBlock *bb) noexcept;
     void _process_local_declarations(const ir::BasicBlock *bb) noexcept;
-    
+
     [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_kernel(const ir::KernelModule *kernel) noexcept;
     [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> convert_callable(const ir::CallableModule *callable) noexcept;
+
 public:
     [[nodiscard]] static const Type *get_type(const ir::NodeRef node) noexcept;
+    [[nodiscard]] static const Type *get_type(const ir::Type *type) noexcept;
     [[nodiscard]] static luisa::shared_ptr<detail::FunctionBuilder> build(const ir::KernelModule *kernel) noexcept;
 };
 
-}
+}// namespace luisa::compute

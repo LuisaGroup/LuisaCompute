@@ -19,12 +19,18 @@
 #include "HLSL/dx_codegen.h"
 #include <ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
+#include <core/clock.h>
 #include <core/stl/filesystem.h>
 #include <Resource/ExternalBuffer.h>
 #include <runtime/context_paths.h>
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
 #include <ext.h>
+
+#ifdef LUISA_ENABLE_IR
+#include <ir/ir2ast.h>
+#endif
+
 namespace lc::dx {
 using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
@@ -504,14 +510,27 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
         } break;
     }
 }
+
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-    return {};
+#ifdef LUISA_ENABLE_IR
+    auto type = IR2AST::get_type(element->get());
+    return create_buffer(type, elem_count);
+#else
+    LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
+#endif
 }
+
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
-    return {};
+#ifdef LUISA_ENABLE_IR
+    Clock clk;
+    auto function = IR2AST::build(kernel);
+    LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+    return create_shader(option, function->function());
+#else
+    LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
+#endif
 }
+
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);
 }

@@ -150,7 +150,12 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element, size_t elem_co
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
-    LUISA_ERROR_WITH_LOCATION("TODO");
+#ifdef LUISA_ENABLE_IR
+    auto type = IR2AST::get_type(element->get());
+    return create_buffer(type, elem_count);
+#else
+    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
+#endif
 }
 
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {

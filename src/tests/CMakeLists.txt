@@ -8,6 +8,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)
     luisa_compute_add_executable(test_ast2ir_headless test_ast2ir_headless.cpp)
     luisa_compute_add_executable(test_ast2ir_ir2ast test_ast2ir_ir2ast.cpp)
+    luisa_compute_add_executable(test_sdf_renderer_ir test_sdf_renderer_ir.cpp)
 endif ()
 
 luisa_compute_add_executable(test_helloworld test_helloworld.cpp)

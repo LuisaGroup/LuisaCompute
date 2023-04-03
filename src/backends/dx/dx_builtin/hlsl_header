@@ -1,5 +1,5 @@
 #pragma pack_matrix(row_major)
-#define INFINITY_f 3.40282347e+37
+#define INFINITY_f (1.#INF)
 #define LC_IndirectKernelDispatch uint
 SamplerState samplers[16]:register(s0,space1);
 float determinant(const float2x2 m){
