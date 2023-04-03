@@ -247,8 +247,8 @@ void Device::destroy_accel(uint64_t handle) noexcept {
 void *Device::native_handle() const noexcept {
     return _native->native_handle();
 }
-Usage Device::shader_arg_usage(uint64_t handle, size_t index) noexcept {
-    return _native->shader_arg_usage(handle, index);
+Usage Device::shader_argument_usage(uint64_t handle, size_t index) noexcept {
+    return _native->shader_argument_usage(handle, index);
 }
 // query
 luisa::string Device::query(luisa::string_view property) noexcept {

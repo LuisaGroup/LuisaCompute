@@ -125,7 +125,7 @@ public:
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
     ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
-    Usage shader_arg_usage(uint64_t handle, size_t index) noexcept override;
+    Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
     ResourceCreationInfo create_event() noexcept override;
     void destroy_event(uint64_t handle) noexcept override;

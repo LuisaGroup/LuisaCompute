@@ -243,7 +243,7 @@ ShaderCreationInfo LCDevice::load_shader(
     }
     return info;
 }
-Usage LCDevice::shader_arg_usage(uint64_t handle, size_t index) noexcept {
+Usage LCDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
     auto shader = reinterpret_cast<Shader *>(handle);
     return shader->Args()[index].varUsage;
 }

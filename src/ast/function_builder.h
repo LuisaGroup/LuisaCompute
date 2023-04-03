@@ -33,7 +33,7 @@ class LC_AST_API FunctionBuilder : public luisa::enable_shared_from_this<Functio
     friend class lc::validation::Device;
     friend class compute::AstSerializer;
 
-private:
+public:
     /**
      * @brief RAII-style scope guard.
      * 
@@ -138,9 +138,6 @@ private:
         {
             FunctionStackGuard guard{f.get()};
             f->with(&f->_body, std::forward<Def>(def));
-        }
-        if (tag == Function::Tag::KERNEL) {
-            f->sort_bindings();
         }
         return luisa::const_pointer_cast<const FunctionBuilder>(f);
     }

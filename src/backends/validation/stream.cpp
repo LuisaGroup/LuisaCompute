@@ -93,7 +93,7 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
     auto native_shader = shader->handle();
     auto mark_handle = [&](uint64_t &handle, Range range) {
         auto res = reinterpret_cast<RWResource *>(handle);
-        res->set(this, dev->shader_arg_usage(native_shader, arg_idx), range);
+        res->set(this, dev->shader_argument_usage(native_shader, arg_idx), range);
         handle = res->handle();
     };
     auto set_arg = [&](Argument &arg) {

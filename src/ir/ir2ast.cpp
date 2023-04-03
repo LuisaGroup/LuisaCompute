@@ -1,4 +1,7 @@
+#include "ast/op.h"
+#include "ast/variable.h"
 #include "core/logging.h"
+#include "luisa_compute_ir/bindings.hpp"
 #include <ir/ir2ast.h>
 
 namespace luisa::compute {
@@ -14,7 +17,11 @@ namespace luisa::compute {
                 case ir::Instruction::Tag::Const: _convert_instr_const(node); break;
                 case ir::Instruction::Tag::Update: _convert_instr_update(node); break;
                 case ir::Instruction::Tag::Call: {
-                    auto expr = _convert_node(node);
+                    if (node->type_->tag == ir::Type::Tag::Void) {
+                        _convert_instr_call(node);
+                    } else {
+                        auto expr = _convert_node(node);
+                    }
                     break;
                 }
                 case ir::Instruction::Tag::Phi: _convert_instr_phi(node); break;
@@ -432,8 +439,8 @@ namespace luisa::compute {
                 auto inner_type = type->element();
 
                 auto reconstruct_args = luisa::vector<const Expression *>{};
-                for (const auto &arg : args) {
-                    auto reconstruct_arg = _ctx->function_builder->access(inner_type, src, _convert_node(arg));
+                for (auto i = 1u; i < args.size(); i++) {
+                    auto reconstruct_arg = _ctx->function_builder->access(inner_type, src, _convert_node(args[i]));
                     reconstruct_args.push_back(reconstruct_arg);
                 }
                 auto op = type->is_vector() ? 
@@ -474,9 +481,11 @@ namespace luisa::compute {
                     auto member_type = self_type->members()[member_index];
                     return _ctx->function_builder->member(member_type, _convert_node(self), member_index);
                 } else {
+                    auto container = _convert_node(self);
                     auto index = _convert_node(args[1]);
                     auto inner_type = self_type->element();
-                    return _ctx->function_builder->access(inner_type, _convert_node(self), index);
+                    // LUISA_VERBOSE("access read: {}[{}] -> {}", container->type()->description(), index->type()->description(), inner_type->description());
+                    return _ctx->function_builder->access(inner_type, container, index);
                 }
             }
             case ir::Func::Tag::Struct: {
@@ -574,7 +583,8 @@ namespace luisa::compute {
         _ctx->function_builder->pop_scope(update_if_scope->false_branch());
         _convert_block(node->instruction->generic_loop.prepare.get());
         auto loop_cond = _convert_node(node->instruction->generic_loop.cond);
-        auto cond_if_scope = _ctx->function_builder->if_(loop_cond);
+        auto loop_cond_invert = _ctx->function_builder->unary(Type::from("bool"), UnaryOp::NOT, loop_cond);
+        auto cond_if_scope = _ctx->function_builder->if_(loop_cond_invert);
         _ctx->function_builder->push_scope(cond_if_scope->true_branch());
         _ctx->function_builder->break_();
         _ctx->function_builder->pop_scope(cond_if_scope->true_branch());
@@ -1056,54 +1066,36 @@ namespace luisa::compute {
         auto old_ctx = _ctx;
         _ctx = &ctx;
 
-        detail::FunctionBuilder::push(_ctx->function_builder.get());
-        _ctx->function_builder->push_scope(_ctx->function_builder->body());
-        auto entry = kernel->module.entry.get();    
-        _collect_phis(entry);
-        
-        auto captures = kernel->captures;
-        auto args = kernel->args;
-        for (auto i = 0; i < captures.len; i++) {
-            auto captured = captures.ptr[i];
-            auto node = ir::luisa_compute_ir_node_get(captured.node);    
-            _ctx->node_to_exprs.emplace(node, _convert_captured(captured));
-        }
-        for (auto i = 0; i < args.len; i++) {
-            auto arg = ir::luisa_compute_ir_node_get(args.ptr[i]);
-            _ctx->node_to_exprs.emplace(arg, _convert_argument(arg));
-        }
-        auto arg_dispatch_size = _ctx->function_builder->argument(Type::from("vector<uint,3>"));
-        // kernel always has a parameter dispatch_size: uint3
+        auto guard = detail::FunctionBuilder::FunctionStackGuard(_ctx->function_builder.get());
+        _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
+            auto entry = kernel->module.entry.get();    
+            _collect_phis(entry);
+            
+            _ctx->function_builder->set_block_size(uint3{kernel->block_size[0], kernel->block_size[1], kernel->block_size[2]});
+            
+            auto captures = kernel->captures;
+            auto args = kernel->args;
+            for (auto i = 0; i < captures.len; i++) {
+                auto captured = captures.ptr[i];
+                auto node = ir::luisa_compute_ir_node_get(captured.node);
+                auto binding = _convert_captured(captured);
+                _ctx->node_to_exprs.emplace(node, binding);
+            }
+            for (auto i = 0; i < args.len; i++) {
+                auto arg = ir::luisa_compute_ir_node_get(args.ptr[i]);
+                auto argument = _convert_argument(arg);
+                _ctx->node_to_exprs.emplace(arg, argument);
+            }
 
-        auto shared = kernel->shared;
-        for (auto i = 0; i < shared.len; i++) {
-            auto shared_var = ir::luisa_compute_ir_node_get(shared.ptr[i]);
-            auto type = _convert_type(shared_var->type_.get());
-            auto shared_var_expr = _ctx->function_builder->shared(type);
-            _ctx->node_to_exprs.emplace(shared_var, shared_var_expr);
-        }
-
-        auto dispatch_id = _ctx->function_builder->dispatch_id();
-        auto dispatch_size = _ctx->function_builder->dispatch_size();
-        auto comp = _ctx->function_builder->binary(
-            Type::from("vector<bool,3>"),
-            BinaryOp::GREATER_EQUAL,
-            dispatch_id,
-            dispatch_size
-        );
-        auto cond = _ctx->function_builder->call(
-            Type::from("bool"),
-            CallOp::ANY,
-            {comp}
-        );
-        auto if_scope = _ctx->function_builder->if_(cond);
-        _ctx->function_builder->push_scope(if_scope->true_branch());
-        _ctx->function_builder->return_(nullptr);
-        _ctx->function_builder->pop_scope(if_scope->true_branch());
-        // if (lc_any(lc_dispatch_id() >= lc_dispatch_size())) return;
-        
-        _convert_block(entry);
-        _ctx->function_builder->pop_scope(_ctx->function_builder->body());
+            auto shared = kernel->shared;
+            for (auto i = 0; i < shared.len; i++) {
+                auto shared_var = ir::luisa_compute_ir_node_get(shared.ptr[i]);
+                auto type = _convert_type(shared_var->type_.get());
+                auto shared_var_expr = _ctx->function_builder->shared(type);
+                _ctx->node_to_exprs.emplace(shared_var, shared_var_expr);
+            }         
+            _convert_block(entry);
+        });
 
         _ctx = old_ctx;
         return ctx.function_builder;
@@ -1118,15 +1110,17 @@ namespace luisa::compute {
         auto old_ctx = _ctx;
         _ctx = &ctx;
 
-        for (auto i = 0; i < callable->args.len; i++) {
-            auto arg = ir::luisa_compute_ir_node_get(callable->args.ptr[i]);
-            _ctx->node_to_exprs.emplace(arg, _convert_argument(arg));
-        }
+        auto guard = detail::FunctionBuilder::FunctionStackGuard(_ctx->function_builder.get());
+        _ctx->function_builder->with(_ctx->function_builder->body(), [&]() {
+            for (auto i = 0; i < callable->args.len; i++) {
+                auto arg = ir::luisa_compute_ir_node_get(callable->args.ptr[i]);
+                _ctx->node_to_exprs.emplace(arg, _convert_argument(arg));
+            }
 
-        auto entry = callable->module.entry.get();
-        _collect_phis(entry);
-        _convert_block(entry);
-        
+            auto entry = callable->module.entry.get();
+            _collect_phis(entry);
+            _convert_block(entry);
+        });
         _ctx = old_ctx;
         return ctx.function_builder;
     }
