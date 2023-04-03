@@ -43,6 +43,9 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
 
     // hash
     f->_compute_hash();
+    if (f->_tag == Function::Tag::KERNEL) {
+        f->sort_bindings();
+    }
 
     // clear temporary data
     for (auto p : f->_temporary_data) {
