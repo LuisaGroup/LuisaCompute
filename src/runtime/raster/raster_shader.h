@@ -145,6 +145,7 @@ LC_RUNTIME_API void rastershader_check_vertex_func(Function func) noexcept;
 LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 }// namespace detail
 
+// TODO: @Maxwell fix this please
 template<typename... Args>
 class RasterShader : public Resource {
 
@@ -176,9 +177,9 @@ private:
               Tag::RASTER_SHADER,
               raster_ext->create_raster_shader(
                   mesh_format,
-                  raster_state,
-                  rtv_format,
-                  dsv_format,
+//                  raster_state,
+//                  rtv_format,
+//                  dsv_format,
                   vert,
                   pixel,
                   option)),
