@@ -43,5 +43,6 @@ RWResource::~RWResource() {
             LUISA_ERROR("Resource \"{}\" destroyed when {} is still using it.", get_name(), i.first->get_name());
         }
     }
+    _info.clear();
 }
 }// namespace lc::validation

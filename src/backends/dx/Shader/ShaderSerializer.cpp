@@ -202,16 +202,12 @@ ComputeShader *ShaderSerializer::DeSerialize(
 }
 RasterShader *ShaderSerializer::RasterDeSerialize(
     luisa::string_view name,
-    luisa::string_view psoName,
     CacheType cacheType,
     Device *device,
     luisa::BinaryIO const &streamFunc,
     vstd::optional<vstd::MD5> const &ilMd5,
     vstd::MD5 &typeMD5,
-    MeshFormat const &meshFormat,
-    RasterState const &state,
-    vstd::span<PixelFormat const> rtv,
-    DepthFormat dsv, bool &clearCache) {
+    MeshFormat const &meshFormat) {
     using namespace shader_ser;
     auto binStream = ReadBinaryIO(cacheType, &streamFunc, name);
     if (binStream == nullptr || binStream->length() <= sizeof(RasterHeader)) return nullptr;
@@ -232,63 +228,62 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         return nullptr;
     }
     vstd::vector<std::byte> binCode;
-    vstd::vector<std::byte> psoCode;
     binCode.push_back_uninitialized(targetSize);
     binStream->read({binCode.data(), binCode.size()});
     auto binPtr = binCode.data();
-    vstd::vector<D3D12_INPUT_ELEMENT_DESC> elements;
-    auto psoDesc = RasterShader::GetState(
-        elements,
-        meshFormat,
-        state,
-        rtv,
-        dsv);
+    // vstd::vector<D3D12_INPUT_ELEMENT_DESC> elements;
+    // auto psoDesc = RasterShader::GetState(
+    //     elements,
+    //     meshFormat,
+    //     state,
+    //     rtv,
+    //     dsv);
 
-    auto psoStream = streamFunc.read_shader_cache(psoName);
-    if (psoStream != nullptr && psoStream->length() > 0) {
-        psoCode.push_back_uninitialized(psoStream->length());
-        psoStream->read({psoCode.data(), psoCode.size()});
-        psoDesc.CachedPSO = {
-            .pCachedBlob = psoCode.data(),
-            .CachedBlobSizeInBytes = psoCode.size()};
-    }
+    // auto psoStream = streamFunc.read_shader_cache(psoName);
+    // if (psoStream != nullptr && psoStream->length() > 0) {
+    //     psoCode.push_back_uninitialized(psoStream->length());
+    //     psoStream->read({psoCode.data(), psoCode.size()});
+    //     psoDesc.CachedPSO = {
+    //         .pCachedBlob = psoCode.data(),
+    //         .CachedBlobSizeInBytes = psoCode.size()};
+    // }
     auto rootSig = DeSerializeRootSig(
         device->device,
         {reinterpret_cast<std::byte const *>(binPtr), header.rootSigBytes});
     binPtr += header.rootSigBytes;
-    psoDesc.pRootSignature = rootSig.Get();
-    psoDesc.VS = {
-        .pShaderBytecode = binPtr,
-        .BytecodeLength = header.vertCodeBytes};
+    // psoDesc.pRootSignature = rootSig.Get();
+    vstd::vector<std::byte> vertBin;
+    vertBin.push_back_uninitialized(header.vertCodeBytes);
+    memcpy(vertBin.data(), binPtr, header.vertCodeBytes);
     binPtr += header.vertCodeBytes;
-    psoDesc.PS = {
-        .pShaderBytecode = binPtr,
-        .BytecodeLength = header.pixelCodeBytes};
+    vstd::vector<std::byte> pixelBin;
+    pixelBin.push_back_uninitialized(header.pixelCodeBytes);
+    memcpy(pixelBin.data(), binPtr, header.pixelCodeBytes);
     binPtr += header.pixelCodeBytes;
-    ComPtr<ID3D12PipelineState> pso;
-    auto createPipe = [&] {
-        return device->device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(pso.GetAddressOf()));
-    };
+    // ComPtr<ID3D12PipelineState> pso;
+    // auto createPipe = [&] {
+    //     return device->device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(pso.GetAddressOf()));
+    // };
 
     // use PSO cache
-    if (psoCode.empty()) {
-        // No PSO
-        clearCache = true;
-        psoDesc.CachedPSO.pCachedBlob = nullptr;
-        ThrowIfFailed(createPipe());
-    } else {
-        auto psoGenSuccess = createPipe();
-        if (psoGenSuccess != S_OK) {
-            // PSO cache miss(probably driver's version or hardware transformed), discard cache
-            clearCache = true;
-            LUISA_INFO("{} pipeline cache illegal, discarded.", name);
-            if (pso == nullptr) {
-                psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
-                psoDesc.CachedPSO.pCachedBlob = nullptr;
-                ThrowIfFailed(createPipe());
-            }
-        }
-    }
+    // if (psoCode.empty()) {
+    //     // No PSO
+    //     clearCache = true;
+    //     psoDesc.CachedPSO.pCachedBlob = nullptr;
+    //     ThrowIfFailed(createPipe());
+    // } else {
+    //     auto psoGenSuccess = createPipe();
+    //     if (psoGenSuccess != S_OK) {
+    //         // PSO cache miss(probably driver's version or hardware transformed), discard cache
+    //         clearCache = true;
+    //         LUISA_INFO("{} pipeline cache illegal, discarded.", name);
+    //         if (pso == nullptr) {
+    //             psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
+    //             psoDesc.CachedPSO.pCachedBlob = nullptr;
+    //             ThrowIfFailed(createPipe());
+    //         }
+    //     }
+    // }
     vstd::vector<Property> properties;
     vstd::vector<SavedArgument> kernelArgs;
     properties.push_back_uninitialized(header.propertyCount);
@@ -298,11 +293,13 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     memcpy(kernelArgs.data(), binPtr, kernelArgs.size_bytes());
     auto s = new RasterShader(
         device,
+        header.md5,
+        meshFormat,
         std::move(properties),
         std::move(kernelArgs),
         std::move(rootSig),
-        std::move(pso),
-        state.topology);
+        std::move(vertBin),
+        std::move(pixelBin));
     s->bindlessCount = header.bindlessCount;
     return s;
 }

@@ -8,67 +8,110 @@
 namespace lc::dx {
 struct CodegenResult;
 class ShaderSerializer;
+struct RasterPSOState {
+    vstd::vector<PixelFormat> rtvFormats;
+    DepthFormat dsvFormat;
+    RasterState rasterState;
+};
+struct RasterPSOStateHash {
+    size_t operator()(RasterPSOState const &v) const {
+        size_t hash;
+        if (v.rtvFormats.empty()) {
+            hash = luisa::hash64_default_seed;
+        } else {
+            hash = luisa::hash64(v.rtvFormats.data(), v.rtvFormats.size_bytes(), luisa::hash64_default_seed);
+        }
+        hash = luisa::hash64(&v.dsvFormat, sizeof(v.dsvFormat), hash);
+        hash = luisa::hash64(&v.rasterState, sizeof(v.rasterState), hash);
+    }
+};
+struct RasterPSOStateEqual {
+    int32_t operator()(RasterPSOState const &a, RasterPSOState const &b) const {
+        auto rtvSizeComp = vstd::compare<size_t>{}(a.rtvFormats.size(), b.rtvFormats.size());
+        if (rtvSizeComp != 0) return rtvSizeComp;
+        if (!a.rtvFormats.empty()) {
+            auto level = memcmp(a.rtvFormats.data(), b.rtvFormats.data(), a.rtvFormats.size_bytes());
+            if (level != 0) return level;
+        }
+        auto dsvComp = vstd::compare<DepthFormat>{}(a.dsvFormat, b.dsvFormat);
+        if (dsvComp != 0)
+            return dsvComp;
+        return memcmp(&a.rasterState, &b.rasterState, sizeof(RasterState));
+    }
+};
 class RasterShader final : public Shader {
     friend class ShaderSerializer;
 
 private:
     Device *device;
-    TopologyType type;
+    vstd::MD5 md5;
+    vstd::vector<std::byte> vertBinData;
+    vstd::vector<std::byte> pixelBinData;
+    vstd::vector<D3D12_INPUT_ELEMENT_DESC> elements;
     RasterShader(
         Device *device,
+        vstd::MD5 md5,
+        MeshFormat const &meshFormat,
         vstd::vector<Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         ComPtr<ID3D12RootSignature> &&rootSig,
-        ComPtr<ID3D12PipelineState> &&pso,
-        TopologyType type);
-    struct PairEqual {
-        using type = std::pair<size_t, bool>;
-        bool operator()(type const &a, type const &b) const {
-            return a.first == b.first && a.second == b.second;
-        }
+        vstd::vector<std::byte> &&vertBinData,
+        vstd::vector<std::byte> &&pixelBinData);
+    std::mutex psoMtx;
+    struct PsoValue {
+        ComPtr<ID3D12PipelineState> pso{};
+        std::mutex mtx;
     };
-    mutable luisa::unordered_map<
-        std::pair<size_t, bool>,
-        ComPtr<ID3D12CommandSignature>,
-        vstd::hash<std::pair<size_t, bool>>,
-        PairEqual>
-        cmdSigs;
-    mutable std::mutex cmdSigMtx;
+    using PSOMap = vstd::HashMap<RasterPSOState, PsoValue, RasterPSOStateHash, RasterPSOStateEqual>;
+    PSOMap psoMap;
+
+    // Prepared for indirect
+
+    // struct PairEqual {
+    //     using type = std::pair<size_t, bool>;
+    //     bool operator()(type const &a, type const &b) const {
+    //         return a.first == b.first && a.second == b.second;
+    //     }
+    // };
+    // mutable luisa::unordered_map<
+    //     std::pair<size_t, bool>,
+    //     ComPtr<ID3D12CommandSignature>,
+    //     vstd::hash<std::pair<size_t, bool>>,
+    //     PairEqual>
+    //     cmdSigs;
+    // mutable std::mutex cmdSigMtx;
 
 public:
-    ID3D12CommandSignature *CmdSig(size_t vertexCount, bool index);
-    TopologyType TopoType() const { return type; }
+    // ID3D12CommandSignature *CmdSig(size_t vertexCount, bool index);
+    ID3D12PipelineState *GetPSO(
+        vstd::span<PixelFormat const> rtvFormats,
+        DepthFormat dsvFormat,
+        RasterState const &rasterState);
     Tag GetTag() const noexcept override { return Tag::RasterShader; }
     static vstd::MD5 GenMD5(
         vstd::MD5 const &codeMD5,
-        MeshFormat const &meshFormat,
-        RasterState const &state,
-        vstd::span<PixelFormat const> rtv,
-        DepthFormat dsv);
+        MeshFormat const &meshFormat);
     static void GetMeshFormatState(
         vstd::vector<D3D12_INPUT_ELEMENT_DESC> &inputLayout,
         MeshFormat const &meshFormat);
     static D3D12_GRAPHICS_PIPELINE_STATE_DESC GetState(
-        vstd::vector<D3D12_INPUT_ELEMENT_DESC> &inputLayout,
-        MeshFormat const &meshFormat,
+        vstd::span<D3D12_INPUT_ELEMENT_DESC const> inputLayout,
         RasterState const &state,
         vstd::span<PixelFormat const> rtv,
         DepthFormat dsv);
     RasterShader(
         Device *device,
+        vstd::MD5 md5,
         vstd::vector<Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         MeshFormat const &meshFormat,
-        RasterState const &state,
-        vstd::span<PixelFormat const> rtv,
-        DepthFormat dsv,
-        vstd::span<std::byte const> vertBinData,
-        vstd::span<std::byte const> pixelBinData);
+        vstd::vector<std::byte> &&vertBinData,
+        vstd::vector<std::byte> &&pixelBinData);
 
     ~RasterShader();
 
     static RasterShader *CompileRaster(
-        luisa::BinaryIO const*fileIo,
+        luisa::BinaryIO const *fileIo,
         Device *device,
         Function vertexKernel,
         Function pixelKernel,
@@ -76,14 +119,11 @@ public:
         vstd::MD5 const &md5,
         uint shaderModel,
         MeshFormat const &meshFormat,
-        RasterState const &state,
-        vstd::span<PixelFormat const> rtv,
-        DepthFormat dsv,
         vstd::string_view fileName,
         CacheType cacheType,
         bool enableUnsafeMath);
     static void SaveRaster(
-        luisa::BinaryIO const*fileIo,
+        luisa::BinaryIO const *fileIo,
         Device *device,
         CodegenResult const &result,
         vstd::MD5 const &md5,
@@ -93,12 +133,9 @@ public:
         uint shaderModel,
         bool enableUnsafeMath);
     static RasterShader *LoadRaster(
-        luisa::BinaryIO const*fileIo,
+        luisa::BinaryIO const *fileIo,
         Device *device,
-        const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<const PixelFormat> rtv_format,
-        DepthFormat dsv_format,
+        MeshFormat const &meshFormat,
         luisa::span<Type const *const> types,
         vstd::string_view fileName);
 };

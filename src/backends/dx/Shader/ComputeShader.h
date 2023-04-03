@@ -8,6 +8,7 @@ class ComputeShader final : public Shader {
     friend class ShaderSerializer;
 
 private:
+    ComPtr<ID3D12PipelineState> pso;
     vstd::vector<luisa::compute::Argument> argBindings;
     Device *device;
     uint3 blockSize;
@@ -24,6 +25,7 @@ private:
     mutable std::mutex cmdSigMtx;
 
 public:
+    ID3D12PipelineState *Pso() const { return pso.Get(); }
     vstd::span<luisa::compute::Argument const> ArgBindings() const { return argBindings; }
     ID3D12CommandSignature *CmdSig() const;
     Device *GetDevice() const { return device; }

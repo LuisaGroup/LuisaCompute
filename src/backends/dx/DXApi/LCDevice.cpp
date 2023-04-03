@@ -77,7 +77,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
             info.element_stride = 28;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
             res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));
-        }else{
+        } else {
             LUISA_ERROR("Un-known custom type in dx-backend.");
         }
     } else {
@@ -335,31 +335,8 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
             reinterpret_cast<TextureBase *>(image_handle), nativeDevice.maxAllocatorCount);
 }
-void DxRasterExt::save_raster_shader(
-    const MeshFormat &mesh_format,
-    Function vert,
-    Function pixel,
-    luisa::string_view name,
-    bool enable_debug_info,
-    bool enable_fast_math) noexcept {
-    auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
-    vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-    RasterShader::SaveRaster(
-        nativeDevice.fileIo,
-        &nativeDevice,
-        code,
-        checkMD5,
-        name,
-        vert,
-        pixel,
-        kShaderModel,
-        enable_fast_math);
-}
 ResourceCreationInfo DxRasterExt::create_raster_shader(
     const MeshFormat &mesh_format,
-    const RasterState &raster_state,
-    span<const PixelFormat> rtv_format,
-    DepthFormat dsv_format,
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
@@ -400,23 +377,17 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
             checkMD5,
             kShaderModel,
             mesh_format,
-            raster_state,
-            rtv_format,
-            dsv_format,
             file_name,
             cacheType,
             option.enable_fast_math);
         info.handle = reinterpret_cast<uint64>(res);
-        info.native_handle = res->Pso();
+        info.native_handle = nullptr;
         return info;
     }
 }
 
 ResourceCreationInfo DxRasterExt::load_raster_shader(
     const MeshFormat &mesh_format,
-    const RasterState &raster_state,
-    span<const PixelFormat> rtv_format,
-    DepthFormat dsv_format,
     span<Type const *const> types,
     string_view ser_path) noexcept {
     ResourceCreationInfo info;
@@ -424,15 +395,12 @@ ResourceCreationInfo DxRasterExt::load_raster_shader(
         nativeDevice.fileIo,
         &nativeDevice,
         mesh_format,
-        raster_state,
-        rtv_format,
-        dsv_format,
         types,
         ser_path);
 
     if (res) {
         info.handle = reinterpret_cast<uint64>(res);
-        info.native_handle = res->Pso();
+        info.native_handle = nullptr;
         return info;
     } else {
         return ResourceCreationInfo::make_invalid();
@@ -515,7 +483,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
             reinterpret_cast<ComputeShader *>(resource_handle)->Pso()->SetName(vec.data());
         } break;
         case Tag::RASTER_SHADER: {
-            reinterpret_cast<RasterShader *>(resource_handle)->Pso()->SetName(vec.data());
+            // reinterpret_cast<RasterShader *>(resource_handle)->Pso()->SetName(vec.data());
         } break;
         case Tag::SWAP_CHAIN: {
             size_t backBuffer = 0;

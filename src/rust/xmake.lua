@@ -15,8 +15,7 @@ on_buildcmd_file(function (target, batchcmds, sourcefile, opt)
 		cargo_cmd = cargo_cmd .. sub_dir .. " --release"
 	end
 	print(cargo_cmd)
-	-- batchcmds:vrunv(cargo_cmd)
-	os.run(cargo_cmd)
+	batchcmds:vrunv(cargo_cmd)
 end)
 rule_end()
 add_rules("build_cargo")

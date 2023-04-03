@@ -43,9 +43,10 @@ public:
     [[nodiscard]] ContextPaths paths() const noexcept;
     // Create a virtual device
     // backend "metal", "dx", "cuda" is supported currently
-    [[nodiscard]] Device create_device(luisa::string_view backend_name,
-                                       const DeviceConfig *settings = nullptr,
-                                       bool enable_validation = false) noexcept;
+    [[nodiscard]] Device create_device(
+        luisa::string_view backend_name,
+        const DeviceConfig *settings = nullptr,
+        bool enable_validation = false) noexcept;
     // installed backends automatically detacted
     // The compiled backends' name is returned
     [[nodiscard]] luisa::span<const luisa::string> installed_backends() const noexcept;

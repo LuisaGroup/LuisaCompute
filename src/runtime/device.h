@@ -16,8 +16,6 @@ class BinaryIO;
 
 namespace luisa::compute {
 
-class MeshFormat;
-struct RasterState;
 class Context;
 class Event;
 class Stream;
@@ -231,25 +229,15 @@ public:
     template<typename V, typename P>
     [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(
         const RasterKernel<V, P> &kernel,
-        const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<PixelFormat const> rtv_format,
-        DepthFormat dsv_format,
         const ShaderOption &option = {}) noexcept;
     template<typename V, typename P>
     void compile_to(
         const RasterKernel<V, P> &kernel,
-        const MeshFormat &format,
         luisa::string_view serialization_path,
-        bool enable_debug_info,
-        bool enable_fast_math) noexcept;
+        const ShaderOption& option = {}) noexcept;
 
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(
-        const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<PixelFormat const> rtv_format,
-        DepthFormat dsv_format,
         luisa::string_view shader_name) noexcept;
 
     template<size_t N, typename... Args>
