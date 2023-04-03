@@ -9,7 +9,7 @@ from .builtin import _builtin_call
 from .mathtypes import *
 from .builtin import check_exact_signature
 from types import SimpleNamespace
-from .types import uint, uint, int2, uint2, int3, uint3, int4, uint4, float2, float3, float4, int16, uint16, int16_2, float16_2, uint16_2, int16_3, float16_3, uint16_3, int16_4, float16_4, uint16_4
+from .types import uint, uint, int2, uint2, int3, uint3, int4, uint4, float2, float3, float4, short, ushort, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4
 from .struct import CustomType
 from .atomic import int_atomic_functions, float_atomic_functions
 
@@ -145,7 +145,7 @@ class BufferType:
         self.read = self.get_read_method(self.dtype)
         self.write = self.get_write_method(self.dtype)
         # disable atomic operations if it's not an int buffer
-        if dtype in {int, uint, int16, uint16}:
+        if dtype in {int, uint, short, ushort}:
             for f in int_atomic_functions:
                 setattr(self, f.__name__, f)
         if dtype == float:

@@ -664,7 +664,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_INT4:
         case CallOp::MAKE_FLOAT2:
         case CallOp::MAKE_FLOAT3:
-        case CallOp::MAKE_FLOAT4: {
+        case CallOp::MAKE_FLOAT4:
+        case CallOp::MAKE_INT16_2:
+        case CallOp::MAKE_INT16_3:
+        case CallOp::MAKE_INT16_4:
+        case CallOp::MAKE_UINT16_2:
+        case CallOp::MAKE_UINT16_3:
+        case CallOp::MAKE_UINT16_4:
+        case CallOp::MAKE_FLOAT16_2:
+        case CallOp::MAKE_FLOAT16_3:
+        case CallOp::MAKE_FLOAT16_4: {
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
             } else {

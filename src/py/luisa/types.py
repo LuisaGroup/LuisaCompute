@@ -4,55 +4,41 @@ from lcapi import float2x2, float3x3, float4x4
 
 class uint:
     pass
-class uint16:
+class ushort:
     pass
-class float16:
+class half:
     pass
-class int16:
+class short:
     pass
-class uint16_2:
+class ushort2:
     pass
-class float16_2:
+class half2:
     pass
-class int16_2:
+class short2:
     pass
-class uint16_3:
+class ushort3:
     pass
-class float16_3:
+class half3:
     pass
-class int16_3:
+class short3:
     pass
-class uint16_4:
+class ushort4:
     pass
-class float16_4:
+class half4:
     pass
-class int16_4:
+class short4:
     pass
-bit16_types = {uint16, float16, int16, int16_2, float16_2, uint16_2, int16_3, float16_3, uint16_3, int16_4, float16_4, uint16_4}
-bit16_names = {
-    "uint16": uint16,
-    "float16": float16,
-    "int16": int16,
-    "int16_2": int16_2,
-    "float16_2": float16_2,
-    "uint16_2": uint16_2,
-    "int16_3": int16_3,
-    "float16_3": float16_3,
-    "uint16_3": uint16_3,
-    "int16_4": int16_4,
-    "float16_4": float16_4,
-    "uint16_4": uint16_4,
-}
+_bit16_types = {ushort, half, short, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4}
 def is_bit16_types(dtype):
-    return dtype in bit16_types
-scalar_dtypes = {int, float, bool, uint, uint16, float16, int16}
-vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4, int16_2, float16_2, uint16_2, int16_3, float16_3, uint16_3, int16_4, float16_4, uint16_4}
+    return dtype in _bit16_types
+scalar_dtypes = {int, float, bool, uint, ushort, half, short}
+vector_dtypes = {int2, float2, bool2, uint2, int3, float3, bool3, uint3, int4, float4, bool4, uint4, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4}
 matrix_dtypes = {float2x2, float3x3, float4x4}
 
 scalar_and_vector_dtypes = {*scalar_dtypes, *vector_dtypes}
 vector_and_matrix_dtypes = {*vector_dtypes, *matrix_dtypes}
 basic_dtypes = {*scalar_dtypes, *vector_dtypes, *matrix_dtypes}
-arithmetic_dtypes = {int, uint, float, int2, uint2, float2, int3, uint3, float3, int4, uint4, float4, int16_2, float16_2, uint16_2, int16_3, float16_3, uint16_3, int16_4, float16_4, uint16_4}
+arithmetic_dtypes = {int, uint, float, int2, uint2, float2, int3, uint3, float3, int4, uint4, float4, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4}
 
 
 def nameof(dtype):
@@ -62,10 +48,10 @@ def nameof(dtype):
 def vector(dtype, length): # (float, 2) -> float2
     if length==1:
         return dtype
+    name = dtype.__name__ + str(length)
     if is_bit16_types(dtype):
-        name = dtype.__name__ + '_' + str(length)
-        return bit16_names[name]
-    return getattr(lcapi, dtype.__name__ + str(length))
+        return eval(name)
+    return getattr(lcapi, name)
 
 def length_of(dtype): # float2 -> 2
     if hasattr(dtype, 'size'):
@@ -84,7 +70,7 @@ def element_of(dtype): # float2 -> float
     if dtype in matrix_dtypes:
         return float
     assert dtype in vector_dtypes
-    return {'int':int, 'float':float, 'bool':bool, 'uint':uint, 'int16_':int16, 'float16_':float16, 'uint16_':uint16}[dtype.__name__[:-1]]
+    return {'int':int, 'float':float, 'bool':bool, 'uint':uint, 'short':short, 'half':half, 'ushort':ushort}[dtype.__name__[:-1]]
 
 
 basic_dtype_to_lctype_dict = {
@@ -92,9 +78,9 @@ basic_dtype_to_lctype_dict = {
     float:  lcapi.Type.from_("float"),
     bool:   lcapi.Type.from_("bool"),
     uint:   lcapi.Type.from_("uint"),
-    int16:    lcapi.Type.from_("int16"),
-    float16:  lcapi.Type.from_("float16"),
-    uint16:   lcapi.Type.from_("uint16"),
+    short:    lcapi.Type.from_("int16"),
+    half:  lcapi.Type.from_("float16"),
+    ushort:   lcapi.Type.from_("uint16"),
     int2:   lcapi.Type.from_("vector<int,2>"),
     uint2:  lcapi.Type.from_("vector<uint,2>"),
     bool2:  lcapi.Type.from_("vector<bool,2>"),
@@ -107,15 +93,15 @@ basic_dtype_to_lctype_dict = {
     uint4:  lcapi.Type.from_("vector<uint,4>"),
     bool4:  lcapi.Type.from_("vector<bool,4>"),
     float4: lcapi.Type.from_("vector<float,4>"),
-    int16_2:   lcapi.Type.from_("vector<int16,2>"),
-    uint16_2:  lcapi.Type.from_("vector<uint16,2>"),
-    float16_2: lcapi.Type.from_("vector<float16,2>"),
-    int16_3:   lcapi.Type.from_("vector<int16,3>"),
-    uint16_3:  lcapi.Type.from_("vector<uint16,3>"),
-    float16_3: lcapi.Type.from_("vector<float16,3>"),
-    int16_4:   lcapi.Type.from_("vector<int16,4>"),
-    uint16_4:  lcapi.Type.from_("vector<uint16,4>"),
-    float16_4: lcapi.Type.from_("vector<float16,4>"),
+    short2:   lcapi.Type.from_("vector<int16,2>"),
+    ushort2:  lcapi.Type.from_("vector<uint16,2>"),
+    half2: lcapi.Type.from_("vector<float16,2>"),
+    short3:   lcapi.Type.from_("vector<int16,3>"),
+    ushort3:  lcapi.Type.from_("vector<uint16,3>"),
+    half3: lcapi.Type.from_("vector<float16,3>"),
+    short4:   lcapi.Type.from_("vector<int16,4>"),
+    ushort4:  lcapi.Type.from_("vector<uint16,4>"),
+    half4: lcapi.Type.from_("vector<float16,4>"),
     float2x2:   lcapi.Type.from_("matrix<2>"),
     float3x3:   lcapi.Type.from_("matrix<3>"),
     float4x4:   lcapi.Type.from_("matrix<4>")
@@ -214,17 +200,17 @@ _implicit_map = {
     float2: 1,
     float3: 1,
     float4: 1,
-    int16: 1,
-    uint16: 1,
-    int16_2: 1,
-    float16_2: 1,
-    uint16_2: 1,
-    int16_3: 1,
-    float16_3: 1,
-    uint16_3: 1,
-    int16_4: 1,
-    float16_4: 1,
-    uint16_4: 1
+    short: 1,
+    ushort: 1,
+    short2: 1,
+    half2: 1,
+    ushort2: 1,
+    short3: 1,
+    half3: 1,
+    ushort3: 1,
+    short4: 1,
+    half4: 1,
+    ushort4: 1
 }
 def implicit_covertable(src, dst):
     return (src == dst) or (_implicit_map.get(src) != None and _implicit_map.get(src) != None and length_of(src) == length_of(dst))
