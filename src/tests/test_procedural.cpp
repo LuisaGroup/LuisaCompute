@@ -60,8 +60,10 @@ int main(int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
+#ifndef NDEBUG
     Printer printer{device};
     stream << printer.reset();
+#endif
 
     Kernel2D kernel = [&](Float3 pos) {
         Var coord = dispatch_id().xy();
@@ -79,18 +81,18 @@ int main(int argc, char *argv[]) {
         Var<float3> sphere_color;
         auto hit = accel->query_all(ray)
                        .on_triangle_candidate([&](auto &candidate) noexcept {
-                           auto h = candidate.hit();
-                           printer.info("Hello from triangle candidate ({}, {})!", h.inst, h.prim);
                            candidate.commit();
                        })
                        .on_procedural_candidate([&](auto &candidate) noexcept {
                            auto h = candidate.hit();
+#ifndef NDEBUG
                            $if(all(dispatch_id().xy() >= make_uint2(100u, 100u) &&
                                    dispatch_id().xy() <= make_uint2(200u, 200u))) {
                                printer.info_with_location(
                                    "Hello from procedural candidate ({}, {})!",
                                    h.inst, h.prim);
                            };
+#endif
                            auto aabb = aabb_buffer->read(h.prim);
                            //ray-sphere intersection
                            auto origin = (aabb->min() + aabb->max()) * .5f;
@@ -135,7 +137,9 @@ int main(int argc, char *argv[]) {
     const float3 pos = make_float3(0.f, 0.f, 18.0f);
     stream
         << s(pos).dispatch(width, height)
+#ifndef NDEBUG
         << printer.retrieve()
+#endif
         << device_image1.copy_to(pixels.data())
         << synchronize();
     stbi_write_png("test_procedural.png", width, height, 4, pixels.data(), 0);
