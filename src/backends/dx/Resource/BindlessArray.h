@@ -41,8 +41,13 @@ private:
     mutable vstd::LockFreeArrayQueue<uint32_t> freeQueue;
 
 public:
+    void Lock() const {
+        mtx.lock();
+    }
+    void Unlock() const {
+        mtx.unlock();
+    }
     bool IsPtrInBindless(size_t ptr) const {
-        std::lock_guard lck{mtx};
         return ptrMap.find(ptr);
     }
     using Property = vstd::variant<

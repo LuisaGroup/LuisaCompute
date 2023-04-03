@@ -34,7 +34,13 @@ struct ReorderFuncTable {
         reinterpret_cast<BindlessArray *>(handle)->Bind(modifications);
     }
     luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {
-        return reinterpret_cast<ComputeShader const*>(handle)->ArgBindings();
+        return reinterpret_cast<ComputeShader const *>(handle)->ArgBindings();
+    }
+    void lock_bindless(uint64_t bindless_handle) const noexcept {
+        reinterpret_cast<BindlessArray *>(bindless_handle)->Lock();
+    }
+    void unlock_bindless(uint64_t bindless_handle) const noexcept {
+        reinterpret_cast<BindlessArray *>(bindless_handle)->Unlock();
     }
 };
 class LCCmdBuffer final : public vstd::IOperatorNewBase {

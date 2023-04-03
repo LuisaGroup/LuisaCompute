@@ -15,6 +15,8 @@ namespace luisa::compute {
 template<typename T>
 /*
 struct ReorderFuncTable{
+    void lock_bindless(uint64_t bindless_handle) const noexcept{}
+    void unlock_bindless(uint64_t bindless_handle) const noexcept{}
     bool is_res_in_bindless(uint64_t bindless_handle, uint64_t resource_handle) const noexcept {}
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {}
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {}
@@ -26,6 +28,8 @@ concept ReorderFuncTable =
         requires(std::is_same_v<bool, decltype(t.is_res_in_bindless(uint64_v, uint64_v))>);
         requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
         t.update_bindless(uint64_v, modification);
+        t.lock_bindless(uint64_v);
+        t.unlock_bindless(uint64_v);
         requires(std::is_same_v<luisa::span<const Argument>, decltype(t.shader_bindings(uint64_v))>);
     };
 
@@ -159,6 +163,10 @@ private:
             range);
         if (_bindless_max_layer >= layer) {
             for (auto &&i : _bindless_map) {
+                _func_table.lock_bindless(i.first);
+                auto unlocker = vstd::scope_exit([&] {
+                    _func_table.unlock_bindless(i.first);
+                });
                 if (_func_table.is_res_in_bindless(i.first, handle->handle)) {
                     layer = std::max<int64_t>(layer, i.second->view.read_layer + 1);
                 }
@@ -549,9 +557,15 @@ private:
                     auto &&arr = i.bindless_array;
                     _use_bindless_in_pass = true;
                     vstd::fixed_vector<uint64_t, 16> requiredState;
-                    for (auto &&res : _write_res_map) {
-                        if (_func_table.is_res_in_bindless(arr.handle, res)) {
-                            requiredState.emplace_back(res);
+                    {
+                        _func_table.lock_bindless(arr.handle);
+                        auto unlocker = vstd::scope_exit([&] {
+                            _func_table.unlock_bindless(arr.handle);
+                        });
+                        for (auto &&res : _write_res_map) {
+                            if (_func_table.is_res_in_bindless(arr.handle, res)) {
+                                requiredState.emplace_back(res);
+                            }
                         }
                     }
                     for (auto &&i : requiredState) {

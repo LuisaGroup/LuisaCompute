@@ -113,9 +113,15 @@ public:
         void operator()(Argument::BindlessArray const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
             vstd::fixed_vector<Resource const *, 16> writeMap;
-            for (auto &&i : self->stateTracker->WriteStateMap()) {
-                if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
-                    writeMap.emplace_back(i);
+            {
+                arr->Lock();
+                auto unlocker = vstd::scope_exit([&] {
+                    arr->Unlock();
+                });
+                for (auto &&i : self->stateTracker->WriteStateMap()) {
+                    if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
+                        writeMap.emplace_back(i);
+                    }
                 }
             }
             if (!writeMap.empty()) {
@@ -364,9 +370,6 @@ public:
             cmd->offset(),
             cmd->size());
         bd->Upload(bf, cmd->data());
-        stateTracker->RecordState(
-            bf.buffer,
-            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const BufferDownloadCommand *cmd) noexcept override {
         BufferView bf(
@@ -386,9 +389,6 @@ public:
             cmd->src_offset(),
             cmd->dst_offset(),
             cmd->size());
-        stateTracker->RecordState(
-            dstBf,
-            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
@@ -398,9 +398,6 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-        stateTracker->RecordState(
-            rt,
-            stateTracker->ReadState(ResourceReadUsage::Srv, rt));
     }
     struct Visitor {
         LCCmdVisitor *self;
@@ -534,9 +531,6 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-        stateTracker->RecordState(
-            rt,
-            stateTracker->ReadState(ResourceReadUsage::Srv, rt));
     }
     void visit(const ClearDepthCommand *cmd) noexcept {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
@@ -609,9 +603,6 @@ public:
             dst,
             0,
             cmd->dst_level());
-        stateTracker->RecordState(
-            dst,
-            stateTracker->ReadState(ResourceReadUsage::Srv, dst));
     }
     void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
@@ -621,9 +612,6 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
-        stateTracker->RecordState(
-            bf,
-            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
