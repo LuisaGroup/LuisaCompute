@@ -112,9 +112,15 @@ public:
         }
         void operator()(Argument::BindlessArray const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
-            auto readState = self->stateTracker->ReadState(ResourceReadUsage::Srv);
+            vstd::fixed_vector<Resource const *, 16> writeMap;
             for (auto &&i : self->stateTracker->WriteStateMap()) {
                 if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
+                    writeMap.emplace_back(i);
+                }
+            }
+            if (!writeMap.empty()) {
+                auto readState = self->stateTracker->ReadState(ResourceReadUsage::Srv);
+                for (auto &&i : writeMap) {
                     self->stateTracker->RecordState(i, readState);
                 }
             }

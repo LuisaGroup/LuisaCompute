@@ -8,6 +8,7 @@
 #include <runtime/buffer.h>
 #include <runtime/raster/raster_scene.h>
 #include <runtime/rhi/argument.h>
+#include <core/logging.h>
 
 namespace luisa::compute {
 
@@ -37,8 +38,7 @@ public:
         Write
     };
     enum class ResourceType : uint8_t {
-        Texture,
-        Buffer,
+        Texture_Buffer,
         Mesh,
         Bindless,
         Accel
@@ -110,6 +110,7 @@ private:
     vstd::unordered_map<uint64_t, RangeHandle *> _res_map;
     vstd::unordered_map<uint64_t, NoRangeHandle *> _no_range_resmap;
     vstd::unordered_map<uint64_t, BindlessHandle *> _bindless_map;
+    vstd::unordered_set<uint64_t> _write_res_map;
     int64_t _bindless_max_layer = -1;
     int64_t _max_mesh_level = -1;
     int64_t _max_accel_read_level = -1;
@@ -247,6 +248,7 @@ private:
                     ite.first->second.read_layer = std::max<int64_t>(ite.first->second.read_layer, layer);
                 else
                     ite.first->second.read_layer = layer;
+                _write_res_map.erase(src_handle->handle);
             } break;
         }
         return layer;
@@ -272,6 +274,7 @@ private:
                 layer = get_last_layer_write(handle, range);
                 auto ite = handle->views.try_emplace(range);
                 ite.first->second.write_layer = layer;
+                _write_res_map.insert(dst_handle->handle);
             } break;
         }
 
@@ -335,7 +338,7 @@ private:
                         view_ptr->read_layer = layer;
                     };
                 }
-
+                _write_res_map.erase(src_handle->handle);
             } break;
         }
 
@@ -356,6 +359,7 @@ private:
                 layer = std::max<int64_t>(layer, get_last_layer_write(handle, write_range));
                 auto ite = handle->views.try_emplace(write_range);
                 ite.first->second.write_layer = layer;
+                _write_res_map.insert(write_handle);
             } break;
         }
         set_read_layer();
@@ -370,7 +374,7 @@ private:
 
         auto vb_handle = get_handle(
             vb,
-            ResourceType::Buffer);
+            ResourceType::Texture_Buffer);
         auto mesh_handle = get_handle(
             handle,
             ResourceType::Mesh);
@@ -385,7 +389,7 @@ private:
         };
         auto ib_handle = get_handle(
             ib,
-            ResourceType::Buffer);
+            ResourceType::Texture_Buffer);
         auto range_handle = static_cast<RangeHandle *>(ib_handle);
         layer = std::max<int64_t>(layer, get_last_layer_read(range_handle, ib_range));
         set_handle(range_handle, ib_range, layer);
@@ -400,7 +404,7 @@ private:
         Range aabb_range) {
         auto vb_handle = get_handle(
             aabb_buffer,
-            ResourceType::Buffer);
+            ResourceType::Texture_Buffer);
         auto mesh_handle = get_handle(
             handle,
             ResourceType::Mesh);
@@ -479,8 +483,7 @@ private:
                 case ResourceType::Mesh:
                     _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_write(static_cast<NoRangeHandle *>(h)));
                     break;
-                case ResourceType::Buffer:
-                case ResourceType::Texture:
+                case ResourceType::Texture_Buffer:
                     _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_write(static_cast<RangeHandle *>(h), range));
                     break;
                 case ResourceType::Bindless:
@@ -497,8 +500,7 @@ private:
                 case ResourceType::Mesh:
                     _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_read(static_cast<NoRangeHandle *>(h)));
                     break;
-                case ResourceType::Buffer:
-                case ResourceType::Texture:
+                case ResourceType::Texture_Buffer:
                     _dispatch_layer = std::max<int64_t>(_dispatch_layer, get_last_layer_read(static_cast<RangeHandle *>(h), range));
                     break;
                 case ResourceType::Bindless:
@@ -526,7 +528,7 @@ private:
                     auto &&bf = i.buffer;
                     add_dispatch_handle(
                         bf.handle,
-                        ResourceType::Buffer,
+                        ResourceType::Texture_Buffer,
                         Range(bf.offset, bf.size),
                         ((uint)_func_table.get_usage(_shader_handle, _arg_idx) & (uint)Usage::WRITE) != 0);
                     ++_arg_idx;
@@ -535,7 +537,7 @@ private:
                     auto &&tex = i.texture;
                     add_dispatch_handle(
                         tex.handle,
-                        ResourceType::Texture,
+                        ResourceType::Texture_Buffer,
                         Range(tex.level),
                         ((uint)_func_table.get_usage(_shader_handle, _arg_idx) & (uint)Usage::WRITE) != 0);
                     ++_arg_idx;
@@ -546,6 +548,19 @@ private:
                 case Tag::BINDLESS_ARRAY: {
                     auto &&arr = i.bindless_array;
                     _use_bindless_in_pass = true;
+                    vstd::fixed_vector<uint64_t, 16> requiredState;
+                    for (auto &&res : _write_res_map) {
+                        if (_func_table.is_res_in_bindless(arr.handle, res)) {
+                            requiredState.emplace_back(res);
+                        }
+                    }
+                    for (auto &&i : requiredState) {
+                        add_dispatch_handle(
+                            i,
+                            ResourceType::Texture_Buffer,
+                            Range{},
+                            false);
+                    }
                     add_dispatch_handle(
                         arr.handle,
                         ResourceType::Bindless,
@@ -613,6 +628,7 @@ public:
         _res_map.clear();
         _no_range_resmap.clear();
         _bindless_map.clear();
+        _write_res_map.clear();
         _bindless_max_layer = -1;
         _max_accel_read_level = -1;
         _max_accel_write_level = -1;
@@ -629,18 +645,18 @@ public:
 
     // Buffer : resource
     void visit(const BufferUploadCommand *command) noexcept override {
-        add_command(command, set_write(command->handle(), copy_range(command->offset(), command->size()), ResourceType::Buffer));
+        add_command(command, set_write(command->handle(), copy_range(command->offset(), command->size()), ResourceType::Texture_Buffer));
     }
     void visit(const BufferDownloadCommand *command) noexcept override {
-        add_command(command, set_read(command->handle(), copy_range(command->offset(), command->size()), ResourceType::Buffer));
+        add_command(command, set_read(command->handle(), copy_range(command->offset(), command->size()), ResourceType::Texture_Buffer));
     }
     void visit(const BufferCopyCommand *command) noexcept override {
-        add_command(command, set_rw(command->src_handle(), copy_range(command->src_offset(), command->size()), ResourceType::Buffer, command->dst_handle(), copy_range(command->dst_offset(), command->size()), ResourceType::Buffer));
+        add_command(command, set_rw(command->src_handle(), copy_range(command->src_offset(), command->size()), ResourceType::Texture_Buffer, command->dst_handle(), copy_range(command->dst_offset(), command->size()), ResourceType::Texture_Buffer));
     }
     void visit(const BufferToTextureCopyCommand *command) noexcept override {
         auto sz = command->size();
         auto binSize = pixel_storage_size(command->storage(), sz);
-        add_command(command, set_rw(command->buffer(), copy_range(command->buffer_offset(), binSize), ResourceType::Buffer, command->texture(), copy_range(command->level(), 1), ResourceType::Texture));
+        add_command(command, set_rw(command->buffer(), copy_range(command->buffer_offset(), binSize), ResourceType::Texture_Buffer, command->texture(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
     }
 
     // Shader : function, read/write multi resources
@@ -650,7 +666,7 @@ public:
                 auto &&t = command->indirect_dispatch_size();
                 add_dispatch_handle(
                     t.handle,
-                    ResourceType::Buffer,
+                    ResourceType::Texture_Buffer,
                     Range(),
                     false);
             }
@@ -660,7 +676,7 @@ public:
         auto set_tex_dsl = [&](ShaderDispatchCommandBase::Argument::Texture const &a) {
             add_dispatch_handle(
                 a.handle,
-                ResourceType::Texture,
+                ResourceType::Texture_Buffer,
                 Range(a.level),
                 true);
         };
@@ -677,7 +693,7 @@ public:
                 for (auto &&v : mesh.vertex_buffers()) {
                     add_dispatch_handle(
                         v.handle(),
-                        ResourceType::Buffer,
+                        ResourceType::Texture_Buffer,
                         Range(v.offset(), v.size()),
                         false);
                 }
@@ -686,7 +702,7 @@ public:
                     auto idx = luisa::get<0>(i);
                     add_dispatch_handle(
                         idx.handle(),
-                        ResourceType::Buffer,
+                        ResourceType::Texture_Buffer,
                         Range(idx.offset_bytes(), idx.size_bytes()),
                         false);
                 }
@@ -696,21 +712,21 @@ public:
 
     // Texture : resource
     void visit(const TextureUploadCommand *command) noexcept override {
-        add_command(command, set_write(command->handle(), copy_range(command->level(), 1), ResourceType::Texture));
+        add_command(command, set_write(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
     }
     void visit(const TextureDownloadCommand *command) noexcept override {
-        add_command(command, set_read(command->handle(), copy_range(command->level(), 1), ResourceType::Texture));
+        add_command(command, set_read(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
     }
     void visit(const TextureCopyCommand *command) noexcept override {
-        add_command(command, set_rw(command->src_handle(), copy_range(command->src_level(), 1), ResourceType::Texture, command->dst_handle(), copy_range(command->dst_level(), 1), ResourceType::Texture));
+        add_command(command, set_rw(command->src_handle(), copy_range(command->src_level(), 1), ResourceType::Texture_Buffer, command->dst_handle(), copy_range(command->dst_level(), 1), ResourceType::Texture_Buffer));
     }
     void visit(const TextureToBufferCopyCommand *command) noexcept override {
         auto sz = command->size();
         auto binSize = pixel_storage_size(command->storage(), sz);
-        add_command(command, set_rw(command->texture(), copy_range(command->level(), 1), ResourceType::Texture, command->buffer(), copy_range(command->buffer_offset(), binSize), ResourceType::Buffer));
+        add_command(command, set_rw(command->texture(), copy_range(command->level(), 1), ResourceType::Texture_Buffer, command->buffer(), copy_range(command->buffer_offset(), binSize), ResourceType::Texture_Buffer));
     }
     void visit(const ClearDepthCommand *command) noexcept {
-        add_command(command, set_write(command->handle(), Range{}, ResourceType::Texture));
+        add_command(command, set_write(command->handle(), Range{}, ResourceType::Texture_Buffer));
     }
 
     // BindlessArray : read multi resources
