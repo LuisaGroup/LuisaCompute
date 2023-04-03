@@ -1098,12 +1098,14 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
             if (cbufferNonEmpty) {
                 result << "Args a = _Global[0];\n"sv;
             }
+            LUISA_ASSERT(opt != nullptr, "Bad");
             opt->funcType = CodegenStackData::FuncType::Kernel;
             opt->arguments.clear();
             opt->arguments.reserve(func.arguments().size());
             size_t idx = 0;
             for (auto &&i : func.arguments()) {
-                opt->arguments.try_emplace(i.uid(), idx);
+                auto [_, success] = opt->arguments.try_emplace(i.uid(), idx);
+                LUISA_ASSERT(success, "Bad2");
                 ++idx;
             }
         } else {

@@ -184,7 +184,9 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
+    Clock clk;
     auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);
+    LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
         ComputeShader::SaveCompute(
