@@ -1,6 +1,7 @@
 luisa_compute_add_executable(test_main
         common/test_main.cpp
         common/config.h
+        common/doctest.h
         common/cornell_box.h
         common/tiny_obj_loader.h)
 

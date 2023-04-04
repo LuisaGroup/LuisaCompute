@@ -6,11 +6,10 @@
 #include <tests/common/tiny_obj_loader.h>
 
 #define DOCTEST_CONFIG_IMPLEMENT
-#include <doctest.h>
+#include <tests/common/config.h>
 
 #include <core/stl/string.h>
 #include <core/stl/vector.h>
-#include <tests/common/config.h>
 
 namespace luisa::test {
 
