@@ -1,8 +1,14 @@
-function(luisa_compute_add_executable name)
-    add_executable(${name} ${ARGN})
-    target_link_libraries(${name} PRIVATE luisa::compute)
-    install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+luisa_compute_add_executable(test_main
+        common/test_main.cpp
+        common/config.h
+        common/cornell_box.h
+        common/tiny_obj_loader.h)
+
+function(luisa_compute_add_test name)
+    target_sources(test_main PRIVATE ${name}.cpp)
 endfunction()
+
+luisa_compute_add_test(test_context)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
     luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)

@@ -28,3 +28,6 @@
 [submodule "src/unity3d"]
 	path = src/unity3d
 	url = https://github.com/LuisaGroup/LuisaCompute_Unity3D
+[submodule "src/ext/doctest/repo"]
+	path = src/ext/doctest/repo
+	url = https://github.com/doctest/doctest.git

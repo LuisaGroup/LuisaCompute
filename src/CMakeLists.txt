@@ -82,6 +82,12 @@ if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(py)
 endif ()
 
+function(luisa_compute_add_executable name)
+    add_executable(${name} ${ARGN})
+    target_link_libraries(${name} PRIVATE luisa::compute)
+    install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endfunction()
+
 if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(tests)
 endif ()

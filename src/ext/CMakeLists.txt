@@ -84,6 +84,11 @@ target_include_directories(parallel-hashmap INTERFACE $<BUILD_INTERFACE:${CMAKE_
 target_link_libraries(luisa-compute-ext INTERFACE parallel-hashmap)
 luisa_compute_install_extension(parallel-hashmap INCLUDE parallel-hashmap/parallel_hashmap)
 
+add_library(doctest INTERFACE $<BUILD_INTERFACE:doctest/doctest.h doctest/repo/doctest/doctest.h>)
+target_include_directories(doctest INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/doctest>)
+luisa_compute_install_extension(doctest INCLUDE doctest)
+target_link_libraries(luisa-compute-ext INTERFACE doctest)
+
 if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(pybind11)
 endif ()
