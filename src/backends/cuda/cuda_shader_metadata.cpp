@@ -248,6 +248,11 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             "Argument types and usages mismatch in shader metadata.");
         return luisa::nullopt;
     }
+    if (argument_types->size() != argument_usages->size()) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Argument count mismatch in shader metadata.");
+        return luisa::nullopt;
+    }
     return CUDAShaderMetadata{
         .checksum = checksum.value(),
         .kind = kind,

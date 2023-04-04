@@ -587,6 +587,12 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
         return ShaderCreationInfo::make_invalid();
     }
 
+    // check argument count
+    if (metadata.argument_types.size() != arg_types.size()) {
+        LUISA_WARNING_WITH_LOCATION("Argument count mismatch when loading shader {}.", name);
+        return ShaderCreationInfo::make_invalid();
+    }
+
     // create shader
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
