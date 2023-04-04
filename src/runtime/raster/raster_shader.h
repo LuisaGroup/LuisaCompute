@@ -245,6 +245,12 @@ public:
 #endif
         return std::move((invoke << ... << args));
     }
+    void warm_up(luisa::span<PixelFormat const> render_target_formats, DepthFormat depth_format, const RasterState &state) const noexcept {
+#ifndef NDEBUG
+        detail::rastershader_check_rtv_format(render_target_formats);
+#endif
+        _raster_ext->warm_up_pipeline_cache(handle(), render_target_formats, depth_format, state);
+    }
 };
 
 }// namespace luisa::compute

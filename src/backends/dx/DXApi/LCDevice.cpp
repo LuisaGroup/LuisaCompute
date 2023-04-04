@@ -414,6 +414,18 @@ ResourceCreationInfo DxRasterExt::load_raster_shader(
         return ResourceCreationInfo::make_invalid();
     }
 }
+void DxRasterExt::warm_up_pipeline_cache(
+    uint64_t shader_handle,
+    luisa::span<PixelFormat const> render_target_formats,
+    DepthFormat depth_format,
+    const RasterState &state) noexcept {
+    LUISA_ASSERT(render_target_formats.size() > 8, "Render target format must be less than 8");
+    GFXFormat rtvs[8];
+    for(auto i : vstd::range(render_target_formats.size())){
+        rtvs[i] = TextureBase::ToGFXFormat(render_target_formats[i]);
+    }
+    reinterpret_cast<RasterShader *>(shader_handle)->GetPSO({rtvs, render_target_formats.size()}, depth_format, state);
+}
 void DxRasterExt::destroy_raster_shader(uint64_t handle) noexcept {
     delete reinterpret_cast<RasterShader *>(handle);
 }
