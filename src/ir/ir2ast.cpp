@@ -137,7 +137,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
                                     arg_num == 1 ?
                                         "1 argument" :
                                         luisa::format("{} arguments", arg_num);
-        LUISA_ASSERT(args.size() == arg_num, "`{}` takes {}.", name, argument_information);
+        LUISA_ASSERT(args.size() == arg_num, "`{}` takes {}, got {}.", name, argument_information, args.size());
         auto converted_args = luisa::vector<const Expression *>{};
         for (const auto &arg : args) {
             converted_args.push_back(_convert_node(arg));
@@ -283,11 +283,17 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::RayTracingSetInstanceOpacity: return builtin_func(3, "RayTracingSetInstanceOpacity", CallOp::RAY_TRACING_SET_INSTANCE_OPACITY);
         case ir::Func::Tag::RayTracingTraceClosest: return builtin_func(3, "RayTracingTraceClosest", CallOp::RAY_TRACING_TRACE_CLOSEST);
         case ir::Func::Tag::RayTracingTraceAny: return builtin_func(3, "RayTracingTraceAny", CallOp::RAY_TRACING_TRACE_ANY);
+        case ir::Func::Tag::RayTracingQueryAll: return builtin_func(3, "RayTracingQueryAll", CallOp::RAY_TRACING_QUERY_ALL);
+        case ir::Func::Tag::RayTracingQueryAny: return builtin_func(3, "RayTracingQueryAny", CallOp::RAY_TRACING_QUERY_ANY);
         case ir::Func::Tag::RayQueryProceduralCandidateHit: return builtin_func(1, "RayQueryProceduralCandidateHit", CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT);
         case ir::Func::Tag::RayQueryTriangleCandidateHit: return builtin_func(1, "RayQueryTriangleCandidateHit", CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT);
         case ir::Func::Tag::RayQueryCommittedHit: return builtin_func(1, "RayQueryCommittedHit", CallOp::RAY_QUERY_COMMITTED_HIT);
         case ir::Func::Tag::RayQueryCommitTriangle: return builtin_func(1, "RayQueryCommitTriangle", CallOp::RAY_QUERY_COMMIT_TRIANGLE);
         case ir::Func::Tag::RayQueryCommitProcedural: return builtin_func(1, "RayQueryCommitProcedural", CallOp::RAY_QUERY_COMMIT_PROCEDURAL);
+        case ir::Func::Tag::RayQueryTerminate: return builtin_func(0, "RayQueryTerminate", CallOp::RAY_QUERY_TERMINATE);
+        case ir::Func::Tag::RasterDiscard: return builtin_func(0, "RasterDiscard", CallOp::RASTER_DISCARD);
+        case ir::Func::Tag::IndirectClearDispatchBuffer: return builtin_func(1, "IndirectClearDispatchBuffer", CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER);
+        case ir::Func::Tag::IndirectEmplaceDispatchKernel: return builtin_func(4, "IndirectEmplaceDispatchKernel", CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL);
         case ir::Func::Tag::Load: {
             LUISA_ASSERT(args.size() == 1u, "`Load` takes 1 argument.");
             return _convert_node(args[0]);
@@ -429,7 +435,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         case ir::Func::Tag::BindlessTexture3dSize: return builtin_func(1, "BindlessTexture3dSize", CallOp::BINDLESS_TEXTURE3D_SIZE);
         case ir::Func::Tag::BindlessTexture2dSizeLevel: return builtin_func(2, "BindlessTexture2dSizeLevel", CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL);
         case ir::Func::Tag::BindlessTexture3dSizeLevel: return builtin_func(2, "BindlessTexture3dSizeLevel", CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL);
-        case ir::Func::Tag::BindlessBufferRead: return builtin_func(2, "BindlessBufferRead", CallOp::BINDLESS_BUFFER_READ);
+        case ir::Func::Tag::BindlessBufferRead: return builtin_func(3, "BindlessBufferRead", CallOp::BINDLESS_BUFFER_READ);
         case ir::Func::Tag::BindlessBufferSize: return builtin_func(1, "BindlessBufferSize", CallOp::BINDLESS_BUFFER_SIZE);
         case ir::Func::Tag::BindlessBufferType: return builtin_func(1, "BindlessBufferType", CallOp::BINDLESS_BUFFER_TYPE);
         case ir::Func::Tag::Vec: return make_vector(1);
@@ -524,9 +530,6 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             auto callable = convert_callable(p_callable.get())->function();
         }
         case ir::Func::Tag::CpuCustomOp: LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
-        // FIXME: these tags are deprecated and will be removed.
-        case ir::Func::Tag::RayTracingInstanceVisibility: [[fallthrough]];
-        case ir::Func::Tag::RayTracingInstanceOpacity: [[fallthrough]];
         default: LUISA_ERROR_WITH_LOCATION("Invalid function tag.");
     }
     return nullptr;

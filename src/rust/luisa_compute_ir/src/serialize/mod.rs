@@ -163,8 +163,6 @@ pub enum SerializedFunc {
 
     // (handle, instance_id) -> Mat4
     RayTracingInstanceTransform,
-    RayTracingInstanceVisibility,
-    RayTracingInstanceOpacity,
     RayTracingSetInstanceTransform,
     RayTracingSetInstanceOpacity,
     RayTracingSetInstanceVisibility,
@@ -174,12 +172,20 @@ pub enum SerializedFunc {
     RayTracingTraceClosest,
     // (handle, Ray, mask) -> bool
     RayTracingTraceAny,
+    RayTracingQueryAll,
+    RayTracingQueryAny,
 
     RayQueryProceduralCandidateHit,
     RayQueryTriangleCandidateHit,
     RayQueryCommittedHit,
     RayQueryCommitTriangle,
     RayQueryCommitProcedural,
+    RayQueryTerminate,
+
+    RasterDiscard,
+    
+    IndirectClearDispatchBuffer,
+    IndirectEmplaceDispatchKernel,
 
     /// When referencing a Local in Call, it is always interpreted as a load
     /// However, there are cases you want to do this explicitly
