@@ -1148,7 +1148,15 @@ const Type *IR2AST::get_type(const ir::Type *type) noexcept {
 
 [[nodiscard]] const Type *IR2AST::get_type(const ir::NodeRef node_ref) noexcept {
     auto node = ir::luisa_compute_ir_node_get(node_ref);
-    return _convert_type(node->type_.get());
+    LUISA_VERBOSE("node type is {}", luisa::to_underlying(node->instruction->tag));
+    switch (node->instruction->tag) {
+        case ir::Instruction::Tag::Buffer: return Type::buffer(_convert_type(node->type_.get()));
+        case ir::Instruction::Tag::Texture2D: return Type::texture(_convert_type(node->type_.get()), 2u);
+        case ir::Instruction::Tag::Texture3D: return Type::texture(_convert_type(node->type_.get()), 3u);
+        case ir::Instruction::Tag::Bindless: return Type::from("bindless_array");
+        case ir::Instruction::Tag::Accel: return Type::from("accel");
+        default: return _convert_type(node->type_.get());
+    }
 }
 
 [[nodiscard]] luisa::shared_ptr<detail::FunctionBuilder> IR2AST::build(const ir::KernelModule *kernel) noexcept {
