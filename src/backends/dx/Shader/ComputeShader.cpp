@@ -31,9 +31,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
 
     if (result) {
         auto md5 = CodegenUtility::GetTypeMD5(types);
-        if (md5 != typeMD5) {
-            LUISA_ERROR("Shader {} arguments unmatch to requirement!", fileName);
-        }
+        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);\
         if (oldDeleted) {
             result->SavePSO(result->Pso(), psoName, fileIo, device);
         }
