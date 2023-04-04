@@ -163,7 +163,7 @@ void BindlessArray::UpdateStates(
     }
     vstd::vector<uint> needReturnIdx;
     while (auto i = freeQueue.Pop()) {
-        needReturnIdx.push_back(i);
+        needReturnIdx.push_back(*i);
     }
     builder.GetCB()->GetAlloc()->ExecuteAfterComplete(
         [vec = std::move(needReturnIdx),
