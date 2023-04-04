@@ -19,6 +19,8 @@ local function test_proj(name)
 	end
 	target_end()
 end
+
+-- FIXME: @Maxwell please use the doctest framework
 test_proj("test_helloworld")
 test_proj("test_ast")
 test_proj("test_atomic")
