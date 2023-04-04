@@ -27,7 +27,7 @@ static_assert(sizeof(CUDASurface) == 16u);
  * @brief Mipmap array on CUDA
  * 
  */
-class CUDAMipmapArray {
+class CUDATexture {
 
 public:
     static constexpr auto max_level_count = 14u;
@@ -41,8 +41,8 @@ private:
     mutable spin_mutex _mutex;
 
 public:
-    CUDAMipmapArray(uint64_t array, PixelFormat format, uint32_t levels) noexcept;
-    ~CUDAMipmapArray() noexcept;
+    CUDATexture(uint64_t array, PixelFormat format, uint32_t levels) noexcept;
+    ~CUDATexture() noexcept;
     [[nodiscard]] auto handle() const noexcept { return _array; }
     [[nodiscard]] auto format() const noexcept { return static_cast<PixelFormat>(_format); }
     [[nodiscard]] auto storage() const noexcept { return pixel_format_to_storage(format()); }
@@ -51,8 +51,9 @@ public:
     [[nodiscard]] CUDASurface surface(uint32_t level) const noexcept;
     [[nodiscard]] uint3 size() const noexcept;
     [[nodiscard]] auto binding(uint32_t level) const noexcept { return surface(level); }
+    void set_name(luisa::string &&name) noexcept;
 };
 
-static_assert(sizeof(CUDAMipmapArray) == 128u);
+static_assert(sizeof(CUDATexture) == 128u);
 
 }// namespace luisa::compute::cuda

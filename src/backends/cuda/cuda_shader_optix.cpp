@@ -7,7 +7,7 @@
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_accel.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_shader_optix.h>
@@ -315,7 +315,7 @@ void CUDAShaderOptiX::_prepare_sbt(CUDACommandEncoder &encoder) const noexcept {
     }
 }
 
-void CUDAShaderOptiX::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
+void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
 
     // prepare SBT
     _prepare_sbt(encoder);
@@ -343,7 +343,7 @@ void CUDAShaderOptiX::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand 
                     break;
                 }
                 case Tag::TEXTURE: {
-                    auto texture = reinterpret_cast<const CUDAMipmapArray *>(arg.texture.handle);
+                    auto texture = reinterpret_cast<const CUDATexture *>(arg.texture.handle);
                     auto binding = texture->binding(arg.texture.level);
                     auto ptr = allocate_argument(sizeof(binding));
                     std::memcpy(ptr, &binding, sizeof(binding));

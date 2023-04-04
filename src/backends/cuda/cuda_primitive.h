@@ -26,6 +26,7 @@ private:
     CUdeviceptr _bvh_buffer_handle{};
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
+    luisa::string _name;
 
 protected:
     [[nodiscard]] virtual optix::BuildInput _make_build_input() const noexcept = 0;
@@ -38,6 +39,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     [[nodiscard]] auto option() const noexcept { return _option; }
+    void set_name(luisa::string &&name) noexcept;
 };
 
 [[nodiscard]] inline auto make_optix_build_options(const AccelOption &option, optix::BuildOperation op) noexcept {

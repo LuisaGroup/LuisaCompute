@@ -19,13 +19,15 @@ private:
     uint _block_size[3];
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
 
+private:
+    void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
+
 public:
     CUDAShaderNative(const char *ptx, size_t ptx_size,
                      const char *entry, uint3 block_size,
                      luisa::vector<Usage> argument_usages,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
-    void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 };
 
 }// namespace luisa::compute::cuda

@@ -9,7 +9,7 @@
 #include <runtime/rhi/device_interface.h>
 #include <backends/common/default_binary_io.h>
 #include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/optix_api.h>

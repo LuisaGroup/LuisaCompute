@@ -4,13 +4,15 @@
 
 #ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
 
-#include <core/platform.h>
 #include <vulkan/vulkan.h>
 
+#include <cstdlib>
+#include <nvtx3/nvToolsExtCuda.h>
 
+#include <core/platform.h>
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_stream.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 #include <backends/cuda/cuda_swapchain.h>
 
 #if defined(LUISA_PLATFORM_WINDOWS)
@@ -96,6 +98,7 @@ private:
     VulkanSwapchain _base;
     uint2 _size;
     uint _current_frame{0u};
+    luisa::string _name;
 
 private:
     // vulkan objects
@@ -215,8 +218,8 @@ private:
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
 
-        VkPipelineStageFlags  src_stage;
-        VkPipelineStageFlags  dst_stage;
+        VkPipelineStageFlags src_stage;
+        VkPipelineStageFlags dst_stage;
 
         if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED) {
             barrier.srcAccessMask = 0;
@@ -484,10 +487,13 @@ public:
 
     void present(CUstream stream, CUarray image) noexcept {
 
+        if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::present", _name).c_str()); }
+
         // wait for the frame to be ready
         _base.wait_for_fence();
 
         // copy image to swapchain image
+        if (!_name.empty()) { nvtxRangePushA("copy"); }
         CUDA_MEMCPY3D copy{};
         copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
         copy.srcArray = image;
@@ -497,18 +503,29 @@ public:
         copy.Height = _size.y;
         copy.Depth = 1u;
         LUISA_CHECK_CUDA(cuMemcpy3DAsync(&copy, stream));
+        if (!_name.empty()) { nvtxRangePop(); }
 
         // signal that the frame is ready
+        if (!_name.empty()) { nvtxRangePushA(luisa::format("signal", _name).c_str()); }
         CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signal_params{};
         LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(
             &_cuda_ext_semaphores[_current_frame], &signal_params, 1, stream));
+        if (!_name.empty()) { nvtxRangePop(); }
 
         // present
+        if (!_name.empty()) { nvtxRangePushA(luisa::format("present", _name).c_str()); }
         _base.present(_semaphores[_current_frame], nullptr, _image_view,
                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (!_name.empty()) { nvtxRangePop(); }
 
         // update current frame index
         _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
+
+        if (!_name.empty()) { nvtxRangePop(); }
+    }
+
+    void set_name(luisa::string &&name) noexcept {
+        _name = std::move(name);
     }
 };
 
@@ -525,11 +542,15 @@ PixelStorage CUDASwapchain::pixel_storage() const noexcept {
     return _impl->pixel_storage();
 }
 
-void CUDASwapchain::present(CUDAStream *stream, CUDAMipmapArray *image) noexcept {
+void CUDASwapchain::present(CUDAStream *stream, CUDATexture *image) noexcept {
     LUISA_ASSERT(image->storage() == _impl->pixel_storage() &&
                      all(image->size() == make_uint3(_impl->size(), 0u)),
                  "Image size and pixel format must match the swapchain");
     _impl->present(stream->handle(), image->level(0u));
+}
+
+void CUDASwapchain::set_name(luisa::string &&name) noexcept {
+    _impl->set_name(std::move(name));
 }
 
 }// namespace luisa::compute::cuda

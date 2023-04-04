@@ -13,7 +13,7 @@
 #include <runtime/rhi/command.h>
 #include <backends/common/resource_tracker.h>
 #include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 
 namespace luisa::compute::cuda {
 
@@ -42,6 +42,7 @@ private:
     luisa::vector<CUtexObject> _tex2d_slots;
     luisa::vector<CUtexObject> _tex3d_slots;
     ResourceTracker _texture_tracker;
+    luisa::string _name;
 
 public:
     explicit CUDABindlessArray(size_t capacity) noexcept;
@@ -49,6 +50,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     void update(CUDACommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;
     [[nodiscard]] auto binding() const noexcept { return _handle; }
+    void set_name(luisa::string &&name) noexcept;
 };
 
 }// namespace luisa::compute::cuda

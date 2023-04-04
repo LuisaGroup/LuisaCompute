@@ -6,6 +6,9 @@
 #include <fstream>
 #include <future>
 #include <thread>
+#include <cstdlib>
+
+#include <nvtx3/nvToolsExtCuda.h>
 
 #include <core/clock.h>
 #include <core/binary_io.h>
@@ -28,7 +31,7 @@
 #include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 #include <backends/cuda/cuda_shader_native.h>
 #include <backends/cuda/cuda_shader_optix.h>
 #include <backends/cuda/cuda_shader_metadata.h>
@@ -188,13 +191,13 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
             LUISA_CHECK_CUDA(cuMipmappedArrayCreate(&handle, &array_desc, mipmap_levels));
             return reinterpret_cast<uint64_t>(handle);
         }();
-        return new_with_allocator<CUDAMipmapArray>(array_handle, format, mipmap_levels);
+        return new_with_allocator<CUDATexture>(array_handle, format, mipmap_levels);
     });
     return {.handle = reinterpret_cast<uint64_t>(p), .native_handle = p};
 }
 
 void CUDADevice::destroy_texture(uint64_t handle) noexcept {
-    with_handle([array = reinterpret_cast<CUDAMipmapArray *>(handle)] {
+    with_handle([array = reinterpret_cast<CUDATexture *>(handle)] {
         delete_with_allocator(array);
     });
 }
@@ -283,7 +286,7 @@ void CUDADevice::present_display_in_stream(uint64_t stream_handle, uint64_t swap
 #ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
     with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),
                  chain = reinterpret_cast<CUDASwapchain *>(swapchain_handle),
-                 image = reinterpret_cast<CUDAMipmapArray *>(image_handle)] {
+                 image = reinterpret_cast<CUDATexture *>(image_handle)] {
         chain->present(stream, image);
     });
 #else
@@ -809,8 +812,47 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     return _optix_context;
 }
 
-void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
-    // TODO: set resource name
+void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
+                          uint64_t resource_handle,
+                          luisa::string_view name) noexcept {
+    with_handle([tag = resource_tag,
+                 handle = resource_handle,
+                 name = luisa::string{name}]() mutable noexcept {
+        switch (tag) {
+            case Resource::Tag::BUFFER:
+                reinterpret_cast<CUDABuffer *>(handle)->set_name(std::move(name));
+                break;
+            case Resource::Tag::TEXTURE:
+                reinterpret_cast<CUDATexture *>(handle)->set_name(std::move(name));
+                break;
+            case Resource::Tag::BINDLESS_ARRAY:
+                reinterpret_cast<CUDABindlessArray *>(handle)->set_name(std::move(name));
+                break;
+            case Resource::Tag::MESH: [[fallthrough]];
+            case Resource::Tag::PROCEDURAL_PRIMITIVE:
+                reinterpret_cast<CUDAPrimitive *>(handle)->set_name(std::move(name));
+                break;
+            case Resource::Tag::ACCEL:
+                reinterpret_cast<CUDAAccel *>(handle)->set_name(std::move(name));
+                break;
+            case Resource::Tag::STREAM:
+                reinterpret_cast<CUDAStream *>(handle)->set_name(std::move(name));
+                break;
+            case Resource::Tag::EVENT:
+                nvtxNameCuEventA(reinterpret_cast<CUevent>(handle), name.c_str());
+                break;
+            case Resource::Tag::SHADER:
+                reinterpret_cast<CUDAShader *>(handle)->set_name(std::move(name));
+                break;
+            case Resource::Tag::RASTER_SHADER: break;
+            case Resource::Tag::SWAP_CHAIN:
+#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
+                reinterpret_cast<CUDASwapchain *>(handle)->set_name(std::move(name));
+#endif
+                break;
+            case Resource::Tag::DEPTH_BUFFER: break;
+        }
+    });
 }
 
 }// namespace luisa::compute::cuda

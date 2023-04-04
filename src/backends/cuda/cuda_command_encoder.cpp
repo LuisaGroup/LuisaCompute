@@ -12,7 +12,7 @@
 #include <backends/cuda/cuda_device.h>
 #include <backends/cuda/cuda_shader.h>
 #include <backends/cuda/cuda_host_buffer_pool.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 
@@ -92,7 +92,7 @@ void CUDACommandEncoder::visit(ShaderDispatchCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
-    auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->texture());
+    auto mipmap_array = reinterpret_cast<CUDATexture *>(command->texture());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
@@ -111,7 +111,7 @@ void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(TextureUploadCommand *command) noexcept {
-    auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->handle());
+    auto mipmap_array = reinterpret_cast<CUDATexture *>(command->handle());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
@@ -134,7 +134,7 @@ void CUDACommandEncoder::visit(TextureUploadCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(TextureDownloadCommand *command) noexcept {
-    auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->handle());
+    auto mipmap_array = reinterpret_cast<CUDATexture *>(command->handle());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
@@ -152,8 +152,8 @@ void CUDACommandEncoder::visit(TextureDownloadCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(TextureCopyCommand *command) noexcept {
-    auto src_mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->src_handle());
-    auto dst_mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->dst_handle());
+    auto src_mipmap_array = reinterpret_cast<CUDATexture *>(command->src_handle());
+    auto dst_mipmap_array = reinterpret_cast<CUDATexture *>(command->dst_handle());
     auto src_array = src_mipmap_array->level(command->src_level());
     auto dst_array = dst_mipmap_array->level(command->dst_level());
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));
@@ -170,7 +170,7 @@ void CUDACommandEncoder::visit(TextureCopyCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
-    auto mipmap_array = reinterpret_cast<CUDAMipmapArray *>(command->texture());
+    auto mipmap_array = reinterpret_cast<CUDATexture *>(command->texture());
     auto array = mipmap_array->level(command->level());
     CUDA_MEMCPY3D copy{};
     auto pitch = pixel_storage_size(command->storage(), make_uint3(command->size().x, 1u, 1u));

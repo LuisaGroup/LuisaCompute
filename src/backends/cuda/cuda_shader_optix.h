@@ -33,6 +33,7 @@ private:
 
 private:
     void _prepare_sbt(CUDACommandEncoder &encoder) const noexcept;
+    void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:
     CUDAShaderOptiX(optix::DeviceContext optix_ctx,
@@ -41,7 +42,6 @@ public:
                     luisa::vector<Usage> argument_usages,
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;
-    void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 };
 
 }// namespace luisa::compute::cuda

@@ -14,7 +14,7 @@ if (CUDAToolkit_FOUND)
             cuda_device.cpp cuda_device.h
             cuda_host_buffer_pool.cpp cuda_host_buffer_pool.h
             cuda_command_encoder.cpp cuda_command_encoder.h
-            cuda_mipmap_array.cpp cuda_mipmap_array.h
+            cuda_texture.cpp cuda_texture.h
             cuda_codegen_ast.cpp cuda_codegen_ast.h
             cuda_compiler.cpp cuda_compiler.h
             cuda_accel.cpp cuda_accel.h
