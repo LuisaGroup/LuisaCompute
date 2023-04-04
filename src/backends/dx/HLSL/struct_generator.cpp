@@ -78,7 +78,7 @@ void StructGenerator::InitAsStruct(
                 break;
         }
         structSize += i->size();
-        CodegenUtility::GetTypeName(*i, structDesc, Usage::READ, false);
+        util->GetTypeName(*i, structDesc, Usage::READ, false);
         structDesc << " v"sv << vstd::to_string(varIdx);
         varIdx++;
         if (i->tag() == Type::Tag::BOOL) {
@@ -94,7 +94,7 @@ void StructGenerator::InitAsArray(
     size_t structIdx,
     Callback const &visitor) {
     auto &&ele = t->element();
-    CodegenUtility::GetTypeName(*ele, structDesc, Usage::READ, false);
+    util->GetTypeName(*ele, structDesc, Usage::READ, false);
     structDesc << " v["sv << vstd::to_string(t->dimension()) << "];\n";
 }
 void StructGenerator::Init(Callback const &visitor) {
@@ -106,8 +106,10 @@ void StructGenerator::Init(Callback const &visitor) {
 }
 StructGenerator::StructGenerator(
     Type const *structureType,
-    size_t structIdx)
+    size_t structIdx,
+    CodegenUtility *util)
     : idx(structIdx),
+      util(util),
       structureType{structureType} {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
         structName = "S";

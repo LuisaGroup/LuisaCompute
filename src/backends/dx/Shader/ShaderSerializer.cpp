@@ -231,7 +231,6 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     binCode.push_back_uninitialized(targetSize);
     binStream->read({binCode.data(), binCode.size()});
     auto binPtr = binCode.data();
-    // vstd::vector<D3D12_INPUT_ELEMENT_DESC> elements;
     // auto psoDesc = RasterShader::GetState(
     //     elements,
     //     meshFormat,
@@ -239,6 +238,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     //     rtv,
     //     dsv);
 
+    // vstd::vector<D3D12_INPUT_ELEMENT_DESC> elements;
     // auto psoStream = streamFunc.read_shader_cache(psoName);
     // if (psoStream != nullptr && psoStream->length() > 0) {
     //     psoCode.push_back_uninitialized(psoStream->length());

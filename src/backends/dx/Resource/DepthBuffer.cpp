@@ -1,6 +1,21 @@
 #include <Resource/DepthBuffer.h>
 #include <Resource/DescriptorHeap.h>
 namespace lc::dx {
+DepthFormat DepthBuffer::GFXFormatToDepth(GFXFormat f) {
+    using namespace luisa::compute;
+    switch (f) {
+        case GFXFormat_D16_UNorm:
+            return DepthFormat::D16;
+        case GFXFormat_D24_UNorm_S8_UInt:
+            return DepthFormat::D24S8;
+        case GFXFormat_D32_Float:
+            return DepthFormat::D32;
+        case GFXFormat_D32_Float_S8X24_UInt:
+            return DepthFormat::D32S8A24;
+        default:
+            return DepthFormat::None;
+    }
+}
 GFXFormat DepthBuffer::GetDepthFormat(DepthFormat f) {
     using namespace luisa::compute;
     switch (f) {

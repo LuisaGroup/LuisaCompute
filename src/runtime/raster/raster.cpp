@@ -21,19 +21,6 @@ RasterShaderInvoke &RasterShaderInvoke::operator<<(const BindlessArray &array) n
 }
 
 #ifndef NDEBUG
-void RasterShaderInvoke::check_dst(luisa::span<PixelFormat const> rt_formats, DepthBuffer const *depth) noexcept {
-    if (_rtv_format.size() != rt_formats.size()) {
-        LUISA_ERROR("Render target count mismatch!");
-    }
-    for (size_t i = 0; i < rt_formats.size(); ++i) {
-        if (_rtv_format[i] != rt_formats[i]) {
-            LUISA_ERROR("Render target {} format mismatch", char(i + 48));
-        }
-    }
-    if ((depth && depth->format() != _dsv_format) || (!depth && _dsv_format != DepthFormat::None)) {
-        LUISA_ERROR("Depth-buffer's format mismatch");
-    }
-}
 void RasterShaderInvoke::check_scene(luisa::vector<RasterMesh> const& scene) noexcept {
     for (auto &&mesh : scene) {
         auto vb = mesh.vertex_buffers();
@@ -47,7 +34,7 @@ void RasterShaderInvoke::check_scene(luisa::vector<RasterMesh> const& scene) noe
                 target_stride += VertexElementFormatStride(s.format);
             }
             if (target_stride != vb[i].stride()) {
-                LUISA_ERROR("Vertex buffer {} stride mismatch!", char(i + 48));
+                LUISA_ERROR("Vertex buffer {} stride mismatch!", std::to_string(i));
             }
         }
     }

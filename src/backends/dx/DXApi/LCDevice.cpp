@@ -184,9 +184,9 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
-    Clock clk;
-    auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);
-    LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
+    // Clock clk;
+    auto code = CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo);
+    // LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
         ComputeShader::SaveCompute(
@@ -348,7 +348,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
-    auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
+    auto code = CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());

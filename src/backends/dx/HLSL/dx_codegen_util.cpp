@@ -24,16 +24,16 @@ namespace detail {
 static inline uint64 CalcAlign(uint64 value, uint64 align) {
     return (value + (align - 1)) & ~(align - 1);
 }
-static vstd::string_view HLSLHeader(luisa::BinaryIO const *internalDataPath) {
-    static auto header = CodegenUtility::ReadInternalHLSLFileByte("hlsl_header", internalDataPath);
+static vstd::string_view HLSLHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
+    static auto header = util->ReadInternalHLSLFileByte("hlsl_header", internalDataPath);
     return {header.data(), header.size()};
 }
-static vstd::string_view RayTracingHeader(luisa::BinaryIO const *internalDataPath) {
-    static auto header = CodegenUtility::ReadInternalHLSLFileByte("raytracing_header", internalDataPath);
+static vstd::string_view RayTracingHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
+    static auto header = util->ReadInternalHLSLFileByte("raytracing_header", internalDataPath);
     return {header.data(), header.size()};
 }
 }// namespace detail
-static thread_local vstd::unique_ptr<CodegenStackData> opt;
+// static thread_local vstd::unique_ptr<CodegenStackData> opt;
 #ifdef USE_SPIRV
 CodegenStackData *CodegenUtility::StackData() { return opt.get(); }
 #endif
@@ -168,7 +168,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBui
     str << "struct tc";
     vstd::to_string((constCount), str);
     uint64 varCount = 1;
-    eastl::visit(
+    luisa::visit(
         [&](auto &&arr) {
             varCount = arr.size();
         },
@@ -186,7 +186,7 @@ void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuild
     vstd::string name = vstd::to_string((constCount));
     str << "uniform const tc" << name << " c" << name;
     str << "={{";
-    eastl::visit(
+    luisa::visit(
         [&](auto &&arr) {
             for (auto const &ele : arr) {
                 PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
@@ -227,7 +227,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "uint16_t"sv;
             return;
         case Type::Tag::MATRIX: {
-            CodegenUtility::GetTypeName(*type.element(), str, usage);
+            GetTypeName(*type.element(), str, usage);
             vstd::to_string(type.dimension(), str);
             str << 'x';
             vstd::to_string((type.dimension() == 3) ? 4 : type.dimension(), str);
@@ -235,11 +235,11 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             return;
         case Type::Tag::VECTOR: {
             if (type.dimension() != 3 || local_var) {
-                CodegenUtility::GetTypeName(*type.element(), str, usage);
+                GetTypeName(*type.element(), str, usage);
                 vstd::to_string((type.dimension()), str);
             } else {
                 str << 'w';
-                CodegenUtility::GetTypeName(*type.element(), str, usage);
+                GetTypeName(*type.element(), str, usage);
                 vstd::to_string(3, str);
             }
         }
@@ -1051,8 +1051,8 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             vstd::to_string(i.type->dimension(), result);
             result << "]={"sv;
             auto &&dataView = i.data.view();
-            eastl::visit(
-                [&]<typename T>(eastl::span<T> const &sp) {
+            luisa::visit(
+                [&]<typename T>(vstd::span<T> const &sp) {
                     for (auto i : vstd::range(sp.size())) {
                         auto &&value = sp[i];
                         PrintValue<std::remove_cvref_t<T>>()(value, result);
@@ -1113,7 +1113,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
         }
         {
 
-            StringStateVisitor vis(func, result);
+            StringStateVisitor vis(func, result, this);
             vis.sharedVariables = &opt->sharedVariable;
             vis.VisitFunction(func);
         }
@@ -1166,7 +1166,7 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
         ++idx;
     }
     {
-        StringStateVisitor vis(vert, result);
+        StringStateVisitor vis(vert, result, this);
         vis.sharedVariables = &opt->sharedVariable;
         vis.VisitFunction(vert);
     }
@@ -1224,7 +1224,7 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
         ++idx;
     }
     {
-        StringStateVisitor vis(pixel, result);
+        StringStateVisitor vis(pixel, result, this);
         vis.sharedVariables = &opt->sharedVariable;
         vis.VisitFunction(pixel);
     }
@@ -1556,10 +1556,12 @@ vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
     }
     return {typeDescs.view()};
 }
+CodegenUtility::CodegenUtility() {}
+CodegenUtility::~CodegenUtility() {}
 CodegenResult CodegenUtility::Codegen(
     Function kernel, luisa::BinaryIO const *internalDataPath) {
     assert(kernel.tag() == Function::Tag::KERNEL);
-    opt = CodegenStackData::Allocate();
+    opt = CodegenStackData::Allocate(this);
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -1573,9 +1575,9 @@ CodegenResult CodegenUtility::Codegen(
     vstd::StringBuilder finalResult;
     finalResult.reserve(65500);
 
-    finalResult << detail::HLSLHeader(internalDataPath);
+    finalResult << detail::HLSLHeader(this, internalDataPath);
     if (kernel.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(internalDataPath);
+        finalResult << detail::RayTracingHeader(this, internalDataPath);
     }
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::RangeImpl(vstd::CacheEndRange(kernel.arguments()) | vstd::ValueRange{});
@@ -1602,7 +1604,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     Function vertFunc,
     Function pixelFunc,
     luisa::BinaryIO const *internalDataPath) {
-    opt = CodegenStackData::Allocate();
+    opt = CodegenStackData::Allocate(this);
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = vertFunc;
     opt->isRaster = true;
@@ -1727,9 +1729,9 @@ uint iid:SV_INSTANCEID;
     // TODO: gen pixel data
     CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer);
     codegenData << "#endif\n"sv;
-    finalResult << detail::HLSLHeader(internalDataPath);
+    finalResult << detail::HLSLHeader(this, internalDataPath);
     if (vertFunc.requires_raytracing() || pixelFunc.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(internalDataPath);
+        finalResult << detail::RayTracingHeader(this, internalDataPath);
     }
     opt->funcType = CodegenStackData::FuncType::Callable;
     if (nonEmptyCbuffer) {

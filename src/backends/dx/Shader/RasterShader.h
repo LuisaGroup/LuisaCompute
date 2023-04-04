@@ -9,7 +9,7 @@ namespace lc::dx {
 struct CodegenResult;
 class ShaderSerializer;
 struct RasterPSOState {
-    vstd::vector<PixelFormat> rtvFormats;
+    vstd::vector<GFXFormat> rtvFormats;
     DepthFormat dsvFormat;
     RasterState rasterState;
 };
@@ -85,7 +85,7 @@ private:
 public:
     // ID3D12CommandSignature *CmdSig(size_t vertexCount, bool index);
     ID3D12PipelineState *GetPSO(
-        vstd::span<PixelFormat const> rtvFormats,
+        vstd::span<GFXFormat const> rtvFormats,
         DepthFormat dsvFormat,
         RasterState const &rasterState);
     Tag GetTag() const noexcept override { return Tag::RasterShader; }
@@ -98,7 +98,7 @@ public:
     static D3D12_GRAPHICS_PIPELINE_STATE_DESC GetState(
         vstd::span<D3D12_INPUT_ELEMENT_DESC const> inputLayout,
         RasterState const &state,
-        vstd::span<PixelFormat const> rtv,
+        vstd::span<GFXFormat const> rtv,
         DepthFormat dsv);
     RasterShader(
         Device *device,
