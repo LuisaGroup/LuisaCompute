@@ -16,8 +16,10 @@ namespace luisa::compute::cuda {
 
 CUDAShaderNative::CUDAShaderNative(const char *ptx, size_t ptx_size,
                                    const char *entry, uint3 block_size,
+                                   luisa::vector<Usage> argument_usages,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : _entry{entry},
+    : CUDAShader{std::move(argument_usages)},
+      _entry{entry},
       _block_size{block_size.x, block_size.y, block_size.z},
       _bound_arguments{std::move(bound_arguments)} {
 

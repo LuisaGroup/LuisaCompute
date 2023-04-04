@@ -13,6 +13,7 @@
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/optix_api.h>
+#include <backends/cuda/cuda_shader_metadata.h>
 
 namespace luisa::compute::cuda {
 
@@ -87,8 +88,8 @@ private:
 private:
     [[nodiscard]] ShaderCreationInfo _create_shader(const string &source,
                                                     ShaderOption option,
-                                                    uint3 block_size,
-                                                    bool is_raytracing,
+                                                    luisa::span<const char *const> nvrtc_options,
+                                                    const CUDAShaderMetadata &expected_metadata,
                                                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
 
 public:

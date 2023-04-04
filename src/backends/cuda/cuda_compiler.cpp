@@ -16,17 +16,19 @@ namespace luisa::compute::cuda {
 
 luisa::string CUDACompiler::compile(const luisa::string &src,
                                     luisa::span<const char *const> options,
-                                    luisa::optional<uint64_t> precomputed_hash) const noexcept {
-
-#ifndef NDEBUG
-    auto recomputed_hash = compute_hash(src, options);
-    LUISA_ASSERT(!precomputed_hash || *precomputed_hash == recomputed_hash,
-                 "Hash mismatch!");
-    precomputed_hash.emplace(recomputed_hash);
-#endif
+                                    const CUDAShaderMetadata *metadata) const noexcept {
 
     Clock clk;
-    auto hash = precomputed_hash.value_or(compute_hash(src, options));
+
+#ifndef NDEBUG
+    // in debug mode, we always recompute the hash, so
+    // that we can check the hash if metadata is provided
+    auto hash = compute_hash(src, options);
+    if (metadata) { LUISA_ASSERT(metadata->checksum == hash, "Hash mismatch!"); }
+#else
+    auto hash = metadata ? metadata->checksum : compute_hash(src, options);
+#endif
+
     if (auto ptx = _cache->fetch(hash)) { return *ptx; }
 
     std::array header_names{"device_library.h"};
@@ -45,12 +47,17 @@ luisa::string CUDACompiler::compile(const luisa::string &src,
         LUISA_WARNING_WITH_LOCATION("Compile log:\n{}", log);
     }
     LUISA_CHECK_NVRTC(error);
-    auto ptx = checksum_header(hash).append("\n\n");
-    auto checksum_header_size = ptx.size();
     size_t ptx_size;
     LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
-    ptx.resize(checksum_header_size + ptx_size - 1u);
-    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data() + checksum_header_size));
+    luisa::string ptx;
+    if (metadata) {
+        ptx.append(luisa::format(
+            "// METADATA: {}\n\n",
+            serialize_cuda_shader_metadata(*metadata)));
+    }
+    auto header_size = ptx.size();
+    ptx.resize(header_size + ptx_size - 1u);
+    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data() + header_size));
     LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
     LUISA_VERBOSE_WITH_LOCATION("CUDACompiler::compile() took {} ms.", clk.toc());
     return ptx;
@@ -60,9 +67,6 @@ size_t CUDACompiler::type_size(const Type *type) noexcept {
     if (!type->is_custom()) { return type->size(); }
     // TODO: support custom types
     if (type->description() == "LC_IndirectKernelDispatch") {
-        LUISA_ERROR_WITH_LOCATION("Not implemented.");
-    }
-    if (type->description() == "LC_RayQuery") {
         LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     LUISA_ERROR_WITH_LOCATION("Not implemented.");
@@ -106,10 +110,6 @@ uint64_t CUDACompiler::compute_hash(const string &src, luisa::span<const char *c
     auto hash = hash_value(src, _library_hash);
     for (auto o : options) { hash = hash_value(o, hash); }
     return hash;
-}
-
-luisa::string CUDACompiler::checksum_header(uint64_t hash) const noexcept {
-    return luisa::format("// CHECKSUM {:016X}", hash);
 }
 
 }// namespace luisa::compute::cuda

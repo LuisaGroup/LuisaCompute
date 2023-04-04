@@ -15,7 +15,6 @@ class CUDACommandEncoder;
 class CUDAShaderOptiX final : public CUDAShader {
 
 private:
-    CUDADevice *_device;
     size_t _argument_buffer_size{};
     optix::Module _module{};
     optix::ProgramGroup _program_group_rg{};
@@ -36,10 +35,11 @@ private:
     void _prepare_sbt(CUDACommandEncoder &encoder) const noexcept;
 
 public:
-    CUDAShaderOptiX(CUDADevice *device,
+    CUDAShaderOptiX(optix::DeviceContext optix_ctx,
                     const char *ptx, size_t ptx_size,
                     const char *entry, bool enable_debug,
-                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
+                    luisa::vector<Usage> argument_usages,
+                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;
     void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 };

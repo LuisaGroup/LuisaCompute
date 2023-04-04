@@ -49,11 +49,12 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
     return size;
 }
 
-CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
+CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
                                  const char *ptx, size_t ptx_size,
                                  const char *entry, bool enable_debug,
+                                 luisa::vector<Usage> argument_usages,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : _device{device},
+    : CUDAShader{std::move(argument_usages)},
       _bound_arguments{std::move(bound_arguments)} {
 
     // create SBT event
@@ -132,7 +133,6 @@ CUDAShaderOptiX::CUDAShaderOptiX(CUDADevice *device,
     pipeline_compile_options.usesPrimitiveTypeFlags = primitive_flags;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
-    auto optix_ctx = device->handle().optix_context();
     char log[2048];// For error reporting from OptiX creation functions
     size_t log_size;
     LUISA_CHECK_OPTIX_WITH_LOG(

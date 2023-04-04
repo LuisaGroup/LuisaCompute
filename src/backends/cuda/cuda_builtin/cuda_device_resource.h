@@ -21,7 +21,7 @@ template<typename T = void>
 #endif
 }
 
-#ifdef LC_DEBUG
+#ifdef LUISA_DEBUG
 #define lc_assert(...)                                \
     do {                                              \
         if (!(__VA_ARGS__)) {                         \
