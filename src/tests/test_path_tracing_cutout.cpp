@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2021/6/23.
 //
 
+#include <random>
 #include <iostream>
 
 #include <core/clock.h>
@@ -104,7 +105,10 @@ int main(int argc, char *argv[]) {
                << mesh.build();
     }
 
-    auto accel = device.create_accel({});
+    AccelOption accel_option{.hint = AccelOption::UsageHint::FAST_TRACE,
+                             .allow_compaction = true,
+                             .allow_update = true};
+    auto accel = device.create_accel(accel_option);
     for (auto &&m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f), 0xffu, false);
     }
@@ -119,11 +123,15 @@ int main(int argc, char *argv[]) {
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall
     materials.emplace_back(Material{make_float3(0.14f, 0.45f, 0.091f), make_float3(0.0f)});// right wall
     materials.emplace_back(Material{make_float3(0.63f, 0.065f, 0.05f), make_float3(0.0f)});// left wall
-    materials.emplace_back(Material{make_float3(0.025f, 0.11f, 0.68f), make_float3(0.0f)});// short box
-    materials.emplace_back(Material{make_float3(0.025f, 0.11f, 0.68f), make_float3(0.0f)});// tall box
+    materials.emplace_back(Material{make_float3(0.45f, 0.11f, 0.52f), make_float3(0.0f)});// short box
+    materials.emplace_back(Material{make_float3(0.025f, 0.21f, 0.68f), make_float3(0.0f)});// tall box
     materials.emplace_back(Material{make_float3(0.0f), make_float3(17.0f, 12.0f, 4.0f)});  // light
     auto material_buffer = device.create_buffer<Material>(materials.size());
     stream << material_buffer.copy_from(materials.data());
+
+    auto light_inst = static_cast<uint>(meshes.size() - 1u);
+    auto tall_inst = static_cast<uint>(meshes.size() - 2u);
+    auto short_inst = static_cast<uint>(meshes.size() - 3u);
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -183,10 +191,11 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Callable filter_triangle_hit = [n = meshes.size()](Var<TriangleHit> h) noexcept {
-        auto tall_inst = static_cast<uint>(n - 2u);
-        auto short_inst = static_cast<uint>(n - 3u);
-        return (h.inst != tall_inst & h.inst != short_inst) | fract(10.f * h.bary.y) < .6f;
+    Callable filter_triangle_hit = [&](Var<TriangleHit> h) noexcept {
+        auto valid = def(true);
+        $if (h.inst == tall_inst) { valid = fract(6.f * h.bary.y) < .6f; }
+        $elif (h.inst == short_inst) { valid = fract(10.f * h.bary.x) < .5f; };
+        return valid;
     };
 
     static constexpr auto spp_per_dispatch = 64u;
@@ -222,16 +231,17 @@ int main(int argc, char *argv[]) {
                                .trace();
                 $if(hit->miss()) { $break; };
                 auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
-                auto p0 = vertex_buffer->read(triangle.i0);
-                auto p1 = vertex_buffer->read(triangle.i1);
-                auto p2 = vertex_buffer->read(triangle.i2);
+                auto m = accel.instance_transform(hit.inst);
+                auto p0 = make_float3(m * make_float4(vertex_buffer->read(triangle.i0), 1.f));
+                auto p1 = make_float3(m * make_float4(vertex_buffer->read(triangle.i1), 1.f));
+                auto p2 = make_float3(m * make_float4(vertex_buffer->read(triangle.i2), 1.f));
                 auto p = hit->interpolate(p0, p1, p2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto cos_wi = abs(dot(-ray->direction(), n));
                 auto material = material_buffer->read(hit.inst);
 
                 // hit light
-                $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                $if(hit.inst == light_inst) {
                     $if(dot(light_normal, ray->direction()) <= 0.f) {// front
                         $if(depth == 0u) {
                             radiance += light_emission;
@@ -352,8 +362,13 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     Clock clock;
 
+    std::mt19937 rand{std::random_device{}()};
+    std::normal_distribution<float> dist{0.f, 1.f};
     while (!window.should_close()) {
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
+        auto t = translation(make_float3(0.f, dist(rand) * .03f + .1f, 0.f));
+        accel.set_transform_on_update(tall_inst, t);
+        cmd_list << accel.build(AccelBuildRequest::PREFER_UPDATE)
+                 << raytracing_shader(framebuffer, seed_image, accel, resolution)
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
