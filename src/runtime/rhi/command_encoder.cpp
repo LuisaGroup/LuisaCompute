@@ -105,6 +105,7 @@ size_t ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span<const Type *co
     return std::accumulate(
         arg_types.cbegin(), arg_types.cend(),
         static_cast<size_t>(0u), [](auto size, auto arg) noexcept {
+            LUISA_ASSERT(arg != nullptr, "Invalid argument type.");
             return size + arg->size();
         });
 }

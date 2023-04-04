@@ -1317,9 +1317,9 @@ template<lc_uint ch_index, lc_uint miss_index, lc_uint reg_count, lc_uint flags>
     auto t_max = ray.m3;
     auto u = lc_undef();
     [[maybe_unused]] unsigned int
-        p0,
-        p1, p2, p3, p4, p5,
-        p6, p7, p8, p9, p10, p11, p12, p13,
+        p0 = 0u,
+        p1 = 0u, p2 = 0u, p3 = 0u, p4 = 0u,
+        p5, p6, p7, p8, p9, p10, p11, p12, p13,
         p14, p15, p16, p17, p18, p19, p20, p21, p22,
         p23, p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(

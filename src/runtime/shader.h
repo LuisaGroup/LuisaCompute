@@ -207,13 +207,17 @@ private:
     Shader(DeviceInterface *device,
            const ir::KernelModule *const module,
            const ShaderOption &option) noexcept
-        : Shader{device, device->create_shader(option, module), 0u} {
-        auto arg_types = luisa::vector<const Type *>(module->args.len);
-        for (auto i = 0u; i < module->args.len; i++) {
-            arg_types[i] = IR2AST::get_type(module->args.ptr[i]);
-        }
-        _uniform_size = ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span{arg_types});
-    }
+        : Shader{device, device->create_shader(option, module),
+                 [module] {
+                     luisa::vector<const Type *> arg_types;
+                     arg_types.reserve(module->args.len);
+                     for (auto i = 0u; i < module->args.len; i++) {
+                         auto type = IR2AST::get_type(module->args.ptr[i]);
+                         assert(type != nullptr && "Failed to get argument type.");
+                         arg_types.emplace_back(type);
+                     }
+                     return ShaderDispatchCmdEncoder::compute_uniform_size(arg_types);
+                 }()} {}
 #endif
 
     // AOT shader
