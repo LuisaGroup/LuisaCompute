@@ -50,7 +50,6 @@ int main(int argc, char *argv[]) {
         {VertexAttributeType::UV0, VertexElementFormat::XY32Float},
     };
     mesh_format.emplace_vertex_stream(attributes);
-    RasterState state{.cull_mode = CullMode::None};
     static constexpr uint32_t width = 1024;
     static constexpr uint32_t height = 1024;
     auto stream = device.create_stream(StreamTag::GRAPHICS);
@@ -70,10 +69,7 @@ int main(int argc, char *argv[]) {
     auto img_format = out_img.format();
     auto shader = device.compile(
         kernel,
-        mesh_format,
-        state,
-        {&img_format, 1},
-        DepthFormat::None);
+        mesh_format);
     auto vert_buffer = device.create_buffer<Vertex>(3);
     auto idx_buffer = device.create_buffer<uint32_t>(3);
     Vertex vertices[3];
@@ -91,13 +87,14 @@ int main(int argc, char *argv[]) {
     Clock clock;
     clock.tic();
     luisa::vector<RasterMesh> meshes;
+    RasterState state{.cull_mode = CullMode::None};
     while (!window.should_close() && !window2.should_close()) {
         auto time = clock.toc() / 1000.0f;
         // add triangle mesh
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 0);
         stream
             << clear_shader(out_img).dispatch(width, height)
-            << shader(time, time * 5).draw(std::move(meshes), {}, nullptr, out_img)
+            << shader(time, time * 5).draw(std::move(meshes), Viewport{}, state, nullptr, out_img)
             << swap_chain.present(out_img)
             << swap_chain2.present(out_img);
         window.pool_event();

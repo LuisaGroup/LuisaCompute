@@ -20,6 +20,7 @@ class Context;
 class Event;
 class Stream;
 class Mesh;
+class MeshFormat;
 class ProceduralPrimitive;
 class Accel;
 class SwapChain;
@@ -229,10 +230,12 @@ public:
     template<typename V, typename P>
     [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(
         const RasterKernel<V, P> &kernel,
+        const MeshFormat &mesh_format,
         const ShaderOption &option = {}) noexcept;
     template<typename V, typename P>
     void compile_to(
         const RasterKernel<V, P> &kernel,
+        const MeshFormat &mesh_format,
         luisa::string_view serialization_path,
         const ShaderOption& option = {}) noexcept;
 

@@ -10,6 +10,7 @@ private:
     mutable std::mutex allocMtx;
 
 public:
+    static DepthFormat GFXFormatToDepth(GFXFormat f);
     static GFXFormat GetDepthFormat(DepthFormat f);
     ID3D12Resource *GetResource() const override {
         return allocHandle.resource.Get();

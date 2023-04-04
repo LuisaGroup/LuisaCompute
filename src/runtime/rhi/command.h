@@ -18,6 +18,7 @@
 #include <runtime/raster/viewport.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/rhi/argument.h>
+#include <runtime/raster/raster_state.h>
 // for validation
 namespace lc::validation {
 class Stream;
@@ -640,6 +641,7 @@ private:
     Argument::Texture _dsv_tex;
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport;
+    RasterState _raster_state;
 
 public:
     DrawRasterSceneCommand(uint64_t shader_handle,
@@ -649,7 +651,8 @@ public:
                            size_t rtv_count,
                            Argument::Texture dsv_texture,
                            luisa::vector<RasterMesh> &&scene,
-                           Viewport viewport) noexcept;
+                           Viewport viewport,
+                           const RasterState &raster_state) noexcept;
 
 public:
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
@@ -657,6 +660,7 @@ public:
     ~DrawRasterSceneCommand() noexcept override;
     [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
+    [[nodiscard]] auto const &raster_state() const noexcept { return _raster_state; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }
     LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)

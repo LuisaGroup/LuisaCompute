@@ -85,12 +85,12 @@ void CommandBufferBuilder::DispatchCompute(
 }
 void CommandBufferBuilder::SetRasterShader(
     RasterShader const *s,
+    ID3D12PipelineState *state,
     vstd::span<const BindProperty> resources) {
     auto c = cb->CmdList();
-    // TODO:
-    // c->SetPipelineState(s->Pso());
-    // c->SetGraphicsRootSignature(s->RootSig());
-    // SetRasterResources(s, resources);
+    c->SetPipelineState(state);
+    c->SetGraphicsRootSignature(s->RootSig());
+    SetRasterResources(s, resources);
 }
 void CommandBufferBuilder::DispatchComputeIndirect(
     ComputeShader const *cs,
