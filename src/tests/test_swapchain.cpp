@@ -24,8 +24,8 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     auto device = context.create_device(argv[1]);
-    static constexpr auto width = 3000u;
-    static constexpr auto height = 2000u;
+    static constexpr auto width = 2048u;
+    static constexpr auto height = 1024u;
     static constexpr auto resolution = make_uint2(width, height);
 
     auto draw = device.compile<2>([](ImageFloat image, Float time) noexcept {
@@ -34,29 +34,45 @@ int main(int argc, char *argv[]) {
         auto color = def(make_float4());
         Constant<float> scales{pi, luisa::exp(1.f), luisa::sqrt(2.f)};
         for (auto i = 0u; i < 3u; i++) {
-            color[i] = fract(cos(time * scales[i] + uv.y * 11.f +
-                                 sin(-time * scales[2u - i] + uv.x * 7.f) * 4.f) * .5f + .5f);
+            color[i] = cos(time * scales[i] + uv.y * 11.f +
+                           sin(-time * scales[2u - i] + uv.x * 7.f) * 4.f) *
+                           .5f +
+                       .5f;
         }
         color[3] = 1.0f;
         image.write(p, color);
     });
 
-    Window window{"Display", resolution};
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    auto swap_chain = device.create_swapchain(
-        window.native_handle(), stream,
-        resolution, false, false, 8);
-    auto image = device.create_image<float>(
-        swap_chain.backend_storage(), resolution);
+    auto image = device.create_image<float>(PixelStorage::BYTE4, resolution);
+
+    struct PackagedWindow {
+        Window window;
+        SwapChain swapchain;
+    };
+
+    static constexpr auto window_count = 4u;
+    luisa::vector<PackagedWindow> windows;
+    windows.reserve(window_count);
+    for (auto i = 0u; i < window_count; i++) {
+        Window window{luisa::format("Window #{}", i), resolution >> i};
+        auto swpachain = device.create_swapchain(
+            window.native_handle(), stream,
+            resolution, false, false, 3);
+        windows.emplace_back(std::move(window),
+                             std::move(swpachain));
+    }
 
     Clock clk;
     Framerate framerate;
-    while (!window.should_close()) {
+    while (std::all_of(windows.cbegin(), windows.cend(), [](auto &&w) noexcept {
+        return !w.window.should_close();
+    })) {
         stream << draw(image, static_cast<float>(clk.toc() * 1e-3))
-                      .dispatch(resolution)
-               << swap_chain.present(image);
+                      .dispatch(resolution);
+        for (auto &&w : windows) { stream << w.swapchain.present(image); }
         framerate.record(1u);
         LUISA_INFO("FPS: {}", framerate.report());
-        window.pool_event();
+        for (auto &&w : windows) { w.window.pool_event(); }
     }
 }
