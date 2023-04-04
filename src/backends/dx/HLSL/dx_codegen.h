@@ -37,75 +37,79 @@ struct CodegenResult {
     CodegenResult(CodegenResult &&) = default;
 };
 class CodegenUtility {
+    vstd::unique_ptr<CodegenStackData> opt{};
 
 public:
-    static uint IsBool(Type const &type);
-    static bool GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str);
-    static void GetVariableName(Variable const &type, vstd::StringBuilder &str);
-    static void GetVariableName(Variable::Tag type, uint id, vstd::StringBuilder &str);
-    static void GetTypeName(Type const &type, vstd::StringBuilder &str, Usage usage, bool local_var = true);
-    static void GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str);
-    static void GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str);
-    //static void
-    static void GetConstantData(ConstantData const &data, vstd::StringBuilder &str);
-    static size_t GetTypeAlign(Type const &t);
-    static size_t GetTypeSize(Type const &t);
-    static vstd::StringBuilder GetBasicTypeName(uint64 typeIndex) {
+    CodegenUtility();
+    ~CodegenUtility();
+    uint IsBool(Type const &type);
+    bool GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str);
+    void GetVariableName(Variable const &type, vstd::StringBuilder &str);
+    void GetVariableName(Variable::Tag type, uint id, vstd::StringBuilder &str);
+    void GetTypeName(Type const &type, vstd::StringBuilder &str, Usage usage, bool local_var = true);
+    void GetBasicTypeName(uint64 typeIndex, vstd::StringBuilder &str);
+    void GetConstantStruct(ConstantData const &data, vstd::StringBuilder &str);
+    // void
+    void GetConstantData(ConstantData const &data, vstd::StringBuilder &str);
+    size_t GetTypeAlign(Type const &t);
+    size_t GetTypeSize(Type const &t);
+    vstd::StringBuilder GetBasicTypeName(uint64 typeIndex) {
         vstd::StringBuilder s;
         GetBasicTypeName(typeIndex, s);
         return s;
     }
-    static void GetFunctionDecl(Function func, vstd::StringBuilder &str);
-    static void GetFunctionName(Function callable, vstd::StringBuilder &result);
-    static void GetFunctionName(CallExpr const *expr, vstd::StringBuilder &result, StringStateVisitor &visitor);
-    static void RegistStructType(Type const *type);
+    void GetFunctionDecl(Function func, vstd::StringBuilder &str);
+    void GetFunctionName(Function callable, vstd::StringBuilder &result);
+    void GetFunctionName(CallExpr const *expr, vstd::StringBuilder &result, StringStateVisitor &visitor);
+    void RegistStructType(Type const *type);
 
-    static void CodegenFunction(
+    void CodegenFunction(
         Function func,
         vstd::StringBuilder &result,
         bool cBufferNonEmpty);
-    static void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, vstd::function<void(vstd::StringBuilder &)> const &bindVertex);
-    static void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
-    static bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
-    static bool IsCBufferNonEmpty(Function func);
+    void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, vstd::function<void(vstd::StringBuilder &)> const &bindVertex);
+    void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
+    bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
+    bool IsCBufferNonEmpty(Function func);
     static vstd::MD5 GetTypeMD5(vstd::span<Type const *const> types);
     static vstd::MD5 GetTypeMD5(std::initializer_list<vstd::IRange<Variable> *> f);
     static vstd::MD5 GetTypeMD5(Function func);
 
-    static void GenerateCBuffer(
+    void GenerateCBuffer(
         std::initializer_list<vstd::IRange<Variable> *> f,
         vstd::StringBuilder &result);
-    static void GenerateBindless(
+    void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str);
-    static void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
-                                            bool isRaster);
-    static void PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult);
-    static void CodegenProperties(
+    void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
+                                     bool isRaster);
+    void PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult);
+    void CodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
         Function kernel,
         uint offset,
         vstd::array<uint, 3> &registerCount);
-    static CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath);
-    static CodegenResult RasterCodegen(
+    CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath);
+    CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
-        luisa::BinaryIO const*internalDataPath);
-    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const*ctx);
-    static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO const*ctx);
+        luisa::BinaryIO const *internalDataPath);
+    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
+    static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO const *ctx);
     /*
 #ifdef USE_SPIRV
-    static void GenerateBindlessSpirv(
+     void GenerateBindlessSpirv(
         vstd::StringBuilder &str);
-    static CodegenStackData *StackData();
-    static vstd::optional<vstd::StringBuilder> CodegenSpirv(Function kernel, luisa::BinaryIO*internalDataPath);
+     CodegenStackData *StackData();
+     vstd::optional<vstd::StringBuilder> CodegenSpirv(Function kernel, luisa::BinaryIO*internalDataPath);
 #endif*/
-    static vstd::StringBuilder GetNewTempVarName();
+    vstd::StringBuilder GetNewTempVarName();
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
+    CodegenUtility* util;
     struct Scope {
         StringStateVisitor *self;
         Scope(StringStateVisitor *self);
@@ -144,7 +148,8 @@ public:
     void visit(const RayQueryStmt *) override;
     StringStateVisitor(
         Function f,
-        vstd::StringBuilder &str);
+        vstd::StringBuilder &str,
+        CodegenUtility* util);
     ~StringStateVisitor();
 
 protected:

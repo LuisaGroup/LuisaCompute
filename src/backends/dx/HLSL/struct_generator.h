@@ -6,6 +6,7 @@
 #include <ast/statement.h>
 #include <HLSL/string_builder.h>
 namespace lc::dx {
+class CodegenUtility;
 using namespace luisa::compute;
 class StructGenerator : public vstd::IOperatorNewBase {
 public:
@@ -13,6 +14,7 @@ public:
 
 private:
     Type const *structureType{nullptr};
+    CodegenUtility *util;
     // vstd::vector<vstd::variant<StructureType, StructGenerator *>> structTypes;
     vstd::StringBuilder structDesc;
     vstd::string structName;
@@ -27,7 +29,7 @@ private:
         Callback const &visitor);
 
 public:
-    static void ProvideAlignVariable(size_t tarAlign, size_t& align, size_t &structSize, vstd::StringBuilder &structDesc);
+    static void ProvideAlignVariable(size_t tarAlign, size_t &align, size_t &structSize, vstd::StringBuilder &structDesc);
     vstd::string_view GetStructDesc() const { return structDesc.view(); }
     vstd::string_view GetStructName() const { return structName; }
     void SetStructName(vstd::string &&name) {
@@ -37,7 +39,8 @@ public:
     Type const *GetType() const noexcept { return structureType; }
     StructGenerator(
         Type const *structureType,
-        size_t structIdx);
+        size_t structIdx,
+        CodegenUtility *util);
     void Init(Callback const &visitor);
     ~StructGenerator();
 };

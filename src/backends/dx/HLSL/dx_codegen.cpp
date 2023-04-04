@@ -131,7 +131,7 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 
     } else {
         vstd::StringBuilder curStr;
-        StringStateVisitor vis(f, curStr);
+        StringStateVisitor vis(f, curStr, util);
         expr->self()->accept(vis);
         str << curStr << ".v"sv << vstd::to_string(expr->member_index());
         auto t = expr->type();
@@ -202,8 +202,8 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
 void StringStateVisitor::visit(const RefExpr *expr) {
     Variable v = expr->variable();
     vstd::StringBuilder tempStr;
-    CodegenUtility::GetVariableName(v, tempStr);
-    CodegenUtility::RegistStructType(v.type());
+    util->GetVariableName(v, tempStr);
+    util->RegistStructType(v.type());
     str << tempStr;
     auto t = expr->type();
 }
@@ -223,7 +223,7 @@ void StringStateVisitor::visit(const LiteralExpr *expr) {
     }
 }
 void StringStateVisitor::visit(const CallExpr *expr) {
-    CodegenUtility::GetFunctionName(expr, str, *this);
+    util->GetFunctionName(expr, str, *this);
 }
 void StringStateVisitor::visit(const CastExpr *expr) {
     if (expr->type() == expr->expression()->type()) [[unlikely]] {
@@ -234,7 +234,7 @@ void StringStateVisitor::visit(const CastExpr *expr) {
     switch (expr->op()) {
         case CastOp::STATIC:
             str << '(';
-            CodegenUtility::GetTypeName(*expr->type(), str, Usage::READ);
+            util->GetTypeName(*expr->type(), str, Usage::READ);
             str << ')';
             expr->expression()->accept(*this);
             break;
@@ -270,12 +270,12 @@ void StringStateVisitor::visit(const CastExpr *expr) {
 }
 
 void StringStateVisitor::visit(const ConstantExpr *expr) {
-    CodegenUtility::GetConstName(expr->data().hash(), expr->data(), str);
+    util->GetConstName(expr->data().hash(), expr->data(), str);
 }
 
 void StringStateVisitor::visit(const BreakStmt *state) {
 #ifdef USE_SPIRV
-    auto stackData = CodegenUtility::StackData();
+    auto stackData = util->StackData();
     if (!CodegenStackData::ThreadLocalSpirv() || !stackData->tempSwitchExpr)
 #endif
         str << "break;\n";
@@ -338,7 +338,7 @@ void StringStateVisitor::visit(const ExprStmt *state) {
 void StringStateVisitor::visit(const SwitchStmt *state) {
 #ifdef USE_SPIRV
     if (CodegenStackData::ThreadLocalSpirv()) {
-        auto stackData = CodegenUtility::StackData();
+        auto stackData = util->StackData();
         stackData->tempSwitchExpr = state->expression();
         stackData->tempSwitchCounter = 0;
         state->body()->accept(*this);
@@ -359,14 +359,14 @@ void StringStateVisitor::visit(const SwitchStmt *state) {
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
 #ifdef USE_SPIRV
     if (CodegenStackData::ThreadLocalSpirv()) {
-        auto stackData = CodegenUtility::StackData();
+        auto stackData = util->StackData();
         if (stackData->tempSwitchCounter == 0) {
             str << "if("sv;
         } else {
             str << "else if("sv;
         }
         ++stackData->tempSwitchCounter;
-        CodegenUtility::StackData()->tempSwitchExpr->accept(*this);
+        util->StackData()->tempSwitchExpr->accept(*this);
         str << "=="sv;
         state->expression()->accept(*this);
         str << ')';
@@ -389,7 +389,7 @@ void StringStateVisitor::visit(const SwitchCaseStmt *state) {
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 #ifdef USE_SPIRV
     if (CodegenStackData::ThreadLocalSpirv()) {
-        auto stackData = CodegenUtility::StackData();
+        auto stackData = util->StackData();
         if (stackData->tempSwitchCounter == 0) {
             {
                 Scope scope{this};
@@ -439,7 +439,7 @@ void StringStateVisitor::visit(const ForStmt *state) {
 void StringStateVisitor::visit(const RayQueryStmt *stmt) {
     str << "{\n"sv;
     auto qstr = vstd::string("q"sv).append(vstd::to_string(rayQuery));
-    CodegenUtility::GetTypeName(*stmt->query()->type(), str, Usage::READ_WRITE, true);
+    util->GetTypeName(*stmt->query()->type(), str, Usage::READ_WRITE, true);
     str << ' ' << qstr << '=';
     rayQuery++;
     stmt->query()->accept(*this);
@@ -453,8 +453,9 @@ void StringStateVisitor::visit(const RayQueryStmt *stmt) {
 }
 StringStateVisitor::StringStateVisitor(
     Function f,
-    vstd::StringBuilder &str)
-    : f(f), str(str) {
+    vstd::StringBuilder &str,
+    CodegenUtility* util)
+    : f(f), str(str), util(util) {
 }
 void StringStateVisitor::VisitFunction(Function func) {
     for (auto &&v : func.local_variables()) {
@@ -468,17 +469,17 @@ void StringStateVisitor::VisitFunction(Function func) {
 #if false// clear struct
         if (v.type()->is_structure()) {
             vstd::StringBuilder typeName;
-            CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+            util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
             str << typeName << ' ';
-            CodegenUtility::GetVariableName(v, str);
+            util->GetVariableName(v, str);
             str << "=("sv << typeName << ")0;\n";
         } else
 #endif
         {
             vstd::StringBuilder typeName;
-            CodegenUtility::GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+            util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
             str << typeName << ' ';
-            CodegenUtility::GetVariableName(v, str);
+            util->GetVariableName(v, str);
             if (eastl::to_underlying(v.type()->tag()) < eastl::to_underlying(Type::Tag::BUFFER)) [[likely]] {
                 str << "=("sv << typeName << ")0"sv;
             }

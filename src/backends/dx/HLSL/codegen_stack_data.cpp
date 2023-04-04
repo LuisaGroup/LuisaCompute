@@ -55,7 +55,8 @@ vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
         vstd::lazy_eval([&] {
             auto newPtr = new StructGenerator(
                 t,
-                structCount++);
+                structCount++,
+                util);
             return vstd::create_unique(newPtr);
         }));
     if (ite.second) {
@@ -115,8 +116,10 @@ struct CodegenGlobalPool {
 static CodegenGlobalPool codegenGlobalPool;
 }// namespace detail
 CodegenStackData::~CodegenStackData() {}
-vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate() {
-    return detail::codegenGlobalPool.Allocate();
+vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate(CodegenUtility* util) {
+    auto ptr = detail::codegenGlobalPool.Allocate();
+    ptr->util = util;
+    return ptr;
 }
 void CodegenStackData::DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
     detail::codegenGlobalPool.DeAllocate(std::move(v));
