@@ -21,7 +21,7 @@ RasterShaderInvoke &RasterShaderInvoke::operator<<(const BindlessArray &array) n
 }
 
 #ifndef NDEBUG
-void RasterShaderInvoke::check_scene(luisa::vector<RasterMesh> const& scene) noexcept {
+void RasterShaderInvoke::check_scene(luisa::vector<RasterMesh> const &scene) noexcept {
     for (auto &&mesh : scene) {
         auto vb = mesh.vertex_buffers();
         if (vb.size() != _mesh_format->vertex_stream_count()) {

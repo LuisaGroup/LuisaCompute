@@ -1531,30 +1531,30 @@ void CodegenUtility::CodegenProperties(
     }
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {
-    vstd::string typeDescs;
-    typeDescs.reserve(512);
+    vstd::vector<uint64_t> typeDescs;
+    typeDescs.reserve(types.size());
     for (auto &&i : types) {
-        typeDescs << i->description();
+        typeDescs.emplace_back(i->hash());
     }
-    return {typeDescs};
+    return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(std::initializer_list<vstd::IRange<Variable> *> f) {
-    vstd::string typeDescs;
-    typeDescs.reserve(512);
+    vstd::vector<uint64_t> typeDescs;
     for (auto &&rg : f) {
         for (auto &&i : *rg) {
-            typeDescs << i.type()->description();
+            typeDescs.emplace_back(i.type()->hash());
         }
     }
-    return {typeDescs};
+    return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
-    vstd::StringBuilder typeDescs;
-    typeDescs.reserve(512);
-    for (auto &&i : func.arguments()) {
-        typeDescs << i.type()->description();
+    vstd::vector<uint64_t> typeDescs;
+    auto args = func.arguments();
+    typeDescs.reserve(args.size());
+    for (auto &&i : args) {
+        typeDescs.emplace_back(i.type()->hash());
     }
-    return {typeDescs.view()};
+    return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }
 CodegenUtility::CodegenUtility() {}
 CodegenUtility::~CodegenUtility() {}

@@ -18,7 +18,7 @@ static std::mutex g_global_mtx;
 std::mutex &Device::global_mtx() noexcept {
     return g_global_mtx;
 }
-static uint64_t origin_handle(uint64_t handle) {
+uint64_t Device::origin_handle(uint64_t handle) {
     if (handle != invalid_resource_handle)
         return reinterpret_cast<Resource *>(handle)->handle();
     return handle;

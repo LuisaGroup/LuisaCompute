@@ -418,9 +418,7 @@ RasterShader *RasterShader::LoadRaster(
     auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, typeMD5, mesh_format);
     if (ptr) {
         auto md5 = CodegenUtility::GetTypeMD5(types);
-        if (md5 != typeMD5) {
-            LUISA_ERROR("Shader {} arguments unmatch to requirement!", fileName);
-        }
+        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
     }
     return ptr;
 }
