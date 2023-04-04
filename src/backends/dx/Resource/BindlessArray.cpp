@@ -27,13 +27,13 @@ BindlessArray::~BindlessArray() {
         Return(i.first.tex2D);
         Return(i.first.tex3D);
     }
-    while (auto i = freeQueue.pop()) {
-        device->globalHeap->ReturnIndex(*i);
+    for(auto&& i : freeQueue){
+        device->globalHeap->ReturnIndex(i);
     }
 }
 void BindlessArray::TryReturnIndex(MapIndex &index, uint32_t &originValue) {
     if (originValue != BindlessStruct::n_pos) {
-        freeQueue.push(originValue);
+        freeQueue.push_back(originValue);
         originValue = BindlessStruct::n_pos;
         // device->globalHeap->ReturnIndex(originValue);
         auto &&v = index.value();
@@ -152,13 +152,9 @@ void BindlessArray::UpdateStates(
             &buffer,
             tracker.ReadState(ResourceReadUsage::Srv));
     }
-    vstd::vector<uint> needReturnIdx;
-    while (auto i = freeQueue.pop()) {
-        needReturnIdx.push_back(i);
-    }
-    if (!needReturnIdx.empty()) {
+    if (!freeQueue.empty()) {
         builder.GetCB()->GetAlloc()->ExecuteAfterComplete(
-            [vec = std::move(needReturnIdx),
+            [vec = std::move(freeQueue),
              device = device] {
                 for (auto &&i : vec) {
                     device->globalHeap->ReturnIndex(i);

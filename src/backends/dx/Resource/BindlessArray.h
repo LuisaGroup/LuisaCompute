@@ -38,7 +38,7 @@ private:
     DefaultBuffer buffer;
     void TryReturnIndex(MapIndex &index, uint32_t &originValue);
     MapIndex AddIndex(size_t ptr);
-    mutable vstd::LockFreeArrayQueue<uint32_t> freeQueue;
+    mutable vstd::vector<int> freeQueue;
 
 public:
     void Lock() const {
