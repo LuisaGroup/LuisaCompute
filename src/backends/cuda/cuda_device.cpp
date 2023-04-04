@@ -456,6 +456,9 @@ ShaderCreationInfo CUDADevice::_create_shader(const string &source,
             expected_metadata.argument_usages,
             std::move(bound_arguments));
     });
+#ifndef NDEBUG
+    p->set_name(std::move(option.name));
+#endif
     ShaderCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
     info.native_handle = p;
@@ -564,8 +567,12 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const i
 #endif
 }
 
-ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
+ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
                                            luisa::span<const Type *const> arg_types) noexcept {
+
+    luisa::string name{name_in};
+    if (!name.ends_with(".ptx") &&
+        !name.ends_with(".PTX")) { name.append(".ptx"); }
 
     // prepare (incomplete) metadata
     CUDAShaderMetadata metadata{
@@ -610,6 +617,9 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name,
             metadata.block_size,
             metadata.argument_usages);
     });
+#ifndef NDEBUG
+    p->set_name(std::move(name));
+#endif
     ShaderCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(p);
     info.native_handle = p;
