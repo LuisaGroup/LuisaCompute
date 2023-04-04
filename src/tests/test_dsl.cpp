@@ -14,6 +14,8 @@
 #include <ast/interface.h>
 #include <dsl/syntax.h>
 
+#include <tests/common/config.h>
+
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -42,11 +44,14 @@ LUISA_STRUCT(Test2, a, b) {};
 LUISA_STRUCT(Test3, a, b, c) {};
 LUISA_STRUCT(Point3D, v) {};
 
-int main(int argc, char *argv[]) {
+TEST_CASE("dsl") {
 
     constexpr auto f = 10;
 
     luisa::log_level_verbose();
+
+    auto argc = luisa::test::argc();
+    auto argv = luisa::test::argv();
 
     Context context{argv[0]};
     if (argc <= 1) {

@@ -6,10 +6,11 @@ luisa_compute_add_executable(test_main
         common/tiny_obj_loader.h)
 
 function(luisa_compute_add_test name)
-    target_sources(test_main PRIVATE ${name}.cpp)
+    target_sources(test_main PRIVATE test_${name}.cpp)
 endfunction()
 
-luisa_compute_add_test(test_context)
+luisa_compute_add_test(context)
+luisa_compute_add_test(dsl)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
     luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)
@@ -25,7 +26,6 @@ luisa_compute_add_executable(test_helloworld test_helloworld.cpp)
 luisa_compute_add_executable(test_type test_type.cpp)
 luisa_compute_add_executable(test_ast test_ast.cpp)
 luisa_compute_add_executable(test_copy test_copy.cpp)
-luisa_compute_add_executable(test_dsl test_dsl.cpp)
 luisa_compute_add_executable(test_dsl_multithread test_dsl_multithread.cpp)
 luisa_compute_add_executable(test_dsl_sugar test_dsl_sugar.cpp)
 luisa_compute_add_executable(test_runtime test_runtime.cpp)
