@@ -59,8 +59,9 @@ int main(int argc, char *argv[]) {
         auto swpachain = device.create_swapchain(
             window.native_handle(), stream,
             resolution, false, false, 3);
-        windows.emplace_back(std::move(window),
-                             std::move(swpachain));
+        windows.emplace_back(PackagedWindow{
+            std::move(window),
+            std::move(swpachain)});
     }
 
     Clock clk;
