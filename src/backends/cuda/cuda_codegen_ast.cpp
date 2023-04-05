@@ -23,280 +23,145 @@ public:
         luisa::vector<Variable> captured_variables;
     };
 
+    struct FunctionResource {
+        Function f;
+        Variable v;
+        [[nodiscard]] auto operator==(const FunctionResource &rhs) const noexcept {
+            return f.builder() == rhs.f.builder() && v.uid() == rhs.v.uid();
+        }
+        [[nodiscard]] auto hash() const noexcept {
+            return luisa::hash_combine({f.hash(), v.hash()});
+        }
+    };
+
+    struct FunctionResourceHash {
+        using is_avalanching = void;
+        [[nodiscard]] auto operator()(const FunctionResource &x) const noexcept {
+            return x.hash();
+        }
+    };
+
 private:
     CUDACodegenAST *_codegen;
     luisa::unordered_map<const RayQueryStmt *, Function> _ray_query_statements;
     luisa::unordered_map<const RayQueryStmt *, OutlineInfo> _outline_infos;
+    luisa::unordered_map<FunctionResource,
+                         luisa::unordered_set<Variable>,
+                         FunctionResourceHash>
+        _root_resources;
 
 private:
-    void _collect_ray_query_statements(const Expression *expr) noexcept {
-        switch (expr->tag()) {
-            case Expression::Tag::UNARY: {
-                auto unary_expr = static_cast<const UnaryExpr *>(expr);
-                _collect_ray_query_statements(unary_expr->operand());
-                break;
-            }
-            case Expression::Tag::BINARY: {
-                auto binary_expr = static_cast<const BinaryExpr *>(expr);
-                _collect_ray_query_statements(binary_expr->lhs());
-                _collect_ray_query_statements(binary_expr->rhs());
-                break;
-            }
-            case Expression::Tag::MEMBER: {
-                auto member_expr = static_cast<const MemberExpr *>(expr);
-                _collect_ray_query_statements(member_expr->self());
-                break;
-            }
-            case Expression::Tag::ACCESS: {
-                auto access_expr = static_cast<const AccessExpr *>(expr);
-                _collect_ray_query_statements(access_expr->range());
-                _collect_ray_query_statements(access_expr->index());
-                break;
-            }
-            case Expression::Tag::LITERAL: break;
-            case Expression::Tag::REF: break;
-            case Expression::Tag::CONSTANT: break;
-            case Expression::Tag::CALL: {
-                auto call_expr = static_cast<const CallExpr *>(expr);
-                if (!call_expr->is_builtin()) {
-                    _collect_ray_query_statements(
-                        call_expr->custom(),
-                        call_expr->custom().body());
-                }
-                for (auto arg : call_expr->arguments()) {
-                    _collect_ray_query_statements(arg);
-                }
-                break;
-            }
-            case Expression::Tag::CAST: {
-                auto cast_expr = static_cast<const CastExpr *>(expr);
-                _collect_ray_query_statements(cast_expr->expression());
-                break;
-            }
-            case Expression::Tag::CPUCUSTOM: break;
-            case Expression::Tag::GPUCUSTOM: break;
-        }
-    }
-
-    void _collect_ray_query_statements(Function f, const ScopeStmt *scope) noexcept {
-        for (auto s : scope->statements()) {
-            switch (s->tag()) {
-                case Statement::Tag::BREAK: break;
-                case Statement::Tag::CONTINUE: break;
-                case Statement::Tag::RETURN: {
-                    auto return_stmt = static_cast<const ReturnStmt *>(s);
-                    if (return_stmt->expression() != nullptr) {
-                        _collect_ray_query_statements(return_stmt->expression());
-                    }
-                    break;
-                }
-                case Statement::Tag::SCOPE:
-                    _collect_ray_query_statements(
-                        f, static_cast<const ScopeStmt *>(s));
-                    break;
-                case Statement::Tag::IF: {
-                    auto if_stmt = static_cast<const IfStmt *>(s);
-                    _collect_ray_query_statements(if_stmt->condition());
-                    _collect_ray_query_statements(f, if_stmt->true_branch());
-                    _collect_ray_query_statements(f, if_stmt->false_branch());
-                    break;
-                }
-                case Statement::Tag::LOOP: {
-                    auto loop_stmt = static_cast<const LoopStmt *>(s);
-                    _collect_ray_query_statements(f, loop_stmt->body());
-                    break;
-                }
-                case Statement::Tag::EXPR: {
-                    auto expr_stmt = static_cast<const ExprStmt *>(s);
-                    _collect_ray_query_statements(expr_stmt->expression());
-                    break;
-                }
-                case Statement::Tag::SWITCH: {
-                    auto switch_stmt = static_cast<const SwitchStmt *>(s);
-                    _collect_ray_query_statements(switch_stmt->expression());
-                    _collect_ray_query_statements(f, switch_stmt->body());
-                    break;
-                }
-                case Statement::Tag::SWITCH_CASE: {
-                    auto case_stmt = static_cast<const SwitchCaseStmt *>(s);
-                    _collect_ray_query_statements(f, case_stmt->body());
-                    break;
-                }
-                case Statement::Tag::SWITCH_DEFAULT: {
-                    auto default_stmt = static_cast<const SwitchDefaultStmt *>(s);
-                    _collect_ray_query_statements(f, default_stmt->body());
-                    break;
-                }
-                case Statement::Tag::ASSIGN: {
-                    auto assign_stmt = static_cast<const AssignStmt *>(s);
-                    _collect_ray_query_statements(assign_stmt->lhs());
-                    _collect_ray_query_statements(assign_stmt->rhs());
-                    break;
-                }
-                case Statement::Tag::FOR: {
-                    auto for_stmt = static_cast<const ForStmt *>(s);
-                    _collect_ray_query_statements(for_stmt->variable());
-                    _collect_ray_query_statements(for_stmt->condition());
-                    _collect_ray_query_statements(for_stmt->step());
-                    _collect_ray_query_statements(f, for_stmt->body());
-                    break;
-                }
-                case Statement::Tag::COMMENT: break;
-                case Statement::Tag::RAY_QUERY: {
-                    auto ray_query_stmt = static_cast<const RayQueryStmt *>(s);
-                    _collect_ray_query_statements(ray_query_stmt->query());
-                    _ray_query_statements.emplace(ray_query_stmt, f);
-                    break;
-                }
-            }
-        }
-    }
-
-    void _glob_variables(luisa::span<luisa::unordered_set<Variable> *> variable_sets,
-                         const Expression *expr) noexcept {
-        switch (expr->tag()) {
-            case Expression::Tag::UNARY: {
-                auto e = static_cast<const UnaryExpr *>(expr);
-                _glob_variables(variable_sets, e->operand());
-                break;
-            }
-            case Expression::Tag::BINARY: {
-                auto e = static_cast<const BinaryExpr *>(expr);
-                _glob_variables(variable_sets, e->lhs());
-                _glob_variables(variable_sets, e->rhs());
-                break;
-            }
-            case Expression::Tag::MEMBER: {
-                auto e = static_cast<const MemberExpr *>(expr);
-                _glob_variables(variable_sets, e->self());
-                break;
-            }
-            case Expression::Tag::ACCESS: {
-                auto e = static_cast<const AccessExpr *>(expr);
-                _glob_variables(variable_sets, e->range());
-                _glob_variables(variable_sets, e->index());
-                break;
-            }
-            case Expression::Tag::LITERAL: break;
-            case Expression::Tag::REF: {
-                auto e = static_cast<const RefExpr *>(expr);
-                for (auto s : variable_sets) {
-                    if (s != nullptr) {
-                        s->emplace(e->variable());
+    void _collect_ray_query_statements(Function f) noexcept {
+        traverse_expressions<true>(
+            f.body(),
+            [this](auto expr) noexcept {
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call_expr = static_cast<const CallExpr *>(expr);
+                    if (!call_expr->is_builtin()) {
+                        _collect_ray_query_statements(call_expr->custom());
                     }
                 }
-                break;
-            }
-            case Expression::Tag::CONSTANT: break;
-            case Expression::Tag::CALL: {
-                auto e = static_cast<const CallExpr *>(expr);
-                //                auto args = e->arguments();
-                //                if (e->op() == CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT ||
-                //                    e->op() == CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT ||
-                //                    e->op() == CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
-                //                    e->op() == CallOp::RAY_QUERY_COMMIT_PROCEDURAL ||
-                //                    e->op() == CallOp::RAY_QUERY_TERMINATE) {
-                //                    // the first argument is the ray query, which
-                //                    // is provided through the function parameter
-                //                    args = args.subspan(1u);
-                //                }
-                for (auto arg : e->arguments()) {
-                    _glob_variables(variable_sets, arg);
+            },
+            [this, f](auto s) noexcept {
+                if (s->tag() == Statement::Tag::RAY_QUERY) {
+                    auto rq_stmt = static_cast<const RayQueryStmt *>(s);
+                    _ray_query_statements.emplace(rq_stmt, f);
                 }
-                break;
-            }
-            case Expression::Tag::CAST: {
-                auto e = static_cast<const CastExpr *>(expr);
-                _glob_variables(variable_sets, e->expression());
-                break;
-            }
-            case Expression::Tag::CPUCUSTOM: [[fallthrough]];
-            case Expression::Tag::GPUCUSTOM: LUISA_ERROR_WITH_LOCATION(
-                "Custom expression is not supported in CUDA backend.");
-        }
+            },
+            [](auto) noexcept {});
     }
 
     void _glob_variables(luisa::unordered_set<Variable> &within_scope,
                          luisa::unordered_set<Variable> &without_scope,
-                         const ScopeStmt *current, bool inside_targets,
+                         const ScopeStmt *scope,
                          luisa::span<const ScopeStmt *const> target_scopes) noexcept {
-        inside_targets |= std::find(target_scopes.begin(), target_scopes.end(), current) !=
-                          target_scopes.end();
-        std::array sets{inside_targets ? &within_scope : nullptr,
-                        inside_targets ? nullptr : &without_scope};
-        for (auto s : current->statements()) {
-            switch (s->tag()) {
-                case Statement::Tag::BREAK: break;
-                case Statement::Tag::CONTINUE: break;
-                case Statement::Tag::RETURN: {
-                    auto return_stmt = static_cast<const ReturnStmt *>(s);
-                    if (auto expr = return_stmt->expression()) {
-                        _glob_variables(sets, expr);
+        luisa::vector<bool> inside_scope_stack{false};
+        traverse_expressions<true>(
+            scope,
+            [&](auto expr) noexcept {
+                if (expr->tag() == Expression::Tag::REF) {
+                    auto v = static_cast<const RefExpr *>(expr)->variable();
+                    if (inside_scope_stack.back()) {
+                        within_scope.emplace(v);
+                    } else {
+                        without_scope.emplace(v);
                     }
-                    break;
                 }
-                case Statement::Tag::SCOPE: {
-                    auto scope_stmt = static_cast<const ScopeStmt *>(s);
-                    _glob_variables(within_scope, without_scope, scope_stmt, inside_targets, target_scopes);
-                    break;
+            },
+            [&inside_scope_stack, target_scopes](auto s) noexcept {
+                if (s->tag() == Statement::Tag::SCOPE) {
+                    auto inside_targets = inside_scope_stack.back() |
+                                          std::find(target_scopes.begin(), target_scopes.end(), s) !=
+                                              target_scopes.end();
+                    inside_scope_stack.emplace_back(inside_targets);
                 }
-                case Statement::Tag::IF: {
-                    auto if_stmt = static_cast<const IfStmt *>(s);
-                    _glob_variables(sets, if_stmt->condition());
-                    _glob_variables(within_scope, without_scope, if_stmt->true_branch(), inside_targets, target_scopes);
-                    _glob_variables(within_scope, without_scope, if_stmt->false_branch(), inside_targets, target_scopes);
-                    break;
+            },
+            [&inside_scope_stack](auto s) noexcept {
+                if (s->tag() == Statement::Tag::SCOPE) {
+                    inside_scope_stack.pop_back();
                 }
-                case Statement::Tag::LOOP: {
-                    auto loop_stmt = static_cast<const LoopStmt *>(s);
-                    _glob_variables(within_scope, without_scope, loop_stmt->body(), inside_targets, target_scopes);
-                    break;
-                }
-                case Statement::Tag::EXPR: {
-                    auto expr_stmt = static_cast<const ExprStmt *>(s);
-                    _glob_variables(sets, expr_stmt->expression());
-                    break;
-                }
-                case Statement::Tag::SWITCH: {
-                    auto switch_stmt = static_cast<const SwitchStmt *>(s);
-                    _glob_variables(sets, switch_stmt->expression());
-                    _glob_variables(within_scope, without_scope, switch_stmt->body(), inside_targets, target_scopes);
-                    break;
-                }
-                case Statement::Tag::SWITCH_CASE: {
-                    auto case_stmt = static_cast<const SwitchCaseStmt *>(s);
-                    _glob_variables(within_scope, without_scope, case_stmt->body(), inside_targets, target_scopes);
-                    break;
-                }
-                case Statement::Tag::SWITCH_DEFAULT: {
-                    auto default_stmt = static_cast<const SwitchDefaultStmt *>(s);
-                    _glob_variables(within_scope, without_scope, default_stmt->body(), inside_targets, target_scopes);
-                    break;
-                }
-                case Statement::Tag::ASSIGN: {
-                    auto assign_stmt = static_cast<const AssignStmt *>(s);
-                    _glob_variables(sets, assign_stmt->lhs());
-                    _glob_variables(sets, assign_stmt->rhs());
-                    break;
-                }
-                case Statement::Tag::FOR: {
-                    auto for_stmt = static_cast<const ForStmt *>(s);
-                    _glob_variables(sets, for_stmt->variable());
-                    _glob_variables(sets, for_stmt->condition());
-                    _glob_variables(sets, for_stmt->step());
-                    _glob_variables(within_scope, without_scope, for_stmt->body(), inside_targets, target_scopes);
-                    break;
-                }
-                case Statement::Tag::COMMENT: break;
-                case Statement::Tag::RAY_QUERY: {
-                    auto ray_query_stmt = static_cast<const RayQueryStmt *>(s);
-                    _glob_variables(sets, ray_query_stmt->query());
-                    _glob_variables(within_scope, without_scope, ray_query_stmt->on_triangle_candidate(), inside_targets, target_scopes);
-                    _glob_variables(within_scope, without_scope, ray_query_stmt->on_procedural_candidate(), inside_targets, target_scopes);
-                    break;
-                }
+            });
+    }
+
+    void _find_root_resources(Function f, luisa::span<const luisa::unordered_set<Variable> *> root_resources) noexcept {
+        // collect root resources
+        auto root_index = 0u;
+        for (auto v : f.arguments()) {
+            if (v.is_resource()) {
+                LUISA_ASSERT(root_index < root_resources.size(),
+                             "Root resource index {} is out of bound.",
+                             root_index);
+                auto &set = _root_resources.try_emplace(FunctionResource{f, v}).first->second;
+                for (auto r : *root_resources[root_index]) { set.emplace(r); }
+                root_index++;
             }
         }
+        LUISA_ASSERT(root_index == root_resources.size(),
+                     "Root resource index and size mismatches.");
+        // pass on root resources
+        traverse_expressions<true>(
+            f.body(),
+            [this, f](auto expr) noexcept {
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call_expr = static_cast<const CallExpr *>(expr);
+                    if (!call_expr->is_builtin()) {// custom callables
+                        // prepare root resource list
+                        luisa::fixed_vector<const luisa::unordered_set<Variable> *, 16u> root_resources;
+                        for (auto arg : call_expr->arguments()) {
+                            if (arg->tag() == Expression::Tag::REF) {
+                                if (auto v = static_cast<const RefExpr *>(arg)->variable();
+                                    v.is_resource()) {
+                                    auto iter = _root_resources.find(FunctionResource{f, v});
+                                    LUISA_ASSERT(iter != _root_resources.cend(),
+                                                 "Failed to find root resource.");
+                                    root_resources.emplace_back(&iter->second);
+                                }
+                            }
+                        }
+                        // pass on to the callee
+                        _find_root_resources(
+                            call_expr->custom(), root_resources);
+                    }
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+    }
+
+    void _find_root_resources(Function f) noexcept {
+        LUISA_ASSERT(f.tag() == Function::Tag::KERNEL, "Invalid root.");
+        using set_type = luisa::unordered_set<Variable>;
+        luisa::vector<set_type> root_resources;
+        root_resources.reserve(f.arguments().size());
+        for (auto a : f.arguments()) {
+            if (a.is_resource()) {
+                root_resources.emplace_back(set_type{a});
+            }
+        }
+        luisa::vector<const set_type *> views;
+        views.reserve(root_resources.size());
+        for (auto &s : root_resources) { views.emplace_back(&s); }
+        _find_root_resources(f, views);
     }
 
     void _create_outline_definitions(Function f, const RayQueryStmt *s) noexcept {
@@ -310,8 +175,7 @@ private:
         luisa::unordered_set<Variable> without_scope_variables;
         _glob_variables(within_scope_variables,
                         without_scope_variables,
-                        f.body(), false,
-                        target_scopes);
+                        f.body(), target_scopes);
         // find local and captured variables
         luisa::unordered_set<Variable> local_variable_set;// V(local) = V(all) - V(function - scope)
         for (auto v : f.local_variables()) {
@@ -331,23 +195,21 @@ private:
                 captured_variables.emplace_back(v);
             }
         }
-        // if we are processing a kernel, the resources can be
-        // found in the __constant__ params, no need for passing
-        // via stack with I/O on local memory
-        // TODO: track and optimize for callables as well
-        luisa::vector<Variable> direct_resource_variables;
-        if (f.tag() == Function::Tag::KERNEL) {
-            auto iter = std::partition(
-                captured_variables.begin(),
-                captured_variables.end(),
-                [](auto v) noexcept { return !v.is_resource(); });
-            direct_resource_variables.reserve(
-                std::distance(iter, captured_variables.end()));
-            for (auto i = iter; i != captured_variables.end(); i++) {
-                direct_resource_variables.emplace_back(*i);
-            }
-            captured_variables.erase(iter, captured_variables.cend());
+        // if the resources can be uniquely identified in the __constant__ params,
+        // then no need for passing via stack with I/O on local memory
+        luisa::vector<Variable> uniquely_identified_resources;
+        auto iter = std::partition(
+            captured_variables.begin(), captured_variables.end(),
+            [this, f](auto v) noexcept {
+                return !v.is_resource() ||
+                       _root_resources.at({f, v}).size() != 1u;
+            });
+        uniquely_identified_resources.reserve(
+            std::distance(iter, captured_variables.end()));
+        for (auto i = iter; i != captured_variables.end(); i++) {
+            uniquely_identified_resources.emplace_back(*i);
         }
+        captured_variables.erase(iter, captured_variables.cend());
         // sort the members to minimize the stack size
         std::sort(captured_variables.begin(), captured_variables.end(), [](auto lhs, auto rhs) noexcept {
             auto lhs_size = lhs.is_resource() ? 16u : lhs.type()->alignment();
@@ -363,7 +225,7 @@ private:
             _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
             for (auto v : captured_variables) {
                 _codegen->_scratch << "\n  ";
-                _codegen->_emit_variable_decl(v, false);
+                _codegen->_emit_variable_decl(f, v, false);
                 _codegen->_scratch << ";";
             }
             _codegen->_scratch << "\n};\n\n";
@@ -379,15 +241,15 @@ private:
             // built-in variables
             _codegen->_emit_builtin_variables();
             _codegen->_scratch << "\n";
-            // resources
-            if (f.tag() == Function::Tag::KERNEL) {
-                for (auto v : direct_resource_variables) {
-                    _codegen->_emit_indent();
-                    _codegen->_emit_variable_decl(v, false);
-                    _codegen->_scratch << " = params.";
-                    _codegen->_emit_variable_name(v);
-                    _codegen->_scratch << ";\n";
-                }
+            // obtain the uniquely-identified resources
+            for (auto v : uniquely_identified_resources) {
+                auto r = _root_resources.at({f, v});
+                LUISA_ASSERT(r.size() == 1u, "Invalid root resource.");
+                _codegen->_emit_indent();
+                _codegen->_emit_variable_decl(f, v, false);
+                _codegen->_scratch << " = params.";
+                _codegen->_emit_variable_name(*r.cbegin());
+                _codegen->_scratch << ";\n";
             }
             // captured variables through stack
             if (!captured_variables.empty()) {
@@ -397,7 +259,7 @@ private:
                 // copy captured variables
                 for (auto v : captured_variables) {
                     _codegen->_emit_indent();
-                    _codegen->_emit_variable_decl(v, false);
+                    _codegen->_emit_variable_decl(f, v, false);
                     _codegen->_scratch << " = ctx->";
                     _codegen->_emit_variable_name(v);
                     _codegen->_scratch << ";\n";
@@ -406,7 +268,7 @@ private:
             // declare local variables
             for (auto v : local_variable_set) {
                 _codegen->_emit_indent();
-                _codegen->_emit_variable_decl(v, false);
+                _codegen->_emit_variable_decl(f, v, false);
                 _codegen->_scratch << "{};\n";
             }
             // emit body
@@ -439,16 +301,16 @@ private:
 
         // create outlined triangle function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
-                           << "  LCTriangleIntersectionResult result{};";
+                           << "  LCTriangleIntersectionResult result{};\n";
         generate_intersection_body(s->on_triangle_candidate());
-        _codegen->_scratch << "\n  return result;\n"
+        _codegen->_scratch << "  return result;\n"
                               "}\n\n";
 
         // create outlined procedural function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
-                           << "  LCProceduralIntersectionResult result{};";
+                           << "  LCProceduralIntersectionResult result{};\n";
         generate_intersection_body(s->on_procedural_candidate());
-        _codegen->_scratch << "\n  return result;\n"
+        _codegen->_scratch << "  return result;\n"
                               "}\n\n";
 
         // record the outline function
@@ -460,7 +322,8 @@ public:
         : _codegen{codegen} {}
 
     void preprocess(Function f) noexcept {
-        _collect_ray_query_statements(f, f.body());
+        _find_root_resources(f);
+        _collect_ray_query_statements(f);
         _codegen->_scratch << "#define LUISA_RAY_QUERY_IMPL_COUNT "
                            << _ray_query_statements.size() << "\n";
     }
@@ -943,11 +806,28 @@ void CUDACodegenAST::emit(Function f) {
 
 void CUDACodegenAST::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find(_generated_functions.cbegin(), _generated_functions.cend(), f);
+    if (auto iter = std::find(_generated_functions.cbegin(),
+                              _generated_functions.cend(), f);
         iter != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f);
 
-    for (auto &&callable : f.custom_callables()) { _emit_function(callable->function()); }
+    // ray tracing kernels use __constant__ args
+    // note: this must go before any other
+    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
+        _scratch << "struct alignas(16) Params {";
+        for (auto arg : f.arguments()) {
+            _scratch << "\n  alignas(16) ";
+            _emit_variable_decl(f, arg, !arg.type()->is_buffer());
+            _scratch << "{};";
+        }
+        _scratch << "\n};\n\nextern \"C\" "
+                    "{ __constant__ Params params; }\n\n";
+    }
+
+    // process dependent callables if any
+    for (auto &&callable : f.custom_callables()) {
+        _emit_function(callable->function());
+    }
 
     _indent = 0u;
     _function = f;
@@ -956,18 +836,6 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     if (!f.constants().empty()) {
         for (auto c : f.constants()) { _emit_constant(c); }
         _scratch << "\n";
-    }
-
-    // ray tracing kernels use __constant__ args
-    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
-        _scratch << "struct alignas(16) Params {";
-        for (auto arg : f.arguments()) {
-            _scratch << "\n  alignas(16) ";
-            _emit_variable_decl(arg, !arg.type()->is_buffer());
-            _scratch << "{};";
-        }
-        _scratch << "\n};\n\nextern \"C\" "
-                    "{ __constant__ Params params; }\n\n";
     }
 
     // outline ray query functions
@@ -1013,7 +881,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
-            _emit_variable_decl(arg, false);
+            _emit_variable_decl(f, arg, false);
             _scratch << ",";
             any_arg = true;
         }
@@ -1146,8 +1014,8 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
     }
 }
 
-void CUDACodegenAST::_emit_variable_decl(Variable v, bool force_const) noexcept {
-    auto usage = _function.variable_usage(v.uid());
+void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_const) noexcept {
+    auto usage = f.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
         case Variable::Tag::SHARED:
@@ -1265,7 +1133,7 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
-            _emit_variable_decl(v, false);
+            _emit_variable_decl(f, v, false);
             _scratch << ";";
         }
     }
@@ -1273,7 +1141,7 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
-            _emit_variable_decl(v, false);
+            _emit_variable_decl(f, v, false);
             _scratch << "{};";
         }
     }
