@@ -14,6 +14,14 @@ float lcg(uint &state) noexcept {
            (1.0f / static_cast<float>(0x01000000u));
 };
 
+struct MyHit {
+    uint hit_type;
+    float2 triangle_bary;
+    float3 sphere_normal;
+};
+
+LUISA_STRUCT(MyHit, hit_type, triangle_bary, sphere_normal){};
+
 int main(int argc, char *argv[]) {
     constexpr uint32_t width = 1280;
     constexpr uint32_t height = 720;
@@ -72,22 +80,8 @@ int main(int argc, char *argv[]) {
         return v0;
     };
 
-    Kernel2D kernel = [&](Float3 pos, UInt frame_id) {
-        Var coord = dispatch_id().xy();
-        Var size = dispatch_size().xy();
-        auto aspect = size.x.cast<float>() / size.y.cast<float>();
-        // very bad jitter
-        auto jitter = make_float2(make_uint2(tea(coord.x, frame_id),
-                                             tea(coord.y, frame_id))) /
-                      static_cast<float>(~0u);
-        auto p = (make_float2(coord) + jitter) / make_float2(size) * 2.f - 1.f;
-        static constexpr auto fov = radians(45.8f);
-        auto origin = pos;
-        auto direction = normalize(make_float3(p * tan(0.5f * fov) * make_float2(aspect, 1.0f), -1.0f));
-        auto ray = make_ray(origin, direction);
-
-        // traversal aceeleration structure with ray-query
-        Var<float3> sphere_color;
+    Callable intersect = [&](Var<Ray> ray) noexcept {
+        auto sphere_normal = def(make_float3());
         auto hit = accel->query_all(ray)
                        .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
                            auto h = candidate.hit();
@@ -117,22 +111,40 @@ int main(int argc, char *argv[]) {
                                    auto dist = tc - t1c;
                                    // save normal as color
                                    $if(dist <= ray->t_max()) {
-                                       auto normal = normalize(ray_origin + dir * dist - origin);
-                                       sphere_color = normal * 0.5f + 0.5f;
+                                       sphere_normal = normalize(ray_origin + dir * dist - origin);
                                    };
                                    candidate.commit(dist);
                                };
                            };
                        })
                        .trace();
+        return def<MyHit>(hit.hit_type, hit.bary, sphere_normal);
+    };
 
+    Kernel2D kernel = [&](Float3 pos, UInt frame_id) {
+        Var coord = dispatch_id().xy();
+        Var size = dispatch_size().xy();
+        auto aspect = size.x.cast<float>() / size.y.cast<float>();
+        // very bad jitter
+        auto jitter = make_float2(make_uint2(tea(coord.x, frame_id),
+                                             tea(coord.y, frame_id))) /
+                      static_cast<float>(~0u);
+        auto p = (make_float2(coord) + jitter) / make_float2(size) * 2.f - 1.f;
+        static constexpr auto fov = radians(45.8f);
+        auto origin = pos;
+        auto direction = normalize(make_float3(p * tan(0.5f * fov) * make_float2(aspect, 1.0f), -1.0f));
+        auto ray = make_ray(origin, direction);
+
+        // traversal aceeleration structure with ray-query
+        auto hit = intersect(ray);
         auto old = device_image1->read(coord).xyz();
         auto color = def(make_float3());
-        $if(hit->is_procedural()) {
-            color = sphere_color;
+        $if(hit.hit_type == to_underlying(HitType::Triangle)) {
+            color = make_float3(1.f - hit.triangle_bary.x - hit.triangle_bary.y,
+                                hit.triangle_bary);
         }
-        $elif(hit->is_triangle()) {
-            color = make_float3(1.f - hit.bary.x - hit.bary.y, hit.bary);
+        $elif(hit.hit_type == to_underlying(HitType::Procedural)) {
+            color = hit.sphere_normal * .5f + .5f;
         };
         auto n = cast<float>(frame_id + 1u);
         device_image1->write(coord, make_float4(lerp(old, color, 1.f / n), 1.f));
