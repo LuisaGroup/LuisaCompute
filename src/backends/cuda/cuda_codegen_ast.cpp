@@ -800,7 +800,7 @@ void CUDACodegenAST::emit(Function f) {
              << f.block_size().y << ", "
              << f.block_size().z << ")\n\n"
              << "#include \"device_library.h\"\n\n";
-    _emit_type_decl();
+    _emit_type_decl(f);
     _emit_function(f);
 }
 
@@ -937,8 +937,61 @@ void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
     }
 }
 
-void CUDACodegenAST::_emit_type_decl() noexcept {
-    Type::traverse(*this);
+static void collect_types_in_function(Function f,
+                                      luisa::unordered_set<const Type *> &types,
+                                      luisa::unordered_set<Function> &visited) noexcept {
+
+    // already visited
+    if (!visited.emplace(f).second) { return; }
+
+    // types from variables
+    auto add = [&](auto &&self, auto t) noexcept -> void {
+        if (t != nullptr && t->is_structure()) {
+            if (types.emplace(t).second) {
+                for (auto m : t->members()) {
+                    self(self, m);
+                }
+            }
+        }
+    };
+    for (auto &&a : f.arguments()) { add(add, a.type()); }
+    for (auto &&l : f.local_variables()) { add(add, l.type()); }
+    add(add, f.return_type());
+
+    // types from called callables
+    for (auto &&c : f.custom_callables()) {
+        collect_types_in_function(
+            Function{c.get()}, types, visited);
+    }
+}
+
+void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
+
+    // collect used types in the kernel
+    luisa::unordered_set<const Type *> types;
+    luisa::unordered_set<Function> visited;
+    collect_types_in_function(kernel, types, visited);
+
+    // sort types by name so the generated
+    // source is identical across runs
+    luisa::vector<const Type *> sorted;
+    sorted.reserve(types.size());
+    std::copy(types.cbegin(), types.cend(),
+              std::back_inserter(sorted));
+    std::sort(sorted.begin(), sorted.end(),
+              [](auto lhs, auto rhs) noexcept {
+                  return lhs->description() < rhs->description();
+              });
+
+    // process types in topological order
+    types.clear();
+    auto emit = [&](auto &&self, auto type) noexcept -> void {
+        if (types.emplace(type).second) {
+            for (auto m : type->members()) { self(self, m); }
+            this->visit(type);
+        }
+    };
+    for (auto t : sorted) { emit(emit, t); }
 }
 
 void CUDACodegenAST::visit(const Type *type) noexcept {

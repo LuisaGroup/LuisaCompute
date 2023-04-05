@@ -64,7 +64,7 @@ private:
     void visit(const GpuCustomOpExpr *expr) override;
 
 private:
-    void _emit_type_decl() noexcept;
+    void _emit_type_decl(Function f) noexcept;
     void _emit_variable_decl(Function f, Variable v, bool force_const) noexcept;
     void _emit_type_name(const Type *type) noexcept;
     void _emit_function(Function f) noexcept;
