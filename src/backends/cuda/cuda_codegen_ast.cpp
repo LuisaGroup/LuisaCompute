@@ -339,21 +339,31 @@ private:
 
         // create outline struct
         auto rq_index = static_cast<uint>(_outline_infos.size());
-        _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
-        for (auto v : captured_variables) {
-            _codegen->_scratch << "\n  ";
-            _codegen->_emit_variable_decl(v, false);
-            _codegen->_scratch << ";";
+        if (!captured_variables.empty()) {
+            _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
+            for (auto v : captured_variables) {
+                _codegen->_scratch << "\n  ";
+                _codegen->_emit_variable_decl(v, false);
+                _codegen->_scratch << ";";
+            }
+            _codegen->_scratch << "\n};\n\n";
         }
-        _codegen->_scratch << "\n};\n\n";
 
         auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
+
+            // emit nothing if empty handler
+            if (stmt->statements().empty()) { return; }
+
+            // emit the code
             auto indent = _codegen->_indent;
-            {
-                _codegen->_indent = 1;
-                // built-in variables
-                _codegen->_emit_builtin_variables();
-                _codegen->_scratch << "\n";
+            _codegen->_indent = 1;
+            // built-in variables
+            _codegen->_emit_builtin_variables();
+            _codegen->_scratch << "\n";
+            if (!captured_variables.empty()) {
+                // get ctx
+                _codegen->_scratch << "  auto ctx = static_cast<LCRayQueryCtx"
+                                   << rq_index << " *>(ctx_in);\n";
                 // copy captured variables
                 for (auto v : captured_variables) {
                     _codegen->_emit_indent();
@@ -362,25 +372,27 @@ private:
                     _codegen->_emit_variable_name(v);
                     _codegen->_scratch << ";\n";
                 }
-                // declare local variables
-                for (auto v : local_variable_set) {
-                    _codegen->_emit_indent();
-                    _codegen->_emit_variable_decl(v, false);
-                    _codegen->_scratch << "{};\n";
-                }
-                // emit body
+            }
+            // declare local variables
+            for (auto v : local_variable_set) {
                 _codegen->_emit_indent();
-                _codegen->_scratch << "{ // intersection handling body\n";
-                _codegen->_indent++;
-                for (auto s : stmt->statements()) {
-                    _codegen->_emit_indent();
-                    s->accept(*_codegen);
-                    _codegen->_scratch << "\n";
-                }
-                _codegen->_indent--;
+                _codegen->_emit_variable_decl(v, false);
+                _codegen->_scratch << "{};\n";
+            }
+            // emit body
+            _codegen->_emit_indent();
+            _codegen->_scratch << "{ // intersection handling body\n";
+            _codegen->_indent++;
+            for (auto s : stmt->statements()) {
                 _codegen->_emit_indent();
-                _codegen->_scratch << "} // intersection handling body\n";
-                // copy back local variables
+                s->accept(*_codegen);
+                _codegen->_scratch << "\n";
+            }
+            _codegen->_indent--;
+            _codegen->_emit_indent();
+            _codegen->_scratch << "} // intersection handling body\n";
+            // copy back local variables
+            if (!captured_variables.empty()) {
                 for (auto v : captured_variables) {
                     if (!v.is_resource()) {
                         _codegen->_emit_indent();
@@ -397,18 +409,16 @@ private:
 
         // create outlined triangle function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
-                           << "  auto ctx = static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
                            << "  LCTriangleIntersectionResult result{};";
         generate_intersection_body(s->on_triangle_candidate());
-        _codegen->_scratch << "  return result;\n"
+        _codegen->_scratch << "\n  return result;\n"
                               "}\n\n";
 
         // create outlined procedural function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
-                           << "  auto ctx = static_cast<LCRayQueryCtx" << rq_index << " *>(ctx_in);\n"
                            << "  LCProceduralIntersectionResult result{};";
         generate_intersection_body(s->on_procedural_candidate());
-        _codegen->_scratch << "  return result;\n"
+        _codegen->_scratch << "\n  return result;\n"
                               "}\n\n";
 
         // record the outline function
@@ -438,33 +448,36 @@ public:
         _codegen->_emit_indent();
         _codegen->_scratch << "{ // ray query #" << rq_index << "\n";
         _codegen->_indent++;
-        _codegen->_emit_indent();
-        _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
-        // copy captured variables
-        _codegen->_indent++;
-        for (auto v : captured_variables) {
+        if (!captured_variables.empty()) {
             _codegen->_emit_indent();
-            // _codegen->_scratch << "  .";
-            // _codegen->_emit_variable_name(v);
-            // _codegen->_scratch << " = ";
-            _codegen->_emit_variable_name(v);
-            _codegen->_scratch << ",\n";
+            _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
+            // copy captured variables
+            _codegen->_indent++;
+            for (auto v : captured_variables) {
+                _codegen->_emit_indent();
+                _codegen->_emit_variable_name(v);
+                _codegen->_scratch << ",\n";
+            }
+            _codegen->_indent--;
+            _codegen->_emit_indent();
+            _codegen->_scratch << "};\n";
         }
-        _codegen->_indent--;
-        _codegen->_emit_indent();
-        _codegen->_scratch << "};\n";
         _codegen->_emit_indent();
         _codegen->_scratch << "lc_ray_query_trace(";
         stmt->query()->accept(*_codegen);
-        _codegen->_scratch << ", " << rq_index << ", &ctx);\n";
-        // copy back captured variables
-        for (auto v : captured_variables) {
-            if (!v.is_resource()) {
-                _codegen->_emit_indent();
-                _codegen->_emit_variable_name(v);
-                _codegen->_scratch << " = ctx.";
-                _codegen->_emit_variable_name(v);
-                _codegen->_scratch << ";\n";
+        _codegen->_scratch << ", " << rq_index << ", "
+                           << (captured_variables.empty() ? "nullptr" : "&ctx")
+                           << ");\n";
+        if (!captured_variables.empty()) {
+            // copy back captured variables
+            for (auto v : captured_variables) {
+                if (!v.is_resource()) {
+                    _codegen->_emit_indent();
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << " = ctx.";
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ";\n";
+                }
             }
         }
         _codegen->_indent--;
