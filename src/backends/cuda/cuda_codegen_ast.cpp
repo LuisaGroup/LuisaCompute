@@ -978,10 +978,9 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     sorted.reserve(types.size());
     std::copy(types.cbegin(), types.cend(),
               std::back_inserter(sorted));
-    std::sort(sorted.begin(), sorted.end(),
-              [](auto lhs, auto rhs) noexcept {
-                  return lhs->description() < rhs->description();
-              });
+    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+        return a->hash() < b->hash();
+    });
 
     // process types in topological order
     types.clear();
