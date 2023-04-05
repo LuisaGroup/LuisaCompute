@@ -350,7 +350,6 @@ private:
         }
 
         auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
-
             // emit nothing if empty handler
             if (stmt->statements().empty()) { return; }
 
@@ -769,12 +768,15 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
+        case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
+        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: _scratch << "LC_RAY_QUERY_OBJECT_RAY"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
         case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "LC_RAY_QUERY_COMMIT_TRIANGLE"; break;
         case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "LC_RAY_QUERY_COMMIT_PROCEDURAL"; break;
         case CallOp::RAY_QUERY_TERMINATE: _scratch << "LC_RAY_QUERY_TERMINATE"; break;
+        default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     _scratch << "(";
     if (auto args = expr->arguments(); !args.empty()) {

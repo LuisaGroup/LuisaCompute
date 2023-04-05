@@ -31,6 +31,8 @@ public:
     TriangleCandidate &operator=(TriangleCandidate &&) noexcept = delete;
 
 public:
+    [[nodiscard]] Var<Ray> ray_world() const noexcept;
+    [[nodiscard]] Var<Ray> ray_object() const noexcept;
     [[nodiscard]] Var<TriangleHit> hit() const noexcept;
     void commit() const noexcept;
     void terminate() const noexcept;
@@ -54,6 +56,8 @@ public:
     ProceduralCandidate &operator=(ProceduralCandidate &&) noexcept = delete;
 
 public:
+    [[nodiscard]] Var<Ray> ray_world() const noexcept;
+    [[nodiscard]] Var<Ray> ray_object() const noexcept;
     [[nodiscard]] Var<ProceduralHit> hit() const noexcept;
     void commit(Expr<float> distance) const noexcept;
     void terminate() const noexcept;
@@ -72,8 +76,8 @@ private:
     bool _inside_procedural_handler{false};
 
 public:
-    using TriangleCandidateHandler = luisa::function<void(const TriangleCandidate &)>;
-    using ProceduralCandidateHandler = luisa::function<void(const ProceduralCandidate &)>;
+    using TriangleCandidateHandler = luisa::function<void(TriangleCandidate &)>;
+    using ProceduralCandidateHandler = luisa::function<void(ProceduralCandidate &)>;
 
 private:
     friend class Expr<Accel>;

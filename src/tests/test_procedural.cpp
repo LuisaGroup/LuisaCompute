@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
         Var sphere_dist = 1e30f;
         Var<float3> sphere_color;
         auto hit = accel->query_all(ray)
-                       .on_triangle_candidate([&](auto &candidate) noexcept {
+                       .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
                            auto h = candidate.hit();
                            auto uvw = make_float3(1.f - h.bary.x - h.bary.y, h.bary);
                            $if(length(uvw.xy()) < .8f &
@@ -99,8 +99,9 @@ int main(int argc, char *argv[]) {
                                candidate.commit();
                            };
                        })
-                       .on_procedural_candidate([&](auto &candidate) noexcept {
+                       .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
                            auto h = candidate.hit();
+                           auto ray = candidate.ray_world();
                            auto aabb = aabb_buffer->read(h.prim);
                            //ray-sphere intersection
                            auto origin = (aabb->min() + aabb->max()) * .5f;

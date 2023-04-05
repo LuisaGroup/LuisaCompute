@@ -85,6 +85,7 @@ pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
 return pl;
 }
+#define LCRayQueryGetRay(q) q_ray
 template<typename T>
 bool TraceAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
