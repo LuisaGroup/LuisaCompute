@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) {
                        })
                        .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
                            auto h = candidate.hit();
-                           auto ray = candidate.ray_world();
+                           auto ray = candidate.ray();
                            auto aabb = aabb_buffer->read(h.prim);
                            //ray-sphere intersection
                            auto origin = (aabb->min() + aabb->max()) * .5f;

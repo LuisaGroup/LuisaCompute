@@ -245,8 +245,7 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_QUERY_ANY,
 
     // ray query
-    RAY_QUERY_WORLD_SPACE_RAY,             // (RayQuery): Ray
-    RAY_QUERY_OBJECT_SPACE_RAY,             // (RayQuery): Ray
+    RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
     RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
     RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
     RAY_QUERY_COMMITTED_HIT,           // (RayQuery): CommittedHit

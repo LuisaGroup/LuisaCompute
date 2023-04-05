@@ -331,6 +331,24 @@ private:
                 captured_variables.emplace_back(v);
             }
         }
+        // if we are processing a kernel, the resources can be
+        // found in the __constant__ params, no need for passing
+        // via stack with I/O on local memory
+        // TODO: track and optimize for callables as well
+        luisa::vector<Variable> direct_resource_variables;
+        if (f.tag() == Function::Tag::KERNEL) {
+            auto iter = std::partition(
+                captured_variables.begin(),
+                captured_variables.end(),
+                [](auto v) noexcept { return !v.is_resource(); });
+            direct_resource_variables.reserve(
+                std::distance(iter, captured_variables.end()));
+            for (auto i = iter; i != captured_variables.end(); i++) {
+                direct_resource_variables.emplace_back(*i);
+            }
+            captured_variables.erase(iter, captured_variables.cend());
+        }
+        // sort the members to minimize the stack size
         std::sort(captured_variables.begin(), captured_variables.end(), [](auto lhs, auto rhs) noexcept {
             auto lhs_size = lhs.is_resource() ? 16u : lhs.type()->alignment();
             auto rhs_size = rhs.is_resource() ? 16u : rhs.type()->alignment();
@@ -338,6 +356,8 @@ private:
         });
 
         // create outline struct
+        // TODO: we may pass the values directly through
+        //  OptiX registers if they are small enough
         auto rq_index = static_cast<uint>(_outline_infos.size());
         if (!captured_variables.empty()) {
             _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
@@ -350,7 +370,7 @@ private:
         }
 
         auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
-            // emit nothing if empty handler
+            // corner case: emit nothing if empty handler
             if (stmt->statements().empty()) { return; }
 
             // emit the code
@@ -359,6 +379,17 @@ private:
             // built-in variables
             _codegen->_emit_builtin_variables();
             _codegen->_scratch << "\n";
+            // resources
+            if (f.tag() == Function::Tag::KERNEL) {
+                for (auto v : direct_resource_variables) {
+                    _codegen->_emit_indent();
+                    _codegen->_emit_variable_decl(v, false);
+                    _codegen->_scratch << " = params.";
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ";\n";
+                }
+            }
+            // captured variables through stack
             if (!captured_variables.empty()) {
                 // get ctx
                 _codegen->_scratch << "  auto ctx = static_cast<LCRayQueryCtx"
@@ -769,7 +800,6 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
-        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: _scratch << "LC_RAY_QUERY_OBJECT_RAY"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;

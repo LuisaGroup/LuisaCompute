@@ -64,24 +64,6 @@ T RayQueryGetWorldRay(Q q) {
   return ray;
 }
 
-template<typename T, typename Q>
-T RayQueryGetObjectRay(Q q) {
-  float3 o = q.ObjectRayOrigin();
-  float3 d = q.ObjectRayDirection();
-  float t_min = q.RayTMin();
-  float t_max = q.CommittedRayT();
-  T ray;
-  ray.v0.v[0] = o.x;
-  ray.v0.v[1] = o.y;
-  ray.v0.v[2] = o.z;
-  ray.v1 = t_min;
-  ray.v2.v[0] = d.x;
-  ray.v2.v[1] = d.y;
-  ray.v2.v[2] = d.z;
-  ray.v3 = t_max;
-  return ray;
-}
-
 template<typename Q>
 Hit0 GetCommitedHit(const Q q){
 Hit0 pl;

@@ -4,14 +4,9 @@
 
 namespace luisa::compute {
 
-Var<Ray> TriangleCandidate::ray_world() const noexcept {
+Var<Ray> TriangleCandidate::ray() const noexcept {
     return def<Ray>(detail::FunctionBuilder::current()->call(
         Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {_query}));
-}
-
-Var<Ray> TriangleCandidate::ray_object() const noexcept {
-    return def<Ray>(detail::FunctionBuilder::current()->call(
-        Type::of<Ray>(), CallOp::RAY_QUERY_OBJECT_SPACE_RAY, {_query}));
 }
 
 Var<TriangleHit> TriangleCandidate::hit() const noexcept {
@@ -49,14 +44,9 @@ void ProceduralCandidate::terminate() const noexcept {
         CallOp::RAY_QUERY_TERMINATE, {_query});
 }
 
-Var<Ray> ProceduralCandidate::ray_world() const noexcept {
+Var<Ray> ProceduralCandidate::ray() const noexcept {
     return def<Ray>(detail::FunctionBuilder::current()->call(
         Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {_query}));
-}
-
-Var<Ray> ProceduralCandidate::ray_object() const noexcept {
-    return def<Ray>(detail::FunctionBuilder::current()->call(
-        Type::of<Ray>(), CallOp::RAY_QUERY_OBJECT_SPACE_RAY, {_query}));
 }
 
 namespace detail {
