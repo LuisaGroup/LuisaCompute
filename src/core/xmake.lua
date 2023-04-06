@@ -1,10 +1,8 @@
 target("lc-core")
-if _config_project ~= nil then
-	_config_project({
-		project_kind = "shared",
-		batch_size = 4
-	})
-end
+_config_project({
+	project_kind = "shared",
+	batch_size = 4
+})
 if is_mode("debug") and is_plat("windows") then
 	add_syslinks("Dbghelp")
 end
