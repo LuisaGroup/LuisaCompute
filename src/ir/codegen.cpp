@@ -2,7 +2,6 @@
 // Created by Mike Smith on 2023/1/13.
 //
 
-#include <magic_enum.hpp>
 #include <core/logging.h>
 #include <ir/codegen.h>
 
@@ -560,7 +559,7 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
                     _generate_node(node)));
             }
         }
-       
+
         auto constant_index = [](ir::NodeRef index) noexcept -> uint64_t {
             auto index_node = ir::luisa_compute_ir_node_get(index);
             LUISA_ASSERT(index_node->instruction->tag == ir::Instruction::Tag::Const,
@@ -1350,7 +1349,7 @@ void CppSourceBuilder::_generate_instr_call(const ir::Node *node, uint indent) n
                 LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
         }
         LUISA_ERROR_WITH_LOCATION("Not implemented IR function '{}'.",
-                                  magic_enum::enum_name(func.tag));
+                                  to_string(func.tag));
     }();
     _ctx->body.append(call).append("\n");
 }

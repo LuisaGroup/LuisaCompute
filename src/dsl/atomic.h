@@ -65,7 +65,6 @@ public:                                                            \
     explicit AtomicRef(const AtomicRefNode *access_chain) noexcept \
         : AtomicRefBase{access_chain} {}
 
-/// Class of atomic reference on terminal element
 template<typename T>
 class AtomicRef : private AtomicRefBase {
 public:
@@ -144,51 +143,52 @@ public:
     };
 };
 
-template<>
-class AtomicRef<float> : private AtomicRefBase {
+template<typename T>
+    requires std::same_as<T, float>
+class AtomicRef<T> : private AtomicRefBase {
 
 public:
     LUISA_ATOMIC_REF_COMMON()
 
 public:
     /// Atomic exchange. Stores desired, returns old. See also CallOp::ATOMIC_EXCHANGE.
-    auto exchange(Expr<float> desired) noexcept {
-        return def<float>(access_chain()->operate(
+    auto exchange(Expr<T> desired) noexcept {
+        return def<T>(access_chain()->operate(
             CallOp::ATOMIC_EXCHANGE,
             {desired.expression()}));
     }
 
     /// Atomic compare exchange. Stores old == expected ? desired : old, returns old. See also CallOp::ATOMIC_COMPARE_EXCHANGE.
-    auto compare_exchange(Expr<float> expected, Expr<float> desired) noexcept {
-        return def<float>(access_chain()->operate(
+    auto compare_exchange(Expr<T> expected, Expr<T> desired) noexcept {
+        return def<T>(access_chain()->operate(
             CallOp::ATOMIC_COMPARE_EXCHANGE,
             {expected.expression(), desired.expression()}));
     }
 
     /// Atomic fetch add. Stores old + val, returns old. See also CallOp::ATOMIC_FETCH_ADD.
-    auto fetch_add(Expr<float> val) noexcept {
-        return def<float>(access_chain()->operate(
+    auto fetch_add(Expr<T> val) noexcept {
+        return def<T>(access_chain()->operate(
             CallOp::ATOMIC_FETCH_ADD,
             {val.expression()}));
     };
 
     /// Atomic fetch sub. Stores old - val, returns old. See also CallOp::ATOMIC_FETCH_SUB.
-    auto fetch_sub(Expr<float> val) noexcept {
-        return def<float>(access_chain()->operate(
+    auto fetch_sub(Expr<T> val) noexcept {
+        return def<T>(access_chain()->operate(
             CallOp::ATOMIC_FETCH_SUB,
             {val.expression()}));
     };
 
     /// Atomic fetch min. Stores min(old, val), returns old. See also CallOp::ATOMIC_FETCH_MIN.
-    auto fetch_min(Expr<float> val) noexcept {
-        return def<float>(access_chain()->operate(
+    auto fetch_min(Expr<T> val) noexcept {
+        return def<T>(access_chain()->operate(
             CallOp::ATOMIC_FETCH_MIN,
             {val.expression()}));
     };
 
     /// Atomic fetch max. Stores max(old, val), returns old. See also CallOp::ATOMIC_FETCH_MAX.
-    auto fetch_max(Expr<float> val) noexcept {
-        return def<float>(access_chain()->operate(
+    auto fetch_max(Expr<T> val) noexcept {
+        return def<T>(access_chain()->operate(
             CallOp::ATOMIC_FETCH_MAX,
             {val.expression()}));
     };

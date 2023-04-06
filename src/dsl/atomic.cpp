@@ -2,7 +2,6 @@
 // Created by Mike on 4/6/2023.
 //
 
-#include <magic_enum.hpp>
 #include <core/logging.h>
 #include <dsl/atomic.h>
 
@@ -32,11 +31,11 @@ const Expression *AtomicRefNode::operate(
     LUISA_ASSERT(is_atomic_operation(op),
                  "Only atomic operations are allowed "
                  "on AtomicRefNode (got {}).",
-                 magic_enum::enum_name(op));
+                 to_string(op));
     LUISA_ASSERT((op == CallOp::ATOMIC_COMPARE_EXCHANGE && values.size() == 2u) ||
                      (op != CallOp::ATOMIC_COMPARE_EXCHANGE && values.size() == 1u),
                  "Invalid number of arguments for atomic operation {} (got {}).",
-                 magic_enum::enum_name(op), values.size());
+                 to_string(op), values.size());
     luisa::fixed_vector<const Expression *, 16u> args;
     for (auto node = this; node != nullptr; node = node->_parent) {
         args.emplace_back(node->_value);
@@ -78,8 +77,7 @@ const Expression *AtomicRefNode::operate(
                 LUISA_ASSERT(member_index < type->members().size(),
                              "Invalid member index {} for "
                              "atomic operation {} on {}.",
-                             member_index,
-                             magic_enum::enum_name(op),
+                             member_index, to_string(op),
                              type->description());
                 type = type->members()[member_index];
                 break;
@@ -88,8 +86,7 @@ const Expression *AtomicRefNode::operate(
             default: LUISA_ERROR_WITH_LOCATION(
                 "Invalid node type {} in access chain "
                 "for atomic operation {} ({}).",
-                type->description(),
-                magic_enum::enum_name(op),
+                type->description(), to_string(op),
                 access_chain_string());
         }
     }
@@ -98,7 +95,7 @@ const Expression *AtomicRefNode::operate(
     for (auto value : values) {
         LUISA_ASSERT(value->type() == type,
                      "Type mismatch for atomic operation {} (got {}, expected {}).",
-                     magic_enum::enum_name(op),
+                     to_string(op),
                      value->type()->description(),
                      type->description());
         args.emplace_back(value);
