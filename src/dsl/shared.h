@@ -5,14 +5,31 @@
 #pragma once
 
 #include <dsl/expr.h>
-#include <core/stl.h>
+#include <dsl/atomic.h>
 
 namespace luisa::compute {
 
+template<typename T>
+class Shared;
+
 namespace detail {
 
-template<typename>
-struct SharedAsAtomic {};
+template<typename T>
+struct SharedAsAtomic {
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto atomic(I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
+        auto shared = static_cast<const Shared<T> *>(this)->expression();
+        return AtomicRef<int>{AtomicRefNode::create(shared)
+                                  ->access(index.expression())};
+    }
+};
+
+// no-op for non-atomic types
+template<typename T>
+    requires is_custom_struct_v<T>
+struct SharedAsAtomic<T> {};
 
 }// namespace detail
 
@@ -52,39 +69,15 @@ public:
 
     /// Read index
     template<typename I>
-    [[nodiscard]] auto read(I &&index) const noexcept { return (*this)[std::forward<I>(index)]; }
+    [[nodiscard]] auto read(I &&index) const noexcept {
+        return (*this)[std::forward<I>(index)];
+    }
 
     /// Write index
     template<typename I, typename U>
-    void write(I &&i, U &&u) const noexcept { (*this)[std::forward<I>(i)] = std::forward<U>(u); }
-};
-
-namespace detail {
-
-template<>
-struct SharedAsAtomic<int> {
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto atomic(I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
-        return AtomicRef<int>{
-            static_cast<const Shared<int> *>(this)->expression(),
-            index.expression()};
+    void write(I &&i, U &&u) const noexcept {
+        (*this)[std::forward<I>(i)] = std::forward<U>(u);
     }
 };
-
-template<>
-struct SharedAsAtomic<uint> {
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto atomic(I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
-        return AtomicRef<uint>{
-            static_cast<const Shared<uint> *>(this)->expression(),
-            index.expression()};
-    }
-};
-
-}// namespace detail
 
 }// namespace luisa::compute

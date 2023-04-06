@@ -10,110 +10,27 @@
 #include <runtime/bindless_array.h>
 #include <dsl/expr.h>
 #include <dsl/var.h>
+#include <dsl/atomic.h>
 
 namespace luisa::compute {
 
 namespace detail {
 
-/// Class of atomic reference
 template<typename T>
-class AtomicRef {
-
-private:
-    const Expression *_range{nullptr};
-    const Expression *_index{nullptr};
-
-public:
-    /// Construct from AccessExpr
-    AtomicRef(const Expression *range,
-              const Expression *index) noexcept
-        : _range{range}, _index{index} {}
-    AtomicRef(AtomicRef &&) noexcept = delete;
-    AtomicRef(const AtomicRef &) noexcept = delete;
-    AtomicRef &operator=(AtomicRef &&) noexcept = delete;
-    AtomicRef &operator=(const AtomicRef &) noexcept = delete;
-
-    /// Atomic exchange. Stores desired, returns old. See also CallOp::ATOMIC_EXCHANGE.
-    auto exchange(Expr<T> desired) &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_EXCHANGE,
-            {this->_range, this->_index, desired.expression()});
-        return def<T>(expr);
+struct BufferExprAsAtomic {
+    template<typename I>
+        requires is_integral_expr_v<I>
+    [[nodiscard]] auto atomic(I &&i) const noexcept {
+        auto index = def(std::forward<I>(i));
+        auto buffer = static_cast<const Expr<Buffer<T>> *>(this)->expression();
+        return AtomicRef<T>{AtomicRefNode::create(buffer)->access(index.expression())};
     }
-
-    /// Atomic compare exchange. Stores old == expected ? desired : old, returns old. See also CallOp::ATOMIC_COMPARE_EXCHANGE.
-    auto compare_exchange(Expr<T> expected, Expr<T> desired) &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_COMPARE_EXCHANGE,
-            {this->_range, this->_index, expected.expression(), desired.expression()});
-        return def<T>(expr);
-    }
-
-    /// Atomic fetch add. Stores old + val, returns old. See also CallOp::ATOMIC_FETCH_ADD.
-    auto fetch_add(Expr<T> val) &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_FETCH_ADD,
-            {this->_range, this->_index, val.expression()});
-        return def<T>(expr);
-    };
-
-    /// Atomic fetch sub. Stores old - val, returns old. See also CallOp::ATOMIC_FETCH_SUB.
-    auto fetch_sub(Expr<T> val) &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_FETCH_SUB,
-            {this->_range, this->_index, val.expression()});
-        return def<T>(expr);
-    };
-
-    /// Atomic fetch and. Stores old & val, returns old. See also CallOp::ATOMIC_FETCH_AND.
-    auto fetch_and(Expr<T> val) &&noexcept
-        requires std::integral<T>
-    {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_FETCH_AND,
-            {this->_range, this->_index, val.expression()});
-        return def<T>(expr);
-    };
-
-    /// Atomic fetch or. Stores old | val, returns old. See also CallOp::ATOMIC_FETCH_OR.
-    auto fetch_or(Expr<T> val) &&noexcept
-        requires std::integral<T>
-    {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_FETCH_OR,
-            {this->_range, this->_index, val.expression()});
-        return def<T>(expr);
-    };
-
-    /// Atomic fetch xor. Stores old ^ val, returns old. See also CallOp::ATOMIC_FETCH_XOR.
-    auto fetch_xor(Expr<T> val) &&noexcept
-        requires std::integral<T>
-    {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_FETCH_XOR,
-            {this->_range, this->_index, val.expression()});
-        return def<T>(expr);
-    };
-
-    /// Atomic fetch min. Stores min(old, val), returns old. See also CallOp::ATOMIC_FETCH_MIN.
-    auto fetch_min(Expr<T> val) &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_FETCH_MIN,
-            {this->_range, this->_index, val.expression()});
-        return def<T>(expr);
-    };
-
-    /// Atomic fetch max. Stores max(old, val), returns old. See also CallOp::ATOMIC_FETCH_MAX.
-    auto fetch_max(Expr<T> val) &&noexcept {
-        auto expr = detail::FunctionBuilder::current()->call(
-            Type::of<T>(), CallOp::ATOMIC_FETCH_MAX,
-            {this->_range, this->_index, val.expression()});
-        return def<T>(expr);
-    };
 };
 
-template<typename>
-struct BufferExprAsAtomic {};
+// no-op for non-atomic struct
+template<typename T>
+    requires is_custom_struct_v<T>
+struct BufferExprAsAtomic<T> {};
 
 }// namespace detail
 
@@ -167,52 +84,6 @@ template<typename T>
 struct Expr<BufferView<T>> : public Expr<Buffer<T>> {
     using Expr<Buffer<T>>::Expr;
 };
-
-namespace detail {
-
-/// Integer buffer expr as atomic
-template<>
-struct BufferExprAsAtomic<int> {
-    /// Atomic access
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto atomic(I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
-        return AtomicRef<int>{
-            static_cast<const Expr<Buffer<int>> *>(this)->expression(),
-            index.expression()};
-    }
-};
-
-/// Unsigned integer buffer expr as atomic
-template<>
-struct BufferExprAsAtomic<uint> {
-    /// Atomic access
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto atomic(I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
-        return AtomicRef<uint>{
-            static_cast<const Expr<Buffer<uint>> *>(this)->expression(),
-            index.expression()};
-    }
-};
-
-/// Floating point buffer expr as atomic
-template<>
-struct BufferExprAsAtomic<float> {
-    /// Atomic access
-    template<typename I>
-        requires is_integral_expr_v<I>
-    [[nodiscard]] auto atomic(I &&i) const noexcept {
-        auto index = def(std::forward<I>(i));
-        return AtomicRef<float>{
-            static_cast<const Expr<Buffer<float>> *>(this)->expression(),
-            index.expression()};
-    }
-};
-
-}// namespace detail
 
 /// Class of Expr<Image<T>>
 template<typename T>
@@ -648,6 +519,9 @@ using BufferBool = BufferVar<bool>;
 using BufferBool2 = BufferVar<bool2>;
 using BufferBool3 = BufferVar<bool3>;
 using BufferBool4 = BufferVar<bool4>;
+using BufferFloat2x2 = BufferVar<float2x2>;
+using BufferFloat3x3 = BufferVar<float3x3>;
+using BufferFloat4x4 = BufferVar<float4x4>;
 
 using ImageInt = ImageVar<int>;
 using ImageUInt = ImageVar<uint>;

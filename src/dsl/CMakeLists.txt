@@ -17,6 +17,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
 
     set(LUISA_COMPUTE_DSL_SOURCES
             arg.h
+            atomic.cpp atomic.h
             autodiff.cpp autodiff.h
             builtin.h
             constant.h
@@ -29,7 +30,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             operators.h
             polymorphic.cpp polymorphic.h
             printer.cpp printer.h
-            ref.cpp ref.h
+            ref.h
             resource.cpp resource.h
             shared.h
             stmt.h

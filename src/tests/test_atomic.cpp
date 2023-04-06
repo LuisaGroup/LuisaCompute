@@ -13,12 +13,19 @@
 using namespace luisa;
 using namespace luisa::compute;
 
+struct Something {
+    uint x;
+    float3 v;
+};
+
+LUISA_STRUCT(Something, x, v){};
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
@@ -53,6 +60,22 @@ int main(int argc, char *argv[]) {
         buffer.atomic(0u).fetch_sub(-1.f);
     };
     auto add_shader = device.compile(add_kernel);
+
+    Kernel1D vector_atomic_kernel = [](BufferFloat3 buffer) noexcept {
+        buffer.atomic(0u).x.fetch_add(1.f);
+    };
+
+    Kernel1D matrix_atomic_kernel = [](BufferFloat2x2 buffer) noexcept {
+        buffer.atomic(0u)[1].x.fetch_add(1.f);
+    };
+
+    Kernel1D array_atomic_kernel = [](BufferVar<std::array<std::array<float4, 3u>, 5u>> buffer) noexcept {
+        buffer.atomic(0u)[1][2][3].fetch_add(1.f);
+    };
+
+    Kernel1D struct_atomic_kernel = [](BufferVar<Something> buffer) noexcept {
+        // TODO
+    };
 
     auto result = 0.f;
     stream << atomic_float_buffer.copy_from(&result)
