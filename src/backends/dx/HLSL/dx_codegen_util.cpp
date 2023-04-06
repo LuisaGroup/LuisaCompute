@@ -878,7 +878,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
             str << "RayQueryGetWorldRay<"sv;
             GetTypeName(*expr->type(), str, Usage::NONE, false);
-            str << ">"sv;
+            str << ',';
+            GetTypeName(*args[0]->type(), str, Usage::NONE, false);
+            str << '>';
             break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
             str << "GetTriangleCandidateHit"sv;

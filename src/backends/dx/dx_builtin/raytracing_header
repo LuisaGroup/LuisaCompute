@@ -45,25 +45,21 @@ LC_RayQueryAny q;
 q.TraceRayInline(accel,RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,mask,ray);
 return q;
 }
-
 template<typename T, typename Q>
-T RayQueryGetWorldRay(Q q) {
-  float3 o = q.WorldRayOrigin();
-  float3 d = q.WorldRayDirection();
-  float t_min = q.RayTMin();
-  float t_max = q.CommittedRayT();
-  T ray;
-  ray.v0.v[0] = o.x;
-  ray.v0.v[1] = o.y;
-  ray.v0.v[2] = o.z;
-  ray.v1 = t_min;
-  ray.v2.v[0] = d.x;
-  ray.v2.v[1] = d.y;
-  ray.v2.v[2] = d.z;
-  ray.v3 = t_max;
-  return ray;
+T RayQueryGetWorldRay(const Q q) {
+float3 o=q.WorldRayOrigin();
+float3 d=q.WorldRayDirection();
+T ray;
+ray.v0.v[0]=o.x;
+ray.v0.v[1]=o.y;
+ray.v0.v[2]=o.z;
+ray.v1=q.RayTMin();
+ray.v2.v[0]=d.x;
+ray.v2.v[1]=d.y;
+ray.v2.v[2]=d.z;
+ray.v3=q.CommittedRayT();
+return ray;
 }
-
 template<typename Q>
 Hit0 GetCommitedHit(const Q q){
 Hit0 pl;
