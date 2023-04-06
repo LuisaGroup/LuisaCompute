@@ -22,25 +22,18 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Material {
-    float3 albedo;
-    float3 emission;
-};
-
 struct Onb {
     float3 tangent;
     float3 binormal;
     float3 normal;
 };
 
-// clang-format off
-LUISA_STRUCT(Material, albedo, emission) {};
-
-LUISA_STRUCT(Onb, tangent, binormal, normal) {
+LUISA_STRUCT(Onb, tangent, binormal, normal){
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
-    }
-};
+}
+}
+;
 // clang-format on
 
 int main(int argc, char *argv[]) {
@@ -112,18 +105,16 @@ int main(int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
-    std::vector<Material> materials;
-    materials.reserve(accel.size());
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// floor
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// ceiling
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall
-    materials.emplace_back(Material{make_float3(0.14f, 0.45f, 0.091f), make_float3(0.0f)});// right wall
-    materials.emplace_back(Material{make_float3(0.63f, 0.065f, 0.05f), make_float3(0.0f)});// left wall
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// short box
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// tall box
-    materials.emplace_back(Material{make_float3(0.0f), make_float3(17.0f, 12.0f, 4.0f)});  // light
-    auto material_buffer = device.create_buffer<Material>(materials.size());
-    stream << material_buffer.copy_from(materials.data());
+    Constant materials{
+        make_float3(0.725f, 0.710f, 0.680f),// floor
+        make_float3(0.725f, 0.710f, 0.680f),// ceiling
+        make_float3(0.725f, 0.710f, 0.680f),// back wall
+        make_float3(0.140f, 0.450f, 0.091f),// right wall
+        make_float3(0.630f, 0.065f, 0.050f),// left wall
+        make_float3(0.725f, 0.710f, 0.680f),// short box
+        make_float3(0.725f, 0.710f, 0.680f),// tall box
+        make_float3(0.000f, 0.000f, 0.000f),// light
+    };
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -217,7 +208,6 @@ int main(int argc, char *argv[]) {
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto cos_wi = dot(-ray->direction(), n);
                 $if(cos_wi < 1e-4f) { $break; };
-                auto material = material_buffer->read(hit.inst);
 
                 // hit light
                 $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -244,11 +234,12 @@ int main(int argc, char *argv[]) {
                 auto occluded = accel.trace_any(shadow_ray);
                 auto cos_wi_light = dot(wi_light, n);
                 auto cos_light = -dot(light_normal, wi_light);
+                auto albedo = materials.read(hit.inst);
                 $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                     auto pdf_light = (d_light * d_light) / (light_area * cos_light);
                     auto pdf_bsdf = cos_wi_light * inv_pi;
                     auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                    auto bsdf = material.albedo * inv_pi * cos_wi_light;
+                    auto bsdf = albedo * inv_pi * cos_wi_light;
                     radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
                 };
 
@@ -258,7 +249,7 @@ int main(int argc, char *argv[]) {
                 auto uy = lcg(state);
                 auto new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
                 ray = make_ray(pp, new_direction);
-                beta *= material.albedo;
+                beta *= albedo;
                 pdf_bsdf = cos_wi * inv_pi;
 
                 // rr
@@ -297,14 +288,10 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
-        //        Shared<float> s1{13u};
-        //        Shared<float> s2{1024u};
-        //        s2[thread_x()] = 1.f;
-        //        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
         auto ldr = hdr.xyz() / hdr.w * scale;
-        $if (!is_hdr) {
+        $if(!is_hdr) {
             ldr = linear_to_srgb(ldr);
         };
         ldr_image.write(coord, make_float4(ldr, 1.0f));
