@@ -63,13 +63,9 @@ const Expression *AtomicRefNode::operate(
                      "AtomicRefNode indices (got {}).",
                      index->type()->description());
         switch (type->tag()) {
-            case Type::Tag::VECTOR: [[fallthrough]];
-            case Type::Tag::MATRIX: [[fallthrough]];
-            case Type::Tag::ARRAY: [[fallthrough]];
-            case Type::Tag::BUFFER: {
-                type = type->element();
-                break;
-            }
+            case Type::Tag::VECTOR: type = type->element(); break;
+            case Type::Tag::MATRIX: type = Type::vector(type->element(), type->dimension()); break;
+            case Type::Tag::ARRAY: type = type->element(); break;
             case Type::Tag::STRUCTURE: {
                 LUISA_ASSERT(index->tag() == Expression::Tag::LITERAL,
                              "Only literal indices are allowed for "
@@ -88,9 +84,11 @@ const Expression *AtomicRefNode::operate(
                 type = type->members()[member_index];
                 break;
             }
+            case Type::Tag::BUFFER: type = type->element(); break;
             default: LUISA_ERROR_WITH_LOCATION(
-                "Invalid access chain for "
-                "atomic operation {} (got {}).",
+                "Invalid node type {} in access chain "
+                "for atomic operation {} ({}).",
+                type->description(),
                 magic_enum::enum_name(op),
                 access_chain_string());
         }
@@ -105,6 +103,9 @@ const Expression *AtomicRefNode::operate(
                      type->description());
         args.emplace_back(value);
     }
+
+    // create atomic call
+    return FunctionBuilder::current()->call(type, op, luisa::span{args});
 }
 
 const Expression *AtomicRefNode::operate(
