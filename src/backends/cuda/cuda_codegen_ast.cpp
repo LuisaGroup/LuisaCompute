@@ -672,13 +672,79 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     _scratch << "(";
-    if (auto args = expr->arguments(); !args.empty()) {
-        for (auto arg : args) {
-            arg->accept(*this);
+    if (auto op = expr->op(); is_atomic_operation(op)) {
+        // lower access chain to atomic operation
+        auto args = expr->arguments();
+        auto access_chain = args.subspan(
+            0u,
+            op == CallOp::ATOMIC_COMPARE_EXCHANGE ?
+                args.size() - 2u :
+                args.size() - 1u);
+        _emit_access_chain(access_chain);
+        for (auto extra : args.subspan(access_chain.size())) {
             _scratch << ", ";
+            extra->accept(*this);
         }
-        _scratch.pop_back();
-        _scratch.pop_back();
+    } else {
+        if (auto args = expr->arguments(); !args.empty()) {
+            for (auto arg : args) {
+                arg->accept(*this);
+                _scratch << ", ";
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
+        }
+    }
+    _scratch << ")";
+}
+
+void CUDACodegenAST::_emit_access_chain(luisa::span<const Expression *const> chain) noexcept {
+    auto type = chain.front()->type();
+    _scratch << "(";
+    chain.front()->accept(*this);
+    for (auto index : chain.subspan(1u)) {
+        switch (type->tag()) {
+            case Type::Tag::VECTOR: [[fallthrough]];
+            case Type::Tag::ARRAY: {
+                type = type->element();
+                _scratch << "[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            case Type::Tag::MATRIX: {
+                type = Type::vector(type->element(),
+                                    type->dimension());
+                _scratch << "[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            case Type::Tag::STRUCTURE: {
+                LUISA_ASSERT(index->tag() == Expression::Tag::LITERAL,
+                             "Indexing structure with non-constant "
+                             "index is not supported.");
+                auto literal = static_cast<const LiteralExpr *>(index)->value();
+                auto i = luisa::holds_alternative<int>(literal) ?
+                             static_cast<uint>(luisa::get<int>(literal)) :
+                             luisa::get<uint>(literal);
+                LUISA_ASSERT(i < type->members().size(),
+                             "Index out of range.");
+                type = type->members()[i];
+                _scratch << ".m" << i;
+                break;
+            }
+            case Type::Tag::BUFFER: {
+                type = type->element();
+                _scratch << ".ptr[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            default: LUISA_ERROR_WITH_LOCATION(
+                "Invalid node type '{}' in access chain.",
+                type->description());
+        }
     }
     _scratch << ")";
 }

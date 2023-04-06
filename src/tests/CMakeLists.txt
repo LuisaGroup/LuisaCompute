@@ -11,6 +11,7 @@ endfunction()
 
 luisa_compute_add_test(context)
 luisa_compute_add_test(dsl)
+luisa_compute_add_test(buffer_io)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
     luisa_compute_add_executable(test_ast2ir test_ast2ir.cpp)

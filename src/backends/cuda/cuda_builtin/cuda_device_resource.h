@@ -1161,32 +1161,38 @@ __device__ inline void lc_accel_set_instance_opacity(LCAccel accel, lc_uint inde
 }
 
 __device__ inline float atomicCAS(float *a, float cmp, float v) noexcept {
-    return __uint_as_float(atomicCAS(reinterpret_cast<lc_uint *>(a), __float_as_uint(cmp), __float_as_uint(v)));
+    return __uint_as_float(atomicCAS(reinterpret_cast<lc_uint *>(a),
+                                     __float_as_uint(cmp),
+                                     __float_as_uint(v)));
 }
 
 __device__ inline float atomicSub(float *a, float v) noexcept {
     return atomicAdd(a, -v);
 }
 
-// is this valid?
 __device__ inline float atomicMin(float *a, float v) noexcept {
-    return __int_as_float(atomicMin(reinterpret_cast<int *>(a), __float_as_int(v)));
+    for (;;) {
+        auto old = *a;
+        if (old <= v || atomicCAS(a, old, v) == old) { return old; }
+    }
 }
 
-// is this valid?
 __device__ inline float atomicMax(float *a, float v) noexcept {
-    return __int_as_float(atomicMax(reinterpret_cast<int *>(a), __float_as_int(v)));
+    for (;;) {
+        auto old = *a;
+        if (old >= v || atomicCAS(a, old, v) == old) { return old; }
+    }
 }
 
-#define lc_atomic_exchange(buffer, index, value) atomicExch(&((buffer).ptr[index]), value)
-#define lc_atomic_compare_exchange(buffer, index, cmp, value) atomicCAS(&((buffer).ptr[index]), cmp, value)
-#define lc_atomic_fetch_add(buffer, index, value) atomicAdd(&((buffer).ptr[index]), value)
-#define lc_atomic_fetch_sub(buffer, index, value) atomicSub(&((buffer).ptr[index]), value)
-#define lc_atomic_fetch_min(buffer, index, value) atomicMin(&((buffer).ptr[index]), value)
-#define lc_atomic_fetch_max(buffer, index, value) atomicMax(&((buffer).ptr[index]), value)
-#define lc_atomic_fetch_and(buffer, index, value) atomicAnd(&((buffer).ptr[index]), value)
-#define lc_atomic_fetch_or(buffer, index, value) atomicOr(&((buffer).ptr[index]), value)
-#define lc_atomic_fetch_xor(buffer, index, value) atomicXor(&((buffer).ptr[index]), value)
+#define lc_atomic_exchange(atomic_ref, value) atomicExch(&(atomic_ref), value)
+#define lc_atomic_compare_exchange(atomic_ref, cmp, value) atomicCAS(&(atomic_ref), cmp, value)
+#define lc_atomic_fetch_add(atomic_ref, value) atomicAdd(&(atomic_ref), value)
+#define lc_atomic_fetch_sub(atomic_ref, value) atomicSub(&(atomic_ref), value)
+#define lc_atomic_fetch_min(atomic_ref, value) atomicMin(&(atomic_ref), value)
+#define lc_atomic_fetch_max(atomic_ref, value) atomicMax(&(atomic_ref), value)
+#define lc_atomic_fetch_and(atomic_ref, value) atomicAnd(&(atomic_ref), value)
+#define lc_atomic_fetch_or(atomic_ref, value) atomicOr(&(atomic_ref), value)
+#define lc_atomic_fetch_xor(atomic_ref, value) atomicXor(&(atomic_ref), value)
 
 // static block size
 [[nodiscard]] __device__ constexpr lc_uint3 lc_block_size() noexcept {
