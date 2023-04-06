@@ -26,13 +26,13 @@ luisa::unique_ptr<Command> Printer::reset() noexcept {
 std::tuple<luisa::unique_ptr<Command>,
            luisa::move_only_function<void()>,
            luisa::unique_ptr<Command>>
-Printer::retrieve() noexcept {
+Printer::retrieve(bool abort_on_error) noexcept {
     if (!_reset_called) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Printer results cannot be "
             "retrieved if never reset.");
     }
-    auto print = [this] {
+    auto print = [this, abort_on_error] {
         auto size = std::min(
             static_cast<uint>(_buffer.size() - 1u),
             _host_buffer.back());
@@ -45,7 +45,7 @@ Printer::retrieve() noexcept {
             if (offset > size) {
                 truncated = true;
             } else {
-                item.f(data);
+                item.f(data, abort_on_error);
             }
         }
         if (truncated) [[unlikely]] {

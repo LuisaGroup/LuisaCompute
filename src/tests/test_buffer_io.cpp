@@ -49,7 +49,11 @@ void test_buffer_io(Device &device) noexcept {
             cmdlist << iteration().dispatch(4);
         }
 
-        stream << printer.reset() << cmdlist.commit() << used().dispatch(1) << printer.retrieve() << synchronize();
+        stream << printer.reset()
+               << cmdlist.commit()
+               << used().dispatch(1)
+               << printer.retrieve()
+               << synchronize();
     }
 }
 
