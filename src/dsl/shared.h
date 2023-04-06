@@ -21,7 +21,7 @@ struct SharedAsAtomic {
     [[nodiscard]] auto atomic(I &&i) const noexcept {
         auto index = def(std::forward<I>(i));
         auto shared = static_cast<const Shared<T> *>(this)->expression();
-        return AtomicRef<int>{AtomicRefNode::create(shared)
+        return AtomicRef<T>{AtomicRefNode::create(shared)
                                   ->access(index.expression())};
     }
 };

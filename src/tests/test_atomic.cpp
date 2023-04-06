@@ -74,7 +74,10 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel1D struct_atomic_kernel = [](BufferVar<Something> buffer) noexcept {
-        // TODO
+        auto a = buffer.atomic(0u);
+        a.v.x.fetch_max(1.f);
+        Shared<float> s{16};
+        s.atomic(0).compare_exchange(0.f, 1.f);
     };
 
     auto result = 0.f;
