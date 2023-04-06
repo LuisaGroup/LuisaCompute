@@ -165,6 +165,7 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
                 case compute::StreamTag::COPY:
                     return D3D12_COMMAND_LIST_TYPE_COPY;
             }
+            LUISA_ERROR_WITH_LOCATION("Unreachable.");
         }());
     info.handle = reinterpret_cast<uint64>(res);
     info.native_handle = res->queue.Queue();

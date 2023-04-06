@@ -1513,6 +1513,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                 return monostate{};
             }
         }
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
     };
 
     auto cast_vector = [&]<typename T>(T const &t) -> Result {

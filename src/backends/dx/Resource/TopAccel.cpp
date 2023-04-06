@@ -30,6 +30,7 @@ TopAccel::TopAccel(Device *device, AccelOption const &option)
             case AccelOption::UsageHint::FAST_BUILD:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
         }
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
     };
     memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));
     memset(&topLevelPrebuildInfo, 0, sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO));

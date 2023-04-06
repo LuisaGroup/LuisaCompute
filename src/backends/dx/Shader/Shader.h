@@ -32,6 +32,7 @@ inline static auto ReadBinaryIO(CacheType type, luisa::BinaryIO const *binIo, lu
         case CacheType::Internal:
             return binIo->read_internal_shader(name);
     }
+    return luisa::unique_ptr<luisa::BinaryStream>{};
 }
 inline static void WriteBinaryIO(CacheType type, luisa::BinaryIO const *binIo, luisa::string_view name, luisa::span<std::byte const> data) {
     switch (type) {

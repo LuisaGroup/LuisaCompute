@@ -224,5 +224,6 @@ D3D12_RESOURCE_STATES ResourceStateTracker::ReadState(ResourceReadUsage usage, R
                 return graphicsStates[eastl::to_underlying(usage)];
         }
     }
+    LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
 }// namespace lc::dx

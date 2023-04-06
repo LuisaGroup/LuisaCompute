@@ -648,8 +648,8 @@ private:
         if (auto it = find(key); end() != it) {
             return it->second;
         }
-        // "ankerl::unordered_dense::map::at(): key not found"
-        assert(false);
+        assert(false && "ankerl::unordered_dense::map::at(): key not found");
+        abort();
     }
 
     template<typename K, typename Q = T, std::enable_if_t<is_map_v<Q>, bool> = true>

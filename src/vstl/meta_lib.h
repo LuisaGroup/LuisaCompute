@@ -1342,6 +1342,11 @@ public:
         void *pdead) noexcept {
         vengine_free(pdead);
     }
+    static void operator delete(
+        void *ptr,
+        void *place) noexcept {
+        // do nothing
+    }
     static void operator delete[](
         void *pdead) noexcept {
         vengine_free(pdead);
