@@ -15,7 +15,9 @@ end
 if EnableGUI then
 	includes("gui")
 end
-includes("py")
+if EnablePython then
+	includes("py")
+end
 includes("backends/validation")
 if DxBackend then
 	includes("backends/dx")

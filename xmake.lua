@@ -1,4 +1,4 @@
-set_xmakever("2.7.7")
+set_xmakever("2.7.8")
 add_rules("mode.release", "mode.debug")
 -- disable ccache in-case error
 set_policy("build.ccache", false)
@@ -114,6 +114,9 @@ if is_arch("x64", "x86_64", "arm64") then
 	EnableAPI = get_config("enable_api")
 	-- TODO: rust condition
 	EnableRust = EnableIR or EnableAPI
+	local py_version = get_config("py_version")
+	local py_path = get_config("py_path")
+	EnablePython = type(py_path) == "string" and string.len(py_path) > 0 and type(py_version) == "string" and string.len(py_version) > 0 
 	EnableGUI = get_config("enable_gui") or EnableTest or EnablePython
 
 	if is_mode("debug") then

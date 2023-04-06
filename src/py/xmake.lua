@@ -7,10 +7,6 @@ on_load(
 	function(target)
 		local py_version = get_config("py_version")
 		local py_path = get_config("py_path")
-		if type(py_path) ~= "string" or string.len(py_path) == 0 or type(py_version) ~= "string" or string.len(py_version) == 0 then
-			target:set("enabled", false)
-			return
-		end
 		local version_table = {}
 		for str in string.gmatch(py_version, "([^.]+)") do
 			table.insert(version_table, str)
@@ -24,7 +20,6 @@ on_load(
 		end
 		if legal_version then
 			local py_name = "python" .. version_table[1] .. version_table[2]
-			local py_path = get_config("py_path")
 			target:add("linkdirs", path.join(py_path, "libs"))
 			target:add("links", "python3", py_name)
 			target:add("includedirs", path.join(py_path, "include"))
