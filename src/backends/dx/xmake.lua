@@ -9,9 +9,9 @@ add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp"
 add_includedirs("./")
 add_syslinks("D3D12", "dxgi")
 after_build(function(target)
-	local binDir = target:targetdir()
-	os.cp("src/backends/dx/dx_builtin", path.join(binDir, ".data/"))
-	os.cp("src/backends/dx/dx_support/*.dll", binDir)
+	local bin_dir = target:targetdir()
+	os.cp(path.join(os.projectdir(), "src/backends/dx/dx_builtin"), path.join(bin_dir, ".data/"))
+	os.cp(path.join(os.projectdir(), "src/backends/dx/dx_support/*.dll"), bin_dir)
 end)
 if is_plat("windows") then
 	add_defines("NOMINMAX", "UNICODE")

@@ -5,7 +5,7 @@ _config_project({
 })
 add_deps("lc-ast")
 add_defines("LC_RUNTIME_EXPORT_DLL")
-if EnableRust then
+if LCEnableRust then
 	add_defines("LUISA_ENABLE_API", {
 		public = true
 	})

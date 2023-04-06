@@ -1,5 +1,5 @@
 includes("build_proj.lua")
-if UseMimalloc then
+if LCUseMimalloc then
 	_configs.enable_mimalloc = true
 end
 includes("ext/EASTL")
@@ -9,44 +9,44 @@ includes("core")
 includes("vstl")
 includes("ast")
 includes("runtime")
-if EnableDSL then
+if LCEnableDSL then
 	includes("dsl")
 end
-if EnableGUI then
+if LCEnableGUI then
 	includes("gui")
 end
-if EnablePython then
+if LCEnablePython then
 	includes("py")
 end
 includes("backends/validation")
-if DxBackend then
+if LCDxBackend then
 	includes("backends/dx")
 end
-if CudaBackend then
+if LCCudaBackend then
 	includes("backends/cuda")
 end
-if MetalBackend then
+if LCMetalBackend then
 	includes("backends/metal")
 end
-if CpuBackend then
+if LCCpuBackend then
 	includes("backends/cpu")
 end
-if RemoteBackend then
+if LCRemoteBackend then
 	includes("backends/remote")
 end
-if EnableTest then
+if LCEnableTest then
 	includes("tests")
 end
 if get_config("enable_tools") then
 	includes("tools")
 end
-if EnableRust then
+if LCEnableRust then
 	includes("rust")
 end
-if EnableIR then
+if LCEnableIR then
 	includes("ir")
 end
-if EnableAPI then
+if LCEnableAPI then
 	includes("api")
 end
 if get_config("enable_unity3d_plugin") then

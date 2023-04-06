@@ -14,7 +14,7 @@ local function test_proj(name)
 	})
 	add_files(name .. ".cpp")
 	add_deps("lc-runtime", "lc-vstl", "lc-gui", "stb-image")
-	if EnableDSL then
+	if LCEnableDSL then
 		add_deps("lc-dsl")
 	end
 	target_end()
