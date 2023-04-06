@@ -891,6 +891,11 @@ pub enum Instruction {
         backward: Pooled<BasicBlock>,
         epilogue: Pooled<BasicBlock>,
     },
+    // RayQuery{
+    //     ray: NodeRef,
+    //     on_triangle_hit:Pooled<BasicBlock>,
+    //     on_procedural_hit:Pooled<BasicBlock>,
+    // },
     AdDetach(Pooled<BasicBlock>),
     Comment(CBoxedSlice<u8>),
     Debug(CBoxedSlice<u8>), // for CPU only, would print the message if executed

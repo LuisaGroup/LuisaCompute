@@ -119,4 +119,5 @@ pub enum KernelFnArg {
     BindlessArray(BindlessArray),
     Accel(Accel),
     Texture(Texture, u8),
+    Uniform(*const u8),
 }
