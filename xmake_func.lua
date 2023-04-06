@@ -92,10 +92,15 @@ on_load(function(target)
 	end
 end)
 rule_end()
-_config_rules = {"lc_basic_settings"}
-_disable_unity_build = not get_config("enable_unity_build")
-_configs = {
-	use_simd = UseSIMD
-	-- enable_mimalloc=true
-	-- enable_eastl_rtti=true
-}
+-- In-case of submod, when there is override rules, do not overload
+if _config_rules == nil then
+	_config_rules = {"lc_basic_settings"}
+end
+if _disable_unity_build == nil then
+	_disable_unity_build = not get_config("enable_unity_build")
+end
+
+if _configs == nil then
+	_configs = {}
+end
+_configs["use_simd"] = LCUseSIMD

@@ -229,9 +229,6 @@ pub struct GenericCppCodeGen {
     generated_globals: HashSet<String>,
     indent: usize,
     visited: HashSet<NodeRef>,
-    signature: Vec<String>,
-    cpu_kernel_parameters: Vec<String>,
-    cpu_kernel_unpack_parameters: Vec<String>,
 }
 
 impl GenericCppCodeGen {
@@ -249,9 +246,6 @@ impl GenericCppCodeGen {
             generated_globals: HashSet::new(),
             indent: 1,
             visited: HashSet::new(),
-            signature: Vec::new(),
-            cpu_kernel_parameters: Vec::new(),
-            cpu_kernel_unpack_parameters: Vec::new(),
         }
     }
     fn write_ident(&mut self) {
@@ -419,7 +413,7 @@ impl GenericCppCodeGen {
             Func::Max => Some("lc_max"),
             Func::Clamp => Some("lc_clamp"),
 
-            Func::Lerp=> Some("lc_lerp"),
+            Func::Lerp => Some("lc_lerp"),
             _ => None,
         };
         if let Some(func) = func {
@@ -1139,7 +1133,7 @@ impl GenericCppCodeGen {
                 let gen_def = |dst: &mut String, qualifier| {
                     writeln!(
                         dst,
-                        "{0} uint8_t {2}_bytes[{1}] = {{ {3} }};",
+                        "    {0} uint8_t {2}_bytes[{1}] = {{ {3} }};",
                         qualifier,
                         t.size(),
                         var,
@@ -1238,7 +1232,7 @@ impl GenericCppCodeGen {
             Instruction::Phi(_) => {
                 self.write_ident();
                 let var = self.gen_node(node);
-                writeln!(&mut self.fwd_defs, "{0} {1} = {0}{{}};", node_ty_s, var).unwrap();
+                writeln!(&mut self.fwd_defs, "    {0} {1} = {0}{{}};", node_ty_s, var).unwrap();
             }
             Instruction::Return(v) => {
                 self.write_ident();
@@ -1424,48 +1418,53 @@ impl GenericCppCodeGen {
         };
         match node.get().instruction.as_ref() {
             Instruction::Accel => {
-                self.signature.push(format!("const Accel& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Accel& {} = {}[{}].accel._0;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const Accel& {} = {}[{}].accel._0;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Bindless => {
-                self.signature
-                    .push(format!("const BindlessArray& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const BindlessArray& {} = {}[{}].bindless_array._0;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const BindlessArray& {} = {}[{}].bindless_array._0;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Buffer => {
-                self.signature
-                    .push(format!("const BufferView& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const BufferView& {} = {}[{}].buffer._0;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const BufferView& {} = {}[{}].buffer._0;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Texture2D => {
-                self.signature
-                    .push(format!("const Texture2D& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture2D& {} = {}[{}].texture;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const Texture2D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
             }
             Instruction::Texture3D => {
-                self.signature
-                    .push(format!("const Texture3D& {}", arg_name));
-                self.cpu_kernel_unpack_parameters.push(format!(
-                    "const Texture3D& {} = {}[{}].texture;",
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const Texture3D& {} = {}[{}].texture;",
                     arg_name, arg_array, index
-                ));
-                self.cpu_kernel_parameters.push(arg_name);
+                )
+                .unwrap();
+            }
+            Instruction::Uniform => {
+                let ty = self.type_gen.to_c_type(node.type_());
+                writeln!(
+                    &mut self.fwd_defs,
+                    "    const {0}& {1} = *reinterpret_cast<const {0}*>({2}[{3}].uniform._0);",
+                    ty, arg_name, arg_array, index
+                )
+                .unwrap();
             }
             _ => unreachable!(),
         }
@@ -1506,23 +1505,13 @@ impl CodeGen for CpuCodeGen {
         let mut codegen = GenericCppCodeGen::new();
         codegen.gen_module(module);
         let kernel_fn_decl = r#"lc_kernel void kernel_fn(const KernelFnArgs* k_args) {"#;
-        let kernel_fn = format!(
-            "{}\n{}\nkernel_(k_args, {});\n}}\n",
-            kernel_fn_decl,
-            codegen.cpu_kernel_unpack_parameters.join("\n"),
-            codegen.cpu_kernel_parameters.join(", "),
-        );
-        let kernel_wrapper_decl = format!(
-            "void kernel_(const KernelFnArgs* k_args, {}) {{",
-            codegen.signature.join(", ")
-        );
         let includes = r#"#include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <cstdint>
 using namespace std;"#;
         format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             includes,
             CPU_KERNEL_DEFS,
             CPU_PRELUDE,
@@ -1530,11 +1519,10 @@ using namespace std;"#;
             CPU_RESOURCE,
             CPU_TEXTURE,
             codegen.type_gen.struct_typedefs,
-            kernel_wrapper_decl,
+            kernel_fn_decl,
             codegen.fwd_defs,
             codegen.body,
             "}",
-            kernel_fn
         )
     }
 }

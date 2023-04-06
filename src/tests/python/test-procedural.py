@@ -80,11 +80,8 @@ def kernel(pos):
     aspect = float(size.x) / float(size.y)
     p = float2(coord) / float2(size) * 2. - 1.
     fov = radians(45.8)
-    ray_origin = pos
-    direction = normalize(float3(p * tan(.5 * fov) * float2(aspect, 1.), -1.))
-    ray = make_ray(ray_origin, direction, 1e-3, 1e3)
+    ray = make_ray(pos, normalize(float3(p * tan(.5 * fov) * float2(aspect, 1.), -1.)), 1e-3, 1e3)
     q = acc.query_all(ray, -1)
-    sphere_dist = 1e3
     match(q):
         case is_triangle():
             q.commit_triangle()
@@ -92,6 +89,9 @@ def kernel(pos):
             h = q.procedural_candidate()
             aabb = aabb_buffer.read(h.prim)
             origin = (aabb.get_min() + aabb.get_max()) * .5
+            candidate_ray = q.world_space_ray()
+            ray_origin = candidate_ray.get_origin()
+            direction = candidate_ray.get_dir()
             L = origin - ray_origin
             cos_theta = dot(direction, normalize(L))
             if cos_theta > 0.:
@@ -101,12 +101,11 @@ def kernel(pos):
                 if d <= radius:
                     t1c = sqrt(radius * radius - d * d)
                     dist = tc - t1c
-                    if dist <= sphere_dist:
-                        sphere_dist = dist
+                    if dist <= candidate_ray.t_max:
                         normal = normalize(
                             ray_origin + direction * dist - origin)
                         sphere_color = normal * .5 + .5
-                    q.commit_procedural(dist)
+                        q.commit_procedural(dist)
 
     hit = q.committed_hit()
     if hit.hit_procedural():

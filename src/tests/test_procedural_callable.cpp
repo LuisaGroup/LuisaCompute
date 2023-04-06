@@ -178,5 +178,5 @@ int main(int argc, char *argv[]) {
            << blit(device_image1, ldr_image).dispatch(width, height)
            << ldr_image.copy_to(pixels.data())
            << synchronize();
-    stbi_write_png("test_procedural.png", width, height, 4, pixels.data(), 0);
+    stbi_write_png("test_procedural_callable.png", width, height, 4, pixels.data(), 0);
 }

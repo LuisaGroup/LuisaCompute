@@ -1,10 +1,8 @@
 target("lc-core")
-if _config_project ~= nil then
-	_config_project({
-		project_kind = "shared",
-		batch_size = 4
-	})
-end
+_config_project({
+	project_kind = "shared",
+	batch_size = 4
+})
 if is_mode("debug") and is_plat("windows") then
 	add_syslinks("Dbghelp")
 end
@@ -19,9 +17,10 @@ add_files("**.cpp")
 -- 						public = true
 -- 					})
 -- end
-if EnableDSL then
+if LCEnableDSL then
 	add_defines("LUISA_ENABLE_DSL", {
 		public = true
 	})
 end
 add_defines("LC_CORE_EXPORT_DLL")
+target_end()

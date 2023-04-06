@@ -52,6 +52,11 @@ add_subdirectory(stb)
 target_link_libraries(luisa-compute-ext INTERFACE stb)
 luisa_compute_install_extension(stb INCLUDE stb)
 
+add_library(magic_enum INTERFACE)
+target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
+target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
+luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include)
+
 if (LUISA_COMPUTE_ENABLE_GUI)
     add_subdirectory(glad)
     target_link_libraries(luisa-compute-ext INTERFACE glad)
