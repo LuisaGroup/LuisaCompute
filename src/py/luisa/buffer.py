@@ -9,7 +9,7 @@ from .builtin import _builtin_call
 from .mathtypes import *
 from .builtin import check_exact_signature
 from types import SimpleNamespace
-from .types import uint
+from .types import uint, uint, int2, uint2, int3, uint3, int4, uint4, float2, float3, float4, short, ushort, short2, half2, ushort2, short3, half3, ushort3, short4, half4, ushort4
 from .struct import CustomType
 from .atomic import int_atomic_functions, float_atomic_functions
 
@@ -145,7 +145,7 @@ class BufferType:
         self.read = self.get_read_method(self.dtype)
         self.write = self.get_write_method(self.dtype)
         # disable atomic operations if it's not an int buffer
-        if dtype == int or dtype == uint:
+        if dtype in {int, uint, short, ushort}:
             for f in int_atomic_functions:
                 setattr(self, f.__name__, f)
         if dtype == float:
@@ -161,7 +161,7 @@ class BufferType:
     @cache
     def get_read_method(dtype):
         @func
-        def read(self, idx: uint):
+        def read(self, idx):
             return _builtin_call(dtype, "BUFFER_READ", self, idx)
         return read
 
@@ -169,7 +169,7 @@ class BufferType:
     @cache
     def get_write_method(dtype):
         @func
-        def write(self, idx: uint, value: dtype):
+        def write(self, idx, value: dtype):
             _builtin_call("BUFFER_WRITE", self, idx, value)
         return write
 
@@ -198,7 +198,7 @@ class IndirectBufferType:
     @cache
     def get_emplace_func():
         @func
-        def emplace(self, block_size: uint3, size: uint3, id: uint):
+        def emplace(self, block_size: uint3, size: uint3, id):
             _builtin_call("INDIRECT_EMPLACE_DISPATCH_KERNEL", self, block_size, size, id)
         return emplace
 

@@ -5,13 +5,14 @@
 namespace lc::dx {
 
 struct CodegenStackData : public vstd::IOperatorNewBase {
+    CodegenUtility *util;
     luisa::compute::Function kernel;
     vstd::unordered_map<Type const *, uint64> structTypes;
     vstd::unordered_map<uint64, uint64> constTypes;
     vstd::unordered_map<void const *, uint64> funcTypes;
-    vstd::unordered_map<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
+    vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::unordered_map<uint, uint> arguments;
-    vstd::unordered_map<Type const*, vstd::string> internalStruct;
+    vstd::unordered_map<Type const *, vstd::string> internalStruct;
     enum class FuncType : uint8_t {
         Kernel,
         Vert,
@@ -32,7 +33,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     int64_t appdataId = -1;
     int64 scopeCount = -1;
 
-    vstd::function<void (Type const *)> generateStruct;
+    vstd::function<void(Type const *)> generateStruct;
     vstd::unordered_map<vstd::string, vstd::string, vstd::hash<vstd::StringBuilder>> structReplaceName;
     vstd::unordered_map<uint64, Variable> sharedVariable;
     Expression const *tempSwitchExpr;
@@ -45,7 +46,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     uint64 GetFuncCount(void const *data);
     uint64 GetTypeCount(Type const *t);
     ~CodegenStackData();
-    static vstd::unique_ptr<CodegenStackData> Allocate();
+    static vstd::unique_ptr<CodegenStackData> Allocate(CodegenUtility *util);
     static void DeAllocate(vstd::unique_ptr<CodegenStackData> &&v);
     // static bool& ThreadLocalSpirv();
 };

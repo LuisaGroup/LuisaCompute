@@ -47,6 +47,7 @@ public:
     void wait(CUevent event) noexcept;
     void callback(CallbackContainer &&callbacks) noexcept;
     [[nodiscard]] auto uid() const noexcept { return _uid; }
+    void set_name(luisa::string &&name) noexcept;
 };
 
 }// namespace luisa::compute::cuda

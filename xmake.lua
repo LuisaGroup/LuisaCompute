@@ -1,4 +1,4 @@
-set_xmakever("2.7.7")
+set_xmakever("2.7.8")
 add_rules("mode.release", "mode.debug")
 -- disable ccache in-case error
 set_policy("build.ccache", false)
@@ -99,29 +99,31 @@ set_showmenu(true)
 option_end()
 -- pre-defined options end
 if is_arch("x64", "x86_64", "arm64") then
-	UseMimalloc = get_config("enable_mimalloc")
-	UseSIMD = get_config("enable_simd")
+	LCUseMimalloc = get_config("enable_mimalloc")
+	LCUseSIMD = get_config("enable_simd")
 	-- test require dsl
-	EnableTest = get_config("enable_tests")
-	EnableDSL = get_config("enable_dsl") or EnableTest
-	DxBackend = get_config("dx_backend") and is_plat("windows")
+	LCEnableTest = get_config("enable_tests")
+	LCEnableDSL = get_config("enable_dsl") or LCEnableTest
+	LCDxBackend = get_config("dx_backend") and is_plat("windows")
 	-- TODO: require environment check
-	CudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux"))
-	MetalBackend = get_config("metal_backend") and is_plat("macosx")
-	CpuBackend = get_config("cpu_backend")
-	RemoteBackend = get_config("remote_backend")
-	EnableIR = get_config("enable_ir") or MetalBackend or CpuBackend or RemoteBackend
-	EnableAPI = get_config("enable_api")
+	LCCudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux"))
+	LCMetalBackend = get_config("metal_backend") and is_plat("macosx")
+	LCCpuBackend = get_config("cpu_backend")
+	LCRemoteBackend = get_config("remote_backend")
+	LCEnableIR = get_config("enable_ir") or LCMetalBackend or LCCpuBackend or LCRemoteBackend
+	LCEnableAPI = get_config("enable_api")
 	-- TODO: rust condition
-	EnableRust = EnableIR or EnableAPI
-	EnableGUI = get_config("enable_gui") or EnableTest or EnablePython
-
+	LCEnableRust = LCEnableIR or LCEnableAPI
+	local py_version = get_config("py_version")
+	local py_path = get_config("py_path")
+	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0 and type(py_version) == "string" and
+					                 string.len(py_version) > 0
+	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
 	if is_mode("debug") then
-		set_targetdir("bin/debug")
+		set_targetdir(path.join(os.projectdir(), "bin/debug"))
 	else
-		set_targetdir("bin/release")
+		set_targetdir(path.join(os.projectdir(), "bin/release"))
 	end
-
 	includes("xmake_func.lua")
 	includes("src")
 else
@@ -130,4 +132,5 @@ else
 	on_load(function(target)
 		utils.error("Illegal environment. Please check your compiler, architecture or platform.")
 	end)
+	target_end()
 end

@@ -1,17 +1,33 @@
 #pragma once
+#include <vstl/common.h>
 #include <runtime/rhi/device_interface.h>
 namespace lc::validation {
 using namespace luisa;
 using namespace luisa::compute;
-class Device : public DeviceInterface {
-    DeviceInterface *_native;
+namespace detail {
+template<typename T>
+class ext_deleter {
+    vstd::func_ptr_t<void(T *)> _deleter;
 
 public:
-    std::mutex device_mtx;
-    Device(Context &&ctx, DeviceInterface *native) noexcept
-        : DeviceInterface{std::move(ctx)},
-          _native{native} {}
-    ~Device() = default;
+    ext_deleter(vstd::func_ptr_t<void(T *)> deleter) : _deleter{deleter} {}
+    void operator()(T *ptr) const {
+        _deleter(ptr);
+    }
+};
+}// namespace detail
+class Device : public DeviceInterface, public vstd::IOperatorNewBase {
+    luisa::shared_ptr<DeviceInterface> _native;
+    using ExtPtr = vstd::unique_ptr<DeviceExtension, detail::ext_deleter<DeviceExtension>>;
+    vstd::unordered_map<vstd::string, ExtPtr> exts;
+
+public:
+    static std::mutex &global_mtx() noexcept;
+    static uint64_t origin_handle(uint64_t handle);
+    void *native_handle() const noexcept override;
+    Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
+    Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexcept;
+    ~Device();
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
@@ -26,10 +42,6 @@ public:
     // bindless array
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
-
-    // depth buffer
-    ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
-    void destroy_depth_buffer(uint64_t handle) noexcept override;
 
     // stream
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
@@ -71,8 +83,8 @@ public:
     void destroy_accel(uint64_t handle) noexcept override;
 
     // query
-    luisa::string query(luisa::string_view property) noexcept { return {}; }
-    DeviceExtension *extension(luisa::string_view name) noexcept { return nullptr; }
+    luisa::string query(luisa::string_view property) noexcept;
+    DeviceExtension *extension(luisa::string_view name) noexcept;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 };
 }// namespace lc::validation

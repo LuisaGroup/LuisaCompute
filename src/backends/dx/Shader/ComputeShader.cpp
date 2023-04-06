@@ -31,11 +31,9 @@ ComputeShader *ComputeShader::LoadPresetCompute(
 
     if (result) {
         auto md5 = CodegenUtility::GetTypeMD5(types);
-        if (md5 != typeMD5) {
-            LUISA_ERROR("Shader {} arguments unmatch to requirement!", fileName);
-        }
+        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);\
         if (oldDeleted) {
-            result->SavePSO(psoName, fileIo, device);
+            result->SavePSO(result->Pso(), psoName, fileIo, device);
         }
     }
     return result;
@@ -106,7 +104,7 @@ ComputeShader *ComputeShader::CompileCompute(
                     device);
                 cs->bindlessCount = str.bdlsBufferCount;
                 if (WriteCache) {
-                    cs->SavePSO(psoName, fileIo, device);
+                    cs->SavePSO(cs->Pso(), psoName, fileIo, device);
                 }
                 return cs;
             },
@@ -132,7 +130,7 @@ ComputeShader *ComputeShader::CompileCompute(
             oldDeleted);
         if (result) {
             if (oldDeleted) {
-                result->SavePSO(psoName, fileIo, device);
+                result->SavePSO(result->Pso(), psoName, fileIo, device);
             }
             return result;
         }

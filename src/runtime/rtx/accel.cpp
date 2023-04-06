@@ -26,6 +26,10 @@ Accel Device::create_accel(const AccelOption &option) noexcept {
 Accel::Accel(DeviceInterface *device, const AccelOption &option) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(option)} {}
 
+Accel::~Accel() noexcept {
+    if (*this) { device()->destroy_accel(handle()); }
+}
+
 luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
                                   bool update_instance_buffer_only) noexcept {
     if (_mesh_handles.empty()) { LUISA_ERROR_WITH_LOCATION(
@@ -116,4 +120,5 @@ void Accel::set_visibility_on_update(size_t index, uint8_t visibility_mask) noex
         iter->second.set_visibility(visibility_mask);
     }
 }
+
 }// namespace luisa::compute

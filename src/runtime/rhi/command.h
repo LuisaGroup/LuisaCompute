@@ -18,7 +18,11 @@
 #include <runtime/raster/viewport.h>
 #include <runtime/rhi/sampler.h>
 #include <runtime/rhi/argument.h>
-
+#include <runtime/raster/raster_state.h>
+// for validation
+namespace lc::validation {
+class Stream;
+}
 namespace luisa::compute {
 
 struct IndirectDispatchArg {
@@ -57,6 +61,7 @@ struct CommandVisitor {
     virtual void visit(const CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
+    virtual ~CommandVisitor() noexcept = default;
 };
 
 struct MutableCommandVisitor {
@@ -64,6 +69,7 @@ struct MutableCommandVisitor {
     virtual void visit(CMD *) noexcept = 0;
     LUISA_MAP(LUISA_MAKE_COMMAND_VISITOR_INTERFACE, LUISA_COMPUTE_RUNTIME_COMMANDS)
 #undef LUISA_MAKE_COMMAND_VISITOR_INTERFACE
+    virtual ~MutableCommandVisitor() noexcept = default;
 };
 
 class Command;
@@ -88,6 +94,7 @@ class CommandList;
     StreamTag stream_tag() const noexcept override { return Type; }
 
 class Command {
+    friend lc::validation::Stream;
 
 public:
     enum struct Tag {
@@ -108,6 +115,7 @@ public:
     [[nodiscard]] virtual StreamTag stream_tag() const noexcept = 0;
 };
 class ShaderDispatchCommandBase {
+    friend lc::validation::Stream;
 
 public:
     using Argument = luisa::compute::Argument;
@@ -137,6 +145,7 @@ public:
 };
 
 class ShaderDispatchCommand final : public Command, public ShaderDispatchCommandBase {
+    friend lc::validation::Stream;
 
 public:
     using DispatchSize = luisa::variant<uint3, IndirectDispatchArg>;
@@ -163,6 +172,7 @@ public:
 };
 
 class BufferUploadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -189,6 +199,7 @@ public:
 };
 
 class BufferDownloadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -212,6 +223,7 @@ public:
 };
 
 class BufferCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _src_handle{};
@@ -238,6 +250,7 @@ public:
 };
 
 class BufferToTextureCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _buffer_handle{};
@@ -269,6 +282,7 @@ public:
 };
 
 class TextureToBufferCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _buffer_handle{};
@@ -300,6 +314,7 @@ public:
 };
 
 class TextureCopyCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     PixelStorage _storage{};
@@ -329,6 +344,7 @@ public:
 };
 
 class TextureUploadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -356,6 +372,7 @@ public:
 };
 
 class TextureDownloadCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -388,6 +405,7 @@ enum struct AccelBuildRequest : uint32_t {
 };
 
 class MeshBuildCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
@@ -427,29 +445,31 @@ public:
 };
 
 class ProceduralPrimitiveBuildCommand final : public Command {
+    friend lc::validation::Stream;
 
 private:
     uint64_t _handle{};
     AccelBuildRequest _request{};
     uint64_t _aabb_buffer{};
-    size_t _aabb_offset{};
-    size_t _aabb_count{};
+    size_t _aabb_buffer_offset{};
+    size_t _aabb_buffer_size{};
 
 public:
     ProceduralPrimitiveBuildCommand(uint64_t handle, AccelBuildRequest request, uint64_t aabb_buffer,
-                                    size_t aabb_offset, size_t aabb_count)
-        : Command(Command::Tag::EProceduralPrimitiveBuildCommand),
-          _handle(handle), _request(request), _aabb_buffer(aabb_buffer),
-          _aabb_offset(aabb_offset), _aabb_count(aabb_count) {}
+                                    size_t aabb_buffer_offset, size_t aabb_buffer_size)
+        : Command{Command::Tag::EProceduralPrimitiveBuildCommand},
+          _handle{handle}, _request{request}, _aabb_buffer{aabb_buffer},
+          _aabb_buffer_offset{aabb_buffer_offset}, _aabb_buffer_size{aabb_buffer_size} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto request() const noexcept { return _request; }
     [[nodiscard]] auto aabb_buffer() const noexcept { return _aabb_buffer; }
-    [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
-    [[nodiscard]] auto aabb_count() const noexcept { return _aabb_count; }
+    [[nodiscard]] auto aabb_buffer_offset() const noexcept { return _aabb_buffer_offset; }
+    [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
     LUISA_MAKE_COMMAND_COMMON(ProceduralPrimitiveBuildCommand, StreamTag::COMPUTE)
 };
 
 class AccelBuildCommand final : public Command {
+    friend lc::validation::Stream;
 
 public:
     struct alignas(16) Modification {
@@ -528,6 +548,7 @@ public:
 };
 
 class BindlessArrayUpdateCommand final : public Command {
+    friend lc::validation::Stream;
 
 public:
     struct Modification {
@@ -543,7 +564,7 @@ public:
             size_t offset_bytes;
             Operation op;
             Buffer() noexcept
-                : handle{0u}, offset_bytes{0u}, op{Operation::NONE} {}
+                : handle{0}, offset_bytes{0u}, op{Operation::NONE} {}
             Buffer(uint64_t handle, size_t offset_bytes, Operation op) noexcept
                 : handle{handle}, offset_bytes{offset_bytes}, op{op} {}
             [[nodiscard]] static auto emplace(uint64_t handle, size_t offset_bytes) noexcept {
@@ -600,6 +621,8 @@ public:
 };
 
 class CustomCommand : public Command {
+    friend lc::validation::Stream;
+
 private:
     uint64_t _uuid{};
 
@@ -610,6 +633,7 @@ public:
 };
 
 class LC_RUNTIME_API DrawRasterSceneCommand final : public CustomCommand, public ShaderDispatchCommandBase {
+    friend lc::validation::Stream;
 
 private:
     std::array<Argument::Texture, 8u> _rtv_texs;
@@ -617,6 +641,7 @@ private:
     Argument::Texture _dsv_tex;
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport;
+    RasterState _raster_state;
 
 public:
     DrawRasterSceneCommand(uint64_t shader_handle,
@@ -626,7 +651,8 @@ public:
                            size_t rtv_count,
                            Argument::Texture dsv_texture,
                            luisa::vector<RasterMesh> &&scene,
-                           Viewport viewport) noexcept;
+                           Viewport viewport,
+                           const RasterState &raster_state) noexcept;
 
 public:
     DrawRasterSceneCommand(DrawRasterSceneCommand const &) noexcept = delete;
@@ -634,12 +660,14 @@ public:
     ~DrawRasterSceneCommand() noexcept override;
     [[nodiscard]] auto rtv_texs() const noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }
     [[nodiscard]] auto const &dsv_tex() const noexcept { return _dsv_tex; }
+    [[nodiscard]] auto const &raster_state() const noexcept { return _raster_state; }
     [[nodiscard]] luisa::span<const RasterMesh> scene() const noexcept;
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }
     LUISA_MAKE_COMMAND_COMMON(DrawRasterSceneCommand, StreamTag::GRAPHICS)
 };
 
 class ClearDepthCommand final : public CustomCommand {
+    friend lc::validation::Stream;
     uint64_t _handle;
     float _value;
 

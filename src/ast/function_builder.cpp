@@ -43,6 +43,9 @@ void FunctionBuilder::pop(FunctionBuilder *func) noexcept {
 
     // hash
     f->_compute_hash();
+    if (f->_tag == Function::Tag::KERNEL) {
+        f->sort_bindings();
+    }
 
     // clear temporary data
     for (auto p : f->_temporary_data) {
@@ -97,6 +100,10 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
+RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
+    return _create_and_append_statement<RayQueryStmt>(query);
+}
+
 IfStmt *FunctionBuilder::if_(const Expression *cond) noexcept {
     return _create_and_append_statement<IfStmt>(cond);
 }
@@ -130,8 +137,11 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
         if constexpr (luisa::is_scalar_v<decltype(x)>) {
             switch (type->tag()) {
                 case Type::Tag::BOOL: return bool(x);
+                case Type::Tag::FLOAT16:
                 case Type::Tag::FLOAT32: return float(x);
+                case Type::Tag::INT16:
                 case Type::Tag::INT32: return int(x);
+                case Type::Tag::UINT16:
                 case Type::Tag::UINT32: return uint(x);
                 default: LUISA_ERROR_WITH_LOCATION("Invalid type for LiteralExpr: {}", type->description());
             }
@@ -565,7 +575,7 @@ void FunctionBuilder::set_block_size(uint3 size) noexcept {
         auto kernel_size = size.x * size.y * size.z;
         if (kernel_size == 0 || kernel_size > 1024) [[unlikely]] {
             LUISA_ERROR("Function block size must be in range [1, 1024], Current block size is: {}.",
-            kernel_size);
+                        kernel_size);
         }
         _block_size = size;
     } else {

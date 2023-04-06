@@ -14,22 +14,29 @@ class LC_RUNTIME_API ProceduralPrimitive final : public Resource {
 
 private:
     uint64_t _aabb_buffer{};
-    size_t _aabb_offset{};
-    size_t _aabb_count{};
-    ProceduralPrimitive(DeviceInterface *device, BufferView<AABB> aabb, const AccelOption &option) noexcept;
+    size_t _aabb_buffer_offset{};
+    size_t _aabb_buffer_size{};
+    ProceduralPrimitive(DeviceInterface *device,
+                        BufferView<AABB> aabb,
+                        const AccelOption &option) noexcept;
 
 public:
     ProceduralPrimitive() noexcept = default;
+    ~ProceduralPrimitive() noexcept override;
     ProceduralPrimitive(ProceduralPrimitive &&) noexcept = default;
     ProceduralPrimitive(ProceduralPrimitive const &) noexcept = delete;
-    ProceduralPrimitive &operator=(ProceduralPrimitive &&) noexcept = default;
+    ProceduralPrimitive &operator=(ProceduralPrimitive &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     ProceduralPrimitive &operator=(ProceduralPrimitive const &) noexcept = delete;
 
     using Resource::operator bool;
     // build procedural primitives' based bottom-level acceleration structure
-    [[nodiscard]] luisa::unique_ptr<Command> build(AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
-    [[nodiscard]] auto aabb_offset() const noexcept { return _aabb_offset; }
-    [[nodiscard]] auto aabb_count() const noexcept { return _aabb_count; }
+    [[nodiscard]] luisa::unique_ptr<Command> build(
+        AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
+    [[nodiscard]] auto aabb_buffer_offset() const noexcept { return _aabb_buffer_offset; }
+    [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
 };
 
 template<typename AABBBuffer>

@@ -98,4 +98,10 @@ luisa::unique_ptr<Command> BindlessArray::update() noexcept {
     return BindlessArrayUpdateCommand::create(handle(), std::move(mods));
 }
 
+BindlessArray::~BindlessArray() noexcept {
+    if (*this) {
+        device()->destroy_bindless_array(handle());
+    }
+}
+
 }// namespace luisa::compute

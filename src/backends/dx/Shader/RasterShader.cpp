@@ -32,13 +32,16 @@ static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function
 }// namespace RasterShaderDetail
 RasterShader::RasterShader(
     Device *device,
+    vstd::MD5 md5,
+    MeshFormat const &meshFormat,
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ComPtr<ID3D12RootSignature> &&rootSig,
-    ComPtr<ID3D12PipelineState> &&pso,
-    TopologyType type)
-    : Shader(std::move(prop), std::move(args), std::move(rootSig)), device(device), type(type) {
-    this->pso = std::move(pso);
+    vstd::vector<std::byte> &&vertBinData,
+    vstd::vector<std::byte> &&pixelBinData)
+    : Shader(std::move(prop), std::move(args), std::move(rootSig)), device(device), md5{md5},
+      vertBinData{std::move(vertBinData)}, pixelBinData{std::move(pixelBinData)} {
+    GetMeshFormatState(elements, meshFormat);
 }
 void RasterShader::GetMeshFormatState(
     vstd::vector<D3D12_INPUT_ELEMENT_DESC> &inputLayout,
@@ -111,41 +114,26 @@ void RasterShader::GetMeshFormatState(
                 .InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA});
             offset += size;
         }
-        // TODO
     }
 }
 RasterShader::RasterShader(
     Device *device,
+    vstd::MD5 md5,
     vstd::vector<Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     MeshFormat const &meshFormat,
-    RasterState const &state,
-    vstd::span<PixelFormat const> rtv,
-    DepthFormat dsv,
-    vstd::span<std::byte const> vertBinData,
-    vstd::span<std::byte const> pixelBinData)
+    vstd::vector<std::byte> &&vertBinData,
+    vstd::vector<std::byte> &&pixelBinData)
     : Shader(std::move(prop), std::move(args), device->device.Get(), true),
-      device(device),
-      type(state.topology) {
-    vstd::vector<D3D12_INPUT_ELEMENT_DESC> layouts;
-    auto psoDesc = GetState(
-        layouts,
-        meshFormat,
-        state,
-        rtv,
-        dsv);
-
-    psoDesc.pRootSignature = this->rootSig.Get();
-    psoDesc.VS = {.pShaderBytecode = vertBinData.data(), .BytecodeLength = vertBinData.size()};
-    psoDesc.PS = {.pShaderBytecode = pixelBinData.data(), .BytecodeLength = pixelBinData.size()};
-    ThrowIfFailed(device->device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(pso.GetAddressOf())));
+      device(device), md5{md5},
+      vertBinData{std::move(vertBinData)}, pixelBinData{std::move(pixelBinData)} {
+    GetMeshFormatState(elements, meshFormat);
 }
 RasterShader::~RasterShader() {}
 D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::GetState(
-    vstd::vector<D3D12_INPUT_ELEMENT_DESC> &inputLayout,
-    MeshFormat const &meshFormat,
+    vstd::span<D3D12_INPUT_ELEMENT_DESC const> inputLayout,
     RasterState const &state,
-    vstd::span<PixelFormat const> rtv,
+    vstd::span<GFXFormat const> rtv,
     DepthFormat dsv) {
     auto GetBlendState = [](BlendWeight op) {
         switch (op) {
@@ -281,19 +269,15 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::GetState(
         .DepthClipEnable = state.depth_clip,
         .ConservativeRaster = state.conservative ? D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON : D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF};
     for (auto i : vstd::range(rtv.size())) {
-        result.RTVFormats[i] = static_cast<DXGI_FORMAT>(TextureBase::ToGFXFormat(rtv[i]));
+        result.RTVFormats[i] = static_cast<DXGI_FORMAT>(rtv[i]);
     }
     result.DSVFormat = static_cast<DXGI_FORMAT>(DepthBuffer::GetDepthFormat(dsv));
-    GetMeshFormatState(inputLayout, meshFormat);
     result.InputLayout = {.pInputElementDescs = inputLayout.data(), .NumElements = static_cast<uint>(inputLayout.size())};
     return result;
 }
 vstd::MD5 RasterShader::GenMD5(
     vstd::MD5 const &codeMD5,
-    MeshFormat const &meshFormat,
-    RasterState const &state,
-    vstd::span<PixelFormat const> rtv,
-    DepthFormat dsv) {
+    MeshFormat const &meshFormat) {
     vstd::fixed_vector<uint64, 8> streamHashes;
     vstd::push_back_func(
         streamHashes,
@@ -305,16 +289,10 @@ vstd::MD5 RasterShader::GenMD5(
     struct Hashes {
         vstd::MD5 codeMd5;
         uint64 meshFormatMD5;
-        uint64 rasterStateMD5;
-        uint64 rtv;
-        uint64 dsv;
     };
     Hashes h{
         .codeMd5 = codeMD5,
-        .meshFormatMD5 = vstd_xxhash_gethash(streamHashes.data(), streamHashes.size_bytes()),
-        .rasterStateMD5 = vstd_xxhash_gethash(&state, sizeof(RasterState)),
-        .rtv = vstd_xxhash_gethash(rtv.data(), rtv.size_bytes()),
-        .dsv = vstd_xxhash_gethash(&dsv, sizeof(DepthFormat))};
+        .meshFormatMD5 = vstd_xxhash_gethash(streamHashes.data(), streamHashes.size_bytes())};
     return vstd::MD5(
         vstd::span<uint8_t const>{
             reinterpret_cast<uint8_t const *>(&h),
@@ -329,14 +307,10 @@ RasterShader *RasterShader::CompileRaster(
     vstd::MD5 const &md5,
     uint shaderModel,
     MeshFormat const &meshFormat,
-    RasterState const &state,
-    vstd::span<PixelFormat const> rtv,
-    DepthFormat dsv,
     vstd::string_view fileName,
     CacheType cacheType,
     bool enableUnsafeMath) {
-    vstd::optional<vstd::MD5> psoMd5 = GenMD5(md5, meshFormat, state, rtv, dsv);
-    auto CompileNewCompute = [&](bool writeCache, vstd::string_view psoName) -> RasterShader * {
+    auto CompileNewCompute = [&](bool writeCache) -> RasterShader * {
         auto str = codegen();
         if constexpr (RasterShaderDetail::PRINT_CODE) {
             auto f = fopen("hlsl_output.hlsl", "ab");
@@ -356,11 +330,14 @@ RasterShader *RasterShader::CompileRaster(
             return nullptr;
         }
         auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
-        auto GetSpan = [&](DXByteBlob const &blob) {
-            return vstd::span<std::byte const>{blob.GetBufferPtr(), blob.GetBufferSize()};
+        auto GetVector = [&](DXByteBlob const &blob) {
+            vstd::vector<std::byte> vec;
+            vec.push_back_uninitialized(blob.GetBufferSize());
+            memcpy(vec.data(), blob.GetBufferPtr(), blob.GetBufferSize());
+            return vec;
         };
-        auto vertBin = GetSpan(*compResult.vertex.get<0>());
-        auto pixelBin = GetSpan(*compResult.pixel.get<0>());
+        auto vertBin = GetVector(*compResult.vertex.get<0>());
+        auto pixelBin = GetVector(*compResult.pixel.get<0>());
         if (writeCache) {
             auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
             WriteBinaryIO(cacheType, fileIo, fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
@@ -368,37 +345,28 @@ RasterShader *RasterShader::CompileRaster(
 
         auto s = new RasterShader(
             device,
+            md5,
             std::move(str.properties),
             std::move(kernelArgs),
             meshFormat,
-            state,
-            rtv,
-            dsv,
-            vertBin,
-            pixelBin);
+            std::move(vertBin),
+            std::move(pixelBin));
         s->bindlessCount = str.bdlsBufferCount;
-        if (writeCache) {
-            s->SavePSO(psoName, fileIo, device);
-        }
         return s;
     };
 
     if (!fileName.empty()) {
-        auto psoName = Shader::PSOName(device, fileName);
-        bool oldDeleted = false;
+        // auto psoName = Shader::PSOName(device, fileName);
         vstd::MD5 typeMD5;
         auto result = ShaderSerializer::RasterDeSerialize(
-            fileName, psoName, cacheType, device, *fileIo, md5,
-            typeMD5, meshFormat, state, rtv, dsv, oldDeleted);
+            fileName, cacheType, device, *fileIo, md5,
+            typeMD5, meshFormat);
         if (result) {
-            if (oldDeleted) {
-                result->SavePSO(psoName, fileIo, device);
-            }
             return result;
         }
-        return CompileNewCompute(true, psoName);
+        return CompileNewCompute(true);
     } else {
-        return CompileNewCompute(false, {});
+        return CompileNewCompute(false);
     }
 }
 void RasterShader::SaveRaster(
@@ -444,65 +412,132 @@ RasterShader *RasterShader::LoadRaster(
     BinaryIO const *fileIo,
     Device *device,
     const MeshFormat &mesh_format,
-    const RasterState &raster_state,
-    luisa::span<const PixelFormat> rtv_format,
-    DepthFormat dsv_format,
     luisa::span<Type const *const> types,
     vstd::string_view fileName) {
-    auto psoName = Shader::PSOName(device, fileName);
-
-    bool cacheDeleted = false;
     vstd::MD5 typeMD5;
-    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, psoName, CacheType::ByteCode, device, *device->fileIo, {}, typeMD5, mesh_format, raster_state, rtv_format, dsv_format, cacheDeleted);
+    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, typeMD5, mesh_format);
     if (ptr) {
         auto md5 = CodegenUtility::GetTypeMD5(types);
-        if (md5 != typeMD5) {
-            LUISA_ERROR("Shader {} arguments unmatch to requirement!", fileName);
-        }
-
-        if (cacheDeleted) {
-            ptr->SavePSO(
-                psoName,
-                fileIo,
-                device);
-        }
+        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
     }
     return ptr;
 }
-ID3D12CommandSignature *RasterShader::CmdSig(size_t vertexCount, bool index) {
-    std::lock_guard lck(cmdSigMtx);
-    auto ite = cmdSigs.try_emplace(std::pair<size_t, bool>(vertexCount, index));
-    auto &cmd = ite.first->second;
-    if (!ite.second) return cmd.Get();
-    vstd::vector<D3D12_INDIRECT_ARGUMENT_DESC> indDesc;
-    indDesc.reserve(vertexCount + (index ? 1 : 0) + 2);
-    size_t byteSize = 4 + vertexCount * sizeof(D3D12_VERTEX_BUFFER_VIEW) + (index ? (sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) + sizeof(D3D12_INDEX_BUFFER_VIEW)) : sizeof(D3D12_DRAW_ARGUMENTS));
+ID3D12PipelineState *RasterShader::GetPSO(
+    vstd::span<GFXFormat const> rtvFormats,
+    DepthFormat dsvFormat,
+    RasterState const &rasterState) {
+    std::pair<PSOMap::Index, bool> idx;
+    RasterPSOState psoState;
+    psoState.rtvFormats.push_back_uninitialized(rtvFormats.size());
+    if (!rtvFormats.empty()) {
+        memcpy(psoState.rtvFormats.data(), rtvFormats.data(), rtvFormats.size_bytes());
+    }
+    psoState.dsvFormat = dsvFormat;
+    psoState.rasterState = rasterState;
     {
-        auto &cst = indDesc.emplace_back();
-        cst.Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
-        cst.Constant.RootParameterIndex = properties.size();
-        cst.Constant.DestOffsetIn32BitValues = 0;
-        cst.Constant.Num32BitValuesToSet = 1;
+        std::lock_guard lck{psoMtx};
+        idx = psoMap.try_emplace(psoState);
     }
-    for (auto &&i : vstd::range(vertexCount)) {
-        auto &vbv = indDesc.emplace_back();
-        vbv.Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW;
-        vbv.VertexBuffer.Slot = i;
-    }
-    if (index) {
-        auto &idv = indDesc.emplace_back();
-        idv.Type = D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW;
-        auto &draw = indDesc.emplace_back();
-        draw.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
-    } else {
-        auto &draw = indDesc.emplace_back();
-        draw.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
-    }
-    D3D12_COMMAND_SIGNATURE_DESC desc{
-        .ByteStride = static_cast<uint>(byteSize),
-        .NumArgumentDescs = static_cast<uint>(indDesc.size()),
-        .pArgumentDescs = indDesc.data()};
-    ThrowIfFailed(device->device->CreateCommandSignature(&desc, rootSig.Get(), IID_PPV_ARGS(&cmd)));
-    return cmd.Get();
+    auto &v = idx.first.value();
+    return [&]() {
+        std::lock_guard lck{v.mtx};
+        if (!idx.second) return v.pso.Get();
+        vstd::vector<std::byte> md5Bytes;
+        auto push = [&]<typename T>(T const &t) {
+            auto sz = md5Bytes.size();
+            md5Bytes.push_back_uninitialized(sizeof(T));
+            memcpy(md5Bytes.data() + sz, &t, sizeof(T));
+        };
+        auto pushArray = [&]<typename T>(T const *ptr, size_t size) {
+            auto sz = md5Bytes.size();
+            auto byteSize = size * sizeof(T);
+            md5Bytes.push_back_uninitialized(byteSize);
+            memcpy(md5Bytes.data() + sz, ptr, byteSize);
+        };
+        pushArray(psoState.rtvFormats.data(), psoState.rtvFormats.size());
+        push(psoState.dsvFormat);
+        push(psoState.rasterState);
+        push(this->md5);
+        auto psoDesc = GetState(
+            elements,
+            psoState.rasterState,
+            rtvFormats,
+            dsvFormat);
+        psoDesc.pRootSignature = this->rootSig.Get();
+        psoDesc.VS = {vertBinData.data(), vertBinData.size()};
+        psoDesc.PS = {pixelBinData.data(), pixelBinData.size()};
+        auto psoMD5 = vstd::MD5{vstd::span<const uint8_t>{reinterpret_cast<uint8_t const *>(md5Bytes.data()), md5Bytes.size()}};
+        auto psoName = psoMD5.to_string(false);
+        auto psoStream = device->fileIo->read_shader_cache(psoName);
+        auto createPipe = [&] {
+            return device->device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(v.pso.GetAddressOf()));
+        };
+        // use PSO cache
+        bool newPso = false;
+        if (psoStream != nullptr && psoStream->length() > 0) {
+            vstd::vector<std::byte> psoCode;
+            psoCode.push_back_uninitialized(psoStream->length());
+            psoStream->read({psoCode.data(), psoCode.size()});
+            psoDesc.CachedPSO = {
+                .pCachedBlob = psoCode.data(),
+                .CachedBlobSizeInBytes = psoCode.size()};
+            auto psoGenSuccess = createPipe();
+            if (psoGenSuccess != S_OK) {
+                newPso = true;
+                // PSO cache miss(probably driver's version or hardware transformed), discard cache
+                LUISA_INFO("{} pipeline cache illegal, discarded.", psoName);
+                if (v.pso == nullptr) {
+                    psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
+                    psoDesc.CachedPSO.pCachedBlob = nullptr;
+                    ThrowIfFailed(createPipe());
+                }
+            }
+        } else {
+            newPso = true;
+            psoDesc.CachedPSO.pCachedBlob = nullptr;
+            ThrowIfFailed(createPipe());
+        }
+        if (newPso) {
+            SavePSO(v.pso.Get(), psoName, device->fileIo, device);
+        }
+        return v.pso.Get();
+    }();
 }
+// Prepared for indirect
+// ID3D12CommandSignature *RasterShader::CmdSig(size_t vertexCount, bool index) {
+//     std::lock_guard lck(cmdSigMtx);
+//     auto ite = cmdSigs.try_emplace(std::pair<size_t, bool>(vertexCount, index));
+//     auto &cmd = ite.first->second;
+//     if (!ite.second) return cmd.Get();
+//     vstd::vector<D3D12_INDIRECT_ARGUMENT_DESC> indDesc;
+//     indDesc.reserve(vertexCount + (index ? 1 : 0) + 2);
+//     size_t byteSize = 4 + vertexCount * sizeof(D3D12_VERTEX_BUFFER_VIEW) + (index ? (sizeof(D3D12_DRAW_INDEXED_ARGUMENTS) + sizeof(D3D12_INDEX_BUFFER_VIEW)) : sizeof(D3D12_DRAW_ARGUMENTS));
+//     {
+//         auto &cst = indDesc.emplace_back();
+//         cst.Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
+//         cst.Constant.RootParameterIndex = properties.size();
+//         cst.Constant.DestOffsetIn32BitValues = 0;
+//         cst.Constant.Num32BitValuesToSet = 1;
+//     }
+//     for (auto &&i : vstd::range(vertexCount)) {
+//         auto &vbv = indDesc.emplace_back();
+//         vbv.Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW;
+//         vbv.VertexBuffer.Slot = i;
+//     }
+//     if (index) {
+//         auto &idv = indDesc.emplace_back();
+//         idv.Type = D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW;
+//         auto &draw = indDesc.emplace_back();
+//         draw.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+//     } else {
+//         auto &draw = indDesc.emplace_back();
+//         draw.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+//     }
+//     D3D12_COMMAND_SIGNATURE_DESC desc{
+//         .ByteStride = static_cast<uint>(byteSize),
+//         .NumArgumentDescs = static_cast<uint>(indDesc.size()),
+//         .pArgumentDescs = indDesc.data()};
+//     ThrowIfFailed(device->device->CreateCommandSignature(&desc, rootSig.Get(), IID_PPV_ARGS(&cmd)));
+//     return cmd.Get();
+// }
 }// namespace lc::dx

@@ -4,7 +4,7 @@
 
 #pragma once
 
-#ifdef LC_CUDA_ENABLE_VULKAN_SWAPCHAIN
+#ifdef LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN
 
 #include <core/basic_types.h>
 #include <core/stl/memory.h>
@@ -14,7 +14,7 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 class CUDAStream;
-class CUDAMipmapArray;
+class CUDATexture;
 
 class CUDASwapchain {
 
@@ -30,7 +30,8 @@ public:
                   bool vsync, uint back_buffer_size) noexcept;
     ~CUDASwapchain() noexcept;
     [[nodiscard]] PixelStorage pixel_storage() const noexcept;
-    void present(CUDAStream *stream, CUDAMipmapArray *image) noexcept;
+    void present(CUDAStream *stream, CUDATexture *image) noexcept;
+    void set_name(luisa::string &&name) noexcept;
 };
 
 }// namespace luisa::compute::cuda

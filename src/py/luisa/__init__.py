@@ -1,6 +1,6 @@
 import lcapi
 from . import globalvars
-# from .types import ref
+from .types import half, short, ushort, half2, short2, ushort2, half3, short3, ushort3, half4, short4, ushort4
 
 from .func import func, save_raster_shader
 from .mathtypes import *
@@ -13,9 +13,9 @@ from lcapi import PixelStorage
 from .gui import GUI
 
 from .printer import Printer
-from .accel import Ray, Accel, make_ray, inf_ray, offset_ray_origin
+from .accel import Accel, make_ray, inf_ray, offset_ray_origin
 from .hit import TriangleHit, CommittedHit, ProceduralHit
-from .rayquery import RayQueryType
+from .rayquery import RayQueryAllType, RayQueryAnyType, is_triangle, is_procedural, Ray
 from .bindless import bindless_array, BindlessArray
 from .util import RandomSampler
 from .meshformat import MeshFormat

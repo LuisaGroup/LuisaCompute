@@ -2,8 +2,57 @@
 // Created by Mike on 3/27/2023.
 //
 
+#include <backends/cuda/cuda_error.h>
+#include <backends/cuda/cuda_buffer.h>
+#include <backends/cuda/cuda_stream.h>
+#include <backends/cuda/cuda_device.h>
+#include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_procedural_primitive.h>
 
 namespace luisa::compute::cuda {
 
+CUDAProceduralPrimitive::CUDAProceduralPrimitive(const AccelOption &option) noexcept
+    : CUDAPrimitive{Tag::PROCEDURAL, option} {}
+
+optix::BuildInput CUDAProceduralPrimitive::_make_build_input() const noexcept {
+    optix::BuildInput build_input{};
+    static const auto geometry_flag = static_cast<uint32_t>(optix::GEOMETRY_FLAG_DISABLE_ANYHIT);
+    build_input.type = optix::BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;
+    build_input.customPrimitiveArray.aabbBuffers = &_aabb_buffer;
+    build_input.customPrimitiveArray.numPrimitives = _aabb_buffer_size / sizeof(optix::Aabb);
+    build_input.customPrimitiveArray.strideInBytes = sizeof(optix::Aabb);
+    build_input.customPrimitiveArray.flags = &geometry_flag;
+    build_input.customPrimitiveArray.numSbtRecords = 1u;
+    return build_input;
 }
+
+void CUDAProceduralPrimitive::build(CUDACommandEncoder &encoder,
+                                    ProceduralPrimitiveBuildCommand *command) noexcept {
+    auto aabb_buffer = reinterpret_cast<const CUDABuffer *>(command->aabb_buffer());
+    LUISA_ASSERT(command->aabb_buffer_offset() + command->aabb_buffer_size() <= aabb_buffer->size(),
+                 "AABB buffer out of range.");
+
+    auto requires_build =
+        // not built yet
+        handle() == 0u ||
+        // not allowed to update
+        !option().allow_update ||
+        // user enforced rebuild
+        command->request() == AccelBuildRequest::FORCE_BUILD ||
+        // buffer changed
+        _aabb_buffer != aabb_buffer->handle() + command->aabb_buffer_offset() ||
+        _aabb_buffer_size != command->aabb_buffer_size();
+
+    // update the buffer
+    _aabb_buffer = aabb_buffer->handle() + command->aabb_buffer_offset();
+    _aabb_buffer_size = command->aabb_buffer_size();
+
+    // build or update
+    if (requires_build) {
+        _build(encoder);
+    } else {
+        _update(encoder);
+    }
+}
+
+}// namespace luisa::compute::cuda

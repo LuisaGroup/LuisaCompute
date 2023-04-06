@@ -105,12 +105,13 @@ size_t ShaderDispatchCmdEncoder::compute_uniform_size(luisa::span<const Type *co
     return std::accumulate(
         arg_types.cbegin(), arg_types.cend(),
         static_cast<size_t>(0u), [](auto size, auto arg) noexcept {
+            LUISA_ASSERT(arg != nullptr, "Invalid argument type.");
             return size + arg->size();
         });
 }
 
 ComputeDispatchCmdEncoder::ComputeDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept
-    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size} { }
+    : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size} {}
 
 void ComputeDispatchCmdEncoder::encode_buffer(uint64_t handle, size_t offset, size_t size) noexcept {
     _encode_buffer(handle, offset, size);
@@ -164,10 +165,10 @@ RasterDispatchCmdEncoder &RasterDispatchCmdEncoder::operator=(RasterDispatchCmdE
 RasterDispatchCmdEncoder::RasterDispatchCmdEncoder(uint64_t handle, size_t arg_count, size_t uniform_size,
                                                    luisa::span<const Function::Binding> bindings) noexcept
     : ShaderDispatchCmdEncoder{handle, arg_count, uniform_size},
-    _bindings{bindings} {
+      _bindings{bindings} {
 }
 
-luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&noexcept {
+luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() && noexcept {
     if (_argument_idx != _argument_count) [[unlikely]] {
         LUISA_ERROR("Required argument count {}. "
                     "Actual argument count {}.",
@@ -178,7 +179,11 @@ luisa::unique_ptr<ShaderDispatchCommand> ComputeDispatchCmdEncoder::build() &&no
         _argument_count, _dispatch_size);
 }
 
-luisa::unique_ptr<DrawRasterSceneCommand> RasterDispatchCmdEncoder::build() &&noexcept {
+void RasterDispatchCmdEncoder::set_raster_state(const RasterState &raster_state) {
+    _raster_state = raster_state;
+}
+
+luisa::unique_ptr<DrawRasterSceneCommand> RasterDispatchCmdEncoder::build() && noexcept {
     if (_argument_idx != _argument_count) [[unlikely]] {
         LUISA_ERROR("Required argument count {}. "
                     "Actual argument count {}.",
@@ -187,7 +192,7 @@ luisa::unique_ptr<DrawRasterSceneCommand> RasterDispatchCmdEncoder::build() &&no
     return luisa::make_unique<DrawRasterSceneCommand>(
         _handle, std::move(_argument_buffer),
         _argument_count, _rtv_texs, _rtv_count,
-        _dsv_tex, std::move(_scene), _viewport);
+        _dsv_tex, std::move(_scene), _viewport, _raster_state);
 }
 
 void RasterDispatchCmdEncoder::set_rtv_texs(luisa::span<const ShaderDispatchCommandBase::Argument::Texture> tex) noexcept {

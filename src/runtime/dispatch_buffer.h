@@ -40,9 +40,13 @@ public:
                                  device->create_buffer(Type::of<IndirectKernelDispatch>(), capacity)} {
     }
     IndirectDispatchBuffer() noexcept = default;
+    ~IndirectDispatchBuffer() noexcept override;
     IndirectDispatchBuffer(IndirectDispatchBuffer &&) noexcept = default;
     IndirectDispatchBuffer(IndirectDispatchBuffer const &) noexcept = delete;
-    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer &&) noexcept = default;
+    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     IndirectDispatchBuffer &operator=(IndirectDispatchBuffer const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto capacity() const noexcept { return _capacity; }

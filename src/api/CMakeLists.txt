@@ -22,6 +22,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     set_target_properties(luisa-compute-api PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 
+    target_compile_definitions(luisa-compute-api PUBLIC LUISA_ENABLE_API)
+
     luisa_compute_install(api SOURCES ${LUISA_COMPUTE_API_SOURCES})
 
     # find_package(Python3 COMPONENTS Interpreter)

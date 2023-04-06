@@ -14,4 +14,9 @@ luisa::unique_ptr<Command> Mesh::build(Mesh::BuildRequest request) noexcept {
         _v_buffer, _v_buffer_offset, _v_buffer_size, _v_stride,
         _t_buffer, _t_buffer_offset, _t_buffer_size);
 }
+
+Mesh::~Mesh() noexcept {
+    if (*this) { device()->destroy_mesh(handle()); }
+}
+
 }// namespace luisa::compute

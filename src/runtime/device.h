@@ -4,6 +4,9 @@
 
 #pragma once
 
+#ifdef LUISA_ENABLE_IR
+#include "ir/ir2ast.h"
+#endif
 #include <ast/type_registry.h>
 #include <runtime/rhi/device_interface.h>
 
@@ -13,12 +16,11 @@ class BinaryIO;
 
 namespace luisa::compute {
 
-class MeshFormat;
-struct RasterState;
 class Context;
 class Event;
 class Stream;
 class Mesh;
+class MeshFormat;
 class ProceduralPrimitive;
 class Accel;
 class SwapChain;
@@ -92,7 +94,6 @@ public:
 
 private:
     Handle _impl;
-    
 
     template<typename T, typename... Args>
     [[nodiscard]] auto _create(Args &&...args) noexcept {
@@ -102,7 +103,7 @@ private:
 
 public:
     // Device construct from backend handle, use Context::create_device for convenient usage
-    explicit Device(Handle handle) noexcept : _impl{std::move(handle)}{}
+    explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
     // see definition in runtime/context.h
     [[nodiscard]] decltype(auto) context() const noexcept { return _impl->context(); }
     // The backend name in lower case, can be used to recognize the corresponding backend
@@ -218,28 +219,28 @@ public:
         static_cast<void>(this->compile<N>(std::forward<Kernel>(kernel), option));
     }
 
+#ifdef LUISA_ENABLE_IR
+    template<size_t N, typename... Args>
+    [[nodiscard]] auto compile(const ir::KernelModule *const module,
+                               const ShaderOption &option = {}) noexcept {
+        return _create<Shader<N, Args...>>(module, option);
+    }
+#endif
+
     template<typename V, typename P>
     [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(
         const RasterKernel<V, P> &kernel,
         const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<PixelFormat const> rtv_format,
-        DepthFormat dsv_format,
         const ShaderOption &option = {}) noexcept;
     template<typename V, typename P>
     void compile_to(
         const RasterKernel<V, P> &kernel,
-        const MeshFormat &format,
+        const MeshFormat &mesh_format,
         luisa::string_view serialization_path,
-        bool enable_debug_info,
-        bool enable_fast_math) noexcept;
+        const ShaderOption& option = {}) noexcept;
 
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(
-        const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<PixelFormat const> rtv_format,
-        DepthFormat dsv_format,
         luisa::string_view shader_name) noexcept;
 
     template<size_t N, typename... Args>

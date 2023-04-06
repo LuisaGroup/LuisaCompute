@@ -19,12 +19,18 @@
 #include "HLSL/dx_codegen.h"
 #include <ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
+#include <core/clock.h>
 #include <core/stl/filesystem.h>
 #include <Resource/ExternalBuffer.h>
 #include <runtime/context_paths.h>
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
 #include <ext.h>
+
+#ifdef LUISA_ENABLE_IR
+#include <ir/ir2ast.h>
+#endif
+
 namespace lc::dx {
 using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
@@ -77,11 +83,8 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element, size_t elem_coun
             info.element_stride = 28;
             info.total_size_bytes = 4 + info.element_stride * elem_count;
             res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));
-
-        } else if (element == Type::of<AABB>()) {
-            info.element_stride = 32;
-            info.total_size_bytes = info.element_stride * elem_count;
-            res = static_cast<Buffer *>(new DefaultBuffer(&nativeDevice, info.total_size_bytes, nativeDevice.defaultAllocator.get()));
+        } else {
+            LUISA_ERROR("Un-known custom type in dx-backend.");
         }
     } else {
         info.total_size_bytes = element->size() * elem_count;
@@ -181,7 +184,9 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
-    auto code = CodegenUtility::Codegen(kernel, nativeDevice.fileIo);
+    // Clock clk;
+    auto code = CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo);
+    // LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
         ComputeShader::SaveCompute(
@@ -245,6 +250,10 @@ ShaderCreationInfo LCDevice::load_shader(
         info.block_size = uint3(0);
     }
     return info;
+}
+Usage LCDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
+    auto shader = reinterpret_cast<Shader *>(handle);
+    return shader->Args()[index].varUsage;
 }
 void LCDevice::destroy_shader(uint64 handle) noexcept {
     auto shader = reinterpret_cast<Shader *>(handle);
@@ -334,35 +343,12 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
             reinterpret_cast<LCSwapChain *>(swapchain_handle),
             reinterpret_cast<TextureBase *>(image_handle), nativeDevice.maxAllocatorCount);
 }
-void DxRasterExt::save_raster_shader(
-    const MeshFormat &mesh_format,
-    Function vert,
-    Function pixel,
-    luisa::string_view name,
-    bool enable_debug_info,
-    bool enable_fast_math) noexcept {
-    auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
-    vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-    RasterShader::SaveRaster(
-        nativeDevice.fileIo,
-        &nativeDevice,
-        code,
-        checkMD5,
-        name,
-        vert,
-        pixel,
-        kShaderModel,
-        enable_fast_math);
-}
 ResourceCreationInfo DxRasterExt::create_raster_shader(
     const MeshFormat &mesh_format,
-    const RasterState &raster_state,
-    span<const PixelFormat> rtv_format,
-    DepthFormat dsv_format,
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
-    auto code = CodegenUtility::RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
+    auto code = CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());
@@ -399,23 +385,17 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
             checkMD5,
             kShaderModel,
             mesh_format,
-            raster_state,
-            rtv_format,
-            dsv_format,
             file_name,
             cacheType,
             option.enable_fast_math);
         info.handle = reinterpret_cast<uint64>(res);
-        info.native_handle = res->Pso();
+        info.native_handle = nullptr;
         return info;
     }
 }
 
 ResourceCreationInfo DxRasterExt::load_raster_shader(
     const MeshFormat &mesh_format,
-    const RasterState &raster_state,
-    span<const PixelFormat> rtv_format,
-    DepthFormat dsv_format,
     span<Type const *const> types,
     string_view ser_path) noexcept {
     ResourceCreationInfo info;
@@ -423,21 +403,33 @@ ResourceCreationInfo DxRasterExt::load_raster_shader(
         nativeDevice.fileIo,
         &nativeDevice,
         mesh_format,
-        raster_state,
-        rtv_format,
-        dsv_format,
         types,
         ser_path);
 
     if (res) {
         info.handle = reinterpret_cast<uint64>(res);
-        info.native_handle = res->Pso();
+        info.native_handle = nullptr;
         return info;
     } else {
         return ResourceCreationInfo::make_invalid();
     }
 }
-ResourceCreationInfo LCDevice::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
+void DxRasterExt::warm_up_pipeline_cache(
+    uint64_t shader_handle,
+    luisa::span<PixelFormat const> render_target_formats,
+    DepthFormat depth_format,
+    const RasterState &state) noexcept {
+    LUISA_ASSERT(render_target_formats.size() > 8, "Render target format must be less than 8");
+    GFXFormat rtvs[8];
+    for(auto i : vstd::range(render_target_formats.size())){
+        rtvs[i] = TextureBase::ToGFXFormat(render_target_formats[i]);
+    }
+    reinterpret_cast<RasterShader *>(shader_handle)->GetPSO({rtvs, render_target_formats.size()}, depth_format, state);
+}
+void DxRasterExt::destroy_raster_shader(uint64_t handle) noexcept {
+    delete reinterpret_cast<RasterShader *>(handle);
+}
+ResourceCreationInfo DxRasterExt::create_depth_buffer(DepthFormat format, uint width, uint height) noexcept {
     ResourceCreationInfo info;
     auto res =
         static_cast<TextureBase *>(
@@ -449,7 +441,7 @@ ResourceCreationInfo LCDevice::create_depth_buffer(DepthFormat format, uint widt
     info.native_handle = res->GetResource();
     return info;
 }
-void LCDevice::destroy_depth_buffer(uint64_t handle) noexcept {
+void DxRasterExt::destroy_depth_buffer(uint64_t handle) noexcept {
     delete reinterpret_cast<TextureBase *>(handle);
 }
 DeviceExtension *LCDevice::extension(vstd::string_view name) noexcept {
@@ -511,7 +503,7 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
             reinterpret_cast<ComputeShader *>(resource_handle)->Pso()->SetName(vec.data());
         } break;
         case Tag::RASTER_SHADER: {
-            reinterpret_cast<RasterShader *>(resource_handle)->Pso()->SetName(vec.data());
+            // reinterpret_cast<RasterShader *>(resource_handle)->Pso()->SetName(vec.data());
         } break;
         case Tag::SWAP_CHAIN: {
             size_t backBuffer = 0;
@@ -532,9 +524,27 @@ void LCDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t res
         } break;
     }
 }
+
 BufferCreationInfo LCDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
-    LUISA_ERROR_WITH_LOCATION("Not implemented.");
+#ifdef LUISA_ENABLE_IR
+    auto type = IR2AST::get_type(element->get());
+    return create_buffer(type, elem_count);
+#else
+    LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
+#endif
 }
+
+ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
+#ifdef LUISA_ENABLE_IR
+    Clock clk;
+    auto function = IR2AST::build(kernel);
+    LUISA_INFO("IR2AST done in {} ms.", clk.toc());
+    return create_shader(option, function->function());
+#else
+    LUISA_ERROR_WITH_LOCATION("DirectX device does not support creating shader from IR types.");
+#endif
+}
+
 VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
     return new LCDevice(std::move(c), settings);
 }

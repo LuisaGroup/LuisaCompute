@@ -2,6 +2,9 @@
 // Created by Mike on 7/30/2021.
 //
 
+#include <cstdlib>
+#include <nvtx3/nvToolsExtCuda.h>
+
 #include <runtime/bindless_array.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_stream.h>
@@ -76,7 +79,7 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
 
 [[nodiscard]] inline auto create_cuda_texture_object(uint64_t handle, Sampler sampler) noexcept {
     CUDA_RESOURCE_DESC res_desc{};
-    if (auto array = reinterpret_cast<const CUDAMipmapArray *>(handle);
+    if (auto array = reinterpret_cast<const CUDATexture *>(handle);
         array->levels() == 1u) {
         res_desc.resType = CU_RESOURCE_TYPE_ARRAY;
         res_desc.res.array.hArray = reinterpret_cast<CUarray>(array->handle());
@@ -91,6 +94,9 @@ CUDABindlessArray::~CUDABindlessArray() noexcept {
 }
 
 void CUDABindlessArray::update(CUDACommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept {
+
+    if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::update", _name).c_str()); }
+
     using Mod = BindlessArrayUpdateCommand::Modification;
     auto mods = cmd->steal_modifications();
     for (auto &m : mods) {
@@ -150,6 +156,12 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder, BindlessArrayUpdateC
         (n + 255u) / 256u, 1u, 1u, 256u, 1u, 1u,
         0u, cuda_stream, args.data(), nullptr));
     LUISA_CHECK_CUDA(cuMemFreeAsync(update_buffer, cuda_stream));
+
+    if (!_name.empty()) { nvtxRangePop(); }
+}
+
+void CUDABindlessArray::set_name(luisa::string &&name) noexcept {
+    _name = std::move(name);
 }
 
 }// namespace luisa::compute::cuda

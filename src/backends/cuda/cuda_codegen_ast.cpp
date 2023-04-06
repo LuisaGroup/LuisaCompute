@@ -7,7 +7,6 @@
 #include <core/logging.h>
 #include <ast/type_registry.h>
 #include <ast/constant_data.h>
-#include <ast/function_builder.h>
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
 #include <dsl/rtx/ray_query.h>
@@ -16,7 +15,369 @@
 
 namespace luisa::compute::cuda {
 
-// TODO: fix this
+class CUDACodegenAST::RayQueryLowering {
+
+public:
+    struct OutlineInfo {
+        uint index;
+        luisa::vector<Variable> captured_variables;
+    };
+
+    struct FunctionResource {
+        Function f;
+        Variable v;
+        [[nodiscard]] auto operator==(const FunctionResource &rhs) const noexcept {
+            return f.builder() == rhs.f.builder() && v.uid() == rhs.v.uid();
+        }
+        [[nodiscard]] auto hash() const noexcept {
+            return luisa::hash_combine({f.hash(), v.hash()});
+        }
+    };
+
+    struct FunctionResourceHash {
+        using is_avalanching = void;
+        [[nodiscard]] auto operator()(const FunctionResource &x) const noexcept {
+            return x.hash();
+        }
+    };
+
+private:
+    CUDACodegenAST *_codegen;
+    luisa::unordered_map<const RayQueryStmt *, Function> _ray_query_statements;
+    luisa::unordered_map<const RayQueryStmt *, OutlineInfo> _outline_infos;
+    luisa::unordered_map<FunctionResource,
+                         luisa::unordered_set<Variable>,
+                         FunctionResourceHash>
+        _root_resources;
+
+private:
+    void _collect_ray_query_statements(Function f) noexcept {
+        traverse_expressions<true>(
+            f.body(),
+            [this](auto expr) noexcept {
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call_expr = static_cast<const CallExpr *>(expr);
+                    if (!call_expr->is_builtin()) {
+                        _collect_ray_query_statements(call_expr->custom());
+                    }
+                }
+            },
+            [this, f](auto s) noexcept {
+                if (s->tag() == Statement::Tag::RAY_QUERY) {
+                    auto rq_stmt = static_cast<const RayQueryStmt *>(s);
+                    _ray_query_statements.emplace(rq_stmt, f);
+                }
+            },
+            [](auto) noexcept {});
+    }
+
+    void _glob_variables(luisa::unordered_set<Variable> &within_scope,
+                         luisa::unordered_set<Variable> &without_scope,
+                         const ScopeStmt *scope,
+                         luisa::span<const ScopeStmt *const> target_scopes) noexcept {
+        luisa::vector<bool> inside_scope_stack{false};
+        traverse_expressions<true>(
+            scope,
+            [&](auto expr) noexcept {
+                if (expr->tag() == Expression::Tag::REF) {
+                    auto v = static_cast<const RefExpr *>(expr)->variable();
+                    if (inside_scope_stack.back()) {
+                        within_scope.emplace(v);
+                    } else {
+                        without_scope.emplace(v);
+                    }
+                }
+            },
+            [&inside_scope_stack, target_scopes](auto s) noexcept {
+                if (s->tag() == Statement::Tag::SCOPE) {
+                    auto inside_targets = inside_scope_stack.back() |
+                                          std::find(target_scopes.begin(), target_scopes.end(), s) !=
+                                              target_scopes.end();
+                    inside_scope_stack.emplace_back(inside_targets);
+                }
+            },
+            [&inside_scope_stack](auto s) noexcept {
+                if (s->tag() == Statement::Tag::SCOPE) {
+                    inside_scope_stack.pop_back();
+                }
+            });
+    }
+
+    void _find_root_resources(Function f, luisa::span<const luisa::unordered_set<Variable> *> root_resources) noexcept {
+        // collect root resources
+        auto root_index = 0u;
+        for (auto v : f.arguments()) {
+            if (v.is_resource()) {
+                LUISA_ASSERT(root_index < root_resources.size(),
+                             "Root resource index {} is out of bound.",
+                             root_index);
+                auto &set = _root_resources.try_emplace(FunctionResource{f, v}).first->second;
+                for (auto r : *root_resources[root_index]) { set.emplace(r); }
+                root_index++;
+            }
+        }
+        LUISA_ASSERT(root_index == root_resources.size(),
+                     "Root resource index and size mismatches.");
+        // pass on root resources
+        traverse_expressions<true>(
+            f.body(),
+            [this, f](auto expr) noexcept {
+                if (expr->tag() == Expression::Tag::CALL) {
+                    auto call_expr = static_cast<const CallExpr *>(expr);
+                    if (!call_expr->is_builtin()) {// custom callables
+                        // prepare root resource list
+                        luisa::fixed_vector<const luisa::unordered_set<Variable> *, 16u> root_resources;
+                        for (auto arg : call_expr->arguments()) {
+                            if (arg->tag() == Expression::Tag::REF) {
+                                if (auto v = static_cast<const RefExpr *>(arg)->variable();
+                                    v.is_resource()) {
+                                    auto iter = _root_resources.find(FunctionResource{f, v});
+                                    LUISA_ASSERT(iter != _root_resources.cend(),
+                                                 "Failed to find root resource.");
+                                    root_resources.emplace_back(&iter->second);
+                                }
+                            }
+                        }
+                        // pass on to the callee
+                        _find_root_resources(
+                            call_expr->custom(), root_resources);
+                    }
+                }
+            },
+            [](auto) noexcept {},
+            [](auto) noexcept {});
+    }
+
+    void _find_root_resources(Function f) noexcept {
+        LUISA_ASSERT(f.tag() == Function::Tag::KERNEL, "Invalid root.");
+        using set_type = luisa::unordered_set<Variable>;
+        luisa::vector<set_type> root_resources;
+        root_resources.reserve(f.arguments().size());
+        for (auto a : f.arguments()) {
+            if (a.is_resource()) {
+                root_resources.emplace_back(set_type{a});
+            }
+        }
+        luisa::vector<const set_type *> views;
+        views.reserve(root_resources.size());
+        for (auto &s : root_resources) { views.emplace_back(&s); }
+        _find_root_resources(f, views);
+    }
+
+    void _create_outline_definitions(Function f, const RayQueryStmt *s) noexcept {
+        // check if the ray query is already outlined
+        if (_outline_infos.contains(s)) { return; }
+
+        // sort variables used in the ray query
+        std::array target_scopes{s->on_triangle_candidate(),
+                                 s->on_procedural_candidate()};
+        luisa::unordered_set<Variable> within_scope_variables;
+        luisa::unordered_set<Variable> without_scope_variables;
+        _glob_variables(within_scope_variables,
+                        without_scope_variables,
+                        f.body(), target_scopes);
+        // find local and captured variables
+        luisa::unordered_set<Variable> local_variable_set;// V(local) = V(all) - V(function - scope)
+        for (auto v : f.local_variables()) {
+            if (!without_scope_variables.contains(v) &&
+                !v.is_builtin() &&
+                v.type() != _codegen->_ray_query_all_type &&
+                v.type() != _codegen->_ray_query_any_type) {
+                local_variable_set.emplace(v);
+            }
+        }
+        luisa::vector<Variable> captured_variables;// V(captured) = V(scope) - V(local)
+        for (auto v : within_scope_variables) {
+            if (!local_variable_set.contains(v) &&
+                !v.is_builtin() &&
+                v.type() != _codegen->_ray_query_all_type &&
+                v.type() != _codegen->_ray_query_any_type) {
+                captured_variables.emplace_back(v);
+            }
+        }
+        // if the resources can be uniquely identified in the __constant__ params,
+        // then no need for passing via stack with I/O on local memory
+        luisa::vector<Variable> uniquely_identified_resources;
+        auto iter = std::partition(
+            captured_variables.begin(), captured_variables.end(),
+            [this, f](auto v) noexcept {
+                return !v.is_resource() ||
+                       _root_resources.at({f, v}).size() != 1u;
+            });
+        uniquely_identified_resources.reserve(
+            std::distance(iter, captured_variables.end()));
+        for (auto i = iter; i != captured_variables.end(); i++) {
+            uniquely_identified_resources.emplace_back(*i);
+        }
+        captured_variables.erase(iter, captured_variables.cend());
+        // sort the members to minimize the stack size
+        std::sort(captured_variables.begin(), captured_variables.end(), [](auto lhs, auto rhs) noexcept {
+            auto lhs_size = lhs.is_resource() ? 16u : lhs.type()->alignment();
+            auto rhs_size = rhs.is_resource() ? 16u : rhs.type()->alignment();
+            return lhs_size > rhs_size;
+        });
+
+        // create outline struct
+        // TODO: we may pass the values directly through
+        //  OptiX registers if they are small enough
+        auto rq_index = static_cast<uint>(_outline_infos.size());
+        if (!captured_variables.empty()) {
+            _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
+            for (auto v : captured_variables) {
+                _codegen->_scratch << "\n  ";
+                _codegen->_emit_variable_decl(f, v, false);
+                _codegen->_scratch << ";";
+            }
+            _codegen->_scratch << "\n};\n\n";
+        }
+
+        auto generate_intersection_body = [&](const ScopeStmt *stmt) noexcept {
+            // corner case: emit nothing if empty handler
+            if (stmt->statements().empty()) { return; }
+
+            // emit the code
+            auto indent = _codegen->_indent;
+            _codegen->_indent = 1;
+            // built-in variables
+            _codegen->_emit_builtin_variables();
+            _codegen->_scratch << "\n";
+            // obtain the uniquely-identified resources
+            for (auto v : uniquely_identified_resources) {
+                auto r = _root_resources.at({f, v});
+                LUISA_ASSERT(r.size() == 1u, "Invalid root resource.");
+                _codegen->_emit_indent();
+                _codegen->_emit_variable_decl(f, v, false);
+                _codegen->_scratch << " = params.";
+                _codegen->_emit_variable_name(*r.cbegin());
+                _codegen->_scratch << ";\n";
+            }
+            // captured variables through stack
+            if (!captured_variables.empty()) {
+                // get ctx
+                _codegen->_scratch << "  auto ctx = static_cast<LCRayQueryCtx"
+                                   << rq_index << " *>(ctx_in);\n";
+                // copy captured variables
+                for (auto v : captured_variables) {
+                    _codegen->_emit_indent();
+                    _codegen->_emit_variable_decl(f, v, false);
+                    _codegen->_scratch << " = ctx->";
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ";\n";
+                }
+            }
+            // declare local variables
+            for (auto v : local_variable_set) {
+                _codegen->_emit_indent();
+                _codegen->_emit_variable_decl(f, v, false);
+                _codegen->_scratch << "{};\n";
+            }
+            // emit body
+            _codegen->_emit_indent();
+            _codegen->_scratch << "{ // intersection handling body\n";
+            _codegen->_indent++;
+            for (auto s : stmt->statements()) {
+                _codegen->_emit_indent();
+                s->accept(*_codegen);
+                _codegen->_scratch << "\n";
+            }
+            _codegen->_indent--;
+            _codegen->_emit_indent();
+            _codegen->_scratch << "} // intersection handling body\n";
+            // copy back local variables
+            if (!captured_variables.empty()) {
+                for (auto v : captured_variables) {
+                    if (!v.is_resource()) {
+                        _codegen->_emit_indent();
+                        _codegen->_scratch << "ctx->";
+                        _codegen->_emit_variable_name(v);
+                        _codegen->_scratch << " = ";
+                        _codegen->_emit_variable_name(v);
+                        _codegen->_scratch << ";\n";
+                    }
+                }
+            }
+            _codegen->_indent = indent;
+        };
+
+        // create outlined triangle function
+        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
+                           << "  LCTriangleIntersectionResult result{};\n";
+        generate_intersection_body(s->on_triangle_candidate());
+        _codegen->_scratch << "  return result;\n"
+                              "}\n\n";
+
+        // create outlined procedural function
+        _codegen->_scratch << "LUISA_DECL_RAY_QUERY_PROCEDURAL_IMPL(" << rq_index << ") {\n"
+                           << "  LCProceduralIntersectionResult result{};\n";
+        generate_intersection_body(s->on_procedural_candidate());
+        _codegen->_scratch << "  return result;\n"
+                              "}\n\n";
+
+        // record the outline function
+        _outline_infos.emplace(s, OutlineInfo{rq_index, std::move(captured_variables)});
+    }
+
+public:
+    explicit RayQueryLowering(CUDACodegenAST *codegen) noexcept
+        : _codegen{codegen} {}
+
+    void preprocess(Function f) noexcept {
+        _find_root_resources(f);
+        _collect_ray_query_statements(f);
+        _codegen->_scratch << "#define LUISA_RAY_QUERY_IMPL_COUNT "
+                           << _ray_query_statements.size() << "\n";
+    }
+
+    void outline(Function f) noexcept {
+        for (auto [rq, func] : _ray_query_statements) {
+            if (func == f) { _create_outline_definitions(func, rq); }
+        }
+    }
+
+    void lower(const RayQueryStmt *stmt) noexcept {
+        auto &&[rq_index, captured_variables] = _outline_infos.at(stmt);
+        // create ray query context
+        _codegen->_scratch << "\n";
+        _codegen->_emit_indent();
+        _codegen->_scratch << "{ // ray query #" << rq_index << "\n";
+        _codegen->_indent++;
+        if (!captured_variables.empty()) {
+            _codegen->_emit_indent();
+            _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
+            // copy captured variables
+            _codegen->_indent++;
+            for (auto v : captured_variables) {
+                _codegen->_emit_indent();
+                _codegen->_emit_variable_name(v);
+                _codegen->_scratch << ",\n";
+            }
+            _codegen->_indent--;
+            _codegen->_emit_indent();
+            _codegen->_scratch << "};\n";
+        }
+        _codegen->_emit_indent();
+        _codegen->_scratch << "lc_ray_query_trace(";
+        stmt->query()->accept(*_codegen);
+        _codegen->_scratch << ", " << rq_index << ", "
+                           << (captured_variables.empty() ? "nullptr" : "&ctx")
+                           << ");\n";
+        if (!captured_variables.empty()) {
+            // copy back captured variables
+            for (auto v : captured_variables) {
+                if (!v.is_resource()) {
+                    _codegen->_emit_indent();
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << " = ctx.";
+                    _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ";\n";
+                }
+            }
+        }
+        _codegen->_indent--;
+        _codegen->_emit_indent();
+        _codegen->_scratch << "} // ray query #" << rq_index << "\n";
+    }
+};
 
 void CUDACodegenAST::visit(const UnaryExpr *expr) {
     switch (expr->op()) {
@@ -294,11 +655,21 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::ASSUME: _scratch << "__builtin_assume"; break;
         case CallOp::UNREACHABLE: _scratch << "__builtin_unreachable"; break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
+        case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
+        case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
+        case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
+        case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
+        case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
+        case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
+        case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "LC_RAY_QUERY_COMMIT_TRIANGLE"; break;
+        case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "LC_RAY_QUERY_COMMIT_PROCEDURAL"; break;
+        case CallOp::RAY_QUERY_TERMINATE: _scratch << "LC_RAY_QUERY_TERMINATE"; break;
+        default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     _scratch << "(";
     if (auto args = expr->arguments(); !args.empty()) {
@@ -405,24 +776,58 @@ void CUDACodegenAST::visit(const AssignStmt *stmt) {
     _scratch << ";";
 }
 
+void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
+    _ray_query_lowering->lower(stmt);
+}
+
 void CUDACodegenAST::emit(Function f) {
-    if (f.requires_raytracing()) { _scratch << "#define LC_ENABLE_OPTIX\n"; }
+    if (f.requires_raytracing()) {
+        _scratch << "#define LUISA_ENABLE_OPTIX\n";
+        if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST)) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_TRACE_CLOSEST\n";
+        }
+        if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY)) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_TRACE_ANY\n";
+        }
+        if (f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL) ||
+            f.propagated_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY)) {
+            _scratch << "#define LUISA_ENABLE_OPTIX_RAY_QUERY\n";
+            _ray_query_lowering->preprocess(f);
+        }
+    }
     _scratch << "#define LC_BLOCK_SIZE lc_make_uint3("
              << f.block_size().x << ", "
              << f.block_size().y << ", "
              << f.block_size().z << ")\n\n"
              << "#include \"device_library.h\"\n\n";
-    _emit_type_decl();
+    _emit_type_decl(f);
     _emit_function(f);
 }
 
 void CUDACodegenAST::_emit_function(Function f) noexcept {
 
-    if (auto iter = std::find(_generated_functions.cbegin(), _generated_functions.cend(), f);
+    if (auto iter = std::find(_generated_functions.cbegin(),
+                              _generated_functions.cend(), f);
         iter != _generated_functions.cend()) { return; }
     _generated_functions.emplace_back(f);
 
-    for (auto &&callable : f.custom_callables()) { _emit_function(callable->function()); }
+    // ray tracing kernels use __constant__ args
+    // note: this must go before any other
+    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
+        _scratch << "struct alignas(16) Params {";
+        for (auto arg : f.arguments()) {
+            _scratch << "\n  alignas(16) ";
+            _emit_variable_decl(f, arg, !arg.type()->is_buffer());
+            _scratch << "{};";
+        }
+        _scratch << "\n};\n\nextern \"C\" "
+                    "{ __constant__ Params params; }\n\n";
+    }
+
+    // process dependent callables if any
+    for (auto &&callable : f.custom_callables()) {
+        _emit_function(callable->function());
+    }
 
     _indent = 0u;
     _function = f;
@@ -433,16 +838,10 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         _scratch << "\n";
     }
 
-    // ray tracing kernels use __constant__ args
-    if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
-        _scratch << "struct alignas(16) Params {";
-        for (auto arg : f.arguments()) {
-            _scratch << "\n  alignas(16) ";
-            _emit_variable_decl(arg, !arg.type()->is_buffer());
-            _scratch << "{};";
-        }
-        _scratch << "\n};\n\nextern \"C\" "
-                    "{ __constant__ Params params; }\n\n";
+    // outline ray query functions
+    if (f.direct_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ALL) ||
+        f.direct_builtin_callables().test(CallOp::RAY_TRACING_QUERY_ANY)) {
+        _ray_query_lowering->outline(f);
     }
 
     // signature
@@ -464,33 +863,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     }
     _scratch << "(";
     if (f.tag() == Function::Tag::KERNEL && f.requires_raytracing()) {
-        _scratch << ") {"
-                 // block size
-                 << "\n  constexpr auto bs = lc_make_uint3("
-                 << f.block_size().x << ", "
-                 << f.block_size().y << ", "
-                 << f.block_size().z << ");"
-                 // launch size
-                 << "\n  const auto ls = lc_dispatch_size();"
-                 // dispatch id
-                 << "\n  const auto did = lc_dispatch_id();";
-        for (auto builtin : f.builtin_variables()) {
-            switch (builtin.tag()) {
-                case Variable::Tag::THREAD_ID:
-                    _scratch << "\n  const auto tid = lc_make_uint3("
-                                "did.x % bs.x, "
-                                "did.y % bs.y, "
-                                "did.z % bs.z);";
-                    break;
-                case Variable::Tag::BLOCK_ID:
-                    _scratch << "\n  const auto bid = lc_make_uint3("
-                                "did.x / bs.x, "
-                                "did.y / bs.y, "
-                                "did.z / bs.z);";
-                    break;
-                default: break;
-            }
-        }
+        _scratch << ") {";
         for (auto arg : f.arguments()) {
             _scratch << "\n  ";
             if (auto usage = f.variable_usage(arg.uid());
@@ -508,23 +881,23 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         auto any_arg = false;
         for (auto arg : f.arguments()) {
             _scratch << "\n    ";
-            _emit_variable_decl(arg, false);
+            _emit_variable_decl(f, arg, false);
             _scratch << ",";
             any_arg = true;
         }
         if (f.tag() == Function::Tag::KERNEL) {
             _scratch << "\n"
-                     << "    const lc_uint3 ls) {\n"
-                     << "  const auto tid = lc_make_uint3(threadIdx.x, threadIdx.y, threadIdx.z);\n"
-                     << "  const auto bid = lc_make_uint3(blockIdx.x, blockIdx.y, blockIdx.z);\n"
-                     << "  const auto did = lc_make_uint3(\n"
-                     << "    blockIdx.x * blockDim.x + threadIdx.x,\n"
-                     << "    blockIdx.y * blockDim.y + threadIdx.y,\n"
-                     << "    blockIdx.z * blockDim.z + threadIdx.z);\n"
-                     << "  if (lc_any(did >= ls)) { return; }";
+                     << "    const lc_uint3 dispatch_size) {";
         } else {
             if (any_arg) { _scratch.pop_back(); }
             _scratch << ") noexcept {";
+        }
+    }
+    // emit built-in variables
+    if (f.tag() == Function::Tag::KERNEL) {
+        _emit_builtin_variables();
+        if (!f.requires_raytracing()) {
+            _scratch << "\n  if (lc_any(did >= dispatch_size)) { return; }";
         }
     }
     _indent = 1;
@@ -532,6 +905,20 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     _indent = 0;
     _emit_statements(f.body()->statements());
     _scratch << "}\n\n";
+}
+
+void CUDACodegenAST::_emit_builtin_variables() noexcept {
+    _scratch
+        // block size
+        << "\n  constexpr auto bs = lc_block_size();"
+        // launch size
+        << "\n  const auto ls = lc_dispatch_size();"
+        // dispatch id
+        << "\n  const auto did = lc_dispatch_id();"
+        // thread id
+        << "\n  const auto tid = lc_thread_id();"
+        // block id
+        << "\n  const auto bid = lc_block_id();";
 }
 
 void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
@@ -550,8 +937,60 @@ void CUDACodegenAST::_emit_variable_name(Variable v) noexcept {
     }
 }
 
-void CUDACodegenAST::_emit_type_decl() noexcept {
-    Type::traverse(*this);
+static void collect_types_in_function(Function f,
+                                      luisa::unordered_set<const Type *> &types,
+                                      luisa::unordered_set<Function> &visited) noexcept {
+
+    // already visited
+    if (!visited.emplace(f).second) { return; }
+
+    // types from variables
+    auto add = [&](auto &&self, auto t) noexcept -> void {
+        if (t != nullptr && t->is_structure()) {
+            if (types.emplace(t).second) {
+                for (auto m : t->members()) {
+                    self(self, m);
+                }
+            }
+        }
+    };
+    for (auto &&a : f.arguments()) { add(add, a.type()); }
+    for (auto &&l : f.local_variables()) { add(add, l.type()); }
+    add(add, f.return_type());
+
+    // types from called callables
+    for (auto &&c : f.custom_callables()) {
+        collect_types_in_function(
+            Function{c.get()}, types, visited);
+    }
+}
+
+void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
+
+    // collect used types in the kernel
+    luisa::unordered_set<const Type *> types;
+    luisa::unordered_set<Function> visited;
+    collect_types_in_function(kernel, types, visited);
+
+    // sort types by name so the generated
+    // source is identical across runs
+    luisa::vector<const Type *> sorted;
+    sorted.reserve(types.size());
+    std::copy(types.cbegin(), types.cend(),
+              std::back_inserter(sorted));
+    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+        return a->hash() < b->hash();
+    });
+
+    // process types in topological order
+    types.clear();
+    auto emit = [&](auto &&self, auto type) noexcept -> void {
+        if (types.emplace(type).second) {
+            for (auto m : type->members()) { self(self, m); }
+            this->visit(type);
+        }
+    };
+    for (auto t : sorted) { emit(emit, t); }
 }
 
 void CUDACodegenAST::visit(const Type *type) noexcept {
@@ -560,7 +999,8 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
         type != _triangle_hit_type &&
         type != _procedural_hit_type &&
         type != _committed_hit_type &&
-        type != _ray_query_type) {
+        type != _ray_query_all_type &&
+        type != _ray_query_any_type) {
         _scratch << "struct alignas(" << type->alignment() << ") ";
         _emit_type_name(type);
         _scratch << " {\n";
@@ -605,10 +1045,20 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
                 _scratch << "LCProceduralHit";
             } else if (type == _committed_hit_type) {
                 _scratch << "LCCommittedHit";
-            } else if (type == _ray_query_type) {
-                _scratch << "LCRayQuery";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
+            }
+            break;
+        }
+        case Type::Tag::CUSTOM: {
+            if (type == _ray_query_all_type) {
+                _scratch << "LCRayQueryAll";
+            } else if (type == _ray_query_any_type) {
+                _scratch << "LCRayQueryAny";
+            } else {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Unsupported custom type: {}.",
+                    type->description());
             }
             break;
         }
@@ -616,8 +1066,8 @@ void CUDACodegenAST::_emit_type_name(const Type *type) noexcept {
     }
 }
 
-void CUDACodegenAST::_emit_variable_decl(Variable v, bool force_const) noexcept {
-    auto usage = _function.variable_usage(v.uid());
+void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_const) noexcept {
+    auto usage = f.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
         case Variable::Tag::SHARED:
@@ -735,7 +1185,7 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
-            _emit_variable_decl(v, false);
+            _emit_variable_decl(f, v, false);
             _scratch << ";";
         }
     }
@@ -743,7 +1193,7 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
         if (_function.variable_usage(v.uid()) != Usage::NONE) {
             _scratch << "\n";
             _emit_indent();
-            _emit_variable_decl(v, false);
+            _emit_variable_decl(f, v, false);
             _scratch << "{};";
         }
     }
@@ -765,6 +1215,10 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch) noexcept
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},
       _committed_hit_type{Type::of<CommittedHit>()},
-      _ray_query_type{Type::of<RayQuery>()} {}
+      _ray_query_all_type{Type::of<RayQueryAll>()},
+      _ray_query_any_type{Type::of<RayQueryAny>()},
+      _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)} {}
+
+CUDACodegenAST::~CUDACodegenAST() noexcept = default;
 
 }// namespace luisa::compute::cuda

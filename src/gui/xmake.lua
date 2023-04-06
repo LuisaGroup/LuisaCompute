@@ -21,7 +21,7 @@ target_end()
 -- add_files("../ext/imgui/imgui/*.cpp")
 target("lc-gui")
 _config_project({
-    project_kind = "shared"
+	project_kind = "shared"
 })
 add_files("*.cpp")
 add_defines("LC_GUI_EXPORT_DLL", "GLFW_DLL")

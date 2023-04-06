@@ -124,4 +124,8 @@ Stream &Stream::operator<<(Stream::Synchronize &&) noexcept {
     return *this;
 }
 
+Stream::~Stream() noexcept {
+    if (*this) { device()->destroy_stream(handle()); }
+}
+
 }// namespace luisa::compute

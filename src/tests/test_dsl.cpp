@@ -14,6 +14,8 @@
 #include <ast/interface.h>
 #include <dsl/syntax.h>
 
+#include <tests/common/config.h>
+
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -33,15 +35,23 @@ struct Test3 {
     bool c;
 };
 
+struct Point3D {
+    float3 v;
+};
+
 LUISA_STRUCT(Test1, something, a) {};
 LUISA_STRUCT(Test2, a, b) {};
 LUISA_STRUCT(Test3, a, b, c) {};
+LUISA_STRUCT(Point3D, v) {};
 
-int main(int argc, char *argv[]) {
+TEST_CASE("dsl") {
 
     constexpr auto f = 10;
 
     luisa::log_level_verbose();
+
+    auto argc = luisa::test::argc();
+    auto argv = luisa::test::argv();
 
     Context context{argv[0]};
     if (argc <= 1) {
@@ -54,6 +64,8 @@ int main(int argc, char *argv[]) {
     auto float_buffer = device.create_buffer<float>(1024u);
 
     Callable c1 = [&](UInt a) noexcept {
+        Var<Point3D> p1;
+        Var<Point3D> p2{make_float3(1.f)};
         Var<Test1> t1;
         Var<Test2> t2;
         Var<Test3> t3;

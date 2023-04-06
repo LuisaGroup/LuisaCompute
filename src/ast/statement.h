@@ -35,7 +35,8 @@ public:
         SWITCH_DEFAULT,
         ASSIGN,
         FOR,
-        COMMENT
+        COMMENT,
+        RAY_QUERY
     };
 
 private:
@@ -69,7 +70,7 @@ class SwitchDefaultStmt;
 class AssignStmt;
 class ForStmt;
 class CommentStmt;
-class LetStmt;
+class RayQueryStmt;
 
 struct StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -85,6 +86,8 @@ struct StmtVisitor {
     virtual void visit(const AssignStmt *) = 0;
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
+    virtual void visit(const RayQueryStmt *) = 0;
+    virtual ~StmtVisitor() noexcept = default;
 };
 
 #define LUISA_STATEMENT_COMMON() \
@@ -377,6 +380,180 @@ public:
     LUISA_STATEMENT_COMMON()
 };
 
+// Example:
+// auto q = accel->trace_all(ray, mask)
+//   .on_triangle_candidate([](auto &candidate) {
+//     << triangle candidate handling >>
+//   })
+//   .on_procedural_candidate([](auto &candidate) {
+//     << procedural candidate handling >>
+//   })
+//   .query();
+// auto hit = q.committed_hit();
+//
+// On inline RT, translates to
+// auto q = lc_accel_trace_all(accel, ray, mask);
+// while (lc_ray_query_next(q)) {
+//   if (lc_ray_query_is_triangle(q)) {
+//     auto candidate = lc_ray_query_triangle_candidate(q);
+//     << triangle candidate handling >>
+//   } else {
+//     auto candidate = lc_ray_query_procedural_candidate(q);
+//     << procedural candidate handling >>
+//   }
+// }
+// auto hit = lc_ray_query_committed_hit(q);
+//
+// On RT-pipelines, translates to
+// in caller:
+// auto q = lc_accel_trace_all(accel, ray, mask);
+// auto hit = lc_ray_query_committed_hit(q);
+//
+// anyhit shader for triangle:
+// __global__ void__ __anyhit__ray_query() {
+//   auto committed = false;
+//   auto candidate = lc_ray_query_triangle_candidate();
+//   << triangle candidate handling >>
+//   if (!committed) { lc_ignore_intersection(); }
+// }
+//
+// intersection shader for procedural geometry:
+// __global__ void __intersection__ray_query() {
+//   auto candidate = lc_ray_query_procedural_candidate();
+//   << procedural candidate handling >>
+// }
+//
+// closest hit shader
+// __global__ void __closesthit__ray_query() {
+//   ...
+// }
+
+class RayQueryStmt : public Statement {
+
+private:
+    const RefExpr *_query;
+    ScopeStmt _on_triangle_candidate;
+    ScopeStmt _on_procedural_candidate;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit RayQueryStmt(const RefExpr *query) noexcept
+        : Statement{Tag::RAY_QUERY}, _query{query} {
+        _query->mark(Usage::READ_WRITE);
+    }
+    [[nodiscard]] auto query() const noexcept { return _query; }
+    [[nodiscard]] auto on_triangle_candidate() noexcept { return &_on_triangle_candidate; }
+    [[nodiscard]] auto on_triangle_candidate() const noexcept { return &_on_triangle_candidate; }
+    [[nodiscard]] auto on_procedural_candidate() noexcept { return &_on_procedural_candidate; }
+    [[nodiscard]] auto on_procedural_candidate() const noexcept { return &_on_procedural_candidate; }
+    LUISA_STATEMENT_COMMON()
+};
+
 #undef LUISA_STATEMENT_COMMON
+
+// helper function for easy traversal over the ASTs
+template<bool recurse_subexpr,
+         typename F,
+         typename EnterStmt,
+         typename ExitStmt>
+void traverse_expressions(
+    const Statement *stmt, const F &visit,
+    const EnterStmt &enter_stmt,
+    const ExitStmt &exit_stmt) noexcept {
+
+    auto do_visit = [&visit](auto expr) noexcept {
+        if constexpr (recurse_subexpr) {
+            traverse_subexpressions(expr, visit, [](auto) noexcept {});
+        } else {
+            visit(expr);
+        }
+    };
+
+    enter_stmt(stmt);
+    switch (stmt->tag()) {
+        case Statement::Tag::BREAK: break;
+        case Statement::Tag::CONTINUE: break;
+        case Statement::Tag::RETURN: {
+            auto return_stmt = static_cast<const ReturnStmt *>(stmt);
+            if (auto value = return_stmt->expression()) { do_visit(value); }
+            break;
+        }
+        case Statement::Tag::SCOPE: {
+            auto scope_stmt = static_cast<const ScopeStmt *>(stmt);
+            for (auto s : scope_stmt->statements()) {
+                traverse_expressions<recurse_subexpr>(
+                    s, visit, enter_stmt, exit_stmt);
+            }
+            break;
+        }
+        case Statement::Tag::IF: {
+            auto if_stmt = static_cast<const IfStmt *>(stmt);
+            do_visit(if_stmt->condition());
+            traverse_expressions<recurse_subexpr>(
+                if_stmt->true_branch(), visit, enter_stmt, exit_stmt);
+            traverse_expressions<recurse_subexpr>(
+                if_stmt->false_branch(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::LOOP: {
+            auto loop_stmt = static_cast<const LoopStmt *>(stmt);
+            traverse_expressions<recurse_subexpr>(
+                loop_stmt->body(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::EXPR: {
+            auto expr_stmt = static_cast<const ExprStmt *>(stmt);
+            do_visit(expr_stmt->expression());
+            break;
+        }
+        case Statement::Tag::SWITCH: {
+            auto switch_stmt = static_cast<const SwitchStmt *>(stmt);
+            do_visit(switch_stmt->expression());
+            traverse_expressions<recurse_subexpr>(
+                switch_stmt->body(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::SWITCH_CASE: {
+            auto case_stmt = static_cast<const SwitchCaseStmt *>(stmt);
+            traverse_expressions<recurse_subexpr>(
+                case_stmt->body(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::SWITCH_DEFAULT: {
+            auto default_stmt = static_cast<const SwitchDefaultStmt *>(stmt);
+            traverse_expressions<recurse_subexpr>(
+                default_stmt->body(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::ASSIGN: {
+            auto assign_stmt = static_cast<const AssignStmt *>(stmt);
+            do_visit(assign_stmt->lhs());
+            do_visit(assign_stmt->rhs());
+            break;
+        }
+        case Statement::Tag::FOR: {
+            auto for_stmt = static_cast<const ForStmt *>(stmt);
+            do_visit(for_stmt->variable());
+            do_visit(for_stmt->condition());
+            do_visit(for_stmt->step());
+            traverse_expressions<recurse_subexpr>(
+                for_stmt->body(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::COMMENT: break;
+        case Statement::Tag::RAY_QUERY: {
+            auto rq_stmt = static_cast<const RayQueryStmt *>(stmt);
+            do_visit(rq_stmt->query());
+            traverse_expressions<recurse_subexpr>(
+                rq_stmt->on_triangle_candidate(), visit, enter_stmt, exit_stmt);
+            traverse_expressions<recurse_subexpr>(
+                rq_stmt->on_procedural_candidate(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+    }
+    exit_stmt(stmt);
+}
 
 }// namespace luisa::compute

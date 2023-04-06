@@ -108,33 +108,26 @@ public:
     RasterShaderInvoke &operator<<(const BindlessArray &array) noexcept;
 #ifndef NDEBUG
     MeshFormat const *_mesh_format;
-    RasterState const *_raster_state;
-    luisa::span<PixelFormat const> _rtv_format;
-    DepthFormat _dsv_format;
-    void check_dst(luisa::span<PixelFormat const> rt_formats, DepthBuffer const *depth) noexcept;
     void check_scene(luisa::vector<RasterMesh> const &scene) noexcept;
 #endif
     template<typename... Rtv>
         requires(sizeof...(Rtv) == 0 || detail::LegalDst<Rtv...>())
-    [[nodiscard]] auto draw(luisa::vector<RasterMesh> &&scene, Viewport viewport, DepthBuffer const *dsv, Rtv const &...rtv) &&noexcept {
+    [[nodiscard]] auto draw(luisa::vector<RasterMesh> &&scene, Viewport viewport, const RasterState &raster_state, DepthBuffer const *dsv, Rtv const &...rtv) && noexcept {
         if (dsv) {
             _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{dsv->handle(), 0});
         } else {
-            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{~0ull, 0});
+            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{invalid_resource_handle, 0});
         }
         if constexpr (sizeof...(Rtv) > 0) {
             auto tex_args = {detail::PixelDst<std::remove_cvref_t<Rtv>>::get(rtv)...};
             _command.set_rtv_texs(tex_args);
-#ifndef NDEBUG
-            auto rtv_formats = {rtv.format()...};
-            check_dst({rtv_formats.begin(), rtv_formats.size()}, dsv);
-#endif
         }
 #ifndef NDEBUG
         check_scene(scene);
 #endif
         _command.set_scene(std::move(scene));
         _command.set_viewport(viewport);
+        _command.set_raster_state(raster_state);
         return std::move(_command).build();
     }
 };
@@ -145,6 +138,7 @@ LC_RUNTIME_API void rastershader_check_vertex_func(Function func) noexcept;
 LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 }// namespace detail
 
+// TODO: @Maxwell fix this please
 template<typename... Args>
 class RasterShader : public Resource {
 
@@ -155,9 +149,6 @@ private:
     size_t _uniform_size{};
 #ifndef NDEBUG
     MeshFormat _mesh_format;
-    RasterState _raster_state;
-    luisa::vector<PixelFormat> _rtv_format;
-    DepthFormat _dsv_format;
 #endif
     // JIT Shader
     // clang-format off
@@ -165,9 +156,6 @@ private:
     RasterShader(DeviceInterface *device,
                  RasterExt* raster_ext,
                  const MeshFormat &mesh_format,
-                 const RasterState &raster_state,
-                 luisa::span<PixelFormat const> rtv_format,
-                 DepthFormat dsv_format,
                  Function vert,
                  Function pixel,
                  const ShaderOption &option)noexcept
@@ -176,9 +164,9 @@ private:
               Tag::RASTER_SHADER,
               raster_ext->create_raster_shader(
                   mesh_format,
-                  raster_state,
-                  rtv_format,
-                  dsv_format,
+//                  raster_state,
+//                  rtv_format,
+//                  dsv_format,
                   vert,
                   pixel,
                   option)),
@@ -186,15 +174,10 @@ private:
          _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
                 detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
-        ,_mesh_format(mesh_format),
-        _raster_state(raster_state),
-        _dsv_format(dsv_format)
+        ,_mesh_format(mesh_format)
 #endif
         {
 #ifndef NDEBUG
-            _rtv_format.resize(rtv_format.size());
-            memcpy(_rtv_format.data(), rtv_format.data(), rtv_format.size_bytes());
-            detail::rastershader_check_rtv_format(_rtv_format);
             detail::rastershader_check_vertex_func(vert);
             detail::rastershader_check_pixel_func(pixel);
 #endif
@@ -213,9 +196,6 @@ private:
         DeviceInterface *device,
         RasterExt* raster_ext,
         const MeshFormat &mesh_format,
-        const RasterState &raster_state,
-        luisa::span<PixelFormat const> rtv_format,
-        DepthFormat dsv_format,
         string_view file_path)noexcept
         : Resource(
               device,
@@ -223,25 +203,15 @@ private:
               // TODO
               raster_ext->load_raster_shader(
                 mesh_format,
-                raster_state,
-                rtv_format,
-                dsv_format,
                 detail::shader_argument_types<Args...>(),
                 file_path)),
             _raster_ext{raster_ext},
             _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
                 detail::shader_argument_types<Args...>())}
 #ifndef NDEBUG
-        ,_mesh_format(mesh_format),
-        _raster_state(raster_state),
-        _dsv_format(dsv_format)
+        ,_mesh_format(mesh_format)
 #endif
         {
-#ifndef NDEBUG
-            _rtv_format.resize(rtv_format.size());
-            memcpy(_rtv_format.data(), rtv_format.data(), rtv_format.size_bytes());
-            detail::rastershader_check_rtv_format(_rtv_format);
-#endif
         }
     // clang-format on
 
@@ -250,16 +220,12 @@ public:
     RasterShader(RasterShader &&) noexcept = default;
     RasterShader(RasterShader const &) noexcept = delete;
     RasterShader &operator=(RasterShader &&rhs) noexcept {
-        if (this == &rhs) [[unlikely]] { return *this; }
-        this->~RasterShader();
-        new (std::launder(this)) RasterShader{std::move(rhs)};
+        _move_from(std::move(rhs));
         return *this;
     }
     RasterShader &operator=(RasterShader const &) noexcept = delete;
-    ~RasterShader() noexcept {
-        if (*this) {
-            _raster_ext->destroy_raster_shader(handle());
-        }
+    ~RasterShader() noexcept override {
+        if (*this) { _raster_ext->destroy_raster_shader(handle()); }
     }
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
@@ -275,12 +241,15 @@ public:
             handle(),
             _bindings);
 #ifndef NDEBUG
-        invoke._raster_state = &_raster_state;
         invoke._mesh_format = &_mesh_format;
-        invoke._dsv_format = _dsv_format;
-        invoke._rtv_format = _rtv_format;
 #endif
         return std::move((invoke << ... << args));
+    }
+    void warm_up(luisa::span<PixelFormat const> render_target_formats, DepthFormat depth_format, const RasterState &state) const noexcept {
+#ifndef NDEBUG
+        detail::rastershader_check_rtv_format(render_target_formats);
+#endif
+        _raster_ext->warm_up_pipeline_cache(handle(), render_target_formats, depth_format, state);
     }
 };
 

@@ -123,8 +123,8 @@ void export_runtime(py::module &m) {
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.aabb_buffer = aabb_buffer;
-            cmd.aabb_offset = aabb_offset;
-            cmd.aabb_count = aabb_count;
+            cmd.aabb_offset = aabb_offset * sizeof(AABB);
+            cmd.aabb_size = aabb_count * sizeof(AABB);
             accel.emplace(cmd, transform, visibility_mask, opaque);
         })
         .def("pop_back", [](ManagedAccel &accel) { accel.pop_back(); })
@@ -148,8 +148,8 @@ void export_runtime(py::module &m) {
                           .allow_compaction = allow_compact,
                           .allow_update = allow_update};
             cmd.aabb_buffer = aabb_buffer;
-            cmd.aabb_offset = aabb_offset;
-            cmd.aabb_count = aabb_count;
+            cmd.aabb_offset = aabb_offset * sizeof(AABB);
+            cmd.aabb_size = aabb_count * sizeof(AABB);
             accel.set(index, cmd, transform, visibility_mask, opaque);
         })
         .def("set_transform_on_update", [](ManagedAccel &a, size_t index, float4x4 transform) { a.GetAccel().set_transform_on_update(index, transform); })
@@ -272,30 +272,30 @@ void export_runtime(py::module &m) {
             return 0;
         })
         .def("save_raster_shader", [](DeviceInterface &self, ManagedMeshFormat const &fmt, Function vertex, Function pixel, luisa::string_view str) {
-            luisa::string_view str_view;
-            luisa::string dst_path_str;
+            ShaderOption option;
+            option.compile_only = true;
             if (!output_path.empty()) {
                 auto dst_path = output_path / std::filesystem::path{str};
-                dst_path_str = to_string(dst_path);
-                str_view = dst_path_str;
+                option.name = to_string(dst_path);
             } else {
-                str_view = str;
+                option.name = str;
             }
-            static_cast<RasterExt *>(self.extension(RasterExt::name))->save_raster_shader(fmt.format, vertex, pixel, str_view, false, true);
+            static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
+                                  ->create_raster_shader(fmt.format, vertex, pixel, option));
         })
         .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.create();
             futures.emplace_back(thread_pool->async([fmt, str = luisa::string{str}, vertex, pixel, &self]() {
-                luisa::string_view str_view;
-                luisa::string dst_path_str;
+                ShaderOption option;
+                option.compile_only = true;
                 if (!output_path.empty()) {
                     auto dst_path = output_path / std::filesystem::path{str};
-                    dst_path_str = to_string(dst_path);
-                    str_view = dst_path_str;
+                    option.name = to_string(dst_path);
                 } else {
-                    str_view = str;
+                    option.name = str;
                 }
-                static_cast<RasterExt *>(self.extension(RasterExt::name))->save_raster_shader(fmt.format, vertex->function(), pixel->function(), str_view, false, true);
+                static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
+                                      ->create_raster_shader(fmt.format, vertex->function(), pixel->function(), option));
             }));
         })
         .def("destroy_shader", &DeviceInterface::destroy_shader)
@@ -359,11 +359,9 @@ void export_runtime(py::module &m) {
             "update_accel", [](PyStream &self, ManagedAccel &accel) {
                 accel.update(self);
             })
-        .def(
-            "update_instance_buffer", [](PyStream &self, ManagedAccel &accel) {
-                accel.update_instance_buffer(self);
-            }
-        )
+        .def("update_instance_buffer", [](PyStream &self, ManagedAccel &accel) {
+            accel.update_instance_buffer(self);
+        })
         .def("update_bindless", [](PyStream &self, uint64 bindless) {
             reinterpret_cast<ManagedBindless *>(bindless)->Update(self);
         })
@@ -496,6 +494,7 @@ void export_runtime(py::module &m) {
 
         .def("if_", &FunctionBuilder::if_, pyref)
         .def("switch_", &FunctionBuilder::switch_, pyref)
+        .def("ray_query_", &FunctionBuilder::ray_query_, pyref)
         .def("case_", &FunctionBuilder::case_, pyref)
         .def("loop_", &FunctionBuilder::loop_, pyref)
         // .def("switch_")

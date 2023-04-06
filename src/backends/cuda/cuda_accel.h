@@ -48,6 +48,7 @@ private:
     size_t _update_buffer_size{};
     luisa::vector<const CUDAPrimitive *> _primitives;
     luisa::vector<uint64_t> _prim_handles;
+    luisa::string _name;
 
 private:
     void _build(CUDACommandEncoder &encoder) noexcept;
@@ -60,6 +61,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
     [[nodiscard]] auto binding() const noexcept { return Binding{_handle, _instance_buffer}; }
+    void set_name(luisa::string &&name) noexcept;
 };
 
 }// namespace luisa::compute::cuda

@@ -89,6 +89,8 @@ private:
 public:
     [[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> convert_kernel(Function function) noexcept;
     [[nodiscard]] ir::CArc<ir::CallableModule> convert_callable(Function function) noexcept;
+    [[nodiscard]] static luisa::shared_ptr<ir::CArc<ir::KernelModule>> build_kernel(Function function) noexcept;
+    [[nodiscard]] static ir::CArc<ir::CallableModule> build_callable(Function function) noexcept;
 };
 
 }// namespace luisa::compute

@@ -5,11 +5,11 @@
 #include <mutex>
 
 #include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 
 namespace luisa::compute::cuda {
 
-CUDAMipmapArray::~CUDAMipmapArray() noexcept {
+CUDATexture::~CUDATexture() noexcept {
     for (auto s : _surfaces) {
         if (s != 0u) {
             LUISA_CHECK_CUDA(cuSurfObjectDestroy(s));
@@ -22,7 +22,7 @@ CUDAMipmapArray::~CUDAMipmapArray() noexcept {
     }
 }
 
-CUarray CUDAMipmapArray::level(uint32_t i) const noexcept {
+CUarray CUDATexture::level(uint32_t i) const noexcept {
     if (i >= _levels) [[unlikely]] {
         LUISA_ERROR_WITH_LOCATION(
             "Invalid level {} for texture with {} level(s).",
@@ -36,7 +36,7 @@ CUarray CUDAMipmapArray::level(uint32_t i) const noexcept {
     return array;
 }
 
-CUDASurface CUDAMipmapArray::surface(uint32_t level) const noexcept {
+CUDASurface CUDATexture::surface(uint32_t level) const noexcept {
     LUISA_ASSERT(!is_block_compressed(format()),
                  "Block compressed textures cannot be used as CUDA surfaces.");
     auto handle = [this, level] {
@@ -56,14 +56,18 @@ CUDASurface CUDAMipmapArray::surface(uint32_t level) const noexcept {
     return CUDASurface{handle, to_underlying(storage)};
 }
 
-CUDAMipmapArray::CUDAMipmapArray(uint64_t array, PixelFormat format, uint32_t levels) noexcept
+CUDATexture::CUDATexture(uint64_t array, PixelFormat format, uint32_t levels) noexcept
     : _array{array}, _format{static_cast<uint16_t>(format)}, _levels{static_cast<uint16_t>(levels)} {}
 
-uint3 CUDAMipmapArray::size() const noexcept {
+uint3 CUDATexture::size() const noexcept {
     auto base = level(0);
     CUDA_ARRAY3D_DESCRIPTOR_st desc{};
     cuArray3DGetDescriptor(&desc, base);
     return luisa::make_uint3(desc.Width, desc.Height, desc.Depth);
+}
+
+void CUDATexture::set_name(luisa::string &&name) noexcept {
+    // currently do nothing
 }
 
 }// namespace luisa::compute::cuda

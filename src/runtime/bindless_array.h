@@ -62,10 +62,14 @@ private:
 
 public:
     BindlessArray() noexcept = default;
+    ~BindlessArray() noexcept override;
     using Resource::operator bool;
     BindlessArray(BindlessArray &&) noexcept = default;
     BindlessArray(BindlessArray const &) noexcept = delete;
-    BindlessArray &operator=(BindlessArray &&) noexcept = default;
+    BindlessArray &operator=(BindlessArray &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     BindlessArray &operator=(BindlessArray const &) noexcept = delete;
     // properties
     [[nodiscard]] auto size() const noexcept { return _size; }

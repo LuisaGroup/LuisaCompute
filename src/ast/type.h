@@ -242,6 +242,7 @@ class Type;
 
 struct TypeVisitor {
     virtual void visit(const Type *) noexcept = 0;
+    virtual ~TypeVisitor() noexcept = default;
 };
 
 /// Type class
@@ -254,6 +255,9 @@ public:
         FLOAT32,
         INT32,
         UINT32,
+        FLOAT16,
+        INT16,
+        UINT16,
 
         VECTOR,
         MATRIX,
@@ -378,6 +382,9 @@ public:
     [[nodiscard]] bool is_int32() const noexcept;
     [[nodiscard]] bool is_uint32() const noexcept;
     [[nodiscard]] bool is_float32() const noexcept;
+    [[nodiscard]] bool is_int16() const noexcept;
+    [[nodiscard]] bool is_uint16() const noexcept;
+    [[nodiscard]] bool is_float16() const noexcept;
     /// Arithmetic = float || int || uint
     [[nodiscard]] bool is_arithmetic() const noexcept;
 
@@ -389,6 +396,9 @@ public:
     [[nodiscard]] bool is_int32_vector() const noexcept;
     [[nodiscard]] bool is_uint32_vector() const noexcept;
     [[nodiscard]] bool is_float32_vector() const noexcept;
+    [[nodiscard]] bool is_int16_vector() const noexcept;
+    [[nodiscard]] bool is_uint16_vector() const noexcept;
+    [[nodiscard]] bool is_float16_vector() const noexcept;
     [[nodiscard]] bool is_matrix() const noexcept;
     [[nodiscard]] bool is_structure() const noexcept;
     [[nodiscard]] bool is_buffer() const noexcept;

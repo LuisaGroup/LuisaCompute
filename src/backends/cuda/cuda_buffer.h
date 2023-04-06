@@ -26,6 +26,8 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] Binding binding(size_t offset, size_t size) const noexcept;
+    void set_name(luisa::string &&name) noexcept { /* currently do nothing */
+    }
 };
 
 }// namespace luisa::compute::cuda

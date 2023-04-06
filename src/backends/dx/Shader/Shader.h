@@ -59,12 +59,11 @@ public:
     virtual Tag GetTag() const = 0;
 
 protected:
-    ComPtr<ID3D12PipelineState> pso;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSig;
     vstd::vector<Property> properties;
     vstd::vector<SavedArgument> kernelArguments;
     uint bindlessCount;
-    void SavePSO(vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const;
+    void SavePSO(ID3D12PipelineState* pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const;
 
 public:
     static vstd::string PSOName(Device const *device, vstd::string_view fileName);
@@ -83,7 +82,6 @@ public:
         vstd::vector<SavedArgument> &&args,
         ComPtr<ID3D12RootSignature> &&rootSig);
     ID3D12RootSignature *RootSig() const { return rootSig.Get(); }
-    ID3D12PipelineState *Pso() const { return pso.Get(); }
 
     void SetComputeResource(
         uint propertyName,

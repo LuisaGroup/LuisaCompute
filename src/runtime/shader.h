@@ -4,6 +4,9 @@
 
 #pragma once
 
+#ifdef LUISA_ENABLE_IR
+#include "ir/ir2ast.h"
+#endif
 #include <core/basic_types.h>
 #include <ast/function_builder.h>
 #include <runtime/rhi/resource.h>
@@ -199,6 +202,24 @@ private:
         : Shader{device, device->create_shader(option, kernel),
                  ShaderDispatchCmdEncoder::compute_uniform_size(kernel.arguments())} {}
 
+#ifdef LUISA_ENABLE_IR
+    // JIT shader from IR module
+    Shader(DeviceInterface *device,
+           const ir::KernelModule *const module,
+           const ShaderOption &option) noexcept
+        : Shader{device, device->create_shader(option, module),
+                 [module] {
+                     luisa::vector<const Type *> arg_types;
+                     arg_types.reserve(module->args.len);
+                     for (auto i = 0u; i < module->args.len; i++) {
+                         auto type = IR2AST::get_type(module->args.ptr[i]);
+                         assert(type != nullptr && "Failed to get argument type.");
+                         arg_types.emplace_back(type);
+                     }
+                     return ShaderDispatchCmdEncoder::compute_uniform_size(arg_types);
+                 }()} {}
+#endif
+
     // AOT shader
     Shader(DeviceInterface *device, string_view file_path) noexcept
         : Shader{device,
@@ -207,9 +228,15 @@ private:
 
 public:
     Shader() noexcept = default;
+    ~Shader() noexcept override {
+        if (*this) { device()->destroy_shader(handle()); }
+    }
     Shader(Shader &&) noexcept = default;
     Shader(Shader const &) noexcept = delete;
-    Shader &operator=(Shader &&) noexcept = default;
+    Shader &operator=(Shader &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Shader &operator=(Shader const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {

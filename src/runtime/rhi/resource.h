@@ -123,19 +123,38 @@ private:
     Tag _tag{};
 
 protected:
-    void _destroy() noexcept;
+    static void _check_same_derived_types(const Resource &lhs,
+                                          const Resource &rhs) noexcept;
+
+    // helper method for derived classes to implement move assignment
+    template<typename Derived>
+    void _move_from(Derived &&rhs) noexcept {
+        if (this != &rhs) [[likely]] {
+            // check if the two resources are compatible if both are valid
+            _check_same_derived_types(*this, rhs);
+            using Self = std::remove_cvref_t<Derived>;
+            static_assert(std::is_base_of_v<Resource, Self> &&
+                              !std::is_same_v<Resource, Self>,
+                          "Resource::_move_from can only be used in derived classes");
+            auto self = static_cast<Self *>(this);
+            // destroy the old resource
+            self->~Self();
+            // move the new resource
+            new (std::launder(self)) Self{static_cast<Self &&>(rhs)};
+        }
+    }
+
+protected:
+    // protected constructors for derived classes
+    Resource() noexcept { _info.invalidate(); }
+    Resource(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
+    Resource(Resource &&) noexcept;
+    // protected destructor for derived classes
+    virtual ~Resource() noexcept = default;
 
 public:
-    Resource() noexcept {
-        _info.invalidate();
-    }
-    Resource(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
-    virtual ~Resource() noexcept {
-        if (*this) { _destroy(); }
-    }
-    Resource(Resource &&) noexcept;
     Resource(const Resource &) noexcept = delete;
-    Resource &operator=(Resource &&) noexcept;
+    Resource &operator=(Resource &&) noexcept = delete;// use _move_from in derived classes
     Resource &operator=(const Resource &) noexcept = delete;
     [[nodiscard]] auto device() const noexcept { return _device.get(); }
     [[nodiscard]] auto handle() const noexcept { return _info.handle; }

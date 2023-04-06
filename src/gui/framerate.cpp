@@ -2,7 +2,7 @@
 // Created by Mike on 2021/11/30.
 //
 
-#include <gui/backup/framerate.h>
+#include <gui/framerate.h>
 
 namespace luisa::compute {
 

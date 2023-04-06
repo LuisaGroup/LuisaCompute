@@ -47,9 +47,8 @@ if (LUISA_COMPUTE_ENABLE_DSL)
     target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime)
     target_compile_definitions(luisa-compute-dsl
             PRIVATE LC_DSL_EXPORT_DLL=1
-            PUBLIC LUISA_DSL_ENABLED=1)
+            PUBLIC LUISA_ENABLE_DSL=1)
     set_target_properties(luisa-compute-dsl PROPERTIES
-            WINDOWS_EXPORT_ALL_SYMBOLS ON
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
     luisa_compute_install(dsl SOURCES ${LUISA_COMPUTE_DSL_SOURCES})
 else ()

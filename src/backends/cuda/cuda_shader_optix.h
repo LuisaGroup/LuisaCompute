@@ -15,13 +15,14 @@ class CUDACommandEncoder;
 class CUDAShaderOptiX final : public CUDAShader {
 
 private:
-    CUDADevice *_device;
     size_t _argument_buffer_size{};
     optix::Module _module{};
     optix::ProgramGroup _program_group_rg{};
     optix::ProgramGroup _program_group_ch_closest{};
-    optix::ProgramGroup _program_group_ch_any{};
-    optix::ProgramGroup _program_group_miss{};
+    optix::ProgramGroup _program_group_ch_query{};
+    optix::ProgramGroup _program_group_miss_closest{};
+    optix::ProgramGroup _program_group_miss_any{};
+    optix::ProgramGroup _program_group_miss_query{};
     optix::Pipeline _pipeline{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     mutable CUdeviceptr _sbt_buffer{};
@@ -32,14 +33,15 @@ private:
 
 private:
     void _prepare_sbt(CUDACommandEncoder &encoder) const noexcept;
+    void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:
-    CUDAShaderOptiX(CUDADevice *device,
+    CUDAShaderOptiX(optix::DeviceContext optix_ctx,
                     const char *ptx, size_t ptx_size,
                     const char *entry, bool enable_debug,
-                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
+                    luisa::vector<Usage> argument_usages,
+                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;
-    void launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 };
 
 }// namespace luisa::compute::cuda

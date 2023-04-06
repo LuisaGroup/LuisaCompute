@@ -47,8 +47,7 @@ int main(int argc, char *argv[]) {
             });
     };
     Kernel2D generate_mip_levels =
-        [&](
-            ImageVar<float> level0,
+        [&](ImageVar<float> level0,
             ImageVar<float> level1,
             ImageVar<float> level2,
             ImageVar<float> level3,
@@ -57,12 +56,12 @@ int main(int argc, char *argv[]) {
             set_block_size(block_size, block_size, 1);
             Shared<float3> shared_array{block_size * block_size};
             ImageVar<float> *levels[] = {
-                &level0,
-                &level1,
-                &level2,
-                &level3,
-                &level4,
-                &level5};
+                std::addressof(level0),
+                std::addressof(level1),
+                std::addressof(level2),
+                std::addressof(level3),
+                std::addressof(level4),
+                std::addressof(level5)};
             Var block_coord = block_id().xy();
             Var local_coord = thread_id().xy();
             Var tex_size = dispatch_size().xy();

@@ -12,7 +12,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
     target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir luisa_compute_api_types)
-    target_compile_definitions(luisa-compute-rust-meta INTERFACE LUISA_RUST_ENABLED)
+    target_compile_definitions(luisa-compute-rust-meta INTERFACE LUISA_ENABLE_RUST)
 
     function(luisa_compute_install_rust target)
         install(TARGETS luisa_compute_${target} EXPORT LuisaComputeTargets

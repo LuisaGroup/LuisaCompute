@@ -17,7 +17,11 @@ DescriptorHeap::DescriptorHeap(
         &Desc,
         IID_PPV_ARGS(&pDH)));
     hCPUHeapStart = pDH->GetCPUDescriptorHandleForHeapStart();
-    hGPUHeapStart = pDH->GetGPUDescriptorHandleForHeapStart();
+    if (bShaderVisible) {
+        hGPUHeapStart = pDH->GetGPUDescriptorHandleForHeapStart();
+    } else {
+        hGPUHeapStart.ptr = 0;
+    }
     HandleIncrementSize = device->device->GetDescriptorHandleIncrementSize(Desc.Type);
 }
 DescriptorHeap::~DescriptorHeap() {
@@ -35,7 +39,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE DescriptorHeap::hCPU(uint64 index) const {
 uint32_t DescriptorHeap::AllocateIndex() {
     std::lock_guard lck(heapMtx);
     if (freeList.empty()) {
-        if(allocIndex == numDescriptors)[[unlikely]]{
+        if (allocIndex == numDescriptors) [[unlikely]] {
             vengine_log("bindless allocator out or range!\n");
             VENGINE_EXIT;
         }

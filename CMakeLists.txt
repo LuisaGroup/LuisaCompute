@@ -19,6 +19,7 @@ option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" OFF)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
 option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" OFF)
+option(LUISA_COMPUTE_ENABLE_VALIDATION "Enable the validation backend" ON)
 
 option(LUISA_COMPUTE_ENABLE_PYTHON "Enable Python binding" ON)
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" ON)
@@ -29,6 +30,9 @@ if(NOT LUISA_COMPUTE_ENABLE_RUST AND NOT LUISA_COMPUTE_DISABLE_RUST_OVERRIDE)
     To install Rust, `run curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` on unix environment\n\
     or download and run the installer from https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe on windows environment.\n\
     please set LUISA_COMPUTE_DISABLE_RUST_OVERRIDE to ON to acknowledge this")
+endif()
+if (LUISA_COMPUTE_ENABLE_RUST)
+    add_definitions(-DLUISA_ENABLE_IR)
 endif()
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 

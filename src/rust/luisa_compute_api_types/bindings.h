@@ -302,7 +302,7 @@ typedef struct LCProceduralPrimitiveBuildCommand {
     struct LCProceduralPrimitive handle;
     enum LCAccelBuildRequest request;
     struct LCBuffer aabb_buffer;
-    size_t aabb_offset;
+    size_t aabb_buffer_offset;
     size_t aabb_count;
 } LCProceduralPrimitiveBuildCommand;
 

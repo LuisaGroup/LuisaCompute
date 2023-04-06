@@ -66,59 +66,58 @@ luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::convert_kernel(Function fu
     _function = function;
     _pools = ir::CppOwnedCArc<ir::ModulePools>(std::move(ir::luisa_compute_ir_new_module_pools()));
     auto m = _with_builder([this](auto builder) noexcept {
-        auto bindings = _function.builder()->bound_arguments();
-        auto capture_count = std::count_if(
-            bindings.cbegin(), bindings.cend(), [](auto &&b) {
-                return !luisa::holds_alternative<luisa::monostate>(b);
-            });
-        auto non_capture_count = bindings.size() - capture_count;
-        auto captures = _boxed_slice<ir::Capture>(capture_count);
-        auto non_captures = _boxed_slice<ir::NodeRef>(non_capture_count);
-        auto capture_index = 0u;
-        auto non_capture_index = 0u;
-        // process arguments
-        for (auto i = 0u; i < bindings.size(); i++) {
-            using FB = detail::FunctionBuilder;
-            auto binding = bindings[i];
-            auto arg = _function.arguments()[i];
-            auto node = _convert_argument(arg);
+        auto total_args = _function.builder()->arguments();
+        auto bound_args = _function.builder()->bound_arguments();
+        auto captures = _boxed_slice<ir::Capture>(bound_args.size());
+        for (auto i = 0u; i < bound_args.size(); i++) {
+            auto node = _convert_argument(total_args[i]);
+            auto binding = bound_args[i];
             luisa::visit(
                 luisa::overloaded{
                     [&](luisa::monostate) noexcept {
-                        non_captures.ptr[non_capture_index++] = node;
+                        LUISA_ERROR_WITH_LOCATION("unbound argument found in bound_arguments.");
                     },
                     [&](Function::BufferBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::Buffer;
-                        c.binding.buffer = {{.handle = b.handle,
-                                             .offset = b.offset,
-                                             .size = b.size}};
-                        captures.ptr[capture_index++] = c;
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Buffer;
+                        capture.binding.buffer._0.handle = b.handle;
+                        capture.binding.buffer._0.offset = b.offset;
+                        capture.binding.buffer._0.size = b.size;
+                        captures.ptr[i] = capture;
                     },
                     [&](Function::TextureBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::Texture;
-                        c.binding.texture = {{.handle = b.handle,
-                                              .level = b.level}};
-                        captures.ptr[capture_index++] = c;
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Texture;
+                        capture.binding.texture._0.handle = b.handle;
+                        capture.binding.texture._0.level = b.level;
+                        captures.ptr[i] = capture;
                     },
                     [&](Function::BindlessArrayBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::BindlessArray;
-                        c.binding.bindless_array = {b.handle};
-                        captures.ptr[capture_index++] = c;
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::BindlessArray;
+                        capture.binding.bindless_array._0.handle = b.handle;
+                        captures.ptr[i] = capture;
                     },
                     [&](Function::AccelBinding b) noexcept {
-                        ir::Capture c{};
-                        c.node = node;
-                        c.binding.tag = ir::Binding::Tag::Accel;
-                        c.binding.accel = {b.handle};
-                    }},
+                        ir::Capture capture{};
+                        capture.node = node;
+                        capture.binding.tag = ir::Binding::Tag::Accel;
+                        capture.binding.accel._0.handle = b.handle;
+                        captures.ptr[i] = capture;
+                    },
+                },
                 binding);
         }
+
+        auto unbound_args = _function.builder()->unbound_arguments();
+        auto non_captures = _boxed_slice<ir::NodeRef>(unbound_args.size());
+        for (auto i = 0u; i < unbound_args.size(); i++) {
+            non_captures.ptr[i] = _convert_argument(unbound_args[i]);
+        }
+
         // process built-in variables
         for (auto v : _function.builtin_variables()) {
             static_cast<void>(_convert_builtin_variable(v));
@@ -150,20 +149,24 @@ ir::CArc<ir::CallableModule> AST2IR::convert_callable(Function function) noexcep
                  "Invalid function tag.");
 
     LUISA_ASSERT(_struct_types.empty() && _constants.empty() &&
-                    _variables.empty() && _builder_stack.empty() &&
-                    !_function,
-                "Invalid state.");
+                     _variables.empty() && _builder_stack.empty() &&
+                     !_function,
+                 "Invalid state.");
     _function = function;
     _pools = ir::CppOwnedCArc{ir::luisa_compute_ir_new_module_pools()};
     auto m = _with_builder([this](auto builder) noexcept {
-        auto arg_count = _function.arguments().size();
-        auto args = _boxed_slice<ir::NodeRef>(arg_count);
-        for (auto i = 0u; i < arg_count; i++) {
-            args.ptr[i] = _convert_argument(_function.arguments()[i]);
+        auto args = _function.builder()->arguments();
+        auto arguments = _boxed_slice<ir::NodeRef>(args.size());
+        for (auto i = 0u; i < args.size(); i++) {
+            arguments.ptr[i] = _convert_argument(args[i]);
         }
+
         return ir::luisa_compute_ir_new_callable_module(
-                ir::CallableModule{.module = _convert_body(),
-                                   .args = args});
+            ir::CallableModule{
+                .module = _convert_body(),
+                .args = arguments,
+                .pools = _pools,
+            });
     });
     return m._0;
 }
@@ -611,17 +614,58 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
             case CallOp::MAKE_FLOAT4X4: return ir::Func::Tag::Mat4;
             case CallOp::ASSUME: return ir::Func::Tag::Assume;
             case CallOp::UNREACHABLE: return ir::Func::Tag::Unreachable;
-            // case CallOp::INSTANCE_TO_WORLD_MATRIX: return ir::Func::Tag::InstanceToWorldMatrix;
-            // case CallOp::SET_INSTANCE_TRANSFORM: return ir::Func::Tag::SetInstanceTransform;
-            // case CallOp::SET_INSTANCE_VISIBILITY: return ir::Func::Tag::SetInstanceVisibility;
-            // case CallOp::TRACE_CLOSEST: return ir::Func::Tag::TraceClosest;
-            // case CallOp::TRACE_ANY: return ir::Func::Tag::TraceAny;
+            case CallOp::REDUCE_SUM: return ir::Func::Tag::ReduceSum;
+            case CallOp::REDUCE_PRODUCT: return ir::Func::Tag::ReduceProd;
+            case CallOp::REDUCE_MIN: return ir::Func::Tag::ReduceMin;
+            case CallOp::REDUCE_MAX: return ir::Func::Tag::ReduceMax;
+            case CallOp::OUTER_PRODUCT: return ir::Func::Tag::OuterProduct;
+            case CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION: return ir::Func::Tag::MatCompMul;
+            case CallOp::BUFFER_SIZE: return ir::Func::Tag::BufferSize;
+            case CallOp::BINDLESS_BUFFER_SIZE: return ir::Func::Tag::BindlessBufferSize;
+            case CallOp::BINDLESS_BUFFER_TYPE: return ir::Func::Tag::BindlessBufferType;
+            case CallOp::REQUIRES_GRADIENT: return ir::Func::Tag::RequiresGradient;
+            case CallOp::GRADIENT: return ir::Func::Tag::Gradient;
+            case CallOp::GRADIENT_MARKER: return ir::Func::Tag::GradientMarker;
+            case CallOp::ACCUMULATE_GRADIENT: return ir::Func::Tag::AccGrad;
+            case CallOp::DETACH: return ir::Func::Tag::Detach;
+            case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: return ir::Func::Tag::RayTracingInstanceTransform;
+            case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: return ir::Func::Tag::RayTracingSetInstanceTransform;
+            case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: return ir::Func::Tag::RayTracingSetInstanceVisibility;
+            case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: return ir::Func::Tag::RayTracingSetInstanceOpacity;
+            case CallOp::RAY_TRACING_TRACE_CLOSEST: return ir::Func::Tag::RayTracingTraceClosest;
+            case CallOp::RAY_TRACING_TRACE_ANY: return ir::Func::Tag::RayTracingTraceAny;
+            case CallOp::RAY_TRACING_QUERY_ALL: return ir::Func::Tag::RayTracingQueryAll;
+            case CallOp::RAY_TRACING_QUERY_ANY: return ir::Func::Tag::RayTracingQueryAny;
+            case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: return ir::Func::Tag::RayQueryProceduralCandidateHit;
+            case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: return ir::Func::Tag::RayQueryTriangleCandidateHit;
+            case CallOp::RAY_QUERY_COMMITTED_HIT: return ir::Func::Tag::RayQueryCommittedHit;
+            case CallOp::RAY_QUERY_COMMIT_TRIANGLE: return ir::Func::Tag::RayQueryCommitTriangle;
+            case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: return ir::Func::Tag::RayQueryCommitProcedural;
+            case CallOp::RAY_QUERY_TERMINATE: return ir::Func::Tag::RayQueryTerminate;
+            case CallOp::RASTER_DISCARD: return ir::Func::Tag::RasterDiscard;
+            case CallOp::INDIRECT_CLEAR_DISPATCH_BUFFER: return ir::Func::Tag::IndirectClearDispatchBuffer;
+            case CallOp::INDIRECT_EMPLACE_DISPATCH_KERNEL: return ir::Func::Tag::IndirectEmplaceDispatchKernel;
+            // The following callops haven't been implemented by IR yet
+            // case CallOp::CUSTOM: 
+            // case CallOp::SATURATE:
+            // case CallOp::REFLECT:
+            // 16-bit types haven't been implemented by IR yet
+            // case CallOp::MAKE_INT16_2:
+            // case CallOp::MAKE_INT16_3:
+            // case CallOp::MAKE_INT16_4:
+            // case CallOp::MAKE_UINT16_2:
+            // case CallOp::MAKE_UINT16_3:
+            // case CallOp::MAKE_UINT16_4:
+            // case CallOp::MAKE_FLOAT16_2:
+            // case CallOp::MAKE_FLOAT16_3:
+            // case CallOp::MAKE_FLOAT16_4:
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid CallOp: 0x{:02x}.",
             luisa::to_underlying(expr->op()));
     }();
+    LUISA_VERBOSE("CallOp is {}, arg num is {}", luisa::to_underlying(expr->op()), expr->arguments().size());
     luisa::vector<ir::NodeRef> args;
     if (is_vector_maker(expr->op())) {
         // resolve overloaded vector maker
@@ -698,6 +742,7 @@ ir::NodeRef AST2IR::_convert(const CallExpr *expr) noexcept {
     //        }
     //    }
     else {
+        LUISA_VERBOSE("using default arg emplace");
         args.reserve(expr->arguments().size());
         for (auto arg : expr->arguments()) {
             args.emplace_back(_convert_expr(arg));
@@ -1204,6 +1249,14 @@ ir::NodeRef AST2IR::_literal(const Type *type, LiteralExpr::Value value) noexcep
             }
         },
         value);
+}
+
+[[nodiscard]] luisa::shared_ptr<ir::CArc<ir::KernelModule>> AST2IR::build_kernel(Function function) noexcept {
+    return AST2IR{}.convert_kernel(function);
+}
+
+[[nodiscard]] ir::CArc<ir::CallableModule> AST2IR::build_callable(Function function) noexcept {
+    return AST2IR{}.convert_callable(function);
 }
 
 }// namespace luisa::compute

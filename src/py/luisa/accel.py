@@ -8,9 +8,7 @@ from .func import func
 from .types import to_lctype
 from .builtin import _builtin_call, bitwise_cast
 from .hit import TriangleHit, CommittedHit, ProceduralHit
-from .rayquery import rayQueryType, rayQuery
-# Ray
-Ray = StructType(16, _origin=ArrayType(3,float), t_min=float, _dir=ArrayType(3,float), t_max=float)
+from .rayquery import rayQueryAllType, rayQueryAnyType, Ray
 
 @func
 def make_ray(origin: float3, direction: float3, t_min: float, t_max:float):
@@ -54,30 +52,6 @@ def offset_ray_origin(p: float3, n: float3):
     p_i.y = bitwise_cast(float, p_i_tmp.y)
     p_i.z = bitwise_cast(float, p_i_tmp.z)
     return select(p_i, p + float_scale * n, abs(p) < origin)
-
-@func
-def get_origin(self):
-    return float3(self._origin[0], self._origin[1], self._origin[2])
-Ray.add_method(get_origin)
-
-@func
-def get_dir(self):
-    return float3(self._dir[0], self._dir[1], self._dir[2])
-Ray.add_method(get_dir)
-
-@func
-def set_origin(self, val: float3):
-    self._origin[0] = val.x
-    self._origin[1] = val.y
-    self._origin[2] = val.z
-Ray.add_method(set_origin)
-
-@func
-def set_dir(self, val: float3):
-    self._dir[0] = val.x
-    self._dir[1] = val.y
-    self._dir[2] = val.z
-Ray.add_method(set_dir)
 
 class Accel:
     def __init__(self,  hint:lcapi.AccelUsageHint = lcapi.AccelUsageHint.FAST_BUILD, allow_compact:bool = False, allow_update:bool = False):
@@ -165,5 +139,8 @@ class Accel:
     def set_instance_visibility(self, index: int, visibility_mask: int):
         _builtin_call("RAY_TRACING_SET_INSTANCE_OPACITY", self, index, visibility_mask)
     @func
-    def trace_all(self, ray: Ray, vis_mask: int):
-        return _builtin_call(rayQueryType, "RAY_TRACING_TRACE_ALL", self, ray, vis_mask)
+    def query_all(self, ray: Ray, vis_mask: int):
+        return _builtin_call(rayQueryAllType, "RAY_TRACING_QUERY_ALL", self, ray, vis_mask)
+    @func
+    def query_any(self, ray: Ray, vis_mask: int):
+        return _builtin_call(rayQueryAnyType, "RAY_TRACING_QUERY_ANY", self, ray, vis_mask)

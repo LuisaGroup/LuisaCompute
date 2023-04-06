@@ -1,25 +1,26 @@
 #include <runtime/raster/depth_buffer.h>
 #include <runtime/device.h>
 #include <core/logging.h>
+#include <backends/ext/raster_ext.h>
 
 namespace luisa::compute {
-DepthBuffer::DepthBuffer(const ResourceCreationInfo &create_info, DeviceInterface *device, DepthFormat format, uint2 size) noexcept
+DepthBuffer::DepthBuffer(const ResourceCreationInfo &create_info, RasterExt *raster_ext, DeviceInterface *device, DepthFormat format, uint2 size) noexcept
     : Resource(
           device,
           Tag::DEPTH_BUFFER,
           create_info),
-      _size(size), _format(format) {
+      _size(size), _format(format), _raster_ext{raster_ext} {
 }
 DepthBuffer Device::create_depth_buffer(DepthFormat depth_format, uint2 size) noexcept {
-    return _create<DepthBuffer>(depth_format, size);
+    return _create<DepthBuffer>(extension<RasterExt>(), depth_format, size);
 }
 
-DepthBuffer::DepthBuffer(DeviceInterface *device, DepthFormat format, uint2 size) noexcept
+DepthBuffer::DepthBuffer(DeviceInterface *device, RasterExt *raster_ext, DepthFormat format, uint2 size) noexcept
     : Resource(
           device,
           Tag::DEPTH_BUFFER,
-          device->create_depth_buffer(format, size.x, size.y)),
-      _size(size), _format(format) {
+          raster_ext->create_depth_buffer(format, size.x, size.y)),
+      _size{size}, _format{format}, _raster_ext{raster_ext} {
 #ifndef NDEBUG
     if (format == DepthFormat::None) {
         LUISA_ERROR_WITH_LOCATION("Depth format cannot be none!");
@@ -29,6 +30,10 @@ DepthBuffer::DepthBuffer(DeviceInterface *device, DepthFormat format, uint2 size
 
 luisa::unique_ptr<Command> DepthBuffer::clear(float value) const noexcept {
     return luisa::make_unique<ClearDepthCommand>(handle(), value);
+}
+
+DepthBuffer::~DepthBuffer() noexcept {
+    if (*this) _raster_ext->destroy_depth_buffer(handle());
 }
 
 namespace detail {

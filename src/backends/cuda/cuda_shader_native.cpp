@@ -7,7 +7,7 @@
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_buffer.h>
 #include <backends/cuda/cuda_accel.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 #include <backends/cuda/cuda_bindless_array.h>
 #include <backends/cuda/cuda_command_encoder.h>
 #include <backends/cuda/cuda_shader_native.h>
@@ -16,8 +16,10 @@ namespace luisa::compute::cuda {
 
 CUDAShaderNative::CUDAShaderNative(const char *ptx, size_t ptx_size,
                                    const char *entry, uint3 block_size,
+                                   luisa::vector<Usage> argument_usages,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
-    : _entry{entry},
+    : CUDAShader{std::move(argument_usages)},
+      _entry{entry},
       _block_size{block_size.x, block_size.y, block_size.z},
       _bound_arguments{std::move(bound_arguments)} {
 
@@ -52,7 +54,7 @@ CUDAShaderNative::~CUDAShaderNative() noexcept {
     LUISA_CHECK_CUDA(cuModuleUnload(_module));
 }
 
-void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
+void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept {
 
     // TODO: support indirect dispatch
     LUISA_ASSERT(!command->is_indirect(), "Indirect dispatch is not supported on CUDA backend.");
@@ -83,7 +85,7 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                 break;
             }
             case Tag::TEXTURE: {
-                auto texture = reinterpret_cast<const CUDAMipmapArray *>(arg.texture.handle);
+                auto texture = reinterpret_cast<const CUDATexture *>(arg.texture.handle);
                 auto binding = texture->binding(arg.texture.level);
                 auto ptr = allocate_argument(sizeof(binding));
                 std::memcpy(ptr, &binding, sizeof(binding));
@@ -120,12 +122,6 @@ void CUDAShaderNative::launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
     // launch configuration
     auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
     auto blocks = (launch_size + block_size - 1u) / block_size;
-    LUISA_VERBOSE_WITH_LOCATION(
-        "Dispatching native shader #{} ({}) with {} argument(s) "
-        "in ({}, {}, {}) blocks of size ({}, {}, {}).",
-        command->handle(), _entry, arguments.size(),
-        blocks.x, blocks.y, blocks.z,
-        block_size.x, block_size.y, block_size.z);
     // launch
     auto cuda_stream = encoder.stream()->handle();
     LUISA_CHECK_CUDA(cuLaunchKernel(

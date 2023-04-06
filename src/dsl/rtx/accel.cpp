@@ -13,8 +13,12 @@ Var<bool> AccelExprProxy::trace_any(Expr<Ray> ray, Expr<uint> vis_mask) const no
     return Expr<Accel>{_accel}.trace_any(ray, vis_mask);
 }
 
-RayQuery AccelExprProxy::trace_all(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
-    return Expr<Accel>{_accel}.trace_all(ray, vis_mask);
+RayQueryAll AccelExprProxy::query_all(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
+    return Expr<Accel>{_accel}.query_all(ray, vis_mask);
+}
+
+RayQueryAny AccelExprProxy::query_any(Expr<Ray> ray, Expr<uint> vis_mask) const noexcept {
+    return Expr<Accel>{_accel}.query_any(ray, vis_mask);
 }
 
 Var<float4x4> AccelExprProxy::instance_transform(Expr<int> instance_id) const noexcept {
@@ -71,11 +75,12 @@ Var<bool> Expr<Accel>::trace_any(Expr<Ray> ray, Expr<uint> mask) const noexcept 
             {_expression, ray.expression(), mask.expression()}));
 }
 
-RayQuery Expr<Accel>::trace_all(Expr<Ray> ray, Expr<uint> mask) const noexcept {
-    return RayQuery(
-        detail::FunctionBuilder::current()->call(
-            Type::of<RayQuery>(), CallOp::RAY_TRACING_TRACE_ALL,
-            {_expression, ray.expression(), mask.expression()}));
+RayQueryAll Expr<Accel>::query_all(Expr<Ray> ray, Expr<uint> mask) const noexcept {
+    return {_expression, ray.expression(), mask.expression()};
+}
+
+RayQueryAny Expr<Accel>::query_any(Expr<Ray> ray, Expr<uint> mask) const noexcept {
+    return {_expression, ray.expression(), mask.expression()};
 }
 
 Var<float4x4> Expr<Accel>::instance_transform(Expr<uint> instance_id) const noexcept {

@@ -321,6 +321,7 @@ struct HashMapIndex : public HashMap::IndexBase {
     inline typename HashMap::ValueType &value() const noexcept {
         return this->node->data.second;
     }
+    using HashMap::IndexBase::operator bool;
 };
 
 template<typename K, typename... Other>
@@ -343,6 +344,7 @@ public:
     K &operator*() const noexcept {
         return MapType::GetFirst(this->node->data);
     }
+    using HashMap<K, void, Other...>::IndexBase::operator bool;
 };
 
 }// namespace hashmap_detail
@@ -653,6 +655,7 @@ public:
         mSize = 0;
     }
     [[nodiscard]] size_t size() const noexcept { return mSize; }
+    [[nodiscard]] bool empty() const noexcept { return mSize == 0; }
     [[nodiscard]] size_t capacity() const noexcept { return mCapacity; }
 };
 }// namespace vstd

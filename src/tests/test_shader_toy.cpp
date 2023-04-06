@@ -2,8 +2,6 @@
 // Created by Mike Smith on 2021/6/25.
 //
 
-#include <iostream>
-
 #include <core/clock.h>
 #include <core/logging.h>
 #include <runtime/context.h>
@@ -94,7 +92,7 @@ int main(int argc, char *argv[]) {
     static constexpr auto width = 1024u;
     static constexpr auto height = 1024u;
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    Window window{"Display", make_uint2(width, height), false};
+    Window window{"Display", make_uint2(width, height)};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,

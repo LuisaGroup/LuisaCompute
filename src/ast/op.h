@@ -148,16 +148,16 @@ enum struct CallOp : uint32_t {
     FACEFORWARD,   // (floatN, floatN, floatN)
     REFLECT,       // (floatN, floatN)
 
-    REDUCE_SUM,     // (floatN)
-    REDUCE_PRODUCT, // (floatN)
-    REDUCE_MIN,     // (floatN)
-    REDUCE_MAX,     // (floatN)
+    REDUCE_SUM,    // (floatN)
+    REDUCE_PRODUCT,// (floatN)
+    REDUCE_MIN,    // (floatN)
+    REDUCE_MAX,    // (floatN)
 
-    OUTER_PRODUCT, // (floatN | floatNxN)
-    MATRIX_COMPONENT_WISE_MULTIPLICATION, // (floatNxN)
-    DETERMINANT,// (floatNxN)
-    TRANSPOSE,  // (floatNxN)
-    INVERSE,    // (floatNxN)
+    OUTER_PRODUCT,                       // (floatN | floatNxN)
+    MATRIX_COMPONENT_WISE_MULTIPLICATION,// (floatNxN)
+    DETERMINANT,                         // (floatNxN)
+    TRANSPOSE,                           // (floatNxN)
+    INVERSE,                             // (floatNxN)
 
     SYNCHRONIZE_BLOCK,// ()
 
@@ -192,9 +192,9 @@ enum struct CallOp : uint32_t {
     BINDLESS_TEXTURE2D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint2
     BINDLESS_TEXTURE3D_SIZE_LEVEL,  // (bindless_array, index: uint, level: uint): uint3
 
-    BINDLESS_BUFFER_READ, // (bindless_array, index: uint): expr->type()
-    BINDLESS_BUFFER_SIZE, // (bindless_array) -> size
-    BINDLESS_BUFFER_TYPE, // (bindless_array) -> type
+    BINDLESS_BUFFER_READ,// (bindless_array, index: uint): expr->type()
+    BINDLESS_BUFFER_SIZE,// (bindless_array) -> size
+    BINDLESS_BUFFER_TYPE,// (bindless_array) -> type
 
     MAKE_BOOL2, // (bool, bool2)
     MAKE_BOOL3, // (bool, bool3)
@@ -208,6 +208,16 @@ enum struct CallOp : uint32_t {
     MAKE_FLOAT2,// (scalar, vec2)
     MAKE_FLOAT3,// (scalar, vec3)
     MAKE_FLOAT4,// (scalar, vec4)
+
+    MAKE_INT16_2,  // (scalar, vec2)
+    MAKE_INT16_3,  // (scalar, vec3)
+    MAKE_INT16_4,  // (scalar, vec4)
+    MAKE_UINT16_2, // (scalar, vec2)
+    MAKE_UINT16_3, // (scalar, vec3)
+    MAKE_UINT16_4, // (scalar, vec4)
+    MAKE_FLOAT16_2,// (scalar, vec2)
+    MAKE_FLOAT16_3,// (scalar, vec3)
+    MAKE_FLOAT16_4,// (scalar, vec4)
 
     MAKE_FLOAT2X2,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)
@@ -231,16 +241,17 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_SET_INSTANCE_OPACITY,   // (Accel, uint, bool)
     RAY_TRACING_TRACE_CLOSEST,          // (Accel, ray, mask: uint): TriangleHit
     RAY_TRACING_TRACE_ANY,              // (Accel, ray, mask: uint): bool
-    RAY_TRACING_TRACE_ALL,              // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ALL,              // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ANY,
 
     // ray query
-    RAY_QUERY_PROCEED,                 //Proceed(RayQuery): bool return: is bvh completed?
-    RAY_QUERY_IS_CANDIDATE_TRIANGLE,   // (RayQuery): bool
+    RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
     RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
     RAY_QUERY_TRIANGLE_CANDIDATE_HIT,  // (RayQuery): TriangleHit
     RAY_QUERY_COMMITTED_HIT,           // (RayQuery): CommittedHit
     RAY_QUERY_COMMIT_TRIANGLE,         // (RayQuery): void
-    RAY_QUERY_COMMIT_PROCEDURAL,       // (RayQuery): void
+    RAY_QUERY_COMMIT_PROCEDURAL,       // (RayQuery, float): void
+    RAY_QUERY_TERMINATE,               // (RayQuery): void
 
     // rasterization
     RASTER_DISCARD,// (): void
@@ -329,7 +340,8 @@ public:
     [[nodiscard]] auto uses_raytracing() const noexcept {
         return test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
                test(CallOp::RAY_TRACING_TRACE_ANY) ||
-               test(CallOp::RAY_TRACING_TRACE_ALL);
+               test(CallOp::RAY_TRACING_QUERY_ALL) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY);
     }
     [[nodiscard]] auto uses_atomic() const noexcept {
         return test(CallOp::ATOMIC_FETCH_ADD) ||

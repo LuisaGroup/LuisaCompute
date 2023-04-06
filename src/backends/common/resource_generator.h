@@ -4,6 +4,7 @@
 #include <runtime/volume.h>
 #include <runtime/raster/depth_buffer.h>
 #include <runtime/buffer.h>
+#include <backends/ext/raster_ext.h>
 
 namespace luisa::compute {
 
@@ -23,7 +24,7 @@ public:
         return {device, create_info};
     }
     [[nodiscard]] static DepthBuffer create_native_depth_buffer(const ResourceCreationInfo &create_info, DeviceInterface *device, DepthFormat format, uint2 size) noexcept {
-        return {create_info, device, format, size};
+        return {create_info, static_cast<RasterExt *>(device->extension(RasterExt::name)), device, format, size};
     }
     template<typename T>
     [[nodiscard]] static BufferView<T> create_buffer_view(uint64_t handle, size_t offset_bytes, size_t size, size_t total_size) noexcept {

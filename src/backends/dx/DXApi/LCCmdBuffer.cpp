@@ -14,6 +14,8 @@
 #include <runtime/dispatch_buffer.h>
 #include <core/logging.h>
 #include <runtime/rtx/aabb.h>
+#include <Resource/DepthBuffer.h>
+#include <vstl/atomic.h>
 namespace lc::dx {
 using Argument = luisa::compute::Argument;
 template<typename Visitor>
@@ -46,7 +48,6 @@ class LCPreProcessVisitor : public CommandVisitor {
 public:
     CommandBufferBuilder *bd;
     ResourceStateTracker *stateTracker;
-    vstd::vector<Resource const *> *backState;
     vstd::vector<std::pair<size_t, size_t>> *argVecs;
     vstd::vector<uint8_t> *argBuffer;
     vstd::vector<BottomAccelData> *bottomAccelDatas;
@@ -112,15 +113,24 @@ public:
         }
         void operator()(Argument::BindlessArray const &bf) {
             auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
-            for (auto &&i : self->stateTracker->WriteStateMap()) {
-                if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
-                    self->backState->emplace_back(i);
+            vstd::fixed_vector<Resource const *, 16> writeMap;
+            {
+                arr->Lock();
+                auto unlocker = vstd::scope_exit([&] {
+                    arr->Unlock();
+                });
+                for (auto &&i : self->stateTracker->WriteStateMap()) {
+                    if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i))) {
+                        writeMap.emplace_back(i);
+                    }
                 }
             }
-            for (auto &&i : *self->backState) {
-                self->stateTracker->RecordState(i, self->stateTracker->ReadState(ResourceReadUsage::Srv));
+            if (!writeMap.empty()) {
+                auto readState = self->stateTracker->ReadState(ResourceReadUsage::Srv);
+                for (auto &&i : writeMap) {
+                    self->stateTracker->RecordState(i, readState);
+                }
             }
-            self->backState->clear();
             ++arg;
         }
         void operator()(Argument::Uniform const &a) {
@@ -278,8 +288,8 @@ public:
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         BottomAccel::AABBOptions aabbOptions{
             .aabbBuffer = reinterpret_cast<Buffer const *>(cmd->aabb_buffer()),
-            .offset = cmd->aabb_offset(),
-            .count = cmd->aabb_count()};
+            .offset = cmd->aabb_buffer_offset(),
+            .size = cmd->aabb_buffer_size()};
         AddBuildAccel(
             accel->PreProcessStates(
                 *bd,
@@ -361,9 +371,6 @@ public:
             cmd->offset(),
             cmd->size());
         bd->Upload(bf, cmd->data());
-        stateTracker->RecordState(
-            bf.buffer,
-            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const BufferDownloadCommand *cmd) noexcept override {
         BufferView bf(
@@ -383,9 +390,6 @@ public:
             cmd->src_offset(),
             cmd->dst_offset(),
             cmd->size());
-        stateTracker->RecordState(
-            dstBf,
-            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const BufferToTextureCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
@@ -395,9 +399,6 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-        stateTracker->RecordState(
-            rt,
-            stateTracker->ReadState(ResourceReadUsage::Srv, rt));
     }
     struct Visitor {
         LCCmdVisitor *self;
@@ -531,9 +532,6 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
-        stateTracker->RecordState(
-            rt,
-            stateTracker->ReadState(ResourceReadUsage::Srv, rt));
     }
     void visit(const ClearDepthCommand *cmd) noexcept {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
@@ -606,9 +604,6 @@ public:
             dst,
             0,
             cmd->dst_level());
-        stateTracker->RecordState(
-            dst,
-            stateTracker->ReadState(ResourceReadUsage::Srv, dst));
     }
     void visit(const TextureToBufferCopyCommand *cmd) noexcept override {
         auto rt = reinterpret_cast<TextureBase *>(cmd->texture());
@@ -618,9 +613,6 @@ public:
             rt,
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
-        stateTracker->RecordState(
-            bf,
-            stateTracker->ReadState(ResourceReadUsage::Srv));
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
@@ -681,10 +673,10 @@ public:
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
         bindProps->clear();
-
         auto cmdList = bd->GetCB()->CmdList();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
+        DepthFormat dsvFormat{DepthFormat::None};
         // TODO:Set render target
         // Set viewport
         auto alloc = bd->GetCB()->GetAlloc();
@@ -698,6 +690,7 @@ public:
                 size = max(size, uint2(1));
             } else if (dsv.handle != ~0ull) {
                 auto tex = reinterpret_cast<TextureBase *>(dsv.handle);
+                dsvFormat = DepthBuffer::GFXFormatToDepth(tex->Format());
                 size = {tex->Width(), tex->Height()};
             }
             auto &&viewport = cmd->viewport();
@@ -715,6 +708,7 @@ public:
                 .bottom = static_cast<int>(view.TopLeftY + view.Height + 0.4999f)};
             cmdList->RSSetScissorRects(1, &rect);
         }
+        GFXFormat rtvFormats[8];
         {
 
             D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle;
@@ -727,8 +721,9 @@ public:
                 for (auto i : vstd::range(rtvs.size())) {
                     auto &&rtv = rtvs[i];
                     auto tex = reinterpret_cast<TextureBase *>(rtv.handle);
+                    rtvFormats[i] = tex->Format();
                     D3D12_RENDER_TARGET_VIEW_DESC viewDesc{
-                        .Format = static_cast<DXGI_FORMAT>(tex->Format()),
+                        .Format = static_cast<DXGI_FORMAT>(rtvFormats[i]),
                         .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D};
                     viewDesc.Texture2D = {
                         .MipSlice = rtv.level,
@@ -751,7 +746,9 @@ public:
             }
             cmdList->OMSetRenderTargets(rtvs.size(), &rtvHandle, true, dsvHandlePtr);
         }
-        auto shader = reinterpret_cast<RasterShader const *>(cmd->handle());
+        auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
+        auto rasterState = cmd->raster_state();
+        auto pso = shader->GetPSO({rtvFormats, rtvs.size()}, dsvFormat, rasterState);
         auto &&tempBuffer = *bufferVec;
         bufferVec++;
         bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
@@ -761,9 +758,9 @@ public:
         DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
         vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
         DecodeCmd(cmd->arguments(), Visitor{this, shader->Args().data()});
-        bd->SetRasterShader(shader, *bindProps);
+        bd->SetRasterShader(shader, pso, *bindProps);
         cmdList->IASetPrimitiveTopology([&] {
-            switch (shader->TopoType()) {
+            switch (rasterState.topology) {
                 case TopologyType::Line:
                     return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
                 case TopologyType::Point:
@@ -829,17 +826,16 @@ void LCCmdBuffer::Execute(
     auto commands = cmdList.commands();
     auto funcs = std::move(cmdList).steal_callbacks();
     auto allocator = queue.CreateAllocator(maxAlloc);
-    tracker.listType = allocator->Type();
     bool cmdListIsEmpty = true;
     {
+        std::lock_guard lck{mtx};
+        tracker.listType = allocator->Type();
         LCPreProcessVisitor ppVisitor;
         ppVisitor.stateTracker = &tracker;
-        ppVisitor.backState = &backState;
         ppVisitor.argVecs = &argVecs;
         ppVisitor.argBuffer = &argBuffer;
         ppVisitor.bottomAccelDatas = &bottomAccelDatas;
         ppVisitor.accelOffset = &accelOffset;
-        backState.clear();
         argVecs.clear();
         argBuffer.clear();
         bottomAccelDatas.clear();
@@ -946,12 +942,12 @@ void LCCmdBuffer::Execute(
         if (cmdListIsEmpty)
             queue.ExecuteEmpty(std::move(allocator));
         else
-            lastFence = queue.Execute(std::move(allocator));
+            vstd::atomic_max(lastFence, queue.Execute(std::move(allocator)));
     } else {
         if (cmdListIsEmpty)
             queue.ExecuteEmptyCallbacks(std::move(allocator), std::move(funcs));
         else
-            lastFence = queue.ExecuteCallbacks(std::move(allocator), std::move(funcs));
+            vstd::atomic_max(lastFence, queue.ExecuteCallbacks(std::move(allocator), std::move(funcs)));
     }
 }
 void LCCmdBuffer::Sync() {
@@ -962,8 +958,9 @@ void LCCmdBuffer::Present(
     TextureBase *img,
     size_t maxAlloc) {
     auto alloc = queue.CreateAllocator(maxAlloc);
-    tracker.listType = alloc->Type();
     {
+        std::lock_guard lck{mtx};
+        tracker.listType = alloc->Type();
         swapchain->frameIndex = swapchain->swapChain->GetCurrentBackBufferIndex();
         auto &&rt = &swapchain->m_renderTargets[swapchain->frameIndex];
         auto cb = alloc->GetBuffer();
@@ -990,7 +987,7 @@ void LCCmdBuffer::Present(
             nullptr);
         tracker.RestoreState(bd);
     }
-    lastFence = queue.ExecuteAndPresent(std::move(alloc), swapchain->swapChain.Get(), swapchain->vsync);
+    vstd::atomic_max(lastFence, queue.ExecuteAndPresent(std::move(alloc), swapchain->swapChain.Get(), swapchain->vsync));
 }
 void LCCmdBuffer::CompressBC(
     TextureBase *rt,
@@ -1016,7 +1013,6 @@ void LCCmdBuffer::CompressBC(
     uint numBlocks = xBlocks * yBlocks;
     uint numTotalBlocks = numBlocks;
     static constexpr size_t BLOCK_SIZE = 16;
-    auto bufferReadState = tracker.ReadState(ResourceReadUsage::Srv);
     if (result.size_bytes() != BLOCK_SIZE * numBlocks) [[unlikely]] {
         LUISA_ERROR("Texture compress output buffer incorrect size!");
     }
@@ -1024,15 +1020,17 @@ void LCCmdBuffer::CompressBC(
         device,
         BLOCK_SIZE * numBlocks,
         allocator,
-        bufferReadState);
+        D3D12_RESOURCE_STATE_COMMON);
     auto outBufferPtr = reinterpret_cast<Buffer *>(result.handle());
     BufferView outBuffer{
         outBufferPtr,
         result.offset_bytes(),
         result.size_bytes()};
     auto alloc = queue.CreateAllocator(maxAlloc);
-    tracker.listType = alloc->Type();
     {
+        std::lock_guard lck{mtx};
+        tracker.listType = alloc->Type();
+        auto bufferReadState = tracker.ReadState(ResourceReadUsage::Srv);
         auto cmdBuffer = alloc->GetBuffer();
         auto cmdBuilder = cmdBuffer->Build();
         ID3D12DescriptorHeap *h[2] = {
@@ -1156,8 +1154,10 @@ void LCCmdBuffer::CompressBC(
         tracker.RecordState(outBufferPtr, D3D12_RESOURCE_STATE_COPY_SOURCE);
         tracker.RestoreState(cmdBuilder);
     }
-    lastFence = queue.ExecuteCallback(
-        std::move(alloc),
-        [backBuffer = std::move(backBuffer)] {});
+    vstd::atomic_max(
+        lastFence,
+        queue.ExecuteCallback(
+            std::move(alloc),
+            [backBuffer = std::move(backBuffer)] {}));
 }
 }// namespace lc::dx

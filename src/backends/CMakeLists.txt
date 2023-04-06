@@ -39,9 +39,11 @@ function(luisa_compute_add_backend name)
                 DESTINATION ${CMAKE_INSTALL_BINDIR}/.data/${name}_builtin)
     endif ()
 endfunction()
-if(LUISA_COMPUTE_COMPILED_BY_RUST_FRONTEND OR LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
+
+if (LUISA_COMPUTE_COMPILED_BY_RUST_FRONTEND OR LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
     add_subdirectory(common)
-endif()
+endif ()
+
 if (LUISA_COMPUTE_ENABLE_DX)
     add_subdirectory(dx)
 endif ()
@@ -52,6 +54,10 @@ endif ()
 
 if (LUISA_COMPUTE_ENABLE_CUDA)
     add_subdirectory(cuda)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_VALIDATION)
+    add_subdirectory(validation)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_RUST)

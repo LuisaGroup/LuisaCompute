@@ -11,3 +11,4 @@ if is_plat("windows") then
 elseif is_plat("macosx") then
 	add_frameworks("CoreFoundation")
 end
+target_end()

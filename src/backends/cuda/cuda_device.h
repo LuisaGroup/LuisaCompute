@@ -9,10 +9,11 @@
 #include <runtime/rhi/device_interface.h>
 #include <backends/common/default_binary_io.h>
 #include <backends/cuda/cuda_error.h>
-#include <backends/cuda/cuda_mipmap_array.h>
+#include <backends/cuda/cuda_texture.h>
 #include <backends/cuda/cuda_stream.h>
 #include <backends/cuda/cuda_compiler.h>
 #include <backends/cuda/optix_api.h>
+#include <backends/cuda/cuda_shader_metadata.h>
 
 namespace luisa::compute::cuda {
 
@@ -87,8 +88,8 @@ private:
 private:
     [[nodiscard]] ShaderCreationInfo _create_shader(const string &source,
                                                     ShaderOption option,
-                                                    uint3 block_size,
-                                                    bool is_raytracing,
+                                                    luisa::span<const char *const> nvrtc_options,
+                                                    const CUDAShaderMetadata &expected_metadata,
                                                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
 
 public:
@@ -115,8 +116,6 @@ public:
     void destroy_texture(uint64_t handle) noexcept override;
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
-    ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
-    void destroy_depth_buffer(uint64_t handle) noexcept override;
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
@@ -127,6 +126,7 @@ public:
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
     ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
+    Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
     ResourceCreationInfo create_event() noexcept override;
     void destroy_event(uint64_t handle) noexcept override;

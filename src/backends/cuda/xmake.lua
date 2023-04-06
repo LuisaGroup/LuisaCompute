@@ -3,7 +3,7 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 4
 })
-set_values("vulkan_macro", "LC_CUDA_ENABLE_VULKAN_SWAPCHAIN")
+set_values("vulkan_macro", "LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN")
 add_rules("lc_vulkan")
 add_deps("lc-runtime")
 add_files("**.cpp", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
@@ -25,5 +25,6 @@ end)
 -- add_includedirs("#")
 after_build(function(target)
 	local binDir = target:targetdir()
-	os.cp("src/backends/cuda/cuda_builtin", path.join(binDir, ".data/"))
+	os.cp(path.join(os.scriptdir(), "cuda_builtin"), path.join(binDir, ".data/"))
 end)
+target_end()

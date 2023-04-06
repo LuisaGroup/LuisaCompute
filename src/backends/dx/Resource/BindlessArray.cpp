@@ -27,13 +27,13 @@ BindlessArray::~BindlessArray() {
         Return(i.first.tex2D);
         Return(i.first.tex3D);
     }
-    while (auto i = freeQueue.pop()) {
-        device->globalHeap->ReturnIndex(*i);
+    for(auto&& i : freeQueue){
+        device->globalHeap->ReturnIndex(i);
     }
 }
 void BindlessArray::TryReturnIndex(MapIndex &index, uint32_t &originValue) {
     if (originValue != BindlessStruct::n_pos) {
-        freeQueue.push(originValue);
+        freeQueue.push_back(originValue);
         originValue = BindlessStruct::n_pos;
         // device->globalHeap->ReturnIndex(originValue);
         auto &&v = index.value();
@@ -50,6 +50,7 @@ BindlessArray::MapIndex BindlessArray::AddIndex(size_t ptr) {
     return ite;
 }
 void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::Modification> mods) {
+    std::lock_guard lck{mtx};
     if (mods.empty()) return;
     auto EmplaceTex = [&]<bool isTex2D>(BindlessStruct &bindGrp, MapIndicies &indices, uint64_t handle, TextureBase const *tex, Sampler const &samp) {
         if constexpr (isTex2D)
@@ -127,6 +128,7 @@ void BindlessArray::PreProcessStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker,
     vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const {
+    std::lock_guard lck{mtx};
     if (mods.empty()) return;
     tracker.RecordState(
         &buffer,
@@ -136,6 +138,7 @@ void BindlessArray::UpdateStates(
     CommandBufferBuilder &builder,
     ResourceStateTracker &tracker,
     vstd::span<const BindlessArrayUpdateCommand::Modification> mods) const {
+    std::lock_guard lck{mtx};
     if (!mods.empty()) {
         for (auto &&mod : mods) {
             builder.Upload(
@@ -149,13 +152,9 @@ void BindlessArray::UpdateStates(
             &buffer,
             tracker.ReadState(ResourceReadUsage::Srv));
     }
-    vstd::vector<uint> needReturnIdx;
-    while (auto i = freeQueue.pop()) {
-        needReturnIdx.push_back(i);
-    }
-    if (!needReturnIdx.empty()) {
+    if (!freeQueue.empty()) {
         builder.GetCB()->GetAlloc()->ExecuteAfterComplete(
-            [vec = std::move(needReturnIdx),
+            [vec = std::move(freeQueue),
              device = device] {
                 for (auto &&i : vec) {
                     device->globalHeap->ReturnIndex(i);

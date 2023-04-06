@@ -30,28 +30,31 @@ struct ReorderFuncTable {
         auto cs = reinterpret_cast<ComputeShader *>(shader_handle);
         return cs->Args()[argument_index].varUsage;
     }
-    size_t aabb_stride() const noexcept {
-        return 32;
-    }
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {
         reinterpret_cast<BindlessArray *>(handle)->Bind(modifications);
     }
     luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {
-        return reinterpret_cast<ComputeShader const*>(handle)->ArgBindings();
+        return reinterpret_cast<ComputeShader const *>(handle)->ArgBindings();
+    }
+    void lock_bindless(uint64_t bindless_handle) const noexcept {
+        reinterpret_cast<BindlessArray *>(bindless_handle)->Lock();
+    }
+    void unlock_bindless(uint64_t bindless_handle) const noexcept {
+        reinterpret_cast<BindlessArray *>(bindless_handle)->Unlock();
     }
 };
 class LCCmdBuffer final : public vstd::IOperatorNewBase {
 protected:
     Device *device;
     ResourceStateTracker tracker;
-    uint64 lastFence = 0;
+    std::atomic_uint64_t lastFence{0};
     ReorderFuncTable reorderFuncTable;
     CommandReorderVisitor<ReorderFuncTable, false> reorder;
     vstd::vector<BindProperty> bindProps;
     vstd::vector<ButtomCompactCmd> updateAccel;
     vstd::vector<D3D12_VERTEX_BUFFER_VIEW> vbv;
+    std::mutex mtx;
 
-    vstd::vector<Resource const *> backState;
     vstd::vector<std::pair<size_t, size_t>> argVecs;
     vstd::vector<uint8_t> argBuffer;
     vstd::vector<BottomAccelData> bottomAccelDatas;

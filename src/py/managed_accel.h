@@ -23,7 +23,7 @@ struct ProceduralUpdateCmd {
     AccelOption option;
     uint64_t aabb_buffer;
     size_t aabb_offset;
-    size_t aabb_count;
+    size_t aabb_size;
 };
 enum class MeshRefType {
     Mesh,

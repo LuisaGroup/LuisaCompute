@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
     auto J = device.create_buffer<float>(n_particles);
     auto grid_v = device.create_buffer<float>(n_grid * n_grid * n_grid * 4u);
     auto grid_m = device.create_buffer<float>(n_grid * n_grid * n_grid);
-    Window window{"MPM3D", resolution, resolution, false};
+    Window window{"MPM3D", resolution, resolution};
     // luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
     // std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
     // file << "Frame, Time(ms)\n";

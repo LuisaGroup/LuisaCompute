@@ -88,6 +88,7 @@ static void AddCompileFlags(Vec &args) {
         {L"-Gfa",
          L"-all-resources-bound",
          L"-no-warnings",
+         L"-enable-16bit-types",
          L"-HV 2021"});
 }
 template<typename Vec>

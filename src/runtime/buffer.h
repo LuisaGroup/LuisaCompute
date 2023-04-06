@@ -10,6 +10,10 @@
 #include <runtime/rhi/resource.h>
 #include <runtime/rhi/device_interface.h>
 
+namespace lc::validation {
+class Stream;
+}
+
 namespace luisa::compute {
 
 namespace detail {
@@ -53,20 +57,24 @@ private:
           _size{info.total_size_bytes / info.element_stride},
           _element_stride{info.element_stride} {}
     Buffer(DeviceInterface *device, size_t size) noexcept
-        : Buffer{
-              device,
-              [&] {
-                  if (size == 0)[[unlikely]] {
-                      detail::buffer_size_zero_error();
-                  }
-                  return device->create_buffer(Type::of<T>(), size);
-              }()} {}
+        : Buffer{device, [&] {
+                     if (size == 0) [[unlikely]] {
+                         detail::buffer_size_zero_error();
+                     }
+                     return device->create_buffer(Type::of<T>(), size);
+                 }()} {}
 
 public:
     Buffer() noexcept = default;
+    ~Buffer() noexcept override {
+        if (*this) { device()->destroy_buffer(handle()); }
+    }
     Buffer(Buffer &&) noexcept = default;
     Buffer(Buffer const &) noexcept = delete;
-    Buffer &operator=(Buffer &&) noexcept = default;
+    Buffer &operator=(Buffer &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     Buffer &operator=(Buffer const &) noexcept = delete;
     using Resource::operator bool;
     // properties
@@ -87,10 +95,11 @@ public:
         return reinterpret_cast<const detail::BufferExprProxy<Buffer<T>> *>(this);
     }
 };
+
 // BufferView represents a reference to a Buffer. Use a BufferView that referenced to a destructed Buffer is an undefined behavior.
 template<typename T>
 class BufferView {
-
+    friend class lc::validation::Stream;
     static_assert(is_valid_buffer_element_v<T>);
 
 private:
@@ -100,7 +109,6 @@ private:
     size_t _element_stride;
     size_t _size;
     size_t _total_size;
-    
 
 private:
     friend class Buffer<T>;
@@ -115,7 +123,7 @@ private:
     }
 
 public:
-    BufferView() noexcept : BufferView{invalid_resource_handle, 0, 0, 0} {}
+    BufferView() noexcept : BufferView{nullptr, invalid_resource_handle, 0, 0, 0, 0} {}
     [[nodiscard]] explicit operator bool() const noexcept { return _handle != invalid_resource_handle; }
     BufferView(const Buffer<T> &buffer) noexcept : BufferView{buffer.view()} {}
     // properties

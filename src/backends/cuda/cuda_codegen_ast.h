@@ -8,10 +8,6 @@
 #include <ast/statement.h>
 #include <ast/expression.h>
 
-namespace luisa {
-class StringScratch;
-}
-
 namespace luisa::compute::cuda {
 
 /**
@@ -20,11 +16,15 @@ namespace luisa::compute::cuda {
  */
 class CUDACodegenAST final : private TypeVisitor, private ExprVisitor, private StmtVisitor {
 
+public:
+    class RayQueryLowering;
+
 private:
     StringScratch &_scratch;
     Function _function;
     luisa::vector<Function> _generated_functions;
     luisa::vector<uint64_t> _generated_constants;
+    luisa::unique_ptr<RayQueryLowering> _ray_query_lowering;
     uint32_t _indent{0u};
 
 private:
@@ -32,7 +32,8 @@ private:
     const Type *_triangle_hit_type;
     const Type *_procedural_hit_type;
     const Type *_committed_hit_type;
-    const Type *_ray_query_type;
+    const Type *_ray_query_all_type;
+    const Type *_ray_query_any_type;
 
 private:
     void visit(const Type *type) noexcept override;
@@ -58,12 +59,13 @@ private:
     void visit(const ForStmt *stmt) override;
     void visit(const ConstantExpr *expr) override;
     void visit(const CommentStmt *stmt) override;
+    void visit(const RayQueryStmt *stmt) override;
     void visit(const CpuCustomOpExpr *expr) override;
     void visit(const GpuCustomOpExpr *expr) override;
 
 private:
-    void _emit_type_decl() noexcept;
-    void _emit_variable_decl(Variable v, bool force_const) noexcept;
+    void _emit_type_decl(Function f) noexcept;
+    void _emit_variable_decl(Function f, Variable v, bool force_const) noexcept;
     void _emit_type_name(const Type *type) noexcept;
     void _emit_function(Function f) noexcept;
     void _emit_variable_name(Variable v) noexcept;
@@ -71,9 +73,11 @@ private:
     void _emit_statements(luisa::span<const Statement *const> stmts) noexcept;
     void _emit_constant(Function::Constant c) noexcept;
     void _emit_variable_declarations(Function f) noexcept;
+    void _emit_builtin_variables() noexcept;
 
 public:
     explicit CUDACodegenAST(StringScratch &scratch) noexcept;
+    ~CUDACodegenAST() noexcept override;
     void emit(Function f);
 };
 

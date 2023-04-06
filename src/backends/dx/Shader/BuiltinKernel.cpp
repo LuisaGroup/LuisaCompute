@@ -34,7 +34,7 @@ ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO
         {},
         {},
         uint3(64, 1, 1),
-        60,
+        62,
         "set_accel_kernel.dxil"sv,
         CacheType::Internal, true);
 }
@@ -89,7 +89,7 @@ static ComputeShader *LoadBCKernel(
         {},
         {},
         uint3(1, 1, 1),
-        60,
+        62,
         fileName,
         CacheType::Internal, true);
 }

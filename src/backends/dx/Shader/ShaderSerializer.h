@@ -51,17 +51,12 @@ public:
         bool &clearCache);
     static RasterShader *RasterDeSerialize(
         luisa::string_view fileName,
-        luisa::string_view psoName,
         CacheType cacheType,
         Device *device,
         luisa::BinaryIO const &streamFunc,
         vstd::optional<vstd::MD5> const &ilMd5,
         vstd::MD5 &typeMD5,
-        MeshFormat const &meshFormat,
-        RasterState const &state,
-        vstd::span<PixelFormat const> rtv,
-        DepthFormat dsv,
-        bool &clearCache2);
+        MeshFormat const &meshFormat);
     static bool CheckMD5(
         vstd::string_view fileName,
         vstd::MD5 const &checkMD5,

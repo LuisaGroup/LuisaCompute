@@ -4,20 +4,28 @@
 #include <runtime/image.h>
 
 namespace luisa::compute {
-
+class RasterExt;
 class LC_RUNTIME_API DepthBuffer : public Resource {
     friend class ResourceGenerator;
 
 private:
     uint2 _size{};
+    RasterExt *_raster_ext{};
     DepthFormat _format{};
-    DepthBuffer(const ResourceCreationInfo &create_info, DeviceInterface *device, DepthFormat format, uint2 size) noexcept;
+    DepthBuffer(const ResourceCreationInfo &create_info,
+                RasterExt *raster_ext,
+                DeviceInterface *device,
+                DepthFormat format, uint2 size) noexcept;
 
 public:
-    DepthBuffer(DeviceInterface *device, DepthFormat format, uint2 size) noexcept;
+    DepthBuffer(DeviceInterface *device, RasterExt *raster_ext, DepthFormat format, uint2 size) noexcept;
+    ~DepthBuffer() noexcept;
     DepthBuffer(DepthBuffer &&) noexcept = default;
     DepthBuffer(DepthBuffer const &) noexcept = delete;
-    DepthBuffer &operator=(DepthBuffer &&) noexcept = default;
+    DepthBuffer &operator=(DepthBuffer &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     DepthBuffer &operator=(DepthBuffer const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept { return _size; }

@@ -72,18 +72,18 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         sampler = make_random_sampler(coord.x, coord.y)
     else:
         sampler = RandomSampler(seed_image.read(coord))
-    radiance = float3(0)
+    radiance = half3(0)
     light_position = float3(-0.24, 1.98, 0.16)
     light_u = float3(-0.24, 1.98, -0.22) - light_position
     light_v = float3(0.23, 1.98, 0.16) - light_position
-    light_emission = float3(17.0, 12.0, 4.0)
+    light_emission = half3(17.0, 12.0, 4.0)
     light_area = length(cross(light_u, light_v))
     light_normal = normalize(cross(light_u, light_v))
     rx = sampler.next()
     ry = sampler.next()
     pixel = (float2(coord) + float2(rx, ry)) / frame_size * 2.0 - 1.0
     ray = generate_ray(pixel * float2(1.0, -1.0))
-    beta = float3(1.0)
+    beta = half3(1.0)
     pdf_bsdf = 1e30
     for depth in range(5):
         # trace
@@ -121,7 +121,7 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
             else:
                 pdf_light = length_squared(
                     p - ray.get_origin()) / (light_area * cos_wi)
-                mis_weight = balanced_heuristic(pdf_bsdf, pdf_light)
+                mis_weight = half(balanced_heuristic(pdf_bsdf, pdf_light))
                 radiance += mis_weight * beta * light_emission
             break
 
@@ -140,11 +140,11 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         if ((not occluded and cos_wi_light > 1e-4) and cos_light > 1e-4):
             pdf_light = (d_light * d_light) / (light_area * cos_light)
             pdf_bsdf = cos_wi_light * (1 / 3.1415926)
-            mis_weight = balanced_heuristic(pdf_light, pdf_bsdf)
-            bsdf = material.albedo * (1 / 3.1415926) * cos_wi_light
+            mis_weight = half(balanced_heuristic(pdf_light, pdf_bsdf))
+            bsdf = half3(material.albedo * (1 / 3.1415926) * cos_wi_light)
             # radiance += beta * bsdf * light_emission
             radiance += beta * bsdf * mis_weight * \
-                light_emission / max(pdf_light, 1e-4)
+                light_emission / half(max(pdf_light, 1e-4))
 
         # sample BSDF
         onb = make_onb(n)
@@ -159,18 +159,18 @@ def raytracing_kernel(image, seed_image, accel, heap, resolution, vertex_buffer,
         pdf_bsdf = cos_wi * (1 / 3.1415926)
 
         # rr
-        l = dot(float3(0.212671, 0.715160, 0.072169), beta)
+        l = dot(half3(0.212671, 0.715160, 0.072169), beta)
         if l == 0.0:
             break
         q = max(l, 0.05)
         r = sampler.next()
         if r >= q:
             break
-        beta *= 1.0 / q
+        beta *= half(1.0 / q)
         if any(isnan(radiance)):
-            radiance = float3(0.0)
+            radiance = half3(0.0)
     seed_image.write(coord, sampler.state)
-    image.write(coord, float4(
+    image.write(coord, half4(
         clamp(radiance, 0.0, 30.0), 1.0))
 
 

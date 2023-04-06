@@ -24,16 +24,16 @@ namespace detail {
 static inline uint64 CalcAlign(uint64 value, uint64 align) {
     return (value + (align - 1)) & ~(align - 1);
 }
-static vstd::string_view HLSLHeader(luisa::BinaryIO const *internalDataPath) {
-    static auto header = CodegenUtility::ReadInternalHLSLFileByte("hlsl_header", internalDataPath);
+static vstd::string_view HLSLHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
+    static auto header = util->ReadInternalHLSLFileByte("hlsl_header", internalDataPath);
     return {header.data(), header.size()};
 }
-static vstd::string_view RayTracingHeader(luisa::BinaryIO const *internalDataPath) {
-    static auto header = CodegenUtility::ReadInternalHLSLFileByte("raytracing_header", internalDataPath);
+static vstd::string_view RayTracingHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
+    static auto header = util->ReadInternalHLSLFileByte("raytracing_header", internalDataPath);
     return {header.data(), header.size()};
 }
 }// namespace detail
-static thread_local vstd::unique_ptr<CodegenStackData> opt;
+// static thread_local vstd::unique_ptr<CodegenStackData> opt;
 #ifdef USE_SPIRV
 CodegenStackData *CodegenUtility::StackData() { return opt.get(); }
 #endif
@@ -168,7 +168,7 @@ void CodegenUtility::GetConstantStruct(ConstantData const &data, vstd::StringBui
     str << "struct tc";
     vstd::to_string((constCount), str);
     uint64 varCount = 1;
-    eastl::visit(
+    luisa::visit(
         [&](auto &&arr) {
             varCount = arr.size();
         },
@@ -186,7 +186,7 @@ void CodegenUtility::GetConstantData(ConstantData const &data, vstd::StringBuild
     vstd::string name = vstd::to_string((constCount));
     str << "uniform const tc" << name << " c" << name;
     str << "={{";
-    eastl::visit(
+    luisa::visit(
         [&](auto &&arr) {
             for (auto const &ele : arr) {
                 PrintValue<std::remove_cvref_t<typename std::remove_cvref_t<decltype(arr)>::element_type>> prt;
@@ -217,8 +217,17 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::UINT32:
             str << "uint"sv;
             return;
+        case Type::Tag::FLOAT16:
+            str << "float16_t"sv;
+            return;
+        case Type::Tag::INT16:
+            str << "int16_t"sv;
+            return;
+        case Type::Tag::UINT16:
+            str << "uint16_t"sv;
+            return;
         case Type::Tag::MATRIX: {
-            CodegenUtility::GetTypeName(*type.element(), str, usage);
+            GetTypeName(*type.element(), str, usage);
             vstd::to_string(type.dimension(), str);
             str << 'x';
             vstd::to_string((type.dimension() == 3) ? 4 : type.dimension(), str);
@@ -226,11 +235,11 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             return;
         case Type::Tag::VECTOR: {
             if (type.dimension() != 3 || local_var) {
-                CodegenUtility::GetTypeName(*type.element(), str, usage);
+                GetTypeName(*type.element(), str, usage);
                 vstd::to_string((type.dimension()), str);
             } else {
                 str << 'w';
-                CodegenUtility::GetTypeName(*type.element(), str, usage);
+                GetTypeName(*type.element(), str, usage);
                 vstd::to_string(3, str);
             }
         }
@@ -253,9 +262,10 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             } else {
                 vstd::StringBuilder typeName;
                 if (ele->is_vector() && ele->dimension() == 3) {
-                    typeName << "float4"sv;
+                    GetTypeName(*ele->element(), typeName, usage);
+                    typeName << '4';
                 } else {
-                    if (opt->kernel.requires_atomic_float() && ele->tag() == Type::Tag::FLOAT32) {
+                    if (opt->kernel.requires_atomic_float() && (ele->tag() == Type::Tag::FLOAT32 || ele->tag() == Type::Tag::FLOAT16)) {
                         typeName << "int";
                     } else {
                         GetTypeName(*ele, typeName, usage);
@@ -470,10 +480,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "reversebits"sv;
             break;
         case CallOp::ISINF:
-            str << "_isinf"sv;
+            str << "isinf"sv;
             break;
         case CallOp::ISNAN:
-            str << "_isnan"sv;
+            str << "isnan"sv;
             break;
         case CallOp::ACOS:
             str << "acos"sv;
@@ -590,27 +600,27 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
-            if (expr->type()->tag() == Type::Tag::FLOAT32) {
+            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16)) {
                 str << "_atomic_exchange_float"sv;
             } else {
                 str << "_atomic_exchange"sv;
             }
         } break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: {
-            if (expr->type()->tag() == Type::Tag::FLOAT32) {
+            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16)) {
                 str << "_atomic_compare_exchange_float"sv;
             } else {
                 str << "_atomic_compare_exchange"sv;
             }
         } break;
         case CallOp::ATOMIC_FETCH_ADD: {
-            if (expr->type()->tag() == Type::Tag::FLOAT32)
+            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
                 str << "_atomic_add_float"sv;
             else
                 str << "_atomic_add"sv;
         } break;
         case CallOp::ATOMIC_FETCH_SUB: {
-            if (expr->type()->tag() == Type::Tag::FLOAT32)
+            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
                 str << "_atomic_sub_float"sv;
             else
                 str << "_atomic_sub"sv;
@@ -625,13 +635,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_atomic_xor"sv;
         } break;
         case CallOp::ATOMIC_FETCH_MIN: {
-            if (expr->type()->tag() == Type::Tag::FLOAT32)
+            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
                 str << "_atomic_min_float"sv;
             else
                 str << "_atomic_min"sv;
         } break;
         case CallOp::ATOMIC_FETCH_MAX: {
-            if (expr->type()->tag() == Type::Tag::FLOAT32)
+            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
                 str << "_atomic_max_float"sv;
             else
                 str << "_atomic_max"sv;
@@ -654,7 +664,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_INT4:
         case CallOp::MAKE_FLOAT2:
         case CallOp::MAKE_FLOAT3:
-        case CallOp::MAKE_FLOAT4: {
+        case CallOp::MAKE_FLOAT4:
+        case CallOp::MAKE_INT16_2:
+        case CallOp::MAKE_INT16_3:
+        case CallOp::MAKE_INT16_4:
+        case CallOp::MAKE_UINT16_2:
+        case CallOp::MAKE_UINT16_3:
+        case CallOp::MAKE_UINT16_4:
+        case CallOp::MAKE_FLOAT16_2:
+        case CallOp::MAKE_FLOAT16_3:
+        case CallOp::MAKE_FLOAT16_4: {
             if (args.size() == 1 && (args[0]->type() == expr->type())) {
                 args[0]->accept(vis);
             } else {
@@ -700,7 +719,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_READ: {
-            if (opt->kernel.requires_atomic_float() && expr->type()->tag() == Type::Tag::FLOAT32) {
+            if (opt->kernel.requires_atomic_float() && (expr->type()->tag() == Type::Tag::FLOAT32 || expr->type()->tag() == Type::Tag::FLOAT16)) {
                 str << "bfread_float"sv;
             } else {
                 str << "bfread"sv;
@@ -714,7 +733,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_WRITE: {
             assert(!opt->isRaster);
-            if (opt->kernel.requires_atomic_float() && args[2]->type()->tag() == Type::Tag::FLOAT32) {
+            if (opt->kernel.requires_atomic_float() && (args[2]->type()->tag() == Type::Tag::FLOAT32, args[2]->type()->tag() == Type::Tag::FLOAT16)) {
                 str << "bfwrite_float"sv;
             } else {
                 str << "bfwrite"sv;
@@ -732,8 +751,11 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::RAY_TRACING_TRACE_ANY:
             str << "TraceAny"sv;
             break;
-        case CallOp::RAY_TRACING_TRACE_ALL:
-            str << "TraceAll"sv;
+        case CallOp::RAY_TRACING_QUERY_ALL:
+            str << "QueryAll"sv;
+            break;
+        case CallOp::RAY_TRACING_QUERY_ANY:
+            str << "QueryAny"sv;
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
             str << "READ_BUFFER"sv;
@@ -853,14 +875,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << "EmplaceDispInd3D"sv;
             }
         } break;
-        case CallOp::RAY_QUERY_PROCEED:
-            args[0]->accept(vis);
-            str << ".Proceed()"sv;
-            return;
-        case CallOp::RAY_QUERY_IS_CANDIDATE_TRIANGLE:
-            args[0]->accept(vis);
-            str << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE"sv;
-            return;
+        case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
+            str << "RayQueryGetWorldRay<"sv;
+            GetTypeName(*expr->type(), str, Usage::NONE, false);
+            str << ',';
+            GetTypeName(*args[0]->type(), str, Usage::NONE, false);
+            str << '>';
+            break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
             str << "GetTriangleCandidateHit"sv;
             break;
@@ -880,6 +901,10 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             args[1]->accept(vis);
             str << ')';
             return;
+        case CallOp::RAY_QUERY_TERMINATE:
+            args[0]->accept(vis);
+            str << ".Abort()"sv;
+            return;
         default: {
             LUISA_ERROR("Function Not Implemented");
         } break;
@@ -892,6 +917,10 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {
     switch (t.tag()) {
         case Type::Tag::BOOL:
             return 1;
+        case Type::Tag::FLOAT16:
+        case Type::Tag::INT16:
+        case Type::Tag::UINT16:
+            return 2;
         case Type::Tag::FLOAT32:
         case Type::Tag::INT32:
         case Type::Tag::UINT32:
@@ -931,6 +960,11 @@ size_t CodegenUtility::GetTypeSize(Type const &t) {
 size_t CodegenUtility::GetTypeAlign(Type const &t) {// TODO: use t.alignment()
     switch (t.tag()) {
         case Type::Tag::BOOL:
+            return 1;
+        case Type::Tag::FLOAT16:
+        case Type::Tag::INT16:
+        case Type::Tag::UINT16:
+            return 2;
         case Type::Tag::FLOAT32:
         case Type::Tag::INT32:
         case Type::Tag::UINT32:
@@ -1024,8 +1058,8 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             vstd::to_string(i.type->dimension(), result);
             result << "]={"sv;
             auto &&dataView = i.data.view();
-            eastl::visit(
-                [&]<typename T>(eastl::span<T> const &sp) {
+            luisa::visit(
+                [&]<typename T>(vstd::span<T> const &sp) {
                     for (auto i : vstd::range(sp.size())) {
                         auto &&value = sp[i];
                         PrintValue<std::remove_cvref_t<T>>()(value, result);
@@ -1086,7 +1120,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
         }
         {
 
-            StringStateVisitor vis(func, result);
+            StringStateVisitor vis(func, result, this);
             vis.sharedVariables = &opt->sharedVariable;
             vis.VisitFunction(func);
         }
@@ -1139,7 +1173,7 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
         ++idx;
     }
     {
-        StringStateVisitor vis(vert, result);
+        StringStateVisitor vis(vert, result, this);
         vis.sharedVariables = &opt->sharedVariable;
         vis.VisitFunction(vert);
     }
@@ -1197,7 +1231,7 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
         ++idx;
     }
     {
-        StringStateVisitor vis(pixel, result);
+        StringStateVisitor vis(pixel, result, this);
         vis.sharedVariables = &opt->sharedVariable;
         vis.VisitFunction(pixel);
     }
@@ -1504,35 +1538,37 @@ void CodegenUtility::CodegenProperties(
     }
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {
-    vstd::string typeDescs;
-    typeDescs.reserve(512);
+    vstd::vector<uint64_t> typeDescs;
+    typeDescs.reserve(types.size());
     for (auto &&i : types) {
-        typeDescs << i->description();
+        typeDescs.emplace_back(i->hash());
     }
-    return {typeDescs};
+    return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(std::initializer_list<vstd::IRange<Variable> *> f) {
-    vstd::string typeDescs;
-    typeDescs.reserve(512);
+    vstd::vector<uint64_t> typeDescs;
     for (auto &&rg : f) {
         for (auto &&i : *rg) {
-            typeDescs << i.type()->description();
+            typeDescs.emplace_back(i.type()->hash());
         }
     }
-    return {typeDescs};
+    return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
-    vstd::StringBuilder typeDescs;
-    typeDescs.reserve(512);
-    for (auto &&i : func.arguments()) {
-        typeDescs << i.type()->description();
+    vstd::vector<uint64_t> typeDescs;
+    auto args = func.arguments();
+    typeDescs.reserve(args.size());
+    for (auto &&i : args) {
+        typeDescs.emplace_back(i.type()->hash());
     }
-    return {typeDescs.view()};
+    return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }
+CodegenUtility::CodegenUtility() {}
+CodegenUtility::~CodegenUtility() {}
 CodegenResult CodegenUtility::Codegen(
     Function kernel, luisa::BinaryIO const *internalDataPath) {
     assert(kernel.tag() == Function::Tag::KERNEL);
-    opt = CodegenStackData::Allocate();
+    opt = CodegenStackData::Allocate(this);
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
     });
@@ -1546,9 +1582,9 @@ CodegenResult CodegenUtility::Codegen(
     vstd::StringBuilder finalResult;
     finalResult.reserve(65500);
 
-    finalResult << detail::HLSLHeader(internalDataPath);
+    finalResult << detail::HLSLHeader(this, internalDataPath);
     if (kernel.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(internalDataPath);
+        finalResult << detail::RayTracingHeader(this, internalDataPath);
     }
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::RangeImpl(vstd::CacheEndRange(kernel.arguments()) | vstd::ValueRange{});
@@ -1575,7 +1611,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     Function vertFunc,
     Function pixelFunc,
     luisa::BinaryIO const *internalDataPath) {
-    opt = CodegenStackData::Allocate();
+    opt = CodegenStackData::Allocate(this);
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = vertFunc;
     opt->isRaster = true;
@@ -1700,9 +1736,9 @@ uint iid:SV_INSTANCEID;
     // TODO: gen pixel data
     CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer);
     codegenData << "#endif\n"sv;
-    finalResult << detail::HLSLHeader(internalDataPath);
+    finalResult << detail::HLSLHeader(this, internalDataPath);
     if (vertFunc.requires_raytracing() || pixelFunc.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(internalDataPath);
+        finalResult << detail::RayTracingHeader(this, internalDataPath);
     }
     opt->funcType = CodegenStackData::FuncType::Callable;
     if (nonEmptyCbuffer) {

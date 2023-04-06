@@ -7,4 +7,8 @@ IndirectDispatchBuffer Device::create_indirect_dispatch_buffer(size_t capacity) 
     return _create<IndirectDispatchBuffer>(capacity);
 }
 
+IndirectDispatchBuffer::~IndirectDispatchBuffer() noexcept {
+    if (*this) { device()->destroy_buffer(handle()); }
+}
+
 }// namespace luisa::compute

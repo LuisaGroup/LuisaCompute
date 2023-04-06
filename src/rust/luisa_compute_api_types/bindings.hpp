@@ -343,7 +343,7 @@ struct ProceduralPrimitiveBuildCommand {
     ProceduralPrimitive handle;
     AccelBuildRequest request;
     Buffer aabb_buffer;
-    size_t aabb_offset;
+    size_t aabb_buffer_offset;
     size_t aabb_count;
 };
 

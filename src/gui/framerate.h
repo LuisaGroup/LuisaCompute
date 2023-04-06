@@ -4,20 +4,21 @@
 
 #pragma once
 
+#include <core/dll_export.h>
 #include <chrono>
-#include <vector>
+#include <core/stl/vector.h>
 
 namespace luisa::compute {
 
-class Framerate {
+class LC_GUI_API Framerate {
 
 public:
     using Clock = std::chrono::steady_clock;
     using Timepoint = Clock::time_point;
 
 private:
-    std::vector<double> _durations;
-    std::vector<size_t> _frames;
+    luisa::vector<double> _durations;
+    luisa::vector<size_t> _frames;
     Timepoint _last;
     size_t _history_size;
 

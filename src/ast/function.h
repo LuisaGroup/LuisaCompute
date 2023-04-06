@@ -24,7 +24,6 @@ class AstSerializer;
  * 
  */
 class LC_AST_API Function {
-
 public:
     /// Function types
     enum struct Tag : uint {
@@ -46,11 +45,10 @@ public:
      */
     struct BufferBinding : public Argument::Buffer {
         BufferBinding() noexcept = default;
-        explicit BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept {
-            this->handle = handle;
-            this->offset = offset_bytes;
-            this->size = size_bytes;
-        }
+        explicit BufferBinding(uint64_t handle, size_t offset_bytes, size_t size_bytes) noexcept
+            : Argument::Buffer{.handle = handle,
+                               .offset = offset_bytes,
+                               .size = size_bytes} {}
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
@@ -61,10 +59,9 @@ public:
      */
     struct TextureBinding : public Argument::Texture {
         TextureBinding() noexcept = default;
-        explicit TextureBinding(uint64_t handle, uint32_t level) noexcept {
-            this->handle = handle;
-            this->level = level;
-        }
+        explicit TextureBinding(uint64_t handle, uint32_t level) noexcept
+            : Argument::Texture{.handle = handle,
+                                .level = level} {}
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
@@ -75,9 +72,8 @@ public:
      */
     struct BindlessArrayBinding : public Argument::BindlessArray {
         BindlessArrayBinding() noexcept = default;
-        explicit BindlessArrayBinding(uint64_t handle) noexcept {
-            this->handle = handle;
-        }
+        explicit BindlessArrayBinding(uint64_t handle) noexcept
+            : Argument::BindlessArray{.handle = handle} {}
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 
@@ -86,11 +82,10 @@ public:
      *
      * Bind accel handle.
      */
-    struct AccelBinding : public Argument::Accel{
+    struct AccelBinding : public Argument::Accel {
         AccelBinding() noexcept = default;
-        explicit AccelBinding(uint64_t handle) noexcept {
-            this->handle = handle;
-        }
+        explicit AccelBinding(uint64_t handle) noexcept
+            : Argument::Accel{.handle = handle} {}
         [[nodiscard]] uint64_t hash() const noexcept;
     };
 

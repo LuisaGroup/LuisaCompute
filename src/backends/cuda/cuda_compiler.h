@@ -10,6 +10,7 @@
 #include <core/stl/lru_cache.h>
 #include <ast/function.h>
 #include <runtime/context.h>
+#include <backends/cuda/cuda_shader_metadata.h>
 
 namespace luisa::compute::cuda {
 
@@ -44,10 +45,9 @@ public:
     [[nodiscard]] auto device_library_hash() const noexcept { return _library_hash; }
     [[nodiscard]] luisa::string compile(const luisa::string &src,
                                         luisa::span<const char *const> options,
-                                        luisa::optional<uint64_t> precomputed_hash = luisa::nullopt) const noexcept;
+                                        const CUDAShaderMetadata *metadata = nullptr) const noexcept;
     [[nodiscard]] uint64_t compute_hash(const luisa::string &src,
                                         luisa::span<const char *const> options) const noexcept;
-    [[nodiscard]] luisa::string checksum_header(uint64_t hash) const noexcept;
     [[nodiscard]] static size_t type_size(const Type *type) noexcept;
 };
 

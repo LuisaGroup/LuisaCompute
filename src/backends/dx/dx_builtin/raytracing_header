@@ -1,7 +1,7 @@
 #define CLOSEST_HIT_RAY_FLAG (RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
-#define ALL_HIT_RAY_FLAG (RAY_FLAG_NONE)
 #define ANY_HIT_RAY_FLAG (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES)
-typedef RayQuery<ALL_HIT_RAY_FLAG> LC_RayQuery;
+typedef RayQuery<RAY_FLAG_NONE> LC_RayQueryAll;
+typedef RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> LC_RayQueryAny;
 template<typename T>
 Hit1 TraceClosest(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
@@ -24,17 +24,44 @@ pl.v0=4294967295;
 return pl;
 }
 template<typename T>
-LC_RayQuery TraceAll(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
+LC_RayQueryAll QueryAll(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;
-ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2])  ;
+ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
 ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
 ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
-LC_RayQuery q;
-q.TraceRayInline(accel,ALL_HIT_RAY_FLAG,mask,ray);
+LC_RayQueryAll q;
+q.TraceRayInline(accel,RAY_FLAG_NONE,mask,ray);
 return q;
 }
-Hit0 GetCommitedHit(const LC_RayQuery q){
+template<typename T>
+LC_RayQueryAny QueryAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
+RayDesc ray;
+ray.Origin=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
+ray.Direction=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
+ray.TMin=rayDesc.v1;
+ray.TMax=rayDesc.v3;
+LC_RayQueryAny q;
+q.TraceRayInline(accel,RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,mask,ray);
+return q;
+}
+template<typename T, typename Q>
+T RayQueryGetWorldRay(const Q q) {
+float3 o=q.WorldRayOrigin();
+float3 d=q.WorldRayDirection();
+T ray;
+ray.v0.v[0]=o.x;
+ray.v0.v[1]=o.y;
+ray.v0.v[2]=o.z;
+ray.v1=q.RayTMin();
+ray.v2.v[0]=d.x;
+ray.v2.v[1]=d.y;
+ray.v2.v[2]=d.z;
+ray.v3=q.CommittedRayT();
+return ray;
+}
+template<typename Q>
+Hit0 GetCommitedHit(const Q q){
 Hit0 pl;
 switch(q.CommittedStatus()){
 case COMMITTED_TRIANGLE_HIT:
@@ -57,7 +84,8 @@ break;
 }
 return pl;
 }
-Hit1 GetTriangleCandidateHit(const LC_RayQuery q){
+template<typename Q>
+Hit1 GetTriangleCandidateHit(const Q q){
 Hit1 pl;
 pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
@@ -65,12 +93,14 @@ pl.v2=q.CandidateTriangleBarycentrics();
 pl.v3=q.CandidateTriangleRayT();
 return pl;
 }
-Hit2 GetProceduralCandidateHit(const LC_RayQuery q){
+template<typename Q>
+Hit2 GetProceduralCandidateHit(const Q q){
 Hit2 pl;
 pl.v0=q.CandidateInstanceIndex();
 pl.v1=q.CandidatePrimitiveIndex();
 return pl;
 }
+#define LCRayQueryGetRay(q) q_ray
 template<typename T>
 bool TraceAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray;

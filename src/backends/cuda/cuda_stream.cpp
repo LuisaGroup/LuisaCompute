@@ -2,7 +2,10 @@
 // Created by Mike on 8/1/2021.
 //
 
+#include <cstdlib>
 #include <mutex>
+
+#include <nvtx3/nvToolsExtCuda.h>
 
 #include <core/logging.h>
 #include <backends/cuda/cuda_error.h>
@@ -66,6 +69,10 @@ void CUDAStream::signal(CUevent event) noexcept {
 
 void CUDAStream::wait(CUevent event) noexcept {
     LUISA_CHECK_CUDA(cuStreamWaitEvent(_stream, event, CU_EVENT_WAIT_DEFAULT));
+}
+
+void CUDAStream::set_name(luisa::string &&name) noexcept {
+    nvtxNameCuStreamA(_stream, name.c_str());
 }
 
 }// namespace luisa::compute::cuda

@@ -38,6 +38,7 @@ public:
         vstd::span<const BindProperty> resources);
     void SetRasterShader(
         RasterShader const *s,
+        ID3D12PipelineState* state,
         vstd::span<const BindProperty> resources);
     void DispatchComputeIndirect(
         ComputeShader const *cs,

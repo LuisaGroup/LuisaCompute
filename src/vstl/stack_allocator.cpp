@@ -5,8 +5,7 @@ StackAllocator::StackAllocator(
     StackAllocatorVisitor *visitor)
     : visitor(visitor),
       capacity(initCapacity),
-      initCapacity(initCapacity)
-{
+      initCapacity(initCapacity) {
 }
 StackAllocator::Chunk StackAllocator::allocate(uint64 targetSize) {
     for (auto &&i : allocatedBuffers) {
@@ -36,11 +35,13 @@ StackAllocator::Chunk StackAllocator::allocate(
     };
     for (auto &&i : allocatedBuffers) {
         auto position = CalcAlign(i.position, align);
-        int64 leftSize = (i.fullSize - position);
-        if (leftSize >= targetSize) {
-            auto ofst = position;
-            i.position = position + targetSize;
-            return {i.handle, ofst};
+        if (i.fullSize > position) {
+            int64 leftSize = (i.fullSize - position);
+            if (leftSize >= targetSize) {
+                auto ofst = position;
+                i.position = position + targetSize;
+                return {i.handle, ofst};
+            }
         }
     }
     if (capacity < targetSize) {

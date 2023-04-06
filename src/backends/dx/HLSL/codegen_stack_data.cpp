@@ -55,25 +55,24 @@ vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
         vstd::lazy_eval([&] {
             auto newPtr = new StructGenerator(
                 t,
-                structCount++);
+                structCount++,
+                util);
             return vstd::create_unique(newPtr);
         }));
     if (ite.second) {
-        auto newPtr = ite.first->second.get();
+        auto newPtr = ite.first.value().get();
         newPtr->Init(generateStruct);
     }
-    return ite.first->second->GetStructName();
+    return ite.first.value()->GetStructName();
 }
 std::pair<uint64, bool> CodegenStackData::GetConstCount(uint64 data) {
-    bool newValue = false;
     auto ite = constTypes.try_emplace(
         data,
         vstd::lazy_eval(
             [&] {
-                newValue = true;
                 return constCount++;
             }));
-    return {ite.first->second, newValue};
+    return {ite.first->second, ite.second};
 }
 
 uint64 CodegenStackData::GetFuncCount(void const *data) {
@@ -117,8 +116,10 @@ struct CodegenGlobalPool {
 static CodegenGlobalPool codegenGlobalPool;
 }// namespace detail
 CodegenStackData::~CodegenStackData() {}
-vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate() {
-    return detail::codegenGlobalPool.Allocate();
+vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate(CodegenUtility* util) {
+    auto ptr = detail::codegenGlobalPool.Allocate();
+    ptr->util = util;
+    return ptr;
 }
 void CodegenStackData::DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
     detail::codegenGlobalPool.DeAllocate(std::move(v));

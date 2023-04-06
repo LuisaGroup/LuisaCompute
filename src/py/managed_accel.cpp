@@ -135,7 +135,7 @@ void ManagedAccel::update(PyStream &stream) noexcept {
                     AccelBuildRequest::PREFER_UPDATE,
                     cmd.aabb_buffer,
                     cmd.aabb_offset,
-                    cmd.aabb_count));
+                    cmd.aabb_size));
             });
     }
     data->require_update_mesh.clear();

@@ -77,10 +77,6 @@ public:
     [[nodiscard]] virtual ResourceCreationInfo create_bindless_array(size_t size) noexcept = 0;
     virtual void destroy_bindless_array(uint64_t handle) noexcept = 0;
 
-    // depth buffer
-    [[nodiscard]] virtual ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept = 0;
-    virtual void destroy_depth_buffer(uint64_t handle) noexcept = 0;
-
     // stream
     [[nodiscard]] virtual ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept = 0;
     virtual void destroy_stream(uint64_t handle) noexcept = 0;
@@ -100,7 +96,9 @@ public:
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept = 0;
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
+    virtual Usage shader_argument_usage(uint64_t handle, size_t index) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
+
     // event
     [[nodiscard]] virtual ResourceCreationInfo create_event() noexcept = 0;
     virtual void destroy_event(uint64_t handle) noexcept = 0;

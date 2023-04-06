@@ -22,6 +22,12 @@ struct BackendModule {
     Device::Deleter *deleter;
     BackendDeviceNames *backend_device_names;
 };
+struct ValidationLayer {
+    using Creator = DeviceInterface *(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native);
+    DynamicModule module;
+    Creator *creator{};
+    Device::Deleter *deleter{};
+};
 
 // Make context global, so dynamic modules cannot be redundantly loaded
 struct Context::Impl {
@@ -30,6 +36,7 @@ struct Context::Impl {
     std::filesystem::path data_directory;
     luisa::unordered_map<luisa::string, BackendModule> loaded_backends;
     luisa::vector<luisa::string> installed_backends;
+    ValidationLayer validation_layer;
     const BackendModule &create_module(const luisa::string &backend_name) noexcept {
         auto create_new = [&]() {
             if (std::find(installed_backends.cbegin(),
@@ -122,14 +129,28 @@ ContextPaths Context::paths() const noexcept {
     return ContextPaths{_impl.get()};
 }
 
-Device Context::create_device(std::string_view backend_name_in, const DeviceConfig *settings) noexcept {
+Device Context::create_device(luisa::string_view backend_name_in, const DeviceConfig *settings, bool enable_validation) noexcept {
     auto impl = _impl.get();
     luisa::string backend_name{backend_name_in};
     for (auto &c : backend_name) { c = static_cast<char>(std::tolower(c)); }
     auto &&m = impl->create_module(backend_name);
     auto interface = m.creator(Context{_impl}, settings);
     interface->_backend_name = std::move(backend_name);
-    return Device{Device::Handle{interface, m.deleter}};
+    auto handle = Device::Handle{interface, m.deleter};
+    if (enable_validation) {
+        auto &validation_layer = impl->validation_layer;
+        if (!validation_layer.module) {
+            validation_layer.module = DynamicModule::load(
+                impl->runtime_directory,
+                "lc-validation-layer");
+            validation_layer.creator = validation_layer.module.function<ValidationLayer::Creator>("create");
+            validation_layer.deleter = validation_layer.module.function<Device::Deleter>("destroy");
+        }
+        auto layer_handle = Device::Handle{validation_layer.creator(Context{_impl}, std::move(handle)), validation_layer.deleter};
+        return Device{std::move(layer_handle)};
+    } else {
+        return Device{std::move(handle)};
+    }
 }
 
 Context::Context(luisa::shared_ptr<Impl> impl) noexcept

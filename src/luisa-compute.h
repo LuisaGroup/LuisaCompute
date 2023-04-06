@@ -85,7 +85,7 @@
 #include <runtime/rtx/procedural_primitive.h>
 #include <runtime/rtx/ray.h>
 
-#ifdef LUISA_GUI_ENABLED
-#include <gui/backup/framerate.h>
-#include <gui/backup/window.h>
+#ifdef LUISA_ENABLE_GUI
+#include <gui/framerate.h>
+#include <gui/window.h>
 #endif

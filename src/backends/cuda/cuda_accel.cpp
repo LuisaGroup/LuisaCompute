@@ -2,8 +2,10 @@
 // Created by Mike on 2021/12/2.
 //
 
-#include <core/clock.h>
+#include <cstdlib>
+#include <nvtx3/nvToolsExtCuda.h>
 
+#include <core/clock.h>
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_stream.h>
@@ -23,6 +25,9 @@ namespace luisa::compute::cuda {
 }
 
 void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
+
+    if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::build", _name).c_str()); }
+
     // build IAS
     auto instance_count = static_cast<uint>(_primitives.size());
     auto build_input = cuda_accel_build_inputs(_instance_buffer, instance_count);
@@ -41,22 +46,27 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
                sizes.tempUpdateSizeInBytes, sizes.outputSizeInBytes);
 
     if (_option.allow_compaction) {// with compaction
+
         static constexpr auto align = [](size_t x) noexcept {
             constexpr auto a = optix::ACCEL_BUFFER_BYTE_ALIGNMENT;
             return (x + a - 1u) / a * a;
         };
+
         // compute the required buffer sizes
         auto temp_buffer_offset = align(0u);
         auto output_buffer_offset = align(temp_buffer_offset + sizes.tempSizeInBytes);
         auto compacted_size_buffer_offset = align(output_buffer_offset + sizes.outputSizeInBytes);
         auto build_buffer_size = compacted_size_buffer_offset + sizeof(size_t);
+
         // allocate buffers
         auto build_buffer = 0ull;
         LUISA_CHECK_CUDA(cuMemAllocAsync(&build_buffer, build_buffer_size, cuda_stream));
         auto compacted_size_buffer = build_buffer + compacted_size_buffer_offset;
         auto temp_buffer = build_buffer + temp_buffer_offset;
         auto output_buffer = build_buffer + output_buffer_offset;
+
         // build the acceleration structure and query the compacted size
+        if (!_name.empty()) { nvtxRangePushA("build"); }
         optix::AccelEmitDesc emit_desc{};
         emit_desc.type = optix::PROPERTY_TYPE_COMPACTED_SIZE;
         emit_desc.result = compacted_size_buffer;
@@ -64,6 +74,8 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
             optix_ctx, cuda_stream, &build_options, &build_input, 1,
             temp_buffer, sizes.tempSizeInBytes, output_buffer,
             sizes.outputSizeInBytes, &_handle, &emit_desc, 1u));
+        if (!_name.empty()) { nvtxRangePop(); }
+
         // read back the compacted size
         size_t compacted_size;
         LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(&compacted_size, compacted_size_buffer, sizeof(size_t), cuda_stream));
@@ -71,14 +83,17 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
         LUISA_INFO("CUDAAccel compaction: before = {}B, after = {}B, ratio = {}.",
                    sizes.outputSizeInBytes, compacted_size,
                    compacted_size / static_cast<double>(sizes.outputSizeInBytes));
+
         // do compaction
         if (_bvh_buffer_size < compacted_size) {
             _bvh_buffer_size = compacted_size;
             if (_bvh_buffer) { LUISA_CHECK_CUDA(cuMemFreeAsync(_bvh_buffer, cuda_stream)); }
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_bvh_buffer, _bvh_buffer_size, cuda_stream));
         }
+        if (!_name.empty()) { nvtxRangePushA("compact"); }
         LUISA_CHECK_OPTIX(optix::api().accelCompact(
             optix_ctx, cuda_stream, _handle, _bvh_buffer, _bvh_buffer_size, &_handle));
+        if (!_name.empty()) { nvtxRangePop(); }
         LUISA_CHECK_CUDA(cuMemFreeAsync(build_buffer, cuda_stream));
     } else {// without compaction
         // re-allocate buffers if necessary
@@ -91,14 +106,19 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
         auto temp_buffer = 0ull;
         LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, sizes.tempSizeInBytes, cuda_stream));
         // perform the build
+        if (!_name.empty()) { nvtxRangePushA("build"); }
         LUISA_CHECK_OPTIX(optix::api().accelBuild(
             optix_ctx, cuda_stream, &build_options, &build_input, 1, temp_buffer,
             sizes.tempSizeInBytes, _bvh_buffer, _bvh_buffer_size, &_handle, nullptr, 0u));
+        if (!_name.empty()) { nvtxRangePop(); }
         LUISA_CHECK_CUDA(cuMemFreeAsync(temp_buffer, cuda_stream));
     }
+
+    if (!_name.empty()) { nvtxRangePop(); }
 }
 
 void CUDAAccel::_update(CUDACommandEncoder &encoder) noexcept {
+    if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::update", _name).c_str()); }
     auto instance_count = static_cast<uint>(_primitives.size());
     auto build_input = cuda_accel_build_inputs(_instance_buffer, instance_count);
     auto build_options = make_optix_build_options(_option, optix::BUILD_OPERATION_UPDATE);
@@ -110,6 +130,7 @@ void CUDAAccel::_update(CUDACommandEncoder &encoder) noexcept {
         &build_options, &build_input, 1u, update_buffer, _update_buffer_size,
         _bvh_buffer, _bvh_buffer_size, &_handle, nullptr, 0u));
     LUISA_CHECK_CUDA(cuMemFreeAsync(update_buffer, cuda_stream));
+    if (!_name.empty()) { nvtxRangePop(); }
 }
 
 CUDAAccel::CUDAAccel(const AccelOption &option) noexcept
@@ -141,9 +162,13 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
             for (auto i = 0u; i < n; i++) {
                 auto m = mods[i];
                 if (m.flags & Mod::flag_primitive) {
+                    static constexpr auto mod_flag_procedural = 1u << 8u;
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
                     _primitives[m.index] = prim;
                     m.primitive = prim->handle();
+                    if (prim->tag() == CUDAPrimitive::Tag::PROCEDURAL) {
+                        m.flags |= mod_flag_procedural;
+                    }
                 }
                 host_updates[i] = m;
             }
@@ -181,6 +206,10 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
         // reset the flag
         _requires_rebuild = false;
     }
+}
+
+void CUDAAccel::set_name(luisa::string &&name) noexcept {
+    _name = std::move(name);
 }
 
 }// namespace luisa::compute::cuda

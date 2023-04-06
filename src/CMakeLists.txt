@@ -31,8 +31,8 @@ add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
-if (NOT LUISA_COMPUTE_ENABLE_DSL)
-    target_compile_definitions(luisa-compute-include INTERFACE LC_DISABLE_DSL=1)
+if (LUISA_COMPUTE_ENABLE_DSL)
+    target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_DSL=1)
 endif ()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
@@ -81,6 +81,12 @@ add_library(luisa::compute ALIAS compute)
 if (LUISA_COMPUTE_ENABLE_PYTHON)
     add_subdirectory(py)
 endif ()
+
+function(luisa_compute_add_executable name)
+    add_executable(${name} ${ARGN})
+    target_link_libraries(${name} PRIVATE luisa::compute)
+    install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endfunction()
 
 if (LUISA_COMPUTE_BUILD_TESTS)
     add_subdirectory(tests)

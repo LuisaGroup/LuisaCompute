@@ -13,13 +13,13 @@
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>
 #include <gui/window.h>
-#include <tests/cornell_box.h>
+#include <tests/common/cornell_box.h>
 #include <stb/stb_image_write.h>
 
 #include <random>
 
 #define TINYOBJLOADER_IMPLEMENTATION
-#include <tests/tiny_obj_loader.h>
+#include <tests/common/tiny_obj_loader.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -555,7 +555,7 @@ int main(int argc, char *argv[]) {
 
     auto frame_count = 0;
 
-    Window window{"Display", resolution.x, resolution.y, false};
+    Window window{"Display", resolution.x, resolution.y};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,

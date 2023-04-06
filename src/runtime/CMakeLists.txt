@@ -14,7 +14,6 @@ set(LUISA_COMPUTE_RUNTIME_RASTER_SOURCES
         raster/app_data.h
         raster/depth_buffer.cpp
         raster/depth_buffer.h
-        raster/dsl.h
         raster/raster.cpp
         raster/raster_scene.h
         raster/raster_shader.h
@@ -57,7 +56,6 @@ target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compu
 
 target_compile_definitions(luisa-compute-runtime PRIVATE LC_RUNTIME_EXPORT_DLL=1)
 set_target_properties(luisa-compute-runtime PROPERTIES
-        WINDOWS_EXPORT_ALL_SYMBOLS ON
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
 
 luisa_compute_install(runtime SOURCES ${LUISA_COMPUTE_RUNTIME_SOURCES})

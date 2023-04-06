@@ -12,13 +12,12 @@
 #include <runtime/event.h>
 #include <dsl/sugar.h>
 #include <runtime/rtx/accel.h>
-#include <tests/cornell_box.h>
+#include <tests/common/cornell_box.h>
 #include <stb/stb_image_write.h>
-#include <core/thread_pool.h>
 #include <gui/window.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
-#include <tests/tiny_obj_loader.h>
+#include <tests/common/tiny_obj_loader.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -46,7 +45,7 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 
 int main(int argc, char *argv[]) {
 
-    log_level_info();
+    log_level_verbose();
 
     Context context{argv[0]};
     if (argc <= 1) {
@@ -326,7 +325,7 @@ int main(int argc, char *argv[]) {
     cmd_list << clear_shader(accum_image).dispatch(resolution)
              << make_sampler_shader(seed_image).dispatch(resolution);
 
-    Window window{"path tracing", resolution, false};
+    Window window{"path tracing", resolution};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
