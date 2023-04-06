@@ -45,12 +45,24 @@ def nameof(dtype):
     return getattr(dtype, '__name__', None) or repr(dtype)
 
 
+def vector16(dtype, length): # (float, 2) -> float2
+    if length==1:
+        return dtype
+    name = dtype.__name__ + str(length)
+    return eval(name)
+
 def vector(dtype, length): # (float, 2) -> float2
     if length==1:
         return dtype
     name = dtype.__name__ + str(length)
     if is_bit16_types(dtype):
         return eval(name)
+    return getattr(lcapi, name)
+
+def vector32(dtype, length): # (float, 2) -> float2
+    if length==1:
+        return dtype
+    name = dtype.__name__ + str(length)
     return getattr(lcapi, name)
 
 def length_of(dtype): # float2 -> 2
