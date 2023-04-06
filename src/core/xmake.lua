@@ -23,3 +23,4 @@ if LCEnableDSL then
 	})
 end
 add_defines("LC_CORE_EXPORT_DLL")
+target_end()

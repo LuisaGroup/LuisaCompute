@@ -116,7 +116,8 @@ if is_arch("x64", "x86_64", "arm64") then
 	LCEnableRust = LCEnableIR or LCEnableAPI
 	local py_version = get_config("py_version")
 	local py_path = get_config("py_path")
-	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0 and type(py_version) == "string" and string.len(py_version) > 0 
+	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0 and type(py_version) == "string" and
+					                 string.len(py_version) > 0
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
 	if is_mode("debug") then
 		set_targetdir(path.join(os.projectdir(), "bin/debug"))
@@ -131,4 +132,5 @@ else
 	on_load(function(target)
 		utils.error("Illegal environment. Please check your compiler, architecture or platform.")
 	end)
+	target_end()
 end

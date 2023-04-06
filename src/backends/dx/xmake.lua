@@ -28,3 +28,4 @@ on_load(function(target)
 		end
 	end
 end)
+target_end()

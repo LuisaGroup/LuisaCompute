@@ -14,3 +14,4 @@ if LCEnableRust then
 	})
 end
 add_files("**.cpp")
+target_end()

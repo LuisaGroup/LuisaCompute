@@ -5,3 +5,4 @@ _config_project({
 add_deps("lc-ir")
 add_files("**.cpp")
 add_includedirs("../rust")
+target_end()
