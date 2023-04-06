@@ -46,7 +46,7 @@ protected:
         : _access_chain{access_chain} {}
 
 public:
-    AtomicRefBase(AtomicRefBase &&) noexcept = delete;
+    AtomicRefBase(AtomicRefBase &&) noexcept = default;
     AtomicRefBase(const AtomicRefBase &) noexcept = delete;
     AtomicRefBase &operator=(AtomicRefBase &&) noexcept = delete;
     AtomicRefBase &operator=(const AtomicRefBase &) noexcept = delete;
