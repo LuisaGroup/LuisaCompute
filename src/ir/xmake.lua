@@ -1,4 +1,5 @@
 target("lc-ir")
+	add_deps("magic_enum")
 _config_project({
 	project_kind = "shared"
 })

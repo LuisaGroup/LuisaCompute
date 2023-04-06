@@ -52,3 +52,7 @@ end
 if get_config("enable_unity3d_plugin") then
 	includes("unity3d")
 end
+target("magic_enum")
+	set_kind("headeronly")
+	add_includedirs("src/ext/magic_enum/include")
+target_end()
