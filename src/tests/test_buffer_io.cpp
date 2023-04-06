@@ -2,6 +2,7 @@
 // Created by Mike on 4/6/2023.
 //
 
+#include <tests/common/config.h>
 #include <luisa-compute.h>
 
 using namespace luisa;
@@ -24,7 +25,7 @@ void test_buffer_io(Device &device) noexcept {
         buffer2->write(id, float3{0.0f});
     });
 
-    auto iteration = device.compile<1>([&] {
+    auto iteration = device.compile<1>([&](UInt iter, BufferFloat2 result) {
         auto id = dispatch_id().x;
         auto res0 = buffer0->read(id);
         auto res1 = buffer1->read(id);
@@ -34,6 +35,8 @@ void test_buffer_io(Device &device) noexcept {
 
         //auto res2 = buffer2->read(id);
         printer.info("{} : res0 = {}, res1 = {}", id, res0, res1);
+        result.write(iter * dispatch_size_x() + id, make_float2(res0, res1));
+
         buffer0->write(id, res0 + 1.0f);
         buffer1->write(id, res1 + 1.0f);
         //buffer2->write(id, res2 + 1.0f);
@@ -43,21 +46,31 @@ void test_buffer_io(Device &device) noexcept {
 
     auto used = device.compile<1>([&]() {
     });
+
+    auto result_buffer = device.create_buffer<float2>(4 * 2);
+    auto result_readback = luisa::vector<float2>(4 * 2);
     for (size_t frame = 0; frame < 3; frame++) {
         auto cmdlist = CommandList::create();
         for (size_t i = 0; i < 2; i++) {
-            cmdlist << iteration().dispatch(4);
+            cmdlist << iteration(i, result_buffer).dispatch(4);
         }
 
         stream << printer.reset()
                << cmdlist.commit()
                << used().dispatch(1)
+               << result_buffer.copy_to(result_readback.data())
                << printer.retrieve()
                << synchronize();
+
+        for (auto i = 0u; i < 2u; i++) {
+            for (auto j = 0u; j < 4u; j++) {
+                auto res = result_readback[i * 4 + j];
+                REQUIRE_EQ(res.x, frame * 2 + i);
+                REQUIRE_EQ(res.y, frame * 2 + i);
+            }
+        }
     }
 }
-
-#include <tests/common/config.h>
 
 TEST_CASE("buffer_io") {
     auto argv = luisa::test::argv();
