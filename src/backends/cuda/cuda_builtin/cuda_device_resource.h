@@ -79,11 +79,13 @@ struct LCBuffer<const T> {
 
 template<typename T, typename Index>
 [[nodiscard]] __device__ inline auto lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
+    lc_assume(__isGlobal(buffer.ptr));
     return buffer.ptr[index];
 }
 
 template<typename T, typename Index>
 __device__ inline void lc_buffer_write(LCBuffer<T> buffer, Index index, T value) noexcept {
+    lc_assume(__isGlobal(buffer.ptr));
     buffer.ptr[index] = value;
 }
 
@@ -925,16 +927,20 @@ struct alignas(16) LCBindlessArray {
 
 template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_uint i) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
     return buffer[i];
 }
 
 template<typename T = unsigned char>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_size(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
     return array.slots[index].buffer_size / sizeof(T);
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
@@ -944,6 +950,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d(LCBindlessArray array, lc_uint index, lc_float3 p) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
@@ -953,6 +960,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_level(LCBindlessArray array, lc_uint index, lc_float2 p, float level) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.level.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], %7;"
@@ -962,6 +970,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_level(LCBindlessArray array, lc_uint index, lc_float3 p, float level) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], %9;"
@@ -971,6 +980,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d_grad(LCBindlessArray array, lc_uint index, lc_float2 p, lc_float2 dx, lc_float2 dy) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.grad.2d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6}], {%7, %8}, {%9, %10};"
@@ -980,6 +990,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample3d_grad(LCBindlessArray array, lc_uint index, lc_float3 p, lc_float3 dx, lc_float3 dy) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.grad.3d.v4.f32.f32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], {%9, %10, %11, %12}, {%13, %14, %15, 16};"
@@ -991,6 +1002,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size2d(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex2d;
     auto s = lc_make_uint2();
     asm("txq.width.b32 %0, [%1];"
@@ -1003,6 +1015,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size3d(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex3d;
     auto s = lc_make_uint3();
     asm("txq.width.b32 %0, [%1];"
@@ -1018,16 +1031,19 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size2d_level(LCBindlessArray array, lc_uint index, lc_uint level) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto s = lc_bindless_texture_size2d(array, index);
     return lc_max(s >> level, lc_make_uint2(1u));
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_size3d_level(LCBindlessArray array, lc_uint index, lc_uint level) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto s = lc_bindless_texture_size3d(array, index);
     return lc_max(s >> level, lc_make_uint3(1u));
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read2d(LCBindlessArray array, lc_uint index, lc_uint2 p) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.2d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
@@ -1037,6 +1053,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read3d(LCBindlessArray array, lc_uint index, lc_uint3 p) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.3d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}];"
@@ -1046,6 +1063,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read2d_level(LCBindlessArray array, lc_uint index, lc_uint2 p, lc_uint level) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex2d;
     auto v = lc_make_float4();
     asm("tex.level.2d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6}], %7;"
@@ -1055,6 +1073,7 @@ template<typename T = unsigned char>
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_read3d_level(LCBindlessArray array, lc_uint index, lc_uint3 p, lc_uint level) noexcept {
+    lc_assume(__isGlobal(array.slots));
     auto t = array.slots[index].tex3d;
     auto v = lc_make_float4();
     asm("tex.level.3d.v4.f32.s32 {%0, %1, %2, %3}, [%4, {%5, %6, %7, %8}], %9;"
@@ -1119,6 +1138,7 @@ struct alignas(16u) LCAccel {
 };
 
 [[nodiscard]] __device__ inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
+    lc_assume(__isGlobal(accel.instances));
     auto m = accel.instances[instance_id].m;
     return lc_make_float4x4(
         m[0].x, m[1].x, m[2].x, 0.0f,
@@ -1128,6 +1148,7 @@ struct alignas(16u) LCAccel {
 }
 
 __device__ inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint index, lc_float4x4 m) noexcept {
+    lc_assume(__isGlobal(accel.instances));
     lc_array<lc_float4, 3> p;
     p[0].x = m[0][0];
     p[0].y = m[1][0];
@@ -1144,10 +1165,12 @@ __device__ inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint in
 }
 
 __device__ inline void lc_accel_set_instance_visibility(LCAccel accel, lc_uint index, lc_uint mask) noexcept {
+    lc_assume(__isGlobal(accel.instances));
     accel.instances[index].mask = mask & 0xffu;
 }
 
 __device__ inline void lc_accel_set_instance_opacity(LCAccel accel, lc_uint index, bool opaque) noexcept {
+    lc_assume(__isGlobal(accel.instances));
     auto flags = accel.instances[index].flags;
     // procedural primitives ignores the opaque flag, so only
     // apply the change when the instance is a triangle mesh
@@ -1682,6 +1705,7 @@ extern "C" __global__ void __intersection__ray_query() {
     auto p_ctx_hi = lc_get_payload<1u>();
     auto p_ctx_lo = lc_get_payload<2u>();
     auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
+    lc_assume(__isLocal(ctx));
     LCProceduralIntersectionResult r{};
     switch (query_id) {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
@@ -1823,6 +1847,7 @@ extern "C" __global__ void __anyhit__ray_query() {
         auto p_ctx_hi = lc_get_payload<1u>();
         auto p_ctx_lo = lc_get_payload<2u>();
         auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
+        lc_assume(__isLocal(ctx));
         auto candidate = lc_ray_query_triangle_candidate();
         LCTriangleIntersectionResult r{};
         switch (query_id) {
