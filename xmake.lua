@@ -120,9 +120,9 @@ if is_arch("x64", "x86_64", "arm64") then
 					                 string.len(py_version) > 0
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
 	if is_mode("debug") then
-		set_targetdir(path.join(os.projectdir(), "bin/debug"))
+		set_targetdir("bin/debug")
 	else
-		set_targetdir(path.join(os.projectdir(), "bin/release"))
+		set_targetdir("bin/release")
 	end
 	includes("xmake_func.lua")
 	includes("src")
