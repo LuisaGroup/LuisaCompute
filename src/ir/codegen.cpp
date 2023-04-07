@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2023/1/13.
 //
 
+#include <core/magic_enum.h>
 #include <core/logging.h>
 #include <ir/codegen.h>
 
