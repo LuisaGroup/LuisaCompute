@@ -12,6 +12,7 @@
 #include <runtime/stream.h>
 #include <core/logging.h>
 #include <gui/window.h>
+#include <gui/framerate.h>
 
 int main(int argc, char *argv[]) {
 
@@ -211,8 +212,10 @@ int main(int argc, char *argv[]) {
     });
 
     init(stream);
-    
+    Framerate fps;
     while (!window.should_close()) {
+        fps.record(1u);
+        LUISA_INFO("FPS: {}", fps.report());
         CommandList cmd_list;
         for (auto i = 0u; i < n_steps; i++) { substep(cmd_list); }
         cmd_list << clear_display().dispatch(resolution, resolution)
