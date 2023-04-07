@@ -1172,15 +1172,17 @@ __device__ inline float atomicSub(float *a, float v) noexcept {
 
 __device__ inline float atomicMin(float *a, float v) noexcept {
     for (;;) {
-        auto old = *a;
-        if (old <= v || atomicCAS(a, old, v) == old) { return old; }
+        if (auto old = *a;// read old
+            old <= v /* no need to update */ ||
+            atomicCAS(a, old, v) == old) { return old; }
     }
 }
 
 __device__ inline float atomicMax(float *a, float v) noexcept {
     for (;;) {
-        auto old = *a;
-        if (old >= v || atomicCAS(a, old, v) == old) { return old; }
+        if (auto old = *a;// read old
+            old >= v /* no need to update */ ||
+            atomicCAS(a, old, v) == old) { return old; }
     }
 }
 

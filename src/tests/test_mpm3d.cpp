@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
     }
     auto device = context.create_device(argv[1]);
 
-    static constexpr auto n_grid = 32;
+    static constexpr auto n_grid = 64;
     static constexpr auto n_steps = 25u;
 
     static constexpr auto n_particles = n_grid * n_grid * n_grid / 4u;
@@ -46,8 +46,7 @@ int main(int argc, char *argv[]) {
     auto v = device.create_buffer<float3>(n_particles);
     auto C = device.create_buffer<float3x3>(n_particles);
     auto J = device.create_buffer<float>(n_particles);
-    auto grid_v = device.create_buffer<float>(n_grid * n_grid * n_grid * 4u);
-    auto grid_m = device.create_buffer<float>(n_grid * n_grid * n_grid);
+    auto grid = device.create_buffer<float4>(n_grid * n_grid * n_grid);
     Window window{"MPM3D", resolution, resolution};
     // luisa::vector<std::array<uint8_t, 4u>> display_buffer(resolution * resolution);
     // std::fstream file("luisa_cpp_speed.csv", std::ios_base::out);
@@ -76,11 +75,7 @@ int main(int argc, char *argv[]) {
     auto clear_grid = device.compile<3>([&] {
         set_block_size(8, 8, 1);
         auto idx = index(dispatch_id().xyz());
-        grid_v->write(idx * 4u, 0.f);
-        grid_v->write(idx * 4u + 1u, 0.f);
-        grid_v->write(idx * 4u + 2u, 0.f);
-        grid_v->write(idx * 4u + 3u, 0.f);
-        grid_m->write(idx, 0.f);
+        grid->write(idx, make_float4());
     });
 
     auto point_to_grid = device.compile<1>([&] {
@@ -107,10 +102,10 @@ int main(int argc, char *argv[]) {
             auto weight = w[i].x * w[j].y * w[k].z;
             auto vadd = weight * (p_mass * vp + affine * dpos);
             auto idx = index(base + offset);
-            grid_v->atomic(idx * 4u).fetch_add(vadd.x);
-            grid_v->atomic(idx * 4u + 1u).fetch_add(vadd.y);
-            grid_v->atomic(idx * 4u + 2u).fetch_add(vadd.z);
-            grid_m->atomic(idx).fetch_add(weight * p_mass);
+            grid->atomic(idx).x.fetch_add(vadd.x);
+            grid->atomic(idx).y.fetch_add(vadd.y);
+            grid->atomic(idx).z.fetch_add(vadd.z);
+            grid->atomic(idx).w.fetch_add(weight * p_mass);
         }
     });
 
@@ -118,15 +113,13 @@ int main(int argc, char *argv[]) {
         set_block_size(8, 8, 1);
         auto coord = make_int3(dispatch_id().xyz());
         auto i = index(coord);
-        auto v = make_float3(grid_v->read(i * 4u), grid_v->read(i * 4u + 1u), grid_v->read(i * 4u + 2u));
-        auto m = grid_m->read(i);
+        auto v_and_m = grid->read(i);
+        auto v = v_and_m.xyz();
+        auto m = v_and_m.w;
         v = ite(m > 0.f, v / m, v);
         v.y -= dt * gravity;
         v = ite((coord < bound && v < 0.f) || (coord > n_grid - bound && v > 0.f), 0.f, v);
-        grid_v->write(i * 4u, v.x);
-        grid_v->write(i * 4u + 1u, v.y);
-        grid_v->write(i * 4u + 2u, v.z);
-        grid_v->write(i * 4u + 3u, 0.f);
+        grid->write(i, make_float4(v, m));
     });
 
     auto grid_to_point = device.compile<1>([&] {
@@ -148,9 +141,7 @@ int main(int argc, char *argv[]) {
             auto dpos = (make_float3(offset) - fx) * dx;
             auto weight = w[i].x * w[j].y * w[k].z;
             auto idx = index(base + offset);
-            auto g_v = make_float3(grid_v->read(idx * 4u),
-                                   grid_v->read(idx * 4u + 1u),
-                                   grid_v->read(idx * 4u + 2u));
+            auto g_v = grid->read(idx).xyz();
             new_v += weight * g_v;
             new_C = new_C + 4.f * weight * outer_product(g_v, dpos) / sqr(dx);
         }
