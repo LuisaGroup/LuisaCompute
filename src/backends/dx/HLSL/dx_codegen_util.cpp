@@ -265,11 +265,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                     GetTypeName(*ele->element(), typeName, usage);
                     typeName << '4';
                 } else {
-                    if (opt->kernel.requires_atomic_float() && (ele->tag() == Type::Tag::FLOAT32 || ele->tag() == Type::Tag::FLOAT16)) {
-                        typeName << "int";
-                    } else {
-                        GetTypeName(*ele, typeName, usage);
-                    }
+                    GetTypeName(*ele, typeName, usage);
                 }
                 auto ite = opt->structReplaceName.find(typeName);
                 if (ite != opt->structReplaceName.end()) {
@@ -600,27 +596,27 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "inverse"sv;
             break;
         case CallOp::ATOMIC_EXCHANGE: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16)) {
+            if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
                 str << "_atomic_exchange_float"sv;
             } else {
                 str << "_atomic_exchange"sv;
             }
         } break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16)) {
+            if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
                 str << "_atomic_compare_exchange_float"sv;
             } else {
                 str << "_atomic_compare_exchange"sv;
             }
         } break;
         case CallOp::ATOMIC_FETCH_ADD: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
+            if ((expr->type()->tag() == Type::Tag::FLOAT32))
                 str << "_atomic_add_float"sv;
             else
                 str << "_atomic_add"sv;
         } break;
         case CallOp::ATOMIC_FETCH_SUB: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
+            if ((expr->type()->tag() == Type::Tag::FLOAT32))
                 str << "_atomic_sub_float"sv;
             else
                 str << "_atomic_sub"sv;
@@ -635,13 +631,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_atomic_xor"sv;
         } break;
         case CallOp::ATOMIC_FETCH_MIN: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
+            if ((expr->type()->tag() == Type::Tag::FLOAT32))
                 str << "_atomic_min_float"sv;
             else
                 str << "_atomic_min"sv;
         } break;
         case CallOp::ATOMIC_FETCH_MAX: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32) || (expr->type()->tag() == Type::Tag::FLOAT16))
+            if ((expr->type()->tag() == Type::Tag::FLOAT32))
                 str << "_atomic_max_float"sv;
             else
                 str << "_atomic_max"sv;
@@ -719,11 +715,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_READ: {
-            if (opt->kernel.requires_atomic_float() && (expr->type()->tag() == Type::Tag::FLOAT32 || expr->type()->tag() == Type::Tag::FLOAT16)) {
-                str << "bfread_float"sv;
-            } else {
-                str << "bfread"sv;
-            }
+            str << "bfread"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
@@ -733,11 +725,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_WRITE: {
             assert(!opt->isRaster);
-            if (opt->kernel.requires_atomic_float() && (args[2]->type()->tag() == Type::Tag::FLOAT32, args[2]->type()->tag() == Type::Tag::FLOAT16)) {
-                str << "bfwrite_float"sv;
-            } else {
-                str << "bfwrite"sv;
-            }
+            str << "bfwrite"sv;
             auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
