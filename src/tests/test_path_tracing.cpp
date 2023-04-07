@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
     obj_reader_config.vertex_color = false;
     tinyobj::ObjReader obj_reader;
     if (!obj_reader.ParseFromString(obj_string, "", obj_reader_config)) {
-        std::string_view error_message = "unknown error.";
+        luisa::string_view error_message = "unknown error.";
         if (auto &&e = obj_reader.Error(); !e.empty()) { error_message = e; }
         LUISA_ERROR_WITH_LOCATION("Failed to load OBJ file: {}", error_message);
     }
@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
     }
 
     auto &&p = obj_reader.GetAttrib().vertices;
-    std::vector<float3> vertices;
+    luisa::vector<float3> vertices;
     vertices.reserve(p.size() / 3u);
     for (auto i = 0u; i < p.size(); i += 3u) {
         vertices.emplace_back(float3{
@@ -78,8 +78,8 @@ int main(int argc, char *argv[]) {
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
-    std::vector<Mesh> meshes;
-    std::vector<Buffer<Triangle>> triangle_buffers;
+    luisa::vector<Mesh> meshes;
+    luisa::vector<Buffer<Triangle>> triangle_buffers;
     for (auto &&shape : obj_reader.GetShapes()) {
         auto index = static_cast<uint>(meshes.size());
         auto &&t = shape.mesh.indices;
@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO(
             "Processing shape '{}' at index {} with {} triangle(s).",
             shape.name, index, triangle_count);
-        std::vector<uint> indices;
+        luisa::vector<uint> indices;
         indices.reserve(t.size());
         for (auto i : t) { indices.emplace_back(i.vertex_index); }
         auto &&triangle_buffer = triangle_buffers.emplace_back(device.create_buffer<Triangle>(triangle_count));
@@ -306,7 +306,7 @@ int main(int argc, char *argv[]) {
     static constexpr auto resolution = make_uint2(1024u);
     auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
-    std::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
+    luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
     CommandList cmd_list;
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     cmd_list << clear_shader(accum_image).dispatch(resolution)

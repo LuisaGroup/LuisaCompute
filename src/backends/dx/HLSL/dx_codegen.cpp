@@ -142,38 +142,38 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
     auto t = expr->range()->type();
-    auto PrintOrigin = [&] {
+    auto basicAccess = [&]() {
         accessCount++;
         expr->range()->accept(*this);
         accessCount--;
         str << '[';
         expr->index()->accept(*this);
         str << ']';
-        if (accessCount == 0 && t->is_matrix() && t->dimension() == 3u) {
-            str << ".xyz"sv;
-        } else if (t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3) {
-            str << ".v"sv;
-        }
     };
     if (expr->range()->tag() == Expression::Tag::REF) {
         auto variable = static_cast<RefExpr const *>(expr->range())->variable();
         if (variable.tag() == Variable::Tag::SHARED) {
-            PrintOrigin();
-            return;
-        }
-    } else if (expr->range()->tag() == Expression::Tag::CONSTANT) {
-        PrintOrigin();
-        return;
-    }
-    switch (t->tag()) {
-        case Type::Tag::BUFFER:
-        case Type::Tag::VECTOR: {
             accessCount++;
             expr->range()->accept(*this);
             accessCount--;
             str << '[';
             expr->index()->accept(*this);
             str << ']';
+            if (accessCount == 0 && t->is_matrix() && t->dimension() == 3u) {
+                str << ".xyz"sv;
+            } else if (t->is_array() && t->element()->is_vector() && t->element()->dimension() == 3) {
+                str << ".v"sv;
+            }
+            return;
+        }
+    } else if (expr->range()->tag() == Expression::Tag::CONSTANT) {
+        basicAccess();
+        return;
+    }
+    switch (t->tag()) {
+        case Type::Tag::BUFFER:
+        case Type::Tag::VECTOR: {
+            basicAccess();
         } break;
         case Type::Tag::MATRIX: {
             accessCount++;
@@ -454,7 +454,7 @@ void StringStateVisitor::visit(const RayQueryStmt *stmt) {
 StringStateVisitor::StringStateVisitor(
     Function f,
     vstd::StringBuilder &str,
-    CodegenUtility* util)
+    CodegenUtility *util)
     : f(f), str(str), util(util) {
 }
 void StringStateVisitor::VisitFunction(Function func) {

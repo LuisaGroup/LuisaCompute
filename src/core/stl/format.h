@@ -5,7 +5,6 @@
 #pragma once
 
 #include <type_traits>
-#include <magic_enum.hpp>
 
 #include <spdlog/fmt/fmt.h>
 #include <core/basic_types.h>
@@ -35,12 +34,6 @@ template<typename Format, typename... Args>
 
 [[nodiscard]] inline auto hash_to_string(uint64_t hash) noexcept {
     return luisa::format(FMT_STRING("{:016X}"), hash);
-}
-
-template<typename T>
-    requires std::is_enum_v<T>
-[[nodiscard]] inline auto to_string(T e) noexcept {
-    return magic_enum::enum_name(e);
 }
 
 template<typename T, size_t N>
