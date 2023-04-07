@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
         return v0;
     };
 
-    Callable intersect = [&](Var<Ray> ray) noexcept {
+    Callable intersect = [&](Var<Ray> ray, Bool &valid) noexcept {
         auto sphere_normal = def(make_float3());
         auto hit = accel->query_all(ray)
                        .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
@@ -111,6 +111,7 @@ int main(int argc, char *argv[]) {
                                    auto dist = tc - t1c;
                                    // save normal as color
                                    $if(dist <= ray->t_max()) {
+                                       valid = true;
                                        sphere_normal = normalize(ray_origin + dir * dist - origin);
                                    };
                                    candidate.commit(dist);
@@ -136,7 +137,8 @@ int main(int argc, char *argv[]) {
         auto ray = make_ray(origin, direction);
 
         // traversal aceeleration structure with ray-query
-        auto hit = intersect(ray);
+        auto valid = def(false);
+        auto hit = intersect(ray, valid);
         auto old = device_image1->read(coord).xyz();
         auto color = def(make_float3());
         $if(hit.hit_type == to_underlying(HitType::Triangle)) {

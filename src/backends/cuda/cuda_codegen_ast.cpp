@@ -369,6 +369,9 @@ private:
                 _codegen->_scratch << " ";
                 _emit_outline_context_member_name(
                     v.base_variable, v.access_indices);
+                if (v.element_type == Type::of<bool>()) {
+                    _codegen->_scratch << " : 1";
+                }
                 _codegen->_scratch << ";";
             }
             _codegen->_scratch << "\n};\n\n";
