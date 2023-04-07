@@ -401,13 +401,14 @@ private:
             if (!captured_elements.empty() ||
                 !captured_resources.empty()) {
                 // get ctx
-                _codegen->_scratch << "  auto ctx = static_cast<LCRayQueryCtx"
+                _codegen->_scratch << "  lc_assume(__isLocal(ctx_in));\n"
+                                   << "  auto ctx = *static_cast<LCRayQueryCtx"
                                    << rq_index << " *>(ctx_in);\n";
                 // copy captured resources
                 for (auto &&v : captured_resources) {
                     _codegen->_emit_indent();
                     _codegen->_emit_variable_decl(f, v, false);
-                    _codegen->_scratch << " = ctx->";
+                    _codegen->_scratch << " = ctx.";
                     _codegen->_emit_variable_name(v);
                     _codegen->_scratch << ";\n";
                 }
@@ -424,7 +425,7 @@ private:
                     _codegen->_emit_indent();
                     _emit_captured_element(
                         v.base_variable, v.access_indices);
-                    _codegen->_scratch << " = ctx->";
+                    _codegen->_scratch << " = ctx.";
                     _emit_outline_context_member_name(
                         v.base_variable, v.access_indices);
                     _codegen->_scratch << ";\n";
@@ -449,15 +450,22 @@ private:
             _codegen->_emit_indent();
             _codegen->_scratch << "} // intersection handling body\n";
             // copy back captured variables
-            for (auto v : captured_elements) {
+            if (!captured_elements.empty()) {
+                for (auto v : captured_elements) {
+                    _codegen->_emit_indent();
+                    _codegen->_scratch << "ctx.";
+                    _emit_outline_context_member_name(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << " = ";
+                    _emit_captured_element(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << ";\n";
+                }
                 _codegen->_emit_indent();
-                _codegen->_scratch << "ctx->";
-                _emit_outline_context_member_name(
-                    v.base_variable, v.access_indices);
-                _codegen->_scratch << " = ";
-                _emit_captured_element(
-                    v.base_variable, v.access_indices);
-                _codegen->_scratch << ";\n";
+                _codegen->_scratch << "lc_assume(__isLocal(ctx_in));\n";
+                _codegen->_emit_indent();
+                _codegen->_scratch << "*static_cast<LCRayQueryCtx"
+                                   << rq_index << " *>(ctx_in) = ctx;\n";
             }
             _codegen->_indent = indent;
         };
