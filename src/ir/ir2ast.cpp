@@ -1,7 +1,8 @@
-#include "ast/op.h"
-#include "ast/variable.h"
-#include "core/logging.h"
-#include "luisa_compute_ir/bindings.hpp"
+#include <ast/op.h>
+#include <ast/variable.h>
+#include <core/logging.h>
+#include <core/magic_enum.h>
+#include <luisa_compute_ir/bindings.hpp>
 #include <ir/ir2ast.h>
 
 namespace luisa::compute {
