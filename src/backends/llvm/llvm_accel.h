@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <embree3/rtcore.h>
+#include <embree4/rtcore.h>
 
 #include <core/stl.h>
 #include <core/thread_pool.h>

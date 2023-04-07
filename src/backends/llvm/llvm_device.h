@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <embree3/rtcore_device.h>
+#include <embree4/rtcore_device.h>
 #include <runtime/device.h>
 
 namespace llvm {
