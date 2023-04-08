@@ -98,9 +98,8 @@ set_default(false)
 set_showmenu(true)
 option_end()
 -- bin dir
-option("set_bindir")
-set_values(true, false)
-set_default(true)
+option("bindir")
+set_default("bin")
 set_showmenu(true)
 option_end()
 -- pre-defined options end
@@ -125,11 +124,12 @@ if is_arch("x64", "x86_64", "arm64") then
 	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0 and type(py_version) == "string" and
 					                 string.len(py_version) > 0
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
-	if get_config("set_bindir") then
+	local bindir = get_config("bindir");
+	if bindir then
 		if is_mode("debug") then
-			set_targetdir("bin/debug")
+			set_targetdir(path.join(bindir, "debug"))
 		else
-			set_targetdir("bin/release")
+			set_targetdir(path.join(bindir, "release"))
 		end
 	end
 
