@@ -1,4 +1,5 @@
 #pragma once
+
 #include <core/dll_export.h>
 #include <ast/expression.h>
 
@@ -21,4 +22,5 @@ public:
     [[nodiscard]] const Expression *operate(CallOp op, luisa::span<const Expression *const> values) const noexcept;
     [[nodiscard]] const Expression *operate(CallOp op, std::initializer_list<const Expression *> values) const noexcept;
 };
-}
+
+}// namespace luisa::compute::detail

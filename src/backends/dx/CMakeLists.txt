@@ -15,6 +15,7 @@ if (WIN32)
             DXApi/LCEvent.cpp DXApi/LCEvent.h
             DXApi/LCSwapChain.cpp DXApi/LCSwapChain.h
 
+            HLSL/access_chain.cpp HLSL/access_chain.h
             HLSL/codegen_stack_data.cpp HLSL/codegen_stack_data.h
             HLSL/common_iterator.h
             HLSL/dx_codegen.cpp HLSL/dx_codegen.h
