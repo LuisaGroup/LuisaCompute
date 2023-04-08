@@ -4,7 +4,11 @@
 
 #pragma once
 
+#if __has_include(<embree4/rtcore_device.h>)
 #include <embree4/rtcore_device.h>
+#else
+#include <embree3/rtcore_device.h>
+#endif
 #include <runtime/device.h>
 
 namespace llvm {

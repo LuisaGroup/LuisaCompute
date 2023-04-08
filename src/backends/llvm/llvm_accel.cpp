@@ -86,12 +86,17 @@ float4x4 LLVMAccel::_decompress(std::array<float, 12> m) noexcept {
 }
 
 Hit LLVMAccel::trace_closest(Ray ray) const noexcept {
+#if RTC_VERSION_MAJOR == 4
     RTCRayQueryContext ctx{};
     rtcInitRayQueryContext(&ctx);
 
     RTCIntersectArguments arg;
     rtcInitIntersectArguments(&arg);
     arg.context = &ctx;
+#elif RTC_VERSION_MAJOR == 3
+    RTCIntersectContext ctx{};
+    rtcInitIntersectContext(&ctx);
+#endif
 
     RTCRayHit rh{};
     rh.ray.org_x = ray.compressed_origin[0];
@@ -106,18 +111,28 @@ Hit LLVMAccel::trace_closest(Ray ray) const noexcept {
     rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
     rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
     rh.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
+
+#if RTC_VERSION_MAJOR == 4
     rtcIntersect1(_handle, &rh, &arg);
+#elif RTC_VERSION_MAJOR == 3
+    rtcIntersect1(_handle, &ctx, &rh);
+#endif
     return {.inst = rh.hit.instID[0], .prim = rh.hit.primID,
             .bary = make_float2(rh.hit.u, rh.hit.v)};
 }
 
 bool LLVMAccel::trace_any(Ray ray) const noexcept {
+#if RTC_VERSION_MAJOR == 4
     RTCRayQueryContext ctx{};
     rtcInitRayQueryContext(&ctx);
 
     RTCOccludedArguments arg;
     rtcInitOccludedArguments(&arg);
     arg.context = &ctx;
+#elif RTC_VERSION_MAJOR == 3
+    RTCIntersectContext ctx{};
+    rtcInitIntersectContext(&ctx);
+#endif
 
     RTCRay r{};
     r.org_x = ray.compressed_origin[0];
@@ -129,7 +144,11 @@ bool LLVMAccel::trace_any(Ray ray) const noexcept {
     r.dir_z = ray.compressed_direction[2];
     r.tfar = ray.compressed_t_max;
     r.mask = 0xffu;
+#if RTC_VERSION_MAJOR == 4
     rtcOccluded1(_handle, &r, &arg);
+#elif RTC_VERSION_MAJOR == 3
+    rtcOccluded1(_handle, &ctx, &r);
+#endif
     return r.tfar < 0.f;
 }
 

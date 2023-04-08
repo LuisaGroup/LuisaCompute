@@ -4,7 +4,11 @@
 
 #pragma once
 
+#if __has_include(<embree4/rtcore.h>)
 #include <embree4/rtcore.h>
+#else
+#include <embree3/rtcore.h>
+#endif
 #include <rtx/mesh.h>
 #include "llvm_accel.h"
 
