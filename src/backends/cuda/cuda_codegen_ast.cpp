@@ -1195,8 +1195,10 @@ static void collect_types_in_function(Function f,
 
     // types from variables
     auto add = [&](auto &&self, auto t) noexcept -> void {
-        if (t != nullptr && t->is_structure()) {
-            if (types.emplace(t).second) {
+        if (t != nullptr && types.emplace(t).second) {
+            if (t->is_array() || t->is_buffer()) {
+                self(self, t->element());
+            } else if (t->is_structure()) {
                 for (auto m : t->members()) {
                     self(self, m);
                 }
@@ -1205,6 +1207,15 @@ static void collect_types_in_function(Function f,
     };
     for (auto &&a : f.arguments()) { add(add, a.type()); }
     for (auto &&l : f.local_variables()) { add(add, l.type()); }
+    traverse_expressions<true>(
+        f.body(),
+        [&add](auto expr) noexcept {
+            if (auto type = expr->type()) {
+                add(add, type);
+            }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
     add(add, f.return_type());
 
     // types from called callables
@@ -1235,7 +1246,13 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     types.clear();
     auto emit = [&](auto &&self, auto type) noexcept -> void {
         if (types.emplace(type).second) {
-            for (auto m : type->members()) { self(self, m); }
+            if (type->is_array() || type->is_buffer()) {
+                self(self, type->element());
+            } else if (type->is_structure()) {
+                for (auto m : type->members()) {
+                    self(self, m);
+                }
+            }
             this->visit(type);
         }
     };

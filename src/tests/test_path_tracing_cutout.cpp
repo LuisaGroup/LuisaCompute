@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
     materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall
     materials.emplace_back(Material{make_float3(0.14f, 0.45f, 0.091f), make_float3(0.0f)});// right wall
     materials.emplace_back(Material{make_float3(0.63f, 0.065f, 0.05f), make_float3(0.0f)});// left wall
-    materials.emplace_back(Material{make_float3(0.45f, 0.11f, 0.52f), make_float3(0.0f)});// short box
+    materials.emplace_back(Material{make_float3(0.45f, 0.11f, 0.52f), make_float3(0.0f)}); // short box
     materials.emplace_back(Material{make_float3(0.025f, 0.21f, 0.68f), make_float3(0.0f)});// tall box
     materials.emplace_back(Material{make_float3(0.0f), make_float3(17.0f, 12.0f, 4.0f)});  // light
     auto material_buffer = device.create_buffer<Material>(materials.size());
@@ -193,8 +193,8 @@ int main(int argc, char *argv[]) {
 
     Callable filter_triangle_hit = [&](Var<TriangleHit> h) noexcept {
         auto valid = def(true);
-        $if (h.inst == tall_inst) { valid = fract(6.f * h.bary.y) < .6f; }
-        $elif (h.inst == short_inst) { valid = fract(10.f * h.bary.x) < .5f; };
+        $if(h.inst == tall_inst) { valid = fract(6.f * h.bary.y) < .6f; }
+        $elif(h.inst == short_inst) { valid = fract(10.f * h.bary.x) < .5f; };
         return valid;
     };
 
@@ -223,12 +223,12 @@ int main(int argc, char *argv[]) {
 
                 // trace
                 auto hit = accel.query_all(ray)
-                               .on_triangle_candidate([&](auto &c) noexcept {
-                                   $if(filter_triangle_hit(c.hit())) {
-                                       c.commit();
-                                   };
-                               })
-                               .trace();
+                    .on_triangle_candidate([&](auto &c) noexcept {
+                        $if(filter_triangle_hit(c.hit())) {
+                            c.commit();
+                        };
+                    })
+                    .trace();
                 $if(hit->miss()) { $break; };
                 auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 auto m = accel.instance_transform(hit.inst);
@@ -268,6 +268,7 @@ int main(int argc, char *argv[]) {
                                      .on_triangle_candidate([&](auto &c) noexcept {
                                          $if(filter_triangle_hit(c.hit())) {
                                              c.commit();
+                                             c.terminate();
                                          };
                                      })
                                      .trace()
