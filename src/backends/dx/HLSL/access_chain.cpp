@@ -29,6 +29,7 @@ void AccessChain::init_name() {
 }
 size_t AccessChain::_get_hash() const {
     auto hash_value = luisa::hash<CallOp>{}(_op);
+    hash_value = luisa::hash<size_t>{}(reinterpret_cast<size_t>(_root_type));
     for (auto &&i : _nodes) {
         hash_value = luisa::hash<size_t>{}(i.index(), hash_value);
         i.visit([&]<typename T>(T const &t) {
@@ -40,7 +41,7 @@ size_t AccessChain::_get_hash() const {
     return hash_value;
 }
 bool AccessChain::operator==(AccessChain const &node) const {
-    if (_op != node._op || node._nodes.size() != _nodes.size())
+    if (_op != node._op || node._nodes.size() != _nodes.size() || node._root_type != _root_type)
         return false;
     for (auto idx : vstd::range(_nodes.size())) {
         auto &l = _nodes[idx];
