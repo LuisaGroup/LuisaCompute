@@ -5,8 +5,8 @@
 #pragma once
 
 #include <core/dll_export.h>
-#include <dsl/expr.h>
 #include <ast/atomic_ref_node.h>
+#include <dsl/expr.h>
 
 namespace luisa::compute::detail {
 

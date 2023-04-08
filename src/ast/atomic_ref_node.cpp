@@ -1,6 +1,7 @@
 //
 // Created by Mike on 4/6/2023.
 //
+
 #include <core/magic_enum.h>
 #include <core/logging.h>
 #include <ast/atomic_ref_node.h>
