@@ -3,7 +3,8 @@
 //
 #include <core/magic_enum.h>
 #include <core/logging.h>
-#include <dsl/atomic.h>
+#include <ast/atomic_ref_node.h>
+#include <ast/function_builder.h>
 
 namespace luisa::compute::detail {
 

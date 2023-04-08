@@ -12,6 +12,9 @@
 #include <py/managed_bindless.h>
 #include <core/thread_pool.h>
 #include <runtime/raster/raster_state.h>
+#include <ast/atomic_ref_node.h>
+#include <core/logging.h>
+
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
@@ -64,7 +67,10 @@ struct VertexData {
     uint32_t vertex_id;
     uint32_t instance_id;
 };
-
+struct AtomicAccessChain {
+    using Node = luisa::compute::detail::AtomicRefNode;
+    Node const *node{};
+};
 void export_runtime(py::module &m) {
     py::class_<ManagedMeshFormat>(m, "MeshFormat")
         .def(py::init<>())
@@ -509,4 +515,26 @@ void export_runtime(py::module &m) {
             pyref)
         // .def("meta") // unused
         .def("function", &FunctionBuilder::function);// returning object
+
+    py::class_<AtomicAccessChain>(m, "AtomicAccessChain")
+        .def(py::init<>())
+        .def(
+            "create", [&](AtomicAccessChain &self, RefExpr const *buffer_expr) {
+                LUISA_ASSERT(self.node == nullptr, "Re-create chain not allowed");
+                self.node = AtomicAccessChain::Node::create(buffer_expr);
+            },
+            pyref)
+        .def(
+            "access", [&](AtomicAccessChain &self, Expression const *expr) {
+                self.node = self.node->access(expr);
+            },
+            pyref)
+        .def(
+            "member", [&](AtomicAccessChain &self, size_t member_index) {
+                self.node = self.node->access(member_index);
+            },
+            pyref)
+        .def("operate", [&](AtomicAccessChain &self, CallOp op, const luisa::vector<const Expression *> &args) -> Expression const * {
+            return self.node->operate(op, luisa::span<Expression const *const>{args});
+        });
 }

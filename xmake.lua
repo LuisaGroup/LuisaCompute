@@ -97,6 +97,12 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+-- bin dir
+option("set_bindir")
+set_values(true, false)
+set_default(true)
+set_showmenu(true)
+option_end()
 -- pre-defined options end
 if is_arch("x64", "x86_64", "arm64") then
 	LCUseMimalloc = get_config("enable_mimalloc")
@@ -119,11 +125,14 @@ if is_arch("x64", "x86_64", "arm64") then
 	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0 and type(py_version) == "string" and
 					                 string.len(py_version) > 0
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
-	if is_mode("debug") then
-		set_targetdir("bin/debug")
-	else
-		set_targetdir("bin/release")
+	if get_config("set_bindir") then
+		if is_mode("debug") then
+			set_targetdir("bin/debug")
+		else
+			set_targetdir("bin/release")
+		end
 	end
+
 	includes("xmake_func.lua")
 	includes("src")
 else

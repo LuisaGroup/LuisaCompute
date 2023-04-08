@@ -2,6 +2,7 @@
 #include <vstl/common.h>
 #include "dx_codegen.h"
 #include "struct_generator.h"
+#include "access_chain.h"
 namespace lc::dx {
 
 struct CodegenStackData : public vstd::IOperatorNewBase {
@@ -36,9 +37,16 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::function<void(Type const *)> generateStruct;
     vstd::unordered_map<vstd::string, vstd::string, vstd::hash<vstd::StringBuilder>> structReplaceName;
     vstd::unordered_map<uint64, Variable> sharedVariable;
+    vstd::unordered_set<AccessChain, AccessHash> atomicsFuncs;
     Expression const *tempSwitchExpr;
     size_t tempSwitchCounter = 0;
     CodegenStackData();
+    AccessChain const &GetAtomicFunc(
+        CallOp op,
+        Type const *rootType,
+        Type const *retType,
+        luisa::span<Expression const *const> exprs,
+        vstd::StringBuilder &beforeCodeBlockSB);
     void Clear();
     void AddBindlessType(Type const *type);
     vstd::string_view CreateStruct(Type const *t);

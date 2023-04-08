@@ -27,6 +27,7 @@ void CodegenStackData::Clear() {
     constTypes.clear();
     funcTypes.clear();
     customStruct.clear();
+    atomicsFuncs.clear();
     sharedVariable.clear();
     constCount = 0;
     argOffset = 0;
@@ -116,7 +117,7 @@ struct CodegenGlobalPool {
 static CodegenGlobalPool codegenGlobalPool;
 }// namespace detail
 CodegenStackData::~CodegenStackData() {}
-vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate(CodegenUtility* util) {
+vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate(CodegenUtility *util) {
     auto ptr = detail::codegenGlobalPool.Allocate();
     ptr->util = util;
     return ptr;
@@ -124,4 +125,134 @@ vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate(CodegenUtility* ut
 void CodegenStackData::DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
     detail::codegenGlobalPool.DeAllocate(std::move(v));
 }
+// T for type, C for access, A for arguments
+static vstd::string_view _atomic_exchange =
+    R"(T r;InterlockedExchange(C,A,r);return r;)"sv;
+static vstd::string_view _atomic_compare_exchange =
+    R"(T r;InterlockedCompareExchange(C,A,r);return r;)"sv;
+static vstd::string_view _atomic_compare_exchange_float =
+    R"(T r;InterlockedCompareExchangeFloatBitwise(C,A,r);return r;)"sv;
+static vstd::string_view _atomic_add =
+    R"(T r;InterlockedAdd(C,A,r);return r;)"sv;
+static vstd::string_view _atomic_add_float =
+    R"(while(true){
+T old=C;
+T r;
+InterlockedCompareExchangeFloatBitwise(C,old,old+A,r);
+if(old==r)return old;
+}
+})"sv;
+static vstd::string_view _atomic_sub =
+    R"(T r;
+InterlockedAdd(C,-A,r);
+return r;)"sv;
+static vstd::string_view _atomic_sub_float =
+    R"(while(true){
+T old=C;
+T r;
+InterlockedCompareExchangeFloatBitwise(C,old,old-A,r);
+if(old==r)return old;
+}
+})"sv;
+static vstd::string_view _atomic_and =
+    R"(T r;InterlockedAnd(a[idx],-b,r);return r;)"sv;
+static vstd::string_view _atomic_or =
+    R"(T r;InterlockedOr(a[idx],-b,r);return r;)"sv;
+static vstd::string_view _atomic_xor =
+    R"(T r;InterlockedXor(a[idx],-b,r);return r;)"sv;
+static vstd::string_view _atomic_min =
+    R"(T r;InterlockedMin(a[idx],-b,r);return r;)"sv;
+static vstd::string_view _atomic_min_float =
+    R"(while(true){
+T old=C;
+if(old<=A){
+T r;
+InterlockedCompareExchangeFloatBitwise(C,old,A,r);
+if(r==old) return old;
+}})"sv;
+static vstd::string_view _atomic_max =
+    R"(T r;InterlockedMax(a[idx],-b,r);return r;)"sv;
+static vstd::string_view _atomic_max_float =
+    R"(while(true){
+T old=C;
+if(old>=A){
+T r;
+InterlockedCompareExchangeFloatBitwise(C,old,A,r);
+if(r==old) return old;
+}})"sv;
+AccessChain const &CodegenStackData::GetAtomicFunc(
+    CallOp op,
+    Type const *rootType,
+    Type const *retType,
+    luisa::span<Expression const *const> exprs,
+    vstd::StringBuilder &beforeCodeBlockSB) {
+    size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
+    vstd::StringBuilder retTypeName;
+    util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
+    TemplateFunction tmp{
+        .ret_type = retTypeName.view(),
+        .access_place = 'C',
+        .args_place = 'A'};
+    switch (op) {
+        case CallOp::ATOMIC_EXCHANGE:
+            tmp.body = _atomic_exchange;
+            break;
+        case CallOp::ATOMIC_COMPARE_EXCHANGE:
+            if (retType->is_float32()) {
+                tmp.body = _atomic_compare_exchange_float;
+            } else {
+                tmp.body = _atomic_compare_exchange;
+            }
+            break;
+        case CallOp::ATOMIC_FETCH_ADD:
+            if (retType->is_float32()) {
+                tmp.body = _atomic_add_float;
+            } else {
+                tmp.body = _atomic_add;
+            }
+            break;
+        case CallOp::ATOMIC_FETCH_SUB:
+            if (retType->is_float32()) {
+                tmp.body = _atomic_sub_float;
+            } else {
+                tmp.body = _atomic_sub;
+            }
+            break;
+        case CallOp::ATOMIC_FETCH_AND:
+            tmp.body = _atomic_and;
+            break;
+        case CallOp::ATOMIC_FETCH_OR:
+            tmp.body = _atomic_or;
+            break;
+        case CallOp::ATOMIC_FETCH_XOR:
+            tmp.body = _atomic_xor;
+            break;
+        case CallOp::ATOMIC_FETCH_MIN:
+            if (retType->is_float32()) {
+                tmp.body = _atomic_min_float;
+            } else {
+                tmp.body = _atomic_min;
+            }
+            break;
+        case CallOp::ATOMIC_FETCH_MAX:
+            if (retType->is_float32()) {
+                tmp.body = _atomic_max_float;
+            } else {
+                tmp.body = _atomic_max;
+            }
+            break;
+    }
+
+    AccessChain chain{
+        op,
+        rootType,
+        exprs.subspan(0, exprs.size() - extra_arg_size)};
+    auto iter = atomicsFuncs.emplace(std::move(chain));
+    if (iter.second) {
+        iter.first->init_name();
+        iter.first->gen_func_impl(util, tmp, exprs.subspan(exprs.size() - extra_arg_size, extra_arg_size), beforeCodeBlockSB);
+    }
+    return *iter.first;
+}
+
 }// namespace lc::dx
