@@ -7,6 +7,7 @@ namespace lc::dx {
 
 struct CodegenStackData : public vstd::IOperatorNewBase {
     CodegenUtility *util;
+    vstd::StringBuilder *finalResult;
     luisa::compute::Function kernel;
     vstd::unordered_map<Type const *, uint64> structTypes;
     vstd::unordered_map<uint64, uint64> constTypes;
@@ -45,8 +46,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
         CallOp op,
         Type const *rootType,
         Type const *retType,
-        luisa::span<Expression const *const> exprs,
-        vstd::StringBuilder &beforeCodeBlockSB);
+        luisa::span<Expression const *const> exprs);
     void Clear();
     void AddBindlessType(Type const *type);
     vstd::string_view CreateStruct(Type const *t);

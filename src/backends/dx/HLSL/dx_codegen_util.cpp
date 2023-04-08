@@ -595,53 +595,66 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::INVERSE:
             str << "inverse"sv;
             break;
-        case CallOp::ATOMIC_EXCHANGE: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
-                str << "_atomic_exchange_float"sv;
-            } else {
-                str << "_atomic_exchange"sv;
-            }
-        } break;
-        case CallOp::ATOMIC_COMPARE_EXCHANGE: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
-                str << "_atomic_compare_exchange_float"sv;
-            } else {
-                str << "_atomic_compare_exchange"sv;
-            }
-        } break;
-        case CallOp::ATOMIC_FETCH_ADD: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32))
-                str << "_atomic_add_float"sv;
-            else
-                str << "_atomic_add"sv;
-        } break;
-        case CallOp::ATOMIC_FETCH_SUB: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32))
-                str << "_atomic_sub_float"sv;
-            else
-                str << "_atomic_sub"sv;
-        } break;
-        case CallOp::ATOMIC_FETCH_AND: {
-            str << "_atomic_and"sv;
-        } break;
-        case CallOp::ATOMIC_FETCH_OR: {
-            str << "_atomic_or"sv;
-        } break;
-        case CallOp::ATOMIC_FETCH_XOR: {
-            str << "_atomic_xor"sv;
-        } break;
-        case CallOp::ATOMIC_FETCH_MIN: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32))
-                str << "_atomic_min_float"sv;
-            else
-                str << "_atomic_min"sv;
-        } break;
+        // case CallOp::ATOMIC_EXCHANGE: {
+        //     if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
+        //         str << "_atomic_exchange_float"sv;
+        //     } else {
+        //         str << "_atomic_exchange"sv;
+        //     }
+        // } break;
+        // case CallOp::ATOMIC_COMPARE_EXCHANGE: {
+        //     if ((expr->type()->tag() == Type::Tag::FLOAT32)) {
+        //         str << "_atomic_compare_exchange_float"sv;
+        //     } else {
+        //         str << "_atomic_compare_exchange"sv;
+        //     }
+        // } break;
+        // case CallOp::ATOMIC_FETCH_ADD: {
+        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
+        //         str << "_atomic_add_float"sv;
+        //     else
+        //         str << "_atomic_add"sv;
+        // } break;
+        // case CallOp::ATOMIC_FETCH_SUB: {
+        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
+        //         str << "_atomic_sub_float"sv;
+        //     else
+        //         str << "_atomic_sub"sv;
+        // } break;
+        // case CallOp::ATOMIC_FETCH_AND: {
+        //     str << "_atomic_and"sv;
+        // } break;
+        // case CallOp::ATOMIC_FETCH_OR: {
+        //     str << "_atomic_or"sv;
+        // } break;
+        // case CallOp::ATOMIC_FETCH_XOR: {
+        //     str << "_atomic_xor"sv;
+        // } break;
+        // case CallOp::ATOMIC_FETCH_MIN: {
+        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
+        //         str << "_atomic_min_float"sv;
+        //     else
+        //         str << "_atomic_min"sv;
+        // } break;
+        // case CallOp::ATOMIC_FETCH_MAX: {
+        //     if ((expr->type()->tag() == Type::Tag::FLOAT32))
+        //         str << "_atomic_max_float"sv;
+        //     else
+        //         str << "_atomic_max"sv;
+        // } break;
+        case CallOp::ATOMIC_EXCHANGE:
+        case CallOp::ATOMIC_COMPARE_EXCHANGE:
+        case CallOp::ATOMIC_FETCH_ADD:
+        case CallOp::ATOMIC_FETCH_SUB:
+        case CallOp::ATOMIC_FETCH_AND:
+        case CallOp::ATOMIC_FETCH_OR:
+        case CallOp::ATOMIC_FETCH_XOR:
+        case CallOp::ATOMIC_FETCH_MIN:
         case CallOp::ATOMIC_FETCH_MAX: {
-            if ((expr->type()->tag() == Type::Tag::FLOAT32))
-                str << "_atomic_max_float"sv;
-            else
-                str << "_atomic_max"sv;
-        } break;
+            auto &chain = opt->GetAtomicFunc(expr->op(), args[0]->type(), expr->type(), args);
+            chain.call_this_func(args, str, vis);
+            return;
+        }
         case CallOp::TEXTURE_READ:
             str << "Smptx";
             break;
@@ -1566,14 +1579,16 @@ CodegenResult CodegenUtility::Codegen(
 
     vstd::StringBuilder codegenData;
     vstd::StringBuilder varData;
-    CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
     vstd::StringBuilder finalResult;
+    opt->finalResult = &finalResult;
     finalResult.reserve(65500);
-
     finalResult << detail::HLSLHeader(this, internalDataPath);
     if (kernel.requires_raytracing()) {
         finalResult << detail::RayTracingHeader(this, internalDataPath);
     }
+
+    CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
+
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::RangeImpl(vstd::CacheEndRange(kernel.arguments()) | vstd::ValueRange{});
     if (nonEmptyCbuffer) {
@@ -1610,7 +1625,12 @@ CodegenResult CodegenUtility::RasterCodegen(
     vstd::StringBuilder codegenData;
     vstd::StringBuilder varData;
     vstd::StringBuilder finalResult;
+    opt->finalResult = &finalResult;
     finalResult.reserve(65500);
+    finalResult << detail::HLSLHeader(this, internalDataPath);
+    if (vertFunc.requires_raytracing() || pixelFunc.requires_raytracing()) {
+        finalResult << detail::RayTracingHeader(this, internalDataPath);
+    }
     // Vertex
     codegenData << "struct v2p{\n"sv;
     auto v2pType = vertFunc.return_type();
@@ -1724,10 +1744,7 @@ uint iid:SV_INSTANCEID;
     // TODO: gen pixel data
     CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer);
     codegenData << "#endif\n"sv;
-    finalResult << detail::HLSLHeader(this, internalDataPath);
-    if (vertFunc.requires_raytracing() || pixelFunc.requires_raytracing()) {
-        finalResult << detail::RayTracingHeader(this, internalDataPath);
-    }
+
     opt->funcType = CodegenStackData::FuncType::Callable;
     if (nonEmptyCbuffer) {
         GenerateCBuffer(funcs, varData);

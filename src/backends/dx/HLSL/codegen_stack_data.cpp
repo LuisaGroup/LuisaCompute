@@ -125,74 +125,73 @@ vstd::unique_ptr<CodegenStackData> CodegenStackData::Allocate(CodegenUtility *ut
 void CodegenStackData::DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
     detail::codegenGlobalPool.DeAllocate(std::move(v));
 }
-// T for type, C for access, A for arguments
+// # for type, $ for access, @ for arguments
 static vstd::string_view _atomic_exchange =
-    R"(T r;InterlockedExchange(C,A,r);return r;)"sv;
+    R"(# r;InterlockedExchange($,@,r);return r;)"sv;
 static vstd::string_view _atomic_compare_exchange =
-    R"(T r;InterlockedCompareExchange(C,A,r);return r;)"sv;
+    R"(# r;InterlockedCompareExchange($,@,r);return r;)"sv;
 static vstd::string_view _atomic_compare_exchange_float =
-    R"(T r;InterlockedCompareExchangeFloatBitwise(C,A,r);return r;)"sv;
+    R"(# r;InterlockedCompareExchangeFloatBitwise($,@,r);return r;)"sv;
 static vstd::string_view _atomic_add =
-    R"(T r;InterlockedAdd(C,A,r);return r;)"sv;
+    R"(# r;InterlockedAdd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_add_float =
     R"(while(true){
-T old=C;
-T r;
-InterlockedCompareExchangeFloatBitwise(C,old,old+A,r);
+# old=$;
+# r;
+InterlockedCompareExchangeFloatBitwise($,old,old+@,r);
 if(old==r)return old;
-}
 })"sv;
 static vstd::string_view _atomic_sub =
-    R"(T r;
-InterlockedAdd(C,-A,r);
+    R"(# r;
+InterlockedAdd($,-@,r);
 return r;)"sv;
 static vstd::string_view _atomic_sub_float =
     R"(while(true){
-T old=C;
-T r;
-InterlockedCompareExchangeFloatBitwise(C,old,old-A,r);
+# old=$;
+# r;
+InterlockedCompareExchangeFloatBitwise($,old,old-@,r);
 if(old==r)return old;
-}
 })"sv;
 static vstd::string_view _atomic_and =
-    R"(T r;InterlockedAnd(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedAnd(a[idx],-b,r);return r;)"sv;
 static vstd::string_view _atomic_or =
-    R"(T r;InterlockedOr(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedOr(a[idx],-b,r);return r;)"sv;
 static vstd::string_view _atomic_xor =
-    R"(T r;InterlockedXor(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedXor(a[idx],-b,r);return r;)"sv;
 static vstd::string_view _atomic_min =
-    R"(T r;InterlockedMin(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedMin(a[idx],-b,r);return r;)"sv;
 static vstd::string_view _atomic_min_float =
     R"(while(true){
-T old=C;
-if(old<=A){
-T r;
-InterlockedCompareExchangeFloatBitwise(C,old,A,r);
+# old=$;
+if(old<=@){
+# r;
+InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
 }})"sv;
 static vstd::string_view _atomic_max =
-    R"(T r;InterlockedMax(a[idx],-b,r);return r;)"sv;
+    R"(# r;InterlockedMax(a[idx],-b,r);return r;)"sv;
 static vstd::string_view _atomic_max_float =
     R"(while(true){
-T old=C;
-if(old>=A){
-T r;
-InterlockedCompareExchangeFloatBitwise(C,old,A,r);
+# old=$;
+if(old>=@){
+# r;
+InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
 }})"sv;
 AccessChain const &CodegenStackData::GetAtomicFunc(
     CallOp op,
     Type const *rootType,
     Type const *retType,
-    luisa::span<Expression const *const> exprs,
-    vstd::StringBuilder &beforeCodeBlockSB) {
+    luisa::span<Expression const *const> exprs) {
     size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
     vstd::StringBuilder retTypeName;
     util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
     TemplateFunction tmp{
         .ret_type = retTypeName.view(),
-        .access_place = 'C',
-        .args_place = 'A'};
+        .tmp_type_name = retTypeName.view(),
+        .access_place = '$',
+        .args_place = '@',
+        .temp_type_place = '#'};
     switch (op) {
         case CallOp::ATOMIC_EXCHANGE:
             tmp.body = _atomic_exchange;
@@ -250,7 +249,7 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
     auto iter = atomicsFuncs.emplace(std::move(chain));
     if (iter.second) {
         iter.first->init_name();
-        iter.first->gen_func_impl(util, tmp, exprs.subspan(exprs.size() - extra_arg_size, extra_arg_size), beforeCodeBlockSB);
+        iter.first->gen_func_impl(util, tmp, exprs.subspan(exprs.size() - extra_arg_size, extra_arg_size), *finalResult);
     }
     return *iter.first;
 }

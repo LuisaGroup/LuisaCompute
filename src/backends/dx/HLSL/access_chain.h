@@ -15,8 +15,10 @@ using namespace luisa::compute;
 struct TemplateFunction {
     vstd::string_view ret_type;
     vstd::string_view body;
+    vstd::string_view tmp_type_name;
     char access_place;
     char args_place;
+    char temp_type_place;
 };
 class AccessChain {
 public:
@@ -49,6 +51,7 @@ public:
     bool operator!=(AccessChain const &node) const { return !operator==(node); }
 
     void gen_func_impl(CodegenUtility *util, TemplateFunction const &tmp, luisa::span<Expression const *const> args, vstd::StringBuilder &builder);
+    void call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const;
 };
 struct AccessHash {
     size_t operator()(AccessChain const &c) const {
