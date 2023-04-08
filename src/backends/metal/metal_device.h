@@ -4,10 +4,50 @@
 
 #pragma once
 
+#include <runtime/rhi/device_interface.h>
 #include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
 
+class MetalDevice : public DeviceInterface {
 
+private:
+public:
+    ~MetalDevice() noexcept override = default;
+    void *native_handle() const noexcept override;
+    BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
+    void destroy_buffer(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept override;
+    void destroy_texture(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
+    void destroy_bindless_array(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
+    void destroy_stream(uint64_t handle) noexcept override;
+    void synchronize_stream(uint64_t stream_handle) noexcept override;
+    void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override;
+    SwapChainCreationInfo create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept override;
+    void destroy_swap_chain(uint64_t handle) noexcept override;
+    void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
+    ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
+    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
+    ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
+    Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
+    void destroy_shader(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_event() noexcept override;
+    void destroy_event(uint64_t handle) noexcept override;
+    void signal_event(uint64_t handle, uint64_t stream_handle) noexcept override;
+    void wait_event(uint64_t handle, uint64_t stream_handle) noexcept override;
+    void synchronize_event(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
+    void destroy_mesh(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept override;
+    void destroy_procedural_primitive(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_accel(const AccelOption &option) noexcept override;
+    void destroy_accel(uint64_t handle) noexcept override;
+    string query(luisa::string_view property) noexcept override;
+    DeviceExtension *extension(luisa::string_view name) noexcept override;
+    void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
+};
 
-}
+}// namespace luisa::compute::metal

@@ -5,11 +5,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_api.cpp metal_api.h
             metal_device.cpp metal_device.h)
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
-    find_path(METAL_OBJC_INCLUDE_DIR objc/runtime.h)
-    message(STATUS "Metal Objective-C include directory: ${METAL_OBJC_INCLUDE_DIR}")
-    target_include_directories(lc-backend-metal PRIVATE
-            ${METAL_OBJC_INCLUDE_DIR}
-            metal-cpp/SingleHeader)
     target_link_libraries(lc-backend-metal PRIVATE
             "-framework Foundation"
             "-framework Metal"
