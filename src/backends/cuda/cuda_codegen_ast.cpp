@@ -1457,7 +1457,7 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
             _emit_variable_decl(f, v, false);
             _scratch << ";\n";
             _emit_indent();
-            _scratch << "  auto &";
+            _scratch << "auto &";
             _emit_variable_name(v);
             _scratch << " = *reinterpret_cast<";
             _emit_type_name(v.type());
