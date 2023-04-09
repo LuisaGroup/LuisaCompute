@@ -12,7 +12,7 @@ on_load(function(target)
 	if not vk_path then
 		return
 	end
-	local macro_value = target:values("LC_CUDA_ENABLE_VULKAN_SWAPCHAIN")
+	local macro_value = target:values("vulkan_macro")
 	if macro_value and type(macro_value) == "string" then
 		target:add("defines", macro_value)
 	end
@@ -75,7 +75,7 @@ on_load(function(target)
 		target:add("cxflags", "/GS-", "/Gd", {
 			tools = {"clang_cl", "cl"}
 		})
-		target:add("cxflags", "/GL", "/Zc:preprocessor", {
+		target:add("cxflags", "/Zc:preprocessor", {
 			tools = "cl"
 		})
 	end
