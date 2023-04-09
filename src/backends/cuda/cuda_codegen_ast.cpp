@@ -1336,17 +1336,15 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
     auto usage = f.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
-        case Variable::Tag::SHARED:
-            _scratch << "__shared__ ";
+        case Variable::Tag::SHARED: {
             LUISA_ASSERT(v.type()->is_array(),
                          "Shared variable must be an array.");
-            _emit_type_name(v.type()->element());
-            _scratch << " ";
+            _scratch << "__shared__ lc_aligned_storage<"
+                     << v.type()->alignment() << ", "
+                     << v.type()->size() << ">  _";
             _emit_variable_name(v);
-            _scratch << "[";
-            _scratch << v.type()->dimension();
-            _scratch << "]";
             break;
+        }
         case Variable::Tag::REFERENCE:
             if (readonly || force_const) {
                 _scratch << "const ";
@@ -1457,7 +1455,15 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(f, v, false);
-            _scratch << ";";
+            _scratch << ";\n";
+            _emit_indent();
+            _scratch << "  auto &";
+            _emit_variable_name(v);
+            _scratch << " = *reinterpret_cast<";
+            _emit_type_name(v.type());
+            _scratch << " *>(&_";
+            _emit_variable_name(v);
+            _scratch << ");";
         }
     }
     for (auto v : f.local_variables()) {

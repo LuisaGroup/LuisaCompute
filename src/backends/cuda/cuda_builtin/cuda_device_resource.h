@@ -62,6 +62,11 @@ struct alignas(8) lc_half4 {
     return val;
 }
 
+template<size_t alignment, size_t size>
+struct alignas(alignment) lc_aligned_storage {
+    unsigned char data[size];
+};
+
 template<typename T>
 struct LCBuffer {
     T *__restrict__ ptr;
