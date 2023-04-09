@@ -1338,9 +1338,14 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
     switch (v.tag()) {
         case Variable::Tag::SHARED:
             _scratch << "__shared__ ";
-            _emit_type_name(v.type());
+            LUISA_ASSERT(v.type()->is_array(),
+                         "Shared variable must be an array.");
+            _emit_type_name(v.type()->element());
             _scratch << " ";
             _emit_variable_name(v);
+            _scratch << "[";
+            _scratch << v.type()->dimension();
+            _scratch << "]";
             break;
         case Variable::Tag::REFERENCE:
             if (readonly || force_const) {
