@@ -7,7 +7,9 @@ add_includedirs("../ext/glfw/include", {
 	public = true
 })
 add_defines("_GLFW_BUILD_DLL")
-if is_plat("windows") then
+if is_plat("linux") then
+	add_defines("_GLFW_X11", "_DEFAULT_SOURCE")
+elseif is_plat("windows") then
 	add_defines("_GLFW_WIN32")
 end
 add_syslinks("User32", "Gdi32", "Shell32")

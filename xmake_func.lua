@@ -28,7 +28,7 @@ on_config(function(target)
 	if is_plat("linux") then
 		-- Linux should use -stdlib=libc++
 		-- https://github.com/LuisaGroup/LuisaCompute/issues/58
-		if (cc == "clang" or cc == "clangxx" or cc == "gcc" or cc == "gxx") then
+		if (cc == "clang" or cc == "clangxx") then
 			target:add("cxflags", "-stdlib=libc++", {
 				force = true
 			})
