@@ -66,7 +66,7 @@ size_t pagesize() noexcept {
 }
 namespace win_detail {
 template<typename PathChar>
-void set_dll_directory(PathChar const *path) {
+void set_dll_directory(PathChar const *path) noexcept {
     if constexpr (sizeof(PathChar) == 1) {
         SetDllDirectoryA(path);
     } else {

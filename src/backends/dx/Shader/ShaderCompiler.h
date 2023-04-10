@@ -8,12 +8,9 @@ namespace lc::dx {
 class DXByteBlob final : public vstd::IOperatorNewBase {
 private:
     ComPtr<IDxcBlob> blob;
-    ComPtr<IDxcResult> comRes;
 
 public:
-    DXByteBlob(
-        ComPtr<IDxcBlob> &&b,
-        ComPtr<IDxcResult> &&rr);
+    DXByteBlob(ComPtr<IDxcBlob> &&b);
     std::byte *GetBufferPtr() const;
     size_t GetBufferSize() const;
 };

@@ -3,11 +3,8 @@
 #include <vstl/string_utility.h>
 #include <core/logging.h>
 namespace lc::dx {
-DXByteBlob::DXByteBlob(
-    ComPtr<IDxcBlob> &&b,
-    ComPtr<IDxcResult> &&rr)
-    : blob(std::move(b)),
-      comRes(std::move(rr)) {}
+DXByteBlob::DXByteBlob(ComPtr<IDxcBlob> &&b)
+    : blob(std::move(b)) {}
 std::byte *DXByteBlob::GetBufferPtr() const {
     return reinterpret_cast<std::byte *>(blob->GetBufferPointer());
 }
@@ -71,7 +68,7 @@ CompileResult ShaderCompiler::Compile(
     if (status == 0) {
         ComPtr<IDxcBlob> resultBlob;
         ThrowIfFailed(compileResult->GetResult(resultBlob.GetAddressOf()));
-        return vstd::create_unique(new DXByteBlob(std::move(resultBlob), std::move(compileResult)));
+        return vstd::create_unique(new DXByteBlob(std::move(resultBlob)));
     } else {
         ComPtr<IDxcBlobEncoding> errBuffer;
         ThrowIfFailed(compileResult->GetErrorBuffer(errBuffer.GetAddressOf()));
