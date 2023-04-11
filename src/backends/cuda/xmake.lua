@@ -3,8 +3,12 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 4
 })
-set_values("vulkan_macro", "LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN")
-add_rules("lc_vulkan")
+if LCVulkanPath then
+	set_values("vk_path", LCVulkanPath)
+	set_values("vulkan_macro", "LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN")
+	set_values("enable_swapchain", true)
+	add_rules("lc_vulkan")
+end
 add_deps("lc-runtime")
 add_files("**.cpp", "../common/default_binary_io.cpp", "../common/string_scratch.cpp")
 on_load(function(target)

@@ -27,6 +27,12 @@ set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
+-- enable Vulkan backend
+option("vk_backend")
+set_values(true, false)
+set_default(true)
+set_showmenu(true)
+option_end()
 -- enable NVIDIA-CUDA backend
 option("cuda_backend")
 set_values(true, false)
@@ -105,6 +111,15 @@ if is_arch("x64", "x86_64", "arm64") then
 	LCEnableTest = get_config("enable_tests")
 	LCEnableDSL = get_config("enable_dsl") or LCEnableTest
 	LCDxBackend = get_config("dx_backend") and is_plat("windows")
+	local function vk_path()
+		local path = os.getenv("VULKAN_SDK")
+		if path then
+			return path
+		end
+		return os.getenv("VK_SDK_PATH")
+	end
+	LCVulkanPath = vk_path()
+	LCVkBackend = get_config("vk_backend") and LCVulkanPath
 	-- TODO: require environment check
 	LCCudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux"))
 	LCMetalBackend = get_config("metal_backend") and is_plat("macosx")

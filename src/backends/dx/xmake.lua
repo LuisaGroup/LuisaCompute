@@ -8,11 +8,7 @@ add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp"
 				"../common/default_binary_io.cpp")
 add_includedirs("./")
 add_syslinks("D3D12", "dxgi")
-after_build(function(target)
-	local bin_dir = target:targetdir()
-	os.cp(path.join(os.scriptdir(), "dx_builtin"), path.join(bin_dir, ".data/"))
-	os.cp(path.join(os.scriptdir(), "dx_support/*.dll"), bin_dir)
-end)
+add_deps("lc-copy-dxc")
 if is_plat("windows") then
 	add_defines("NOMINMAX", "UNICODE")
 end

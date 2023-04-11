@@ -18,22 +18,7 @@ end
 if LCEnablePython then
 	includes("py")
 end
-includes("backends/validation")
-if LCDxBackend then
-	includes("backends/dx")
-end
-if LCCudaBackend then
-	includes("backends/cuda")
-end
-if LCMetalBackend then
-	includes("backends/metal")
-end
-if LCCpuBackend then
-	includes("backends/cpu")
-end
-if LCRemoteBackend then
-	includes("backends/remote")
-end
+includes("backends")
 if LCEnableTest then
 	includes("tests")
 end

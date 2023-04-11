@@ -1,25 +1,18 @@
 -- Global config
 rule("lc_vulkan")
 on_load(function(target)
-	local function get_path()
-		local path = os.getenv("VULKAN_SDK")
-		if path then
-			return path
-		end
-		return os.getenv("VK_SDK_PATH")
-	end
-	local vk_path = get_path()
-	if not vk_path then
-		return
-	end
+	local vk_path = target:values("vk_path")
 	local macro_value = target:values("vulkan_macro")
+	local enable_swapchain = target:values("enable_swapchain")
 	if macro_value and type(macro_value) == "string" then
 		target:add("defines", macro_value)
 	end
 	target:add("linkdirs", path.join(vk_path, "Lib"))
 	target:add("links", "vulkan-1")
 	target:add("includedirs", path.join(vk_path, "Include"))
-	target:add("files", path.join(os.scriptdir(), "src/backends/common/vulkan_swapchain.cpp"))
+	if enable_swapchain then
+		target:add("files", path.join(os.scriptdir(), "src/backends/common/vulkan_swapchain.cpp"))
+	end
 end)
 rule_end()
 rule("lc_basic_settings")
