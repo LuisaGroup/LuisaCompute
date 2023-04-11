@@ -11,8 +11,8 @@ if is_plat("linux") then
 	add_defines("_GLFW_X11", "_DEFAULT_SOURCE")
 elseif is_plat("windows") then
 	add_defines("_GLFW_WIN32")
+	add_syslinks("User32", "Gdi32", "Shell32")
 end
-add_syslinks("User32", "Gdi32", "Shell32")
 target_end()
 -- _config_project({
 -- 	project_name = "imgui",
