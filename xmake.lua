@@ -97,11 +97,6 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
--- bin dir
-option("bindir")
-set_default("bin")
-set_showmenu(true)
-option_end()
 -- pre-defined options end
 if is_arch("x64", "x86_64", "arm64") then
 	LCUseMimalloc = get_config("enable_mimalloc")
@@ -121,15 +116,14 @@ if is_arch("x64", "x86_64", "arm64") then
 	LCEnableRust = LCEnableIR or LCEnableAPI
 	local py_version = get_config("py_version")
 	local py_path = get_config("py_path")
-	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0 and type(py_version) == "string" and
-					                 string.len(py_version) > 0
+	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
-	local bindir = get_config("bindir");
-	if bindir then
+	local external_build = os.projectdir() ~= os.scriptdir()
+	if not external_build then
 		if is_mode("debug") then
-			set_targetdir(path.join(bindir, "debug"))
+			set_targetdir("bin/debug")
 		else
-			set_targetdir(path.join(bindir, "release"))
+			set_targetdir("bin/release")
 		end
 	end
 

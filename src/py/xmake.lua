@@ -7,17 +7,24 @@ on_load(function(target)
 	local py_version = get_config("py_version")
 	local py_path = get_config("py_path")
 	local version_table = {}
-	for str in string.gmatch(py_version, "([^.]+)") do
-		table.insert(version_table, str)
-	end
-	local legal_version = (table.getn(version_table) == 2) and version_table[1] == "3"
-	if legal_version then
+	local function read_input()
+		if type(py_version) ~= "string" or string.len(py_version) == 0 then
+			return nil
+		end
+		for str in string.gmatch(py_version, "([^.]+)") do
+			table.insert(version_table, str)
+		end
+		if (table.getn(version_table) ~= 2) or version_table[1] ~= "3" then
+			return nil
+		end
 		local num = tonumber(version_table[2])
 		if num == nil then
-			legal_version = false
+			return nil
 		end
+		return true
 	end
-	if legal_version then
+
+	if read_input() then
 		local py_name = "python" .. version_table[1] .. version_table[2]
 		target:add("linkdirs", path.join(py_path, "libs"))
 		target:add("links", "python3", py_name)
