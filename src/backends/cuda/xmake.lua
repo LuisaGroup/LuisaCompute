@@ -11,7 +11,11 @@ on_load(function(target)
 	local cuda_path = os.getenv("CUDA_PATH")
 	if cuda_path then
 		target:add("includedirs", path.join(cuda_path, "include/"))
-		target:add("linkdirs", path.join(cuda_path, "lib/x64/"))
+		if is_plat("windows") then
+			target:add("linkdirs", path.join(cuda_path, "lib/x64/"))
+		elseif is_plat("linux") then
+			target:add("linkdirs", path.join(cuda_path, "lib64/"))
+		end
 		target:add("links", "nvrtc", "cudart", "cuda")
 	else
 		target:set("enabled", false)
