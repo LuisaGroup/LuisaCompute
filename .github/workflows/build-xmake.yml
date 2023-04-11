@@ -25,9 +25,11 @@ jobs:
       - name: "Setup XMake"
         run: curl -fsSL https://xmake.io/shget.text | bash
       - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.8
-        with:
-          linux-local-args: '["--toolkit"]'
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+          sudo dpkg -i cuda-keyring_1.0-1_all.deb
+          sudo apt-get update
+          sudo apt-get -y install cuda
       - name: "Configure and Build"
         run: |
           if [ "${{ matrix.compiler }}" = "gcc" ]; then
