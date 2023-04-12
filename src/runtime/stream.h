@@ -15,6 +15,21 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+template<size_t i, typename S, typename... Cmd>
+decltype(auto) dispatch_compound_command(S &&stream, std::tuple<Cmd...> &cmds) noexcept {
+    if constexpr (i == sizeof...(Cmd)) {
+        return std::forward<S>(stream);
+    } else {
+        return dispatch_compound_command<i + 1u>(
+            std::forward<S>(stream) << std::move(std::get<i>(cmds)),
+            cmds);
+    }
+}
+
+}// namespace detail
+
 class LC_RUNTIME_API Stream final : public Resource {
 
 public:
@@ -37,22 +52,19 @@ public:
         Delegate(const Delegate &) noexcept = delete;
         Delegate &&operator=(Delegate &&) noexcept = delete;
         Delegate &&operator=(const Delegate &) noexcept = delete;
-        Delegate &&operator<<(luisa::unique_ptr<Command> &&cmd) &&noexcept;
-        Delegate &&operator<<(luisa::move_only_function<void()> &&f) &&noexcept;
-        Stream &operator<<(Event::Signal &&signal) &&noexcept;
-        Stream &operator<<(Event::Wait &&wait) &&noexcept;
-        Stream &operator<<(SwapChain::Present &&present) &&noexcept;
-        Stream &operator<<(CommandList::Commit &&commit) &&noexcept;
-        Stream &operator<<(Synchronize &&) &&noexcept;
-        Stream &operator<<(Commit &&) &&noexcept;
+        Delegate &&operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
+        Delegate &&operator<<(luisa::move_only_function<void()> &&f) && noexcept;
+        Stream &operator<<(Event::Signal &&signal) && noexcept;
+        Stream &operator<<(Event::Wait &&wait) && noexcept;
+        Stream &operator<<(SwapChain::Present &&present) && noexcept;
+        Stream &operator<<(CommandList::Commit &&commit) && noexcept;
+        Stream &operator<<(Synchronize &&) && noexcept;
+        Stream &operator<<(Commit &&) && noexcept;
 
         // compound commands
         template<typename... T>
-        decltype(auto) operator<<(std::tuple<T...> args) &&noexcept {
-            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept -> decltype(auto) {
-                return (std::move(*this) << ... << std::move(std::get<i>(a)));
-            };
-            return encode(std::move(args), std::index_sequence_for<T...>{});
+        decltype(auto) operator<<(std::tuple<T...> args) && noexcept {
+            return detail::dispatch_compound_command<0u>(std::move(*this), args);
         }
     };
 
