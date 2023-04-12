@@ -7,13 +7,32 @@
 
 namespace luisa::compute::metal {
 
+MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
+    : DeviceInterface{std::move(ctx)},
+      _default_io{config == nullptr || config->binary_io == nullptr ?
+                      luisa::make_unique<DefaultBinaryIO>(context(), "metal") :
+                      nullptr},
+      _io{config == nullptr || config->binary_io == nullptr ?
+              _default_io.get() :
+              config->binary_io} {
+    auto pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
+    auto device_index = config == nullptr ? 0u : config->device_index;
+    auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
+    auto device_count = all_devices->count();
+    LUISA_ASSERT(device_index < device_count,
+                 "Metal device index out of range.");
+    _handle = all_devices->object<MTL::Device>(device_index);
+}
+
+MetalDevice::~MetalDevice() noexcept {
+    _handle->release();
+}
+
 void *MetalDevice::native_handle() const noexcept {
-    return nullptr;
+    return _handle;
 }
 
 BufferCreationInfo MetalDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
-    LUISA_INFO("MetalDevice::create_buffer({}, {}) noexcept",
-               element->description(), elem_count);
     return BufferCreationInfo();
 }
 
@@ -22,6 +41,7 @@ BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
 }
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
+
 }
 
 ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels) noexcept {
@@ -129,3 +149,29 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t 
 }
 
 }// namespace luisa::compute::metal
+
+LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
+                                                         const luisa::compute::DeviceConfig *config) noexcept {
+    return ::luisa::new_with_allocator<::luisa::compute::metal::MetalDevice>(std::move(ctx), config);
+}
+
+LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {
+    auto p_device = dynamic_cast<::luisa::compute::metal::MetalDevice *>(device);
+    LUISA_ASSERT(p_device != nullptr, "Invalid device.");
+    ::luisa::delete_with_allocator(p_device);
+}
+
+LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
+    names.clear();
+    auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
+    if (auto n = all_devices->count()) {
+        auto pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
+        names.reserve(n);
+        for (auto i = 0u; i < n; i++) {
+            auto device = all_devices->object<MTL::Device>(i);
+            names.emplace_back(device->name()->cString(
+                NS::StringEncoding::UTF8StringEncoding));
+            device->release();
+        }
+    }
+}

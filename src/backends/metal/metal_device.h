@@ -5,6 +5,7 @@
 #pragma once
 
 #include <runtime/rhi/device_interface.h>
+#include <backends/common/default_binary_io.h>
 #include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
@@ -12,8 +13,13 @@ namespace luisa::compute::metal {
 class MetalDevice : public DeviceInterface {
 
 private:
+    MTL::Device *_handle;
+    luisa::unique_ptr<DefaultBinaryIO> _default_io;
+    const BinaryIO *_io{nullptr};
+
 public:
-    ~MetalDevice() noexcept override = default;
+    MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept;
+    ~MetalDevice() noexcept override;
     void *native_handle() const noexcept override;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;

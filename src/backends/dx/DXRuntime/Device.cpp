@@ -177,6 +177,7 @@ bool Device::SupportMeshShader() const {
     return (featureData.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1);
 }
 VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
+    r.clear();
     ComPtr<IDXGIFactory4> dxgiFactory;
     ComPtr<IDXGIAdapter1> adapter;
     ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));
