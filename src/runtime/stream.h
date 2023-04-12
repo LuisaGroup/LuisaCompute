@@ -14,9 +14,7 @@
 #include <runtime/rhi/stream_tag.h>
 
 namespace luisa::compute {
-namespace detail {
 
-}
 class LC_RUNTIME_API Stream final : public Resource {
 
 public:
