@@ -27,3 +27,4 @@ end
 if LCVkBackend then
 	includes("vk")
 end
+includes("validation")
