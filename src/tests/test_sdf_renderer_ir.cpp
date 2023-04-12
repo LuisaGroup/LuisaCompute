@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
     //    auto render = device.compile(render_kernel);
     auto render_kernel_ir = AST2IR{}.convert_kernel(render_kernel.function()->function());
     auto render = device.compile<2, Image<uint>, Image<float>, uint>(render_kernel_ir->get());
@@ -200,7 +200,7 @@ int main(int argc, char *argv[]) {
     auto seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     auto accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
 #if ENABLE_DISPLAY
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"SDF Renderer", width, height};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),
@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
     static constexpr auto total_spp = 16384u;
     auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
 #else
-    auto stream = device.create_stream(StreamTag::COMPUTE);
+    Stream stream = device.create_stream(StreamTag::COMPUTE);
     static constexpr auto interval = 64u;
     static constexpr auto total_spp = 16384u;
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);

@@ -13,14 +13,14 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
-    constexpr auto resolution = make_uint2(1280, 720);
+    constexpr uint2 resolution = make_uint2(1280, 720);
 
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
-    auto device_image1 = device.create_image<float>(PixelStorage::BYTE4, resolution);
-    auto bdls = device.create_bindless_array();
-    auto buffer = device.create_buffer<float4>(4);
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
+    Image<float> device_image1 = device.create_image<float>(PixelStorage::BYTE4, resolution);
+    BindlessArray bdls = device.create_bindless_array();
+    Buffer<float4> buffer = device.create_buffer<float4>(4);
     std::vector<float4> a{4};
     a[0] = {1, 0, 0, 1};
     a[1] = {0, 1, 0, 1};
@@ -33,15 +33,15 @@ int main(int argc, char *argv[]) {
     Kernel2D kernel = [&](Float time) {
         Var coord = dispatch_id().xy();
         UInt i2 = ((coord.x + cast<uint>(time)) / 16 % 4);
-        auto vertexArray = bdls->buffer<float4>(0);
-        Float4 p = vertexArray.read(i2);
+        auto vertex_array = bdls->buffer<float4>(0);
+        Float4 p = vertex_array.read(i2);
         device_image1->write(coord, make_float4(p));
     };
-    auto s = device.compile(kernel);
+    Shader2D<float> s = device.compile(kernel);
 
     Window window{"Display", resolution};
 
-    auto swapchain = device.create_swapchain(
+    SwapChain swapchain = device.create_swapchain(
         window.native_handle(), stream, resolution, false);
     Clock clk;
     while (!window.should_close()) {

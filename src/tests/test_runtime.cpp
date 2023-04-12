@@ -33,44 +33,44 @@ int main(int argc, char *argv[]) {
         .device_index = 0,
         // To avoid memory overflows, the backend automatically waits 2 - 3 frames before committing, set .inqueue_buffer_limit to false when multi-stream interactions are involved
         .inqueue_buffer_limit = false};
-    auto device = context.create_device(argv[1], nullptr, true/*use validation layer for debug*/);
+    Device device = context.create_device(argv[1], nullptr, true/*use validation layer for debug*/);
     // graphics stream for present
-    auto graphics_stream = device.create_stream(StreamTag::GRAPHICS);
+    Stream graphics_stream = device.create_stream(StreamTag::GRAPHICS);
     // compute stream for kernel
-    auto compute_stream = device.create_stream(StreamTag::COMPUTE);
+    Stream compute_stream = device.create_stream(StreamTag::COMPUTE);
     // Event to let graphics stream wait compute stream
-    auto compute_event = device.create_event();
+    Event compute_event = device.create_event();
     // Do triple-buffer implementation here
     // Event to let host wait kernel before 3 frame
     static constexpr uint32_t framebuffer_count = 3;
     std::array<Event, framebuffer_count> graphics_events;
     uint64_t frame{};
-    for (auto &i : graphics_events) {
+    for (Event &i : graphics_events) {
         i = device.create_event();
     }
-    static constexpr auto resolution = make_uint2(1024u);
+    static constexpr uint2 resolution = make_uint2(1024u);
     Window window{"test runtime", resolution.x, resolution.x};
-    auto swap_chain{device.create_swapchain(
+    SwapChain swap_chain{device.create_swapchain(
         window.native_handle(),
         graphics_stream,
         resolution,
         true, false, framebuffer_count - 1)};
-    auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
+    Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     ldr_image.set_name("present");
     compute_stream.set_name("my compute");
     graphics_stream.set_name("my present");
     Kernel2D kernel = [&](Float time) {
-        auto coord = dispatch_id().xy();
-        auto uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
+        UInt2 coord = dispatch_id().xy();
+        Float2 uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
         ldr_image->write(coord, make_float4(uv, sin(time) * 0.5f + 0.5f, 1.f));
     };
-    auto shader = device.compile(kernel);
+    Shader2D<float> shader = device.compile(kernel);
 
     Clock clk;
     clk.tic();
     while (!window.should_close()) {
-        auto resource_frame = frame % framebuffer_count;
-        auto &grpahics_event = graphics_events[resource_frame];
+        uint resource_frame = frame % framebuffer_count;
+        Event &grpahics_event = graphics_events[resource_frame];
         grpahics_event.synchronize();
         // Use Commandlist to store commands
         CommandList cmd_list;
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
 // compute stream must wait last frame's graphics stream
 #ifndef NO_SYNC_ERROR
         if (frame > 0) [[likely]] {
-            auto &last_event = graphics_events[(frame - 1) % framebuffer_count];
+            Event &last_event = graphics_events[(frame - 1) % framebuffer_count];
             compute_stream << last_event.wait();
         }
 #endif

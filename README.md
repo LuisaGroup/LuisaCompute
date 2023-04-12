@@ -138,10 +138,10 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
     
     // Step 1.2: Load the CUDA backend plug-in and create a device
-    auto device = context.create_device("cuda");
+    Device device = context.create_device("cuda");
     
     // Step 2.1: Create a stream for command submission
-    auto stream = device.create_stream();
+    Stream stream = device.create_stream();
     
     // Step 2.2: Create an 1024x1024 image with 4-channel 8-bit storage for each pixel; the template 
     //           argument `float` indicates that pixel values reading from or writing to the image
@@ -393,7 +393,7 @@ The `Context` object is responsible for loading and managing these plug-ins and 
 ```cpp
 int main(int argc, char *argv[]) {
     Context context{argv[0]};
-    auto device = context.create_device("cuda");
+    Device device = context.create_device("cuda");
     /* ... */
 }
 ```

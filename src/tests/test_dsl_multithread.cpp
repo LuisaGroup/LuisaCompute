@@ -30,9 +30,9 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = ctx.create_device(argv[1]);
-    auto buffer = device.create_buffer<float4>(1024u);
-    auto float_buffer = device.create_buffer<float>(1024u);
+    Device device = ctx.create_device(argv[1]);
+    Buffer<float4> buffer = device.create_buffer<float4>(1024u);
+    Buffer<float> float_buffer = device.create_buffer<float>(1024u);
 
     std::vector<int> const_vector(128u);
     std::iota(const_vector.begin(), const_vector.end(), 0);
@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
     std::vector<std::thread> threads;
     threads.reserve(8u);
 
-    for (auto i = 0u; i < 8u; i++) {
+    for (size_t i = 0u; i < 8u; i++) {
         threads.emplace_back([&, worker = i] {
             Clock clock;
             Constant float_consts = {1.0f, 2.0f};
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
                 z += 1;
                 static_assert(std::is_same_v<decltype(z), Var<float>>);
 
-                for (auto i = 0u; i < 3u; i++) {
+                for (size_t i = 0u; i < 3u; i++) {
                     Var v_vec = float3{1.0f};
                     Var v2 = float3{2.0f} - v_vec * 2.0f;
                     v2 *= 5.0f + v_float;
@@ -108,18 +108,18 @@ int main(int argc, char *argv[]) {
                 Var vec4 = buffer->read(10);           // indexing into captured buffer (with literal)
                 Var another_vec4 = buffer->read(v_int);// indexing into captured buffer (with Var)
             };
-            auto t1 = clock.toc();
+            double t1 = clock.toc();
 
-            auto kernel = device.compile(kernel_def);
-            auto command = kernel(float_buffer, 12u).dispatch(1024u);
+            Shader1D<Buffer<float>, uint> kernel = device.compile(kernel_def);
+            luisa::unique_ptr<Command> command = kernel(float_buffer, 12u).dispatch(1024u);
 
             clock.tic();
-            auto shader = device.compile<1>(kernel_def);
-            auto t2 = clock.toc();
+            Shader1D<Buffer<float>, uint> shader = device.compile<1>(kernel_def);
+            double t2 = clock.toc();
             LUISA_INFO("Thread: {}, AST: {:.3f} ms, Codegen & Compile: {:.3f} ms",
                        worker, t1, t2);
         });
     }
 
-    for (auto &&t : threads) { t.join(); }
+    for (std::thread &t : threads) { t.join(); }
 }

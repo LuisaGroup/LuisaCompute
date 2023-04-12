@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     std::array vertices{
         float3(-0.5f, -0.5f, 0.0f),
@@ -40,9 +40,9 @@ int main(int argc, char *argv[]) {
     };
 
     Callable halton = [](UInt i, UInt b) noexcept {
-        auto f = def(1.0f);
-        auto invB = 1.0f / b;
-        auto r = def(0.0f);
+        Float f = def(1.0f);
+        Float invB = 1.0f / b;
+        Float r = def(0.0f);
         $while(i > 0u) {
             f = f * invB;
             r = r + f * (i % b);
@@ -52,8 +52,8 @@ int main(int argc, char *argv[]) {
     };
 
     Callable tea = [](UInt v0, UInt v1) noexcept {
-        auto s0 = def(0u);
-        for (auto n = 0u; n < 4u; n++) {
+        UInt s0 = def(0u);
+        for (uint n = 0u; n < 4u; n++) {
             s0 += 0x9e3779b9u;
             v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
             v1 += ((v0 << 4) + 0xad90777du) ^ (v0 + s0) ^ ((v0 >> 5u) + 0x7e95761eu);
@@ -62,69 +62,69 @@ int main(int argc, char *argv[]) {
     };
 
     Callable rand = [&](UInt f, UInt2 p) noexcept {
-        auto i = tea(p.x, p.y) + f;
-        auto rx = halton(i, 2u);
-        auto ry = halton(i, 3u);
+        UInt i = tea(p.x, p.y) + f;
+        Float rx = halton(i, 2u);
+        Float ry = halton(i, 3u);
         return make_float2(rx, ry);
     };
 
     Kernel2D raytracing_kernel = [&](BufferFloat4 image, AccelVar accel, UInt frame_index) noexcept {
-        auto coord = dispatch_id().xy();
-        auto p = (make_float2(coord) + rand(frame_index, coord)) /
+        UInt2 coord = dispatch_id().xy();
+        Float2 p = (make_float2(coord) + rand(frame_index, coord)) /
                      make_float2(dispatch_size().xy()) * 2.0f -
                  1.0f;
-        auto color = def<float3>(0.3f, 0.5f, 0.7f);
-        auto ray = make_ray(
+        Float3 color = def<float3>(0.3f, 0.5f, 0.7f);
+        Var<Ray> ray = make_ray(
             make_float3(p * make_float2(1.0f, -1.0f), 1.0f),
             make_float3(0.0f, 0.0f, -1.0f));
-        auto hit = accel.trace_closest(ray);
+        Var<TriangleHit> hit = accel.trace_closest(ray);
         $if(!hit->miss()) {
-            constexpr auto red = float3(1.0f, 0.0f, 0.0f);
-            constexpr auto green = float3(0.0f, 1.0f, 0.0f);
-            constexpr auto blue = float3(0.0f, 0.0f, 1.0f);
+            constexpr float3 red = float3(1.0f, 0.0f, 0.0f);
+            constexpr float3 green = float3(0.0f, 1.0f, 0.0f);
+            constexpr float3 blue = float3(0.0f, 0.0f, 1.0f);
             color = hit->interpolate(red, green, blue);
         };
-        auto old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        auto t = 1.0f / (frame_index + 1.0f);
+        Float3 old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
+        Float t = 1.0f / (frame_index + 1.0f);
         image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
     };
 
     Kernel2D colorspace_kernel = [&](BufferFloat4 hdr_image, BufferUInt ldr_image) noexcept {
-        auto i = dispatch_y() * dispatch_size_x() + dispatch_x();
-        auto hdr = hdr_image.read(i).xyz();
-        auto ldr = make_uint3(round(saturate(linear_to_srgb(hdr)) * 255.0f));
+        UInt i = dispatch_y() * dispatch_size_x() + dispatch_x();
+        Float3 hdr = hdr_image.read(i).xyz();
+        UInt3 ldr = make_uint3(round(saturate(linear_to_srgb(hdr)) * 255.0f));
         ldr_image.write(i, ldr.x | (ldr.y << 8u) | (ldr.z << 16u) | (255u << 24u));
     };
-    auto stream = device.create_stream();
-    auto vertex_buffer = device.create_buffer<float3>(3u);
-    auto triangle_buffer = device.create_buffer<Triangle>(1u);
+    Stream stream = device.create_stream();
+    Buffer<float3> vertex_buffer = device.create_buffer<float3>(3u);
+    Buffer<Triangle> triangle_buffer = device.create_buffer<Triangle>(1u);
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data());
 
-    auto accel = device.create_accel();
-    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    Accel accel = device.create_accel();
+    Mesh mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     accel.emplace_back(mesh, scaling(1.5f));
     accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                  rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
     stream << mesh.build()
            << accel.build();
 
-    auto colorspace_shader = device.compile(colorspace_kernel);
-    auto raytracing_shader = device.compile(raytracing_kernel);
+    Shader2D<Buffer<float4>, Buffer<uint>> colorspace_shader = device.compile(colorspace_kernel);
+    Shader2D<Buffer<float4>, Accel, uint> raytracing_shader = device.compile(raytracing_kernel);
 
-    static constexpr auto width = 512u;
-    static constexpr auto height = 512u;
-    auto hdr_image = device.create_buffer<float4>(width * height);
-    auto ldr_image = device.create_buffer<uint>(width * height);
+    static constexpr uint width = 512u;
+    static constexpr uint height = 512u;
+    Buffer<float4> hdr_image = device.create_buffer<float4>(width * height);
+    Buffer<uint> ldr_image = device.create_buffer<uint>(width * height);
     std::vector<uint8_t> pixels(width * height * 4u);
 
     Clock clock;
     clock.tic();
-    static constexpr auto spp = 1024u;
-    for (auto i = 0u; i < spp; i++) {
-        auto t = static_cast<float>(i) * (1.0f / spp);
+    static constexpr uint spp = 1024u;
+    for (uint i = 0u; i < spp; i++) {
+        float t = static_cast<float>(i) * (1.0f / spp);
         vertices[2].y = 0.5f - 0.2f * t;
-        auto m = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
+        float4x4 m = translation(float3(-0.25f + t * 0.15f, 0.0f, 0.1f)) *
                  rotation(float3(0.0f, 0.0f, 1.0f), 0.5f + t * 0.5f);
         accel.set_transform_on_update(1u, m);
         stream << vertex_buffer.copy_from(vertices.data())
@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
                << accel.build()
                << raytracing_shader(hdr_image, accel, i).dispatch(width, height);
         if (i == 511u) {
-            auto mm = translation(make_float3(0.0f, 0.0f, 0.3f)) *
+            float4x4 mm = translation(make_float3(0.0f, 0.0f, 0.3f)) *
                       rotation(make_float3(0.0f, 0.0f, 1.0f), radians(180.0f));
             accel.emplace_back(mesh, mm, true);
             stream << accel.build();
@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
     stream << colorspace_shader(hdr_image, ldr_image).dispatch(width, height)
            << ldr_image.copy_to(pixels.data())
            << synchronize();
-    auto time = clock.toc();
+    double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
     stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);
 }

@@ -11,7 +11,7 @@ using namespace luisa::compute;
 void test_buffer_io(Device &device) noexcept {
 
     auto printer = Printer{device};
-    auto stream = device.create_stream();
+    Stream stream = device.create_stream();
     auto buffer0 = device.create_buffer<float>(4);
     auto buffer1 = device.create_buffer<float>(4);
     auto buffer2 = device.create_buffer<float3>(4);
@@ -76,11 +76,11 @@ TEST_CASE("buffer_io") {
     auto argv = luisa::test::argv();
     Context context{argv[0]};
     SUBCASE("cuda") {
-        auto device = context.create_device("cuda");
+        Device device = context.create_device("cuda");
         test_buffer_io(device);
     }
     SUBCASE("dx") {
-        auto device = context.create_device("dx");
+        Device device = context.create_device("dx");
         test_buffer_io(device);
     }
 }

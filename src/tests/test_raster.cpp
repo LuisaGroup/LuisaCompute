@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1], nullptr);
+    Device device = context.create_device(argv[1], nullptr);
     auto clear_shader = device.compile(clear_kernel);
     MeshFormat mesh_format;
     VertexAttribute attributes[] = {
@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
     mesh_format.emplace_vertex_stream(attributes);
     static constexpr uint32_t width = 1024;
     static constexpr uint32_t height = 1024;
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Test raster", width, height};
     Window window2{"Test raster 2", width, height};
     auto swap_chain = device.create_swapchain(

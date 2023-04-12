@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     Callable comp = [](Float3 p) noexcept {
         p = asin(sin(p) * .9f);
@@ -147,7 +147,7 @@ int main(int argc, char *argv[]) {
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Display", make_uint2(width, height)};
     auto swap_chain{device.create_swapchain(
         window.native_handle(),

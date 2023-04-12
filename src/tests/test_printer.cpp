@@ -21,18 +21,18 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
     Printer printer{device};
 
     Kernel2D kernel = [&]() noexcept {
-        auto coord = dispatch_id().xy();
+        UInt2 coord = dispatch_id().xy();
         $if(coord.x == coord.y) {
-            auto v = make_float2(coord) / make_float2(dispatch_size().xy());
+            Float2 v = make_float2(coord) / make_float2(dispatch_size().xy());
             printer.info_with_location("v = ({}, {})", v.x, v.y);
         };
     };
-    auto shader = device.compile(kernel);
-    auto stream = device.create_stream();
+    Shader2D<> shader = device.compile(kernel);
+    Stream stream = device.create_stream();
     stream << printer.reset()
            << shader().dispatch(128u, 128u)
            << printer.retrieve()

@@ -29,10 +29,10 @@ public:
         // Structure's first element must be float4 as position
         check_vert_ret_type(Type::template of<VertRet>());
     }
-    RasterKernel(RasterKernel const &) = delete;
+    RasterKernel(RasterKernel const &) = default;
     RasterKernel(RasterKernel &&) = default;
-    RasterKernel &operator=(RasterKernel const &) = delete;
-    RasterKernel &operator=(RasterKernel &&) = delete;
+    RasterKernel &operator=(RasterKernel const &) = default;
+    RasterKernel &operator=(RasterKernel &&) = default;
     [[nodiscard]] auto vert() const noexcept { return Function{_vert.get()}; }
     [[nodiscard]] auto pixel() const noexcept { return Function{_pixel.get()}; }
 };

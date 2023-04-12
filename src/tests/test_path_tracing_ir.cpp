@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -82,8 +82,8 @@ int main(int argc, char *argv[]) {
         "Loaded mesh with {} shape(s) and {} vertices.",
         obj_reader.GetShapes().size(), vertices.size());
 
-    auto heap = device.create_bindless_array();
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    BindlessArray heap = device.create_bindless_array();
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
     std::vector<Mesh> meshes;

@@ -27,9 +27,9 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
-    auto buffer = device.create_buffer<float4>(1024u);
-    auto float_buffer = device.create_buffer<float>(1024u);
+    Device device = context.create_device(argv[1]);
+    Buffer<float4> buffer = device.create_buffer<float4>(1024u);
+    Buffer<float> float_buffer = device.create_buffer<float>(1024u);
 
     std::vector<int> const_vector{1, 2, 3, 4};
 
@@ -104,7 +104,7 @@ int main(int argc, char *argv[]) {
         $ another_vec4 = buffer->read(v_int);// indexing into captured buffer (with Var)
     };
 
-    auto shader = device.compile(kernel);
-    auto command = shader(float_buffer, 12u).dispatch(1024u);
-    auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
+    Shader1D<Buffer<float>, uint> shader = device.compile(kernel);
+    luisa::unique_ptr<Command> command = shader(float_buffer, 12u).dispatch(1024u);
+    ShaderDispatchCommand * launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }
