@@ -50,7 +50,7 @@ public:
 
         // compound commands
         template<typename... T>
-        auto operator<<(std::tuple<T...> args) && noexcept {
+        decltype(auto) operator<<(std::tuple<T...> args) && noexcept {
             auto encode = [&]<size_t... i>(std::index_sequence<i...>) noexcept -> decltype(auto) {
                 return (std::move(*this) << ... << std::move(std::get<i>(args)));
             };
