@@ -99,7 +99,13 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
-        return Delegate{this} << std::move(args);
+        auto &&s = Delegate{this} << std::move(args);
+        using S = std::remove_cvref_t<decltype(s)>;
+        if constexpr (std::is_same_v<S, Stream>) {
+            return (s);
+        } else {
+            return Delegate{std::move(s)};
+        }
     }
 };
 
