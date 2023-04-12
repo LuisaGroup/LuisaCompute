@@ -14,22 +14,9 @@
 #include <runtime/rhi/stream_tag.h>
 
 namespace luisa::compute {
-
 namespace detail {
 
-template<size_t i, typename S, typename... Cmd>
-decltype(auto) dispatch_compound_command(S &&stream, std::tuple<Cmd...> &cmds) noexcept {
-    if constexpr (i == sizeof...(Cmd)) {
-        return std::forward<S>(stream);
-    } else {
-        return dispatch_compound_command<i + 1u>(
-            std::forward<S>(stream) << std::move(std::get<i>(cmds)),
-            cmds);
-    }
 }
-
-}// namespace detail
-
 class LC_RUNTIME_API Stream final : public Resource {
 
 public:
@@ -63,8 +50,11 @@ public:
 
         // compound commands
         template<typename... T>
-        decltype(auto) operator<<(std::tuple<T...> args) && noexcept {
-            return detail::dispatch_compound_command<0u>(std::move(*this), args);
+        auto operator<<(std::tuple<T...> args) && noexcept {
+            auto encode = [&]<size_t... i>(std::index_sequence<i...>) noexcept -> decltype(auto) {
+                return (std::move(*this) << ... << std::move(std::get<i>(args)));
+            };
+            return encode(std::index_sequence_for<T...>{});
         }
     };
 
@@ -101,7 +91,7 @@ public:
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
         auto &&s = Delegate{this} << std::move(args);
         using S = std::remove_cvref_t<decltype(s)>;
-        if constexpr (std::is_same_v<S, Stream>) {
+        if constexpr (std::is_lvalue_reference_v<S>) {
             return (s);
         } else {
             return Delegate{std::move(s)};
