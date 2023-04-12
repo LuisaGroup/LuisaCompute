@@ -43,35 +43,35 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     Device device = context.create_device(argv[1], nullptr);
-    auto clear_shader = device.compile(clear_kernel);
+    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
     MeshFormat mesh_format;
     VertexAttribute attributes[] = {
         {VertexAttributeType::Position, VertexElementFormat::XYZ32Float},
         {VertexAttributeType::UV0, VertexElementFormat::XY32Float},
     };
     mesh_format.emplace_vertex_stream(attributes);
-    static constexpr uint32_t width = 1024;
-    static constexpr uint32_t height = 1024;
+    static constexpr uint width = 1024;
+    static constexpr uint height = 1024;
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Test raster", width, height};
     Window window2{"Test raster 2", width, height};
-    auto swap_chain = device.create_swapchain(
+    SwapChain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         make_uint2(width, height),
-        true, false, 2);
-    auto swap_chain2 = device.create_swapchain(
+        true, false, 2)};
+    SwapChain swap_chain2 = device.create_swapchain(
         window2.native_handle(),
         stream,
         make_uint2(width, height),
         true, false, 2);
-    auto out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
-    auto img_format = out_img.format();
-    auto shader = device.compile(
+    Image<float> out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
+    PixelFormat img_format = out_img.format();
+    RasterShader<float, float> shader = device.compile(
         kernel,
         mesh_format);
-    auto vert_buffer = device.create_buffer<Vertex>(3);
-    auto idx_buffer = device.create_buffer<uint32_t>(3);
+    Buffer<Vertex> vert_buffer = device.create_buffer<Vertex>(3);
+    Buffer<uint> idx_buffer = device.create_buffer<uint>(3);
     Vertex vertices[3];
     vertices[0].pos = {-0.5f, -0.5f, 0.5f};
     vertices[0].uv = {0.0f, 0.0f};
@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
     vertices[1].uv = {1.0f, 0.0f};
     vertices[2].pos = {0.0f, 0.5f, 0.5f};
     vertices[2].uv = {0.0f, 1.0f};
-    uint32_t indices[3] = {
+    uint indices[3] = {
         0, 1, 2};
     stream << vert_buffer.copy_from(vertices)
            << idx_buffer.copy_from(indices);
@@ -89,7 +89,7 @@ int main(int argc, char *argv[]) {
     luisa::vector<RasterMesh> meshes;
     RasterState state{.cull_mode = CullMode::None};
     while (!window.should_close() && !window2.should_close()) {
-        auto time = clock.toc() / 1000.0f;
+        float time = clock.toc() / 1000.0f;
         // add triangle mesh
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 0);
         stream
