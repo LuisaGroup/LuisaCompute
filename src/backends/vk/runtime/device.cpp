@@ -1,14 +1,30 @@
 #include "device.h"
 #include <core/logging.h>
 #include "../log.h"
+#include <vstl/config.h>
 namespace lc::vk {
+using namespace std::string_literals;
 namespace detail {
+struct Settings {
+    bool validation;
+    bool fullscreen{false};
+    bool vsync{false};
+    bool overlay{true};
+};
 static VkInstance vk_instance{nullptr};
 static std::mutex instance_mtx;
+static Settings settings{};
 static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
 static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
 static VkDebugUtilsMessengerEXT debugUtilsMessenger;
 
+struct InstanceDestructor {
+    ~InstanceDestructor() {
+        if (vk_instance) {
+            vkDestroyInstance(vk_instance, nullptr);
+        }
+    }
+};
 VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsMessengerCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
     VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -52,36 +68,19 @@ void setupDebugging(VkInstance instance) {
     VkResult result = vkCreateDebugUtilsMessengerEXT(instance, &debugUtilsMessengerCI, nullptr, &debugUtilsMessenger);
     assert(result == VK_SUCCESS);
 }
-}// namespace detail
-//////////////// Not implemented area
-ResourceCreationInfo Device::create_mesh(
-    const AccelOption &option) noexcept {
-    LUISA_ERROR("mesh not implemented.");
-    return ResourceCreationInfo::make_invalid();
+vstd::vector<VkExtensionProperties> supported_exts(VkPhysicalDevice physical_device) {
+    uint extensions_count;
+    vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extensions_count, nullptr);
+    vstd::vector<VkExtensionProperties> props;
+    props.push_back_uninitialized(extensions_count);
+    vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extensions_count, props.data());
+    return props;
 }
-void Device::destroy_mesh(uint64_t handle) noexcept {
-    LUISA_ERROR("mesh not implemented.");
-}
+VkInstance create_instance(bool enableValidation) {
+    vstd::vector<const char *> instance_exts = {VK_KHR_SURFACE_EXTENSION_NAME};
+    vstd::vector<const char *> enable_inst_ext;
+    vstd::unordered_set<vstd::string> supported_instance_exts;
 
-ResourceCreationInfo Device::create_procedural_primitive(
-    const AccelOption &option) noexcept {
-    LUISA_ERROR("procedural primitive not implemented.");
-    return ResourceCreationInfo::make_invalid();
-}
-void Device::destroy_procedural_primitive(uint64_t handle) noexcept {
-    LUISA_ERROR("procedural primitive not implemented.");
-}
-
-ResourceCreationInfo Device::create_accel(const AccelOption &option) noexcept {
-    LUISA_ERROR("accel not implemented.");
-    return ResourceCreationInfo::make_invalid();
-}
-void Device::destroy_accel(uint64_t handle) noexcept {
-    LUISA_ERROR("accel not implemented.");
-}
-//////////////// Not implemented area
-
-VkInstance Device::create_instance(bool enableValidation, Settings &settings) {
     // Validation can also be forced via a define
     settings.validation = enableValidation;
 
@@ -119,23 +118,21 @@ VkInstance Device::create_instance(bool enableValidation, Settings &settings) {
         vstd::vector<VkExtensionProperties> extensions(extCount);
         if (vkEnumerateInstanceExtensionProperties(nullptr, &extCount, &extensions.front()) == VK_SUCCESS) {
             for (VkExtensionProperties extension : extensions) {
-                supported_instance_exts.push_back(extension.extensionName);
+                supported_instance_exts.emplace(extension.extensionName);
             }
         }
     }
-
 #if (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK))
     // SRS - When running on iOS/macOS with MoltenVK, enable VK_KHR_get_physical_device_properties2 if not already enabled by the example (required by VK_KHR_portability_subset)
     if (std::find(enable_inst_ext.begin(), enable_inst_ext.end(), VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME) == enable_inst_ext.end()) {
         enable_inst_ext.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
     }
 #endif
-
     // Enabled requested instance extensions
     if (enable_inst_ext.size() > 0) {
         for (const char *enabledExtension : enable_inst_ext) {
             // Output message if requested extension is not available
-            if (std::find(supported_instance_exts.begin(), supported_instance_exts.end(), enabledExtension) == supported_instance_exts.end()) {
+            if (supported_instance_exts.find(enabledExtension) == supported_instance_exts.end()) {
                 LUISA_ERROR("Enabled instance extension \"{}\"  is not present at instance level", enabledExtension);
             }
             instance_exts.push_back(enabledExtension);
@@ -149,7 +146,7 @@ VkInstance Device::create_instance(bool enableValidation, Settings &settings) {
 
 #if (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK)) && defined(VK_KHR_portability_enumeration)
     // SRS - When running on iOS/macOS with MoltenVK and VK_KHR_portability_enumeration is defined and supported by the instance, enable the extension and the flag
-    if (std::find(supported_instance_exts.begin(), supported_instance_exts.end(), VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) != supported_instance_exts.end()) {
+    if (supported_instance_exts.find(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == supported_instance_exts.end()) {
         instance_exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
         instanceCreateInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     }
@@ -191,26 +188,73 @@ VkInstance Device::create_instance(bool enableValidation, Settings &settings) {
     VK_CHECK_RESULT(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
     return instance;
 }
-Device::Device(Context &&ctx) : DeviceInterface{std::move(ctx)} {
-    // init instance
-    Settings settings{};
-    {
-        std::lock_guard lck{detail::instance_mtx};
-        if (!detail::vk_instance) {
+
+}// namespace detail
+//////////////// Not implemented area
+ResourceCreationInfo Device::create_mesh(
+    const AccelOption &option) noexcept {
+    LUISA_ERROR("mesh not implemented.");
+    return ResourceCreationInfo::make_invalid();
+}
+void Device::destroy_mesh(uint64_t handle) noexcept {
+    LUISA_ERROR("mesh not implemented.");
+}
+
+ResourceCreationInfo Device::create_procedural_primitive(
+    const AccelOption &option) noexcept {
+    LUISA_ERROR("procedural primitive not implemented.");
+    return ResourceCreationInfo::make_invalid();
+}
+void Device::destroy_procedural_primitive(uint64_t handle) noexcept {
+    LUISA_ERROR("procedural primitive not implemented.");
+}
+
+ResourceCreationInfo Device::create_accel(const AccelOption &option) noexcept {
+    LUISA_ERROR("accel not implemented.");
+    return ResourceCreationInfo::make_invalid();
+}
+void Device::destroy_accel(uint64_t handle) noexcept {
+    LUISA_ERROR("accel not implemented.");
+}
+//////////////// Not implemented area
+Device::Device(Context &&ctx, DeviceConfig const *configs)
+    : DeviceInterface{std::move(ctx)},
+      _default_file_io{_ctx, "vk"sv} {
+    bool headless = false;
+    uint device_idx = 0;
+    if (configs) {
+        headless = configs->headless;
+        device_idx = configs->device_index;
+        _binary_io = configs->binary_io;
+    }
+    if (!headless) {
+        // init instance
+        {
+            std::lock_guard lck{detail::instance_mtx};
+            if (!detail::vk_instance) {
 #ifdef NDEBUG
-            constexpr bool enableValidation = false;
+                constexpr bool enableValidation = false;
 #else
-            constexpr bool enableValidation = true;
+                constexpr bool enableValidation = true;
 #endif
-            detail::vk_instance = create_instance(enableValidation, settings);
+                detail::vk_instance = detail::create_instance(enableValidation);
+            }
         }
+        _init_device(device_idx);
+    }
+    // auto exts = detail::supported_exts(physical_device());
+    // for(auto&& i : exts){
+    //     LUISA_INFO("{}", i.extensionName);
+    // }
+    if (!_binary_io) {
+        _binary_io = &_default_file_io;
     }
 }
-bool Device::init_device(Settings &settings, uint32_t selectedDevice) {
+void Device::_init_device(uint32_t selectedDevice) {
     VkResult err;
 
     // If requested, we enable the default validation layers for debugging
-    if (settings.validation) {
+    if (detail::settings.validation) {
         detail::setupDebugging(detail::vk_instance);
     }
 
@@ -220,14 +264,15 @@ bool Device::init_device(Settings &settings, uint32_t selectedDevice) {
     VK_CHECK_RESULT(vkEnumeratePhysicalDevices(detail::vk_instance, &gpuCount, nullptr));
     if (gpuCount == 0) {
         LUISA_ERROR("No device with Vulkan support found");
-        return false;
+        return;
     }
+    vstd::vector<VkPhysicalDevice> physical_devices;
     // Enumerate devices
     physical_devices.push_back_uninitialized(gpuCount);
     err = vkEnumeratePhysicalDevices(detail::vk_instance, &gpuCount, physical_devices.data());
     if (err) {
         LUISA_ERROR("Could not enumerate physical devices : {}", err);
-        return false;
+        return;
     }
 
     // GPU selection
@@ -238,34 +283,54 @@ bool Device::init_device(Settings &settings, uint32_t selectedDevice) {
     auto physicalDevice = physical_devices[selectedDevice];
 
     // Store properties (including limits), features and memory properties of the physical device (so that examples can check against them)
-    vkGetPhysicalDeviceProperties(physicalDevice, &device_properties);
-    vkGetPhysicalDeviceFeatures(physicalDevice, &device_features);
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &device_memory_properties);
+    vkGetPhysicalDeviceProperties(physicalDevice, &_device_properties);
+    vkGetPhysicalDeviceFeatures(physicalDevice, &_device_features);
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &_device_memory_properties);
 
     // Derived examples can override this to set actual features (based on above readings) to enable for logical device creation
 
     // Vulkan device creation
     // This is handled by a separate class that gets a logical device representation
     // and encapsulates functions related to a device
-    vk_device = vstd::make_unique<vks::VulkanDevice>(physicalDevice);
+    _vk_device.create(physicalDevice);
+    _enable_device_exts.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+    _enable_device_exts.emplace_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+    _enable_device_exts.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    _enable_device_exts.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
 
-    VkResult res = vk_device->createLogicalDevice(device_features, enable_device_exts, nullptr);
-    if (res != VK_SUCCESS) {
-        LUISA_ERROR("Could not create Vulkan device: {}, {}", vks::tools::errorString(res), res);
-        return false;
-    }
-    auto device = vk_device->logicalDevice;
+    VkPhysicalDeviceDescriptorIndexingFeatures enableBindlessFeatures{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        .shaderInputAttachmentArrayDynamicIndexing = VK_TRUE,
+        .shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE,
+        .shaderStorageTexelBufferArrayDynamicIndexing = VK_TRUE,
+        .shaderUniformBufferArrayNonUniformIndexing = VK_TRUE,
+        .shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+        .shaderStorageBufferArrayNonUniformIndexing = VK_TRUE,
+        .shaderStorageImageArrayNonUniformIndexing = VK_TRUE,
+        .shaderInputAttachmentArrayNonUniformIndexing = VK_TRUE,
+        .shaderUniformTexelBufferArrayNonUniformIndexing = VK_TRUE,
+        .shaderStorageTexelBufferArrayNonUniformIndexing = VK_TRUE,
+        .runtimeDescriptorArray = VK_TRUE};
+    VkPhysicalDeviceRayQueryFeaturesKHR enabledRayQueryFeatures{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+        .pNext = &enableBindlessFeatures,
+        .rayQuery = VK_TRUE};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR enabledAccelerationStructureFeatures{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+        .pNext = &enabledRayQueryFeatures,
+        .accelerationStructure = VK_TRUE};
 
+    VK_CHECK_RESULT(_vk_device->createLogicalDevice(_device_features, _enable_device_exts, &enabledAccelerationStructureFeatures));
+    auto device = _vk_device->logicalDevice;
     // Get a graphics queue from the device
-    vkGetDeviceQueue(device, vk_device->queueFamilyIndices.graphics, 0, &graphics_queue);
-    vkGetDeviceQueue(device, vk_device->queueFamilyIndices.compute, 0, &compute_queue);
-    vkGetDeviceQueue(device, vk_device->queueFamilyIndices.transfer, 0, &copy_queue);
-
-    return true;
+    vkGetDeviceQueue(device, _vk_device->queueFamilyIndices.graphics, 0, &_graphics_queue);
+    vkGetDeviceQueue(device, _vk_device->queueFamilyIndices.compute, 0, &_compute_queue);
+    vkGetDeviceQueue(device, _vk_device->queueFamilyIndices.transfer, 0, &_copy_queue);
+    _allocator.create(*this);
 }
 Device::~Device() {
 }
-void *Device::native_handle() const noexcept { return vk_device->logicalDevice; }
+void *Device::native_handle() const noexcept { return _vk_device->logicalDevice; }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept { return BufferCreationInfo::make_invalid(); }
 BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept { return BufferCreationInfo::make_invalid(); }
 void Device::destroy_buffer(uint64_t handle) noexcept {}
@@ -310,4 +375,47 @@ void Device::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {}
 void Device::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {}
 void Device::synchronize_event(uint64_t handle) noexcept {}
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {}
+VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
+    {
+        std::lock_guard lck{detail::instance_mtx};
+        if (!detail::vk_instance) {
+#ifdef NDEBUG
+            constexpr bool enableValidation = false;
+#else
+            constexpr bool enableValidation = true;
+#endif
+            detail::vk_instance = detail::create_instance(enableValidation);
+        }
+    }
+    vstd::vector<VkPhysicalDevice> physical_devices;
+    uint32_t gpuCount = 0;
+    // Get number of available physical devices
+    VK_CHECK_RESULT(vkEnumeratePhysicalDevices(detail::vk_instance, &gpuCount, nullptr));
+    if (gpuCount == 0) {
+        return;
+    }
+    // Enumerate devices
+    physical_devices.push_back_uninitialized(gpuCount);
+    auto err = vkEnumeratePhysicalDevices(detail::vk_instance, &gpuCount, physical_devices.data());
+    if (err) {
+        LUISA_ERROR("Could not enumerate physical devices : {}", err);
+        return;
+    }
+    r.reserve(physical_devices.size());
+    VkPhysicalDeviceProperties _device_properties;
+    for (auto &&i : physical_devices) {
+        vkGetPhysicalDeviceProperties(i, &_device_properties);
+        r.emplace_back(_device_properties.deviceName);
+    }
+}
+VkInstance Device::instance() const {
+    return detail::vk_instance;
+}
+
+VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings) {
+    return new Device(std::move(c), settings);
+}
+VSTL_EXPORT_C void destroy(DeviceInterface *device) {
+    delete static_cast<Device *>(device);
+}
 }// namespace lc::vk

@@ -2,12 +2,9 @@ target("lc-backend-vk")
 _config_project({
 	project_kind = "shared"
 })
-add_deps("lc-runtime", "lc-vstl")
+add_deps("lc-runtime", "lc-vstl", "lc-backend-common")
 set_values("vk_path", LCVulkanPath)
 add_rules("lc_vulkan")
-if is_plat("windows") then
-    add_deps("lc-copy-dxc")
-end
 add_files("**.cpp")
 -- TODO: use dxc for vulkan, only windows temporarily
 if is_plat("windows") then

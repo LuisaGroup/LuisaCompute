@@ -3,35 +3,34 @@
 #include <runtime/device.h>
 #include "../vks/VulkanDevice.h"
 #include <vstl/common.h>
+#include <backends/common/default_binary_io.h>
+#include "../allocator/vk_allocator.h"
 
 namespace lc::vk {
-struct Settings {
-    bool validation;
-    bool fullscreen{false};
-    bool vsync{false};
-    bool overlay{true};
-};
 using namespace luisa;
 using namespace luisa::compute;
-class Device : public DeviceInterface {
-    VkPhysicalDevice physical_device{};
-    vstd::unique_ptr<vks::VulkanDevice> vk_device;
-    VkPhysicalDeviceProperties device_properties{};
-    VkPhysicalDeviceFeatures device_features{};
-    VkPhysicalDeviceMemoryProperties device_memory_properties{};
-    vstd::vector<VkPhysicalDevice> physical_devices;
-    vstd::vector<const char *> instance_exts = {VK_KHR_SURFACE_EXTENSION_NAME};
-    vstd::vector<vstd::string> supported_instance_exts;
-    vstd::vector<const char *> enable_device_exts;
-    vstd::vector<const char *> enable_inst_ext;
-    VkQueue graphics_queue{};
-    VkQueue compute_queue{};
-    VkQueue copy_queue{};
+class Device : public DeviceInterface, public vstd::IOperatorNewBase {
+    vstd::optional<vks::VulkanDevice> _vk_device;
+    VkPhysicalDeviceProperties _device_properties{};
+    VkPhysicalDeviceFeatures _device_features{};
+    VkPhysicalDeviceMemoryProperties _device_memory_properties{};
+    vstd::vector<vstd::string> _enable_device_exts;
+    VkQueue _graphics_queue{};
+    VkQueue _compute_queue{};
+    VkQueue _copy_queue{};
+    vstd::optional<VkAllocator> _allocator;
+    BinaryIO const *_binary_io{};
+    DefaultBinaryIO _default_file_io;
+    void _init_device(uint32_t selectedDevice);
 
 public:
-    VkInstance create_instance(bool enableValidation, Settings &settings);
-    bool init_device(Settings &settings, uint32_t selectedDevice);
-    Device(Context &&ctx);
+    VkInstance instance() const;
+    auto &allocator() { return *_allocator; }
+    auto physical_device() const { return _vk_device->physicalDevice; }
+    auto logic_device() const { return _vk_device->logicalDevice; }
+    auto const &properties() const { return _vk_device->properties; }
+    auto const &features() const { return _vk_device->features; }
+    Device(Context &&ctx, DeviceConfig const *configs);
     ~Device();
     void *native_handle() const noexcept override;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;

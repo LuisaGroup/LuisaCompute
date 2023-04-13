@@ -2,13 +2,15 @@ if LCDxBackend or LCVkBackend then
 	target("lc-copy-dxc")
 	set_kind("phony")
 	after_build(function(target)
-		local bin_dir = target:targetdir()
-		os.cp(path.join(os.scriptdir(), "dx/dx_builtin"), path.join(bin_dir, ".data"))
-		os.cp(path.join(os.scriptdir(), "dx/dx_support/*.dll"), bin_dir)
+		if is_plat("windows") then
+			local bin_dir = target:targetdir()
+			os.cp(path.join(os.scriptdir(), "dx/dx_builtin"), path.join(bin_dir, ".data"))
+			os.cp(path.join(os.scriptdir(), "dx/dx_support/*.dll"), bin_dir)
+		end
 	end)
 	target_end()
 end
-
+includes("common")
 if LCDxBackend then
 	includes("dx")
 end
