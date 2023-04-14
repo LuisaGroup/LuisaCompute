@@ -58,7 +58,7 @@ public:
 
 private:
     friend class Device;
-    StreamTag _stream_tag;
+    StreamTag _stream_tag{};
     void _dispatch(CommandList &&command_buffer) noexcept;
     explicit Stream(DeviceInterface *device, StreamTag stream_tag) noexcept;
     void _synchronize() noexcept;
