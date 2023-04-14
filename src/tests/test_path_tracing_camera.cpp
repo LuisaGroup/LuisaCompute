@@ -15,6 +15,7 @@
 #include <tests/common/cornell_box.h>
 #include <stb/stb_image_write.h>
 #include <gui/window.h>
+#include <bitset>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/common/tiny_obj_loader.h>
@@ -52,6 +53,30 @@ LUISA_STRUCT(Camera, position, front, up, right, fov) {
     }
 };
 // clang-format on
+enum class KeyState : bool {
+    None = false,
+    Pressed = true
+};
+struct KeyManager {
+    std::bitset<512> bits;
+    luisa::vector<int> remove_list;
+
+    static constexpr int kPress = 1;
+    static constexpr int kRelease = 0;
+    void set_action(int key, int action) {
+        if (action == kPress) {
+            bits[key] = true;
+        } else if (action == kRelease) {
+            bits[key] = false;
+        }
+    }
+    KeyState get_state(Key key) const {
+        return static_cast<KeyState>(bits[key]);
+    }
+    void update_state() {
+        bits.reset();
+    }
+};
 
 class FPVCameraController {
 
@@ -233,8 +258,6 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    static constexpr uint spp_per_dispatch = 64u;
-
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image,
                                      Var<Camera> camera, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);
@@ -245,82 +268,79 @@ int main(int argc, char *argv[]) {
         Float ry = lcg(state);
         Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
-        $for(i, spp_per_dispatch) {
-            Var<Ray> ray = camera->generate_ray(pixel * make_float2(1.0f, -1.0f));
-            Float3 beta = def(make_float3(1.0f));
-            Float pdf_bsdf = def(0.0f);
-            constexpr float3 light_position = make_float3(-0.24f, 1.98f, 0.16f);
-            constexpr float3 light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
-            constexpr float3 light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
-            constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
-            Float light_area = length(cross(light_u, light_v));
-            Float3 light_normal = normalize(cross(light_u, light_v));
-            $for(depth, 10u) {
-                // trace
-                Var<TriangleHit> hit = accel.trace_closest(ray);
-                $if(hit->miss()) { $break; };
-                Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
-                Float3 p0 = vertex_buffer->read(triangle.i0);
-                Float3 p1 = vertex_buffer->read(triangle.i1);
-                Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = hit->interpolate(p0, p1, p2);
-                Float3 n = normalize(cross(p1 - p0, p2 - p0));
-                Float cos_wi = dot(-ray->direction(), n);
-                $if(cos_wi < 1e-4f) { $break; };
+        Var<Ray> ray = camera->generate_ray(pixel * make_float2(1.0f, -1.0f));
+        Float3 beta = def(make_float3(1.0f));
+        Float pdf_bsdf = def(0.0f);
+        constexpr float3 light_position = make_float3(-0.24f, 1.98f, 0.16f);
+        constexpr float3 light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
+        constexpr float3 light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
+        constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
+        Float light_area = length(cross(light_u, light_v));
+        Float3 light_normal = normalize(cross(light_u, light_v));
+        $for(depth, 10u) {
+            // trace
+            Var<TriangleHit> hit = accel.trace_closest(ray);
+            $if(hit->miss()) { $break; };
+            Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
+            Float3 p0 = vertex_buffer->read(triangle.i0);
+            Float3 p1 = vertex_buffer->read(triangle.i1);
+            Float3 p2 = vertex_buffer->read(triangle.i2);
+            Float3 p = hit->interpolate(p0, p1, p2);
+            Float3 n = normalize(cross(p1 - p0, p2 - p0));
+            Float cos_wi = dot(-ray->direction(), n);
+            $if(cos_wi < 1e-4f) { $break; };
 
-                // hit light
-                $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                    $if(depth == 0u) {
-                        radiance += light_emission;
-                    }
-                    $else {
-                        Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
-                        Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-                        radiance += mis_weight * beta * light_emission;
-                    };
-                    $break;
+            // hit light
+            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+                $if(depth == 0u) {
+                    radiance += light_emission;
+                }
+                $else {
+                    Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wi);
+                    Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                    radiance += mis_weight * beta * light_emission;
                 };
-
-                // sample light
-                Float ux_light = lcg(state);
-                Float uy_light = lcg(state);
-                Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
-                Float3 pp = offset_ray_origin(p, n);
-                Float3 pp_light = offset_ray_origin(p_light, light_normal);
-                Float d_light = distance(pp, pp_light);
-                Float3 wi_light = normalize(pp_light - pp);
-                Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
-                Bool occluded = accel.trace_any(shadow_ray);
-                Float cos_wi_light = dot(wi_light, n);
-                Float cos_light = -dot(light_normal, wi_light);
-                Float3 albedo = materials.read(hit.inst);
-                $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
-                    Float pdf_light = (d_light * d_light) / (light_area * cos_light);
-                    Float pdf_bsdf = cos_wi_light * inv_pi;
-                    Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                    Float3 bsdf = albedo * inv_pi * cos_wi_light;
-                    radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-                };
-
-                // sample BSDF
-                Var<Onb> onb = make_onb(n);
-                Float ux = lcg(state);
-                Float uy = lcg(state);
-                Float3 new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
-                ray = make_ray(pp, new_direction);
-                beta *= albedo;
-                pdf_bsdf = cos_wi * inv_pi;
-
-                // rr
-                Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-                $if(l == 0.0f) { $break; };
-                Float q = max(l, 0.05f);
-                Float r = lcg(state);
-                $if(r >= q) { $break; };
-                beta *= 1.0f / q;
+                $break;
             };
+
+            // sample light
+            Float ux_light = lcg(state);
+            Float uy_light = lcg(state);
+            Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
+            Float3 pp = offset_ray_origin(p, n);
+            Float3 pp_light = offset_ray_origin(p_light, light_normal);
+            Float d_light = distance(pp, pp_light);
+            Float3 wi_light = normalize(pp_light - pp);
+            Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
+            Bool occluded = accel.trace_any(shadow_ray);
+            Float cos_wi_light = dot(wi_light, n);
+            Float cos_light = -dot(light_normal, wi_light);
+            Float3 albedo = materials.read(hit.inst);
+            $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                Float pdf_light = (d_light * d_light) / (light_area * cos_light);
+                Float pdf_bsdf = cos_wi_light * inv_pi;
+                Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+                Float3 bsdf = albedo * inv_pi * cos_wi_light;
+                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+            };
+
+            // sample BSDF
+            Var<Onb> onb = make_onb(n);
+            Float ux = lcg(state);
+            Float uy = lcg(state);
+            Float3 new_direction = onb->to_world(cosine_sample_hemisphere(make_float2(ux, uy)));
+            ray = make_ray(pp, new_direction);
+            beta *= albedo;
+            pdf_bsdf = cos_wi * inv_pi;
+
+            // rr
+            Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
+            $if(l == 0.0f) { $break; };
+            Float q = max(l, 0.05f);
+            Float r = lcg(state);
+            $if(r >= q) { $break; };
+            beta *= 1.0f / q;
         };
-        radiance /= static_cast<float>(spp_per_dispatch);
         seed_image.write(coord, make_uint4(state));
         $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
@@ -376,88 +396,14 @@ int main(int argc, char *argv[]) {
         .fov = 27.8f};
     FPVCameraController camera_controller{camera, 1.f, 20.f, .5f};
     Window window{"path tracing", resolution};
+    KeyManager key_manager;
 
     auto is_dirty = true;
-    auto frame_time = 0.;
+    auto delta_time = 0.;
 
-    window.set_key_callback([&camera_controller, &is_dirty, &frame_time](Key key, KeyModifiers mods, Action action) noexcept {
-        if (action != ACTION_RELEASED) {
-            auto dt = static_cast<float>(frame_time * 1e-3);
-            LUISA_INFO("dt = {}", dt);
-            switch (key) {
-                case KEY_UP: {
-                    if (mods & KEY_MODIFIER_SHIFT_BIT) {
-                        camera_controller.move_forward(dt);
-                    } else {
-                        camera_controller.move_up(dt);
-                    }
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_DOWN: {
-                    if (mods & KEY_MODIFIER_SHIFT_BIT) {
-                        camera_controller.move_forward(-dt);
-                    } else {
-                        camera_controller.move_up(-dt);
-                    }
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_LEFT: {
-                    camera_controller.move_right(-dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_RIGHT: {
-                    camera_controller.move_right(dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_W: {
-                    camera_controller.rotate_pitch(dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_S: {
-                    camera_controller.rotate_pitch(-dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_A: {
-                    camera_controller.rotate_yaw(dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_D: {
-                    camera_controller.rotate_yaw(-dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_Q: {
-                    camera_controller.rotate_roll(-dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_E: {
-                    camera_controller.rotate_roll(dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_MINUS: {
-                    camera_controller.zoom(-dt);
-                    is_dirty = true;
-                    break;
-                }
-                case KEY_EQUAL: {
-                    camera_controller.zoom(dt);
-                    is_dirty = true;
-                    break;
-                }
-                default: break;
-            }
-        }
+    window.set_key_callback([&key_manager](Key key, KeyModifiers mods, Action action) noexcept {
+        key_manager.set_action(key, action);
     });
-
     SwapChain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
@@ -484,10 +430,43 @@ int main(int argc, char *argv[]) {
         stream << cmd_list.commit()
                << swap_chain.present(ldr_image);
         window.poll_events();
-        frame_time = clock.toc() - last_time;
+        delta_time = clock.toc() - last_time;
         last_time = clock.toc();
-        frame_count += spp_per_dispatch;
-        LUISA_INFO("time: {} ms", frame_time);
+        frame_count += 1;
+        float delta_time_seconds = delta_time / 1000.0f;
+        if (key_manager.get_state(KEY_W) == KeyState::Pressed) {
+            camera_controller.rotate_pitch(delta_time_seconds);
+            is_dirty = true;
+        }
+        if (key_manager.get_state(KEY_S) == KeyState::Pressed) {
+            camera_controller.rotate_pitch(-delta_time_seconds);
+            is_dirty = true;
+        }
+        if (key_manager.get_state(KEY_A) == KeyState::Pressed) {
+            camera_controller.rotate_yaw(delta_time_seconds);
+            is_dirty = true;
+        }
+        if (key_manager.get_state(KEY_D) == KeyState::Pressed) {
+            camera_controller.rotate_yaw(-delta_time_seconds);
+            is_dirty = true;
+        }
+        if (key_manager.get_state(KEY_Q) == KeyState::Pressed) {
+            camera_controller.rotate_roll(-delta_time_seconds);
+            is_dirty = true;
+        }
+        if (key_manager.get_state(KEY_E) == KeyState::Pressed) {
+            camera_controller.rotate_roll(delta_time_seconds);
+            is_dirty = true;
+        }
+        if (key_manager.get_state(KEY_MINUS) == KeyState::Pressed) {
+            camera_controller.zoom(-delta_time_seconds);
+            is_dirty = true;
+        }
+        if (key_manager.get_state(KEY_EQUAL) == KeyState::Pressed) {
+            camera_controller.zoom(delta_time_seconds);
+            is_dirty = true;
+        }
+        // LUISA_INFO("time: {} ms", delta_time);
     }
     stream
         << ldr_image.copy_to(host_image.data())

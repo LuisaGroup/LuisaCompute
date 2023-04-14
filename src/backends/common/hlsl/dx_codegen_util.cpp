@@ -1618,7 +1618,14 @@ CodegenResult CodegenUtility::Codegen(
     if (nonEmptyCbuffer) {
         GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData);
     }
-    varData << "uint4 dsp_c:register(b0);\n"sv;
+    if (isSpirV) {
+        varData << R"(cbuffer CB:register(b0){
+uint4 dsp_c;
+}
+)"sv;
+    } else {
+        varData << "uint4 dsp_c:register(b0);\n"sv;
+    }
     CodegenResult::Properties properties;
     uint64 immutableHeaderSize = finalResult.size();
     DXILRegisterIndexer dxilRegisters;
@@ -1678,10 +1685,17 @@ CodegenResult CodegenUtility::RasterCodegen(
     } else {
         LUISA_ERROR("Illegal vertex return type!");
     }
-    codegenData << R"(};
-uint obj_id:register(b0);
-#ifdef VS
+    if (isSpirV) {
+        codegenData << R"(};
+cbuffer CB:register(b0){
+uint obj_id;
 )"sv;
+    } else {
+        codegenData << R"(};
+uint obj_id:register(b0);
+)"sv;
+    }
+    codegenData << "#ifdef VS\n";
     std::bitset<kVertexAttributeCount> bits;
     bits.reset();
     auto vertexAttriName = {
