@@ -5,10 +5,9 @@ _config_project({
 })
 add_deps("lc-core")
 add_files("string_scratch.cpp", "default_binary_io.cpp")
-if LCCudaBackend and LCVulkanPath then
+if (LCCudaBackend or LCCpuBackend) and LCVulkanPath then
 	set_values("vk_path", LCVulkanPath)
-	set_values("vulkan_macro", "LUISA_CUDA_ENABLE_VULKAN_SWAPCHAIN")
-	set_values("enable_swapchain", true)
+	set_values("vk_public", true)
 	add_rules("lc_vulkan")
 	add_files("vulkan_swapchain.cpp")
 end
