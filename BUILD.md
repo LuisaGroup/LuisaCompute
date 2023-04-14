@@ -27,6 +27,8 @@
 
 ### Backends
 
+- CPU
+    - `clang++` must be in `PATH`
 - CUDA
     - CUDA 11.2 or higher
     - RTX-compatible graphics cards with appropriate drivers
@@ -36,11 +38,11 @@
 - Metal
     - macOS 12 or higher
     - Apple M1 chips are recommended (older GPUs are probably supported but not tested)
-- LLVM
+<!-- - LLVM
     - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
     - LLVM 13+ with the corresponding targets and features enabled
         - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_ROOT=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
-
+ -->
 ### Python
 
 - Packages: sourceinspect, numpy
