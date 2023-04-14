@@ -3,7 +3,12 @@
 //
 
 #pragma once
-
+#ifdef near
+#define LUISA_NEAR_DEFINED
+#endif
+#ifdef far
+#define LUISA_FAR_DEFINED
+#endif
 #include <string_view>
 
 #include <spdlog/spdlog.h>
@@ -117,3 +122,9 @@ LC_CORE_API void log_flush() noexcept;
                 #x, msg);                        \
         }                                        \
     } while (false)
+#if (defined near) && (!defined LUISA_NEAR_DEFINED)
+#undef near
+#endif
+#if (defined far) && (!defined LUISA_FAR_DEFINED)
+#undef far
+#endif
