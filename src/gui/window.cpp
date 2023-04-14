@@ -140,4 +140,16 @@ void Window::pool_event() noexcept {
     glfwPollEvents();
 }
 
+void Window::set_should_close(bool should_close) noexcept {
+    glfwSetWindowShouldClose(static_cast<detail::WindowImpl *>(_impl.get())->window, should_close);
+}
+
+bool Window::is_key_down(Key key) const noexcept {
+    return glfwGetKey(static_cast<detail::WindowImpl *>(_impl.get())->window, static_cast<int>(key)) != GLFW_RELEASE;
+}
+
+bool Window::is_mouse_button_down(MouseButton mb) const noexcept {
+    return glfwGetMouseButton(static_cast<detail::WindowImpl *>(_impl.get())->window, static_cast<int>(mb)) != GLFW_RELEASE;
+}
+
 }// namespace luisa::compute
