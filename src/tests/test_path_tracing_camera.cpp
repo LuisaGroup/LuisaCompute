@@ -374,16 +374,15 @@ int main(int argc, char *argv[]) {
         .up = make_float3(0.f, 1.f, 0.f),
         .right = make_float3(1.f, 0.f, 0.f),
         .fov = 27.8f};
-    FPVCameraController camera_controller{camera, 1.f, 20.f, .3f};
+    FPVCameraController camera_controller{camera, 1.f, 20.f, .5f};
     Window window{"path tracing", resolution};
-    auto is_dirty = true;
 
-    window.set_key_callback([&camera_controller, &is_dirty, clk = Clock{}](Key key, KeyModifiers mods, Action action) mutable noexcept {
-        if (action == ACTION_PRESSED) {
-            clk.tic();
-        } else {
-            auto dt = static_cast<float>(clk.toc() * 1e-3);
-            if (action == ACTION_REPEATED) { clk.tic(); }
+    auto is_dirty = true;
+    auto frame_time = 0.;
+
+    window.set_key_callback([&camera_controller, &is_dirty, &frame_time](Key key, KeyModifiers mods, Action action) noexcept {
+        if (action != ACTION_RELEASED) {
+            auto dt = static_cast<float>(frame_time * 1e-3);
             LUISA_INFO("dt = {}", dt);
             switch (key) {
                 case KEY_UP: {
@@ -465,6 +464,7 @@ int main(int argc, char *argv[]) {
         resolution,
         false, false, 3)};
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
+
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
@@ -484,10 +484,10 @@ int main(int argc, char *argv[]) {
         stream << cmd_list.commit()
                << swap_chain.present(ldr_image);
         window.pool_event();
-        double dt = clock.toc() - last_time;
+        frame_time = clock.toc() - last_time;
         last_time = clock.toc();
         frame_count += spp_per_dispatch;
-        LUISA_INFO("time: {} ms", dt);
+        LUISA_INFO("time: {} ms", frame_time);
     }
     stream
         << ldr_image.copy_to(host_image.data())
