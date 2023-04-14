@@ -15,7 +15,6 @@
 #include <tests/common/cornell_box.h>
 #include <stb/stb_image_write.h>
 #include <gui/window.h>
-#include <bitset>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tests/common/tiny_obj_loader.h>
@@ -53,30 +52,6 @@ LUISA_STRUCT(Camera, position, front, up, right, fov) {
     }
 };
 // clang-format on
-enum class KeyState : bool {
-    None = false,
-    Pressed = true
-};
-struct KeyManager {
-    std::bitset<512> bits;
-    luisa::vector<int> remove_list;
-
-    static constexpr int kPress = 1;
-    static constexpr int kRelease = 0;
-    void set_action(int key, int action) {
-        if (action == kPress) {
-            bits[key] = true;
-        } else if (action == kRelease) {
-            bits[key] = false;
-        }
-    }
-    KeyState get_state(Key key) const {
-        return static_cast<KeyState>(bits[key]);
-    }
-    void update_state() {
-        bits.reset();
-    }
-};
 
 class FPVCameraController {
 
@@ -396,14 +371,7 @@ int main(int argc, char *argv[]) {
         .fov = 27.8f};
     FPVCameraController camera_controller{camera, 1.f, 20.f, .5f};
     Window window{"path tracing", resolution};
-    KeyManager key_manager;
 
-    auto is_dirty = true;
-    auto delta_time = 0.;
-
-    window.set_key_callback([&key_manager](Key key, KeyModifiers mods, Action action) noexcept {
-        key_manager.set_action(key, action);
-    });
     SwapChain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
@@ -415,11 +383,12 @@ int main(int argc, char *argv[]) {
     uint frame_count = 0u;
     Clock clock;
 
+    auto is_dirty = true;
+    auto delta_time = 0.;
     CommandList cmd_list;
     while (!window.should_close()) {
         if (is_dirty) {
-            cmd_list << clear_shader(accum_image).dispatch(resolution)
-                     << make_sampler_shader(seed_image).dispatch(resolution);
+            cmd_list << clear_shader(accum_image).dispatch(resolution);
             is_dirty = false;
         }
         cmd_list << raytracing_shader(framebuffer, seed_image, camera, accel, resolution)
@@ -432,41 +401,64 @@ int main(int argc, char *argv[]) {
         window.poll_events();
         delta_time = clock.toc() - last_time;
         last_time = clock.toc();
-        frame_count += 1;
-        float delta_time_seconds = delta_time / 1000.0f;
-        if (key_manager.get_state(KEY_W) == KeyState::Pressed) {
-            camera_controller.rotate_pitch(delta_time_seconds);
+        frame_count++;
+        auto dt = static_cast<float>(delta_time / 1000.0);
+        if (window.is_key_down(KEY_W)) {
+            camera_controller.rotate_pitch(dt);
             is_dirty = true;
         }
-        if (key_manager.get_state(KEY_S) == KeyState::Pressed) {
-            camera_controller.rotate_pitch(-delta_time_seconds);
+        if (window.is_key_down(KEY_S)) {
+            camera_controller.rotate_pitch(-dt);
             is_dirty = true;
         }
-        if (key_manager.get_state(KEY_A) == KeyState::Pressed) {
-            camera_controller.rotate_yaw(delta_time_seconds);
+        if (window.is_key_down(KEY_A)) {
+            camera_controller.rotate_yaw(dt);
             is_dirty = true;
         }
-        if (key_manager.get_state(KEY_D) == KeyState::Pressed) {
-            camera_controller.rotate_yaw(-delta_time_seconds);
+        if (window.is_key_down(KEY_D)) {
+            camera_controller.rotate_yaw(-dt);
             is_dirty = true;
         }
-        if (key_manager.get_state(KEY_Q) == KeyState::Pressed) {
-            camera_controller.rotate_roll(-delta_time_seconds);
+        if (window.is_key_down(KEY_Q)) {
+            camera_controller.rotate_roll(-dt);
             is_dirty = true;
         }
-        if (key_manager.get_state(KEY_E) == KeyState::Pressed) {
-            camera_controller.rotate_roll(delta_time_seconds);
+        if (window.is_key_down(KEY_E)) {
+            camera_controller.rotate_roll(dt);
             is_dirty = true;
         }
-        if (key_manager.get_state(KEY_MINUS) == KeyState::Pressed) {
-            camera_controller.zoom(-delta_time_seconds);
+        if (window.is_key_down(KEY_MINUS)) {
+            camera_controller.zoom(-dt);
             is_dirty = true;
         }
-        if (key_manager.get_state(KEY_EQUAL) == KeyState::Pressed) {
-            camera_controller.zoom(delta_time_seconds);
+        if (window.is_key_down(KEY_EQUAL)) {
+            camera_controller.zoom(dt);
             is_dirty = true;
         }
-        // LUISA_INFO("time: {} ms", delta_time);
+        if (window.is_key_down(KEY_UP)) {
+            if (window.is_key_down(KEY_LEFT_SHIFT) || window.is_key_down(KEY_RIGHT_SHIFT)) {
+                camera_controller.move_forward(dt);
+            } else {
+                camera_controller.move_up(dt);
+            }
+            is_dirty = true;
+        }
+        if (window.is_key_down(KEY_DOWN)) {
+            if (window.is_key_down(KEY_LEFT_SHIFT) || window.is_key_down(KEY_RIGHT_SHIFT)) {
+                camera_controller.move_forward(-dt);
+            } else {
+                camera_controller.move_up(-dt);
+            }
+            is_dirty = true;
+        }
+        if (window.is_key_down(KEY_LEFT)) {
+            camera_controller.move_right(-dt);
+            is_dirty = true;
+        }
+        if (window.is_key_down(KEY_RIGHT)) {
+            camera_controller.move_right(dt);
+            is_dirty = true;
+        }
     }
     stream
         << ldr_image.copy_to(host_image.data())
