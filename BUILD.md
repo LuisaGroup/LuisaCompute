@@ -11,6 +11,7 @@
 ### C++ with CMake
 
 - [CMake](https://cmake.org/) 3.20+
+- Ninja is recommended and required for Rust frontend
 - C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
     - MSVC and Clang-CL (Clang with CL-style command-line options) are recommended and tested on Windows
 - On Linux, `uuid-dev` is required to build the core libraries and the following libraries are required for the GUI module:
