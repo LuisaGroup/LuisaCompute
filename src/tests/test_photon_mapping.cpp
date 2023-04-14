@@ -576,7 +576,7 @@ int main(int argc, char *argv[]) {
                << swap_chain.present(ldr_image);
         frame_count += spp_per_dispatch;
 
-        window.pool_event();
+        window.poll_events();
     }
     stream << ldr_image.copy_to(host_image.data()) << synchronize();
 

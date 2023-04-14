@@ -246,7 +246,7 @@ int main(int argc, char *argv[]) {
         command_list << hdr2ldr_shader(accum_image, ldr_image, 2.0).dispatch(width, height);
         stream << command_list.commit() << swap_chain.present(ldr_image);
         if (window.should_close()) { break; }
-        window.pool_event();
+        window.poll_events();
 #else
         stream << command_list.commit();
 #endif

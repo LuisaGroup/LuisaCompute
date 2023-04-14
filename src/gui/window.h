@@ -46,7 +46,7 @@ public:
     Window &set_window_size_callback(WindowSizeCallback cb) noexcept;
     Window &set_key_callback(KeyCallback cb) noexcept;
     Window &set_scroll_callback(ScrollCallback cb) noexcept;
-    void pool_event() noexcept;
+    void poll_events() noexcept;
     [[nodiscard]] bool is_key_down(Key key) const noexcept;
     [[nodiscard]] bool is_mouse_button_down(MouseButton mb) const noexcept;
     [[nodiscard]] explicit operator bool() const noexcept { return !should_close(); }

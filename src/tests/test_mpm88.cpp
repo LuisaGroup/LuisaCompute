@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
         cmd_list << clear_display().dispatch(resolution, resolution)
                  << draw_particles().dispatch(n_particles);
         stream << cmd_list.commit() << swap_chain.present(display);
-        window.pool_event();
+        window.poll_events();
     }
     stream << synchronize();
 }

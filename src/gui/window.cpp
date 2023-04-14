@@ -136,7 +136,7 @@ Window &Window::set_scroll_callback(Window::ScrollCallback cb) noexcept {
     return *this;
 }
 
-void Window::pool_event() noexcept {
+void Window::poll_events() noexcept {
     glfwPollEvents();
 }
 

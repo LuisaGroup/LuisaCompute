@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
         float time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)
                << swap_chain.present(device_image);
-        window.pool_event();
+        window.poll_events();
     }
     stream << synchronize();
 }

@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
             << swap_chain.present(ldr_image)
             // let host wait here
             << grpahics_event.signal();
-        window.pool_event();
+        window.poll_events();
         frame++;
     }
     compute_stream << synchronize();

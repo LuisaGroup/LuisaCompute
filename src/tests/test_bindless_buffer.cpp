@@ -48,6 +48,6 @@ int main(int argc, char *argv[]) {
         stream << s(static_cast<float>(clk.toc() * .05f))
                       .dispatch(1280, 720)
                << swapchain.present(device_image1);
-        window.pool_event();
+        window.poll_events();
     }
 }

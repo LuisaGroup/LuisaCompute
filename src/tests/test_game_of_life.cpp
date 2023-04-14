@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
                << swap_chain.present(display);
         image_pair.swap();
         std::this_thread::sleep_for(std::chrono::milliseconds{30});
-        window.pool_event();
+        window.poll_events();
     }
     stream << synchronize();
 }

@@ -97,8 +97,8 @@ int main(int argc, char *argv[]) {
             << shader(time, time * 5).draw(std::move(meshes), Viewport{}, state, nullptr, out_img)
             << swap_chain.present(out_img)
             << swap_chain2.present(out_img);
-        window.pool_event();
-        window2.pool_event();
+        window.poll_events();
+        window2.poll_events();
     }
     stream << synchronize();
     return 0;

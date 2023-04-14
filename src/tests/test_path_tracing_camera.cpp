@@ -483,7 +483,7 @@ int main(int argc, char *argv[]) {
         cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
         stream << cmd_list.commit()
                << swap_chain.present(ldr_image);
-        window.pool_event();
+        window.poll_events();
         frame_time = clock.toc() - last_time;
         last_time = clock.toc();
         frame_count += spp_per_dispatch;

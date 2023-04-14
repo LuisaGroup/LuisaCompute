@@ -116,7 +116,7 @@ void export_gui(py::module &m) {
             for (auto &&i : remove_list) {
                 w.key_states.erase(i);
             }
-            w.window->pool_event();
+            w.window->poll_events();
         });
     py::class_<Clock>(m, "Clock")
         .def(py::init<>())
