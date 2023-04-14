@@ -1,5 +1,5 @@
-#include <HLSL/access_chain.h>
-#include <HLSL/dx_codegen.h>
+#include "access_chain.h"
+#include "dx_codegen.h"
 namespace lc::dx {
 AccessChain::AccessChain(
     CallOp op,

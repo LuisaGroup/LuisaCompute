@@ -1,6 +1,6 @@
 
 #include <Shader/BuiltinKernel.h>
-#include "HLSL/dx_codegen.h"
+#include "backends/common/hlsl/dx_codegen.h"
 #include <core/stl/filesystem.h>
 namespace lc::dx {
 ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO const *ctx) {

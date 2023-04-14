@@ -11,7 +11,7 @@
 #include <core/logging.h>
 #include <filesystem>
 #include <core/binary_io.h>
-#include <HLSL/string_builder.h>
+#include "string_builder.h"
 namespace lc::dx {
 using namespace luisa;
 using namespace luisa::compute;
@@ -36,6 +36,7 @@ struct CodegenResult {
     CodegenResult(CodegenResult const &) = delete;
     CodegenResult(CodegenResult &&) = default;
 };
+struct RegisterIndexer;
 class CodegenUtility {
     vstd::unique_ptr<CodegenStackData> opt{};
 
@@ -81,7 +82,7 @@ public:
     void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str);
-    void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
+    void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, RegisterIndexer &registerCount, bool cbufferNonEmpty,
                                      bool isRaster);
     void PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult);
     void CodegenProperties(
@@ -89,13 +90,14 @@ public:
         vstd::StringBuilder &varData,
         Function kernel,
         uint offset,
-        vstd::array<uint, 3> &registerCount);
-    CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath);
+        RegisterIndexer &registerCount);
+    CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath, bool isSpirV);
     CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
-        luisa::BinaryIO const *internalDataPath);
+        luisa::BinaryIO const *internalDataPath,
+        bool isSpirV);
     static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
     static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO const *ctx);
     /*
@@ -109,7 +111,7 @@ public:
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;
-    CodegenUtility* util;
+    CodegenUtility *util;
     struct Scope {
         StringStateVisitor *self;
         Scope(StringStateVisitor *self);
@@ -149,7 +151,7 @@ public:
     StringStateVisitor(
         Function f,
         vstd::StringBuilder &str,
-        CodegenUtility* util);
+        CodegenUtility *util);
     ~StringStateVisitor();
 
 protected:

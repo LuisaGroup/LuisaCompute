@@ -2,6 +2,8 @@
 #include <core/logging.h>
 #include "../log.h"
 #include <vstl/config.h>
+#include "compute_shader.h"
+#include <core/binary_file_stream.h>
 namespace lc::vk {
 using namespace std::string_literals;
 namespace detail {
@@ -326,7 +328,15 @@ void Device::_init_device(uint32_t selectedDevice) {
     vkGetDeviceQueue(device, _vk_device->queueFamilyIndices.graphics, 0, &_graphics_queue);
     vkGetDeviceQueue(device, _vk_device->queueFamilyIndices.compute, 0, &_compute_queue);
     vkGetDeviceQueue(device, _vk_device->queueFamilyIndices.transfer, 0, &_copy_queue);
+    _pso_header.headerSize = sizeof(VkPipelineCacheHeaderVersionOne);
+    _pso_header.headerVersion = VK_PIPELINE_CACHE_HEADER_VERSION_ONE;
+    _pso_header.vendorID = _vk_device->properties.vendorID;
+    _pso_header.deviceID = _vk_device->properties.deviceID;
+    memcpy(_pso_header.pipelineCacheUUID, _vk_device->properties.pipelineCacheUUID, VK_UUID_SIZE);
     _allocator.create(*this);
+}
+bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
+    return memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
 }

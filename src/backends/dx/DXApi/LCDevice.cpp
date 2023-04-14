@@ -16,7 +16,7 @@
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
 #include "../ext.h"
-#include "HLSL/dx_codegen.h"
+#include <backends/common/hlsl/dx_codegen.h>
 #include <ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
 #include <core/clock.h>
@@ -186,7 +186,7 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
     // Clock clk;
-    auto code = CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo);
+    auto code = CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, false);
     // LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
@@ -349,7 +349,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
-    auto code = CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
+    auto code = CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo, false);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());

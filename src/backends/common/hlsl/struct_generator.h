@@ -4,7 +4,7 @@
 #include <ast/function.h>
 #include <ast/expression.h>
 #include <ast/statement.h>
-#include <HLSL/string_builder.h>
+#include "string_builder.h"
 namespace lc::dx {
 class CodegenUtility;
 using namespace luisa::compute;

@@ -1,6 +1,6 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
-#include <HLSL/dx_codegen.h>
+#include <backends/common/hlsl/dx_codegen.h>
 #include <Shader/ShaderCompiler.h>
 #include <core/logging.h>
 #include <vstl/md5.h>

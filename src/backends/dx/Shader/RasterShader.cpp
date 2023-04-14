@@ -1,7 +1,7 @@
 #include <Shader/RasterShader.h>
 #include <Resource/DepthBuffer.h>
 #include <Shader/ShaderSerializer.h>
-#include <HLSL/dx_codegen.h>
+#include <backends/common/hlsl/dx_codegen.h>
 #include <Shader/ShaderCompiler.h>
 #include <vstl/md5.h>
 #include <core/logging.h>

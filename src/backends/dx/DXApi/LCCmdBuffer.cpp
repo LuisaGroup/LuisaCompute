@@ -2,7 +2,7 @@
 #include <DXApi/LCDevice.h>
 #include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
-#include "HLSL/dx_codegen.h"
+#include <backends/common/hlsl/dx_codegen.h>
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/TopAccel.h>

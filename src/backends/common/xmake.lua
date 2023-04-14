@@ -15,3 +15,6 @@ if LCCpuBackend then
 	add_deps("lc-rust")
 	add_files("rust_device_common.cpp")
 end
+if LCVkBackend or LCDxBackend then
+	add_files("hlsl/*.cpp")
+end

@@ -2,7 +2,7 @@
 #include "codegen_stack_data.h"
 #include "struct_generator.h"
 #include "dx_codegen.h"
-#include <HLSL/common_iterator.h>
+#include "common_iterator.h"
 namespace lc::dx {
 /*
 size_t StructureType::size() const {

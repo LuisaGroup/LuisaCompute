@@ -1,11 +1,33 @@
 #include "dx_codegen.h"
 #include <vstl/string_utility.h>
-#include <HLSL/variant_util.h>
+#include "variant_util.h"
 #include <ast/constant_data.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <vstl/pdqsort.h>
 namespace lc::dx {
+struct RegisterIndexer {
+    virtual void init() = 0;
+    virtual uint &get(uint idx) = 0;
+};
+struct DXILRegisterIndexer : public RegisterIndexer {
+    vstd::array<uint, 3> values;
+    void init() override {
+        values = {1, 0, 0};
+    }
+    uint &get(uint idx) override {
+        return values[idx];
+    }
+};
+struct SpirVRegisterIndexer : public RegisterIndexer {
+    uint count;
+    void init() override {
+        count = 1;
+    }
+    uint &get(uint idx) override {
+        return count;
+    }
+};
 vstd::StringBuilder CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx) {
     auto bin = ctx->read_internal_shader(name);
     vstd::StringBuilder str;
@@ -1391,9 +1413,10 @@ void CodegenUtility::GenerateBindless(
 }
 
 void CodegenUtility::PreprocessCodegenProperties(
-    CodegenResult::Properties &properties, vstd::StringBuilder &varData, vstd::array<uint, 3> &registerCount, bool cbufferNonEmpty,
+    CodegenResult::Properties &properties, vstd::StringBuilder &varData, RegisterIndexer &registerCount, bool cbufferNonEmpty,
     bool isRaster) {
-    registerCount = {1u, 0u, 0u};
+    // 1,0,0
+    registerCount.init();
     properties.emplace_back(
         Property{
             ShaderVariableType::SampDescriptorHeap,
@@ -1409,7 +1432,7 @@ void CodegenUtility::PreprocessCodegenProperties(
                 0});
     }
     if (cbufferNonEmpty) {
-        registerCount[2] += 1;
+        registerCount.get(2)++;
         properties.emplace_back(
             Property{
                 ShaderVariableType::StructuredBuffer,
@@ -1463,7 +1486,7 @@ void CodegenUtility::CodegenProperties(
     vstd::StringBuilder &varData,
     Function kernel,
     uint offset,
-    vstd::array<uint, 3> &registerCount) {
+    RegisterIndexer &registerCount) {
     enum class RegisterType : uint8_t {
         CBV,
         UAV,
@@ -1488,7 +1511,7 @@ void CodegenUtility::CodegenProperties(
             varData << "Inst"sv;
         };
         auto genArg = [&]<bool rtBuffer = false, bool writable = false>(RegisterType regisT, ShaderVariableType sT, char v) {
-            auto &&r = registerCount[(uint8_t)regisT];
+            auto &&r = registerCount.get((uint8_t)regisT);
             Property prop = {
                 .type = sT,
                 .spaceIndex = 0,
@@ -1566,8 +1589,9 @@ vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
 }
 CodegenUtility::CodegenUtility() {}
 CodegenUtility::~CodegenUtility() {}
+
 CodegenResult CodegenUtility::Codegen(
-    Function kernel, luisa::BinaryIO const *internalDataPath) {
+    Function kernel, luisa::BinaryIO const *internalDataPath, bool isSpirV) {
     assert(kernel.tag() == Function::Tag::KERNEL);
     opt = CodegenStackData::Allocate(this);
     auto disposeOpt = vstd::scope_exit([&] {
@@ -1597,9 +1621,11 @@ CodegenResult CodegenUtility::Codegen(
     varData << "uint4 dsp_c:register(b0);\n"sv;
     CodegenResult::Properties properties;
     uint64 immutableHeaderSize = finalResult.size();
-    vstd::array<uint, 3> registerCount;
-    PreprocessCodegenProperties(properties, varData, registerCount, nonEmptyCbuffer, false);
-    CodegenProperties(properties, varData, kernel, 0, registerCount);
+    DXILRegisterIndexer dxilRegisters;
+    SpirVRegisterIndexer spvRegisters;
+    RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false);
+    CodegenProperties(properties, varData, kernel, 0, indexer);
     PostprocessCodegenProperties(properties, finalResult);
     finalResult << varData << codegenData;
     return {
@@ -1613,7 +1639,8 @@ CodegenResult CodegenUtility::RasterCodegen(
     MeshFormat const &meshFormat,
     Function vertFunc,
     Function pixelFunc,
-    luisa::BinaryIO const *internalDataPath) {
+    luisa::BinaryIO const *internalDataPath,
+    bool isSpirV) {
     opt = CodegenStackData::Allocate(this);
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = vertFunc;
@@ -1751,10 +1778,12 @@ uint iid:SV_INSTANCEID;
     }
     CodegenResult::Properties properties;
     uint64 immutableHeaderSize = finalResult.size();
-    vstd::array<uint, 3> registerCount;
-    PreprocessCodegenProperties(properties, varData, registerCount, nonEmptyCbuffer, true);
-    CodegenProperties(properties, varData, vertFunc, 1, registerCount);
-    CodegenProperties(properties, varData, pixelFunc, 1, registerCount);
+    DXILRegisterIndexer dxilRegisters;
+    SpirVRegisterIndexer spvRegisters;
+    RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true);
+    CodegenProperties(properties, varData, vertFunc, 1, indexer);
+    CodegenProperties(properties, varData, pixelFunc, 1, indexer);
     PostprocessCodegenProperties(properties, finalResult);
     finalResult << varData << codegenData;
     return {
