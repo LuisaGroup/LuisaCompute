@@ -128,3 +128,5 @@ LC_CORE_API void log_flush() noexcept;
 #if (defined far) && (!defined LUISA_FAR_DEFINED)
 #undef far
 #endif
+#undef LUISA_NEAR_DEFINED
+#undef LUISA_FAR_DEFINED
