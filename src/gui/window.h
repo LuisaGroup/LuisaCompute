@@ -4,16 +4,17 @@
 #include <core/stl/string.h>
 #include <core/basic_types.h>
 #include <core/stl/functional.h>
+#include <gui/input.h>
 
 namespace luisa::compute {
 
 class LC_GUI_API Window {
 
 public:
-    using MouseButtonCallback = luisa::function<void(int button, int action, float2 xy)>;
+    using MouseButtonCallback = luisa::function<void(MouseButton button, Action action, float2 xy)>;
     using CursorPositionCallback = luisa::function<void(float2 xy)>;
     using WindowSizeCallback = luisa::function<void(uint2 size)>;
-    using KeyCallback = luisa::function<void(int key, int action)>;
+    using KeyCallback = luisa::function<void(Key key, KeyModifiers modifiers, Action action)>;
     using ScrollCallback = luisa::function<void(float2 dxdy)>;
     struct IWindowImpl {
         virtual ~IWindowImpl() noexcept = default;

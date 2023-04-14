@@ -52,7 +52,8 @@ struct WindowImpl : public Window::IWindowImpl {
             auto y = 0.0;
             glfwGetCursorPos(self->window, &x, &y);
             if (auto &&cb = self->_mouse_button_callback) {
-                cb(button, action, make_float2(static_cast<float>(x), static_cast<float>(y)));
+                cb(static_cast<MouseButton>(button), static_cast<Action>(action),
+                   make_float2(static_cast<float>(x), static_cast<float>(y)));
             }
             // }
         });
@@ -69,7 +70,9 @@ struct WindowImpl : public Window::IWindowImpl {
             //     ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
             // } else {
             auto self = static_cast<WindowImpl *>(glfwGetWindowUserPointer(window));
-            if (auto &&cb = self->_key_callback) { cb(key, action); }
+            if (auto &&cb = self->_key_callback) {
+                cb(static_cast<Key>(key), mods, static_cast<Action>(action));
+            }
             // }
         });
         glfwSetScrollCallback(window, [](GLFWwindow *window, double dx, double dy) noexcept {
