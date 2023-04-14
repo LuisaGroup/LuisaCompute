@@ -9,21 +9,21 @@ if (WIN32)
             ../common/default_binary_io.cpp ../common/default_binary_io.h
             ../common/resource_generator.h
 
+            ../common/hlsl/access_chain.cpp ../common/hlsl/access_chain.h
+            ../common/hlsl/codegen_stack_data.cpp ../common/hlsl/codegen_stack_data.h
+            ../common/hlsl/common_iterator.h
+            ../common/hlsl/dx_codegen.cpp ../common/hlsl/dx_codegen.h
+            ../common/hlsl/dx_codegen_util.cpp
+            ../common/hlsl/shader_property.h
+            ../common/hlsl/string_builder.cpp ../common/hlsl/string_builder.h
+            ../common/hlsl/struct_generator.cpp ../common/hlsl/struct_generator.h
+            ../common/hlsl/variant_util.h
+
             DXApi/ext.cpp
             DXApi/LCCmdBuffer.cpp DXApi/LCCmdBuffer.h
             DXApi/LCDevice.cpp DXApi/LCDevice.h
             DXApi/LCEvent.cpp DXApi/LCEvent.h
             DXApi/LCSwapChain.cpp DXApi/LCSwapChain.h
-
-            HLSL/access_chain.cpp HLSL/access_chain.h
-            HLSL/codegen_stack_data.cpp HLSL/codegen_stack_data.h
-            HLSL/common_iterator.h
-            HLSL/dx_codegen.cpp HLSL/dx_codegen.h
-            HLSL/dx_codegen_util.cpp
-            HLSL/shader_property.h
-            HLSL/string_builder.cpp HLSL/string_builder.h
-            HLSL/struct_generator.cpp HLSL/struct_generator.h
-            HLSL/variant_util.h
 
             DXRuntime/CommandAllocator.cpp DXRuntime/CommandAllocator.h
             DXRuntime/CommandAllocatorBase.h
