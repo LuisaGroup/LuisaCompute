@@ -10,12 +10,15 @@
 
 namespace luisa::compute::metal {
 
+class MetalCompiler;
+
 class MetalDevice : public DeviceInterface {
 
 private:
     MTL::Device *_handle;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
+    luisa::unique_ptr<MetalCompiler> _compiler;
 
 public:
     MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept;
