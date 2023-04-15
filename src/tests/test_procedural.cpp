@@ -73,8 +73,8 @@ int main(int argc, char *argv[]) {
     };
 
     Kernel2D kernel = [&](Float3 pos, UInt frame_id) {
-        Var coord = dispatch_id().xy();
-        Var size = dispatch_size().xy();
+        UInt2 coord = dispatch_id().xy();
+        UInt2 size = dispatch_size().xy();
         Float aspect = size.x.cast<float>() / size.y.cast<float>();
         // very bad jitter
         Float2 jitter = make_float2(make_uint2(tea(coord.x, frame_id),
@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
         Var<Ray> ray = make_ray(origin, direction);
 
         // traversal aceeleration structure with ray-query
-        Var<float3> sphere_color;
+        Float3 sphere_color;
         Var<CommittedHit> hit = accel->query_all(ray)
                        .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
                            Var<TriangleHit> h = candidate.hit();

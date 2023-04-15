@@ -37,7 +37,7 @@ struct WindowImpl : public Window::IWindowImpl {
 #if defined(LUISA_PLATFORM_WINDOWS)
         window_handle = reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
 #elif defined(LUISA_PLATFORM_APPLE)
-// TODO: Apple
+        window_handle = reinterpret_cast<uint64_t>(glfwGetCocoaWindow(window));
 #else
         window_handle = reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif

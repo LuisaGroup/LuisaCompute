@@ -19,8 +19,6 @@ public:
     void destroy_texture(uint64_t handle) noexcept override;
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;
-    ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
-    void destroy_depth_buffer(uint64_t handle) noexcept override;
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
@@ -45,6 +43,7 @@ public:
     void destroy_accel(uint64_t handle) noexcept override;
     string query(luisa::string_view property) noexcept override;
     DeviceExtension *extension(luisa::string_view name) noexcept override;
+    Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
 };
 

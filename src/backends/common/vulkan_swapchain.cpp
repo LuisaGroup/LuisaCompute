@@ -14,9 +14,11 @@
 #include <core/stl/unordered_map.h>
 #include <runtime/rhi/pixel.h>
 
-#ifdef LUISA_PLATFORM_WINDOWS
+#if defined(LUISA_PLATFORM_WINDOWS)
 #include <Windows.h>
 #include <vulkan/vulkan_win32.h>
+#elif defined(LUISA_PLATFORM_APPLE)
+#include <vulkan/vulkan_macos.h>
 #elif defined(LUISA_PLATFORM_UNIX)
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
@@ -131,11 +133,13 @@ private:
 
         luisa::vector<const char *> extensions;
         extensions.reserve(3u);
-        extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-#ifdef LUISA_PLATFORM_WINDOWS
-        extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-#elif defined(LUISA_PLATFORM_UNIX)
-        extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+        extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
+#if defined(LUISA_PLATFORM_WINDOWS)
+        extensions.emplace_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+#elif defined(LUISA_PLATFORM_APPLE)
+        extensions.emplace_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
+#else
+        extensions.emplace_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 #endif
 
 #ifndef NDEBUG
@@ -305,20 +309,23 @@ private:
     };
 
     void _create_surface(uint64_t window_handle) noexcept {
-#ifdef LUISA_PLATFORM_WINDOWS
+#if defined(LUISA_PLATFORM_WINDOWS)
         VkWin32SurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
         create_info.hwnd = reinterpret_cast<HWND>(window_handle);
         create_info.hinstance = GetModuleHandle(nullptr);
         LUISA_CHECK_VULKAN(vkCreateWin32SurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
-#elif defined(LUISA_PLATFORM_UNIX)
+#elif defined(LUISA_PLATFORM_APPLE)
+        VkMacOSSurfaceCreateInfoMVK create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK;
+        create_info.pView = cocoa_window_content_view(window_handle);
+        LUISA_CHECK_VULKAN(vkCreateMacOSSurfaceMVK(_instance->handle(), &create_info, nullptr, &_surface));
+#else
         VkXlibSurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
         create_info.dpy = XOpenDisplay(nullptr);
         create_info.window = static_cast<Window>(window_handle);
         LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
-#else
-#error "Unsupported platform."
 #endif
     }
 

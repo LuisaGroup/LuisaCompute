@@ -12,6 +12,9 @@ using luisa::compute::ir::Type;
 #include <luisa_compute_backend/bindings.hpp>
 #include "rust_device_common.h"
 
+// must go last to avoid name conflicts
+#include <runtime/rhi/resource.h>
+
 namespace luisa::compute::rust {
 using namespace luisa::compute::backend;
 RustDevice::RustDevice(luisa::compute::Context &&ctx, std::string_view name) noexcept
@@ -54,6 +57,72 @@ ResourceCreationInfo RustDevice::create_bindless_array(size_t size) noexcept {
 }
 void RustDevice::destroy_bindless_array(uint64_t handle) noexcept {
     lc_rs_destroy_bindless_array(_handle, api::BindlessArray{handle});
+}
+
+// TODO: Implement these functions
+ResourceCreationInfo RustDevice::create_stream(luisa::compute::StreamTag stream_tag) noexcept {
+    return ResourceCreationInfo();
+}
+void RustDevice::destroy_stream(uint64_t handle) noexcept {
+}
+void RustDevice::synchronize_stream(uint64_t stream_handle) noexcept {
+}
+void RustDevice::dispatch(uint64_t stream_handle, luisa::compute::CommandList &&list) noexcept {
+}
+SwapChainCreationInfo RustDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept {
+    return SwapChainCreationInfo();
+}
+void RustDevice::destroy_swap_chain(uint64_t handle) noexcept {
+}
+void RustDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+}
+ShaderCreationInfo RustDevice::create_shader(const luisa::compute::ShaderOption &option, Function kernel) noexcept {
+    return ShaderCreationInfo();
+}
+ShaderCreationInfo RustDevice::create_shader(const luisa::compute::ShaderOption &option, const ir::KernelModule *kernel) noexcept {
+    return ShaderCreationInfo();
+}
+ShaderCreationInfo RustDevice::load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept {
+    return ShaderCreationInfo();
+}
+void RustDevice::destroy_shader(uint64_t handle) noexcept {
+}
+ResourceCreationInfo RustDevice::create_event() noexcept {
+    return ResourceCreationInfo();
+}
+void RustDevice::destroy_event(uint64_t handle) noexcept {
+}
+void RustDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
+}
+void RustDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
+}
+void RustDevice::synchronize_event(uint64_t handle) noexcept {
+}
+ResourceCreationInfo RustDevice::create_mesh(const luisa::compute::AccelOption &option) noexcept {
+    return ResourceCreationInfo();
+}
+void RustDevice::destroy_mesh(uint64_t handle) noexcept {
+}
+ResourceCreationInfo RustDevice::create_procedural_primitive(const luisa::compute::AccelOption &option) noexcept {
+    return ResourceCreationInfo();
+}
+void RustDevice::destroy_procedural_primitive(uint64_t handle) noexcept {
+}
+ResourceCreationInfo RustDevice::create_accel(const luisa::compute::AccelOption &option) noexcept {
+    return ResourceCreationInfo();
+}
+void RustDevice::destroy_accel(uint64_t handle) noexcept {
+}
+string RustDevice::query(luisa::string_view property) noexcept {
+    return DeviceInterface::query(property);
+}
+DeviceExtension *RustDevice::extension(luisa::string_view name) noexcept {
+    return DeviceInterface::extension(name);
+}
+Usage RustDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
+    return Usage::NONE;
+}
+void RustDevice::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::rust
