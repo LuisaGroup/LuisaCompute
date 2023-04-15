@@ -6,7 +6,7 @@
 #include "string_builder.h"
 #include <vstl/md5.h>
 #include <core/stl/hash.h>
-namespace lc::dx {
+namespace lc::hlsl {
 class CodegenUtility;
 using namespace luisa::compute;
 // XXRet T{
@@ -58,4 +58,4 @@ struct AccessHash {
         return c.hash();
     }
 };
-}// namespace lc::dx
+}// namespace lc::hlsl

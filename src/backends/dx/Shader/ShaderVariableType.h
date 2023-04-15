@@ -24,14 +24,14 @@ struct DXRHitGroup {
 };
 struct ShaderVariable {
     vstd::string name;
-    ShaderVariableType type;
+    hlsl::ShaderVariableType type;
     uint tableSize;
     uint registerPos;
     uint space;
     ShaderVariable() {}
     ShaderVariable(
         const vstd::string &name,
-        ShaderVariableType type,
+        hlsl::ShaderVariableType type,
         uint tableSize,
         uint registerPos,
         uint space)

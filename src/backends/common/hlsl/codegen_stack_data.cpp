@@ -2,7 +2,7 @@
 #include <runtime/rtx/ray.h>
 #include <runtime/rtx/hit.h>
 #include <ast/type_registry.h>
-namespace lc::dx {
+namespace lc::hlsl {
 CodegenStackData::CodegenStackData()
     : generateStruct(
           [this](Type const *t) {
@@ -254,4 +254,4 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
     return *iter.first;
 }
 
-}// namespace lc::dx
+}// namespace lc::hlsl

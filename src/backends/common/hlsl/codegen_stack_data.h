@@ -1,9 +1,9 @@
 #pragma once
 #include <vstl/common.h>
-#include "dx_codegen.h"
+#include "hlsl_codegen.h"
 #include "struct_generator.h"
 #include "access_chain.h"
-namespace lc::dx {
+namespace lc::hlsl {
 
 struct CodegenStackData : public vstd::IOperatorNewBase {
     CodegenUtility *util;
@@ -58,4 +58,4 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     static void DeAllocate(vstd::unique_ptr<CodegenStackData> &&v);
     // static bool& ThreadLocalSpirv();
 };
-}// namespace lc::dx
+}// namespace lc::hlsl

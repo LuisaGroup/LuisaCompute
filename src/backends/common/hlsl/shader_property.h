@@ -1,5 +1,5 @@
 #pragma once
-namespace lc::dx {
+namespace lc::hlsl {
 
 enum class ShaderVariableType : uint8_t {
     ConstantBuffer,
@@ -17,4 +17,4 @@ struct Property {
     uint registerIndex;
     uint arrSize;
 };
-}// namespace lc::dx
+}// namespace lc::hlsl

@@ -8,6 +8,7 @@
 #include <ast/function.h>
 #include <core/binary_io.h>
 namespace lc::dx {
+using namespace luisa;
 using namespace luisa::compute;
 struct SavedArgument {
     Type::Tag tag;
@@ -61,25 +62,25 @@ public:
 
 protected:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSig;
-    vstd::vector<Property> properties;
+    vstd::vector<hlsl::Property> properties;
     vstd::vector<SavedArgument> kernelArguments;
     uint bindlessCount;
-    void SavePSO(ID3D12PipelineState* pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const;
+    void SavePSO(ID3D12PipelineState *pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const;
 
 public:
     static vstd::string PSOName(Device const *device, vstd::string_view fileName);
     static vstd::vector<Argument> BindingToArg(vstd::span<const Function::Binding> bindings);
     virtual ~Shader() noexcept = default;
     uint BindlessCount() const { return bindlessCount; }
-    vstd::span<Property const> Properties() const { return properties; }
+    vstd::span<hlsl::Property const> Properties() const { return properties; }
     vstd::span<SavedArgument const> Args() const { return kernelArguments; }
     Shader(
-        vstd::vector<Property> &&properties,
+        vstd::vector<hlsl::Property> &&properties,
         vstd::vector<SavedArgument> &&args,
         ID3D12Device *device,
         bool isRaster);
     Shader(
-        vstd::vector<Property> &&properties,
+        vstd::vector<hlsl::Property> &&properties,
         vstd::vector<SavedArgument> &&args,
         ComPtr<ID3D12RootSignature> &&rootSig);
     ID3D12RootSignature *RootSig() const { return rootSig.Get(); }

@@ -12,7 +12,7 @@ if (WIN32)
             ../common/hlsl/access_chain.cpp ../common/hlsl/access_chain.h
             ../common/hlsl/codegen_stack_data.cpp ../common/hlsl/codegen_stack_data.h
             ../common/hlsl/common_iterator.h
-            ../common/hlsl/dx_codegen.cpp ../common/hlsl/dx_codegen.h
+            ../common/hlsl/dx_codegen.cpp ../common/hlsl/hlsl_codegen.h
             ../common/hlsl/dx_codegen_util.cpp
             ../common/hlsl/shader_property.h
             ../common/hlsl/string_builder.cpp ../common/hlsl/string_builder.h

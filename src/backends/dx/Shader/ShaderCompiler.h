@@ -47,12 +47,14 @@ public:
         vstd::string_view code,
         bool optimize,
         uint shaderModel,
-        bool enableUnsafeMath);
+        bool enableUnsafeMath,
+        bool spirv);
     RasterBin CompileRaster(
         vstd::string_view code,
         bool optimize,
         uint shaderModel,
-        bool enableUnsafeMath);
+        bool enableUnsafeMath,
+        bool spirv);
 #ifdef SHADER_COMPILER_TEST
     CompileResult CustomCompile(
         vstd::string_view code,

@@ -5,7 +5,7 @@
 #include <ast/expression.h>
 #include <ast/statement.h>
 #include "string_builder.h"
-namespace lc::dx {
+namespace lc::hlsl {
 class CodegenUtility;
 using namespace luisa::compute;
 class StructGenerator : public vstd::IOperatorNewBase {
@@ -44,4 +44,4 @@ public:
     void Init(Callback const &visitor);
     ~StructGenerator();
 };
-}// namespace lc::dx
+}// namespace lc::hlsl

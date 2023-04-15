@@ -1,9 +1,9 @@
 
 #include "codegen_stack_data.h"
 #include "struct_generator.h"
-#include "dx_codegen.h"
+#include "hlsl_codegen.h"
 #include "common_iterator.h"
-namespace lc::dx {
+namespace lc::hlsl {
 /*
 size_t StructureType::size() const {
     switch (mTag) {
@@ -120,4 +120,4 @@ StructGenerator::StructGenerator(
     }
 }
 StructGenerator::~StructGenerator() = default;
-}// namespace lc::dx
+}// namespace lc::hlsl

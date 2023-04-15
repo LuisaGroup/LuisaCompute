@@ -1,11 +1,11 @@
-#include "dx_codegen.h"
+#include "hlsl_codegen.h"
 #include <vstl/string_utility.h>
 #include "variant_util.h"
 #include <ast/constant_data.h>
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <vstl/pdqsort.h>
-namespace lc::dx {
+namespace lc::hlsl {
 struct RegisterIndexer {
     virtual void init() = 0;
     virtual uint &get(uint idx) = 0;
@@ -1619,7 +1619,7 @@ CodegenResult CodegenUtility::Codegen(
         GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData);
     }
     if (isSpirV) {
-        varData << R"(cbuffer CB:register(b0){
+        varData << R"(cbuffer CB:register(b1){
 uint4 dsp_c;
 }
 )"sv;
@@ -1687,7 +1687,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     }
     if (isSpirV) {
         codegenData << R"(};
-cbuffer CB:register(b0){
+cbuffer CB:register(b1){
 uint obj_id;
 )"sv;
     } else {
@@ -1807,4 +1807,4 @@ uint iid:SV_INSTANCEID;
         immutableHeaderSize,
         GetTypeMD5(funcs)};
 }
-}// namespace lc::dx
+}// namespace lc::hlsl

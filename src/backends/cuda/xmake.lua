@@ -25,7 +25,7 @@ on_load(function(target)
 		return
 	end
 	if is_plat("windows") then
-		target:add("defines", "NOMINMAX", "UNICODE")
+		target:add("defines", "UNICODE")
 		target:add("syslinks", "Cfgmgr32", "Advapi32")
 	end
 end)

@@ -19,9 +19,6 @@
 #define VENGINE_C_FUNC_COMMON
 #define VENGINE_EXIT std::abort()
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <stdint.h>
 using uint = uint32_t;
 using uint64 = uint64_t;

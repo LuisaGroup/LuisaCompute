@@ -12,7 +12,7 @@
 #include <filesystem>
 #include <core/binary_io.h>
 #include "string_builder.h"
-namespace lc::dx {
+namespace lc::hlsl {
 using namespace luisa;
 using namespace luisa::compute;
 class StringStateVisitor;
@@ -100,13 +100,6 @@ public:
         bool isSpirV);
     static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
     static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO const *ctx);
-    /*
-#ifdef USE_SPIRV
-     void GenerateBindlessSpirv(
-        vstd::StringBuilder &str);
-     CodegenStackData *StackData();
-     vstd::optional<vstd::StringBuilder> CodegenSpirv(Function kernel, luisa::BinaryIO*internalDataPath);
-#endif*/
     vstd::StringBuilder GetNewTempVarName();
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
@@ -248,4 +241,4 @@ struct PrintValue<Matrix<N>> {
     }
 };
 
-}// namespace lc::dx
+}// namespace lc::hlsl

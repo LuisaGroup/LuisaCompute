@@ -1,6 +1,6 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
-#include <backends/common/hlsl/dx_codegen.h>
+#include <backends/common/hlsl/hlsl_codegen.h>
 #include <Shader/ShaderCompiler.h>
 #include <core/logging.h>
 #include <vstl/md5.h>
@@ -30,7 +30,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
     //Cached
 
     if (result) {
-        auto md5 = CodegenUtility::GetTypeMD5(types);
+        auto md5 = hlsl::CodegenUtility::GetTypeMD5(types);
         LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);\
         if (oldDeleted) {
             result->SavePSO(result->Pso(), psoName, fileIo, device);
@@ -42,7 +42,7 @@ ComputeShader *ComputeShader::CompileCompute(
     BinaryIO const *fileIo,
     Device *device,
     Function kernel,
-    vstd::function<CodegenResult()> const &codegen,
+    vstd::function<hlsl::CodegenResult()> const &codegen,
     vstd::optional<vstd::MD5> const &checkMD5,
     vstd::vector<luisa::compute::Argument> &&bindings,
     uint3 blockSize,
@@ -72,7 +72,8 @@ ComputeShader *ComputeShader::CompileCompute(
             str.result.view(),
             true,
             shaderModel,
-            enableUnsafeMath);
+            enableUnsafeMath,
+            false);
         return compResult.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
@@ -143,7 +144,7 @@ ComputeShader *ComputeShader::CompileCompute(
 void ComputeShader::SaveCompute(
     BinaryIO const *fileIo,
     Function kernel,
-    CodegenResult &str,
+    hlsl::CodegenResult &str,
     uint3 blockSize,
     uint shaderModel,
     vstd::string_view fileName,
@@ -160,7 +161,8 @@ void ComputeShader::SaveCompute(
         str.result.view(),
         true,
         shaderModel,
-        enableUnsafeMath);
+        enableUnsafeMath,
+        false);
     compResult.multi_visit(
         [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);
@@ -199,7 +201,7 @@ ID3D12CommandSignature *ComputeShader::CmdSig() const {
 
 ComputeShader::ComputeShader(
     uint3 blockSize,
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     vstd::span<std::byte const> binData,
     vstd::vector<luisa::compute::Argument> &&bindings,
@@ -218,7 +220,7 @@ ComputeShader::ComputeShader(
 ComputeShader::ComputeShader(
     uint3 blockSize,
     Device *device,
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     vstd::vector<luisa::compute::Argument> &&bindings,
     ComPtr<ID3D12RootSignature> &&rootSig,

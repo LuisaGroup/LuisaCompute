@@ -103,7 +103,8 @@ CompileResult ShaderCompiler::CompileCompute(
     vstd::string_view code,
     bool optimize,
     uint shaderModel,
-    bool enableUnsafeMath) {
+    bool enableUnsafeMath,
+    bool spirv) {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -112,14 +113,17 @@ CompileResult ShaderCompiler::CompileCompute(
     vstd::fixed_vector<LPCWSTR, 32> args;
     vstd::wstring smStr;
     smStr << L"cs_" << GetSM(shaderModel);
-    args.push_back(L"/T");
-    args.push_back(smStr.c_str());
+    args.emplace_back(L"/T");
+    args.emplace_back(smStr.c_str());
     AddCompileFlags(args);
+    if (spirv) {
+        args.emplace_back(L"-spirv");
+    }
     if (enableUnsafeMath) {
         AddUnsafeMathFlags(args);
     }
     if (optimize) {
-        args.push_back(L"-O3");
+        args.emplace_back(L"-O3");
     }
     return Compile(code, args);
 }
@@ -127,7 +131,8 @@ RasterBin ShaderCompiler::CompileRaster(
     vstd::string_view code,
     bool optimize,
     uint shaderModel,
-    bool enableUnsafeMath) {
+    bool enableUnsafeMath,
+    bool spirv) {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -135,25 +140,28 @@ RasterBin ShaderCompiler::CompileRaster(
 #endif
     vstd::fixed_vector<LPCWSTR, 32> args;
     AddCompileFlags(args);
+    if (spirv) {
+        args.emplace_back(L"-spirv");
+    }
     if (enableUnsafeMath) {
         AddUnsafeMathFlags(args);
     }
     if (optimize) {
-        args.push_back(L"-O3");
+        args.emplace_back(L"-O3");
     }
-    args.push_back(L"/T");
+    args.emplace_back(L"/T");
     auto size = args.size();
     vstd::wstring smStr;
     smStr << L"vs_" << GetSM(shaderModel);
-    args.push_back(smStr.c_str());
-    args.push_back(L"/DVS");
+    args.emplace_back(smStr.c_str());
+    args.emplace_back(L"/DVS");
     RasterBin bin;
     bin.vertex = Compile(code, args);
     args.resize_uninitialized(size);
     smStr.clear();
     smStr << L"ps_" << GetSM(shaderModel);
-    args.push_back(smStr.c_str());
-    args.push_back(L"/DPS");
+    args.emplace_back(smStr.c_str());
+    args.emplace_back(L"/DPS");
     bin.pixel = Compile(code, args);
     return bin;
 }
@@ -163,7 +171,7 @@ CompileResult ShaderCompiler::CustomCompile(
     vstd::string_view code,
     vstd::span<vstd::string const> args) {
     vstd::vector<vstd::wstring> wstrArgs;
-    vstd::push_back_func(
+    vstd::emplace_back_func(
         wstrArgs,
         args.size(),
         [&](size_t i) {
@@ -176,7 +184,7 @@ CompileResult ShaderCompiler::CustomCompile(
             return wstr;
         });
     vstd::vector<LPCWSTR> argPtr;
-    vstd::push_back_func(
+    vstd::emplace_back_func(
         argPtr,
         args.size(),
         [&](size_t i) {
@@ -197,15 +205,15 @@ CompileResult ShaderCompiler::CompileRayTracing(
     vstd::fixed_vector<LPCWSTR, 32> args;
     vstd::wstring smStr;
     smStr << L"lib_" << GetSM(shaderModel);
-    args.push_back(L"/T");
-    args.push_back(smStr.c_str());
+    args.emplace_back(L"/T");
+    args.emplace_back(smStr.c_str());
     args.push_back_all(
         {L"-Qstrip_debug",
          L"-Qstrip_reflect",
          L"/enable_unbounded_descriptor_tables",
          L"-HV 2021"});
     if (optimize) {
-        args.push_back(L"-O3");
+        args.emplace_back(L"-O3");
     }
     return Compile(code, args);
 }*/

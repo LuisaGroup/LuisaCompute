@@ -9,7 +9,7 @@ add_includedirs("./")
 add_syslinks("D3D12", "dxgi")
 add_deps("lc-copy-dxc")
 if is_plat("windows") then
-	add_defines("NOMINMAX", "UNICODE")
+	add_defines("UNICODE")
 end
 on_load(function(target)
 	local cuda_path = os.getenv("CUDA_PATH")

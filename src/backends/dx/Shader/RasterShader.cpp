@@ -1,7 +1,7 @@
 #include <Shader/RasterShader.h>
 #include <Resource/DepthBuffer.h>
 #include <Shader/ShaderSerializer.h>
-#include <backends/common/hlsl/dx_codegen.h>
+#include <backends/common/hlsl/hlsl_codegen.h>
 #include <Shader/ShaderCompiler.h>
 #include <vstl/md5.h>
 #include <core/logging.h>
@@ -34,7 +34,7 @@ RasterShader::RasterShader(
     Device *device,
     vstd::MD5 md5,
     MeshFormat const &meshFormat,
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ComPtr<ID3D12RootSignature> &&rootSig,
     vstd::vector<std::byte> &&vertBinData,
@@ -119,7 +119,7 @@ void RasterShader::GetMeshFormatState(
 RasterShader::RasterShader(
     Device *device,
     vstd::MD5 md5,
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     MeshFormat const &meshFormat,
     vstd::vector<std::byte> &&vertBinData,
@@ -303,7 +303,7 @@ RasterShader *RasterShader::CompileRaster(
     Device *device,
     Function vertexKernel,
     Function pixelKernel,
-    vstd::function<CodegenResult()> const &codegen,
+    vstd::function<hlsl::CodegenResult()> const &codegen,
     vstd::MD5 const &md5,
     uint shaderModel,
     MeshFormat const &meshFormat,
@@ -320,7 +320,8 @@ RasterShader *RasterShader::CompileRaster(
         auto compResult = Device::Compiler()->CompileRaster(
             str.result.view(),
             true,
-            shaderModel, enableUnsafeMath);
+            shaderModel, enableUnsafeMath,
+            false);
         if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
             LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
             return nullptr;
@@ -372,7 +373,7 @@ RasterShader *RasterShader::CompileRaster(
 void RasterShader::SaveRaster(
     BinaryIO const *fileIo,
     Device *device,
-    CodegenResult const &str,
+    hlsl::CodegenResult const &str,
     vstd::MD5 const &md5,
     vstd::string_view fileName,
     Function vertexKernel,
@@ -389,7 +390,8 @@ void RasterShader::SaveRaster(
         str.result.view(),
         true,
         shaderModel,
-        enableUnsafeMath);
+        enableUnsafeMath,
+        false);
 
     if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
         LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
@@ -417,7 +419,7 @@ RasterShader *RasterShader::LoadRaster(
     vstd::MD5 typeMD5;
     auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, typeMD5, mesh_format);
     if (ptr) {
-        auto md5 = CodegenUtility::GetTypeMD5(types);
+        auto md5 = hlsl::CodegenUtility::GetTypeMD5(types);
         LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
     }
     return ptr;

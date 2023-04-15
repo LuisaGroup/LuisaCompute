@@ -1,6 +1,6 @@
 #include "access_chain.h"
-#include "dx_codegen.h"
-namespace lc::dx {
+#include "hlsl_codegen.h"
+namespace lc::hlsl {
 AccessChain::AccessChain(
     CallOp op,
     Type const *root_type,
@@ -162,4 +162,4 @@ void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd
     }
     builder << ')';
 }
-}// namespace lc::dx
+}// namespace lc::hlsl

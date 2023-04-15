@@ -35,14 +35,14 @@ SavedArgument::SavedArgument(Type const *type) {
 }
 
 Shader::Shader(
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ComPtr<ID3D12RootSignature> &&rootSig)
     : rootSig(std::move(rootSig)), properties(std::move(prop)), kernelArguments(std::move(args)) {
 }
 
 Shader::Shader(
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ID3D12Device *device,
     bool isRaster) : properties(std::move(prop)), kernelArguments(std::move(args)) {
@@ -63,17 +63,17 @@ void Shader::SetComputeResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::ConstantBuffer: {
+        case hlsl::ShaderVariableType::ConstantBuffer: {
             cmdList->SetComputeRootConstantBufferView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::StructuredBuffer: {
+        case hlsl::ShaderVariableType::StructuredBuffer: {
             cmdList->SetComputeRootShaderResourceView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::RWStructuredBuffer: {
+        case hlsl::ShaderVariableType::RWStructuredBuffer: {
             cmdList->SetComputeRootUnorderedAccessView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
@@ -88,10 +88,10 @@ void Shader::SetComputeResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::UAVDescriptorHeap:
-        case ShaderVariableType::CBVDescriptorHeap:
-        case ShaderVariableType::SampDescriptorHeap:
-        case ShaderVariableType::SRVDescriptorHeap: {
+        case hlsl::ShaderVariableType::UAVDescriptorHeap:
+        case hlsl::ShaderVariableType::CBVDescriptorHeap:
+        case hlsl::ShaderVariableType::SampDescriptorHeap:
+        case hlsl::ShaderVariableType::SRVDescriptorHeap: {
             cmdList->SetComputeRootDescriptorTable(
                 propertyName,
                 view.heap->hGPU(view.index));
@@ -104,7 +104,7 @@ void Shader::SetComputeResource(
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
     auto cmdList = cb->GetCB()->CmdList();
-    assert(properties[propertyName].type == ShaderVariableType::ConstantValue);
+    assert(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
     cmdList->SetComputeRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
 void Shader::SetComputeResource(
@@ -123,17 +123,17 @@ void Shader::SetRasterResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::ConstantBuffer: {
+        case hlsl::ShaderVariableType::ConstantBuffer: {
             cmdList->SetGraphicsRootConstantBufferView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::StructuredBuffer: {
+        case hlsl::ShaderVariableType::StructuredBuffer: {
             cmdList->SetGraphicsRootShaderResourceView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        case ShaderVariableType::RWStructuredBuffer: {
+        case hlsl::ShaderVariableType::RWStructuredBuffer: {
             cmdList->SetGraphicsRootUnorderedAccessView(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
@@ -148,10 +148,10 @@ void Shader::SetRasterResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case ShaderVariableType::UAVDescriptorHeap:
-        case ShaderVariableType::CBVDescriptorHeap:
-        case ShaderVariableType::SampDescriptorHeap:
-        case ShaderVariableType::SRVDescriptorHeap: {
+        case hlsl::ShaderVariableType::UAVDescriptorHeap:
+        case hlsl::ShaderVariableType::CBVDescriptorHeap:
+        case hlsl::ShaderVariableType::SampDescriptorHeap:
+        case hlsl::ShaderVariableType::SRVDescriptorHeap: {
             cmdList->SetGraphicsRootDescriptorTable(
                 propertyName,
                 view.heap->hGPU(view.index));
@@ -173,7 +173,7 @@ void Shader::SetRasterResource(
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
     auto cmdList = cb->GetCB()->CmdList();
-    assert(properties[propertyName].type == ShaderVariableType::ConstantValue);
+    assert(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
     cmdList->SetGraphicsRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
 void Shader::SavePSO(ID3D12PipelineState *pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const {

@@ -8,7 +8,8 @@ public:
         Sampler = VK_DESCRIPTOR_TYPE_SAMPLER,
         RWImage = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
         SampleImage = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-        Buffer = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        StructuredBuffer = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        ConstantBuffer = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         Accel = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
     };
     struct Bind {

@@ -14,7 +14,7 @@ struct ShaderBuildData {
 
 class ShaderSerializer {
     static size_t SerializeRootSig(
-        vstd::span<Property const> properties,
+        vstd::span<hlsl::Property const> properties,
         vstd::vector<std::byte> &result,
         bool isRasterShader);
     static ComPtr<ID3D12RootSignature> DeSerializeRootSig(
@@ -22,9 +22,9 @@ class ShaderSerializer {
         vstd::span<std::byte const> bytes);
 
 public:
-    static ComPtr<ID3DBlob> SerializeRootSig(vstd::span<Property const> properties, bool isRasterShader);
+    static ComPtr<ID3DBlob> SerializeRootSig(vstd::span<hlsl::Property const> properties, bool isRasterShader);
     static vstd::vector<std::byte> Serialize(
-        vstd::span<Property const> properties,
+        vstd::span<hlsl::Property const> properties,
         vstd::span<SavedArgument const> kernelArgs,
         vstd::span<std::byte const> binByte,
         vstd::MD5 const &checkMD5,
@@ -32,7 +32,7 @@ public:
         uint bindlessCount,
         uint3 blockSize);
     static vstd::vector<std::byte> RasterSerialize(
-        vstd::span<Property const> properties,
+        vstd::span<hlsl::Property const> properties,
         vstd::span<SavedArgument const> kernelArgs,
         vstd::span<std::byte const> vertBin,
         vstd::span<std::byte const> pixelBin,

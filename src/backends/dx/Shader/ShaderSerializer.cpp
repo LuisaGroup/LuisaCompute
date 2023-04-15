@@ -31,7 +31,7 @@ struct RasterHeader {
 static constexpr size_t kRootSigReserveSize = 16384;
 vstd::vector<std::byte>
 ShaderSerializer::Serialize(
-    vstd::span<Property const> properties,
+    vstd::span<hlsl::Property const> properties,
     vstd::span<SavedArgument const> kernelArgs,
     vstd::span<std::byte const> binByte,
     vstd::MD5 const &checkMD5,
@@ -64,7 +64,7 @@ ShaderSerializer::Serialize(
     return result;
 }
 vstd::vector<std::byte> ShaderSerializer::RasterSerialize(
-    vstd::span<Property const> properties,
+    vstd::span<hlsl::Property const> properties,
     vstd::span<SavedArgument const> kernelArgs,
     vstd::span<std::byte const> vertBin,
     vstd::span<std::byte const> pixelBin,
@@ -128,7 +128,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
     size_t targetSize =
         header.rootSigBytes +
         header.codeBytes +
-        header.propertyCount * sizeof(Property) +
+        header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
     typeMD5 = header.typeMD5;
     if (binStream->length() != sizeof(Header) + targetSize) {
@@ -181,7 +181,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
             }
         }
     }
-    vstd::vector<Property> properties;
+    vstd::vector<hlsl::Property> properties;
     vstd::vector<SavedArgument> kernelArgs;
     properties.push_back_uninitialized(header.propertyCount);
     kernelArgs.push_back_uninitialized(header.kernelArgCount);
@@ -221,7 +221,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         header.rootSigBytes +
         header.vertCodeBytes +
         header.pixelCodeBytes +
-        header.propertyCount * sizeof(Property) +
+        header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
     typeMD5 = header.typeMD5;
     if (binStream->length() != targetSize + sizeof(RasterHeader)) {
@@ -284,7 +284,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     //         }
     //     }
     // }
-    vstd::vector<Property> properties;
+    vstd::vector<hlsl::Property> properties;
     vstd::vector<SavedArgument> kernelArgs;
     properties.push_back_uninitialized(header.propertyCount);
     kernelArgs.push_back_uninitialized(header.kernelArgCount);
@@ -304,16 +304,16 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     return s;
 }
 ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
-    vstd::span<Property const> properties, bool isRasterShader) {
+    vstd::span<hlsl::Property const> properties, bool isRasterShader) {
     vstd::fixed_vector<CD3DX12_ROOT_PARAMETER, 32> allParameter;
     allParameter.reserve(properties.size() + (isRasterShader ? 1 : 0));
     vstd::fixed_vector<CD3DX12_DESCRIPTOR_RANGE, 32> allRange;
     for (auto &&var : properties) {
         switch (var.type) {
-            case ShaderVariableType::UAVDescriptorHeap:
-            case ShaderVariableType::CBVDescriptorHeap:
-            case ShaderVariableType::SampDescriptorHeap:
-            case ShaderVariableType::SRVDescriptorHeap: {
+            case hlsl::ShaderVariableType::UAVDescriptorHeap:
+            case hlsl::ShaderVariableType::CBVDescriptorHeap:
+            case hlsl::ShaderVariableType::SampDescriptorHeap:
+            case hlsl::ShaderVariableType::SRVDescriptorHeap: {
                 allRange.emplace_back();
             } break;
             default:
@@ -324,40 +324,40 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
     for (auto &&var : properties) {
 
         switch (var.type) {
-            case ShaderVariableType::SRVDescriptorHeap: {
+            case hlsl::ShaderVariableType::SRVDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
-            case ShaderVariableType::CBVDescriptorHeap: {
+            case hlsl::ShaderVariableType::CBVDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
-            case ShaderVariableType::SampDescriptorHeap: {
+            case hlsl::ShaderVariableType::SampDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
-            case ShaderVariableType::UAVDescriptorHeap: {
+            case hlsl::ShaderVariableType::UAVDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
-            case ShaderVariableType::ConstantBuffer:
+            case hlsl::ShaderVariableType::ConstantBuffer:
                 allParameter.emplace_back().InitAsConstantBufferView(var.registerIndex, var.spaceIndex);
                 break;
-            case ShaderVariableType::ConstantValue:
+            case hlsl::ShaderVariableType::ConstantValue:
                 allParameter.emplace_back().InitAsConstants(var.spaceIndex, var.registerIndex);
                 break;
-            case ShaderVariableType::StructuredBuffer:
+            case hlsl::ShaderVariableType::StructuredBuffer:
                 allParameter.emplace_back().InitAsShaderResourceView(var.registerIndex, var.spaceIndex);
                 break;
-            case ShaderVariableType::RWStructuredBuffer:
+            case hlsl::ShaderVariableType::RWStructuredBuffer:
                 allParameter.emplace_back().InitAsUnorderedAccessView(var.registerIndex, var.spaceIndex);
                 break;
             default: assert(false); break;
@@ -378,7 +378,7 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
     return serializedRootSig;
 }
 size_t ShaderSerializer::SerializeRootSig(
-    vstd::span<Property const> properties,
+    vstd::span<hlsl::Property const> properties,
     vstd::vector<std::byte> &result,
     bool isRasterShader) {
     auto lastSize = result.size();
