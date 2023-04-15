@@ -20,13 +20,16 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_texture.cpp metal_texture.h
             metal_stream.cpp metal_stream.h
             metal_event.cpp metal_event.h
+            metal_bindless_array.cpp metal_bindless_array.h
             )
 
     if (LUISA_COMPUTE_ENABLE_RUST)
         list(APPEND METAL_SOURCES metal_codegen_ir.cpp metal_codegen_ir.h)
     endif ()
 
-    luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
+    luisa_compute_add_backend(metal
+            SOURCES ${METAL_SOURCES}
+            BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/metal_builtin")
     target_link_libraries(lc-backend-metal PRIVATE
             "-framework Foundation"
             "-framework Metal"

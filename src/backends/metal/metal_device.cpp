@@ -11,7 +11,9 @@
 #include <backends/metal/metal_codegen_ast.h>
 #include <backends/metal/metal_compiler.h>
 #include <backends/metal/metal_texture.h>
+#include <backends/metal/metal_stream.h>
 #include <backends/metal/metal_event.h>
+#include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
@@ -57,6 +59,7 @@ void *MetalDevice::native_handle() const noexcept {
     info.native_handle = buffer;
     info.element_stride = element_stride;
     info.total_size_bytes = buffer_size;
+    MTL::AccelerationStructureInstanceDescriptor desc{};
     return info;
 }
 
@@ -82,7 +85,7 @@ void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
 ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimension,
                                                  uint width, uint height, uint depth,
                                                  uint mipmap_levels) noexcept {
-    auto texture = luisa::new_with_allocator<MetalTexture>(
+    auto texture = new_with_allocator<MetalTexture>(
         _handle, format, dimension, width, height, depth, mipmap_levels);
     ResourceCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(texture);
@@ -92,14 +95,20 @@ ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimens
 
 void MetalDevice::destroy_texture(uint64_t handle) noexcept {
     auto texture = reinterpret_cast<MetalTexture *>(handle);
-    luisa::delete_with_allocator(texture);
+    delete_with_allocator(texture);
 }
 
 ResourceCreationInfo MetalDevice::create_bindless_array(size_t size) noexcept {
-    return ResourceCreationInfo();
+    auto array = new_with_allocator<MetalBindlessArray>(this, size);
+    ResourceCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(array);
+    info.native_handle = array;
+    return info;
 }
 
 void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
+    auto array = reinterpret_cast<MetalBindlessArray *>(handle);
+    delete_with_allocator(array);
 }
 
 ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
@@ -158,12 +167,20 @@ void MetalDevice::destroy_event(uint64_t handle) noexcept {
 }
 
 void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    auto event = reinterpret_cast<MetalEvent *>(handle);
+    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+    stream->signal(event);
 }
 
 void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
+    auto event = reinterpret_cast<MetalEvent *>(handle);
+    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+    stream->wait(event);
 }
 
 void MetalDevice::synchronize_event(uint64_t handle) noexcept {
+    auto event = reinterpret_cast<MetalEvent *>(handle);
+    event->synchronize();
 }
 
 ResourceCreationInfo MetalDevice::create_mesh(const AccelOption &option) noexcept {
