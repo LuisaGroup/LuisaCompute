@@ -22,13 +22,13 @@ template<typename T = void>
 }
 
 #ifdef LUISA_DEBUG
-#define lc_assert(...)                                \
-    do {                                              \
-        if (!(__VA_ARGS__)) {                         \
-            printf("Assertion failed: %s, %s:%d\n",   \
-                   #__VA_ARGS__, __FILE__, __LINE__); \
-            asm("trap;");                             \
-        }                                             \
+#define lc_assert(x)                                \
+    do {                                            \
+        if (!(x)) {                                 \
+            printf("Assertion failed: %s, %s:%d\n", \
+                   #x, __FILE__, __LINE__);         \
+            asm("trap;");                           \
+        }                                           \
     } while (false)
 #else
 inline __device__ void lc_assert(bool) noexcept {}
@@ -82,21 +82,23 @@ struct LCBuffer<const T> {
     LCBuffer() noexcept = default;
 };
 
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_buffer_size(LCBuffer<T> buffer) noexcept {
+    return buffer.size_bytes / sizeof(T);
+}
+
 template<typename T, typename Index>
 [[nodiscard]] __device__ inline auto lc_buffer_read(LCBuffer<T> buffer, Index index) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
+    lc_assert(index < lc_buffer_size(buffer));
     return buffer.ptr[index];
 }
 
 template<typename T, typename Index>
 __device__ inline void lc_buffer_write(LCBuffer<T> buffer, Index index, T value) noexcept {
     lc_assume(__isGlobal(buffer.ptr));
+    lc_assert(index < lc_buffer_size(buffer));
     buffer.ptr[index] = value;
-}
-
-template<typename T>
-[[nodiscard]] __device__ inline auto lc_buffer_size(LCBuffer<T> buffer) noexcept {
-    return buffer.size_bytes / sizeof(T);
 }
 
 enum struct LCPixelStorage {
@@ -930,18 +932,19 @@ struct alignas(16) LCBindlessArray {
     const LCBindlessSlot *__restrict__ slots;
 };
 
+template<typename T = unsigned char>
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_size(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    return array.slots[index].buffer_size / sizeof(T);
+}
+
 template<typename T>
 [[nodiscard]] inline __device__ auto lc_bindless_buffer_read(LCBindlessArray array, lc_uint index, lc_uint i) noexcept {
     lc_assume(__isGlobal(array.slots));
     auto buffer = static_cast<const T *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
+    lc_assert(lc_bindless_buffer_size<T>(array, index) > i);
     return buffer[i];
-}
-
-template<typename T = unsigned char>
-[[nodiscard]] inline __device__ auto lc_bindless_buffer_size(LCBindlessArray array, lc_uint index) noexcept {
-    lc_assume(__isGlobal(array.slots));
-    return array.slots[index].buffer_size / sizeof(T);
 }
 
 [[nodiscard]] inline __device__ auto lc_bindless_texture_sample2d(LCBindlessArray array, lc_uint index, lc_float2 p) noexcept {
@@ -1710,7 +1713,6 @@ extern "C" __global__ void __intersection__ray_query() {
     auto p_ctx_hi = lc_get_payload<1u>();
     auto p_ctx_lo = lc_get_payload<2u>();
     auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
-    lc_assume(__isLocal(ctx));
     LCProceduralIntersectionResult r{};
     switch (query_id) {
 #if LUISA_RAY_QUERY_IMPL_COUNT > 0
@@ -1852,7 +1854,6 @@ extern "C" __global__ void __anyhit__ray_query() {
         auto p_ctx_hi = lc_get_payload<1u>();
         auto p_ctx_lo = lc_get_payload<2u>();
         auto ctx = reinterpret_cast<void *>((static_cast<lc_ulong>(p_ctx_hi) << 32u) | p_ctx_lo);
-        lc_assume(__isLocal(ctx));
         auto candidate = lc_ray_query_triangle_candidate();
         LCTriangleIntersectionResult r{};
         switch (query_id) {

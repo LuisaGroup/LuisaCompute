@@ -73,8 +73,7 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
 
         if (_bvh_buffer_size < compacted_size) {
             _bvh_buffer_size = compacted_size;
-            // FIXME: why cuMemFreeAsync() causes crash?
-            if (_bvh_buffer_handle) { LUISA_CHECK_CUDA(cuMemFree(_bvh_buffer_handle)); }
+            if (_bvh_buffer_handle) { LUISA_CHECK_CUDA(cuMemFreeAsync(_bvh_buffer_handle, cuda_stream)); }
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_bvh_buffer_handle, _bvh_buffer_size, cuda_stream));
         }
         if (!_name.empty()) { nvtxRangePushA("compact"); }
@@ -86,8 +85,7 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
     } else {// without compaction
         if (_bvh_buffer_size < sizes.outputSizeInBytes) {
             _bvh_buffer_size = sizes.outputSizeInBytes;
-            // FIXME: why cuMemFreeAsync() causes crash?
-            if (_bvh_buffer_handle) { LUISA_CHECK_CUDA(cuMemFree(_bvh_buffer_handle)); }
+            if (_bvh_buffer_handle) { LUISA_CHECK_CUDA(cuMemFreeAsync(_bvh_buffer_handle, cuda_stream)); }
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_bvh_buffer_handle, _bvh_buffer_size, cuda_stream));
         }
         auto temp_buffer = 0ull;

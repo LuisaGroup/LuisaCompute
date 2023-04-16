@@ -87,8 +87,7 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
         // do compaction
         if (_bvh_buffer_size < compacted_size) {
             _bvh_buffer_size = compacted_size;
-            // FIXME: why cuMemFreeAsync() causes crash?
-            if (_bvh_buffer) { LUISA_CHECK_CUDA(cuMemFree(_bvh_buffer)); }
+            if (_bvh_buffer) { LUISA_CHECK_CUDA(cuMemFreeAsync(_bvh_buffer, cuda_stream)); }
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_bvh_buffer, _bvh_buffer_size, cuda_stream));
         }
         if (!_name.empty()) { nvtxRangePushA("compact"); }
@@ -100,8 +99,7 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
         // re-allocate buffers if necessary
         if (_bvh_buffer_size < sizes.outputSizeInBytes) {
             _bvh_buffer_size = sizes.outputSizeInBytes;
-            // FIXME: why cuMemFreeAsync() causes crash?
-            if (_bvh_buffer) { LUISA_CHECK_CUDA(cuMemFree(_bvh_buffer)); }
+            if (_bvh_buffer) { LUISA_CHECK_CUDA(cuMemFreeAsync(_bvh_buffer, cuda_stream)); }
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_bvh_buffer, _bvh_buffer_size, cuda_stream));
         }
         // allocate the temporary update buffer

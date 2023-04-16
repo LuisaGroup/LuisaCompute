@@ -40,6 +40,7 @@
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 #define LUISA_CUDA_DUMP_SOURCE 1
+#define LUISA_CUDA_KERNEL_DEBUG 1
 
 namespace luisa::compute::cuda {
 
@@ -509,19 +510,27 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
     auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
-    luisa::vector<const char *> nvrtc_options{sm_option.c_str(),
-                                              nvrtc_version_option.c_str(),
-                                              optix_version_option.c_str(),
-                                              "--std=c++17",
-                                              "-default-device",
-                                              "-restrict",
-                                              "-extra-device-vectorization",
-                                              "-dw",
-                                              "-w",
-                                              "-ewp"};
+    luisa::vector<const char *> nvrtc_options {
+        sm_option.c_str(),
+            nvrtc_version_option.c_str(),
+            optix_version_option.c_str(),
+            "--std=c++17",
+            "-default-device",
+            "-restrict",
+            "-extra-device-vectorization",
+            "-dw",
+            "-w",
+            "-ewp",
+#if !defined(NDEBUG) && LUISA_CUDA_KERNEL_DEBUG
+            "-DLUISA_DEBUG=1",
+#endif
+    };
+
     if (option.enable_debug_info) {
         nvrtc_options.emplace_back("-line-info");
-        nvrtc_options.emplace_back("-DLUISA_DEBUG");
+#if defined(NDEBUG) || !LUISA_CUDA_KERNEL_DEBUG
+        nvrtc_options.emplace_back("-DLUISA_DEBUG=1");
+#endif
     }
     if (option.enable_fast_math) {
         nvrtc_options.emplace_back("-use_fast_math");
