@@ -38,6 +38,33 @@ public:
     }
 };
 
+class SingleFunctionCallbackContext : public MetalCallbackContext {
+
+private:
+    luisa::move_only_function<void()> _function;
+
+private:
+    [[nodiscard]] static auto &_object_pool() noexcept {
+        static Pool<SingleFunctionCallbackContext, true> pool;
+        return pool;
+    }
+
+public:
+    template<typename F>
+    explicit SingleFunctionCallbackContext(F &&f) noexcept
+        : _function{std::forward<F>(f)} {}
+
+    template<typename F>
+    [[nodiscard]] static auto create(F &&f) noexcept {
+        return _object_pool().create(std::forward<F>(f));
+    }
+
+    void recycle() noexcept override {
+        _function();
+        _object_pool().destroy(this);
+    }
+};
+
 MetalCommandEncoder::MetalCommandEncoder(MetalStream *stream) noexcept
     : _stream{stream} {}
 
@@ -97,13 +124,12 @@ void MetalCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
         encoder->endEncoding();
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
-        CommandList::CallbackContainer container;
-        container.emplace_back([download_buffer, data, size] {
+        auto callback = SingleFunctionCallbackContext::create([download_buffer, data, size] {
             auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
                      download_buffer->offset();
             std::memcpy(data, p, size);
         });
-        _callbacks.emplace_back(UserCallbackContext::create(std::move(container)));
+        _callbacks.emplace_back(callback);
     });
 }
 
@@ -183,13 +209,12 @@ void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
         encoder->endEncoding();
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
-        CommandList::CallbackContainer container;
-        container.emplace_back([download_buffer, data, total_size] {
+        auto callback = SingleFunctionCallbackContext::create([download_buffer, data, total_size] {
             auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
                      download_buffer->offset();
             std::memcpy(data, p, total_size);
         });
-        _callbacks.emplace_back(UserCallbackContext::create(std::move(container)));
+        _callbacks.emplace_back(callback);
     });
 }
 
