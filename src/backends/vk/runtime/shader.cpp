@@ -5,7 +5,7 @@ namespace lc::vk {
 Shader::Shader(
     Device *device,
     ShaderTag tag,
-    vstd::span<Bind const> binds)
+    vstd::span<hlsl::Property const> binds)
     : Resource{device} {
     VkShaderStageFlagBits stage_bits = [&]() -> VkShaderStageFlagBits {
         switch (tag) {
@@ -22,13 +22,19 @@ Shader::Shader(
     vstd::vector<VkDescriptorSetLayout> descriptorSetLayouts;
     vstd::vector<vstd::vector<VkDescriptorSetLayoutBinding>> bindings;
     for (auto &&i : binds) {
-        bindings.resize(std::max<size_t>(bindings.size(), i.table_idx + 1));
-        auto &vec = bindings[i.table_idx];
-        vec.resize(std::max<size_t>(vec.size(), i.binding_idx + 1));
-        auto &v = vec[i.binding_idx];
-        v.binding = i.binding_idx;
-        v.descriptorType = static_cast<VkDescriptorType>(i.bind_type);
-        v.descriptorCount = 1;
+        bindings.resize(std::max<size_t>(bindings.size(), i.spaceIndex + 1));
+        auto &vec = bindings[i.spaceIndex];
+        vec.resize(std::max<size_t>(vec.size(), i.registerIndex + 1));
+        auto &v = vec[i.registerIndex];
+        v.binding = i.registerIndex;
+        // switch(i.type){
+        //     case hlsl::ShaderVariableType::ConstantBuffer:
+        //     case hlsl::ShaderVariableType::ConstantValue:
+        //     v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        //     case hlsl::ShaderVariableType::SRVDescriptorHeap:
+        // }
+        // TODO
+        v.descriptorCount = i.arrSize;
         v.stageFlags = stage_bits;
         v.pImmutableSamplers = nullptr;
     }

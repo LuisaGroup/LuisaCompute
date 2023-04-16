@@ -9,7 +9,7 @@ public:
     void serialize_pso(vstd::vector<std::byte> &result);
     ComputeShader(
         Device *device,
-        vstd::span<Bind const> binds,
+        vstd::span<hlsl::Property const> binds,
         vstd::span<uint const> spv_code,
         vstd::span<std::byte const> cache_code);
     ~ComputeShader();

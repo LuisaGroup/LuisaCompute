@@ -54,17 +54,11 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 1024;
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Test raster", width, height};
-    Window window2{"Test raster 2", width, height};
     SwapChain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         make_uint2(width, height),
         true, false, 2)};
-    SwapChain swap_chain2 = device.create_swapchain(
-        window2.native_handle(),
-        stream,
-        make_uint2(width, height),
-        true, false, 2);
     Image<float> out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
     PixelFormat img_format = out_img.format();
     RasterShader<float, float> shader = device.compile(
@@ -88,17 +82,15 @@ int main(int argc, char *argv[]) {
     clock.tic();
     luisa::vector<RasterMesh> meshes;
     RasterState state{.cull_mode = CullMode::None};
-    while (!window.should_close() && !window2.should_close()) {
+    while (!window.should_close()) {
         float time = clock.toc() / 1000.0f;
         // add triangle mesh
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 0);
         stream
             << clear_shader(out_img).dispatch(width, height)
             << shader(time, time * 5).draw(std::move(meshes), Viewport{}, state, nullptr, out_img)
-            << swap_chain.present(out_img)
-            << swap_chain2.present(out_img);
+            << swap_chain.present(out_img);
         window.poll_events();
-        window2.poll_events();
     }
     stream << synchronize();
     return 0;

@@ -28,24 +28,32 @@ ReadbackBuffer::ReadbackBuffer(Device *device, size_t size_bytes)
 ReadbackBuffer::~ReadbackBuffer() {
     device()->allocator().destroy_buffer(_res);
 }
-void UploadBuffer::copy_from(void const *data, size_t size) {
+void UploadBuffer::copy_from(void const *data, size_t offset, size_t size) {
     void *mapped_ptr;
     VK_CHECK_RESULT(vmaMapMemory(
         device()->allocator().allocator(),
         _res.allocation,
         &mapped_ptr));
-    memcpy(mapped_ptr, data, size);
+    memcpy(reinterpret_cast<std::byte *>(mapped_ptr) + offset, data, size);
+    vmaFlushAllocation(
+        device()->allocator().allocator(),
+        _res.allocation,
+        offset, size);
     vmaUnmapMemory(
         device()->allocator().allocator(),
         _res.allocation);
 }
-void ReadbackBuffer::copy_to(void *data, size_t size) {
+void ReadbackBuffer::copy_to(void *data, size_t offset, size_t size) {
     void *mapped_ptr;
     VK_CHECK_RESULT(vmaMapMemory(
         device()->allocator().allocator(),
         _res.allocation,
         &mapped_ptr));
-    memcpy(data, mapped_ptr, size);
+    memcpy(data, reinterpret_cast<std::byte *>(mapped_ptr) + offset, size);
+    vmaFlushAllocation(
+        device()->allocator().allocator(),
+        _res.allocation,
+        offset, size);
     vmaUnmapMemory(
         device()->allocator().allocator(),
         _res.allocation);

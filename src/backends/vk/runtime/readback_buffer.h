@@ -8,7 +8,7 @@ class ReadbackBuffer : public Buffer {
 public:
     ReadbackBuffer(Device *device, size_t size_bytes);
     ~ReadbackBuffer();
-    void copy_to(void *data, size_t size);
+    void copy_to(void *data, size_t offset, size_t size);
     VkBuffer vk_buffer() const override { return _res.buffer; }
 };
 }// namespace lc::vk

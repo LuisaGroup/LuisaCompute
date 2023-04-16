@@ -1386,30 +1386,8 @@ void CodegenUtility::GenerateBindless(
             Property{
                 ShaderVariableType::SRVDescriptorHeap,
                 static_cast<uint>(3u),
-                0u, 0u});
+                0u, std::numeric_limits<uint>::max()});
     }
-    // for (auto &&i : opt->bindlessBufferTypes) {
-    //     str << "StructuredBuffer<"sv;
-    //     if (i.first->is_matrix()) {
-    //         auto n = i.first->dimension();
-    //         str << luisa::format("WrappedFloat{}x{}", n, n);
-    //     } else if (i.first->is_vector() && i.first->dimension() == 3) {
-    //         str << "float4"sv;
-    //     } else {
-    //         GetTypeName(*i.first, str, Usage::READ);
-    //     }
-    //     vstd::string_view instName("bdls"sv);
-    //     vstd::to_string(i.second, instName);
-    //     str << "> " << instName << "[]:register(t0,space"sv;
-    //     vstd::to_string(i.second + 3, str);
-    //     str << ");\n"sv;
-
-    //     properties.emplace_back(
-    //         Property{
-    //             ShaderVariableType::SRVDescriptorHeap,
-    //             static_cast<uint>(i.second + 3u),
-    //             0u, 0u});
-    // }
 }
 
 void CodegenUtility::PreprocessCodegenProperties(
@@ -1429,7 +1407,7 @@ void CodegenUtility::PreprocessCodegenProperties(
                 ShaderVariableType::ConstantValue,
                 4,
                 0,
-                0});
+                1});
     }
     if (cbufferNonEmpty) {
         registerCount.get(2)++;
@@ -1438,24 +1416,24 @@ void CodegenUtility::PreprocessCodegenProperties(
                 ShaderVariableType::StructuredBuffer,
                 0,
                 0,
-                0});
+                1});
     }
     properties.emplace_back(
         Property{
             ShaderVariableType::SRVDescriptorHeap,
             1,
             0,
-            0});
+            std::numeric_limits<uint>::max()});
     properties.emplace_back(
         Property{
             ShaderVariableType::SRVDescriptorHeap,
             2,
             0,
-            0});
+            std::numeric_limits<uint>::max()});
 
     GenerateBindless(properties, varData);
 }
-void CodegenUtility::PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult) {
+void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
     if (!opt->customStruct.empty()) {
         vstd::fixed_vector<StructGenerator *, 16> customStructVector;
         customStructVector.reserve(opt->customStruct.size());
@@ -1516,7 +1494,7 @@ void CodegenUtility::CodegenProperties(
                 .type = sT,
                 .spaceIndex = 0,
                 .registerIndex = r,
-                .arrSize = 0};
+                .arrSize = 1};
             if constexpr (rtBuffer) {
                 printInstBuffer.operator()<writable>();
                 properties.emplace_back(prop);
@@ -1633,7 +1611,7 @@ uint4 dsp_c;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
     PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false);
     CodegenProperties(properties, varData, kernel, 0, indexer);
-    PostprocessCodegenProperties(properties, finalResult);
+    PostprocessCodegenProperties(finalResult);
     finalResult << varData << codegenData;
     return {
         std::move(finalResult),
@@ -1798,7 +1776,7 @@ uint iid:SV_INSTANCEID;
     PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true);
     CodegenProperties(properties, varData, vertFunc, 1, indexer);
     CodegenProperties(properties, varData, pixelFunc, 1, indexer);
-    PostprocessCodegenProperties(properties, finalResult);
+    PostprocessCodegenProperties(finalResult);
     finalResult << varData << codegenData;
     return {
         std::move(finalResult),

@@ -1,6 +1,7 @@
 #pragma once
+#include <core/basic_traits.h>
 namespace lc::hlsl {
-
+using namespace luisa;
 enum class ShaderVariableType : uint8_t {
     ConstantBuffer,
     SRVDescriptorHeap,

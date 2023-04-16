@@ -84,7 +84,7 @@ public:
         vstd::StringBuilder &str);
     void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, RegisterIndexer &registerCount, bool cbufferNonEmpty,
                                      bool isRaster);
-    void PostprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &finalResult);
+    void PostprocessCodegenProperties(vstd::StringBuilder &finalResult);
     void CodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,

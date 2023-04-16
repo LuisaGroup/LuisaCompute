@@ -8,7 +8,7 @@ class UploadBuffer : public Buffer {
 public:
     UploadBuffer(Device *device, size_t size_bytes);
     ~UploadBuffer();
-    void copy_from(void const *data, size_t size);
+    void copy_from(void const *data, size_t offset, size_t size);
     VkBuffer vk_buffer() const override { return _res.buffer; }
 };
 }// namespace lc::vk

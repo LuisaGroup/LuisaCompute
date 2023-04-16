@@ -2,8 +2,8 @@
 #include <core/logging.h>
 #include "../log.h"
 #include <vstl/config.h>
-#include "compute_shader.h"
 #include <core/binary_file_stream.h>
+
 namespace lc::vk {
 using namespace std::string_literals;
 namespace detail {
@@ -145,24 +145,7 @@ VkInstance create_instance(bool enableValidation) {
     instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instanceCreateInfo.pNext = NULL;
     instanceCreateInfo.pApplicationInfo = &appInfo;
-
-#if (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK)) && defined(VK_KHR_portability_enumeration)
-    // SRS - When running on iOS/macOS with MoltenVK and VK_KHR_portability_enumeration is defined and supported by the instance, enable the extension and the flag
-    if (supported_instance_exts.find(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == supported_instance_exts.end()) {
-        instance_exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-        instanceCreateInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-    }
-#endif
-
-    if (instance_exts.size() > 0) {
-        if (settings.validation) {
-            instance_exts.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);// SRS - Dependency when VK_EXT_DEBUG_MARKER is enabled
-            instance_exts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-        }
-        instanceCreateInfo.enabledExtensionCount = (uint32_t)instance_exts.size();
-        instanceCreateInfo.ppEnabledExtensionNames = instance_exts.data();
-    }
-
+    
     // The VK_LAYER_KHRONOS_validation contains all current validation functionality.
     // Note that on Android this layer requires at least NDK r20
     const char *validationLayerName = "VK_LAYER_KHRONOS_validation";
@@ -183,9 +166,28 @@ VkInstance create_instance(bool enableValidation) {
             instanceCreateInfo.ppEnabledLayerNames = &validationLayerName;
             instanceCreateInfo.enabledLayerCount = 1;
         } else {
-            LUISA_ERROR("Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled");
+            LUISA_WARNING("Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled");
+            settings.validation = false;
         }
     }
+
+#if (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK)) && defined(VK_KHR_portability_enumeration)
+    // SRS - When running on iOS/macOS with MoltenVK and VK_KHR_portability_enumeration is defined and supported by the instance, enable the extension and the flag
+    if (supported_instance_exts.find(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == supported_instance_exts.end()) {
+        instance_exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        instanceCreateInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    }
+#endif
+
+    if (instance_exts.size() > 0) {
+        if (settings.validation) {
+            instance_exts.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);// SRS - Dependency when VK_EXT_DEBUG_MARKER is enabled
+            instance_exts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        }
+        instanceCreateInfo.enabledExtensionCount = (uint32_t)instance_exts.size();
+        instanceCreateInfo.ppEnabledExtensionNames = instance_exts.data();
+    }
+
     VkInstance instance;
     VK_CHECK_RESULT(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
     return instance;

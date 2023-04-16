@@ -183,13 +183,8 @@ void export_runtime(py::module &m) {
     //     });
 
     py::class_<DeviceInterface, luisa::shared_ptr<DeviceInterface>>(m, "DeviceInterface")
-        .def("create_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
-            ShaderOption option{
-                .enable_fast_math = true,
-                .enable_debug_info = false,
-                .compile_only = false,
-                .name = luisa::string{str}};
-            return self.create_shader(option, kernel).handle;
+        .def("create_shader", [](DeviceInterface &self, Function kernel) {
+            return self.create_shader({}, kernel).handle;
         })// TODO: support metaoptions
         .def("save_shader", [](DeviceInterface &self, Function kernel, luisa::string_view str) {
             luisa::string_view str_view;

@@ -327,25 +327,25 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
             case hlsl::ShaderVariableType::SRVDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
-                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
             case hlsl::ShaderVariableType::CBVDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
-                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
             case hlsl::ShaderVariableType::SampDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
-                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
             case hlsl::ShaderVariableType::UAVDescriptorHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
-                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, var.arrSize == 0 ? 1 : var.arrSize, var.registerIndex, var.spaceIndex);
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
             case hlsl::ShaderVariableType::ConstantBuffer:

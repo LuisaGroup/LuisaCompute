@@ -184,8 +184,7 @@ class func:
         f.function = f.builder.function()
         # compile shader
         if call_from_host:
-            name = ".cache/" + os.path.basename(sys.argv[0]).replace(".py", "") + '-' + self.__name__
-            f.shader_handle = get_global_device().impl().create_shader(f.function, name)
+           f.shader_handle = get_global_device().impl().create_shader(f.function)
         return f
 
     # looks up arg_type_tuple; compile if not existing

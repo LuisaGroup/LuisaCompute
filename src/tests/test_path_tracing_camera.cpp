@@ -386,6 +386,7 @@ int main(int argc, char *argv[]) {
     auto is_dirty = true;
     auto delta_time = 0.;
     CommandList cmd_list;
+    cmd_list << make_sampler_shader(seed_image).dispatch(resolution);
     while (!window.should_close()) {
         if (is_dirty) {
             cmd_list << clear_shader(accum_image).dispatch(resolution);
