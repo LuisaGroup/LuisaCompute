@@ -10,6 +10,15 @@ namespace luisa::compute::metal {
 MetalTexture::MetalTexture(MTL::Device *device, PixelFormat format, uint dimension,
                            uint width, uint height, uint depth, uint mipmap_levels) noexcept {
 
+    if (is_block_compressed(format)) {
+        auto autorelease_pool = NS::AutoreleasePool::alloc()->init();
+        LUISA_ASSERT(device->supportsBCTextureCompression(),
+                     "Metal device '{}' does not support "
+                     "block-compressed texture compression.",
+                     device->name()->cString(NS::UTF8StringEncoding));
+        autorelease_pool->release();
+    }
+
     auto desc = MTL::TextureDescriptor::alloc()->init();
     switch (dimension) {
         case 2u: desc->setTextureType(MTL::TextureType2D); break;

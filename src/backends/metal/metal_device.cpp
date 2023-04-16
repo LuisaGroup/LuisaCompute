@@ -13,6 +13,7 @@
 #include <backends/metal/metal_texture.h>
 #include <backends/metal/metal_stream.h>
 #include <backends/metal/metal_event.h>
+#include <backends/metal/metal_swapchain.h>
 #include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_device.h>
 
@@ -20,6 +21,7 @@ namespace luisa::compute::metal {
 
 MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(ctx)}, _io{nullptr} {
+
     auto pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
     auto device_index = config == nullptr ? 0u : config->device_index;
     auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
@@ -27,6 +29,8 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     LUISA_ASSERT(device_index < device_count,
                  "Metal device index out of range.");
     _handle = all_devices->object<MTL::Device>(device_index);
+    LUISA_INFO("Metal device #{}: {}", device_index,
+               _handle->name()->cString(NS::UTF8StringEncoding));
 
     // create a default binary IO if none is provided
     if (config == nullptr || config->binary_io == nullptr) {
@@ -112,26 +116,51 @@ void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
-    return ResourceCreationInfo();
+    auto stream = new_with_allocator<MetalStream>(_handle, stream_tag);
+    ResourceCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(stream);
+    info.native_handle = stream;
+    return info;
 }
 
 void MetalDevice::destroy_stream(uint64_t handle) noexcept {
+    auto stream = reinterpret_cast<MetalStream *>(handle);
+    delete_with_allocator(stream);
 }
 
 void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {
+    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+    stream->synchronize();
 }
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
+    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+    stream->dispatch(std::move(list));
 }
 
-SwapChainCreationInfo MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept {
-    return SwapChainCreationInfo();
+SwapChainCreationInfo MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle,
+                                                     uint width, uint height, bool allow_hdr,
+                                                     bool vsync, uint back_buffer_size) noexcept {
+    auto swapchain = new_with_allocator<MetalSwapchain>(
+        this, window_handle, width, height,
+        allow_hdr, vsync, back_buffer_size);
+    SwapChainCreationInfo info{};
+    info.handle = reinterpret_cast<uint64_t>(swapchain);
+    info.native_handle = swapchain;
+    info.storage = swapchain->pixel_storage();
+    return info;
 }
 
 void MetalDevice::destroy_swap_chain(uint64_t handle) noexcept {
+    auto swpachain = reinterpret_cast<MetalSwapchain *>(handle);
+    delete_with_allocator(swpachain);
 }
 
 void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
+    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+    auto swapchain = reinterpret_cast<MetalSwapchain *>(swapchain_handle);
+    auto image = reinterpret_cast<MetalTexture *>(image_handle);
+    stream->present(swapchain, image);
 }
 
 ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
