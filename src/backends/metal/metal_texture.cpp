@@ -69,38 +69,41 @@ MetalTexture::MetalTexture(MTL::Device *device, PixelFormat format, uint dimensi
     desc->setStorageMode(MTL::StorageModePrivate);
     desc->setHazardTrackingMode(MTL::HazardTrackingModeTracked);
     _maps[0u] = device->newTexture(desc);
-    for (auto i = 1u; i < desc->mipmapLevelCount(); i++) {
+    desc->release();
+    auto n = _maps[0u]->mipmapLevelCount();
+    auto pixel_format = _maps[0u]->pixelFormat();
+    auto texture_type = _maps[0u]->textureType();
+    for (auto i = 1u; i < n; i++) {
         _maps[i] = _maps[0u]->newTextureView(
-            _maps[0u]->pixelFormat(), _maps[0u]->textureType(),
+            pixel_format, texture_type,
             NS::Range{i, 1u}, NS::Range{0u, 1u});
     }
-    desc->release();
 }
 
 MetalTexture::~MetalTexture() noexcept {
-    for (auto i = 0u; i < _maps.front()->mipmapLevelCount(); i++) {
-        _maps[i]->release();
-    }
+    auto n = _maps[0u]->mipmapLevelCount();
+    for (auto i = 0u; i < n; i++) { _maps[i]->release(); }
 }
 
 MTL::Texture *MetalTexture::level(uint level) const noexcept {
 #ifndef NDEBUG
-    LUISA_ASSERT(level < _maps.front()->mipmapLevelCount(),
+    LUISA_ASSERT(level < _maps[0u]->mipmapLevelCount(),
                  "Invalid mipmap level {} for "
                  "MetalTexture with {} level(s).",
-                 level, _maps.front()->mipmapLevelCount());
+                 level, _maps[0u]->mipmapLevelCount());
 #endif
     return _maps[level];
 }
 
 void MetalTexture::set_name(luisa::string_view name) noexcept {
+    auto n = _maps[0u]->mipmapLevelCount();
     if (name.empty()) {
-        for (auto i = 0u; i < _maps.front()->mipmapLevelCount(); i++) {
+        for (auto i = 0u; i < n; i++) {
             _maps[i]->setLabel(nullptr);
         }
     } else {
         auto autorelease_pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
-        for (auto i = 0u; i < _maps.front()->mipmapLevelCount(); i++) {
+        for (auto i = 0u; i < n; i++) {
             auto level_name = luisa::format("{} (level {})", name, i);
             _maps[i]->setLabel(NS::String::string(level_name.c_str(), NS::UTF8StringEncoding));
         }

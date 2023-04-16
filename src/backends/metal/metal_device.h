@@ -19,6 +19,7 @@ private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler;
+    bool _inqueue_buffer_limit;
 
 public:
     MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept;

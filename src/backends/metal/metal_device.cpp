@@ -20,7 +20,9 @@
 namespace luisa::compute::metal {
 
 MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
-    : DeviceInterface{std::move(ctx)}, _io{nullptr} {
+    : DeviceInterface{std::move(ctx)},
+      _io{nullptr},
+      _inqueue_buffer_limit{config == nullptr || config->inqueue_buffer_limit} {
 
     auto pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
     auto device_index = config == nullptr ? 0u : config->device_index;
@@ -116,7 +118,8 @@ void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
-    auto stream = new_with_allocator<MetalStream>(_handle, stream_tag);
+    auto stream = new_with_allocator<MetalStream>(
+        _handle, stream_tag, _inqueue_buffer_limit ? 16u : 0u);
     ResourceCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(stream);
     info.native_handle = stream;

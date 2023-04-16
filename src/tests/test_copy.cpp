@@ -80,12 +80,12 @@ void test_texture(Device &device, PixelStorage storage, Size size, std::mt19937 
     luisa::vector<uint8_t> host_output;
     auto size_bytes = [&] {
         if constexpr (std::is_same_v<Size, uint2>) {
-            LUISA_INFO("Testing image with size {}x{} and storage 0x{:02x}",
-                       size.x, size.y, to_underlying(storage));
+            LUISA_INFO("Testing image with size {}x{} and storage {}.",
+                       size.x, size.y, to_string(storage));
             return pixel_storage_size(storage, make_uint3(size, 1u));
         } else {
-            LUISA_INFO("Testing volume with size {}x{}x{} and storage 0x{:02x}",
-                       size.x, size.y, size.z, to_underlying(storage));
+            LUISA_INFO("Testing volume with size {}x{}x{} and storage {}.",
+                       size.x, size.y, size.z, to_string(storage));
             return pixel_storage_size(storage, size);
         }
     }();
