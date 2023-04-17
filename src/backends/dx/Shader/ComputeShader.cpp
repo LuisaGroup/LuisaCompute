@@ -1,7 +1,7 @@
 #include <Shader/ComputeShader.h>
 #include <Shader/ShaderSerializer.h>
 #include <backends/common/hlsl/hlsl_codegen.h>
-#include <Shader/ShaderCompiler.h>
+#include <backends/common/hlsl/shader_compiler.h>
 #include <core/logging.h>
 #include <vstl/md5.h>
 namespace lc::dx {
@@ -68,7 +68,7 @@ ComputeShader *ComputeShader::CompileCompute(
             fwrite(str.result.data(), str.result.size(), 1, f);
             fclose(f);
         }
-        auto compResult = Device::Compiler()->CompileCompute(
+        auto compResult = Device::Compiler()->compile_compute(
             str.result.view(),
             true,
             shaderModel,
@@ -76,7 +76,7 @@ ComputeShader *ComputeShader::CompileCompute(
             false);
         return compResult.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
-            [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
+            [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
                 auto kernelArgs = [&] {
                     if (kernel.builder() == nullptr) {
                         return vstd::vector<SavedArgument>();
@@ -88,7 +88,7 @@ ComputeShader *ComputeShader::CompileCompute(
                     auto serData = ShaderSerializer::Serialize(
                         str.properties,
                         kernelArgs,
-                        {buffer->GetBufferPtr(), buffer->GetBufferSize()},
+                        {buffer->data(), buffer->size()},
                         md5,
                         str.typeMD5,
                         str.bdlsBufferCount,
@@ -99,8 +99,8 @@ ComputeShader *ComputeShader::CompileCompute(
                     blockSize,
                     std::move(str.properties),
                     std::move(kernelArgs),
-                    {buffer->GetBufferPtr(),
-                     buffer->GetBufferSize()},
+                    {buffer->data(),
+                     buffer->size()},
                     std::move(bindings),
                     device);
                 cs->bindlessCount = str.bdlsBufferCount;
@@ -157,19 +157,19 @@ void ComputeShader::SaveCompute(
         fclose(f);
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) return;
-    auto compResult = Device::Compiler()->CompileCompute(
+    auto compResult = Device::Compiler()->compile_compute(
         str.result.view(),
         true,
         shaderModel,
         enableUnsafeMath,
         false);
     compResult.multi_visit(
-        [&](vstd::unique_ptr<DXByteBlob> const &buffer) {
+        [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);
             auto serData = ShaderSerializer::Serialize(
                 str.properties,
                 kernelArgs,
-                {buffer->GetBufferPtr(), buffer->GetBufferSize()},
+                {buffer->data(), buffer->size()},
                 md5,
                 str.typeMD5,
                 str.bdlsBufferCount,

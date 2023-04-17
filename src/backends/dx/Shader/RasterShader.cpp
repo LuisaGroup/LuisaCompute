@@ -2,7 +2,7 @@
 #include <Resource/DepthBuffer.h>
 #include <Shader/ShaderSerializer.h>
 #include <backends/common/hlsl/hlsl_codegen.h>
-#include <Shader/ShaderCompiler.h>
+#include <backends/common/hlsl/shader_compiler.h>
 #include <vstl/md5.h>
 #include <core/logging.h>
 namespace lc::dx {
@@ -317,7 +317,7 @@ RasterShader *RasterShader::CompileRaster(
             fwrite(str.result.data(), str.result.size(), 1, f);
             fclose(f);
         }
-        auto compResult = Device::Compiler()->CompileRaster(
+        auto compResult = Device::Compiler()->compile_raster(
             str.result.view(),
             true,
             shaderModel, enableUnsafeMath,
@@ -331,10 +331,10 @@ RasterShader *RasterShader::CompileRaster(
             return nullptr;
         }
         auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
-        auto GetVector = [&](DXByteBlob const &blob) {
+        auto GetVector = [&](hlsl::DxcByteBlob const &blob) {
             vstd::vector<std::byte> vec;
-            vec.push_back_uninitialized(blob.GetBufferSize());
-            memcpy(vec.data(), blob.GetBufferPtr(), blob.GetBufferSize());
+            vec.push_back_uninitialized(blob.size());
+            memcpy(vec.data(), blob.data(), blob.size());
             return vec;
         };
         auto vertBin = GetVector(*compResult.vertex.get<0>());
@@ -386,7 +386,7 @@ void RasterShader::SaveRaster(
         fclose(f);
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) return;
-    auto compResult = Device::Compiler()->CompileRaster(
+    auto compResult = Device::Compiler()->compile_raster(
         str.result.view(),
         true,
         shaderModel,
@@ -402,8 +402,8 @@ void RasterShader::SaveRaster(
         return;
     }
     auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
-    auto GetSpan = [&](DXByteBlob const &blob) {
-        return vstd::span<std::byte const>{blob.GetBufferPtr(), blob.GetBufferSize()};
+    auto GetSpan = [&](hlsl::DxcByteBlob const &blob) {
+        return vstd::span<std::byte const>{blob.data(), blob.size()};
     };
     auto vertBin = GetSpan(*compResult.vertex.get<0>());
     auto pixelBin = GetSpan(*compResult.pixel.get<0>());

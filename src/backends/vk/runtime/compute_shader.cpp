@@ -3,6 +3,9 @@
 #include "../log.h"
 #include <backends/common/hlsl/hlsl_codegen.h>
 #include <core/stl/filesystem.h>
+#include "shader_serializer.h"
+#include <core/logging.h>
+
 namespace lc::vk {
 ComputeShader::ComputeShader(
     Device *device,
@@ -13,8 +16,7 @@ ComputeShader::ComputeShader(
     : Shader{device, ShaderTag::ComputeShader, std::move(captured), binds} {
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-    if (cache_code.size() > sizeof(VkPipelineCacheHeaderVersionOne) &&
-        device->is_pso_same(*reinterpret_cast<const VkPipelineCacheHeaderVersionOne *>(cache_code.data()))) {
+    if (!cache_code.empty()) {
         pso_ci.initialDataSize = cache_code.size();
         pso_ci.pInitialData = cache_code.data();
     }
@@ -63,10 +65,15 @@ ComputeShader *ComputeShader::compile(
     vstd::optional<vstd::MD5> const &code_md5,
     vstd::vector<Argument> &&bindings,
     uint3 blockSize,
-    uint shaderModel,
     vstd::string_view file_name,
     SerdeType serde_type,
     bool unsafe_mat) {
+
+    auto result = ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
+    // cache invalid, need compile
+    if (!result.shader) {
+
+    }
     return nullptr;
 }
 }// namespace lc::vk

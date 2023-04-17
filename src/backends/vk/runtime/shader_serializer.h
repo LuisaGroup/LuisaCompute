@@ -21,20 +21,24 @@ public:
         vstd::string_view file_name,
         vstd::span<const uint> spv_code,
         SerdeType serde_type,
-        BinaryIO *bin_io);
+        BinaryIO const *bin_io);
     static void serialize_pso(
         Device *device,
         Shader const *shader,
         vstd::MD5 shader_md5,
-        BinaryIO *bin_io);
-    static ComputeShader *try_deser_compute(
+        BinaryIO const *bin_io);
+
+    struct DeserResult {
+        Shader *shader;
+        vstd::MD5 type_md5;
+    };
+    static DeserResult try_deser_compute(
         Device *device,
         // invalid md5 for AOT
         vstd::optional<vstd::MD5> shader_md5,
         vstd::vector<Argument> &&captured,
-        vstd::MD5 type_md5,
         vstd::string_view file_name,
         SerdeType serde_type,
-        BinaryIO *bin_io);
+        BinaryIO const *bin_io);
 };
 }// namespace lc::vk

@@ -70,6 +70,7 @@ public:
     void Build(
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
+        vstd::span<AccelBuildCommand::Modification const> const &modifications,
         BufferView const *scratchBuffer);
     void FinalCopy(
         CommandBufferBuilder &builder,

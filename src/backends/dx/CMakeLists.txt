@@ -60,7 +60,6 @@ if (WIN32)
             Shader/ComputeShader.cpp Shader/ComputeShader.h
             Shader/RasterShader.cpp Shader/RasterShader.h
             Shader/Shader.cpp Shader/Shader.h
-            Shader/ShaderCompiler.cpp Shader/ShaderCompiler.h
             Shader/ShaderSerializer.cpp Shader/ShaderSerializer.h
             Shader/ShaderVariableType.h)
     luisa_compute_add_backend(dx

@@ -7,6 +7,7 @@
 #include <backends/common/hlsl/hlsl_codegen.h>
 #include "serde_type.h"
 #include <runtime/context_paths.h>
+#include <backends/common/hlsl/binding_to_arg.h>
 
 namespace lc::vk {
 using namespace std::string_literals;
@@ -393,6 +394,17 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     } else {
         file_name = option.name;
         serde_type = SerdeType::ByteCode;
+        auto res = ComputeShader::compile(
+            _binary_io,
+            this,
+            kernel,
+            [&]() { return std::move(code); },
+            code_md5,
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            kernel.block_size(),
+            file_name,
+            serde_type,
+            option.enable_fast_math);
     }
     // TODO: shader load
     return info;

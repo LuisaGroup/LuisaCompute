@@ -36,7 +36,6 @@ public:
         vstd::optional<vstd::MD5> const &code_md5,
         vstd::vector<Argument> &&bindings,
         uint3 blockSize,
-        uint shaderModel,
         vstd::string_view file_name,
         SerdeType serde_type,
         bool unsafe_mat);
