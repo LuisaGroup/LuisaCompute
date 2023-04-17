@@ -89,14 +89,14 @@ enum class StencilOp : uint8_t {
 };
 
 struct BlendState {
-    bool enableBlend{};
+    bool enable_blend{};
     BlendOp op{BlendOp::Add};
     BlendWeight prim_op{BlendWeight::Zero};
     BlendWeight img_op{BlendWeight::One};
 };
 
 struct DepthState {
-    bool enableDepth{};
+    bool enable_depth{};
     Comparison comparison{};
     bool write{};
 };
@@ -109,7 +109,7 @@ struct StencilFaceOp {
 };
 
 struct StencilState {
-    bool enableStencil{};
+    bool enable_stencil{};
     StencilFaceOp front_face_op{};
     StencilFaceOp back_face_op{};
     uint8_t read_mask{};
@@ -124,6 +124,7 @@ struct RasterState {
     StencilState stencil_state{};
     TopologyType topology{TopologyType::Triangle};
     bool front_counter_clockwise{false};
+    // Clip pixel that depth not in range [0, 1]
     bool depth_clip{true};
     bool conservative{false};
 };

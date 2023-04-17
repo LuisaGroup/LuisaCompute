@@ -215,7 +215,7 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::GetState(
         .NumRenderTargets = static_cast<uint>(rtv.size()),
         .SampleDesc = {.Count = 1, .Quality = 0}};
 
-    if (state.blend_state.enableBlend) {
+    if (state.blend_state.enable_blend) {
         D3D12_RENDER_TARGET_BLEND_DESC blend{
             .RenderTargetWriteMask = 15};
         auto &v = state.blend_state;
@@ -242,13 +242,13 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::GetState(
     }
 
     D3D12_DEPTH_STENCIL_DESC &depth = result.DepthStencilState;
-    if (state.depth_state.enableDepth) {
+    if (state.depth_state.enable_depth) {
         auto &v = state.depth_state;
         depth.DepthEnable = true;
         depth.DepthFunc = ComparisonState(v.comparison);
         depth.DepthWriteMask = v.write ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
     }
-    if (state.stencil_state.enableStencil) {
+    if (state.stencil_state.enable_stencil) {
         auto &v = state.stencil_state;
         depth.StencilEnable = true;
         depth.StencilReadMask = v.read_mask;
