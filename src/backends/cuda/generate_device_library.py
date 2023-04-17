@@ -831,3 +831,92 @@ template<typename T, size_t N>
 
 
         define_array_unary()
+
+        def define_array_binary():
+            cal_binary = ["+", "-", "*", "/", "%"]
+            for op in cal_binary:
+                func = f"""
+template<typename T,typename U, size_t N>
+__device__ auto operator{op}(lc_array<T, N> lhs, lc_array<U, N> rhs) {{
+    lc_array<decltype(T{{}} {op} U{{}}), N> ret;
+    for(size_t i = 0u; i < N; ++i) {{
+        ret[i] = lhs[i] {op} rhs[i];
+    }}
+    return ret;
+}}
+
+template<typename T,typename U, size_t N>
+__device__ auto operator{op}(lc_array<T, N> lhs, U rhs) {{
+    lc_array<decltype(T{{}} {op} U{{}}), N> ret;
+    for(size_t i = 0u; i < N; ++i) {{
+        ret[i] = lhs[i] {op} rhs;
+    }}
+    return ret;
+}}
+
+template<typename T,typename U, size_t N>
+__device__ auto operator{op}(lc_array<T, N> lhs, lc_array<U, 1> rhs) {{
+    return lhs {op} rhs[0];
+}}
+
+template<typename T,typename U, size_t N>
+__device__ auto operator{op}(T lhs, lc_array<U, N> rhs) {{
+    lc_array<decltype(T{{}} {op} U{{}}), N> ret;
+    for(size_t i = 0u; i < N; ++i) {{
+        ret[i] = lhs {op} rhs[i];
+    }}
+    return ret;
+}}
+
+template<typename T,typename U, size_t N>
+__device__ auto operator{op}(lc_array<T, 1> lhs, lc_array<U, N> rhs) {{
+    return lhs[0] {op} rhs;
+}}
+"""
+                print(func, file=file)
+
+            cmp_binary = ["==", "!=", ">" , "<", ">=", "<=","&&", "||"]
+            for op in cmp_binary:
+                func = f"""
+template<typename T, typename U, size_t N>
+__device__ lc_array<lc_bool, N> operator{op}(lc_array<T, N> lhs, lc_array<U, N> rhs) {{
+    lc_array<lc_bool, N> ret;
+    for(size_t i = 0u; i < N; ++i) {{
+        ret[i] = lhs[i] {op} rhs[i];
+    }}
+    return ret;
+}}
+
+template<typename T,typename U, size_t N>
+__device__ lc_array<lc_bool, N> operator{op}(lc_array<T, N> lhs, U rhs) {{
+    lc_array<lc_bool, N> ret;
+    for(size_t i = 0u; i < N; ++i) {{
+        ret[i] = lhs[i] {op} rhs;
+    }}
+    return ret;
+}}
+
+template<typename T, typename U, size_t N>
+__device__ lc_array<lc_bool, N> operator{op}(lc_array<T, N> lhs, lc_array<U, 1> rhs) {{
+    return lhs {op} rhs[0];
+}}
+
+template<typename T, typename U, size_t N>
+__device__ lc_array<lc_bool, N> operator{op}(T lhs, lc_array<U, N> rhs) {{
+    lc_array<lc_bool, N> ret;
+    for(size_t i = 0u; i < N; ++i) {{
+        ret[i] = lhs {op} rhs[i];
+    }}
+    return ret;
+}}
+
+template<typename T, typename U, size_t N>
+__device__ lc_array<lc_bool, N> operator{op}(lc_array<T, 1> lhs, lc_array<U, N> rhs) {{
+    return lhs[0] {op} rhs;
+}}
+"""
+                print(func, file=file)
+
+            # bit_binary = ["&", "|", "^", "<<", ">>"]
+
+        define_array_binary()
