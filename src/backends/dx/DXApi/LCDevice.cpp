@@ -26,6 +26,7 @@
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
 #include <ext.h>
+#include <backends/common/hlsl/binding_to_arg.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -220,7 +221,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel,
             [&]() { return std::move(code); },
             checkMD5,
-            Shader::BindingToArg(kernel.bound_arguments()),
+            hlsl::binding_to_arg(kernel.bound_arguments()),
             kernel.block_size(),
             kShaderModel,
             file_name,

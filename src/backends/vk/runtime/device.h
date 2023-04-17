@@ -30,7 +30,7 @@ public:
     auto physical_device() const { return _vk_device->physicalDevice; }
     auto logic_device() const { return _vk_device->logicalDevice; }
     auto const &pso_header() const { return _pso_header; }
-    bool is_pso_same(VkPipelineCacheHeaderVersionOne const& pso);
+    bool is_pso_same(VkPipelineCacheHeaderVersionOne const &pso);
     auto const &properties() const { return _vk_device->properties; }
     auto const &features() const { return _vk_device->features; }
     Device(Context &&ctx, DeviceConfig const *configs);

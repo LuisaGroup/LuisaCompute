@@ -21,7 +21,7 @@
     - libxcursor-dev
     - libxi-dev
 - On macOS with M1, you need to install `embree` since a pre-built binary is not provided by the official embree repo. We recommend using [Homebrew](https://brew.sh/) to install it. You can install it by running `brew install embree`.
-- For Python Module (Python 3.9+): if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
+- For Python Module (Python 3.10+): if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
 
 ### Rust (IR module / Rust frontend)
 - Rust 1.64+ (latest stable version is recommended)
@@ -66,11 +66,12 @@ xmake
 - dx_backend: Enable Direct-X backend (Default: true, Windows platform only)
 - cuda_backend: Enable CUDA backend (Default: true, CUDA toolchain required)
 - metal_backend: Enable Metal backend (Default: true, Mac-OS platform only)
+- vk_backend: Enable Vulkan backend (Default: true)
 - cpu_backend: Enable CPU backend (Default: true)
 - enable_tools: Additional tools (Default: false)
 - enable_tests: Enable Tests (Default: false)
-- py_path: Python's path for Python Module (Default: empty string, example: --py_path="C:/python")
-- py_version: Python's version for Python Module (Default: empty string, example: --py_version="3.9")
+- py_path: Python's path for Python Module (Default: empty string, example: --py_path=C:/python)
+- py_version: Python's version for Python Module (Default: empty string, example: --py_version=3.10)
 - enable_rust: Rust module, auto enable if required (Default: false)
 - enable_dsl: C++ DSL module (Default: false)
 - enable_gui: Backend-native window and GUI support (Default: false)

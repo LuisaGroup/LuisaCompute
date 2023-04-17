@@ -3,6 +3,10 @@
 #include "../log.h"
 #include <vstl/config.h>
 #include <core/binary_file_stream.h>
+#include "compute_shader.h"
+#include <backends/common/hlsl/hlsl_codegen.h>
+#include "serde_type.h"
+#include <runtime/context_paths.h>
 
 namespace lc::vk {
 using namespace std::string_literals;
@@ -145,7 +149,7 @@ VkInstance create_instance(bool enableValidation) {
     instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instanceCreateInfo.pNext = NULL;
     instanceCreateInfo.pApplicationInfo = &appInfo;
-    
+
     // The VK_LAYER_KHRONOS_validation contains all current validation functionality.
     // Note that on Android this layer requires at least NDK r20
     const char *validationLayerName = "VK_LAYER_KHRONOS_validation";
@@ -374,7 +378,25 @@ void Device::destroy_swap_chain(uint64_t handle) noexcept {}
 void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {}
 
 // kernel
-ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept { return ShaderCreationInfo::make_invalid(); }
+ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
+    ShaderCreationInfo info;
+    // Clock clk;
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, _binary_io, true);
+    vstd::string_view file_name;
+    vstd::string str_cache;
+    vstd::MD5 code_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+    SerdeType serde_type;
+    if (option.name.empty()) {
+        str_cache << code_md5.to_string(false) << ".spv"sv;
+        file_name = str_cache;
+        serde_type = SerdeType::Cache;
+    } else {
+        file_name = option.name;
+        serde_type = SerdeType::ByteCode;
+    }
+    // TODO: shader load
+    return info;
+}
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept { return ShaderCreationInfo::make_invalid(); }
 Usage Device::shader_argument_usage(uint64_t handle, size_t index) noexcept { return Usage::NONE; }

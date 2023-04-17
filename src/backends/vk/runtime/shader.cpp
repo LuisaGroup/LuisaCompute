@@ -5,8 +5,9 @@ namespace lc::vk {
 Shader::Shader(
     Device *device,
     ShaderTag tag,
+    vstd::vector<Argument> &&captured,
     vstd::span<hlsl::Property const> binds)
-    : Resource{device} {
+    : Resource{device}, _captured{std::move(captured)} {
     VkShaderStageFlagBits stage_bits = [&]() -> VkShaderStageFlagBits {
         switch (tag) {
             case ShaderTag::ComputeShader:
@@ -30,13 +31,29 @@ Shader::Shader(
         switch (i.type) {
             case hlsl::ShaderVariableType::ConstantBuffer:
             case hlsl::ShaderVariableType::ConstantValue:
+            case hlsl::ShaderVariableType::CBVBufferHeap:
                 v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 break;
-            break;
+            case hlsl::ShaderVariableType::SRVTextureHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                break;
+            case hlsl::ShaderVariableType::UAVTextureHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                break;
+            case hlsl::ShaderVariableType::StructuredBuffer:
+            case hlsl::ShaderVariableType::RWStructuredBuffer:
+            case hlsl::ShaderVariableType::UAVBufferHeap:
+            case hlsl::ShaderVariableType::SRVBufferHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                break;
+            case hlsl::ShaderVariableType::SampHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+                break;
         }
         v.descriptorCount = i.arrSize;
         v.stageFlags = stage_bits;
         v.pImmutableSamplers = nullptr;
+        vstd::push_back_all(_binds, binds);
     }
 
     descriptorSetLayouts.reserve(bindings.size());
