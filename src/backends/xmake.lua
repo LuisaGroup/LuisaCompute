@@ -4,7 +4,9 @@ if LCDxBackend or LCVkBackend then
 	after_build(function(target)
 		if is_plat("windows") then
 			local bin_dir = target:targetdir()
-			os.cp(path.join(os.scriptdir(), "dx/dx_builtin"), path.join(bin_dir, ".data"))
+			local data_dir = path.join(bin_dir, ".data/dx_builtin")
+			os.mkdir(data_dir)
+			os.cp(path.join(os.scriptdir(), "dx/dx_builtin/*"), data_dir)
 			os.cp(path.join(os.scriptdir(), "dx/dx_support/*.dll"), bin_dir)
 		end
 	end)

@@ -27,13 +27,13 @@ Shader::Shader(
         vec.resize(std::max<size_t>(vec.size(), i.registerIndex + 1));
         auto &v = vec[i.registerIndex];
         v.binding = i.registerIndex;
-        // switch(i.type){
-        //     case hlsl::ShaderVariableType::ConstantBuffer:
-        //     case hlsl::ShaderVariableType::ConstantValue:
-        //     v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        //     case hlsl::ShaderVariableType::SRVDescriptorHeap:
-        // }
-        // TODO
+        switch (i.type) {
+            case hlsl::ShaderVariableType::ConstantBuffer:
+            case hlsl::ShaderVariableType::ConstantValue:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                break;
+            break;
+        }
         v.descriptorCount = i.arrSize;
         v.stageFlags = stage_bits;
         v.pImmutableSamplers = nullptr;

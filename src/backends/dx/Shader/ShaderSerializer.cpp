@@ -310,10 +310,12 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
     vstd::fixed_vector<CD3DX12_DESCRIPTOR_RANGE, 32> allRange;
     for (auto &&var : properties) {
         switch (var.type) {
-            case hlsl::ShaderVariableType::UAVDescriptorHeap:
-            case hlsl::ShaderVariableType::CBVDescriptorHeap:
-            case hlsl::ShaderVariableType::SampDescriptorHeap:
-            case hlsl::ShaderVariableType::SRVDescriptorHeap: {
+            case hlsl::ShaderVariableType::UAVBufferHeap:
+            case hlsl::ShaderVariableType::UAVTextureHeap:
+            case hlsl::ShaderVariableType::CBVBufferHeap:
+            case hlsl::ShaderVariableType::SampHeap:
+            case hlsl::ShaderVariableType::SRVBufferHeap:
+            case hlsl::ShaderVariableType::SRVTextureHeap: {
                 allRange.emplace_back();
             } break;
             default:
@@ -324,25 +326,27 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
     for (auto &&var : properties) {
 
         switch (var.type) {
-            case hlsl::ShaderVariableType::SRVDescriptorHeap: {
+            case hlsl::ShaderVariableType::SRVTextureHeap:
+            case hlsl::ShaderVariableType::SRVBufferHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
-            case hlsl::ShaderVariableType::CBVDescriptorHeap: {
+            case hlsl::ShaderVariableType::CBVBufferHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
-            case hlsl::ShaderVariableType::SampDescriptorHeap: {
+            case hlsl::ShaderVariableType::SampHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, var.arrSize, var.registerIndex, var.spaceIndex);
                 allParameter.emplace_back().InitAsDescriptorTable(1, &range);
             } break;
-            case hlsl::ShaderVariableType::UAVDescriptorHeap: {
+            case hlsl::ShaderVariableType::UAVTextureHeap:
+            case hlsl::ShaderVariableType::UAVBufferHeap: {
                 CD3DX12_DESCRIPTOR_RANGE &range = allRange[offset];
                 offset++;
                 range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, var.arrSize, var.registerIndex, var.spaceIndex);

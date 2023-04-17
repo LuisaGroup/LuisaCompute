@@ -318,7 +318,6 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "RaytracingAccelerationStructure"sv;
         } break;
         case Type::Tag::CUSTOM: {
-            // TODO: custom type is uint for now
             str << type.description();
         } break;
         default:
@@ -342,7 +341,6 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &funcDec
             CodegenUtility::GetTypeName(*t, data, usage);
     };
     if (func.return_type()) {
-        //TODO: return type
         CodegenUtility::GetTypeName(*func.return_type(), data, Usage::READ);
     } else {
         data += "void"sv;
@@ -1384,7 +1382,7 @@ void CodegenUtility::GenerateBindless(
         str << "ByteAddressBuffer bdls[]:register(t0,space3);\n"sv;
         properties.emplace_back(
             Property{
-                ShaderVariableType::SRVDescriptorHeap,
+                ShaderVariableType::SRVBufferHeap,
                 static_cast<uint>(3u),
                 0u, std::numeric_limits<uint>::max()});
     }
@@ -1397,7 +1395,7 @@ void CodegenUtility::PreprocessCodegenProperties(
     registerCount.init();
     properties.emplace_back(
         Property{
-            ShaderVariableType::SampDescriptorHeap,
+            ShaderVariableType::SampHeap,
             1u,
             0u,
             16u});
@@ -1420,13 +1418,13 @@ void CodegenUtility::PreprocessCodegenProperties(
     }
     properties.emplace_back(
         Property{
-            ShaderVariableType::SRVDescriptorHeap,
+            ShaderVariableType::SRVTextureHeap,
             1,
             0,
             std::numeric_limits<uint>::max()});
     properties.emplace_back(
         Property{
-            ShaderVariableType::SRVDescriptorHeap,
+            ShaderVariableType::SRVTextureHeap,
             2,
             0,
             std::numeric_limits<uint>::max()});
@@ -1512,9 +1510,9 @@ void CodegenUtility::CodegenProperties(
         switch (i.type()->tag()) {
             case Type::Tag::TEXTURE:
                 if (Writable(i)) {
-                    genArg(RegisterType::UAV, ShaderVariableType::UAVDescriptorHeap, 'u');
+                    genArg(RegisterType::UAV, ShaderVariableType::UAVTextureHeap, 'u');
                 } else {
-                    genArg(RegisterType::SRV, ShaderVariableType::SRVDescriptorHeap, 't');
+                    genArg(RegisterType::SRV, ShaderVariableType::SRVTextureHeap, 't');
                 }
                 break;
             case Type::Tag::BUFFER: {

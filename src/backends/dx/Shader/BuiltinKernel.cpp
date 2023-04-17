@@ -10,17 +10,17 @@ ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO
         code.result = hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process", ctx);
         code.properties.resize(3);
         auto &Global = code.properties[0];
-        Global.arrSize = 0;
+        Global.arrSize = 1;
         Global.registerIndex = 0;
         Global.spaceIndex = 0;
         Global.type = hlsl::ShaderVariableType::ConstantBuffer;
         auto &SetBuffer = code.properties[1];
-        SetBuffer.arrSize = 0;
+        SetBuffer.arrSize = 1;
         SetBuffer.registerIndex = 0;
         SetBuffer.spaceIndex = 0;
         SetBuffer.type = hlsl::ShaderVariableType::StructuredBuffer;
         auto &InstBuffer = code.properties[2];
-        InstBuffer.arrSize = 0;
+        InstBuffer.arrSize = 1;
         InstBuffer.registerIndex = 0;
         InstBuffer.spaceIndex = 0;
         InstBuffer.type = hlsl::ShaderVariableType::RWStructuredBuffer;
@@ -53,25 +53,25 @@ static ComputeShader *LoadBCKernel(
         code.bdlsBufferCount = 0;
         code.properties.resize(4);
         auto &globalBuffer = code.properties[0];
-        globalBuffer.arrSize = 0;
+        globalBuffer.arrSize = 1;
         globalBuffer.registerIndex = 0;
         globalBuffer.spaceIndex = 0;
         globalBuffer.type = hlsl::ShaderVariableType::ConstantBuffer;
 
         auto &gInput = code.properties[1];
-        gInput.arrSize = 0;
+        gInput.arrSize = 1;
         gInput.registerIndex = 0;
         gInput.spaceIndex = 0;
-        gInput.type = hlsl::ShaderVariableType::SRVDescriptorHeap;
+        gInput.type = hlsl::ShaderVariableType::SRVTextureHeap;
 
         auto &gInBuff = code.properties[2];
-        gInBuff.arrSize = 0;
+        gInBuff.arrSize = 1;
         gInBuff.registerIndex = 1;
         gInBuff.spaceIndex = 0;
         gInBuff.type = hlsl::ShaderVariableType::StructuredBuffer;
 
         auto &gOutBuff = code.properties[3];
-        gOutBuff.arrSize = 0;
+        gOutBuff.arrSize = 1;
         gOutBuff.registerIndex = 0;
         gOutBuff.spaceIndex = 0;
         gOutBuff.type = hlsl::ShaderVariableType::RWStructuredBuffer;

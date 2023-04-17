@@ -274,7 +274,6 @@ using make_literal_value_t = typename make_literal_value<T>::type;
 
 }// namespace detail
 
-/// TODO
 class LC_AST_API LiteralExpr final : public Expression {
 
 public:

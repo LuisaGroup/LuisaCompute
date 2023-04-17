@@ -88,10 +88,12 @@ void Shader::SetComputeResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case hlsl::ShaderVariableType::UAVDescriptorHeap:
-        case hlsl::ShaderVariableType::CBVDescriptorHeap:
-        case hlsl::ShaderVariableType::SampDescriptorHeap:
-        case hlsl::ShaderVariableType::SRVDescriptorHeap: {
+        case hlsl::ShaderVariableType::UAVBufferHeap:
+        case hlsl::ShaderVariableType::UAVTextureHeap:
+        case hlsl::ShaderVariableType::CBVBufferHeap:
+        case hlsl::ShaderVariableType::SampHeap:
+        case hlsl::ShaderVariableType::SRVBufferHeap:
+        case hlsl::ShaderVariableType::SRVTextureHeap: {
             cmdList->SetComputeRootDescriptorTable(
                 propertyName,
                 view.heap->hGPU(view.index));
@@ -148,10 +150,12 @@ void Shader::SetRasterResource(
     auto cmdList = cb->GetCB()->CmdList();
     auto &&var = properties[propertyName];
     switch (var.type) {
-        case hlsl::ShaderVariableType::UAVDescriptorHeap:
-        case hlsl::ShaderVariableType::CBVDescriptorHeap:
-        case hlsl::ShaderVariableType::SampDescriptorHeap:
-        case hlsl::ShaderVariableType::SRVDescriptorHeap: {
+        case hlsl::ShaderVariableType::UAVBufferHeap:
+        case hlsl::ShaderVariableType::UAVTextureHeap:
+        case hlsl::ShaderVariableType::CBVBufferHeap:
+        case hlsl::ShaderVariableType::SampHeap:
+        case hlsl::ShaderVariableType::SRVBufferHeap:
+        case hlsl::ShaderVariableType::SRVTextureHeap: {
             cmdList->SetGraphicsRootDescriptorTable(
                 propertyName,
                 view.heap->hGPU(view.index));

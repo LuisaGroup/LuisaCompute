@@ -4,10 +4,12 @@ namespace lc::hlsl {
 using namespace luisa;
 enum class ShaderVariableType : uint8_t {
     ConstantBuffer,
-    SRVDescriptorHeap,
-    UAVDescriptorHeap,
-    CBVDescriptorHeap,
-    SampDescriptorHeap,
+    SRVTextureHeap,
+    UAVTextureHeap,
+    SRVBufferHeap,
+    UAVBufferHeap,
+    CBVBufferHeap,
+    SampHeap,
     StructuredBuffer,
     RWStructuredBuffer,
     ConstantValue
