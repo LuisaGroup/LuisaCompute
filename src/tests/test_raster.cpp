@@ -67,11 +67,11 @@ int main(int argc, char *argv[]) {
     Buffer<Vertex> vert_buffer = device.create_buffer<Vertex>(3);
     Buffer<uint> idx_buffer = device.create_buffer<uint>(3);
     Vertex vertices[3];
-    vertices[0].pos = {-0.5f, -0.5f, 0.5f};
+    vertices[0].pos = {-0.5f, 0.5f, 0.5f};
     vertices[0].uv = {0.0f, 0.0f};
-    vertices[1].pos = {0.5f, -0.5f, 0.5f};
+    vertices[1].pos = {0.5f, 0.5f, 0.5f};
     vertices[1].uv = {1.0f, 0.0f};
-    vertices[2].pos = {0.0f, 0.5f, 0.5f};
+    vertices[2].pos = {0.0f, -0.5f, 0.5f};
     vertices[2].uv = {0.0f, 1.0f};
     uint indices[3] = {
         0, 1, 2};

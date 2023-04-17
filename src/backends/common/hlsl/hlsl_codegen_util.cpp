@@ -1159,7 +1159,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
     };
     callable(callable, func);
 }
-void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, vstd::function<void(vstd::StringBuilder &)> const &bindVertex) {
+void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, bool isDX, vstd::function<void(vstd::StringBuilder &)> const &bindVertex) {
     vstd::unordered_set<void const *> callableMap;
     auto gen = [&](auto &callable, Function func) -> void {
         for (auto &&i : func.custom_callables()) {
@@ -1213,6 +1213,9 @@ v2p o;
             auto num = vstd::to_string(i);
             result << "o.v"sv << num << "=r.v"sv << num << ";\n"sv;
         }
+    }
+    if (isDX) {
+        result << "o.v0.y*=-1.0;\n"sv;
     }
     result << R"(return o;
 }
@@ -1753,7 +1756,7 @@ uint iid:SV_INSTANCEID;
 
     bool nonEmptyCbuffer = IsCBufferNonEmpty(funcs);
     opt->appdataId = vertFunc.arguments()[0].uid();
-    CodegenVertex(vertFunc, codegenData, nonEmptyCbuffer, PrintSetValue);
+    CodegenVertex(vertFunc, codegenData, nonEmptyCbuffer, !isSpirV, PrintSetValue);
     opt->appdataId = -1;
     // TODO: gen vertex data
     codegenData << "#elif defined(PS)\n"sv;

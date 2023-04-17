@@ -68,7 +68,7 @@ public:
         Function func,
         vstd::StringBuilder &result,
         bool cBufferNonEmpty);
-    void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, vstd::function<void(vstd::StringBuilder &)> const &bindVertex);
+    void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, bool isDX, vstd::function<void(vstd::StringBuilder &)> const &bindVertex);
     void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
     bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
     bool IsCBufferNonEmpty(Function func);
