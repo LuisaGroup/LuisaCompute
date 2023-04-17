@@ -146,10 +146,17 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
     if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
-        _instance_buffer_size = next_pow2(size);
-        if (_instance_buffer) { LUISA_CHECK_CUDA(cuMemFreeAsync(_instance_buffer, cuda_stream)); }
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&_instance_buffer, _instance_buffer_size, cuda_stream));
+        auto old_instance_buffer = _instance_buffer;
+        auto new_instance_buffer_size = next_pow2(size);
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&_instance_buffer, new_instance_buffer_size, cuda_stream));
+        if (old_instance_buffer) {
+            LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(
+                _instance_buffer, old_instance_buffer, _instance_buffer_size, cuda_stream));
+            LUISA_CHECK_CUDA(cuMemFreeAsync(old_instance_buffer, cuda_stream));
+        }
+        _instance_buffer_size = new_instance_buffer_size;
     }
+    auto instance_count_changed = _primitives.size() != instance_count;
     _primitives.resize(instance_count);
     _prim_handles.resize(instance_count);
     // update the instance buffer
@@ -201,6 +208,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                         command->request() == AccelBuildRequest::FORCE_BUILD /* user requires rebuilding */ ||
                         !_option.allow_update /* update is not allowed in the accel */ ||
                         _handle == 0u /* the accel is not yet built */ ||
+                        instance_count_changed /* instance count changed */ ||
                         changed_handle_count > 0u /* additional handle changes due to rebuild */;
 
     // gather changed handles if any
