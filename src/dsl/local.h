@@ -17,13 +17,13 @@ template<typename T>
 class Local {
 
 private:
-    const RefExpr *_expression;
+    const Expression *_expression;
     size_t _size;
 
 public:
-    explicit Local(size_t n) noexcept
-        : _expression{detail::FunctionBuilder::current()->local(
-              Type::array(Type::of<T>(), n))},
+    explicit Local(size_t n, const Expression *expression = nullptr) noexcept
+        : _expression{expression == nullptr ? detail::FunctionBuilder::current()->local(type(n)) :
+                                              expression},
           _size{n} {}
 
     template<typename U>
@@ -39,6 +39,18 @@ public:
         _expression = fb->local(Type::array(Type::of<T>(), _size));
         fb->assign(_expression, another._expression);
     }
+
+    void invalidate() noexcept {
+        _size = 0;
+        _expression = nullptr;
+    }
+
+    [[nodiscard]] bool valid() const noexcept { return _size > 0; }
+    [[nodiscard]] static const Type *type(uint size) noexcept {
+        return Type::array(Type::of<T>(), size);
+    }
+    [[nodiscard]] const Type *type() const noexcept { return type(_size); }
+
     Local &operator=(const Local &rhs) noexcept {
         if (&rhs != this) [[likely]] {
             if (_size != rhs._size) [[unlikely]] {
