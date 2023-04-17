@@ -1,4 +1,5 @@
 
+#include <core/magic_enum.h>
 #include <Shader/Shader.h>
 #include <d3dcompiler.h>
 #include <DXRuntime/CommandBuffer.h>
@@ -78,7 +79,13 @@ void Shader::SetComputeResource(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        default: assert(false); break;
+        default:
+            LUISA_ERROR("Invalid shader resource type {}.\n\n"
+                        "This might be due to the change of shader cache.\n"
+                        "Please try delete the cache folder (default: build_dir/bin/.cache) "
+                        "and re-run the program.\n"
+                        "If the problem persists, please report this issue to the developers.\n",
+                        to_string(var.type));
     }
 }
 void Shader::SetComputeResource(
