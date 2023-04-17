@@ -10,6 +10,7 @@ if (WIN32)
             ../common/resource_generator.h
 
             ../common/hlsl/access_chain.cpp ../common/hlsl/access_chain.h
+            ../common/hlsl/binding_to_arg.cpp ../common/hlsl/binding_to_arg.h
             ../common/hlsl/codegen_stack_data.cpp ../common/hlsl/codegen_stack_data.h
             ../common/hlsl/common_iterator.h
             ../common/hlsl/hlsl_codegen.cpp ../common/hlsl/hlsl_codegen.h
