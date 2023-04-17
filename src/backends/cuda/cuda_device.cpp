@@ -132,6 +132,9 @@ CUDADevice::CUDADevice(Context &&ctx,
         LUISA_CHECK_CUDA(cuModuleGetFunction(
             &_bindless_array_update_function, _builtin_kernel_module,
             "update_bindless_array"));
+        LUISA_CHECK_CUDA(cuModuleGetFunction(
+            &_instance_handle_update_function, _builtin_kernel_module,
+            "update_accel_instance_handles"));
     });
 }
 
