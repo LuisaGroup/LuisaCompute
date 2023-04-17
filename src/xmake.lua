@@ -1,4 +1,3 @@
-includes("build_proj.lua")
 if LCUseMimalloc then
 	_configs.enable_mimalloc = true
 end
