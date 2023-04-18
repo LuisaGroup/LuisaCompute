@@ -48,13 +48,9 @@ int main(int argc, char *argv[]) {
         return a + b;
     };
 
-
-
     Kernel1D kernel_def = [&](BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
         set_block_size(256u);
         UInt index = dispatch_id().x;
-        Local<float> darray{2};
-        darray = -darray;
         store(result, index, add(load(source, index), x));
     };
     Shader1D<Buffer<float>, Buffer<float>, float> kernel = device.compile(kernel_def);

@@ -18,9 +18,6 @@ struct Expr;
 template<typename T>
 struct Var;
 
-template<typename T>
-class Local;
-
 namespace detail {
 
 template<typename T>
@@ -91,9 +88,6 @@ struct is_dsl_impl<Ref<T>> : std::true_type {};
 template<typename T>
 struct is_dsl_impl<Var<T>> : std::true_type {};
 
-template<typename T>
-struct is_dsl_impl<Local<T>> : std::true_type {};
-
 }// namespace detail
 
 template<typename T>
@@ -107,34 +101,6 @@ using any_dsl = std::disjunction<is_dsl<T>...>;
 
 template<typename... T>
 constexpr auto any_dsl_v = any_dsl<T...>::value;
-
-namespace detail {
-template<typename T>
-struct is_dynamic_array_impl : std::false_type {};
-
-template<typename T>
-struct is_dynamic_array_impl<Local<T>> : std::true_type {};
-}// namespace detail
-
-template<typename T>
-static constexpr bool is_dynamic_array_v = detail::is_dynamic_array_impl<std::remove_cvref_t<T>>::value;
-
-namespace detail {
-
-template<typename T>
-struct dynamic_array_element_impl {
-    using type = T;
-};
-
-template<typename T>
-struct dynamic_array_element_impl<Local<T>> {
-    using type = T;
-};
-
-}// namespace detail
-
-template<typename T>
-using dynamic_array_element_t = typename detail::dynamic_array_element_impl<std::remove_cvref_t<T>>::type;
 
 template<typename... T>
 using is_same_expr = concepts::is_same<expr_value_t<T>...>;

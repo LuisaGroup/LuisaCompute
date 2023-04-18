@@ -8,25 +8,17 @@
 #include <dsl/expr.h>
 
 /// Define global unary operation of dsl objects
-#define LUISA_MAKE_GLOBAL_DSL_UNARY_OP(op, op_tag)                                                                          \
-    template<typename T>                                                                                                    \
-        requires luisa::compute::is_dsl_v<T>                                                                                \
-    [[nodiscard]] inline auto operator op(T &&expr) noexcept {                                                              \
-        if constexpr (luisa::compute::is_dynamic_array_v<T>) {                                                              \
-            using element_t = std::remove_cvref_t<decltype(op std::declval<luisa::compute::dynamic_array_element_t<T>>())>; \
-            auto expression = luisa::compute::detail::FunctionBuilder::current()->unary(expr.type(),                        \
-                                                                                        luisa::compute::UnaryOp::op_tag,    \
-                                                                                        expr.expression());                 \
-            return Local<element_t>(expr.size(), expression);                                                               \
-        } else {                                                                                                            \
-            using R = std::remove_cvref_t<                                                                                  \
-                decltype(op std::declval<luisa::compute::expr_value_t<T>>())>;                                              \
-            return luisa::compute::dsl::def<R>(                                                                             \
-                luisa::compute::detail::FunctionBuilder::current()->unary(                                                  \
-                    luisa::compute::Type::of<R>(),                                                                          \
-                    luisa::compute::UnaryOp::op_tag,                                                                        \
-                    luisa::compute::detail::extract_expression(std::forward<T>(expr))));                                    \
-        }                                                                                                                   \
+#define LUISA_MAKE_GLOBAL_DSL_UNARY_OP(op, op_tag)                                   \
+    template<typename T>                                                             \
+        requires luisa::compute::is_dsl_v<T>                                         \
+    [[nodiscard]] inline auto operator op(T &&expr) noexcept {                       \
+        using R = std::remove_cvref_t<                                               \
+            decltype(op std::declval<luisa::compute::expr_value_t<T>>())>;           \
+        return luisa::compute::dsl::def<R>(                                          \
+            luisa::compute::detail::FunctionBuilder::current()->unary(               \
+                luisa::compute::Type::of<R>(),                                       \
+                luisa::compute::UnaryOp::op_tag,                                     \
+                luisa::compute::detail::extract_expression(std::forward<T>(expr)))); \
     }
 LUISA_MAKE_GLOBAL_DSL_UNARY_OP(+, PLUS)
 LUISA_MAKE_GLOBAL_DSL_UNARY_OP(-, MINUS)
