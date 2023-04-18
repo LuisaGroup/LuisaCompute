@@ -24,7 +24,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_swapchain.cpp metal_swapchain.h
             metal_command_encoder.cpp metal_command_encoder.h
             metal_stage_buffer_pool.cpp metal_stage_buffer_pool.h
-            metal_callback_context.h
+            metal_callback_context.cpp metal_callback_context.h
             )
 
     if (LUISA_COMPUTE_ENABLE_RUST)

@@ -39,6 +39,7 @@ public:
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;
+    void add_callback(MetalCallbackContext *cb) noexcept;
     MTL::CommandBuffer *submit(CommandList::CallbackContainer &&user_callbacks) noexcept;
 
     template<typename F>
@@ -46,7 +47,7 @@ public:
         _prepare_command_buffer();
         auto upload_buffer = _stream->upload_pool()->allocate(size);
         f(upload_buffer);
-        _callbacks.emplace_back(upload_buffer);
+        add_callback(upload_buffer);
     }
 
     template<typename F>
@@ -54,7 +55,7 @@ public:
         _prepare_command_buffer();
         auto download_buffer = _stream->download_pool()->allocate(size);
         f(download_buffer);
-        _callbacks.emplace_back(download_buffer);
+        add_callback(download_buffer);
     }
 };
 

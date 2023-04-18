@@ -242,6 +242,7 @@ string MetalDevice::query(luisa::string_view property) noexcept {
 
 DeviceExtension *MetalDevice::extension(luisa::string_view name) noexcept {
     LUISA_WARNING_WITH_LOCATION("Device extension \"{}\" is not supported on Metal.", name);
+    return nullptr;
 }
 
 void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,

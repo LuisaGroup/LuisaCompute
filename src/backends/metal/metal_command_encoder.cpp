@@ -38,33 +38,6 @@ public:
     }
 };
 
-class SingleFunctionCallbackContext : public MetalCallbackContext {
-
-private:
-    luisa::move_only_function<void()> _function;
-
-private:
-    [[nodiscard]] static auto &_object_pool() noexcept {
-        static Pool<SingleFunctionCallbackContext, true> pool;
-        return pool;
-    }
-
-public:
-    template<typename F>
-    explicit SingleFunctionCallbackContext(F &&f) noexcept
-        : _function{std::forward<F>(f)} {}
-
-    template<typename F>
-    [[nodiscard]] static auto create(F &&f) noexcept {
-        return _object_pool().create(std::forward<F>(f));
-    }
-
-    void recycle() noexcept override {
-        _function();
-        _object_pool().destroy(this);
-    }
-};
-
 MetalCommandEncoder::MetalCommandEncoder(MetalStream *stream) noexcept
     : _stream{stream} {}
 
@@ -74,6 +47,11 @@ void MetalCommandEncoder::_prepare_command_buffer() noexcept {
     }
 }
 
+void MetalCommandEncoder::add_callback(MetalCallbackContext *cb) noexcept {
+    _prepare_command_buffer();
+    _callbacks.emplace_back(cb);
+}
+
 MTL::CommandBuffer *MetalCommandEncoder::command_buffer() noexcept {
     _prepare_command_buffer();
     return _command_buffer;
@@ -81,7 +59,7 @@ MTL::CommandBuffer *MetalCommandEncoder::command_buffer() noexcept {
 
 MTL::CommandBuffer *MetalCommandEncoder::submit(CommandList::CallbackContainer &&user_callbacks) noexcept {
     if (!user_callbacks.empty()) {
-        _callbacks.emplace_back(
+        add_callback(
             UserCallbackContext::create(
                 std::move(user_callbacks)));
     }
@@ -124,12 +102,11 @@ void MetalCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
         encoder->endEncoding();
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
-        auto callback = SingleFunctionCallbackContext::create([download_buffer, data, size] {
+        add_callback(FunctionCallbackContext::FunctionCallbackContext([download_buffer, data, size] {
             auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
                      download_buffer->offset();
             std::memcpy(data, p, size);
-        });
-        _callbacks.emplace_back(callback);
+        }));
     });
 }
 
@@ -209,12 +186,11 @@ void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
         encoder->endEncoding();
         // copy from download buffer to user buffer
         // TODO: use a better way to pass data back to CPU
-        auto callback = SingleFunctionCallbackContext::create([download_buffer, data, total_size] {
+        add_callback(FunctionCallbackContext::FunctionCallbackContext([download_buffer, data, total_size] {
             auto p = static_cast<const std::byte *>(download_buffer->buffer()->contents()) +
                      download_buffer->offset();
             std::memcpy(data, p, total_size);
-        });
-        _callbacks.emplace_back(callback);
+        }));
     });
 }
 
