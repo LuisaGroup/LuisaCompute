@@ -87,12 +87,14 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
-        using S = decltype(std::declval<Delegate>().operator<<(std::declval<std::tuple<T...>>()));
-        if constexpr (std::is_same_v<S, Stream>) {
-            return Delegate{this} << std::move(args);
-        } else {
-            return Delegate{Delegate{this} << std::move(args)};
-        }
+        auto make_return = []<typename S>(S &&s) noexcept -> decltype(auto) {
+            if constexpr (std::is_same_v<std::remove_cvref_t<S>, Stream>) {
+                return (s);
+            } else {
+                return Delegate{std::move(s)};
+            }
+        };
+        return make_return(Delegate{this} << std::move(args));
     }
 };
 
