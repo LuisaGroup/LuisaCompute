@@ -32,3 +32,19 @@ if LCVkBackend then
 	includes("vk")
 end
 includes("validation")
+target("lc-backends-dummy")
+set_kind("phony")
+add_deps("lc-validation-layer", {inherit = false})
+if LCDxBackend then
+	add_deps("lc-backend-dx", {inherit = false})
+end
+if LCMetalBackend then
+	add_deps("lc-backend-metal", {inherit = false})
+end
+if LCVkBackend then
+	add_deps("lc-backend-vk", {inherit = false})
+end
+if LCCpuBackend then
+	add_deps("lc-backend-cpu", {inherit = false})
+end
+target_end()
