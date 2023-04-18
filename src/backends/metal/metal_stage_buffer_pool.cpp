@@ -8,7 +8,7 @@
 namespace luisa::compute::metal {
 
 [[nodiscard]] static auto metal_stage_buffer_allocation_node_pool() noexcept {
-    static thread_local Pool<MetalStageBufferPool::Allocation, true> pool;
+    static Pool<MetalStageBufferPool::Allocation, true> pool;
     return &pool;
 }
 

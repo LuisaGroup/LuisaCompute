@@ -58,12 +58,11 @@ MTL::CommandBuffer *MetalCommandEncoder::command_buffer() noexcept {
 }
 
 MTL::CommandBuffer *MetalCommandEncoder::submit(CommandList::CallbackContainer &&user_callbacks) noexcept {
-    if (!user_callbacks.empty()) {
-        add_callback(
-            UserCallbackContext::create(
-                std::move(user_callbacks)));
-    }
     _prepare_command_buffer();
+    if (!user_callbacks.empty()) {
+        add_callback(UserCallbackContext::create(
+            std::move(user_callbacks)));
+    }
     auto command_buffer = std::exchange(_command_buffer, nullptr);
     auto callbacks = std::exchange(_callbacks, {});
     _stream->submit(command_buffer, std::move(callbacks));

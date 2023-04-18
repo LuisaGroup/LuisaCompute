@@ -16,6 +16,7 @@ class MetalDevice : public DeviceInterface {
 
 private:
     MTL::Device *_handle;
+    MTL::Library *_builtin_library;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler;

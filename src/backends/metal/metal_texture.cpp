@@ -102,10 +102,13 @@ void MetalTexture::set_name(luisa::string_view name) noexcept {
             _maps[i]->setLabel(nullptr);
         }
     } else {
-        auto autorelease_pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
         for (auto i = 0u; i < n; i++) {
             auto level_name = luisa::format("{} (level {})", name, i);
-            _maps[i]->setLabel(NS::String::string(level_name.c_str(), NS::UTF8StringEncoding));
+            auto mtl_name = NS::String::alloc()->init(
+                level_name.data(), level_name.size(),
+                NS::UTF8StringEncoding, false);
+            _maps[i]->setLabel(mtl_name);
+            mtl_name->release();
         }
     }
 }

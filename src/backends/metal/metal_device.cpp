@@ -30,9 +30,9 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     auto device_count = all_devices->count();
     LUISA_ASSERT(device_index < device_count,
                  "Metal device index out of range.");
-    _handle = all_devices->object<MTL::Device>(device_index);
+    _handle = all_devices->object<MTL::Device>(device_index)->retain();
     LUISA_INFO("Metal device #{}: {}", device_index,
-               _handle->name()->cString(NS::UTF8StringEncoding));
+               _handle->name()->utf8String());
 
     // create a default binary IO if none is provided
     if (config == nullptr || config->binary_io == nullptr) {
@@ -46,9 +46,33 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     _compiler = luisa::make_unique<MetalCompiler>(this);
 
     // TODO: load built-in kernels
+    auto builtin_kernel_stream = _io->read_internal_shader("metal_builtin_kernels.metal");
+    LUISA_ASSERT(builtin_kernel_stream != nullptr && builtin_kernel_stream->length() > 0u,
+                 "Failed to load built-in Metal kernels.");
+    luisa::vector<std::byte> builtin_kernel_data(builtin_kernel_stream->length());
+    builtin_kernel_stream->read(builtin_kernel_data);
+    auto builtin_kernel_source = NS::String::alloc()->init(
+        builtin_kernel_data.data(), builtin_kernel_data.size(),
+        NS::UTF8StringEncoding, false);
+    auto compile_options = MTL::CompileOptions::alloc()->init();
+    compile_options->setFastMathEnabled(true);
+    compile_options->setLanguageVersion(MTL::LanguageVersion3_0);
+    compile_options->setLibraryType(MTL::LibraryTypeExecutable);
+    NS::Error *error{nullptr};
+    _builtin_library = _handle->newLibrary(builtin_kernel_source, compile_options, &error);
+    if (error != nullptr) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to compile built-in Metal kernels: {}",
+            error->localizedDescription()->utf8String());
+    }
+    LUISA_ASSERT(_builtin_library != nullptr,
+                 "Failed to compile built-in Metal kernels.");
+    compile_options->release();
+    builtin_kernel_source->release();
 }
 
 MetalDevice::~MetalDevice() noexcept {
+    _builtin_library->release();
     _handle->release();
 }
 
@@ -65,7 +89,6 @@ void *MetalDevice::native_handle() const noexcept {
     info.native_handle = buffer;
     info.element_stride = element_stride;
     info.total_size_bytes = buffer_size;
-    MTL::AccelerationStructureInstanceDescriptor desc{};
     return info;
 }
 
@@ -79,7 +102,8 @@ BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
     auto elem_size = MetalCodegenIR::type_size_bytes(element->get());
     return create_device_buffer(_handle, elem_size, elem_count);
 #else
-    LUISA_ERROR_WITH_LOCATION("IR is not enabled.");
+    LUISA_WARNING_WITH_LOCATION("IR is not enabled. Returning an invalid buffer.");
+    return BufferCreationInfo::make_invalid();
 #endif
 }
 
@@ -253,10 +277,11 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
             if (name.empty()) {
                 buffer->setLabel(nullptr);
             } else {
-                luisa::string mtl_name{name};
-                auto autorelease_pool = NS::AutoreleasePool::alloc()->init();
-                buffer->setLabel(NS::String::string(mtl_name.c_str(), NS::UTF8StringEncoding));
-                autorelease_pool->release();
+                auto mtl_name = NS::String::alloc()->init(
+                    const_cast<char *>(name.data()), name.size(),
+                    NS::UTF8StringEncoding, false);
+                buffer->setLabel(mtl_name);
+                mtl_name->release();
             }
             break;
         }
@@ -269,7 +294,11 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
         case Resource::Tag::MESH: break;
         case Resource::Tag::PROCEDURAL_PRIMITIVE: break;
         case Resource::Tag::ACCEL: break;
-        case Resource::Tag::STREAM: break;
+        case Resource::Tag::STREAM: {
+            auto stream = reinterpret_cast<MetalStream *>(resource_handle);
+            stream->set_name(name);
+            break;
+        }
         case Resource::Tag::EVENT: {
             auto event = reinterpret_cast<MetalEvent *>(resource_handle);
             event->set_name(name);
@@ -303,9 +332,7 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
         names.reserve(n);
         for (auto i = 0u; i < n; i++) {
             auto device = all_devices->object<MTL::Device>(i);
-            names.emplace_back(device->name()->cString(
-                NS::StringEncoding::UTF8StringEncoding));
-            device->release();
+            names.emplace_back(device->name()->utf8String());
         }
     }
 }

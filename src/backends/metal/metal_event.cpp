@@ -86,10 +86,11 @@ void MetalEvent::set_name(luisa::string_view name) noexcept {
     if (name.empty()) {
         _handle->setLabel(nullptr);
     } else {
-        luisa::string mtl_name{name};
-        auto autorelease_pool = NS::AutoreleasePool::alloc()->init();
-        _handle->setLabel(NS::String::string(mtl_name.c_str(), NS::UTF8StringEncoding));
-        autorelease_pool->release();
+        auto mtl_name = NS::String::alloc()->init(
+            const_cast<char *>(name.data()), name.size(),
+            NS::UTF8StringEncoding, false);
+        _handle->setLabel(mtl_name);
+        mtl_name->release();
     }
 }
 
