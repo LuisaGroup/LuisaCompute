@@ -124,19 +124,27 @@ static_assert(sizeof(BindlessSlotModification) == 64u, "");
     }
 }
 
+[[kernel]] void update_instance_handles() {
+
+}
+
+[[kernel]] void update_instance_properties() {
+
+}
+
 struct RasterData {
     float4 p [[position]];
     float2 uv;
 };
 
-[[vertex]] RasterData v_simple(
+[[vertex]] RasterData swapchain_vertex_shader(
     constant float4 *in [[buffer(0)]],
     uint vid [[vertex_id]]) {
     auto p = in[vid];
     return RasterData{p, saturate(p.xy * float2(.5f, -.5f) + .5f)};
 }
 
-[[fragment]] float4 f_simple(
+[[fragment]] float4 swapchain_fragment_shader(
     RasterData in [[stage_in]],
     texture2d<float, access::sample> image [[texture(0)]]) {
     return float4(image.sample(sampler(filter::linear), in.uv).xyz, 1.f);

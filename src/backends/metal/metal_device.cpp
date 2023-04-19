@@ -62,20 +62,80 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     compile_options->setLanguageVersion(MTL::LanguageVersion3_0);
     compile_options->setLibraryType(MTL::LibraryTypeExecutable);
     NS::Error *error{nullptr};
-    _builtin_library = _handle->newLibrary(builtin_kernel_source, compile_options, &error);
+    auto builtin_library = _handle->newLibrary(builtin_kernel_source, compile_options, &error);
     if (error != nullptr) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to compile built-in Metal kernels: {}",
             error->localizedDescription()->utf8String());
     }
-    LUISA_ASSERT(_builtin_library != nullptr,
+    error = nullptr;
+    LUISA_ASSERT(builtin_library != nullptr,
                  "Failed to compile built-in Metal kernels.");
+
+    // compute pipelines
+    auto compute_pipeline_desc = MTL::ComputePipelineDescriptor::alloc()->init();
+    compute_pipeline_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
+    compute_pipeline_desc->setMaxTotalThreadsPerThreadgroup(256u);
+    auto create_builtin_compute_shader = [&](auto name) noexcept {
+        auto function = builtin_library->newFunction(name);
+        compute_pipeline_desc->setComputeFunction(function);
+        auto pipeline = _handle->newComputePipelineState(compute_pipeline_desc, MTL::PipelineOptionNone, nullptr, &error);
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to compile built-in Metal kernel '{}': {}",
+                name->utf8String(), error->localizedDescription()->utf8String());
+        }
+        error = nullptr;
+        LUISA_ASSERT(pipeline != nullptr,
+                     "Failed to compile built-in Metal kernel '{}'.",
+                     name->utf8String());
+        function->release();
+        return pipeline;
+    };
+    _builtin_update_bindless_slots = create_builtin_compute_shader(MTLSTR("update_bindless_array"));
+    _builtin_update_instance_handles = create_builtin_compute_shader(MTLSTR("update_instance_handles"));
+    _builtin_update_instance_properties = create_builtin_compute_shader(MTLSTR("update_instance_properties"));
+    compute_pipeline_desc->release();
+
+    // render pipeline
+    auto builtin_swapchain_vertex_shader = builtin_library->newFunction(MTLSTR("swapchain_vertex_shader"));
+    auto builtin_swapchain_fragment_shader = builtin_library->newFunction(MTLSTR("swapchain_fragment_shader"));
+    auto render_pipeline_desc = MTL::RenderPipelineDescriptor::alloc()->init();
+    render_pipeline_desc->setVertexFunction(builtin_swapchain_vertex_shader);
+    render_pipeline_desc->setFragmentFunction(builtin_swapchain_fragment_shader);
+    auto color_attachment = render_pipeline_desc->colorAttachments()->object(0u);
+    color_attachment->setBlendingEnabled(false);
+    auto create_builtin_present_shader = [&](auto format) noexcept {
+        color_attachment->setPixelFormat(format);
+        auto shader = _handle->newRenderPipelineState(
+            render_pipeline_desc, MTL::PipelineOptionNone, nullptr, &error);
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to compile built-in Metal kernel 'swapchain_fragment_shader': {}",
+                error->localizedDescription()->utf8String());
+        }
+        error = nullptr;
+        LUISA_ASSERT(shader != nullptr,
+                     "Failed to compile built-in Metal kernel 'swapchain_fragment_shader'.");
+        return shader;
+    };
+    _builtin_swapchain_present_ldr = create_builtin_present_shader(MTL::PixelFormatRGBA8Unorm);
+    _builtin_swapchain_present_hdr = create_builtin_present_shader(MTL::PixelFormatRGBA16Float);
+    render_pipeline_desc->release();
+    builtin_swapchain_vertex_shader->release();
+    builtin_swapchain_fragment_shader->release();
+
+    builtin_library->release();
     compile_options->release();
     builtin_kernel_source->release();
 }
 
 MetalDevice::~MetalDevice() noexcept {
-    _builtin_library->release();
+    _builtin_update_bindless_slots->release();
+    _builtin_update_instance_handles->release();
+    _builtin_update_instance_properties->release();
+    _builtin_swapchain_present_ldr->release();
+    _builtin_swapchain_present_hdr->release();
     _handle->release();
 }
 

@@ -21,7 +21,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_stream.cpp metal_stream.h
             metal_event.cpp metal_event.h
             metal_bindless_array.cpp metal_bindless_array.h
-            metal_swapchain.cpp metal_swapchain.h
+            metal_swapchain.cpp metal_swapchain.h metal_swapchain.mm
             metal_command_encoder.cpp metal_command_encoder.h
             metal_stage_buffer_pool.cpp metal_stage_buffer_pool.h
             metal_callback_context.cpp metal_callback_context.h
@@ -37,6 +37,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_link_libraries(lc-backend-metal PRIVATE
             "-framework Foundation"
             "-framework Metal"
+            "-framework MetalKit"
             "-framework QuartzCore")
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
