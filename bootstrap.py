@@ -1,7 +1,7 @@
 import multiprocessing
 import os
 import sys
-from subprocess import Popen
+from subprocess import Popen, call, DEVNULL
 from typing import List
 
 
@@ -15,8 +15,11 @@ def get_default_features() -> List[str]:
     if sys.platform == 'darwin':
         features.append('metal')
     # enable CUDA if available
-    if 'CUDA_PATH' in os.environ or os.system('nvcc --version') == 0:
-        features.append('cuda')
+    try:
+        if 'CUDA_PATH' in os.environ or call(['nvcc', '--version'], stdout=DEVNULL, stderr=DEVNULL) == 0:
+            features.append('cuda')
+    except FileNotFoundError:
+        pass
     return features
 
 
@@ -30,7 +33,6 @@ def default_config():
         'xmake_args': [],
         'build_system': 'cmake',
         'features': get_default_features(),
-        'mode': 'release',
         'output': 'build',
     }
 
@@ -64,10 +66,14 @@ def get_config():
 
 
 def print_help():
-    print('Usage: python bootstrap.py [build system] [options]')
+    print('Usage: python bootstrap.py [build system] [mode] [options]')
     print('Build system:')
     print('  cmake                  Use CMake')
     print('  xmake                  Use xmake')
+    print('Mode:')
+    print('  release                Release mode (default)')
+    print('  debug                  Debug mode')
+    print('  reldbg                 Release with debug infomation mode')
     print('Options:')
     print('  --config | -c          Configure build system')
     print('  --features | -f [[no-]features]  Add/remove features')
@@ -94,7 +100,7 @@ def print_help():
 
 def dump_build_system_args(config: dict):
     args = build_system_args(config)
-    with open(f"options.{config['build_system']}.{config['mode']}.cli", 'w') as f:
+    with open(f"options.{config['build_system']}.cli", 'w') as f:
         print('\n'.join(args), file=f)
 
 
@@ -110,12 +116,6 @@ def build_system_args_cmake(config: dict) -> List[str]:
         args.append('-DLUISA_COMPUTE_ENABLE_DX=ON')
     if 'metal' in config['features']:
         args.append('-DLUISA_COMPUTE_ENABLE_METAL=ON')
-    if config['mode'] == 'debug':
-        args.append('-DCMAKE_BUILD_TYPE=Debug')
-    elif config['mode'] == 'release':
-        args.append('-DCMAKE_BUILD_TYPE=Release')
-    elif config['mode'] == 'relwithdebuginfo':
-        args.append('-DCMAKE_BUILD_TYPE=RelWithDebInfo')
     return args
 
 
@@ -159,11 +159,19 @@ def main(args: List[str]):
     if len(args) == 1:
         print_help()
         return
-    i = 1
     config = get_config()
-    if i < len(args) and not args[i].startswith('-'):
-        config['build_system'] = args[i]
-        i += 1
+    for i, arg in enumerate(args):
+        if arg.lower() in ('cmake', 'xmake'):
+            config['build_system'] = arg.lower()
+            args.pop(i)
+            break
+    mode = "release"
+    for i, arg in enumerate(args):
+        if arg.lower() in ('debug', 'release', 'reldbg'):
+            mode = arg.lower()
+            args.pop(i)
+            break
+    i = 1
     run_config = False
     run_build = False
     build_jobs = multiprocessing.cpu_count()
@@ -173,6 +181,10 @@ def main(args: List[str]):
             if os.path.exists(config['output']):
                 import shutil
                 shutil.rmtree(config['output'])
+            if os.path.exists('options.cmake.cli'):
+                os.remove('options.cmake.cli')
+            if os.path.exists('options.xmake.cli'):
+                os.remove('options.xmake.cli')
             return
         elif opt == '--help' or opt == '-h':
             print_help()
@@ -185,11 +197,6 @@ def main(args: List[str]):
             i += 1
             if i < len(args) and not args[i].startswith('-'):
                 build_jobs = int(args[i])
-                i += 1
-        elif opt == '--mode' or opt == '-m':
-            i += 1
-            if i < len(args) and not args[i].lower() in ('debug', 'release', 'relwithdebuginfo'):
-                config['mode'] = args[i].lower()
                 i += 1
         elif opt == '--features' or opt == '-f':
             i += 1
@@ -240,9 +247,21 @@ def main(args: List[str]):
         args = build_system_args(config)
 
         if config['build_system'] == 'cmake':
+            cmake_mode = {
+                'debug': 'Debug',
+                'release': 'Release',
+                'reldbg': 'RelWithDebInfo'
+            }
+            args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
             p = Popen(['cmake', '..'] + args, cwd=output)
             p.wait()
         elif config['build_system'] == 'xmake':
+            xmake_mode = {
+                'debug': 'debug',
+                'release': 'release',
+                'reldbg': 'releasedbg'
+            }
+            args.append(f'-m {xmake_mode[mode]}')
             p = Popen(['xmake', 'f'] + args)
             p.wait()
         else:
