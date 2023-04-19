@@ -70,7 +70,6 @@ xmake
 - cpu_backend: Enable CPU backend (Default: true)
 - enable_tests: Enable Tests (Default: false)
 - py_path: Python's path for Python Module (Default: empty string, example: --py_path=C:/python)
-- py_version: Python's version for Python Module (Default: empty string, example: --py_version=3.10)
 - enable_rust: Rust module, auto enable if required (Default: false)
 - enable_dsl: C++ DSL module (Default: false)
 - enable_gui: Backend-native window and GUI support (Default: false)

@@ -4,36 +4,25 @@ local my_table = {
 	enable_exception = true
 }
 on_load(function(target)
-	local py_version = get_config("py_version")
+	local python_str = "python"
 	local py_path = get_config("py_path")
-	local version_table = {}
-	local function read_input()
-		if type(py_version) ~= "string" or string.len(py_version) == 0 then
-			return nil
-		end
-		for str in string.gmatch(py_version, "([^.]+)") do
-			table.insert(version_table, str)
-		end
-		if (table.getn(version_table) ~= 2) or version_table[1] ~= "3" then
-			return nil
-		end
-		local num = tonumber(version_table[2])
-		if num == nil then
-			return nil
-		end
-		return true
-	end
-
-	if read_input() then
-		local py_name = "python" .. version_table[1] .. version_table[2]
-		target:add("linkdirs", path.join(py_path, "libs"))
-		target:add("links", "python3", py_name)
-		target:add("includedirs", path.join(py_path, "include"))
+	local lib_path = path.join(py_path, "libs")
+	local lib_ext
+	if is_plat("windows") then
+		lib_ext = ".lib"
 	else
-		target:set("enabled", false)
-		utils.error("Illegal python version argument. please use argument like 3.9 (for python 3.9) or 3.10 (for python 3.10)")
-		return
+		lib_ext = ".a"
 	end
+	target:add("linkdirs", lib_path)
+	for _, filepath in ipairs(os.files(path.join(lib_path, "*")))do
+		local filename = path.filename(filepath)
+		local basename = path.basename(filename)
+		local ext = path.extension(filename)
+		if ext == lib_ext and basename:lower():sub(1, python_str:len()) == python_str then
+			target:add("links", basename)
+		end		
+	end
+	target:add("includedirs", path.join(py_path, "include"))
 end)
 
 _config_project(my_table)
