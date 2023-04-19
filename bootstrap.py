@@ -5,12 +5,31 @@ from subprocess import Popen
 from typing import List
 
 
+def get_default_features() -> List[str]:
+    # CPU and Remote are always enabled
+    features = ['cpu', 'remote']
+    # enable DirectX on Windows by default
+    if sys.platform == 'win32':
+        features.append('dx')
+    # enable Metal on macOS by default
+    if sys.platform == 'darwin':
+        features.append('metal')
+    # enable CUDA if available
+    if 'CUDA_PATH' in os.environ or os.system('nvcc --version') == 0:
+        features.append('cuda')
+    return features
+
+
+def get_all_dependencies() -> List[str]:
+    return ['rust']
+
+
 def default_config():
     return {
         'cmake_args': [],
         'xmake_args': [],
         'build_system': 'cmake',
-        'features': [],
+        'features': get_default_features(),
         'mode': 'release',
         'output': 'build',
     }
@@ -66,13 +85,16 @@ def print_help():
     print('  --build   | -b [N]     Build (N = number of jobs)')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
+    print('      Dependencies:')
+    print('          all                Install all dependencies as listed below')
+    print('          rust               Install Rust toolchain')
     print('  --output  | -o         Path to output directory')
     print('  -- [args]              Pass arguments to build system')
 
 
 def dump_build_system_args(config: dict):
     args = build_system_args(config)
-    with open(f"options.{config['mode']}.cli", 'w') as f:
+    with open(f"options.{config['build_system']}.{config['mode']}.cli", 'w') as f:
         print('\n'.join(args), file=f)
 
 
@@ -172,7 +194,7 @@ def main(args: List[str]):
         elif opt == '--features' or opt == '-f':
             i += 1
             while i < len(args) and not args[i].startswith('-'):
-                f = args[i]
+                f = args[i].lower()
                 if f.startswith('no-'):
                     f = f[3:]
                     if f in config['features']:
@@ -183,9 +205,14 @@ def main(args: List[str]):
                 i += 1
         elif opt == '--install' or opt == '-i':
             i += 1
+            deps = []
             while i < len(args) and not args[i].startswith('-'):
-                install_dep(args[i])
+                deps.append(args[i].lower())
                 i += 1
+            if "all" in deps:
+                deps = get_all_dependencies()
+            for d in deps:
+                install_dep(d)
         elif opt == '--output' or opt == '-o':
             config['output'] = args[i + 1]
             i += 2
