@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import sys
 from subprocess import Popen
@@ -9,7 +10,8 @@ def default_config():
         'cmake_args': [],
         'xmake_args': [],
         'build_system': 'cmake',
-        'backends': [],
+        'features': [],
+        'output': 'build',
     }
 
 
@@ -47,10 +49,50 @@ def print_help():
     print('  cmake                  Use CMake')
     print('  xmake                  Use xmake')
     print('Options:')
-    print('  --config [true|false]  Run config script')
-    print('  --backend [backends]   Add backends')
+    print('  --config               Configure build system')
+    print('  --features [features]  Add features')
+    print('  --build [N]            Build (N = number of jobs)')
+    print('  --clean                Clean build directory')
     print('  --install [deps]       Install dependencies')
+    print('  --output               Path to output directory')
     print('  -- [args]              Pass arguments to build system')
+
+
+def dump_build_system_args(config: dict):
+    args = build_system_args(config)
+    with open(f"{config['output']}/options.cli", 'w') as f:
+        print('\n'.join(args), file=f)
+
+
+def build_system_args_cmake(config: dict) -> List[str]:
+    args = config['cmake_args']
+    if 'cuda' in config['features']:
+        args.append('-DLUISA_COMPUTE_ENABLE_CUDA=ON')
+    if 'cpu' in config['features']:
+        args.append('-DLUISA_COMPUTE_ENABLE_CPU=ON')
+    if 'remote' in config['features']:
+        args.append('-DLUISA_COMPUTE_ENABLE_REMOTE=ON')
+    if 'dx' in config['features']:
+        args.append('-DLUISA_COMPUTE_ENABLE_DX=ON')
+    if 'metal' in config['features']:
+        args.append('-DLUISA_COMPUTE_ENABLE_METAL=ON')
+    return args
+
+
+def build_system_args_xmake(config: dict) -> List[str]:
+    args = config['xmake_args']
+    if 'cuda' in config['features']:
+        args.append('-c')
+    return args
+
+
+def build_system_args(config) -> List[str]:
+    if config['build_system'] == 'cmake':
+        return build_system_args_cmake(config)
+    elif config['build_system'] == 'xmake':
+        return build_system_args_xmake(config)
+    else:
+        raise ValueError(f'Unknown build system: {config["build_system"]}')
 
 
 def main(args: List[str]):
@@ -63,27 +105,28 @@ def main(args: List[str]):
         config['build_system'] = args[i]
         i += 1
     run_config = False
+    run_build = False
+    build_jobs = multiprocessing.cpu_count()
     while i < len(args):
         opt = args[i]
-        if opt == '--help' or opt == '-h':
+        if opt == '--clean':
+            if os.path.exists(config['output']):
+                import shutil
+                shutil.rmtree(config['output'])
+            return
+        elif opt == '--help' or opt == '-h':
             print_help()
             return
-        if opt == '--config' or opt == '-c':
-            if i + 1 < len(args):
-                if args[i + 1].startswith('-'):
-                    run_config = True
-                else:
-                    v = args[i + 1]
-                    if v == 'true':
-                        run_config = True
-                    elif v == 'false':
-                        run_config = False
-                    else:
-                        raise ValueError(f'Unknown value for --config: {v}')
-            else:
-                run_config = True
+        elif opt == '--config' or opt == '-c':
+            run_config = True
             i += 2
-        elif opt == '--backend' or opt == '-b':
+        elif opt == '--build' or opt == '-b':
+            run_build = run_config = True
+            i += 1
+            if i < len(args) and not args[i].startswith('-'):
+                build_jobs = int(args[i])
+                i += 1
+        elif opt == '--features' or opt == '-f':
             i += 1
             while i < len(args) and not args[i].startswith('-'):
                 config['backends'].append(args[i])
@@ -93,6 +136,9 @@ def main(args: List[str]):
             while i < len(args) and not args[i].startswith('-'):
                 install_dep(args[i])
                 i += 1
+        elif opt == '--output' or opt == '-o':
+            config['output'] = args[i + 1]
+            i += 2
         elif opt == "--":
             if config['build_system'] == 'cmake':
                 config['cmake_args'] = args[i + 1:]
@@ -107,15 +153,29 @@ def main(args: List[str]):
     import json
     with open('config.json', 'w') as f:
         json.dump(config, f, indent=4)
+
+    output = config['output']
+    if not os.path.exists(output):
+        os.mkdir(output)
+    dump_build_system_args(config)
     # config build system
     if run_config:
+        args = build_system_args(config)
+
         if config['build_system'] == 'cmake':
-            if not os.path.exists('build'):
-                os.mkdir('build')
-            p = Popen(['cmake', '..'] + config['cmake_args'], cwd='build')
+            p = Popen(['cmake', '..'] + args, cwd=output)
             p.wait()
         elif config['build_system'] == 'xmake':
-            os.system('xmake ' + ' '.join(config['xmake_args']))
+            p = Popen(['xmake', 'f'] + args)
+            p.wait()
+        else:
+            raise ValueError(f'Unknown build system: {config["build_system"]}')
+    if run_build:
+        if config['build_system'] == 'cmake':
+            p = Popen(['cmake', '--build', '.', '-j', str(build_jobs)], cwd=output)
+            p.wait()
+        elif config['build_system'] == 'xmake':
+            os.system('xmake build')
         else:
             raise ValueError(f'Unknown build system: {config["build_system"]}')
 
