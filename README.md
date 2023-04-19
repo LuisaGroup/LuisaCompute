@@ -112,7 +112,7 @@ We are also making a C API for creating other language bindings and frontends (e
 The easiest way to build LuisaCompute is to use the bootstrap script. It can even download and install the required dependencies and build the project.
 ```bash
 python bootstrap.py cmake -f cuda -b # build with CUDA backend using CMake
-python bootstrap.py xmake -f cuda -b -- -DCMAKE_BUILD_TYPE=RelWithDebInfo # everything after -- will be passed to CMake
+python bootstrap.py cmake -f cuda -b -- -DCMAKE_BUILD_TYPE=RelWithDebInfo # everything after -- will be passed to CMake
 ```
 
 To install certain dependencies, you can use the `--install` or `-i` option. For example, to install Rust, you can use:
