@@ -29,7 +29,9 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     uint64 constCount = 0;
     uint64 funcCount = 0;
     uint64 tempCount = 0;
-    uint64 bindlessBufferCount = 0;
+    bool useTex2DBindless = false;
+    bool useTex3DBindless = false;
+    bool useBufferBindless = false;
     uint64 structCount = 0;
     uint64 argOffset = 0;
     int64_t appdataId = -1;
@@ -48,7 +50,6 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
         Type const *retType,
         luisa::span<Expression const *const> exprs);
     void Clear();
-    void AddBindlessType(Type const *type);
     vstd::string_view CreateStruct(Type const *t);
     std::pair<uint64, bool> GetConstCount(uint64 data);
     uint64 GetFuncCount(void const *data);

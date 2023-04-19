@@ -49,6 +49,9 @@ Shader::Shader(
             case hlsl::ShaderVariableType::SampHeap:
                 v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
                 break;
+            default:
+                assert(false);
+                break;
         }
         v.descriptorCount = i.arrSize;
         v.stageFlags = stage_bits;
@@ -60,7 +63,7 @@ Shader::Shader(
     for (auto &&i : bindings) {
         VkDescriptorSetLayoutCreateInfo descriptorLayout{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = static_cast<uint>(bindings.size()),
+            .bindingCount = static_cast<uint>(i.size()),
             .pBindings = i.data()};
         auto &r = descriptorSetLayouts.emplace_back();
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device->logic_device(), &descriptorLayout, nullptr, &r));

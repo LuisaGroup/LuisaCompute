@@ -124,6 +124,7 @@ CompileResult ShaderCompiler::compile_compute(
     args.emplace_back(smStr.c_str());
     AddCompileFlags(args);
     if (spirv) {
+        args.emplace_back(L"/DSPV");
         args.emplace_back(L"-spirv");
     }
     if (enableUnsafeMath) {
@@ -148,6 +149,7 @@ RasterBin ShaderCompiler::compile_raster(
     vstd::fixed_vector<LPCWSTR, 32> args;
     AddCompileFlags(args);
     if (spirv) {
+        args.emplace_back(L"/DSPV");
         args.emplace_back(L"-spirv");
     }
     if (enableUnsafeMath) {

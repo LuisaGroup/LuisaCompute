@@ -23,16 +23,20 @@ struct CodegenResult {
     using Properties = vstd::vector<Property>;
     vstd::StringBuilder result;
     Properties properties;
-    uint64 bdlsBufferCount = 0;
+    bool useTex2DBindless;
+    bool useTex3DBindless;
+    bool useBufferBindless;
     uint64 immutableHeaderSize = 0;
     vstd::MD5 typeMD5;
     CodegenResult() {}
     CodegenResult(
         vstd::StringBuilder &&result,
         Properties &&properties,
-        uint64 bdlsBufferCount,
+        bool useTex2DBindless,
+        bool useTex3DBindless,
+        bool useBufferBindless,
         uint64 immutableHeaderSize,
-        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), bdlsBufferCount(bdlsBufferCount), immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
+        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
     CodegenResult(CodegenResult const &) = delete;
     CodegenResult(CodegenResult &&) = default;
 };
@@ -81,9 +85,10 @@ public:
         vstd::StringBuilder &result);
     void GenerateBindless(
         CodegenResult::Properties &properties,
-        vstd::StringBuilder &str);
+        vstd::StringBuilder &str,
+        bool isSpirV);
     void PreprocessCodegenProperties(CodegenResult::Properties &properties, vstd::StringBuilder &varData, RegisterIndexer &registerCount, bool cbufferNonEmpty,
-                                     bool isRaster);
+                                     bool isRaster, bool isSpirv);
     void PostprocessCodegenProperties(vstd::StringBuilder &finalResult);
     void CodegenProperties(
         CodegenResult::Properties &properties,

@@ -5,7 +5,9 @@
 #include <vstl/common.h>
 #include <backends/common/default_binary_io.h>
 #include "../allocator/vk_allocator.h"
-
+namespace lc::hlsl {
+class ShaderCompiler;
+}
 namespace lc::vk {
 using namespace luisa;
 using namespace luisa::compute;
@@ -25,6 +27,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     void _init_device(uint32_t selectedDevice);
 
 public:
+    static hlsl::ShaderCompiler *Compiler();
     VkInstance instance() const;
     auto &allocator() { return *_allocator; }
     auto physical_device() const { return _vk_device->physicalDevice; }

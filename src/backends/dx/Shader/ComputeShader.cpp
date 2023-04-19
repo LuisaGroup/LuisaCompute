@@ -31,7 +31,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
 
     if (result) {
         auto md5 = hlsl::CodegenUtility::GetTypeMD5(types);
-        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);\
+        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
         if (oldDeleted) {
             result->SavePSO(result->Pso(), psoName, fileIo, device);
         }
@@ -77,6 +77,10 @@ ComputeShader *ComputeShader::CompileCompute(
         return compResult.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
+                uint bdlsBufferCount = 0;
+                if (str.useBufferBindless) bdlsBufferCount++;
+                if (str.useTex2DBindless) bdlsBufferCount++;
+                if (str.useTex3DBindless) bdlsBufferCount++;
                 auto kernelArgs = [&] {
                     if (kernel.builder() == nullptr) {
                         return vstd::vector<SavedArgument>();
@@ -91,7 +95,7 @@ ComputeShader *ComputeShader::CompileCompute(
                         {buffer->data(), buffer->size()},
                         md5,
                         str.typeMD5,
-                        str.bdlsBufferCount,
+                        bdlsBufferCount,
                         blockSize);
                     WriteBinaryIO(cacheType, fileIo, fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
                 }
@@ -103,7 +107,7 @@ ComputeShader *ComputeShader::CompileCompute(
                      buffer->size()},
                     std::move(bindings),
                     device);
-                cs->bindlessCount = str.bdlsBufferCount;
+                cs->bindlessCount = bdlsBufferCount;
                 if (WriteCache) {
                     cs->SavePSO(cs->Pso(), psoName, fileIo, device);
                 }
@@ -166,13 +170,17 @@ void ComputeShader::SaveCompute(
     compResult.multi_visit(
         [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);
+            uint bdlsBufferCount = 0;
+            if (str.useBufferBindless) bdlsBufferCount++;
+            if (str.useTex2DBindless) bdlsBufferCount++;
+            if (str.useTex3DBindless) bdlsBufferCount++;
             auto serData = ShaderSerializer::Serialize(
                 str.properties,
                 kernelArgs,
                 {buffer->data(), buffer->size()},
                 md5,
                 str.typeMD5,
-                str.bdlsBufferCount,
+                bdlsBufferCount,
                 blockSize);
             fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
         },

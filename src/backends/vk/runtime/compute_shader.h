@@ -38,6 +38,7 @@ public:
         uint3 blockSize,
         vstd::string_view file_name,
         SerdeType serde_type,
-        bool unsafe_mat);
+        uint shader_model,
+        bool unsafe_math);
 };
 }// namespace lc::vk

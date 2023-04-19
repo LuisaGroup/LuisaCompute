@@ -8,8 +8,13 @@
 #include "serde_type.h"
 #include <runtime/context_paths.h>
 #include <backends/common/hlsl/binding_to_arg.h>
+#include <backends/common/hlsl/shader_compiler.h>
 
 namespace lc::vk {
+static std::mutex gDxcMutex;
+static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
+static int32 gDxcRefCount = 0;
+
 using namespace std::string_literals;
 namespace detail {
 struct Settings {
@@ -228,7 +233,7 @@ void Device::destroy_accel(uint64_t handle) noexcept {
 //////////////// Not implemented area
 Device::Device(Context &&ctx, DeviceConfig const *configs)
     : DeviceInterface{std::move(ctx)},
-      _default_file_io{_ctx, "vk"sv} {
+      _default_file_io{_ctx, "dx"sv} {
     bool headless = false;
     uint device_idx = 0;
     if (configs) {
@@ -257,6 +262,12 @@ Device::Device(Context &&ctx, DeviceConfig const *configs)
     // }
     if (!_binary_io) {
         _binary_io = &_default_file_io;
+    }
+    {
+        std::lock_guard lck(gDxcMutex);
+        if (gDxcRefCount == 0)
+            gDxcCompiler.create(_ctx.paths().runtime_directory());
+        gDxcRefCount++;
     }
 }
 void Device::_init_device(uint32_t selectedDevice) {
@@ -346,6 +357,10 @@ bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
+    std::lock_guard lck(gDxcMutex);
+    if (--gDxcRefCount == 0) {
+        gDxcCompiler.destroy();
+    }
 }
 void *Device::native_handle() const noexcept { return _vk_device->logicalDevice; }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept { return BufferCreationInfo::make_invalid(); }
@@ -394,18 +409,19 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     } else {
         file_name = option.name;
         serde_type = SerdeType::ByteCode;
-        auto res = ComputeShader::compile(
-            _binary_io,
-            this,
-            kernel,
-            [&]() { return std::move(code); },
-            code_md5,
-            hlsl::binding_to_arg(kernel.bound_arguments()),
-            kernel.block_size(),
-            file_name,
-            serde_type,
-            option.enable_fast_math);
     }
+    auto res = ComputeShader::compile(
+        _binary_io,
+        this,
+        kernel,
+        [&]() { return std::move(code); },
+        code_md5,
+        hlsl::binding_to_arg(kernel.bound_arguments()),
+        kernel.block_size(),
+        file_name,
+        serde_type,
+        65,
+        option.enable_fast_math);
     // TODO: shader load
     return info;
 }
@@ -453,6 +469,9 @@ VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
         vkGetPhysicalDeviceProperties(i, &_device_properties);
         r.emplace_back(_device_properties.deviceName);
     }
+}
+hlsl::ShaderCompiler *Device::Compiler() {
+    return gDxcCompiler.ptr();
 }
 VkInstance Device::instance() const {
     return detail::vk_instance;

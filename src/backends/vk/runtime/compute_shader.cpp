@@ -5,6 +5,9 @@
 #include <core/stl/filesystem.h>
 #include "shader_serializer.h"
 #include <core/logging.h>
+#include <backends/common/hlsl/shader_compiler.h>
+
+static constexpr bool PRINT_CODE = false;
 
 namespace lc::vk {
 ComputeShader::ComputeShader(
@@ -67,12 +70,64 @@ ComputeShader *ComputeShader::compile(
     uint3 blockSize,
     vstd::string_view file_name,
     SerdeType serde_type,
-    bool unsafe_mat) {
+    uint shader_model,
+    bool unsafe_math) {
 
     auto result = ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
     // cache invalid, need compile
+    bool write_cache = !file_name.empty();
     if (!result.shader) {
-
+        auto str = codegen();
+        vstd::MD5 md5;
+        if (write_cache) {
+            if (code_md5) {
+                md5 = *code_md5;
+            } else {
+                md5 = vstd::MD5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
+            }
+        }
+        if constexpr (PRINT_CODE) {
+            auto f = fopen("hlsl_output.hlsl", "ab");
+            fwrite(str.result.data(), str.result.size(), 1, f);
+            fclose(f);
+        }
+        auto comp_result = Device::Compiler()->compile_compute(
+            str.result.view(),
+            true,
+            shader_model,
+            unsafe_math,
+            true);
+        return comp_result.multi_visit_or(
+            vstd::UndefEval<ComputeShader *>{},
+            [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
+                auto shader = new ComputeShader(
+                    device,
+                    str.properties,
+                    {reinterpret_cast<const uint *>(buffer->data()), buffer->size()},
+                    std::move(bindings),
+                    {});
+                if (write_cache) {
+                    ShaderSerializer::serialize_bytecode(
+                        shader,
+                        md5,
+                        vstd::MD5(vstd::MD5::MD5Data{0, 0}),
+                        kernel.block_size(),
+                        file_name,
+                        {reinterpret_cast<const uint *>(buffer->data()), buffer->size()},
+                        serde_type,
+                        bin_io);
+                    ShaderSerializer::serialize_pso(
+                        device,
+                        shader,
+                        md5,
+                        bin_io);
+                }
+                return shader;
+            },
+            [](auto &&err) {
+                LUISA_ERROR("Compile Error: {}", err);
+                return nullptr;
+            });
     }
     return nullptr;
 }

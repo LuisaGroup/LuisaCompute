@@ -462,7 +462,7 @@ public:
                 bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
             }
             DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
-            vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
+            vstd::push_back_func(*bindProps, shader->BindlessCount(), [&] { return globalHeapView; });
             Visitor visitor{this, cs->Args().data()};
             DecodeCmd(shader->ArgBindings(), visitor);
             DecodeCmd(cmd->arguments(), visitor);

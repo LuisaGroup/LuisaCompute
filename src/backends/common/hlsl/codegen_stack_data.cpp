@@ -36,10 +36,9 @@ void CodegenStackData::Clear() {
     structCount = 0;
     funcCount = 0;
     tempCount = 0;
-    bindlessBufferCount = 0;
-}
-void CodegenStackData::AddBindlessType(Type const *type) {
-    bindlessBufferCount = 1;
+    useTex2DBindless = false;
+    useTex3DBindless = false;
+    useBufferBindless = false;
 }
 /*
 static thread_local bool gIsCodegenSpirv = false;

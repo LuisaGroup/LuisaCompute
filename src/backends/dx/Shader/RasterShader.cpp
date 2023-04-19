@@ -312,6 +312,10 @@ RasterShader *RasterShader::CompileRaster(
     bool enableUnsafeMath) {
     auto CompileNewCompute = [&](bool writeCache) -> RasterShader * {
         auto str = codegen();
+        uint bdlsBufferCount = 0;
+        if (str.useBufferBindless) bdlsBufferCount++;
+        if (str.useTex2DBindless) bdlsBufferCount++;
+        if (str.useTex3DBindless) bdlsBufferCount++;
         if constexpr (RasterShaderDetail::PRINT_CODE) {
             auto f = fopen("hlsl_output.hlsl", "ab");
             fwrite(str.result.data(), str.result.size(), 1, f);
@@ -339,8 +343,9 @@ RasterShader *RasterShader::CompileRaster(
         };
         auto vertBin = GetVector(*compResult.vertex.get<0>());
         auto pixelBin = GetVector(*compResult.pixel.get<0>());
+
         if (writeCache) {
-            auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
+            auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
             WriteBinaryIO(cacheType, fileIo, fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
         }
 
@@ -352,7 +357,7 @@ RasterShader *RasterShader::CompileRaster(
             meshFormat,
             std::move(vertBin),
             std::move(pixelBin));
-        s->bindlessCount = str.bdlsBufferCount;
+        s->bindlessCount = bdlsBufferCount;
         return s;
     };
 
@@ -407,7 +412,11 @@ void RasterShader::SaveRaster(
     };
     auto vertBin = GetSpan(*compResult.vertex.get<0>());
     auto pixelBin = GetSpan(*compResult.pixel.get<0>());
-    auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
+    uint bdlsBufferCount = 0;
+    if (str.useBufferBindless) bdlsBufferCount++;
+    if (str.useTex2DBindless) bdlsBufferCount++;
+    if (str.useTex3DBindless) bdlsBufferCount++;
+    auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
     fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
 }
 RasterShader *RasterShader::LoadRaster(

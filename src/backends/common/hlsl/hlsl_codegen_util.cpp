@@ -780,7 +780,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::BINDLESS_BUFFER_READ: {
             str << "READ_BUFFER"sv;
-            opt->AddBindlessType(expr->type());
+            opt->useBufferBindless = true;
             str << '(';
             for (auto &&i : args) {
                 i->accept(vis);
@@ -797,6 +797,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE:
+            opt->useTex2DBindless = true;
             if (opt->isPixelShader) {
                 str << "SampleTex2DPixel"sv;
             } else {
@@ -805,42 +806,55 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
 
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
+            opt->useTex2DBindless = true;
             str << "SampleTex2DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
+            opt->useTex2DBindless = true;
             str << "SampleTex2DGrad"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE:
+            opt->useTex3DBindless = true;
             str << "SampleTex3D"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
+            opt->useTex3DBindless = true;
             str << "SampleTex3DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
+            opt->useTex3DBindless = true;
             str << "SampleTex3DGrad"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_READ:
+            opt->useTex2DBindless = true;
             str << "ReadTex2D"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_READ_LEVEL:
+            opt->useTex2DBindless = true;
             str << "ReadTex2DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_READ:
+            opt->useTex3DBindless = true;
             str << "ReadTex3D"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_READ_LEVEL:
+            opt->useTex3DBindless = true;
             str << "ReadTex3DLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE:
+            opt->useTex2DBindless = true;
             str << "Tex2DSize"sv;
             break;
         case CallOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
+            opt->useTex2DBindless = true;
             str << "Tex2DSizeLevel"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE:
+            opt->useTex3DBindless = true;
             str << "Tex3DSize"sv;
             break;
         case CallOp::BINDLESS_TEXTURE3D_SIZE_LEVEL:
+            opt->useTex3DBindless = true;
             str << "Tex3DSizeLevel"sv;
             break;
         case CallOp::SYNCHRONIZE_BLOCK:
@@ -1359,41 +1373,73 @@ void CodegenUtility::GenerateCBuffer(
 StructuredBuffer<Args> _Global:register(t0);
 )"sv;
 }
-#ifdef USE_SPIRV
-void CodegenUtility::GenerateBindlessSpirv(
-    vstd::StringBuilder &str) {
-    for (auto &&i : opt->bindlessBufferTypes) {
-        str << "StructuredBuffer<"sv;
-        if (i.first->is_matrix()) {
-            auto n = i.first->dimension();
-            str << luisa::format("WrappedFloat{}x{}", n, n);
-        } else if (i.first->is_vector() && i.first->dimension() == 3) {
-            str << "float4"sv;
-        } else {
-            GetTypeName(*i.first, str, Usage::READ);
-        }
-        vstd::StringBuilder instName("bdls"sv);
-        vstd::to_string(i.second, instName);
-        str << "> " << instName << "[]:register(t0,space1);"sv;
-    }
-}
-#endif
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
-    vstd::StringBuilder &str) {
-    if (opt->bindlessBufferCount > 0) {
-        str << "ByteAddressBuffer bdls[]:register(t0,space3);\n"sv;
+    vstd::StringBuilder &str,
+    bool isSpirV) {
+    uint table_idx = isSpirV ? 2 : 1;
+    auto add_prop = [&](ShaderVariableType svt) {
         properties.emplace_back(
             Property{
-                ShaderVariableType::SRVBufferHeap,
-                static_cast<uint>(3u),
+                svt,
+                table_idx,
                 0u, std::numeric_limits<uint>::max()});
+    };
+
+    if (opt->useBufferBindless) {
+        str << "ByteAddressBuffer bdls[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
+        add_prop(ShaderVariableType::SRVBufferHeap);
+        table_idx++;
+    }
+    if (opt->useTex2DBindless) {
+        str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
+        add_prop(ShaderVariableType::SRVTextureHeap);
+        table_idx++;
+        str << R"(template<typename Idx>
+float4 SampleTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp2D)];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].SampleLevel(samp,uv,level);}
+template<typename Idx>
+float4 SampleTex2D(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){return SampleTex2DLevel(arr,index,uv,0);}
+template<typename Idx>
+float4 SampleTex2DGrad(const BINDLESS_ARRAY arr,const Idx index,const float2 uv,const float2 ddx,const float2 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp2D)];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].SampleGrad(samp,uv,ddx,ddy);}
+#ifdef PS
+template<typename Idx>
+float4 SampleTex2DPixel(const BINDLESS_ARRAY arr,const Idx index,const float2 uv){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp2D)];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].Sample(samp,uv);}
+#endif
+template<typename Idx,typename Lvl,typename Coord>
+float4 ReadTex2DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex[NonUniformResourceIndex(s.tex2D)].Load(uint3(coord,level));}
+template<typename Idx,typename Coord>
+float4 ReadTex2D(const BINDLESS_ARRAY arr,const Idx index,const Coord coord){return ReadTex2DLevel(arr,index,coord,0);}
+template<typename Idx>
+uint2 Tex2DSize(const BINDLESS_ARRAY arr,const Idx index){BdlsStruct s=arr[index];return uint2(s.tex2DX,s.tex2DY);}
+template<typename Idx,typename Lvl>
+uint2 Tex2DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex2DSize(arr,index)>>level,1u);}
+)"sv;
+    }
+    if (opt->useTex3DBindless) {
+        str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");\n"sv;
+        add_prop(ShaderVariableType::SRVTextureHeap);
+        table_idx++;
+        str << R"(template<typename Idx>
+float4 SampleTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float level){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp3D)];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].SampleLevel(samp,uv,level);}
+template<typename Idx>
+float4 SampleTex3D(const BINDLESS_ARRAY arr,const Idx index,const float3 uv){return SampleTex3DLevel(arr,index,uv,0);}
+template<typename Idx>
+float4 SampleTex3DGrad(const BINDLESS_ARRAY arr,const Idx index,const float3 uv,const float3 ddx,const float3 ddy){BdlsStruct s=arr[index];SamplerState samp=samplers[NonUniformResourceIndex(s.samp3D)];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].SampleGrad(samp,uv,ddx,ddy);}
+template<typename Idx,typename Lvl,typename Coord>
+float4 ReadTex3DLevel(const BINDLESS_ARRAY arr,const Idx index,const Coord coord,const Lvl level){BdlsStruct s=arr[index];return _BindlessTex3D[NonUniformResourceIndex(s.tex3D)].Load(uint4(coord,level));}
+template<typename Idx,typename Coord>
+float4 ReadTex3D(const BINDLESS_ARRAY arr,const Idx index,const Coord coord){return ReadTex3DLevel(arr,index,coord,0);}
+template<typename Idx>
+uint3 Tex3DSize(const BINDLESS_ARRAY arr,const Idx index){BdlsStruct s=arr[index];return uint3(s.tex3DX,s.tex3DY,s.tex3DZ);}
+template<typename Idx,typename Lvl>
+uint3 Tex3DSizeLevel(const BINDLESS_ARRAY arr,const Idx index,const Lvl level){return max(Tex3DSize(arr,index)>>level,1u);}
+)"sv;
     }
 }
 
 void CodegenUtility::PreprocessCodegenProperties(
     CodegenResult::Properties &properties, vstd::StringBuilder &varData, RegisterIndexer &registerCount, bool cbufferNonEmpty,
-    bool isRaster) {
+    bool isRaster, bool isSpirv) {
     // 1,0,0
     registerCount.init();
     properties.emplace_back(
@@ -1419,20 +1465,7 @@ void CodegenUtility::PreprocessCodegenProperties(
                 0,
                 1});
     }
-    properties.emplace_back(
-        Property{
-            ShaderVariableType::SRVTextureHeap,
-            1,
-            0,
-            std::numeric_limits<uint>::max()});
-    properties.emplace_back(
-        Property{
-            ShaderVariableType::SRVTextureHeap,
-            2,
-            0,
-            std::numeric_limits<uint>::max()});
-
-    GenerateBindless(properties, varData);
+    GenerateBindless(properties, varData, isSpirv);
 }
 void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResult) {
     if (!opt->customStruct.empty()) {
@@ -1610,14 +1643,16 @@ uint4 dsp_c;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false, isSpirV);
     CodegenProperties(properties, varData, kernel, 0, indexer);
     PostprocessCodegenProperties(finalResult);
     finalResult << varData << codegenData;
     return {
         std::move(finalResult),
         std::move(properties),
-        opt->bindlessBufferCount,
+        opt->useTex2DBindless,
+        opt->useTex3DBindless,
+        opt->useBufferBindless,
         immutableHeaderSize,
         GetTypeMD5(kernel)};
 }
@@ -1774,7 +1809,7 @@ uint iid:SV_INSTANCEID;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true, isSpirV);
     CodegenProperties(properties, varData, vertFunc, 1, indexer);
     CodegenProperties(properties, varData, pixelFunc, 1, indexer);
     PostprocessCodegenProperties(finalResult);
@@ -1782,7 +1817,9 @@ uint iid:SV_INSTANCEID;
     return {
         std::move(finalResult),
         std::move(properties),
-        opt->bindlessBufferCount,
+        opt->useTex2DBindless,
+        opt->useTex3DBindless,
+        opt->useBufferBindless,
         immutableHeaderSize,
         GetTypeMD5(funcs)};
 }
