@@ -97,9 +97,8 @@ We are also making a C API for creating other language bindings and frontends (e
 
 > Note: LuisaCompute is a *rendering framework* rather than a *renderer* itself. It is designed to provide general computation functionalities on modern stream-processing hardware, on which high-performance, cross-platform graphics applications can be easily built. If you would like to just try out a Monte Carlo renderer out of the box rather than building one from the scratch, please see [LuisaRender](https://github.com/LuisaGroup/LuisaRender).
 
-LuisaCompute follows the standard [XMake](https://xmake.io/) and [CMake](https://cmake.org/) build process. Basically these steps:
-
-- Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and LLVM on all the major platforms. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
+### Preparation
+- Check your hardware and platform. Currently, we support CUDA on Linux and Windows; DirectX on Windows; Metal on macOS; and CPU on all the major platforms. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
 
 - Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 7.1+, you may need to, for example, upgrade your VS to 2019 or 2022, and install CUDA 11.0+.
 
@@ -108,6 +107,26 @@ LuisaCompute follows the standard [XMake](https://xmake.io/) and [CMake](https:/
     git clone -b next https://github.com/LuisaGroup/LuisaCompute.git/ --recursive
     ```
   Since we use Git submodules to manage third-party dependencies, a `--recursive` clone is required.
+
+### Build via bootstrap script
+The easiest way to build LuisaCompute is to use the bootstrap script. It can even download and install the required dependencies and build the project.
+```bash
+python bootstrap.py cmake -f cuda -b # build with CUDA backend using CMake
+python bootstrap.py xmake -f cuda -b -- -DCMAKE_BUILD_TYPE=RelWithDebInfo # everything after -- will be passed to CMake
+```
+
+To install certain dependencies, you can use the `--install` or `-i` option. For example, to install Rust, you can use:
+```bash
+python bootstrap.py -i rust
+```
+
+Alternatively, the bootstrap script can output a configuration file for build system without actually building the project. This is useful when you want to use the project inside IDE.
+```bash
+python bootstrap.py cmake -f cuda -c -o cmake-build-release # generate CMake configuration in ./cmake-build-release
+```
+
+### Build from source using XMake/CMake
+LuisaCompute follows the standard [XMake](https://xmake.io/) and [CMake](https://cmake.org/) build process. 
 
 See also [BUILD.md](BUILD.md) for details on platform requirements, configuration options, and other precautions.
 
