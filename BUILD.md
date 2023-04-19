@@ -3,17 +3,17 @@
 ## Requirements
 ### C++ with XMake
 
-- [xmake](https://xmake.io/) 2.7.3+
+- [xmake](https://xmake.io/) 2.7.8+
 - 64-bit OS supported only.
-- C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
-    - MSVC and Clang-CL (Clang with CL-style command-line options) are recommended and tested on Windows
+- C++ compilers with C++20 support (e.g., Clang-15, GCC-11, MSVC-17)
+    - LLVM toolchain is recommended and well-tested
 
 ### C++ with CMake
 
 - [CMake](https://cmake.org/) 3.20+
 - Ninja is recommended and required for Rust frontend
-- C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
-    - MSVC and Clang-CL (Clang with CL-style command-line options) are recommended and tested on Windows
+- C++ compilers with C++20 support (e.g., Clang-15, GCC-11, MSVC-17)
+    - LLVM toolchain is recommended and well-tested
 - On Linux, `uuid-dev` is required to build the core libraries and the following libraries are required for the GUI module:
     - libopencv-dev
     - libglfw3-dev
@@ -68,14 +68,13 @@ xmake
 - metal_backend: Enable Metal backend (Default: true, Mac-OS platform only)
 - vk_backend: Enable Vulkan backend (Default: true)
 - cpu_backend: Enable CPU backend (Default: true)
-- enable_tools: Additional tools (Default: false)
 - enable_tests: Enable Tests (Default: false)
 - py_path: Python's path for Python Module (Default: empty string, example: --py_path=C:/python)
 - py_version: Python's version for Python Module (Default: empty string, example: --py_version=3.10)
 - enable_rust: Rust module, auto enable if required (Default: false)
 - enable_dsl: C++ DSL module (Default: false)
 - enable_gui: Backend-native window and GUI support (Default: false)
-- enable_unity3d_plugin: Unity3D native rendering plugin example (Default: false)
+- bin_dir: set binary output directory (Default: xmake's default directory)
 
 ### XMake Config
 

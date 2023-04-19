@@ -51,12 +51,6 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
--- enable tools module
-option("enable_tools")
-set_values(true, false)
-set_default(false)
-set_showmenu(true)
-option_end()
 -- enable tests module
 option("enable_tests")
 set_values(true, false)
@@ -97,10 +91,9 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
--- enable Unity3D plugin module
-option("enable_unity3d_plugin")
-set_values(true, false)
-set_default(false)
+-- custom bin dir
+option("bin_dir")
+set_default("")
 set_showmenu(true)
 option_end()
 -- pre-defined options end
@@ -131,17 +124,20 @@ if is_arch("x64", "x86_64", "arm64") then
 	LCEnableRust = LCEnableIR or LCEnableAPI
 	local py_version = get_config("py_version")
 	local py_path = get_config("py_path")
-	LCEnablePython = type(py_path) == "string" and string.len(py_path) > 0
+	local function legal_str(s)
+		return type(s) == "string" and s:len() > 0
+	end
+	LCEnablePython = legal_str(py_path)
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
-	local external_build = os.projectdir() ~= os.scriptdir()
-	if not external_build then
+	local bin_dir = get_config("bin_dir")
+	if legal_str(bin_dir) then
 		if is_mode("debug") then
-			set_targetdir("bin/debug")
+			bin_dir = path.join(bin_dir, "debug")
 		else
-			set_targetdir("bin/release")
+			bin_dir = path.join(bin_dir, "release")
 		end
 	end
-
+	set_targetdir(bin_dir)
 	includes("xmake_func.lua")
 	includes("src")
 else

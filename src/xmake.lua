@@ -21,9 +21,6 @@ includes("backends")
 if LCEnableTest then
 	includes("tests")
 end
-if get_config("enable_tools") then
-	includes("tools")
-end
 if LCEnableRust then
 	includes("rust")
 end
@@ -32,7 +29,4 @@ if LCEnableIR then
 end
 if LCEnableAPI then
 	includes("api")
-end
-if get_config("enable_unity3d_plugin") then
-	includes("unity3d")
 end
