@@ -24,15 +24,18 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
       _io{nullptr},
       _inqueue_buffer_limit{config == nullptr || config->inqueue_buffer_limit} {
 
-    auto pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
     auto device_index = config == nullptr ? 0u : config->device_index;
     auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
     auto device_count = all_devices->count();
     LUISA_ASSERT(device_index < device_count,
                  "Metal device index out of range.");
     _handle = all_devices->object<MTL::Device>(device_index)->retain();
-    LUISA_INFO("Metal device #{}: {}", device_index,
-               _handle->name()->utf8String());
+    LUISA_ASSERT(_handle->supportsFamily(MTL::GPUFamilyMetal3),
+                 "Metal device '{}' at index {} does not support Metal 3.",
+                 _handle->name()->utf8String(), device_index);
+
+    LUISA_INFO("Metal device '{}' at index {}",
+               _handle->name()->utf8String(), device_index);
 
     // create a default binary IO if none is provided
     if (config == nullptr || config->binary_io == nullptr) {
@@ -93,14 +96,18 @@ void *MetalDevice::native_handle() const noexcept {
 }
 
 BufferCreationInfo MetalDevice::create_buffer(const Type *element, size_t elem_count) noexcept {
-    auto elem_size = MetalCodegenAST::type_size_bytes(element);
-    return create_device_buffer(_handle, elem_size, elem_count);
+    return with_autorelease_pool([=, this] {
+        auto elem_size = MetalCodegenAST::type_size_bytes(element);
+        return create_device_buffer(_handle, elem_size, elem_count);
+    });
 }
 
 BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept {
 #ifdef LUISA_ENABLE_IR
-    auto elem_size = MetalCodegenIR::type_size_bytes(element->get());
-    return create_device_buffer(_handle, elem_size, elem_count);
+    return with_autorelease_pool([=, this] {
+        auto elem_size = MetalCodegenIR::type_size_bytes(element->get());
+        return create_device_buffer(_handle, elem_size, elem_count);
+    });
 #else
     LUISA_WARNING_WITH_LOCATION("IR is not enabled. Returning an invalid buffer.");
     return BufferCreationInfo::make_invalid();
@@ -108,98 +115,128 @@ BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
 }
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
-    auto buffer = reinterpret_cast<MTL::Buffer *>(handle);
-    buffer->release();
+    with_autorelease_pool([=] {
+        auto buffer = reinterpret_cast<MTL::Buffer *>(handle);
+        buffer->release();
+    });
 }
 
 ResourceCreationInfo MetalDevice::create_texture(PixelFormat format, uint dimension,
                                                  uint width, uint height, uint depth,
                                                  uint mipmap_levels) noexcept {
-    auto texture = new_with_allocator<MetalTexture>(
-        _handle, format, dimension, width, height, depth, mipmap_levels);
-    ResourceCreationInfo info{};
-    info.handle = reinterpret_cast<uint64_t>(texture);
-    info.native_handle = texture;
-    return info;
+    return with_autorelease_pool([=, this] {
+        auto texture = new_with_allocator<MetalTexture>(
+            _handle, format, dimension, width, height, depth, mipmap_levels);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(texture);
+        info.native_handle = texture;
+        return info;
+    });
 }
 
 void MetalDevice::destroy_texture(uint64_t handle) noexcept {
-    auto texture = reinterpret_cast<MetalTexture *>(handle);
-    delete_with_allocator(texture);
+    with_autorelease_pool([=] {
+        auto texture = reinterpret_cast<MetalTexture *>(handle);
+        delete_with_allocator(texture);
+    });
 }
 
 ResourceCreationInfo MetalDevice::create_bindless_array(size_t size) noexcept {
-    auto array = new_with_allocator<MetalBindlessArray>(this, size);
-    ResourceCreationInfo info{};
-    info.handle = reinterpret_cast<uint64_t>(array);
-    info.native_handle = array;
-    return info;
+    return with_autorelease_pool([=, this] {
+        auto array = new_with_allocator<MetalBindlessArray>(this, size);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(array);
+        info.native_handle = array;
+        return info;
+    });
 }
 
 void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
-    auto array = reinterpret_cast<MetalBindlessArray *>(handle);
-    delete_with_allocator(array);
+    with_autorelease_pool([=] {
+        auto array = reinterpret_cast<MetalBindlessArray *>(handle);
+        delete_with_allocator(array);
+    });
 }
 
 ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
-    auto stream = new_with_allocator<MetalStream>(
-        _handle, stream_tag, _inqueue_buffer_limit ? 16u : 0u);
-    ResourceCreationInfo info{};
-    info.handle = reinterpret_cast<uint64_t>(stream);
-    info.native_handle = stream;
-    return info;
+    return with_autorelease_pool([=, this] {
+        auto stream = new_with_allocator<MetalStream>(
+            _handle, stream_tag, _inqueue_buffer_limit ? 16u : 0u);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(stream);
+        info.native_handle = stream;
+        return info;
+    });
 }
 
 void MetalDevice::destroy_stream(uint64_t handle) noexcept {
-    auto stream = reinterpret_cast<MetalStream *>(handle);
-    delete_with_allocator(stream);
+    with_autorelease_pool([=] {
+        auto stream = reinterpret_cast<MetalStream *>(handle);
+        delete_with_allocator(stream);
+    });
 }
 
 void MetalDevice::synchronize_stream(uint64_t stream_handle) noexcept {
-    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
-    stream->synchronize();
+    with_autorelease_pool([=] {
+        auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+        stream->synchronize();
+    });
 }
 
 void MetalDevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
-    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
-    stream->dispatch(std::move(list));
+    with_autorelease_pool([stream_handle, &list] {
+        auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+        stream->dispatch(std::move(list));
+    });
 }
 
 SwapChainCreationInfo MetalDevice::create_swap_chain(uint64_t window_handle, uint64_t stream_handle,
                                                      uint width, uint height, bool allow_hdr,
                                                      bool vsync, uint back_buffer_size) noexcept {
-    auto swapchain = new_with_allocator<MetalSwapchain>(
-        this, window_handle, width, height,
-        allow_hdr, vsync, back_buffer_size);
-    SwapChainCreationInfo info{};
-    info.handle = reinterpret_cast<uint64_t>(swapchain);
-    info.native_handle = swapchain;
-    info.storage = swapchain->pixel_storage();
-    return info;
+    return with_autorelease_pool([=, this] {
+        auto swapchain = new_with_allocator<MetalSwapchain>(
+            this, window_handle, width, height,
+            allow_hdr, vsync, back_buffer_size);
+        SwapChainCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(swapchain);
+        info.native_handle = swapchain;
+        info.storage = swapchain->pixel_storage();
+        return info;
+    });
 }
 
 void MetalDevice::destroy_swap_chain(uint64_t handle) noexcept {
-    auto swpachain = reinterpret_cast<MetalSwapchain *>(handle);
-    delete_with_allocator(swpachain);
+    with_autorelease_pool([=] {
+        auto swpachain = reinterpret_cast<MetalSwapchain *>(handle);
+        delete_with_allocator(swpachain);
+    });
 }
 
 void MetalDevice::present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept {
-    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
-    auto swapchain = reinterpret_cast<MetalSwapchain *>(swapchain_handle);
-    auto image = reinterpret_cast<MetalTexture *>(image_handle);
-    stream->present(swapchain, image);
+    with_autorelease_pool([=] {
+        auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+        auto swapchain = reinterpret_cast<MetalSwapchain *>(swapchain_handle);
+        auto image = reinterpret_cast<MetalTexture *>(image_handle);
+        stream->present(swapchain, image);
+    });
 }
 
 ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
-    return ShaderCreationInfo();
+    return with_autorelease_pool([=, this] {
+        return ShaderCreationInfo();
+    });
 }
 
 ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    return ShaderCreationInfo();
+    return with_autorelease_pool([=, this] {
+        return ShaderCreationInfo();
+    });
 }
 
 ShaderCreationInfo MetalDevice::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {
-    return ShaderCreationInfo();
+    return with_autorelease_pool([=, this] {
+        return ShaderCreationInfo();
+    });
 }
 
 Usage MetalDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept {
@@ -207,61 +244,90 @@ Usage MetalDevice::shader_argument_usage(uint64_t handle, size_t index) noexcept
 }
 
 void MetalDevice::destroy_shader(uint64_t handle) noexcept {
+    with_autorelease_pool([=] {
+        // TODO
+    });
 }
 
 ResourceCreationInfo MetalDevice::create_event() noexcept {
-    auto event = new_with_allocator<MetalEvent>(_handle);
-    ResourceCreationInfo info{};
-    info.handle = reinterpret_cast<uint64_t>(event);
-    info.native_handle = event;
-    return info;
+    return with_autorelease_pool([=, this] {
+        auto event = new_with_allocator<MetalEvent>(_handle);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(event);
+        info.native_handle = event;
+        return info;
+    });
 }
 
 void MetalDevice::destroy_event(uint64_t handle) noexcept {
-    auto event = reinterpret_cast<MetalEvent *>(handle);
-    delete_with_allocator(event);
+    with_autorelease_pool([=] {
+        auto event = reinterpret_cast<MetalEvent *>(handle);
+        delete_with_allocator(event);
+    });
 }
 
 void MetalDevice::signal_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    auto event = reinterpret_cast<MetalEvent *>(handle);
-    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
-    stream->signal(event);
+    with_autorelease_pool([=] {
+        auto event = reinterpret_cast<MetalEvent *>(handle);
+        auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+        stream->signal(event);
+    });
 }
 
 void MetalDevice::wait_event(uint64_t handle, uint64_t stream_handle) noexcept {
-    auto event = reinterpret_cast<MetalEvent *>(handle);
-    auto stream = reinterpret_cast<MetalStream *>(stream_handle);
-    stream->wait(event);
+    with_autorelease_pool([=] {
+        auto event = reinterpret_cast<MetalEvent *>(handle);
+        auto stream = reinterpret_cast<MetalStream *>(stream_handle);
+        stream->wait(event);
+    });
 }
 
 void MetalDevice::synchronize_event(uint64_t handle) noexcept {
-    auto event = reinterpret_cast<MetalEvent *>(handle);
-    event->synchronize();
+    with_autorelease_pool([=] {
+        auto event = reinterpret_cast<MetalEvent *>(handle);
+        event->synchronize();
+    });
 }
 
 ResourceCreationInfo MetalDevice::create_mesh(const AccelOption &option) noexcept {
-    return ResourceCreationInfo();
+    return with_autorelease_pool([=, this] {
+        return ResourceCreationInfo();
+    });
 }
 
 void MetalDevice::destroy_mesh(uint64_t handle) noexcept {
+    with_autorelease_pool([=] {
+        // TODO
+    });
 }
 
 ResourceCreationInfo MetalDevice::create_procedural_primitive(const AccelOption &option) noexcept {
-    return ResourceCreationInfo();
+    return with_autorelease_pool([=, this] {
+        return ResourceCreationInfo();
+    });
 }
 
 void MetalDevice::destroy_procedural_primitive(uint64_t handle) noexcept {
+    with_autorelease_pool([=] {
+        // TODO
+    });
 }
 
 ResourceCreationInfo MetalDevice::create_accel(const AccelOption &option) noexcept {
-    return ResourceCreationInfo();
+    return with_autorelease_pool([=, this] {
+        return ResourceCreationInfo();
+    });
 }
 
 void MetalDevice::destroy_accel(uint64_t handle) noexcept {
+    with_autorelease_pool([=] {
+        // TODO
+    });
 }
 
 string MetalDevice::query(luisa::string_view property) noexcept {
-    return DeviceInterface::query(property);
+    LUISA_WARNING_WITH_LOCATION("Device property \"{}\" is not supported on Metal.", property);
+    return {};
 }
 
 DeviceExtension *MetalDevice::extension(luisa::string_view name) noexcept {
@@ -271,68 +337,76 @@ DeviceExtension *MetalDevice::extension(luisa::string_view name) noexcept {
 
 void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
                            uint64_t resource_handle, luisa::string_view name) noexcept {
-    switch (resource_tag) {
-        case Resource::Tag::BUFFER: {
-            auto buffer = reinterpret_cast<MTL::Buffer *>(resource_handle);
-            if (name.empty()) {
-                buffer->setLabel(nullptr);
-            } else {
-                auto mtl_name = NS::String::alloc()->init(
-                    const_cast<char *>(name.data()), name.size(),
-                    NS::UTF8StringEncoding, false);
-                buffer->setLabel(mtl_name);
-                mtl_name->release();
+
+    with_autorelease_pool([=] {
+        switch (resource_tag) {
+            case Resource::Tag::BUFFER: {
+                auto buffer = reinterpret_cast<MTL::Buffer *>(resource_handle);
+                if (name.empty()) {
+                    buffer->setLabel(nullptr);
+                } else {
+                    auto mtl_name = NS::String::alloc()->init(
+                        const_cast<char *>(name.data()), name.size(),
+                        NS::UTF8StringEncoding, false);
+                    buffer->setLabel(mtl_name);
+                    mtl_name->release();
+                }
+                break;
             }
-            break;
+            case Resource::Tag::TEXTURE: {
+                auto texture = reinterpret_cast<MetalTexture *>(resource_handle);
+                texture->set_name(name);
+                break;
+            }
+            case Resource::Tag::BINDLESS_ARRAY: break;
+            case Resource::Tag::MESH: break;
+            case Resource::Tag::PROCEDURAL_PRIMITIVE: break;
+            case Resource::Tag::ACCEL: break;
+            case Resource::Tag::STREAM: {
+                auto stream = reinterpret_cast<MetalStream *>(resource_handle);
+                stream->set_name(name);
+                break;
+            }
+            case Resource::Tag::EVENT: {
+                auto event = reinterpret_cast<MetalEvent *>(resource_handle);
+                event->set_name(name);
+                break;
+            }
+            case Resource::Tag::SHADER: break;
+            case Resource::Tag::RASTER_SHADER: break;
+            case Resource::Tag::SWAP_CHAIN: break;
+            case Resource::Tag::DEPTH_BUFFER: break;
         }
-        case Resource::Tag::TEXTURE: {
-            auto texture = reinterpret_cast<MetalTexture *>(resource_handle);
-            texture->set_name(name);
-            break;
-        }
-        case Resource::Tag::BINDLESS_ARRAY: break;
-        case Resource::Tag::MESH: break;
-        case Resource::Tag::PROCEDURAL_PRIMITIVE: break;
-        case Resource::Tag::ACCEL: break;
-        case Resource::Tag::STREAM: {
-            auto stream = reinterpret_cast<MetalStream *>(resource_handle);
-            stream->set_name(name);
-            break;
-        }
-        case Resource::Tag::EVENT: {
-            auto event = reinterpret_cast<MetalEvent *>(resource_handle);
-            event->set_name(name);
-            break;
-        }
-        case Resource::Tag::SHADER: break;
-        case Resource::Tag::RASTER_SHADER: break;
-        case Resource::Tag::SWAP_CHAIN: break;
-        case Resource::Tag::DEPTH_BUFFER: break;
-    }
+    });
 }
 
 }// namespace luisa::compute::metal
 
 LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
                                                          const luisa::compute::DeviceConfig *config) noexcept {
-    return ::luisa::new_with_allocator<::luisa::compute::metal::MetalDevice>(std::move(ctx), config);
+    return luisa::compute::metal::with_autorelease_pool([&] {
+        return ::luisa::new_with_allocator<::luisa::compute::metal::MetalDevice>(std::move(ctx), config);
+    });
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {
-    auto p_device = dynamic_cast<::luisa::compute::metal::MetalDevice *>(device);
-    LUISA_ASSERT(p_device != nullptr, "Invalid device.");
-    ::luisa::delete_with_allocator(p_device);
+    luisa::compute::metal::with_autorelease_pool([device] {
+        auto p_device = dynamic_cast<::luisa::compute::metal::MetalDevice *>(device);
+        LUISA_ASSERT(p_device != nullptr, "Invalid device.");
+        ::luisa::delete_with_allocator(p_device);
+    });
 }
 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
-    names.clear();
-    auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
-    if (auto n = all_devices->count()) {
-        auto pool = NS::TransferPtr(NS::AutoreleasePool::alloc()->init());
-        names.reserve(n);
-        for (auto i = 0u; i < n; i++) {
-            auto device = all_devices->object<MTL::Device>(i);
-            names.emplace_back(device->name()->utf8String());
+    ::luisa::compute::metal::with_autorelease_pool([&names] {
+        names.clear();
+        auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
+        if (auto n = all_devices->count()) {
+            names.reserve(n);
+            for (auto i = 0u; i < n; i++) {
+                auto device = all_devices->object<MTL::Device>(i);
+                names.emplace_back(device->name()->utf8String());
+            }
         }
-    }
+    });
 }

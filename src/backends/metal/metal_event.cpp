@@ -20,7 +20,6 @@ MetalEvent::~MetalEvent() noexcept {
 void MetalEvent::signal(MTL::CommandQueue *queue) noexcept {
 
     // encode a signal event into a new command buffer
-    auto autorelease_pool = NS::AutoreleasePool::alloc()->init();
     auto [command_buffer, signaled_value, old_command_buffer] = [this, queue] {
         auto buffer = queue->commandBufferWithUnretainedReferences();
         std::scoped_lock lock{_mutex};
@@ -33,7 +32,6 @@ void MetalEvent::signal(MTL::CommandQueue *queue) noexcept {
     command_buffer->retain();
     command_buffer->encodeSignalEvent(_handle, signaled_value);
     command_buffer->commit();
-    autorelease_pool->release();
 }
 
 void MetalEvent::wait(MTL::CommandQueue *queue) noexcept {
@@ -48,11 +46,9 @@ void MetalEvent::wait(MTL::CommandQueue *queue) noexcept {
             "MetalEvent::wait() is called "
             "before any signal event.");
     } else {// encode a wait event into a new command buffer
-        auto autorelease_pool = NS::AutoreleasePool::alloc()->init();
         auto command_buffer = queue->commandBufferWithUnretainedReferences();
         command_buffer->encodeWait(_handle, signaled_value);
         command_buffer->commit();
-        autorelease_pool->release();
     }
 }
 

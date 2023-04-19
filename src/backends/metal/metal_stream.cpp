@@ -18,8 +18,7 @@ MetalStream::MetalStream(MTL::Device *device,
                  device->newCommandQueue() :
                  device->newCommandQueue(max_commands)},
       _upload_pool{device, 64_M, true},
-      _download_pool{device, 32_M, false} {
-}
+      _download_pool{device, 32_M, false} {}
 
 MetalStream::~MetalStream() noexcept {
     _queue->release();
@@ -34,11 +33,9 @@ void MetalStream::wait(MetalEvent *event) noexcept {
 }
 
 void MetalStream::synchronize() noexcept {
-    auto autorelease_pool = NS::AutoreleasePool::alloc()->init();
     auto command_buffer = _queue->commandBufferWithUnretainedReferences();
     command_buffer->commit();
     command_buffer->waitUntilCompleted();
-    autorelease_pool->release();
 }
 
 void MetalStream::set_name(luisa::string_view name) noexcept {
@@ -61,10 +58,8 @@ void MetalStream::dispatch(CommandList &&list) noexcept {
         MetalCommandEncoder encoder{this};
         auto commands = list.steal_commands();
         auto callbacks = list.steal_callbacks();
-        auto autorelease_pool = NS::AutoreleasePool::alloc()->init();
         for (auto &command : commands) { command->accept(encoder); }
         encoder.submit(std::move(callbacks));
-        autorelease_pool->release();
     }
 }
 
