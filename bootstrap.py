@@ -144,7 +144,7 @@ def main(args: List[str]):
             return
         elif opt == '--config' or opt == '-c':
             run_config = True
-            i += 2
+            i += 1
         elif opt == '--build' or opt == '-b':
             run_build = run_config = True
             i += 1
