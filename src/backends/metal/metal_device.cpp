@@ -25,11 +25,13 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
       _inqueue_buffer_limit{config == nullptr || config->inqueue_buffer_limit} {
 
     auto device_index = config == nullptr ? 0u : config->device_index;
-    auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
+    auto all_devices = MTL::CopyAllDevices();
     auto device_count = all_devices->count();
     LUISA_ASSERT(device_index < device_count,
                  "Metal device index out of range.");
     _handle = all_devices->object<MTL::Device>(device_index)->retain();
+    all_devices->release();
+
     LUISA_ASSERT(_handle->supportsFamily(MTL::GPUFamilyMetal3),
                  "Metal device '{}' at index {} does not support Metal 3.",
                  _handle->name()->utf8String(), device_index);
@@ -222,7 +224,7 @@ void MetalDevice::destroy_bindless_array(uint64_t handle) noexcept {
 ResourceCreationInfo MetalDevice::create_stream(StreamTag stream_tag) noexcept {
     return with_autorelease_pool([=, this] {
         auto stream = new_with_allocator<MetalStream>(
-            _handle, stream_tag, _inqueue_buffer_limit ? 16u : 0u);
+            _handle, stream_tag, _inqueue_buffer_limit ? 4u : 0u);
         ResourceCreationInfo info{};
         info.handle = reinterpret_cast<uint64_t>(stream);
         info.native_handle = stream;
@@ -435,7 +437,11 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
             }
             case Resource::Tag::SHADER: break;
             case Resource::Tag::RASTER_SHADER: break;
-            case Resource::Tag::SWAP_CHAIN: break;
+            case Resource::Tag::SWAP_CHAIN: {
+                auto swapchain = reinterpret_cast<MetalSwapchain *>(resource_handle);
+                swapchain->set_name(name);
+                break;
+            }
             case Resource::Tag::DEPTH_BUFFER: break;
         }
     });
@@ -461,7 +467,7 @@ LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept 
 LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) noexcept {
     ::luisa::compute::metal::with_autorelease_pool([&names] {
         names.clear();
-        auto all_devices = NS::TransferPtr(MTL::CopyAllDevices());
+        auto all_devices = MTL::CopyAllDevices();
         if (auto n = all_devices->count()) {
             names.reserve(n);
             for (auto i = 0u; i < n; i++) {
@@ -469,5 +475,6 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &names) 
                 names.emplace_back(device->name()->utf8String());
             }
         }
+        all_devices->release();
     });
 }

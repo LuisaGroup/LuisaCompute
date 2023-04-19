@@ -35,6 +35,7 @@ public:
         [[nodiscard]] MTL::Buffer *buffer() const noexcept;
         [[nodiscard]] size_t offset() const noexcept;
         [[nodiscard]] size_t size() const noexcept;
+        [[nodiscard]] std::byte *data() const noexcept;
         void recycle() noexcept override;
     };
 

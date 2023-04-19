@@ -33,6 +33,10 @@ size_t MetalStageBufferPool::Allocation::size() const noexcept {
     return is_pooled() ? _node->size() : _buffer->length();
 }
 
+std::byte *MetalStageBufferPool::Allocation::data() const noexcept {
+    return static_cast<std::byte *>(_buffer->contents()) + offset();
+}
+
 [[nodiscard]] inline auto metal_stage_buffer_options(bool write_combined) noexcept {
     return write_combined ?
                MTL::ResourceCPUCacheModeWriteCombined |

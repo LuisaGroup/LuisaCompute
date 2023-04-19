@@ -21,9 +21,10 @@ class MetalTexture;
 class MetalSwapchain {
 
 private:
-    MetalDevice *_device;
     CA::MetalLayer *_layer;
+    MTL::RenderPipelineState *_pipeline;
     MTL::RenderPassDescriptor *_render_pass_desc;
+    NS::String *_command_label;
 
 public:
     MetalSwapchain(MetalDevice *device, uint64_t window_handle,
@@ -32,6 +33,7 @@ public:
     ~MetalSwapchain() noexcept;
     [[nodiscard]] PixelStorage pixel_storage() const noexcept;
     void present(MTL::CommandQueue *queue, MTL::Texture *image) noexcept;
+    void set_name(luisa::string_view name) noexcept;
 };
 
 }// namespace luisa::compute::metal

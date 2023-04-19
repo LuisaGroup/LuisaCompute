@@ -125,11 +125,9 @@ static_assert(sizeof(BindlessSlotModification) == 64u, "");
 }
 
 [[kernel]] void update_instance_handles() {
-
 }
 
 [[kernel]] void update_instance_properties() {
-
 }
 
 struct RasterData {
@@ -138,10 +136,11 @@ struct RasterData {
 };
 
 [[vertex]] RasterData swapchain_vertex_shader(
-    constant float4 *in [[buffer(0)]],
+    constant float2 *in [[buffer(0)]],
     uint vid [[vertex_id]]) {
     auto p = in[vid];
-    return RasterData{p, saturate(p.xy * float2(.5f, -.5f) + .5f)};
+    return RasterData{float4(p, 0.f, 1.f),
+                      saturate(p * float2(.5f, -.5f) + .5f)};
 }
 
 [[fragment]] float4 swapchain_fragment_shader(

@@ -22,7 +22,7 @@ private:
     void _prepare_command_buffer() noexcept;
 
 public:
-    MetalCommandEncoder(MetalStream *stream) noexcept;
+    explicit MetalCommandEncoder(MetalStream *stream) noexcept;
     ~MetalCommandEncoder() noexcept override = default;
     [[nodiscard]] MTL::CommandBuffer *command_buffer() noexcept;
     void visit(BufferUploadCommand *command) noexcept override;

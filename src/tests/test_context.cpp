@@ -7,7 +7,6 @@
 #include <tests/common/config.h>
 
 TEST_CASE("context") {
-    REQUIRE_GT(luisa::test::argc(), 1);
     luisa::compute::Context context{luisa::test::argv()[0]};
     for (auto &&backend : context.installed_backends()) {
         auto device_names = context.backend_device_names(backend);

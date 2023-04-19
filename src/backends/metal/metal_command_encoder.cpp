@@ -6,6 +6,7 @@
 #include <core/logging.h>
 #include <runtime/rhi/pixel.h>
 #include <backends/metal/metal_texture.h>
+#include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_command_encoder.h>
 
 namespace luisa::compute::metal {
@@ -242,6 +243,8 @@ void MetalCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexce
 
 void MetalCommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {
     _prepare_command_buffer();
+    auto bindless_array = reinterpret_cast<MetalBindlessArray *>(command->handle());
+    bindless_array->update(*this, command);
 }
 
 void MetalCommandEncoder::visit(CustomCommand *command) noexcept {
