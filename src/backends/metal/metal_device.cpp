@@ -79,7 +79,8 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     auto create_builtin_compute_shader = [&](auto name) noexcept {
         auto function = builtin_library->newFunction(name);
         compute_pipeline_desc->setComputeFunction(function);
-        auto pipeline = _handle->newComputePipelineState(compute_pipeline_desc, MTL::PipelineOptionNone, nullptr, &error);
+        auto pipeline = _handle->newComputePipelineState(
+            compute_pipeline_desc, MTL::PipelineOptionNone, nullptr, &error);
         if (error != nullptr) {
             LUISA_WARNING_WITH_LOCATION(
                 "Failed to compile built-in Metal kernel '{}': {}",

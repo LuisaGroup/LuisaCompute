@@ -2,11 +2,13 @@
 // Created by Mike Smith on 2023/4/19.
 //
 
-#import <Metal/Metal.h>
-#import <MetalKit/MetalKit.h>
+#import <Cocoa/Cocoa.h>
+#import <QuartzCore/QuartzCore.h>
 
 extern "C" CAMetalLayer *luisa_metal_backend_create_layer(id<MTLDevice> device, uint64_t window_handle,
-                                                          bool hdr, bool vsync, uint32_t back_buffer_count) noexcept {
+                                                          uint32_t width, uint32_t height,
+                                                          bool hdr, bool vsync,
+                                                          uint32_t back_buffer_count) noexcept {
     auto window = (__bridge NSWindow *)(reinterpret_cast<void *>(window_handle));
     auto layer = [CAMetalLayer layer];
     window.contentView.layer = layer;
@@ -19,5 +21,6 @@ extern "C" CAMetalLayer *luisa_metal_backend_create_layer(id<MTLDevice> device, 
     layer.maximumDrawableCount = back_buffer_count > 3u ? 3u :
                                  back_buffer_count < 2u ? 2u :
                                                           back_buffer_count;
+    layer.drawableSize = CGSizeMake(width, height);
     return layer;
 }

@@ -37,7 +37,6 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_link_libraries(lc-backend-metal PRIVATE
             "-framework Foundation"
             "-framework Metal"
-            "-framework MetalKit"
             "-framework QuartzCore")
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)

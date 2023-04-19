@@ -14,7 +14,8 @@ MetalSwapchain::MetalSwapchain(MetalDevice *device, uint64_t window_handle,
     : _device{device},
       _layer{luisa_metal_backend_create_layer(
           device->handle(), window_handle,
-          allow_hdr, vsync, back_buffer_size)},
+          width, height, allow_hdr,
+          vsync, back_buffer_size)},
       _render_pass_desc{MTL::RenderPassDescriptor::alloc()->init()} {
     auto attachment_desc = _render_pass_desc->colorAttachments()->object(0);
     attachment_desc->setLoadAction(MTL::LoadActionDontCare);

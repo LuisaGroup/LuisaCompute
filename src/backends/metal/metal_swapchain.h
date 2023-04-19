@@ -9,7 +9,9 @@
 
 extern "C" CA::MetalLayer *luisa_metal_backend_create_layer(
     MTL::Device *device, uint64_t window_handle,
-    bool hdr, bool vsync, uint32_t back_buffer_count) noexcept;
+    uint32_t width, uint32_t height,
+    bool hdr, bool vsync,
+    uint32_t back_buffer_count) noexcept;
 
 namespace luisa::compute::metal {
 
