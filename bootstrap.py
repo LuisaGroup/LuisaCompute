@@ -50,7 +50,7 @@ def print_help():
     print('  xmake                  Use xmake')
     print('Options:')
     print('  --config               Configure build system')
-    print('  --features [features]  Add features')
+    print('  --features [[no-]features]  Add/remove features')
     print('      Features:')
     print('          cuda            Enable CUDA backend')
     print('          cpu             Enable CPU backend')
@@ -135,7 +135,14 @@ def main(args: List[str]):
         elif opt == '--features' or opt == '-f':
             i += 1
             while i < len(args) and not args[i].startswith('-'):
-                config['backends'].append(args[i])
+                f = args[i]
+                if f.startswith('no-'):
+                    f = f[3:]
+                    if f in config['features']:
+                        config['features'].remove(f)
+                else:
+                    if f not in config['features']:
+                        config['features'].append(f)
                 i += 1
         elif opt == '--install' or opt == '-i':
             i += 1
