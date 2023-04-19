@@ -11,6 +11,7 @@ def default_config():
         'xmake_args': [],
         'build_system': 'cmake',
         'features': [],
+        'mode': 'release',
         'output': 'build',
     }
 
@@ -34,13 +35,13 @@ def install_dep(dep: str):
 
 
 def get_config():
+    config = default_config()
     # check if config.json exists
     if os.path.exists('config.json'):
         import json
         with open('config.json', 'r') as f:
-            return json.load(f)
-    else:
-        return default_config()
+            config.update(json.load(f))
+    return config
 
 
 def print_help():
@@ -49,24 +50,29 @@ def print_help():
     print('  cmake                  Use CMake')
     print('  xmake                  Use xmake')
     print('Options:')
-    print('  --config               Configure build system')
-    print('  --features [[no-]features]  Add/remove features')
+    print('  --config | -c          Configure build system')
+    print('  --features | -f [[no-]features]  Add/remove features')
     print('      Features:')
-    print('          cuda            Enable CUDA backend')
-    print('          cpu             Enable CPU backend')
-    print('          remote          Enable remote backend')
-    print('          dx              Enable DirectX backend')
-    print('          metal           Enable Metal backend')
-    print('  --build [N]            Build (N = number of jobs)')
-    print('  --clean                Clean build directory')
-    print('  --install [deps]       Install dependencies')
-    print('  --output               Path to output directory')
+    print('          [no-]cuda          Enable (disable) CUDA backend')
+    print('          [no-]cpu           Enable (disable) CPU backend')
+    print('          [no-]remote        Enable (disable) remote backend')
+    print('          [no-]dx            Enable (disable) DirectX backend')
+    print('          [no-]metal         Enable (disable) Metal backend')
+    print('  --mode | -m [node]     Build mode')
+    print('      Modes:')
+    print('          debug              Debug mode')
+    print('          release            Release mode')
+    print('          relwithdebuginfo   Release with debug infomation mode')
+    print('  --build   | -b [N]     Build (N = number of jobs)')
+    print('  --clean   | -C         Clean build directory')
+    print('  --install | -i [deps]  Install dependencies')
+    print('  --output  | -o         Path to output directory')
     print('  -- [args]              Pass arguments to build system')
 
 
 def dump_build_system_args(config: dict):
     args = build_system_args(config)
-    with open(f"{config['output']}/options.cli", 'w') as f:
+    with open(f"options.{config['mode']}.cli", 'w') as f:
         print('\n'.join(args), file=f)
 
 
@@ -82,6 +88,12 @@ def build_system_args_cmake(config: dict) -> List[str]:
         args.append('-DLUISA_COMPUTE_ENABLE_DX=ON')
     if 'metal' in config['features']:
         args.append('-DLUISA_COMPUTE_ENABLE_METAL=ON')
+    if config['mode'] == 'debug':
+        args.append('-DCMAKE_BUILD_TYPE=Debug')
+    elif config['mode'] == 'release':
+        args.append('-DCMAKE_BUILD_TYPE=Release')
+    elif config['mode'] == 'relwithdebuginfo':
+        args.append('-DCMAKE_BUILD_TYPE=RelWithDebInfo')
     return args
 
 
@@ -89,6 +101,7 @@ def build_system_args_xmake(config: dict) -> List[str]:
     args = config['xmake_args']
     if 'cuda' in config['features']:
         args.append('-c')
+    # TODO: Maxwell handle this pls
     return args
 
 
@@ -150,6 +163,11 @@ def main(args: List[str]):
             i += 1
             if i < len(args) and not args[i].startswith('-'):
                 build_jobs = int(args[i])
+                i += 1
+        elif opt == '--mode' or opt == '-m':
+            i += 1
+            if i < len(args) and not args[i].lower() in ('debug', 'release', 'relwithdebuginfo'):
+                config['mode'] = args[i].lower()
                 i += 1
         elif opt == '--features' or opt == '-f':
             i += 1
