@@ -1,9 +1,12 @@
 if LCUseMimalloc then
 	_configs.enable_mimalloc = true
 end
+table.insert(_config_rules, "lc-rename-ext")
+local rename_rule_idx = table.getn(_config_rules)
 includes("ext/EASTL")
 _configs.enable_mimalloc = nil
 includes("ext/spdlog")
+table.remove(_config_rules, rename_rule_idx)
 includes("core")
 includes("vstl")
 includes("ast")

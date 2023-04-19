@@ -1,4 +1,4 @@
-target("glfw")
+target("lc-glfw")
 _config_project({
 	project_kind = "shared"
 })
@@ -27,7 +27,7 @@ _config_project({
 })
 add_files("*.cpp")
 add_defines("LC_GUI_EXPORT_DLL", "GLFW_DLL")
-add_deps("glfw", "lc-runtime")
+add_deps("lc-glfw", "lc-runtime")
 if is_plat("windows") then
 	add_defines("GLFW_EXPOSE_NATIVE_WIN32")
 end
