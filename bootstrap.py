@@ -101,7 +101,26 @@ def build_system_args(config) -> List[str]:
         raise ValueError(f'Unknown build system: {config["build_system"]}')
 
 
+submods = [
+    'corrosion',
+    'EASTL',
+    ## TODO: add more submodules here
+]
+
+
+def init_submodule():
+    if os.path.exists('.git'):
+        os.system('git submodule update --init --recursive')
+    else:
+        for s in submods:
+            if not os.path.exists(f'src/ext/{s}'):
+                print(f'Fatal error: submodule in src/ext/{s} not found.', file=sys.stderr)
+                print('Please clone the repository with --recursive option.', file=sys.stderr)
+                sys.exit(1)
+
+
 def main(args: List[str]):
+    init_submodule()
     if len(args) == 1:
         print_help()
         return
