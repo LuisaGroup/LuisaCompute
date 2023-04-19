@@ -81,7 +81,7 @@ end)
 rule_end()
 rule("lc-rename-ext")
 on_load(function(target)
-	target:set("basename", "lc-" .. target:name())
+	target:set("basename", "lc-ext-" .. target:name())
 end)
 rule_end()
 -- In-case of submod, when there is override rules, do not overload
