@@ -15,19 +15,6 @@ function add_lc_includedirs(lc_dir, is_public)
 	})
 end
 
--- Add project's link dir
-function add_lc_linkdirs(lc_dir, is_public)
-	if is_mode("debug") then
-		add_linkdirs(path.join(lc_dir, "bin/debug"), {
-			public = true
-		})
-	else
-		add_linkdirs(path.join(lc_dir, "bin/release"), {
-			public = true
-		})
-	end
-end
-
 -- Add project's defines
 function add_lc_defines(lc_dir, is_public)
 	add_defines(

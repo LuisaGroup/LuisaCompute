@@ -4,25 +4,26 @@ local my_table = {
 	enable_exception = true
 }
 on_load(function(target)
-	local python_str = "python"
-	local py_path = get_config("py_path")
-	local lib_path = path.join(py_path, "libs")
-	local lib_ext
-	if is_plat("windows") then
-		lib_ext = ".lib"
-	else
-		lib_ext = ".a"
+	local function split_str(str, chr)
+		local map = {}
+		for part in string.gmatch(str, "([^" .. chr .. "]+)") do
+			table.insert(map, part)
+		end
+		return map
 	end
-	target:add("linkdirs", lib_path)
-	for _, filepath in ipairs(os.files(path.join(lib_path, "*")))do
-		local filename = path.filename(filepath)
-		local basename = path.basename(filename)
-		local ext = path.extension(filename)
-		if ext == lib_ext and basename:lower():sub(1, python_str:len()) == python_str then
-			target:add("links", basename)
-		end		
+	local py_include = get_config("py_include")
+	target:add("includedirs", py_include)
+	local py_linkdir = get_config("py_linkdir")
+	local py_libs = get_config("py_libs")
+	if type(py_linkdir) == "string" then
+		target:add("linkdirs", py_linkdir)
 	end
-	target:add("includedirs", path.join(py_path, "include"))
+	if type(py_libs) == "string" then
+		local libs = split_str(py_libs, ';')
+		for i, v in ipairs(libs) do
+			target:add("links", v)
+		end
+	end
 end)
 
 _config_project(my_table)
@@ -30,8 +31,8 @@ add_files("*.cpp")
 add_includedirs("../ext/stb/", "../ext/pybind11/include")
 add_deps("lc-runtime", "lc-gui")
 after_build(function(target)
-	local bdPath = target:targetdir()
 	if is_plat("windows") then
+		local bdPath = target:targetdir()
 		os.cp(path.join(bdPath, "lcapi.dll"), path.join(bdPath, "lcapi.pyd"))
 	end
 end)

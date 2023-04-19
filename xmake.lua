@@ -1,5 +1,5 @@
 set_xmakever("2.7.8")
-add_rules("mode.release", "mode.debug")
+add_rules("mode.release", "mode.debug", "mode.releasedbg")
 -- disable ccache in-case error
 set_policy("build.ccache", false)
 -- pre-defined options
@@ -57,9 +57,19 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
--- python runtime path
-option("py_path")
-set_default("")
+-- python include path
+option("py_include")
+set_default(false)
+set_showmenu(true)
+option_end()
+-- python include path
+option("py_linkdir")
+set_default(false)
+set_showmenu(true)
+option_end()
+-- python include path
+option("py_libs")
+set_default(false)
 set_showmenu(true)
 option_end()
 -- enable intermediate representation module (rust required)
@@ -88,7 +98,7 @@ set_showmenu(true)
 option_end()
 -- custom bin dir
 option("bin_dir")
-set_default("")
+set_default(false)
 set_showmenu(true)
 option_end()
 -- pre-defined options end
@@ -118,16 +128,15 @@ if is_arch("x64", "x86_64", "arm64") then
 	-- TODO: rust condition
 	LCEnableRust = LCEnableIR or LCEnableAPI
 	local py_version = get_config("py_version")
-	local py_path = get_config("py_path")
-	local function legal_str(s)
-		return type(s) == "string" and s:len() > 0
-	end
-	LCEnablePython = legal_str(py_path)
+	
+	LCEnablePython = type(get_config("py_include")) == "string"
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
 	local bin_dir = get_config("bin_dir")
-	if legal_str(bin_dir) then
+	if type(bin_dir) == "string" then
 		if is_mode("debug") then
 			bin_dir = path.join(bin_dir, "debug")
+		elseif is_mode("releasedbg") then
+			bin_dir = path.join(bin_dir, "releasedbg")
 		else
 			bin_dir = path.join(bin_dir, "release")
 		end
