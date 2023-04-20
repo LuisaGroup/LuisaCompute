@@ -39,16 +39,16 @@ impl Context {
         unsafe {
             let lib_path = path.as_ref().to_path_buf();
             let api_dll = if cfg!(target_os = "windows") {
-                lib_path.join("libluisa-compute-api.dll")
+                lib_path.join("liblc-api.dll")
             } else if cfg!(target_os = "linux") {
-                lib_path.join("libluisa-compute-api.so")
+                lib_path.join("liblc-api.so")
             } else {
                 todo!()
             };
             let swapchain_dll = if cfg!(target_os = "windows") {
-                "libluisa-compute-vulkan-swapchain.dll"
+                "liblc-vulkan-swapchain.dll"
             } else if cfg!(target_os = "linux") {
-                "libluisa-compute-vulkan-swapchain.so"
+                "liblc-vulkan-swapchain.so"
             } else {
                 todo!()
             };
@@ -59,11 +59,11 @@ impl Context {
                     let info = CStr::from_ptr(info as *mut c_char).to_str().unwrap();
                     let msg = CStr::from_ptr(msg as *mut c_char).to_str().unwrap();
                     match info {
-                        "I" => log::log!(target: "luisa-compute-cpp", log::Level::Info, "{}", msg),
-                        "W" => log::log!(target: "luisa-compute-cpp", log::Level::Warn, "{}", msg),
-                        "E" | "C" => log::log!(target: "luisa-compute-cpp", log::Level::Error, "{}", msg),
-                        "D" => log::log!(target: "luisa-compute-cpp", log::Level::Debug, "{}", msg),
-                        "T" => log::log!(target: "luisa-compute-cpp", log::Level::Trace, "{}", msg),
+                        "I" => log::log!(target: "lc-cpp", log::Level::Info, "{}", msg),
+                        "W" => log::log!(target: "lc-cpp", log::Level::Warn, "{}", msg),
+                        "E" | "C" => log::log!(target: "lc-cpp", log::Level::Error, "{}", msg),
+                        "D" => log::log!(target: "lc-cpp", log::Level::Debug, "{}", msg),
+                        "T" => log::log!(target: "lc-cpp", log::Level::Trace, "{}", msg),
                         _ => panic!("unknown log level: {}", info)
                     }
                 }
