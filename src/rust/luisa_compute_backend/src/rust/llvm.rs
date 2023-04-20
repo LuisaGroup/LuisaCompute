@@ -465,20 +465,20 @@ pub(crate) fn compile_llvm_ir(name: &String, path_: &String) -> KernelFn {
             {
                 panic!("LLVMParseIRInContext failed");
             }
-            let pass = CString::new("default<O3>").unwrap();
-            let pass_builder_options = (lib.LLVMCreatePassBuilderOptions)();
-            let err = (lib.LLVMRunPasses)(
-                module,
-                pass.as_ptr(),
-                c.target_machine,
-                pass_builder_options,
-            );
-            if !err.is_null() {
-                lib.handle_error(err);
-            }
+            // let pass = CString::new("default<O3>").unwrap();
+            // let pass_builder_options = (lib.LLVMCreatePassBuilderOptions)();
+            // let err = (lib.LLVMRunPasses)(
+            //     module,
+            //     pass.as_ptr(),
+            //     c.target_machine,
+            //     pass_builder_options,
+            // );
+            // if !err.is_null() {
+            //     lib.handle_error(err);
+            // }
             let tsm = (lib.LLVMOrcCreateNewThreadSafeModule)(module, tsctx);
 
-            (lib.LLVMDisposePassBuilderOptions)(pass_builder_options);
+            // (lib.LLVMDisposePassBuilderOptions)(pass_builder_options);
             let main_jd = (lib.LLVMOrcLLJITGetMainJITDylib)(c.jit);
             let err = (lib.LLVMOrcLLJITAddLLVMIRModule)(c.jit, main_jd, tsm);
             if !err.is_null() {
@@ -605,13 +605,13 @@ impl Context {
             extern "C" fn rsqrtf(x: f32) -> f32 {
                 1.0 / x.sqrt()
             }
-            extern "C" fn sincos(x: f32, s: &mut f32, c: &mut f32) {
-                let (a, b) = libm::sincosf(x);
+            extern "C" fn sincos_(x: f32, s: &mut f32, c: &mut f32) {
+                let (a, b) = x.sin_cos();
                 *s = a;
                 *c = b;
             }
             add_symbol!(rsqrtf, rsqrtf);
-            add_libm_symbol!(sincosf, sincos);
+            add_symbol!(sincosf, sincos_);
         }
         let work_dir = CString::new("").unwrap();
         let ident = CString::new("").unwrap();
