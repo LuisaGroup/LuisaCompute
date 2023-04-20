@@ -17,6 +17,8 @@
 #include <backends/metal/metal_event.h>
 #include <backends/metal/metal_swapchain.h>
 #include <backends/metal/metal_bindless_array.h>
+#include <backends/metal/metal_accel.h>
+#include <backends/metal/metal_primitive.h>
 #include <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
@@ -43,7 +45,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
 
     // create a default binary IO if none is provided
     if (config == nullptr || config->binary_io == nullptr) {
-        _default_io = luisa::make_unique<DefaultBinaryIO>(context(), "metal");
+        _default_io = luisa::make_unique<DefaultBinaryIO>(context());
         _io = _default_io.get();
     } else {
         _io = config->binary_io;
@@ -375,13 +377,18 @@ void MetalDevice::destroy_procedural_primitive(uint64_t handle) noexcept {
 
 ResourceCreationInfo MetalDevice::create_accel(const AccelOption &option) noexcept {
     return with_autorelease_pool([=, this] {
-        return ResourceCreationInfo();
+        auto accel = new_with_allocator<MetalAccel>(this, option);
+        ResourceCreationInfo info{};
+        info.handle = reinterpret_cast<uint64_t>(accel);
+        info.native_handle = accel;
+        return info;
     });
 }
 
 void MetalDevice::destroy_accel(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
-        // TODO
+        auto accel = reinterpret_cast<MetalAccel *>(handle);
+        delete_with_allocator(accel);
     });
 }
 

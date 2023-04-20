@@ -6,6 +6,7 @@
 #include <nvtx3/nvToolsExtCuda.h>
 
 #include <core/clock.h>
+#include <core/logging.h>
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_error.h>
 #include <backends/cuda/cuda_stream.h>
@@ -145,6 +146,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     // prepare instance buffer
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
+    LUISA_ASSERT(instance_count > 0u, "Instance count must be greater than 0.");
     if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
         auto old_instance_buffer = _instance_buffer;
         auto new_instance_buffer_size = next_pow2(size);
@@ -170,6 +172,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
             for (auto i = 0u; i < n; i++) {
                 auto m = mods[i];
                 if (m.flags & Mod::flag_primitive) {
+                    _requires_rebuild = true;
                     static constexpr auto mod_flag_procedural = 1u << 8u;
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
                     _primitives[m.index] = prim;

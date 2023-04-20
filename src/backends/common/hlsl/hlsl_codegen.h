@@ -103,8 +103,7 @@ public:
         Function pixelFunc,
         luisa::BinaryIO const *internalDataPath,
         bool isSpirV);
-    static vstd::StringBuilder ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
-    static vstd::vector<char> ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO const *ctx);
+    static vstd::string_view ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
     vstd::StringBuilder GetNewTempVarName();
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {

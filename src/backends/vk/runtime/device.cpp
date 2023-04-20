@@ -233,7 +233,7 @@ void Device::destroy_accel(uint64_t handle) noexcept {
 //////////////// Not implemented area
 Device::Device(Context &&ctx, DeviceConfig const *configs)
     : DeviceInterface{std::move(ctx)},
-      _default_file_io{_ctx, "dx"sv} {
+      _default_file_io{_ctx} {
     bool headless = false;
     uint device_idx = 0;
     if (configs) {

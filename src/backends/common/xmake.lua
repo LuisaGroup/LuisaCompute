@@ -17,4 +17,5 @@ if LCCpuBackend then
 end
 if LCVkBackend or LCDxBackend then
 	add_files("hlsl/*.cpp")
+	includes("hlsl/builtin")
 end

@@ -66,8 +66,7 @@ if (WIN32)
             Shader/ShaderVariableType.h)
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCE}
-            SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR}
-            BUILTIN_DIR ${LC_BACKEND_DX_BUILTIN_DIR})
+            SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR})
     target_include_directories(lc-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(lc-backend-dx PRIVATE D3D12 d3dcompiler dxgi luisa-compute-vstl)
     target_compile_definitions(lc-backend-dx PRIVATE UNICODE)
