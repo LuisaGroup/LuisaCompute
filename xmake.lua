@@ -129,6 +129,7 @@ if is_arch("x64", "x86_64", "arm64") then
 				bin_dir = path.join(bin_dir, "release")
 			end
 			option:set_value(bin_dir)
+			os.mkdir(bin_dir)
 		else
 			option:set_value(false)
 		end
