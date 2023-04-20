@@ -1,8 +1,8 @@
+use std::ffi::{CStr, CString};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use std::ffi::{CStr, CString};
 
 use api::{CreatedSwapchainInfo, PixelFormat};
 use binding::Binding;
@@ -14,13 +14,13 @@ use luisa_compute_ir::{
     CArc,
 };
 
+#[cfg(feature = "remote")]
+pub mod api_message;
 pub mod binding;
 pub mod cpp_proxy_backend;
 #[cfg(feature = "remote")]
 pub mod remote;
-#[cfg(feature = "remote")]
-pub mod api_message;
-#[cfg(feature = "cpu")]
+#[cfg(any(feature = "cpu", feature = "remote"))]
 pub mod rust;
 
 #[derive(Debug)]
@@ -55,7 +55,7 @@ impl Context {
             let swapchain = lib_path.join(swapchain_dll);
             let binding = Binding::new(&api_dll).ok().map(Arc::new);
             if let Some(binding) = &binding {
-                unsafe extern "C"  fn callback(info: *const c_char, msg: *const c_char) {
+                unsafe extern "C" fn callback(info: *const c_char, msg: *const c_char) {
                     let info = CStr::from_ptr(info as *mut c_char).to_str().unwrap();
                     let msg = CStr::from_ptr(msg as *mut c_char).to_str().unwrap();
                     match info {
@@ -64,7 +64,7 @@ impl Context {
                         "E" | "C" => log::log!(target: "lc-cpp", log::Level::Error, "{}", msg),
                         "D" => log::log!(target: "lc-cpp", log::Level::Debug, "{}", msg),
                         "T" => log::log!(target: "lc-cpp", log::Level::Trace, "{}", msg),
-                        _ => panic!("unknown log level: {}", info)
+                        _ => panic!("unknown log level: {}", info),
                     }
                 }
                 (binding.luisa_compute_set_logger_callback)(callback);
@@ -87,13 +87,20 @@ impl Context {
     pub fn create_device(&self, device: &str) -> crate::Result<Arc<dyn Backend>> {
         let backend: Arc<dyn Backend> = match device {
             "cpu" => {
-                let device = rust::RustBackend::new();
-                unsafe {
-                    if let Some(swapchain) = &self.swapchain {
-                        device.set_swapchain_contex(swapchain.clone());
+                #[cfg(feature = "cpu")]
+                {
+                    let device = rust::RustBackend::new();
+                    unsafe {
+                        if let Some(swapchain) = &self.swapchain {
+                            device.set_swapchain_contex(swapchain.clone());
+                        }
                     }
+                    device
                 }
-                device
+                #[cfg(not(feature = "cpu"))]
+                {
+                    panic!("cpu backend is not enabled")
+                }
             }
             "remote" => {
                 todo!()
@@ -119,7 +126,7 @@ pub struct SwapChainForCpuContext {
     pub cpu_swapchain_storage: unsafe extern "C" fn(swapchain: *mut c_void) -> u8,
     pub destroy_cpu_swapchain: unsafe extern "C" fn(swapchain: *mut c_void),
     pub cpu_swapchain_present:
-    unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
+        unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
 }
 
 unsafe impl Send for SwapChainForCpuContext {}

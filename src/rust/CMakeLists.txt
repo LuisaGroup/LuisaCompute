@@ -1,14 +1,19 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
     corrosion_import_crate(
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
-            # ALL_FEATURES
+            NO_DEFAULT_FEATURES
     )
     if (WIN32 AND NOT MINGW AND NOT MSYS)
         corrosion_set_linker(luisa_compute_ir link.exe)
         corrosion_set_linker(luisa_compute_api_types link.exe)
         corrosion_set_linker(luisa_compute_backend link.exe)
     endif ()
-
+    if (LUISA_COMPUTE_ENABLE_CPU)
+        corrosion_set_features(luisa_compute_backend cpu)
+    endif()
+    if (LUISA_COMPUTE_ENABLE_REMOTE)
+        corrosion_set_features(luisa_compute_backend remote)
+    endif()
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
     target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir luisa_compute_api_types)
