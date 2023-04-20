@@ -106,7 +106,7 @@ if is_arch("x64", "x86_64", "arm64") then
 	option("_lc_vk_path")
 	set_default(false)
 	set_showmenu(false)
-	before_check(function(option)
+	after_check(function(option)
 		local path = os.getenv("VULKAN_SDK")
 		if not path then
 			path = os.getenv("VK_SDK_PATH")
@@ -118,7 +118,7 @@ if is_arch("x64", "x86_64", "arm64") then
 	set_default(false)
 	set_showmenu(false)
 	add_deps("bin_dir")
-	before_check(function(option)
+	after_check(function(option)
 		if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) then
 			local bin_dir = option:dep("bin_dir"):enabled()
 			if is_mode("debug") then
