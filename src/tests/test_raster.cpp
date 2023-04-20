@@ -23,14 +23,15 @@ struct Vertex {
 };
 int main(int argc, char *argv[]) {
 
-    Callable vert = [&](Var<AppData> var, Float time) {
+    RasterStageKernel vert = [&](Var<AppData> var, Float time) {
         Var<v2p> o;
         o.pos = make_float4(var.position, 1.f);
         o.pos.y += sin(time) * 0.1f;
         o.uv = var.uv[0];
         return o;
     };
-    Callable pixel = [&](Var<v2p> i, Float time) {
+    RasterStageKernel pixel = [&](Var<v2p> i, Float time) {
+        // return make_float4(object_id().cast<float>() / 10.0f);
         return make_float4(i.uv, cos(time) * 0.5f + 0.5f, 1.f);
     };
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
