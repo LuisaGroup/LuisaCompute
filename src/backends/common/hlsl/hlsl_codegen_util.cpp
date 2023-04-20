@@ -100,7 +100,7 @@ void CodegenUtility::GetVariableName(Variable::Tag type, uint id, vstd::StringBu
             str << "dsp_c.w"sv;
             break;
         case Variable::Tag::OBJECT_ID:
-            assert(opt->funcType == CodegenStackData::FuncType::Vert);
+            // assert(opt->funcType == CodegenStackData::FuncType::Vert);
             str << "obj_id"sv;
             break;
         case Variable::Tag::LOCAL:
@@ -1442,12 +1442,6 @@ void CodegenUtility::PreprocessCodegenProperties(
     bool isRaster, bool isSpirv) {
     // 1,0,0
     registerCount.init();
-    properties.emplace_back(
-        Property{
-            ShaderVariableType::SampHeap,
-            1u,
-            0u,
-            16u});
     if (!isRaster) {
         properties.emplace_back(
             Property{
@@ -1456,6 +1450,12 @@ void CodegenUtility::PreprocessCodegenProperties(
                 0,
                 1});
     }
+    properties.emplace_back(
+        Property{
+            ShaderVariableType::SampHeap,
+            1u,
+            0u,
+            16u});
     if (cbufferNonEmpty) {
         registerCount.get(2)++;
         properties.emplace_back(

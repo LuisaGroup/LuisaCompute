@@ -455,9 +455,9 @@ public:
         auto shader = reinterpret_cast<ComputeShader const *>(cmd->handle());
         auto &&tempBuffer = *bufferVec;
         bufferVec++;
-        bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
         auto cs = static_cast<ComputeShader const *>(shader);
         auto BeforeDispatch = [&]() {
+            bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
             if (tempBuffer.second > 0) {
                 bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
             }
