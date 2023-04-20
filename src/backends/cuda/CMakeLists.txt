@@ -27,6 +27,7 @@ if (CUDAToolkit_FOUND)
             cuda_shader_optix.cpp cuda_shader_optix.h
             cuda_swapchain.cpp cuda_swapchain.h
             cuda_callback_context.h
+            cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h)
 
     add_library(lc-backend-cuda-dependency INTERFACE)
@@ -40,9 +41,7 @@ if (CUDAToolkit_FOUND)
     endif ()
 
     set(LUISA_COMPUTE_CUDA_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cuda_builtin")
-    luisa_compute_add_backend(cuda
-            SOURCES ${LUISA_COMPUTE_CUDA_SOURCES}
-            BUILTIN_DIR ${LUISA_COMPUTE_CUDA_BUILTIN_DIR})
+    luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
     target_link_libraries(lc-backend-cuda PRIVATE
             CUDA::cuda_driver
             CUDA::nvrtc
