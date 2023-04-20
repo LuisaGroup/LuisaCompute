@@ -5,6 +5,7 @@ use std::path::Path;
 pub struct Binding {
    #[allow(dead_code)]
     pub lib: libloading::Library,
+    pub luisa_compute_set_logger_callback: unsafe extern "C" fn(callback: unsafe extern "C" fn(*const c_char, *const c_char), ) -> (),
     pub luisa_compute_free_c_string: unsafe extern "C" fn(cs: *mut c_char, ) -> (),
     pub luisa_compute_context_create: unsafe extern "C" fn(exe_path: *const c_char, ) -> api::Context,
     pub luisa_compute_context_destroy: unsafe extern "C" fn(ctx: api::Context, ) -> (),
@@ -12,7 +13,6 @@ pub struct Binding {
     pub luisa_compute_device_destroy: unsafe extern "C" fn(device: api::Device, ) -> (),
     pub luisa_compute_device_retain: unsafe extern "C" fn(device: api::Device, ) -> (),
     pub luisa_compute_device_release: unsafe extern "C" fn(device: api::Device, ) -> (),
-    pub luisa_compute_device_native_handle: unsafe extern "C" fn(device: api::Device, ) -> *mut c_void,
     pub luisa_compute_buffer_create: unsafe extern "C" fn(device: api::Device, element: *const c_void, elem_count: usize, ) -> api::CreatedBufferInfo,
     pub luisa_compute_buffer_destroy: unsafe extern "C" fn(device: api::Device, buffer: api::Buffer, ) -> (),
     pub luisa_compute_texture_create: unsafe extern "C" fn(device: api::Device, format: api::PixelFormat, dim: u32, w: u32, h: u32, d: u32, mips: u32, ) -> api::CreatedResourceInfo,
@@ -51,6 +51,7 @@ pub struct Binding {
 impl Binding {
     pub unsafe fn new(lib_path:&Path) -> Result<Self, libloading::Error> {
         let lib = libloading::Library::new(lib_path)?;
+        let luisa_compute_set_logger_callback =  *lib.get(b"luisa_compute_set_logger_callback")? ;
         let luisa_compute_free_c_string =  *lib.get(b"luisa_compute_free_c_string")? ;
         let luisa_compute_context_create =  *lib.get(b"luisa_compute_context_create")? ;
         let luisa_compute_context_destroy =  *lib.get(b"luisa_compute_context_destroy")? ;
@@ -58,7 +59,6 @@ impl Binding {
         let luisa_compute_device_destroy =  *lib.get(b"luisa_compute_device_destroy")? ;
         let luisa_compute_device_retain =  *lib.get(b"luisa_compute_device_retain")? ;
         let luisa_compute_device_release =  *lib.get(b"luisa_compute_device_release")? ;
-        let luisa_compute_device_native_handle =  *lib.get(b"luisa_compute_device_native_handle")? ;
         let luisa_compute_buffer_create =  *lib.get(b"luisa_compute_buffer_create")? ;
         let luisa_compute_buffer_destroy =  *lib.get(b"luisa_compute_buffer_destroy")? ;
         let luisa_compute_texture_create =  *lib.get(b"luisa_compute_texture_create")? ;
@@ -94,6 +94,7 @@ impl Binding {
         let luisa_compute_log_warning =  *lib.get(b"luisa_compute_log_warning")? ;
         let luisa_compute_log_error =  *lib.get(b"luisa_compute_log_error")? ;
         Ok(Self { lib,
+            luisa_compute_set_logger_callback,
             luisa_compute_free_c_string,
             luisa_compute_context_create,
             luisa_compute_context_destroy,
@@ -101,7 +102,6 @@ impl Binding {
             luisa_compute_device_destroy,
             luisa_compute_device_retain,
             luisa_compute_device_release,
-            luisa_compute_device_native_handle,
             luisa_compute_buffer_create,
             luisa_compute_buffer_destroy,
             luisa_compute_texture_create,
