@@ -14,6 +14,8 @@ AllocatedBuffer VkAllocator::allocate_buffer(size_t byte_size, VkBufferUsageFlag
         .usage = VMA_MEMORY_USAGE_AUTO};
     switch (access) {
         case AccessType::ReadBack:
+            allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+            break;
         case AccessType::Upload:
             allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
             break;

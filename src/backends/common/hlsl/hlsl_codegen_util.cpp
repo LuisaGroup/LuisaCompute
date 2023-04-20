@@ -22,7 +22,7 @@ struct DXILRegisterIndexer : public RegisterIndexer {
 struct SpirVRegisterIndexer : public RegisterIndexer {
     uint count;
     void init() override {
-        count = 1;
+        count = 2;
     }
     uint &get(uint idx) override {
         return count;
@@ -1442,13 +1442,22 @@ void CodegenUtility::PreprocessCodegenProperties(
     bool isRaster, bool isSpirv) {
     // 1,0,0
     registerCount.init();
-    if (!isRaster) {
+    if (isSpirv) {
         properties.emplace_back(
             Property{
                 ShaderVariableType::ConstantValue,
-                4,
                 0,
+                1,
                 1});
+    } else {
+        if (!isRaster) {
+            properties.emplace_back(
+                Property{
+                    ShaderVariableType::ConstantValue,
+                    4,
+                    0,
+                    1});
+        }
     }
     properties.emplace_back(
         Property{

@@ -103,7 +103,7 @@ ComputeShader *ComputeShader::compile(
                 auto shader = new ComputeShader(
                     device,
                     str.properties,
-                    {reinterpret_cast<const uint *>(buffer->data()), buffer->size()},
+                    {reinterpret_cast<const uint *>(buffer->data()), buffer->size() / sizeof(uint)},
                     std::move(bindings),
                     {});
                 if (write_cache) {
@@ -113,7 +113,7 @@ ComputeShader *ComputeShader::compile(
                         vstd::MD5(vstd::MD5::MD5Data{0, 0}),
                         kernel.block_size(),
                         file_name,
-                        {reinterpret_cast<const uint *>(buffer->data()), buffer->size()},
+                        {reinterpret_cast<const uint *>(buffer->data()), buffer->size() / sizeof(uint)},
                         serde_type,
                         bin_io);
                     ShaderSerializer::serialize_pso(
@@ -129,6 +129,6 @@ ComputeShader *ComputeShader::compile(
                 return nullptr;
             });
     }
-    return nullptr;
+    return static_cast<ComputeShader *>(result.shader);
 }
 }// namespace lc::vk

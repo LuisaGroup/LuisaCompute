@@ -422,13 +422,16 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         serde_type,
         65,
         option.enable_fast_math);
+    info.handle = reinterpret_cast<uint64>(res);
     // TODO: shader load
     return info;
 }
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept { return ShaderCreationInfo::make_invalid(); }
 Usage Device::shader_argument_usage(uint64_t handle, size_t index) noexcept { return Usage::NONE; }
-void Device::destroy_shader(uint64_t handle) noexcept {}
+void Device::destroy_shader(uint64_t handle) noexcept {
+    delete reinterpret_cast<ComputeShader *>(handle);
+}
 
 // event
 ResourceCreationInfo Device::create_event() noexcept { return ResourceCreationInfo::make_invalid(); }

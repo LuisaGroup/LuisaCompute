@@ -26,6 +26,6 @@ public:
         ShaderTag tag,
         vstd::vector<Argument> &&captured,
         vstd::span<hlsl::Property const> binds);
-    ~Shader();
+    virtual ~Shader();
 };
 }// namespace lc::vk
