@@ -159,7 +159,7 @@ if is_arch("x64", "x86_64", "arm64") then
 
 	LCEnablePython = type(get_config("py_include")) == "string"
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
-	includes("xmake_func.lua")
+	includes("xmake_lua/xmake_func.lua")
 	includes("src")
 else
 	target("_lc_illegal_env")
