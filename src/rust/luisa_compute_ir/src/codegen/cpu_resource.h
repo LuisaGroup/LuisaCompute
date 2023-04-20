@@ -99,7 +99,7 @@ inline BindlessArray lc_bindless_capture(const KernelFnArgs *k_args, size_t i) n
     }
     return arg.bindless_array._0;
 }
-BufferView lc_bindless_buffer(const BindlessArray&array, size_t buf_index) noexcept{
+inline BufferView lc_bindless_buffer(const BindlessArray&array, size_t buf_index) noexcept{
     if (buf_index >= array.buffers_count) {
         fprintf(stderr, "Bindless buffer index out of bounds: %zu >= %zu\n", buf_index, array.buffers_count);
         print_backtrace_hint();

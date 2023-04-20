@@ -399,6 +399,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "348108ab3fba42ec82ff6e9564fc4ca0247bdccdc68dd8af9764bbc79c3c8ffb"
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -442,6 +448,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libloading",
+ "libm",
  "log",
  "luisa_compute_api_types",
  "luisa_compute_cpu_kernel_defs",

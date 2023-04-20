@@ -57,7 +57,7 @@ lc_pair<A, B> lc_make_pair(A a, B b) noexcept {
     return {a, b};
 }
 
-float16_t float_to_half(float f) noexcept {
+inline float16_t float_to_half(float f) noexcept {
 #if defined(LUISA_ARCH_ARM64)
     return static_cast<float16_t>(f);
 #elif defined(LUISA_ARCH_X86_64)
@@ -100,7 +100,7 @@ float16_t float_to_half(float f) noexcept {
 #endif
 }
 
-float half_to_float(float16_t half) noexcept {
+inline float half_to_float(float16_t half) noexcept {
 #if defined(LUISA_ARCH_ARM64)
     return static_cast<float>(half);
 #elif defined(LUISA_ARCH_X86_64)

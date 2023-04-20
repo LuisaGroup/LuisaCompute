@@ -17,7 +17,7 @@ use log::info;
 use luisa_compute_api_types as api;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_ir::{
-    codegen::CodeGen,
+    codegen::{sha256, CodeGen},
     context::type_hash,
     ir::{self, Type},
     CArc,
@@ -25,6 +25,7 @@ use luisa_compute_ir::{
 use parking_lot::RwLock;
 
 mod accel;
+mod llvm;
 mod resource;
 mod shader;
 mod stream;
@@ -193,7 +194,9 @@ impl Backend for RustBackend {
             (std::time::Instant::now() - tic).as_secs_f64() * 1e3
         );
         // println!("{}", gened_src);
-        let lib_path = shader::compile(gened_src).unwrap();
+        let hash = sha256(&gened_src);
+        let gened_src = gened_src.replace("##kernel_fn##", &hash);
+        let lib_path = shader::compile(hash.clone(), gened_src).unwrap();
         let mut captures = vec![];
         let mut custom_ops = vec![];
         unsafe {
@@ -208,6 +211,7 @@ impl Backend for RustBackend {
             }
         }
         let shader = Box::new(shader::ShaderImpl::new(
+            hash,
             lib_path,
             captures,
             custom_ops,

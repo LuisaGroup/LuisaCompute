@@ -1504,7 +1504,7 @@ impl CodeGen for CpuCodeGen {
     fn run(module: &ir::KernelModule) -> String {
         let mut codegen = GenericCppCodeGen::new();
         codegen.gen_module(module);
-        let kernel_fn_decl = r#"lc_kernel void kernel_fn(const KernelFnArgs* k_args) {"#;
+        let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
         let includes = r#"#include <cmath>
 #include <cstdlib>
 #include <cstdio>

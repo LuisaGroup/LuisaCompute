@@ -15,5 +15,5 @@ pub fn sha256(s: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(s);
     let hash = hasher.finalize();
-    format!("A{}", base64ct::Base64UrlUnpadded::encode_string(&hash))
+    format!("A{}", base64ct::Base64UrlUnpadded::encode_string(&hash).replace("-", "m_"))
 }
