@@ -29,20 +29,18 @@ function(luisa_compute_add_backend name)
                 DESTINATION ${CMAKE_INSTALL_BINDIR})
     endif ()
     # builtin directory
-    if (BACKEND_BUILTIN_DIR)
-        add_custom_target(lc-${name}-copy-builtin ALL
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${BACKEND_BUILTIN_DIR}"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/.data/${name}_builtin")
-        add_dependencies(lc-backend-${name} lc-${name}-copy-builtin)
-        install(DIRECTORY ${BACKEND_BUILTIN_DIR}
-                DESTINATION ${CMAKE_INSTALL_BINDIR}/.data/${name}_builtin)
-    endif ()
+    #    if (BACKEND_BUILTIN_DIR)
+    #        add_custom_target(lc-${name}-copy-builtin ALL
+    #                COMMAND ${CMAKE_COMMAND} -E copy_directory
+    #                "${BACKEND_BUILTIN_DIR}"
+    #                "$<TARGET_FILE_DIR:luisa-compute-core>/.data/${name}_builtin")
+    #        add_dependencies(lc-backend-${name} lc-${name}-copy-builtin)
+    #        install(DIRECTORY ${BACKEND_BUILTIN_DIR}
+    #                DESTINATION ${CMAKE_INSTALL_BINDIR}/.data/${name}_builtin)
+    #    endif ()
 endfunction()
 
-if (LUISA_COMPUTE_COMPILED_BY_RUST_FRONTEND OR LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
-    add_subdirectory(common)
-endif ()
+add_subdirectory(common)
 
 if (LUISA_COMPUTE_ENABLE_DX)
     add_subdirectory(dx)
