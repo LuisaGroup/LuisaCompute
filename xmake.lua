@@ -140,8 +140,8 @@ if is_arch("x64", "x86_64", "arm64") then
 		else
 			bin_dir = path.join(bin_dir, "release")
 		end
+		set_targetdir(bin_dir)
 	end
-	set_targetdir(bin_dir)
 	includes("xmake_func.lua")
 	includes("src")
 else

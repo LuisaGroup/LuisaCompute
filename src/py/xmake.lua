@@ -4,25 +4,26 @@ local my_table = {
 	enable_exception = true
 }
 on_load(function(target)
-	local function split_str(str, chr)
-		local map = {}
+	local function split_str(str, chr, func)
 		for part in string.gmatch(str, "([^" .. chr .. "]+)") do
-			table.insert(map, part)
+			func(part)
 		end
-		return map
 	end
 	local py_include = get_config("py_include")
-	target:add("includedirs", py_include)
+	split_str(py_include, ';', function(v)
+		target:add("includedirs", v)
+	end)
 	local py_linkdir = get_config("py_linkdir")
 	local py_libs = get_config("py_libs")
 	if type(py_linkdir) == "string" then
-		target:add("linkdirs", py_linkdir)
+		split_str(py_linkdir, ';', function(v)
+			target:add("linkdirs", v)
+		end)
 	end
 	if type(py_libs) == "string" then
-		local libs = split_str(py_libs, ';')
-		for i, v in ipairs(libs) do
+		split_str(py_libs, ';', function(v)
 			target:add("links", v)
-		end
+		end)
 	end
 end)
 
