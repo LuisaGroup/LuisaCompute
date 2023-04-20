@@ -62,19 +62,19 @@ private:
         traverse_expressions<true>(
             f.body(),
             [this](auto expr) noexcept {
-                if (expr->tag() == Expression::Tag::CALL) {
-                    auto call_expr = static_cast<const CallExpr *>(expr);
-                    if (!call_expr->is_builtin()) {
-                        _collect_ray_query_statements(call_expr->custom());
-                    }
+            if (expr->tag() == Expression::Tag::CALL) {
+                auto call_expr = static_cast<const CallExpr *>(expr);
+                if (!call_expr->is_builtin()) {
+                    _collect_ray_query_statements(call_expr->custom());
                 }
+            }
             },
             [this, f](auto s) noexcept {
-                if (s->tag() == Statement::Tag::RAY_QUERY) {
-                    auto rq_stmt = static_cast<const RayQueryStmt *>(s);
-                    _ray_query_statements.emplace(rq_stmt, f);
-                }
-            },
+            if (s->tag() == Statement::Tag::RAY_QUERY) {
+                auto rq_stmt = static_cast<const RayQueryStmt *>(s);
+                _ray_query_statements.emplace(rq_stmt, f);
+            }
+        },
             [](auto) noexcept {});
     }
 
@@ -86,27 +86,27 @@ private:
         traverse_expressions<true>(
             scope,
             [&](auto expr) noexcept {
-                if (expr->tag() == Expression::Tag::REF) {
-                    auto v = static_cast<const RefExpr *>(expr)->variable();
-                    if (inside_scope_stack.back()) {
-                        within_scope.emplace(v);
-                    } else {
-                        without_scope.emplace(v);
-                    }
+            if (expr->tag() == Expression::Tag::REF) {
+                auto v = static_cast<const RefExpr *>(expr)->variable();
+                if (inside_scope_stack.back()) {
+                    within_scope.emplace(v);
+                } else {
+                    without_scope.emplace(v);
                 }
+            }
             },
             [&inside_scope_stack, target_scopes](auto s) noexcept {
-                if (s->tag() == Statement::Tag::SCOPE) {
-                    auto inside_targets = inside_scope_stack.back() |
-                                          std::find(target_scopes.begin(), target_scopes.end(), s) !=
-                                              target_scopes.end();
-                    inside_scope_stack.emplace_back(inside_targets);
-                }
-            },
+            if (s->tag() == Statement::Tag::SCOPE) {
+                auto inside_targets = inside_scope_stack.back() |
+                                      std::find(target_scopes.begin(), target_scopes.end(), s) !=
+                                          target_scopes.end();
+                inside_scope_stack.emplace_back(inside_targets);
+            }
+        },
             [&inside_scope_stack](auto s) noexcept {
-                if (s->tag() == Statement::Tag::SCOPE) {
-                    inside_scope_stack.pop_back();
-                }
+            if (s->tag() == Statement::Tag::SCOPE) {
+                inside_scope_stack.pop_back();
+            }
             });
     }
 
@@ -129,27 +129,27 @@ private:
         traverse_expressions<true>(
             f.body(),
             [this, f](auto expr) noexcept {
-                if (expr->tag() == Expression::Tag::CALL) {
-                    auto call_expr = static_cast<const CallExpr *>(expr);
-                    if (!call_expr->is_builtin()) {// custom callables
-                        // prepare root resource list
-                        luisa::fixed_vector<const luisa::unordered_set<Variable> *, 16u> root_resources;
-                        for (auto arg : call_expr->arguments()) {
-                            if (arg->tag() == Expression::Tag::REF) {
-                                if (auto v = static_cast<const RefExpr *>(arg)->variable();
-                                    v.is_resource()) {
-                                    auto iter = _root_resources.find(FunctionResource{f, v});
-                                    LUISA_ASSERT(iter != _root_resources.cend(),
-                                                 "Failed to find root resource.");
-                                    root_resources.emplace_back(&iter->second);
-                                }
+            if (expr->tag() == Expression::Tag::CALL) {
+                auto call_expr = static_cast<const CallExpr *>(expr);
+                if (!call_expr->is_builtin()) {// custom callables
+                    // prepare root resource list
+                    luisa::fixed_vector<const luisa::unordered_set<Variable> *, 16u> root_resources;
+                    for (auto arg : call_expr->arguments()) {
+                        if (arg->tag() == Expression::Tag::REF) {
+                            if (auto v = static_cast<const RefExpr *>(arg)->variable();
+                                v.is_resource()) {
+                                auto iter = _root_resources.find(FunctionResource{f, v});
+                                LUISA_ASSERT(iter != _root_resources.cend(),
+                                             "Failed to find root resource.");
+                                root_resources.emplace_back(&iter->second);
                             }
                         }
-                        // pass on to the callee
-                        _find_root_resources(
-                            call_expr->custom(), root_resources);
                     }
+                    // pass on to the callee
+                    _find_root_resources(
+                        call_expr->custom(), root_resources);
                 }
+            }
             },
             [](auto) noexcept {},
             [](auto) noexcept {});
@@ -265,8 +265,8 @@ private:
                 auto iter = std::partition(
                     captured_variables.begin(), captured_variables.end(),
                     [this, f](auto v) noexcept {
-                        return !v.is_resource() ||
-                               _root_resources.at({f, v}).size() != 1u;
+                    return !v.is_resource() ||
+                           _root_resources.at({f, v}).size() != 1u;
                     });
 
                 uniquely_identified_resources.reserve(
@@ -346,7 +346,7 @@ private:
                 std::stable_sort(
                     captured_elements.begin(), captured_elements.end(),
                     [](auto lhs, auto rhs) noexcept {
-                        return lhs.element_type->alignment() > rhs.element_type->alignment();
+                    return lhs.element_type->alignment() > rhs.element_type->alignment();
                     });
             }
         }
@@ -733,6 +733,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::ANY: _scratch << "lc_any"; break;
         case CallOp::SELECT: _scratch << "lc_select"; break;
         case CallOp::CLAMP: _scratch << "lc_clamp"; break;
+        case CallOp::SATURATE: _scratch << "lc_saturate"; break;
         case CallOp::LERP: _scratch << "lc_lerp"; break;
         case CallOp::STEP: _scratch << "lc_step"; break;
         case CallOp::ABS: _scratch << "lc_abs"; break;
@@ -1210,9 +1211,9 @@ static void collect_types_in_function(Function f,
     traverse_expressions<true>(
         f.body(),
         [&add](auto expr) noexcept {
-            if (auto type = expr->type()) {
-                add(add, type);
-            }
+        if (auto type = expr->type()) {
+            add(add, type);
+        }
         },
         [](auto) noexcept {},
         [](auto) noexcept {});
@@ -1415,12 +1416,12 @@ void CUDACodegenAST::_emit_constant(Function::Constant c) noexcept {
     using namespace std::string_view_literals;
     luisa::visit(
         [count, this](auto ptr) {
-            detail::LiteralPrinter print{_scratch};
-            for (auto i = 0u; i < count; i++) {
-                if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
-                print(ptr[i]);
-                _scratch << ", ";
-            }
+        detail::LiteralPrinter print{_scratch};
+        for (auto i = 0u; i < count; i++) {
+            if (count > wrap && i % wrap == 0u) { _scratch << "\n    "; }
+            print(ptr[i]);
+            _scratch << ", ";
+        }
         },
         c.data.view());
     if (count > 0u) {
