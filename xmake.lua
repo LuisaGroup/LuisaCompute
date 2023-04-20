@@ -98,25 +98,55 @@ set_showmenu(true)
 option_end()
 -- custom bin dir
 option("bin_dir")
-set_default(false)
+set_default("bin")
 set_showmenu(true)
 option_end()
+option("_lc_inter_bin_dir")
+set_default(false)
+set_showmenu(false)
+add_deps("bin_dir")
+before_check(function(option)
+	if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) then
+		local bin_dir = option:dep("bin_dir"):enabled()
+		if is_mode("debug") then
+			bin_dir = path.join(bin_dir, "debug")
+		elseif is_mode("releasedbg") then
+			bin_dir = path.join(bin_dir, "releasedbg")
+		else
+			bin_dir = path.join(bin_dir, "release")
+		end
+		option:enable(bin_dir)
+	else
+		option:enable(false)
+	end
+end)
+option_end()
+
 -- pre-defined options end
 if is_arch("x64", "x86_64", "arm64") then
+	option("_lc_vk_path")
+	set_default(false)
+	set_showmenu(false)
+	before_check(function(option)
+		local path = os.getenv("VULKAN_SDK")
+		if not path then
+			path = os.getenv("VK_SDK_PATH")
+		end
+		option:enable(path)
+	end)
+	option_end()
 	LCUseMimalloc = get_config("enable_mimalloc")
 	LCUseSIMD = get_config("enable_simd")
 	-- test require dsl
 	LCEnableTest = get_config("enable_tests")
 	LCEnableDSL = get_config("enable_dsl") or LCEnableTest
 	LCDxBackend = get_config("dx_backend") and is_plat("windows")
-	local function vk_path()
-		local path = os.getenv("VULKAN_SDK")
-		if path then
-			return path
-		end
-		return os.getenv("VK_SDK_PATH")
+
+	local bin_dir = get_config("_lc_inter_bin_dir")
+	if (bin_dir) then
+		set_targetdir(bin_dir)
 	end
-	LCVulkanPath = vk_path()
+	LCVulkanPath = get_config("_lc_vk_path")
 	LCVkBackend = get_config("vk_backend") and LCVulkanPath
 	-- TODO: require environment check
 	LCCudaBackend = get_config("cuda_backend") and (is_plat("windows") or is_plat("linux"))
@@ -127,21 +157,9 @@ if is_arch("x64", "x86_64", "arm64") then
 	LCEnableAPI = get_config("enable_api")
 	-- TODO: rust condition
 	LCEnableRust = LCEnableIR or LCEnableAPI
-	local py_version = get_config("py_version")
-	
+
 	LCEnablePython = type(get_config("py_include")) == "string"
 	LCEnableGUI = get_config("enable_gui") or LCEnableTest or LCEnablePython
-	local bin_dir = get_config("bin_dir")
-	if type(bin_dir) == "string" then
-		if is_mode("debug") then
-			bin_dir = path.join(bin_dir, "debug")
-		elseif is_mode("releasedbg") then
-			bin_dir = path.join(bin_dir, "releasedbg")
-		else
-			bin_dir = path.join(bin_dir, "release")
-		end
-		set_targetdir(bin_dir)
-	end
 	includes("xmake_func.lua")
 	includes("src")
 else

@@ -1,4 +1,5 @@
-target("lc-ext-stb-image")
+target("stb-image")
+set_basename("lc-ext-stb-image")
 _config_project({
 	project_kind = "shared"
 })
@@ -13,7 +14,7 @@ local function test_proj(name)
 		project_kind = "binary"
 	})
 	add_files(name .. ".cpp")
-	add_deps("lc-runtime", "lc-vstl", "lc-gui", "lc-ext-stb-image", "lc-backends-dummy")
+	add_deps("lc-runtime", "lc-vstl", "lc-gui", "stb-image", "lc-backends-dummy")
 	if LCEnableDSL then
 		add_deps("lc-dsl")
 	end
