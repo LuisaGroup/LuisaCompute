@@ -12,7 +12,7 @@ namespace luisa::compute::metal {
 
 MetalAccel::MetalAccel(MetalDevice *device, const AccelOption &option) noexcept
     : _update{device->builtin_update_accel_instances()},
-      _option{option}, _tracker{reserved_primitive_count} {}
+      _option{option} { _resources.reserve(reserved_primitive_count); }
 
 MetalAccel::~MetalAccel() noexcept {
     if (_handle) { _handle->release(); }
@@ -55,7 +55,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
                 auto m = mods[i];
                 if (m.flags & Mod::flag_primitive) {
                     _requires_rebuild = true;
-                    _primitives[m.index] = reinterpret_cast<MetalPrimitive *>(m.primitive)->handle();
+                    _primitives[m.index] = reinterpret_cast<MetalPrimitive *>(m.primitive);
                 }
                 updates[i] = m;
             }
@@ -79,26 +79,12 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
         for (auto i = 0u; i < instance_count && i < old_instance_count; i++) {
             if (auto old_prim = _descriptor->instancedAccelerationStructures()
                                     ->object<MTL::AccelerationStructure>(i),
-                new_prim = _primitives[i];
+                new_prim = _primitives[i]->handle();
                 old_prim != new_prim) {
                 _requires_rebuild = true;
-                _tracker.release(reinterpret_cast<uint64_t>(old_prim));
-                _tracker.retain(reinterpret_cast<uint64_t>(new_prim));
             }
         }
-        // release old primitives due to shrinking
-        for (auto i = instance_count; i < old_instance_count; i++) {
-            auto old_prim = _descriptor->instancedAccelerationStructures()
-                                ->object<MTL::AccelerationStructure>(i);
-            _tracker.release(reinterpret_cast<uint64_t>(old_prim));
-        }
-        // retain new primitives due to growing
-        for (auto i = old_instance_count; i < instance_count; i++) {
-            auto new_prim = _primitives[i];
-            _tracker.retain(reinterpret_cast<uint64_t>(new_prim));
-        }
     }
-    _tracker.commit();
 
     // find out if we need to rebuild the acceleration structure
     _requires_rebuild = _requires_rebuild /* pending rebuild */ ||
@@ -131,9 +117,11 @@ void MetalAccel::build(MetalCommandEncoder &encoder, AccelBuildCommand *command)
 
     // update the descriptor
     if (_requires_rebuild) {
-        auto instances = NS::Array::array(
-            reinterpret_cast<const NS::Object *const *>(_primitives.data()),
-            _primitives.size());
+        luisa::vector<NS::Object *> objects;
+        objects.reserve(instance_count);
+        std::transform(_primitives.begin(), _primitives.end(), std::back_inserter(objects),
+                       [](auto p) noexcept { return p->handle(); });
+        auto instances = NS::Array::array(objects.data(), objects.size());
         _descriptor->setInstancedAccelerationStructures(instances);
     }
 
@@ -181,8 +169,12 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
                                                    MTL::ResourceHazardTrackingModeTracked);
         }
     }
+    auto name = _name.empty() ?
+                    nullptr :
+                    NS::String::string(_name.c_str(), NS::UTF8StringEncoding);
     if (_handle != nullptr) { _handle->release(); }
     _handle = device->newAccelerationStructure(sizes.accelerationStructureSize);
+    _handle->setLabel(name);
     auto build_buffer = device->newBuffer(sizes.buildScratchBufferSize,
                                           MTL::ResourceStorageModePrivate |
                                               MTL::ResourceHazardTrackingModeTracked);
@@ -191,16 +183,6 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
     _handle->retain();
     build_buffer->retain();
     command_encoder->buildAccelerationStructure(_handle, _descriptor, build_buffer, 0u);
-    auto compacted_size = 0u;
-    if (_option.allow_compaction) {
-        encoder.with_download_buffer(sizeof(uint), [&](MetalStageBufferPool::Allocation *size_buffer) noexcept {
-            command_encoder->writeCompactedAccelerationStructureSize(
-                _handle, size_buffer->buffer(), size_buffer->offset());
-            encoder.add_callback(FunctionCallbackContext::create([size_buffer, &compacted_size] {
-                compacted_size = *reinterpret_cast<uint *>(size_buffer->data());
-            }));
-        });
-    }
     encoder.add_callback(FunctionCallbackContext::create([descriptor = _descriptor,
                                                           handle = _handle,
                                                           build_buffer] {
@@ -211,20 +193,56 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
     command_encoder->endEncoding();
 
     // do compaction if required
+    auto compacted_size = 0u;
     if (_option.allow_compaction) {
-        encoder.submit({})->waitUntilCompleted();
+        // read back the size of the compacted acceleration structure
+        auto compaction_size_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
+        encoder.with_download_buffer(sizeof(uint), [&](MetalStageBufferPool::Allocation *size_buffer) noexcept {
+            compaction_size_encoder->writeCompactedAccelerationStructureSize(
+                _handle, size_buffer->buffer(), size_buffer->offset());
+            encoder.add_callback(FunctionCallbackContext::create([size_buffer, &compacted_size] {
+                compacted_size = *reinterpret_cast<uint *>(size_buffer->data());
+            }));
+        });
+        compaction_size_encoder->endEncoding();
+        // compact the acceleration structure
         auto compacted_handle = device->newAccelerationStructure(compacted_size);
+        compacted_handle->setLabel(name);
+        encoder.submit({})->waitUntilCompleted();
         auto compact_encoder = encoder.command_buffer()->accelerationStructureCommandEncoder();
-        _handle->retain();
         compacted_handle->retain();
         compact_encoder->copyAndCompactAccelerationStructure(_handle, compacted_handle);
+        compact_encoder->endEncoding();
         encoder.add_callback(FunctionCallbackContext::create([old_handle = _handle, compacted_handle] {
             old_handle->release();
             compacted_handle->release();
         }));
-        compact_encoder->endEncoding();
         _handle = compacted_handle;
     }
+    // update the resources used by the acceleration structure
+    _resources.clear();
+    _resources.emplace_back(_handle);
+    _resources.emplace_back(_instance_buffer);
+    for (auto prim : _primitives) { prim->add_resources(_resources); }
+    std::sort(_resources.begin(), _resources.end());
+    _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.end());
+}
+
+void MetalAccel::set_name(luisa::string_view name) noexcept { _name = name; }
+
+void MetalAccel::mark_resource_usages(MetalCommandEncoder &encoder,
+                                      MTL::ComputeCommandEncoder *command_encoder) noexcept {
+    _descriptor->retain();
+    _handle->retain();
+    _instance_buffer->retain();
+    encoder.add_callback(FunctionCallbackContext::create([descriptor = _descriptor,
+                                                          handle = _handle,
+                                                          instance_buffer = _instance_buffer] {
+        descriptor->release();
+        handle->release();
+        instance_buffer->release();
+    }));
+    command_encoder->useResources(_resources.data(), _resources.size(), MTL::ResourceUsageRead);
 }
 
 }// namespace luisa::compute::metal

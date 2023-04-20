@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <core/stl/vector.h>
 #include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
@@ -14,9 +15,11 @@ private:
     MTL::AccelerationStructure *_handle{nullptr};
 
 public:
-    virtual ~MetalPrimitive() noexcept {
-    }
+    virtual ~MetalPrimitive() noexcept {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    void add_resources(luisa::vector<MTL::Resource *> &resources) const noexcept {
+
+    }
 };
 
 }// namespace luisa::compute::metal

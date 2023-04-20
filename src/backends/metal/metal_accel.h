@@ -12,6 +12,7 @@
 namespace luisa::compute::metal {
 
 class MetalDevice;
+class MetalPrimitive;
 class MetalCommandEncoder;
 
 class MetalAccel {
@@ -25,8 +26,9 @@ private:
     MTL::Buffer *_update_buffer{nullptr};
     MTL::InstanceAccelerationStructureDescriptor *_descriptor{nullptr};
     MTL::ComputePipelineState *_update;
-    ResourceTracker _tracker;
-    luisa::vector<MTL::AccelerationStructure *> _primitives;
+    luisa::vector<MetalPrimitive *> _primitives;
+    luisa::vector<MTL::Resource *> _resources;
+    luisa::string _name;
     AccelOption _option;
     bool _requires_rebuild{true};
 
@@ -47,6 +49,9 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto instance_buffer() const noexcept { return _instance_buffer; }
     [[nodiscard]] auto binding() const noexcept { return Binding{_handle->gpuResourceID(), _instance_buffer->gpuAddress()}; }
+    void set_name(luisa::string_view name) noexcept;
+    void mark_resource_usages(MetalCommandEncoder &encoder,
+                              MTL::ComputeCommandEncoder *command_encoder) noexcept;
 };
 
 }// namespace luisa::compute::metal
