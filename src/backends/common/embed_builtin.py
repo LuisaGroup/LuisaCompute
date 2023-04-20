@@ -25,7 +25,7 @@ def main(path):
         header_file.write("#pragma once\n\n")
         with open(f"{output_name}.cpp", "w") as source_file:
             for f in files:
-                array_name = f"{folder_name}_{os.path.splitext(os.path.basename(f))[0]}"
+                array_name = f"luisa_{folder_name}_{os.path.splitext(os.path.basename(f))[0]}"
                 embed_file(f"{path}/{f}", array_name, header_file, source_file)
 
 
