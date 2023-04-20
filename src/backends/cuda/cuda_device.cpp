@@ -37,6 +37,7 @@
 #include <backends/cuda/cuda_shader_metadata.h>
 #include <backends/cuda/optix_api.h>
 #include <backends/cuda/cuda_swapchain.h>
+#include <backends/cuda/cuda_builtin_embedded.h>
 
 #define LUISA_CUDA_ENABLE_OPTIX_VALIDATION 0
 #define LUISA_CUDA_DUMP_SOURCE 1
@@ -99,15 +100,6 @@ CUDADevice::CUDADevice(Context &&ctx,
     }
     _compiler = luisa::make_unique<CUDACompiler>(this);
 
-    luisa::string builtin_kernel_src;
-    {
-        auto builtin_kernel_stream = _io->read_internal_shader("cuda_builtin_kernels.cu");
-        builtin_kernel_src.resize(builtin_kernel_stream->length());
-        builtin_kernel_stream->read(luisa::span{
-            reinterpret_cast<std::byte *>(builtin_kernel_src.data()),
-            builtin_kernel_src.size()});
-    }
-
     auto sm_option = luisa::format("-arch=sm_{}", handle().compute_capability());
     std::array options{sm_option.c_str(),
                        "--std=c++17",
@@ -118,6 +110,9 @@ CUDADevice::CUDADevice(Context &&ctx,
                        "-dw",
                        "-w",
                        "-ewp"};
+    luisa::string builtin_kernel_src{
+        luisa_cuda_builtin_cuda_builtin_kernels,
+        sizeof(luisa_cuda_builtin_cuda_builtin_kernels)};
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, options);
 
     // prepare default shaders
@@ -485,26 +480,26 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     for (auto &&arg : kernel.bound_arguments()) {
         luisa::visit(
             [&bound_arguments]<typename T>(T binding) noexcept {
-                ShaderDispatchCommand::Argument argument{};
-                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::BUFFER;
-                    argument.buffer.handle = binding.handle;
-                    argument.buffer.offset = binding.offset;
-                    argument.buffer.size = binding.size;
-                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::TEXTURE;
-                    argument.texture.handle = binding.handle;
-                    argument.texture.level = binding.level;
-                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::BINDLESS_ARRAY;
-                    argument.bindless_array.handle = binding.handle;
-                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
-                    argument.tag = ShaderDispatchCommand::Argument::Tag::ACCEL;
-                    argument.accel.handle = binding.handle;
-                } else {
-                    LUISA_ERROR_WITH_LOCATION("Unsupported binding type.");
-                }
-                bound_arguments.emplace_back(argument);
+            ShaderDispatchCommand::Argument argument{};
+            if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::BUFFER;
+                argument.buffer.handle = binding.handle;
+                argument.buffer.offset = binding.offset;
+                argument.buffer.size = binding.size;
+            } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::TEXTURE;
+                argument.texture.handle = binding.handle;
+                argument.texture.level = binding.level;
+            } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::BINDLESS_ARRAY;
+                argument.bindless_array.handle = binding.handle;
+            } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                argument.tag = ShaderDispatchCommand::Argument::Tag::ACCEL;
+                argument.accel.handle = binding.handle;
+            } else {
+                LUISA_ERROR_WITH_LOCATION("Unsupported binding type.");
+            }
+            bound_arguments.emplace_back(argument);
             },
             arg);
     }
