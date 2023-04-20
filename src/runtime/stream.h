@@ -37,28 +37,28 @@ public:
         Delegate(const Delegate &) noexcept = delete;
         Delegate &&operator=(Delegate &&) noexcept = delete;
         Delegate &&operator=(const Delegate &) noexcept = delete;
-        Delegate &&operator<<(luisa::unique_ptr<Command> &&cmd) &&noexcept;
-        Delegate &&operator<<(luisa::move_only_function<void()> &&f) &&noexcept;
-        Stream &operator<<(Event::Signal &&signal) &&noexcept;
-        Stream &operator<<(Event::Wait &&wait) &&noexcept;
-        Stream &operator<<(SwapChain::Present &&present) &&noexcept;
-        Stream &operator<<(CommandList::Commit &&commit) &&noexcept;
-        Stream &operator<<(Synchronize &&) &&noexcept;
-        Stream &operator<<(Commit &&) &&noexcept;
+        Delegate &&operator<<(luisa::unique_ptr<Command> &&cmd) && noexcept;
+        Delegate &&operator<<(luisa::move_only_function<void()> &&f) && noexcept;
+        Stream &operator<<(Event::Signal &&signal) && noexcept;
+        Stream &operator<<(Event::Wait &&wait) && noexcept;
+        Stream &operator<<(SwapChain::Present &&present) && noexcept;
+        Stream &operator<<(CommandList::Commit &&commit) && noexcept;
+        Stream &operator<<(Synchronize &&) && noexcept;
+        Stream &operator<<(Commit &&) && noexcept;
 
         // compound commands
         template<typename... T>
-        decltype(auto) operator<<(std::tuple<T...> args) &&noexcept {
-            auto encode = [this]<size_t... i>(std::tuple<T...> a, std::index_sequence<i...>) noexcept -> decltype(auto) {
-                return (std::move(*this) << ... << std::move(std::get<i>(a)));
+        decltype(auto) operator<<(std::tuple<T...> args) && noexcept {
+            auto encode = [&]<size_t... i>(std::index_sequence<i...>) noexcept -> decltype(auto) {
+                return (std::move(*this) << ... << std::move(std::get<i>(args)));
             };
-            return encode(std::move(args), std::index_sequence_for<T...>{});
+            return encode(std::index_sequence_for<T...>{});
         }
     };
 
 private:
     friend class Device;
-    StreamTag _stream_tag;
+    StreamTag _stream_tag{};
     void _dispatch(CommandList &&command_buffer) noexcept;
     explicit Stream(DeviceInterface *device, StreamTag stream_tag) noexcept;
     void _synchronize() noexcept;
@@ -87,7 +87,14 @@ public:
     // compound commands
     template<typename... T>
     decltype(auto) operator<<(std::tuple<T...> &&args) noexcept {
-        return Delegate{this} << std::move(args);
+        auto make_return = []<typename S>(S &&s) noexcept -> decltype(auto) {
+            if constexpr (std::is_same_v<std::remove_cvref_t<S>, Stream>) {
+                return (s);
+            } else {
+                return Delegate{std::move(s)};
+            }
+        };
+        return make_return(Delegate{this} << std::move(args));
     }
 };
 

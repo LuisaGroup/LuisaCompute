@@ -6,15 +6,6 @@
 
 #include <core/dll_export.h>
 
-#if defined(_WINDOWS) || defined(_WIN32) || defined(_WIN64)
-#define LUISA_PLATFORM_WINDOWS
-#elif defined(__unix__) || defined(__unix) || defined(__APPLE__)
-#define LUISA_PLATFORM_UNIX
-#ifdef __APPLE__
-#define LUISA_PLATFORM_APPLE
-#endif
-#endif
-
 #ifdef __cplusplus
 
 #include <core/stl/vector.h>

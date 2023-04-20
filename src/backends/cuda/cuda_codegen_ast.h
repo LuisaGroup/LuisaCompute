@@ -74,6 +74,7 @@ private:
     void _emit_constant(Function::Constant c) noexcept;
     void _emit_variable_declarations(Function f) noexcept;
     void _emit_builtin_variables() noexcept;
+    void _emit_access_chain(luisa::span<const Expression *const> chain) noexcept;
 
 public:
     explicit CUDACodegenAST(StringScratch &scratch) noexcept;

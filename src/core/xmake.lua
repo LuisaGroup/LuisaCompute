@@ -1,14 +1,21 @@
 target("lc-core")
 _config_project({
-	project_kind = "shared",
-	batch_size = 4
+    project_kind = "shared",
+    batch_size = 4
 })
-if is_mode("debug") and is_plat("windows") then
-	add_syslinks("Dbghelp")
+if is_plat("windows") then
+    if is_mode("debug") then
+        add_syslinks("Dbghelp")
+    end
+	add_defines("NOMINMAX", "LUISA_PLATFORM_WINDOWS", {public = true})
+elseif is_plat("linux") then
+    add_defines("LUISA_PLATFORM_UNIX", {public = true})
+elseif is_plat("macosx") then
+    add_defines("LUISA_PLATFORM_UNIX", "LUISA_PLATFORM_APPLE", {public = true})
 end
 add_deps("eastl", "spdlog")
-add_includedirs("../", "../ext/xxHash/", "../ext/parallel-hashmap", {
-	public = true
+add_includedirs("../", "../ext/xxHash/", "../ext/magic_enum/include", "../ext/parallel-hashmap", {
+    public = true
 })
 add_files("**.cpp")
 -- if is_plat("windows") then
@@ -18,9 +25,9 @@ add_files("**.cpp")
 -- 					})
 -- end
 if LCEnableDSL then
-	add_defines("LUISA_ENABLE_DSL", {
-		public = true
-	})
+    add_defines("LUISA_ENABLE_DSL", {
+        public = true
+    })
 end
 add_defines("LC_CORE_EXPORT_DLL")
 target_end()

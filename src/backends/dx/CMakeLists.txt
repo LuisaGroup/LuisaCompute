@@ -9,20 +9,23 @@ if (WIN32)
             ../common/default_binary_io.cpp ../common/default_binary_io.h
             ../common/resource_generator.h
 
+            ../common/hlsl/access_chain.cpp ../common/hlsl/access_chain.h
+            ../common/hlsl/binding_to_arg.cpp ../common/hlsl/binding_to_arg.h
+            ../common/hlsl/shader_compiler.cpp ../common/hlsl/shader_compiler.h
+            ../common/hlsl/codegen_stack_data.cpp ../common/hlsl/codegen_stack_data.h
+            ../common/hlsl/common_iterator.h
+            ../common/hlsl/hlsl_codegen.cpp ../common/hlsl/hlsl_codegen.h
+            ../common/hlsl/hlsl_codegen_util.cpp
+            ../common/hlsl/shader_property.h
+            ../common/hlsl/string_builder.cpp ../common/hlsl/string_builder.h
+            ../common/hlsl/struct_generator.cpp ../common/hlsl/struct_generator.h
+            ../common/hlsl/variant_util.h
+
             DXApi/ext.cpp
             DXApi/LCCmdBuffer.cpp DXApi/LCCmdBuffer.h
             DXApi/LCDevice.cpp DXApi/LCDevice.h
             DXApi/LCEvent.cpp DXApi/LCEvent.h
             DXApi/LCSwapChain.cpp DXApi/LCSwapChain.h
-
-            HLSL/codegen_stack_data.cpp HLSL/codegen_stack_data.h
-            HLSL/common_iterator.h
-            HLSL/dx_codegen.cpp HLSL/dx_codegen.h
-            HLSL/dx_codegen_util.cpp
-            HLSL/shader_property.h
-            HLSL/string_builder.cpp HLSL/string_builder.h
-            HLSL/struct_generator.cpp HLSL/struct_generator.h
-            HLSL/variant_util.h
 
             DXRuntime/CommandAllocator.cpp DXRuntime/CommandAllocator.h
             DXRuntime/CommandAllocatorBase.h
@@ -59,7 +62,6 @@ if (WIN32)
             Shader/ComputeShader.cpp Shader/ComputeShader.h
             Shader/RasterShader.cpp Shader/RasterShader.h
             Shader/Shader.cpp Shader/Shader.h
-            Shader/ShaderCompiler.cpp Shader/ShaderCompiler.h
             Shader/ShaderSerializer.cpp Shader/ShaderSerializer.h
             Shader/ShaderVariableType.h)
     luisa_compute_add_backend(dx

@@ -32,7 +32,6 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh ${{ matrix.llvm }}
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           if [ "${{ matrix.compiler }}" = "gcc" ]; then
             sudo apt-get -y install gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }}
           else

@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     Callable load = [](BufferVar<float> buffer, Var<uint> index) noexcept {
         return buffer.read(index);
@@ -50,16 +50,16 @@ int main(int argc, char *argv[]) {
 
     Kernel1D kernel_def = [&](BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
         set_block_size(256u);
-        auto index = dispatch_id().x;
+        UInt index = dispatch_id().x;
         store(result, index, add(load(source, index), x));
     };
-    auto kernel = device.compile(kernel_def);
+    Shader1D<Buffer<float>, Buffer<float>, float> kernel = device.compile(kernel_def);
 
-    static constexpr auto n = 1024u * 1024u;
+    static constexpr uint n = 1024u * 1024u;
 
-    auto stream = device.create_stream();
-    auto buffer = device.create_buffer<float>(n);
-    auto result_buffer = device.create_buffer<float>(n);
+    Stream stream = device.create_stream();
+    Buffer<float> buffer = device.create_buffer<float>(n);
+    Buffer<float> result_buffer = device.create_buffer<float>(n);
 
     std::vector<float> data(n);
     std::vector<float> results(n);
@@ -67,22 +67,22 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     stream << buffer.copy_from(data.data());
-    auto command_list = CommandList::create();
-    for (auto i = 0; i < 10; i++) {
+    CommandList command_list = CommandList::create();
+    for (size_t i = 0; i < 10; i++) {
         command_list << kernel(buffer, result_buffer, 3).dispatch(n);
     }
     stream << command_list.commit()
            << result_buffer.copy_to(results.data());
-    auto t1 = clock.toc();
+    double t1 = clock.toc();
     stream << synchronize();
-    auto t2 = clock.toc();
+    double t2 = clock.toc();
 
     LUISA_INFO("Dispatched in {} ms. Finished in {} ms.", t1, t2);
     LUISA_INFO("Results: {}, {}, {}, {}, ..., {}, {}.",
                results[0], results[1], results[2], results[3],
                results[n - 2u], results[n - 1u]);
 
-    for (auto i = 0u; i < n; i++) {
+    for (size_t i = 0u; i < n; i++) {
         LUISA_ASSERT(results[i] == data[i] + 3.0f, "Results mismatch.");
     }
 }

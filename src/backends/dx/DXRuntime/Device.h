@@ -13,6 +13,9 @@
 namespace luisa {
 class BinaryIO;
 }
+namespace lc::hlsl{
+class ShaderCompiler;
+}
 namespace luisa::compute {
 class Context;
 }// namespace luisa::compute
@@ -23,7 +26,6 @@ class GpuAllocator;
 class DescriptorHeap;
 class ComputeShader;
 class PipelineLibrary;
-class ShaderCompiler;
 class Device {
 public:
     size_t maxAllocatorCount = 2;
@@ -76,6 +78,6 @@ public:
     Device(Device &&) = delete;
     ~Device();
     void WaitFence(ID3D12Fence *fence, uint64 fenceIndex);
-    static ShaderCompiler *Compiler();
+    static hlsl::ShaderCompiler *Compiler();
 };
 }// namespace lc::dx

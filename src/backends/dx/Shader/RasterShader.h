@@ -5,8 +5,10 @@
 #include <core/binary_io.h>
 #include <core/stl/unordered_map.h>
 #include <vstl/hash.h>
-namespace lc::dx {
+namespace lc::hlsl {
 struct CodegenResult;
+}
+namespace lc::dx {
 class ShaderSerializer;
 struct RasterPSOState {
     vstd::vector<GFXFormat> rtvFormats;
@@ -53,7 +55,7 @@ private:
         Device *device,
         vstd::MD5 md5,
         MeshFormat const &meshFormat,
-        vstd::vector<Property> &&prop,
+        vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         ComPtr<ID3D12RootSignature> &&rootSig,
         vstd::vector<std::byte> &&vertBinData,
@@ -103,7 +105,7 @@ public:
     RasterShader(
         Device *device,
         vstd::MD5 md5,
-        vstd::vector<Property> &&prop,
+        vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         MeshFormat const &meshFormat,
         vstd::vector<std::byte> &&vertBinData,
@@ -116,7 +118,7 @@ public:
         Device *device,
         Function vertexKernel,
         Function pixelKernel,
-        vstd::function<CodegenResult()> const &codegen,
+        vstd::function<hlsl::CodegenResult()> const &codegen,
         vstd::MD5 const &md5,
         uint shaderModel,
         MeshFormat const &meshFormat,
@@ -126,7 +128,7 @@ public:
     static void SaveRaster(
         luisa::BinaryIO const *fileIo,
         Device *device,
-        CodegenResult const &result,
+        hlsl::CodegenResult const &result,
         vstd::MD5 const &md5,
         vstd::string_view fileName,
         Function vertexKernel,

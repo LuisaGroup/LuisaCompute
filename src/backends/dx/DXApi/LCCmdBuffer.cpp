@@ -2,7 +2,7 @@
 #include <DXApi/LCDevice.h>
 #include <runtime/rhi/command.h>
 #include <runtime/command_list.h>
-#include "HLSL/dx_codegen.h"
+#include <backends/common/hlsl/hlsl_codegen.h>
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/TopAccel.h>
@@ -455,14 +455,14 @@ public:
         auto shader = reinterpret_cast<ComputeShader const *>(cmd->handle());
         auto &&tempBuffer = *bufferVec;
         bufferVec++;
-        bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
         auto cs = static_cast<ComputeShader const *>(shader);
         auto BeforeDispatch = [&]() {
+            bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
             if (tempBuffer.second > 0) {
                 bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
             }
             DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
-            vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
+            vstd::push_back_func(*bindProps, shader->BindlessCount(), [&] { return globalHeapView; });
             Visitor visitor{this, cs->Args().data()};
             DecodeCmd(shader->ArgBindings(), visitor);
             DecodeCmd(cmd->arguments(), visitor);
@@ -630,6 +630,7 @@ public:
         accel->Build(
             *stateTracker,
             *bd,
+            cmd->modifications(),
             scratch.has_value() ? scratch.ptr() : nullptr);
     }
     void BottomBuild(uint64 handle) {
@@ -756,7 +757,7 @@ public:
             bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
         }
         DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
-        vstd::push_back_func(*bindProps, (shader->BindlessCount() > 0 ? 1 : 0) + 2, [&] { return globalHeapView; });
+        vstd::push_back_func(*bindProps, shader->BindlessCount(), [&] { return globalHeapView; });
         DecodeCmd(cmd->arguments(), Visitor{this, shader->Args().data()});
         bd->SetRasterShader(shader, pso, *bindProps);
         cmdList->IASetPrimitiveTopology([&] {

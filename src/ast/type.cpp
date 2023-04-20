@@ -393,13 +393,17 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
 }// namespace detail
 
 luisa::span<const Type *const> Type::members() const noexcept {
-    assert(is_structure());
+    LUISA_ASSERT(is_structure(),
+                 "Calling members() on a non-structure type {}.",
+                 description());
     return static_cast<const detail::TypeImpl *>(this)->members;
 }
 
 const Type *Type::element() const noexcept {
     if (is_scalar()) { return this; }
-    assert(is_array() || is_vector() || is_matrix() || is_buffer() || is_texture());
+    LUISA_ASSERT(is_array() || is_vector() || is_matrix() || is_buffer() || is_texture(),
+                 "Calling element() on a non-array/vector/matrix/buffer/image type {}.",
+                 description());
     return static_cast<const detail::TypeImpl *>(this)->members.front();
 }
 
@@ -465,7 +469,10 @@ luisa::string_view Type::description() const noexcept {
 }
 
 uint Type::dimension() const noexcept {
-    assert(is_scalar() || is_array() || is_vector() || is_matrix() || is_texture());
+    LUISA_ASSERT(is_scalar() || is_array() || is_vector() || is_matrix() || is_texture(),
+                 "Calling dimension() on a non-array, non-vector, "
+                 "non-matrix, or non-image type {}.",
+                 description());
     return static_cast<const detail::TypeImpl *>(this)->dimension;
 }
 

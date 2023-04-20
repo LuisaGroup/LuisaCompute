@@ -1,10 +1,12 @@
-includes("build_proj.lua")
 if LCUseMimalloc then
 	_configs.enable_mimalloc = true
 end
+table.insert(_config_rules, "lc-rename-ext")
+local rename_rule_idx = table.getn(_config_rules)
 includes("ext/EASTL")
 _configs.enable_mimalloc = nil
 includes("ext/spdlog")
+table.remove(_config_rules, rename_rule_idx)
 includes("core")
 includes("vstl")
 includes("ast")
@@ -18,27 +20,9 @@ end
 if LCEnablePython then
 	includes("py")
 end
-includes("backends/validation")
-if LCDxBackend then
-	includes("backends/dx")
-end
-if LCCudaBackend then
-	includes("backends/cuda")
-end
-if LCMetalBackend then
-	includes("backends/metal")
-end
-if LCCpuBackend then
-	includes("backends/cpu")
-end
-if LCRemoteBackend then
-	includes("backends/remote")
-end
+includes("backends")
 if LCEnableTest then
 	includes("tests")
-end
-if get_config("enable_tools") then
-	includes("tools")
 end
 if LCEnableRust then
 	includes("rust")
@@ -49,10 +33,3 @@ end
 if LCEnableAPI then
 	includes("api")
 end
-if get_config("enable_unity3d_plugin") then
-	includes("unity3d")
-end
-target("magic_enum")
-	set_kind("headeronly")
-	add_includedirs("src/ext/magic_enum/include")
-target_end()

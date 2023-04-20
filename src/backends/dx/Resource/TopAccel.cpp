@@ -30,6 +30,7 @@ TopAccel::TopAccel(Device *device, AccelOption const &option)
             case AccelOption::UsageHint::FAST_BUILD:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
         }
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
     };
     memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));
     memset(&topLevelPrebuildInfo, 0, sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO));
@@ -178,10 +179,10 @@ size_t TopAccel::PreProcess(
         topLevelBuildDesc.Inputs.NumDescs != size) update = false;
     topLevelBuildDesc.Inputs.NumDescs = size;
     allInstance.resize(size);
-    setDesc.clear();
-    vstd::push_back_all(setDesc, modifications);
-
-    for (auto &&m : setDesc) {
+    vstd::span<AccelBuildCommand::Modification> mutable_mod{
+        const_cast<AccelBuildCommand::Modification *>(modifications.data()),
+        modifications.size()};
+    for (auto &&m : mutable_mod) {
         auto ite = setMap.find(m.index);
         bool updateMesh = (m.flags & m.flag_primitive);
         if (ite != setMap.end()) {
@@ -202,6 +203,7 @@ size_t TopAccel::PreProcess(
         requireBuild = false;
         update = false;
     }
+    setDesc.clear();
     if (setMap.size() != 0) {
         update = false;
         setDesc.reserve(setMap.size());
@@ -235,7 +237,7 @@ size_t TopAccel::PreProcess(
     tracker.RecordState(
         GetAccelBuffer(),
         D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
-    if (!setDesc.empty()) {
+    if (!modifications.empty() || !setDesc.empty()) {
         tracker.RecordState(
             instBuffer.get(),
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -245,27 +247,34 @@ size_t TopAccel::PreProcess(
 void TopAccel::Build(
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
+    vstd::span<AccelBuildCommand::Modification const> const &modifications,
     BufferView const *scratchBuffer) {
     if (Length() == 0) return;
     auto alloc = builder.GetCB()->GetAlloc();
     // Update
-    if (!setDesc.empty()) {
+    if (!modifications.empty() || !setDesc.empty()) {
         auto cs = device->setAccelKernel.Get(device);
-        auto setBuffer = alloc->GetTempUploadBuffer(setDesc.size_bytes());
+        auto size = modifications.size() + setDesc.size();
+        auto size_bytes = size * sizeof(AccelBuildCommand::Modification);
+        auto setBuffer = alloc->GetTempUploadBuffer(size_bytes);
         auto cbuffer = alloc->GetTempUploadBuffer(sizeof(size_t), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
         struct CBuffer {
             uint dsp;
             uint count;
         };
         CBuffer cbValue;
-        cbValue.dsp = setDesc.size();
+        cbValue.dsp = size;
         cbValue.count = Length();
         static_cast<UploadBuffer const *>(cbuffer.buffer)
             ->CopyData(cbuffer.offset,
                        {reinterpret_cast<uint8_t const *>(&cbValue), sizeof(CBuffer)});
-        static_cast<UploadBuffer const *>(setBuffer.buffer)
-            ->CopyData(setBuffer.offset,
-                       {reinterpret_cast<uint8_t const *>(setDesc.data()), setDesc.size_bytes()});
+        auto dataBuffer = static_cast<UploadBuffer const *>(setBuffer.buffer);
+        if (!setDesc.empty()) {
+            dataBuffer->CopyData(setBuffer.offset, {reinterpret_cast<uint8_t const *>(setDesc.data()), setDesc.size_bytes()});
+        }
+        if (!modifications.empty()){
+            dataBuffer->CopyData(setBuffer.offset + setDesc.size_bytes(), {reinterpret_cast<uint8_t const *>(modifications.data()), modifications.size_bytes()});
+        }
         BindProperty properties[3];
         properties[0] = cbuffer;
         properties[1] = setBuffer;
@@ -273,7 +282,7 @@ void TopAccel::Build(
         //TODO
         builder.DispatchCompute(
             cs,
-            uint3(setDesc.size(), 1, 1),
+            uint3(size, 1, 1),
             {properties, 3});
         setDesc.clear();
     }

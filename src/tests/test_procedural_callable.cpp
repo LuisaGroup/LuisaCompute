@@ -30,8 +30,8 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
-    auto stream = device.create_stream();
+    Device device = context.create_device(argv[1]);
+    Stream stream = device.create_stream();
     auto device_image1 = device.create_image<float>(PixelStorage::FLOAT4, width, height);
 
     int count = 1024;
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
         return v0;
     };
 
-    Callable intersect = [&](Var<Ray> ray) noexcept {
+    Callable intersect = [&](Var<Ray> ray, Bool &valid) noexcept {
         auto sphere_normal = def(make_float3());
         auto hit = accel->query_all(ray)
                        .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
@@ -111,6 +111,7 @@ int main(int argc, char *argv[]) {
                                    auto dist = tc - t1c;
                                    // save normal as color
                                    $if(dist <= ray->t_max()) {
+                                       valid = true;
                                        sphere_normal = normalize(ray_origin + dir * dist - origin);
                                    };
                                    candidate.commit(dist);
@@ -136,7 +137,8 @@ int main(int argc, char *argv[]) {
         auto ray = make_ray(origin, direction);
 
         // traversal aceeleration structure with ray-query
-        auto hit = intersect(ray);
+        auto valid = def(false);
+        auto hit = intersect(ray, valid);
         auto old = device_image1->read(coord).xyz();
         auto color = def(make_float3());
         $if(hit.hit_type == to_underlying(HitType::Triangle)) {

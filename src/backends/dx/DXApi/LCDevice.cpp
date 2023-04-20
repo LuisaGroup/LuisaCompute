@@ -2,7 +2,6 @@
 #include <DXApi/LCDevice.h>
 #include <DXRuntime/Device.h>
 #include <Resource/DefaultBuffer.h>
-#include <Shader/ShaderCompiler.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/DepthBuffer.h>
 #include <Resource/BindlessArray.h>
@@ -16,7 +15,7 @@
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
 #include "../ext.h"
-#include "HLSL/dx_codegen.h"
+#include <backends/common/hlsl/hlsl_codegen.h>
 #include <ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
 #include <core/clock.h>
@@ -26,6 +25,7 @@
 #include <runtime/dispatch_buffer.h>
 #include <runtime/rtx/aabb.h>
 #include <ext.h>
+#include <backends/common/hlsl/binding_to_arg.h>
 
 #ifdef LUISA_ENABLE_IR
 #include <ir/ir2ast.h>
@@ -165,6 +165,7 @@ ResourceCreationInfo LCDevice::create_stream(StreamTag type) noexcept {
                 case compute::StreamTag::COPY:
                     return D3D12_COMMAND_LIST_TYPE_COPY;
             }
+            LUISA_ERROR_WITH_LOCATION("Unreachable.");
         }());
     info.handle = reinterpret_cast<uint64>(res);
     info.native_handle = res->queue.Queue();
@@ -185,7 +186,7 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
     ShaderCreationInfo info;
     // Clock clk;
-    auto code = CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, false);
     // LUISA_INFO("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
@@ -219,7 +220,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel,
             [&]() { return std::move(code); },
             checkMD5,
-            Shader::BindingToArg(kernel.bound_arguments()),
+            hlsl::binding_to_arg(kernel.bound_arguments()),
             kernel.block_size(),
             kShaderModel,
             file_name,
@@ -348,7 +349,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
-    auto code = CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo, false);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());

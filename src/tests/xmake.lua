@@ -1,4 +1,5 @@
 target("stb-image")
+set_basename("lc-ext-stb-image")
 _config_project({
 	project_kind = "shared"
 })
@@ -13,7 +14,7 @@ local function test_proj(name)
 		project_kind = "binary"
 	})
 	add_files(name .. ".cpp")
-	add_deps("lc-runtime", "lc-vstl", "lc-gui", "stb-image")
+	add_deps("lc-runtime", "lc-vstl", "lc-gui", "stb-image", "lc-backends-dummy")
 	if LCEnableDSL then
 		add_deps("lc-dsl")
 	end
@@ -34,6 +35,8 @@ test_proj("test_mpm3d")
 test_proj("test_mpm88")
 test_proj("test_normal_encoding")
 test_proj("test_path_tracing")
+test_proj("test_path_tracing_camera")
+test_proj("test_path_tracing_cutout")
 test_proj("test_photon_mapping")
 test_proj("test_printer")
 test_proj("test_procedural")
@@ -50,3 +53,4 @@ test_proj("test_type")
 test_proj("test_raster")
 test_proj("test_texture_compress")
 test_proj("test_swapchain")
+test_proj("test_swapchain_static")

@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
     static constexpr auto width = 2048u;
     static constexpr auto height = 1024u;
     static constexpr auto resolution = make_uint2(width, height);
@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
         image.write(p, color);
     });
 
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
     auto image = device.create_image<float>(PixelStorage::BYTE4, resolution);
 
     struct PackagedWindow {
@@ -74,6 +74,6 @@ int main(int argc, char *argv[]) {
         for (auto &&w : windows) { stream << w.swapchain.present(image); }
         framerate.record(1u);
         LUISA_INFO("FPS: {}", framerate.report());
-        for (auto &&w : windows) { w.window.pool_event(); }
+        for (auto &&w : windows) { w.window.poll_events(); }
     }
 }

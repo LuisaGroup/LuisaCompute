@@ -3,18 +3,13 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 8
 })
-add_deps("lc-runtime", "lc-vstl")
-add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp", "HLSL/**.cpp",
-				"../common/default_binary_io.cpp")
+add_deps("lc-runtime", "lc-vstl", "lc-backend-common")
+add_files("DXApi/**.cpp", "DXRuntime/**.cpp", "Resource/**.cpp", "Shader/**.cpp")
 add_includedirs("./")
 add_syslinks("D3D12", "dxgi")
-after_build(function(target)
-	local bin_dir = target:targetdir()
-	os.cp(path.join(os.scriptdir(), "dx_builtin"), path.join(bin_dir, ".data/"))
-	os.cp(path.join(os.scriptdir(), "dx_support/*.dll"), bin_dir)
-end)
+add_deps("lc-copy-dxc")
 if is_plat("windows") then
-	add_defines("NOMINMAX", "UNICODE")
+	add_defines("UNICODE")
 end
 on_load(function(target)
 	local cuda_path = os.getenv("CUDA_PATH")

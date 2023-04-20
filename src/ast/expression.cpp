@@ -47,7 +47,9 @@ void CallExpr::_mark() const noexcept {
             _op == CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
             _op == CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY ||
             _op == CallOp::RAY_TRACING_SET_INSTANCE_OPACITY ||
-            // TODO: ray query
+            _op == CallOp::RAY_QUERY_COMMIT_TRIANGLE ||
+            _op == CallOp::RAY_QUERY_COMMIT_PROCEDURAL ||
+            _op == CallOp::RAY_QUERY_TERMINATE ||
             _op == CallOp::ATOMIC_EXCHANGE ||
             _op == CallOp::ATOMIC_COMPARE_EXCHANGE ||
             _op == CallOp::ATOMIC_FETCH_ADD ||
@@ -56,7 +58,7 @@ void CallExpr::_mark() const noexcept {
             _op == CallOp::ATOMIC_FETCH_OR ||
             _op == CallOp::ATOMIC_FETCH_XOR ||
             _op == CallOp::ATOMIC_FETCH_MIN ||
-            _op == CallOp::ATOMIC_FETCH_MAX) {
+            _op == CallOp::ATOMIC_FETCH_MAX) {// TODO: autodiff
             _arguments[0]->mark(Usage::WRITE);
             for (auto i = 1u; i < _arguments.size(); i++) {
                 _arguments[i]->mark(Usage::READ);

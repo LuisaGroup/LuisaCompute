@@ -18,9 +18,16 @@ namespace luisa::compute::cuda {
 class CUDACodegenAST::RayQueryLowering {
 
 public:
+    struct CapturedElement {
+        Variable base_variable;
+        const Type *element_type;
+        luisa::vector<uint> access_indices;
+    };
+
     struct OutlineInfo {
         uint index;
-        luisa::vector<Variable> captured_variables;
+        luisa::vector<Variable> captured_resources;
+        luisa::vector<CapturedElement> captured_elements;
     };
 
     struct FunctionResource {
@@ -164,6 +171,57 @@ private:
         _find_root_resources(f, views);
     }
 
+    void _emit_captured_element(Variable base, luisa::span<const uint> indices) const noexcept {
+        _codegen->_emit_variable_name(base);
+        auto type = base.type();
+        for (auto i : indices) {
+            switch (type->tag()) {
+                case Type::Tag::VECTOR: {
+                    LUISA_ASSERT(i < type->dimension(),
+                                 "Invalid access index {} for vector type {}.",
+                                 i, type->description());
+                    std::array elem{"x", "y", "z", "w"};
+                    _codegen->_scratch << "." << elem[i];
+                    type = type->element();
+                    break;
+                }
+                case Type::Tag::MATRIX: {
+                    LUISA_ASSERT(i < type->dimension(),
+                                 "Invalid access index {} for matrix type {}.",
+                                 i, type->description());
+                    _codegen->_scratch << "[" << i << "]";
+                    type = Type::vector(type->element(), type->dimension());
+                    break;
+                }
+                case Type::Tag::ARRAY: {
+                    LUISA_ASSERT(i < type->dimension(),
+                                 "Invalid access index {} for array type {}.",
+                                 i, type->description());
+                    _codegen->_scratch << "[" << i << "]";
+                    type = type->element();
+                    break;
+                }
+                case Type::Tag::STRUCTURE: {
+                    LUISA_ASSERT(i < type->members().size(),
+                                 "Invalid access index {} for structure type {}.",
+                                 i, type->description());
+                    _codegen->_scratch << ".m" << i;
+                    type = type->members()[i];
+                    break;
+                }
+                default:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Invalid type {} for access chain.",
+                        type->description());
+            }
+        }
+    }
+
+    void _emit_outline_context_member_name(Variable base, luisa::span<const uint> indices) const noexcept {
+        _codegen->_emit_variable_name(base);
+        for (auto i : indices) { _codegen->_scratch << "_" << i; }
+    }
+
     void _create_outline_definitions(Function f, const RayQueryStmt *s) noexcept {
         // check if the ray query is already outlined
         if (_outline_infos.contains(s)) { return; }
@@ -186,46 +244,134 @@ private:
                 local_variable_set.emplace(v);
             }
         }
-        luisa::vector<Variable> captured_variables;// V(captured) = V(scope) - V(local)
-        for (auto v : within_scope_variables) {
-            if (!local_variable_set.contains(v) &&
-                !v.is_builtin() &&
-                v.type() != _codegen->_ray_query_all_type &&
-                v.type() != _codegen->_ray_query_any_type) {
-                captured_variables.emplace_back(v);
+
+        luisa::vector<Variable> uniquely_identified_resources;
+        luisa::vector<Variable> captured_resources;
+        luisa::vector<CapturedElement> captured_elements;
+        {
+            luisa::vector<Variable> captured_variables;// V(captured) = V(scope) - V(local)
+            for (auto v : within_scope_variables) {
+                if (!local_variable_set.contains(v) &&
+                    !v.is_builtin() &&
+                    v.type() != _codegen->_ray_query_all_type &&
+                    v.type() != _codegen->_ray_query_any_type) {
+                    captured_variables.emplace_back(v);
+                }
+            }
+
+            // if the resources can be uniquely identified in the __constant__ params,
+            // then no need for passing via stack with I/O on local memory
+            {
+                auto iter = std::partition(
+                    captured_variables.begin(), captured_variables.end(),
+                    [this, f](auto v) noexcept {
+                        return !v.is_resource() ||
+                               _root_resources.at({f, v}).size() != 1u;
+                    });
+
+                uniquely_identified_resources.reserve(
+                    std::distance(iter, captured_variables.end()));
+                for (auto i = iter; i != captured_variables.end(); i++) {
+                    uniquely_identified_resources.emplace_back(*i);
+                }
+                captured_variables.erase(iter, captured_variables.cend());
+            }
+
+            // find the captured resources
+            {
+                auto iter = std::partition(
+                    captured_variables.begin(), captured_variables.end(),
+                    [](auto v) noexcept { return !v.is_resource(); });
+                captured_resources.reserve(
+                    std::distance(iter, captured_variables.end()));
+                for (auto i = iter; i != captured_variables.end(); i++) {
+                    captured_resources.emplace_back(*i);
+                }
+                captured_variables.erase(iter, captured_variables.cend());
+            }
+
+            // pack the variables into a tight struct to minimize the stack size
+            {
+
+                luisa::fixed_vector<uint, 8u> indices;
+                auto glob_elements = [&indices, &captured_elements](auto &&self, Variable base, const Type *type) noexcept -> void {
+                    if (type->is_scalar()) {
+                        CapturedElement element{
+                            base, type, {indices.cbegin(), indices.cend()}};
+                        captured_elements.emplace_back(std::move(element));
+                        return;
+                    }
+                    switch (type->tag()) {
+                        case Type::Tag::VECTOR:
+                        case Type::Tag::ARRAY: {
+                            auto n = type->dimension();
+                            auto elem = type->element();
+                            for (auto i = 0u; i < n; i++) {
+                                indices.emplace_back(i);
+                                self(self, base, elem);
+                                indices.pop_back();
+                            }
+                            break;
+                        }
+                        case Type::Tag::MATRIX: {
+                            auto n = type->dimension();
+                            auto elem = Type::vector(type->element(), n);
+                            for (auto i = 0u; i < n; i++) {
+                                indices.emplace_back(i);
+                                self(self, base, elem);
+                                indices.pop_back();
+                            }
+                            break;
+                        }
+                        case Type::Tag::STRUCTURE: {
+                            auto members = type->members();
+                            for (auto i = 0u; i < members.size(); i++) {
+                                indices.emplace_back(i);
+                                self(self, base, members[i]);
+                                indices.pop_back();
+                            }
+                            break;
+                        }
+                        default: LUISA_ERROR_WITH_LOCATION(
+                            "Invalid type {}.", type->description());
+                    }
+                };
+
+                captured_elements.reserve(captured_variables.size() * 4u);
+                for (auto v : captured_variables) {
+                    glob_elements(glob_elements, v, v.type());
+                }
+
+                // sort the members to minimize the stack size
+                std::stable_sort(
+                    captured_elements.begin(), captured_elements.end(),
+                    [](auto lhs, auto rhs) noexcept {
+                        return lhs.element_type->alignment() > rhs.element_type->alignment();
+                    });
             }
         }
-        // if the resources can be uniquely identified in the __constant__ params,
-        // then no need for passing via stack with I/O on local memory
-        luisa::vector<Variable> uniquely_identified_resources;
-        auto iter = std::partition(
-            captured_variables.begin(), captured_variables.end(),
-            [this, f](auto v) noexcept {
-                return !v.is_resource() ||
-                       _root_resources.at({f, v}).size() != 1u;
-            });
-        uniquely_identified_resources.reserve(
-            std::distance(iter, captured_variables.end()));
-        for (auto i = iter; i != captured_variables.end(); i++) {
-            uniquely_identified_resources.emplace_back(*i);
-        }
-        captured_variables.erase(iter, captured_variables.cend());
-        // sort the members to minimize the stack size
-        std::sort(captured_variables.begin(), captured_variables.end(), [](auto lhs, auto rhs) noexcept {
-            auto lhs_size = lhs.is_resource() ? 16u : lhs.type()->alignment();
-            auto rhs_size = rhs.is_resource() ? 16u : rhs.type()->alignment();
-            return lhs_size > rhs_size;
-        });
 
         // create outline struct
         // TODO: we may pass the values directly through
         //  OptiX registers if they are small enough
         auto rq_index = static_cast<uint>(_outline_infos.size());
-        if (!captured_variables.empty()) {
-            _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
-            for (auto v : captured_variables) {
+        if (!captured_elements.empty() ||
+            !captured_resources.empty()) {
+            _codegen->_scratch << "struct alignas(4) LCRayQueryCtx" << rq_index << " {";
+            for (auto &&v : captured_resources) {
                 _codegen->_scratch << "\n  ";
                 _codegen->_emit_variable_decl(f, v, false);
+                _codegen->_scratch << ";";
+            }
+            for (auto &&v : captured_elements) {
+                _codegen->_scratch << "\n  ";
+                _codegen->_emit_type_name(v.element_type);
+                _codegen->_scratch << " ";
+                _emit_outline_context_member_name(
+                    v.base_variable, v.access_indices);
+                if (v.element_type == Type::of<bool>()) {
+                    _codegen->_scratch << " : 1";
+                }
                 _codegen->_scratch << ";";
             }
             _codegen->_scratch << "\n};\n\n";
@@ -252,16 +398,36 @@ private:
                 _codegen->_scratch << ";\n";
             }
             // captured variables through stack
-            if (!captured_variables.empty()) {
+            if (!captured_elements.empty() ||
+                !captured_resources.empty()) {
                 // get ctx
-                _codegen->_scratch << "  auto ctx = static_cast<LCRayQueryCtx"
+                _codegen->_scratch << "  lc_assume(__isLocal(ctx_in));\n"
+                                   << "  auto ctx = *static_cast<LCRayQueryCtx"
                                    << rq_index << " *>(ctx_in);\n";
-                // copy captured variables
-                for (auto v : captured_variables) {
+                // copy captured resources
+                for (auto &&v : captured_resources) {
                     _codegen->_emit_indent();
                     _codegen->_emit_variable_decl(f, v, false);
-                    _codegen->_scratch << " = ctx->";
+                    _codegen->_scratch << " = ctx.";
                     _codegen->_emit_variable_name(v);
+                    _codegen->_scratch << ";\n";
+                }
+                // copy captured variables
+                luisa::unordered_set<Variable> emitted_variables;
+                for (auto &&v : captured_elements) {
+                    if (emitted_variables.emplace(v.base_variable).second) {
+                        _codegen->_emit_indent();
+                        _codegen->_emit_type_name(v.base_variable.type());
+                        _codegen->_scratch << " ";
+                        _codegen->_emit_variable_name(v.base_variable);
+                        _codegen->_scratch << "{};\n";
+                    }
+                    _codegen->_emit_indent();
+                    _emit_captured_element(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << " = ctx.";
+                    _emit_outline_context_member_name(
+                        v.base_variable, v.access_indices);
                     _codegen->_scratch << ";\n";
                 }
             }
@@ -283,22 +449,26 @@ private:
             _codegen->_indent--;
             _codegen->_emit_indent();
             _codegen->_scratch << "} // intersection handling body\n";
-            // copy back local variables
-            if (!captured_variables.empty()) {
-                for (auto v : captured_variables) {
-                    if (!v.is_resource()) {
-                        _codegen->_emit_indent();
-                        _codegen->_scratch << "ctx->";
-                        _codegen->_emit_variable_name(v);
-                        _codegen->_scratch << " = ";
-                        _codegen->_emit_variable_name(v);
-                        _codegen->_scratch << ";\n";
-                    }
+            // copy back captured variables
+            if (!captured_elements.empty()) {
+                for (auto v : captured_elements) {
+                    _codegen->_emit_indent();
+                    _codegen->_scratch << "ctx.";
+                    _emit_outline_context_member_name(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << " = ";
+                    _emit_captured_element(
+                        v.base_variable, v.access_indices);
+                    _codegen->_scratch << ";\n";
                 }
+                _codegen->_emit_indent();
+                _codegen->_scratch << "lc_assume(__isLocal(ctx_in));\n";
+                _codegen->_emit_indent();
+                _codegen->_scratch << "*static_cast<LCRayQueryCtx"
+                                   << rq_index << " *>(ctx_in) = ctx;\n";
             }
             _codegen->_indent = indent;
         };
-
         // create outlined triangle function
         _codegen->_scratch << "LUISA_DECL_RAY_QUERY_TRIANGLE_IMPL(" << rq_index << ") {\n"
                            << "  LCTriangleIntersectionResult result{};\n";
@@ -314,7 +484,10 @@ private:
                               "}\n\n";
 
         // record the outline function
-        _outline_infos.emplace(s, OutlineInfo{rq_index, std::move(captured_variables)});
+        OutlineInfo info{rq_index,
+                         std::move(captured_resources),
+                         std::move(captured_elements)};
+        _outline_infos.emplace(s, std::move(info));
     }
 
 public:
@@ -335,42 +508,52 @@ public:
     }
 
     void lower(const RayQueryStmt *stmt) noexcept {
-        auto &&[rq_index, captured_variables] = _outline_infos.at(stmt);
+        auto &&[rq_index, captured_resources, captured_elements] = _outline_infos.at(stmt);
         // create ray query context
         _codegen->_scratch << "\n";
         _codegen->_emit_indent();
         _codegen->_scratch << "{ // ray query #" << rq_index << "\n";
         _codegen->_indent++;
-        if (!captured_variables.empty()) {
+        // copy captured variables if any
+        if (!captured_resources.empty() ||
+            !captured_elements.empty()) {
             _codegen->_emit_indent();
             _codegen->_scratch << "LCRayQueryCtx" << rq_index << " ctx{\n";
             // copy captured variables
             _codegen->_indent++;
-            for (auto v : captured_variables) {
+            for (auto &&v : captured_resources) {
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_name(v);
+            }
+            for (auto &&v : captured_elements) {
+                _codegen->_emit_indent();
+                _emit_captured_element(
+                    v.base_variable, v.access_indices);
                 _codegen->_scratch << ",\n";
             }
             _codegen->_indent--;
             _codegen->_emit_indent();
             _codegen->_scratch << "};\n";
         }
+        // emit ray query call
         _codegen->_emit_indent();
         _codegen->_scratch << "lc_ray_query_trace(";
         stmt->query()->accept(*_codegen);
-        _codegen->_scratch << ", " << rq_index << ", "
-                           << (captured_variables.empty() ? "nullptr" : "&ctx")
-                           << ");\n";
-        if (!captured_variables.empty()) {
-            // copy back captured variables
-            for (auto v : captured_variables) {
-                if (!v.is_resource()) {
-                    _codegen->_emit_indent();
-                    _codegen->_emit_variable_name(v);
-                    _codegen->_scratch << " = ctx.";
-                    _codegen->_emit_variable_name(v);
-                    _codegen->_scratch << ";\n";
-                }
+        if (captured_elements.empty() && captured_resources.empty()) {
+            _codegen->_scratch << ", " << rq_index << ", nullptr);\n";
+        } else {
+            _codegen->_scratch << ", " << rq_index << ", &ctx);\n";
+        }
+        // copy back captured variables
+        for (auto v : captured_elements) {
+            if (!v.base_variable.is_resource()) {
+                _codegen->_emit_indent();
+                _emit_captured_element(
+                    v.base_variable, v.access_indices);
+                _codegen->_scratch << " = ctx.";
+                _emit_outline_context_member_name(
+                    v.base_variable, v.access_indices);
+                _codegen->_scratch << ";\n";
             }
         }
         _codegen->_indent--;
@@ -672,13 +855,79 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         default: LUISA_ERROR_WITH_LOCATION("Not implemented.");
     }
     _scratch << "(";
-    if (auto args = expr->arguments(); !args.empty()) {
-        for (auto arg : args) {
-            arg->accept(*this);
+    if (auto op = expr->op(); is_atomic_operation(op)) {
+        // lower access chain to atomic operation
+        auto args = expr->arguments();
+        auto access_chain = args.subspan(
+            0u,
+            op == CallOp::ATOMIC_COMPARE_EXCHANGE ?
+                args.size() - 2u :
+                args.size() - 1u);
+        _emit_access_chain(access_chain);
+        for (auto extra : args.subspan(access_chain.size())) {
             _scratch << ", ";
+            extra->accept(*this);
         }
-        _scratch.pop_back();
-        _scratch.pop_back();
+    } else {
+        if (auto args = expr->arguments(); !args.empty()) {
+            for (auto arg : args) {
+                arg->accept(*this);
+                _scratch << ", ";
+            }
+            _scratch.pop_back();
+            _scratch.pop_back();
+        }
+    }
+    _scratch << ")";
+}
+
+void CUDACodegenAST::_emit_access_chain(luisa::span<const Expression *const> chain) noexcept {
+    auto type = chain.front()->type();
+    _scratch << "(";
+    chain.front()->accept(*this);
+    for (auto index : chain.subspan(1u)) {
+        switch (type->tag()) {
+            case Type::Tag::VECTOR: [[fallthrough]];
+            case Type::Tag::ARRAY: {
+                type = type->element();
+                _scratch << "[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            case Type::Tag::MATRIX: {
+                type = Type::vector(type->element(),
+                                    type->dimension());
+                _scratch << "[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            case Type::Tag::STRUCTURE: {
+                LUISA_ASSERT(index->tag() == Expression::Tag::LITERAL,
+                             "Indexing structure with non-constant "
+                             "index is not supported.");
+                auto literal = static_cast<const LiteralExpr *>(index)->value();
+                auto i = luisa::holds_alternative<int>(literal) ?
+                             static_cast<uint>(luisa::get<int>(literal)) :
+                             luisa::get<uint>(literal);
+                LUISA_ASSERT(i < type->members().size(),
+                             "Index out of range.");
+                type = type->members()[i];
+                _scratch << ".m" << i;
+                break;
+            }
+            case Type::Tag::BUFFER: {
+                type = type->element();
+                _scratch << ".ptr[";
+                index->accept(*this);
+                _scratch << "]";
+                break;
+            }
+            default: LUISA_ERROR_WITH_LOCATION(
+                "Invalid node type '{}' in access chain.",
+                type->description());
+        }
     }
     _scratch << ")";
 }
@@ -946,8 +1195,10 @@ static void collect_types_in_function(Function f,
 
     // types from variables
     auto add = [&](auto &&self, auto t) noexcept -> void {
-        if (t != nullptr && t->is_structure()) {
-            if (types.emplace(t).second) {
+        if (t != nullptr && types.emplace(t).second) {
+            if (t->is_array() || t->is_buffer()) {
+                self(self, t->element());
+            } else if (t->is_structure()) {
                 for (auto m : t->members()) {
                     self(self, m);
                 }
@@ -956,6 +1207,15 @@ static void collect_types_in_function(Function f,
     };
     for (auto &&a : f.arguments()) { add(add, a.type()); }
     for (auto &&l : f.local_variables()) { add(add, l.type()); }
+    traverse_expressions<true>(
+        f.body(),
+        [&add](auto expr) noexcept {
+            if (auto type = expr->type()) {
+                add(add, type);
+            }
+        },
+        [](auto) noexcept {},
+        [](auto) noexcept {});
     add(add, f.return_type());
 
     // types from called callables
@@ -986,7 +1246,13 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     types.clear();
     auto emit = [&](auto &&self, auto type) noexcept -> void {
         if (types.emplace(type).second) {
-            for (auto m : type->members()) { self(self, m); }
+            if (type->is_array() || type->is_buffer()) {
+                self(self, type->element());
+            } else if (type->is_structure()) {
+                for (auto m : type->members()) {
+                    self(self, m);
+                }
+            }
             this->visit(type);
         }
     };
@@ -1070,12 +1336,15 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
     auto usage = f.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
-        case Variable::Tag::SHARED:
-            _scratch << "__shared__ ";
-            _emit_type_name(v.type());
-            _scratch << " ";
+        case Variable::Tag::SHARED: {
+            LUISA_ASSERT(v.type()->is_array(),
+                         "Shared variable must be an array.");
+            _scratch << "__shared__ lc_aligned_storage<"
+                     << v.type()->alignment() << ", "
+                     << v.type()->size() << ">  _";
             _emit_variable_name(v);
             break;
+        }
         case Variable::Tag::REFERENCE:
             if (readonly || force_const) {
                 _scratch << "const ";
@@ -1186,7 +1455,15 @@ void CUDACodegenAST::_emit_variable_declarations(Function f) noexcept {
             _scratch << "\n";
             _emit_indent();
             _emit_variable_decl(f, v, false);
-            _scratch << ";";
+            _scratch << ";\n";
+            _emit_indent();
+            _scratch << "auto &";
+            _emit_variable_name(v);
+            _scratch << " = *reinterpret_cast<";
+            _emit_type_name(v.type());
+            _scratch << " *>(&_";
+            _emit_variable_name(v);
+            _scratch << ");";
         }
     }
     for (auto v : f.local_variables()) {

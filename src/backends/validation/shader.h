@@ -1,6 +1,10 @@
+#pragma once
+
 #include "rw_resource.h"
 #include <ast/function.h>
+
 namespace lc::validation {
+
 class Shader : public RWResource {
     luisa::vector<Function::Binding> _bound_arguments;
 
@@ -11,4 +15,5 @@ public:
         uint64_t handle,
         luisa::vector<Function::Binding> bound_arguments);
 };
+
 }// namespace lc::validation

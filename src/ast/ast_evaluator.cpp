@@ -193,7 +193,6 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                     using TT = ScalarType<A>;
                     using TScalar = ScalarType_t<A>;
                     auto b = analyzer_detail::force_get<A>(rr);
-                    // TODO
                     switch (expr->op()) {
                         case BinaryOp::ADD:
                             if constexpr (std::is_same_v<TScalar, bool>) {
@@ -1513,6 +1512,7 @@ ASTEvaluator::Result ASTEvaluator::try_eval(CastExpr const *expr) {
                 return monostate{};
             }
         }
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
     };
 
     auto cast_vector = [&]<typename T>(T const &t) -> Result {

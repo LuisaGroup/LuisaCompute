@@ -146,11 +146,19 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
     if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
-        _instance_buffer_size = next_pow2(size);
-        if (_instance_buffer) { LUISA_CHECK_CUDA(cuMemFreeAsync(_instance_buffer, cuda_stream)); }
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&_instance_buffer, _instance_buffer_size, cuda_stream));
+        auto old_instance_buffer = _instance_buffer;
+        auto new_instance_buffer_size = next_pow2(size);
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&_instance_buffer, new_instance_buffer_size, cuda_stream));
+        if (old_instance_buffer) {
+            LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(
+                _instance_buffer, old_instance_buffer, _instance_buffer_size, cuda_stream));
+            LUISA_CHECK_CUDA(cuMemFreeAsync(old_instance_buffer, cuda_stream));
+        }
+        _instance_buffer_size = new_instance_buffer_size;
     }
+    auto instance_count_changed = _primitives.size() != instance_count;
     _primitives.resize(instance_count);
+    _prim_handles.resize(instance_count);
     // update the instance buffer
     auto mods = command->modifications();
     if (auto n = mods.size()) {
@@ -165,7 +173,9 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                     static constexpr auto mod_flag_procedural = 1u << 8u;
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
                     _primitives[m.index] = prim;
-                    m.primitive = prim->handle();
+                    auto handle = prim->handle();
+                    m.primitive = handle;
+                    _prim_handles[m.index] = handle;
                     if (prim->tag() == CUDAPrimitive::Tag::PROCEDURAL) {
                         m.flags |= mod_flag_procedural;
                     }
@@ -176,26 +186,58 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
         });
         auto update_kernel = encoder.stream()->device()->accel_update_function();
         std::array<void *, 3u> args{&_instance_buffer, &update_buffer, &n};
-        constexpr auto block_size = 1024u;
+        constexpr auto block_size = 256u;
         auto block_count = (n + block_size - 1u) / block_size;
         LUISA_CHECK_CUDA(cuLaunchKernel(
             update_kernel, block_count, 1u, 1u, block_size, 1u, 1u,
             0u, cuda_stream, args.data(), nullptr));
         LUISA_CHECK_CUDA(cuMemFreeAsync(update_buffer, cuda_stream));
     }
+
+    // check if any primitive handle changed due to
+    // rebuild but not presented in modifications
+    auto changed_handle_count = 0u;
+    for (auto i = 0u; i < instance_count; i++) {
+        if (_primitives[i]->handle() != _prim_handles[i]) {
+            changed_handle_count++;
+        }
+    }
+
     // find out whether we really need to build (or rebuild) the BVH
     _requires_rebuild = _requires_rebuild /* pending rebuild */ ||
                         command->request() == AccelBuildRequest::FORCE_BUILD /* user requires rebuilding */ ||
                         !_option.allow_update /* update is not allowed in the accel */ ||
                         _handle == 0u /* the accel is not yet built */ ||
-                        _prim_handles.size() != instance_count;// number of instances changed
-    // check if any primitive handle changed
-    _prim_handles.resize(instance_count);
-    for (auto i = 0u; i < instance_count; i++) {
-        auto prim = _primitives[i];
-        LUISA_ASSERT(prim != nullptr, "Primitive at index {} is null.", i);
-        _requires_rebuild |= prim->handle() != _prim_handles[i];// primitive handle changed
-        _prim_handles[i] = prim->handle();
+                        instance_count_changed /* instance count changed */ ||
+                        changed_handle_count > 0u /* additional handle changes due to rebuild */;
+
+    // gather changed handles if any
+    if (changed_handle_count > 0u) {
+        struct alignas(16u) ChangedHandle {
+            size_t index;
+            optix::TraversableHandle handle;
+        };
+        auto size_bytes = changed_handle_count * sizeof(ChangedHandle);
+        auto device_buffer = 0ull;
+        LUISA_CHECK_CUDA(cuMemAllocAsync(&device_buffer, size_bytes, cuda_stream));
+        encoder.with_upload_buffer(size_bytes, [&](auto host_buffer) noexcept {
+            auto host_handles = reinterpret_cast<ChangedHandle *>(host_buffer->address());
+            for (auto i = 0u, j = 0u; i < instance_count; i++) {
+                if (auto handle = _primitives[i]->handle(); handle != _prim_handles[i]) {
+                    host_handles[j++] = {i, handle};
+                    _prim_handles[i] = handle;
+                }
+            }
+            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(device_buffer, host_handles, size_bytes, cuda_stream));
+        });
+        auto kernel = encoder.stream()->device()->instance_handle_update_function();
+        std::array<void *, 3u> args{&_instance_buffer, &device_buffer, &changed_handle_count};
+        constexpr auto block_size = 256u;
+        auto block_count = (changed_handle_count + block_size - 1u) / block_size;
+        LUISA_CHECK_CUDA(cuLaunchKernel(
+            kernel, block_count, 1u, 1u, block_size, 1u, 1u,
+            0u, cuda_stream, args.data(), nullptr));
+        LUISA_CHECK_CUDA(cuMemFreeAsync(device_buffer, cuda_stream));
     }
     if (!command->update_instance_buffer_only()) {// build or update the BVH
         if (_requires_rebuild) {

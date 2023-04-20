@@ -65,6 +65,7 @@ BottomAccel::BottomAccel(
             case AccelOption::UsageHint::FAST_BUILD:
                 return D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
         }
+        LUISA_ERROR_WITH_LOCATION("Unreachable.");
     };
     this->hint = GetPreset();
     if (option.allow_compaction) {

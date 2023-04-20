@@ -48,6 +48,10 @@ public:
         _remove_list.clear();
     }
 
+    void commit() noexcept {
+        commit([](auto) noexcept {});
+    }
+
     template<typename F>
     void traverse(F &&f) const noexcept {
         for (auto [handle, ref] : _resource_references) { f(handle); }

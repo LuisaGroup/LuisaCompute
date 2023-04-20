@@ -31,6 +31,16 @@ add_library(luisa-compute-include INTERFACE)
 target_include_directories(luisa-compute-include INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
+# add platform macros
+if (WIN32)
+    target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_WINDOWS=1)
+elseif (UNIX)
+    target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_UNIX=1)
+    if (APPLE)
+        target_compile_definitions(luisa-compute-include INTERFACE LUISA_PLATFORM_APPLE=1)
+    endif ()
+endif ()
+
 if (LUISA_COMPUTE_ENABLE_DSL)
     target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_DSL=1)
 endif ()

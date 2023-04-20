@@ -20,7 +20,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             luisa-compute-rust-meta
             )
     set_target_properties(luisa-compute-api PROPERTIES
-            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+            OUTPUT_NAME lc-api)
 
     target_compile_definitions(luisa-compute-api PUBLIC LUISA_ENABLE_API)
 

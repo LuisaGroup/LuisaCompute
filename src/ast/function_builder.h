@@ -102,7 +102,7 @@ protected:
 
     void _append(const Statement *statement) noexcept;
 
-    [[nodiscard]] const RefExpr *_builtin(Variable::Tag tag) noexcept;
+    [[nodiscard]] const RefExpr *_builtin(Type const* type, Variable::Tag tag) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
     void _void_expr(const Expression *expr) noexcept;
     void _compute_hash() noexcept;
@@ -219,6 +219,11 @@ public:
     /// Define a callable function with given definition
     static auto define_callable(Def &&def) {
         return _define(Function::Tag::CALLABLE, std::forward<Def>(def));
+    }
+    template<typename Def>
+    /// Define a callable function with given definition
+    static auto define_raster_stage(Def &&def) {
+        return _define(Function::Tag::RASTER_STAGE, std::forward<Def>(def));
     }
 
     // config

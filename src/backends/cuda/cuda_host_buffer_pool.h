@@ -50,7 +50,6 @@ private:
     spin_mutex _mutex;
     std::byte *_memory{nullptr};
     FirstFit _first_fit;
-    bool _write_combined;
 
 public:
     CUDAHostBufferPool(size_t size, bool write_combined) noexcept;

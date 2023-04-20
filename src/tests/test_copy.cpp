@@ -63,7 +63,7 @@ void test_buffer(Device &device, size_t size, const Generate &g) noexcept {
         host_input.emplace_back(g());
     }
     auto buffer = device.create_buffer<T>(size);
-    auto stream = device.create_stream();
+    Stream stream = device.create_stream();
     stream << buffer.copy_from(host_input.data())
            << buffer.copy_to(host_output.data())
            << synchronize();
@@ -80,12 +80,12 @@ void test_texture(Device &device, PixelStorage storage, Size size, std::mt19937 
     luisa::vector<uint8_t> host_output;
     auto size_bytes = [&] {
         if constexpr (std::is_same_v<Size, uint2>) {
-            LUISA_INFO("Testing image with size {}x{} and storage 0x{:02x}",
-                       size.x, size.y, to_underlying(storage));
+            LUISA_INFO("Testing image with size {}x{} and storage {}.",
+                       size.x, size.y, to_string(storage));
             return pixel_storage_size(storage, make_uint3(size, 1u));
         } else {
-            LUISA_INFO("Testing volume with size {}x{}x{} and storage 0x{:02x}",
-                       size.x, size.y, size.z, to_underlying(storage));
+            LUISA_INFO("Testing volume with size {}x{}x{} and storage {}.",
+                       size.x, size.y, size.z, to_string(storage));
             return pixel_storage_size(storage, size);
         }
     }();
@@ -101,7 +101,7 @@ void test_texture(Device &device, PixelStorage storage, Size size, std::mt19937 
             return device.create_volume<T>(storage, size);
         }
     }();
-    auto stream = device.create_stream();
+    Stream stream = device.create_stream();
     stream << texture.copy_from(host_input.data())
            << texture.copy_to(host_output.data())
            << synchronize();
@@ -120,7 +120,7 @@ int main(int argc, char *argv[]) {
     }
 
     Context context{argv[0]};
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     std::array sizes{static_cast<size_t>(1u),
                      static_cast<size_t>(233u),

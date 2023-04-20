@@ -17,6 +17,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
 
     set(LUISA_COMPUTE_DSL_SOURCES
             arg.h
+            atomic.h
             autodiff.cpp autodiff.h
             builtin.h
             constant.h
@@ -29,7 +30,7 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             operators.h
             polymorphic.cpp polymorphic.h
             printer.cpp printer.h
-            ref.cpp ref.h
+            ref.h
             resource.cpp resource.h
             shared.h
             stmt.h
@@ -49,7 +50,8 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             PRIVATE LC_DSL_EXPORT_DLL=1
             PUBLIC LUISA_ENABLE_DSL=1)
     set_target_properties(luisa-compute-dsl PROPERTIES
-            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+            UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+            OUTPUT_NAME lc-dsl)
     luisa_compute_install(dsl SOURCES ${LUISA_COMPUTE_DSL_SOURCES})
 else ()
     add_library(luisa-compute-dsl INTERFACE)

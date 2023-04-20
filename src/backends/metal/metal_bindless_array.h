@@ -1,68 +1,49 @@
 //
-// Created by Mike Smith on 2021/7/1.
+// Created by Mike Smith on 2023/4/15.
 //
 
 #pragma once
 
-#import <unordered_set>
-#import <Metal/Metal.h>
-
-#import <core/spin_mutex.h>
-#import <core/stl.h>
-#import <core/dirty_range.h>
-#import <runtime/resource_tracker.h>
-#import <runtime/bindless_array.h>
-#import <backends/metal/metal_host_buffer_pool.h>
+#include <runtime/rhi/command.h>
+#include <backends/common/resource_tracker.h>
+#include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
 
 class MetalDevice;
-class MetalStream;
-
-struct MetalBindlessResource {
-    id<MTLResource> handle;
-    [[nodiscard]] auto operator<(const MetalBindlessResource &rhs) const noexcept {
-        return handle < rhs.handle;
-    }
-};
+class MetalCommandEncoder;
 
 class MetalBindlessArray {
 
 public:
-    static constexpr auto slot_size = 32u;
-    static constexpr auto buffer_slot_size = 8u;
-    static constexpr auto tex2d_slot_size = 8u;
-    static constexpr auto tex3d_slot_size = 8u;
-    static constexpr auto sampler_slot_size = 1u;
+    struct alignas(16) Slot {
+        std::byte *buffer;
+        size_t buffer_size : 48;
+        uint sampler2d : 8;
+        uint sampler3d : 8;
+        MTL::ResourceID texture2d;
+        MTL::ResourceID texture3d;
+    };
+    static_assert(sizeof(Slot) == 32);
+
+    using Binding = MTL::Buffer *;
 
 private:
-    id<MTLBuffer> _host_buffer{nullptr};
-    id<MTLBuffer> _device_buffer{nullptr};
-    id<MTLArgumentEncoder> _encoder{nullptr};
-    DirtyRange _dirty_range;
-    ResourceTracker _tracker;
-    luisa::vector<MetalBindlessResource> _buffer_slots;
-    luisa::vector<MetalBindlessResource> _tex2d_slots;
-    luisa::vector<MetalBindlessResource> _tex3d_slots;
+    MTL::Buffer *_array;
+    MTL::ComputePipelineState *_update;
+    luisa::vector<MTL::Buffer *> _buffer_slots;
+    luisa::vector<MTL::Texture *> _tex2d_slots;
+    luisa::vector<MTL::Texture *> _tex3d_slots;
+    ResourceTracker _buffer_tracker;
+    ResourceTracker _texture_tracker;
 
 public:
     MetalBindlessArray(MetalDevice *device, size_t size) noexcept;
-    void emplace_buffer(size_t index, uint64_t buffer_handle, size_t offset) noexcept;
-    void emplace_tex2d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept;
-    void emplace_tex3d(size_t index, uint64_t texture_handle, Sampler sampler) noexcept;
-    void remove_buffer(size_t index) noexcept;
-    void remove_tex2d(size_t index) noexcept;
-    void remove_tex3d(size_t index) noexcept;
-    [[nodiscard]] bool has_resource(uint64_t handle) const noexcept { return _tracker.uses(handle); }
-    [[nodiscard]] auto handle() const noexcept { return _device_buffer; }
-    void update(MetalStream *stream, id<MTLCommandBuffer> command_buffer) noexcept;
-
-    template<typename F>
-    void traverse_resources(const F &f) const noexcept {
-        _tracker.traverse([&f](auto handle) noexcept {
-            f((__bridge id<MTLResource>)(reinterpret_cast<void *>(handle)));
-        });
-    }
+    ~MetalBindlessArray() noexcept;
+    void set_name(luisa::string_view name) noexcept;
+    void update(MetalCommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;
+    void mark_resource_usages(MTL::ComputeCommandEncoder *encoder) noexcept;
+    [[nodiscard]] auto handle() const noexcept { return _array; }
 };
 
 }// namespace luisa::compute::metal

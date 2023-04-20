@@ -1,8 +1,8 @@
 #include <Shader/RasterShader.h>
 #include <Resource/DepthBuffer.h>
 #include <Shader/ShaderSerializer.h>
-#include <HLSL/dx_codegen.h>
-#include <Shader/ShaderCompiler.h>
+#include <backends/common/hlsl/hlsl_codegen.h>
+#include <backends/common/hlsl/shader_compiler.h>
 #include <vstl/md5.h>
 #include <core/logging.h>
 namespace lc::dx {
@@ -34,7 +34,7 @@ RasterShader::RasterShader(
     Device *device,
     vstd::MD5 md5,
     MeshFormat const &meshFormat,
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ComPtr<ID3D12RootSignature> &&rootSig,
     vstd::vector<std::byte> &&vertBinData,
@@ -119,7 +119,7 @@ void RasterShader::GetMeshFormatState(
 RasterShader::RasterShader(
     Device *device,
     vstd::MD5 md5,
-    vstd::vector<Property> &&prop,
+    vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     MeshFormat const &meshFormat,
     vstd::vector<std::byte> &&vertBinData,
@@ -215,7 +215,7 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::GetState(
         .NumRenderTargets = static_cast<uint>(rtv.size()),
         .SampleDesc = {.Count = 1, .Quality = 0}};
 
-    if (state.blend_state.enableBlend) {
+    if (state.blend_state.enable_blend) {
         D3D12_RENDER_TARGET_BLEND_DESC blend{
             .RenderTargetWriteMask = 15};
         auto &v = state.blend_state;
@@ -242,13 +242,13 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::GetState(
     }
 
     D3D12_DEPTH_STENCIL_DESC &depth = result.DepthStencilState;
-    if (state.depth_state.enableDepth) {
+    if (state.depth_state.enable_depth) {
         auto &v = state.depth_state;
         depth.DepthEnable = true;
         depth.DepthFunc = ComparisonState(v.comparison);
         depth.DepthWriteMask = v.write ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
     }
-    if (state.stencil_state.enableStencil) {
+    if (state.stencil_state.enable_stencil) {
         auto &v = state.stencil_state;
         depth.StencilEnable = true;
         depth.StencilReadMask = v.read_mask;
@@ -303,7 +303,7 @@ RasterShader *RasterShader::CompileRaster(
     Device *device,
     Function vertexKernel,
     Function pixelKernel,
-    vstd::function<CodegenResult()> const &codegen,
+    vstd::function<hlsl::CodegenResult()> const &codegen,
     vstd::MD5 const &md5,
     uint shaderModel,
     MeshFormat const &meshFormat,
@@ -312,15 +312,20 @@ RasterShader *RasterShader::CompileRaster(
     bool enableUnsafeMath) {
     auto CompileNewCompute = [&](bool writeCache) -> RasterShader * {
         auto str = codegen();
+        uint bdlsBufferCount = 0;
+        if (str.useBufferBindless) bdlsBufferCount++;
+        if (str.useTex2DBindless) bdlsBufferCount++;
+        if (str.useTex3DBindless) bdlsBufferCount++;
         if constexpr (RasterShaderDetail::PRINT_CODE) {
             auto f = fopen("hlsl_output.hlsl", "ab");
             fwrite(str.result.data(), str.result.size(), 1, f);
             fclose(f);
         }
-        auto compResult = Device::Compiler()->CompileRaster(
+        auto compResult = Device::Compiler()->compile_raster(
             str.result.view(),
             true,
-            shaderModel, enableUnsafeMath);
+            shaderModel, enableUnsafeMath,
+            false);
         if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
             LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
             return nullptr;
@@ -330,16 +335,17 @@ RasterShader *RasterShader::CompileRaster(
             return nullptr;
         }
         auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
-        auto GetVector = [&](DXByteBlob const &blob) {
+        auto GetVector = [&](hlsl::DxcByteBlob const &blob) {
             vstd::vector<std::byte> vec;
-            vec.push_back_uninitialized(blob.GetBufferSize());
-            memcpy(vec.data(), blob.GetBufferPtr(), blob.GetBufferSize());
+            vec.push_back_uninitialized(blob.size());
+            memcpy(vec.data(), blob.data(), blob.size());
             return vec;
         };
         auto vertBin = GetVector(*compResult.vertex.get<0>());
         auto pixelBin = GetVector(*compResult.pixel.get<0>());
+
         if (writeCache) {
-            auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
+            auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
             WriteBinaryIO(cacheType, fileIo, fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
         }
 
@@ -351,7 +357,7 @@ RasterShader *RasterShader::CompileRaster(
             meshFormat,
             std::move(vertBin),
             std::move(pixelBin));
-        s->bindlessCount = str.bdlsBufferCount;
+        s->bindlessCount = bdlsBufferCount;
         return s;
     };
 
@@ -372,7 +378,7 @@ RasterShader *RasterShader::CompileRaster(
 void RasterShader::SaveRaster(
     BinaryIO const *fileIo,
     Device *device,
-    CodegenResult const &str,
+    hlsl::CodegenResult const &str,
     vstd::MD5 const &md5,
     vstd::string_view fileName,
     Function vertexKernel,
@@ -385,11 +391,12 @@ void RasterShader::SaveRaster(
         fclose(f);
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) return;
-    auto compResult = Device::Compiler()->CompileRaster(
+    auto compResult = Device::Compiler()->compile_raster(
         str.result.view(),
         true,
         shaderModel,
-        enableUnsafeMath);
+        enableUnsafeMath,
+        false);
 
     if (compResult.vertex.is_type_of<vstd::string>()) [[unlikely]] {
         LUISA_ERROR("DXC compile vertex-shader error: {}", compResult.vertex.get<1>());
@@ -400,12 +407,16 @@ void RasterShader::SaveRaster(
         return;
     }
     auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
-    auto GetSpan = [&](DXByteBlob const &blob) {
-        return vstd::span<std::byte const>{blob.GetBufferPtr(), blob.GetBufferSize()};
+    auto GetSpan = [&](hlsl::DxcByteBlob const &blob) {
+        return vstd::span<std::byte const>{blob.data(), blob.size()};
     };
     auto vertBin = GetSpan(*compResult.vertex.get<0>());
     auto pixelBin = GetSpan(*compResult.pixel.get<0>());
-    auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, str.bdlsBufferCount);
+    uint bdlsBufferCount = 0;
+    if (str.useBufferBindless) bdlsBufferCount++;
+    if (str.useTex2DBindless) bdlsBufferCount++;
+    if (str.useTex3DBindless) bdlsBufferCount++;
+    auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
     fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
 }
 RasterShader *RasterShader::LoadRaster(
@@ -417,7 +428,7 @@ RasterShader *RasterShader::LoadRaster(
     vstd::MD5 typeMD5;
     auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, typeMD5, mesh_format);
     if (ptr) {
-        auto md5 = CodegenUtility::GetTypeMD5(types);
+        auto md5 = hlsl::CodegenUtility::GetTypeMD5(types);
         LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
     }
     return ptr;

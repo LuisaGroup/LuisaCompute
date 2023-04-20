@@ -621,7 +621,7 @@ def callable_call(func, *args):
     arg_list = tuple(a.dtype for a in args)
     if func is globalvars.current_context.func and arg_list == globalvars.current_context.argtypes:
         raise Exception("Recursion is not supported")
-    f = func.get_compiled(call_from_host=False, allow_ref=True, argtypes=arg_list, arg_info=shared_dict)
+    f = func.get_compiled(func_type=1, allow_ref=True, argtypes=arg_list, arg_info=shared_dict)
     globalvars.current_context.uses_printer |= f.uses_printer
     # create temporary var for each r-value argument
     # call

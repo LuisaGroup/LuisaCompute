@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     Callable palette = [](Float d) noexcept {
         return lerp(make_float3(0.2f, 0.7f, 0.9f), make_float3(1.0f, 0.0f, 1.0f), d);
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
     };
 
     Callable map = [&rotate](Float3 p, Float time) noexcept {
-        for (auto i = 0u; i < 8u; i++) {
+        for (uint i = 0u; i < 8u; i++) {
             Var t = time * 0.2f;
             p = make_float3(rotate(p.xz(), t), p.y).xzy();
             p = make_float3(rotate(p.xy(), t * 1.89f), p.z);
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
         Var t = 0.0f;
         Var col = make_float3(0.0f);
         Var d = 0.0f;
-        for (auto i : dynamic_range(64)) {
+        for (UInt i : dynamic_range(64)) {
             Var p = ro + rd * t;
             d = map(p, time) * 0.5f;
             if_(d<0.02f | d> 100.0f, [] { break_(); });
@@ -86,29 +86,29 @@ int main(int argc, char *argv[]) {
     main_kernel = k;
     k = main_kernel;
 
-    auto clear = device.compile(clear_kernel);
-    auto shader = device.compile(k);
+    Shader2D<Image<float>> clear = device.compile(clear_kernel);
+    Shader2D<Image<float>, float> shader = device.compile(k);
 
-    static constexpr auto width = 1024u;
-    static constexpr auto height = 1024u;
-    auto stream = device.create_stream(StreamTag::GRAPHICS);
+    static constexpr uint width = 1024u;
+    static constexpr uint height = 1024u;
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Display", make_uint2(width, height)};
-    auto swap_chain{device.create_swapchain(
+    SwapChain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
         window.size(),
         true, false, 2)};
-    auto device_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
+    Image<float> device_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
 
     stream << clear(device_image).dispatch(width, height);
 
     
     Clock clock;
     while (!window.should_close()) {
-        auto time = static_cast<float>(clock.toc() * 1e-3);
+        float time = static_cast<float>(clock.toc() * 1e-3);
         stream << shader(device_image, time).dispatch(width, height)
                << swap_chain.present(device_image);
-        window.pool_event();
+        window.poll_events();
     }
     stream << synchronize();
 }

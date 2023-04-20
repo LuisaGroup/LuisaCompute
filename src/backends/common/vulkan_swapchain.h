@@ -64,4 +64,8 @@ public:
                  VkImageView image, VkImageLayout image_layout) noexcept;
 };
 
+#ifdef LUISA_PLATFORM_APPLE
+void *cocoa_window_content_view(uint64_t window_handle) noexcept;
+#endif
+
 }// namespace luisa::compute

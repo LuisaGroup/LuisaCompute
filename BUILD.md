@@ -3,16 +3,17 @@
 ## Requirements
 ### C++ with XMake
 
-- [xmake](https://xmake.io/) 2.7.3+
+- [xmake](https://xmake.io/) 2.7.8+
 - 64-bit OS supported only.
-- C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
-    - MSVC and Clang-CL (Clang with CL-style command-line options) are recommended and tested on Windows
+- C++ compilers with C++20 support (e.g., Clang-15, GCC-11, MSVC-17)
+    - LLVM toolchain is recommended and well-tested
 
 ### C++ with CMake
 
 - [CMake](https://cmake.org/) 3.20+
-- C++ compilers with C++20 support (e.g., Clang-13, GCC-11, MSVC-17)
-    - MSVC and Clang-CL (Clang with CL-style command-line options) are recommended and tested on Windows
+- Ninja is recommended and required for Rust frontend
+- C++ compilers with C++20 support (e.g., Clang-15, GCC-11, MSVC-17)
+    - LLVM toolchain is recommended and well-tested
 - On Linux, `uuid-dev` is required to build the core libraries and the following libraries are required for the GUI module:
     - libopencv-dev
     - libglfw3-dev
@@ -20,13 +21,15 @@
     - libxcursor-dev
     - libxi-dev
 - On macOS with M1, you need to install `embree` since a pre-built binary is not provided by the official embree repo. We recommend using [Homebrew](https://brew.sh/) to install it. You can install it by running `brew install embree`.
-- For Python Module (Python 3.9+): if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
+- For Python Module (Python 3.10+): if you have multiple versions of Python installed, please use CMake flag `-D Python_ROOT_DIR=<Python-install-dir>` (or `-D PYTHON_EXECUTABLE=<Python-bin>`) to specific Python version
 
 ### Rust (IR module / Rust frontend)
 - Rust 1.64+ (latest stable version is recommended)
 
 ### Backends
 
+- CPU
+    - `clang++` must be in `PATH`
 - CUDA
     - CUDA 11.2 or higher
     - RTX-compatible graphics cards with appropriate drivers
@@ -36,11 +39,11 @@
 - Metal
     - macOS 12 or higher
     - Apple M1 chips are recommended (older GPUs are probably supported but not tested)
-- LLVM
+<!-- - LLVM
     - x86-64 CPU with AVX256 or Apple M1 CPU with ARM Neon
     - LLVM 13+ with the corresponding targets and features enabled
         - CMake seems to have trouble with LLVM 15 on Ubuntu, so we recommend using LLVM 13/14; please install LLVM 14 via `wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 14` and use CMake flag `-D LLVM_ROOT=/usr/lib/llvm-14` to specify the LLVM installation directory if you already have LLVM 15 installed
-
+ -->
 ### Python
 
 - Packages: sourceinspect, numpy
@@ -63,15 +66,14 @@ xmake
 - dx_backend: Enable Direct-X backend (Default: true, Windows platform only)
 - cuda_backend: Enable CUDA backend (Default: true, CUDA toolchain required)
 - metal_backend: Enable Metal backend (Default: true, Mac-OS platform only)
+- vk_backend: Enable Vulkan backend (Default: true)
 - cpu_backend: Enable CPU backend (Default: true)
-- enable_tools: Additional tools (Default: false)
 - enable_tests: Enable Tests (Default: false)
-- py_path: Python's path for Python Module (Default: empty string, example: --py_path="C:/python")
-- py_version: Python's version for Python Module (Default: empty string, example: --py_version="3.9")
+- py_path: Python's path for Python Module (Default: empty string, example: --py_path=C:/python)
 - enable_rust: Rust module, auto enable if required (Default: false)
 - enable_dsl: C++ DSL module (Default: false)
 - enable_gui: Backend-native window and GUI support (Default: false)
-- enable_unity3d_plugin: Unity3D native rendering plugin example (Default: false)
+- bin_dir: set binary output directory (Default: xmake's default directory)
 
 ### XMake Config
 

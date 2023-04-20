@@ -1,70 +1,31 @@
 //
-// Created by Mike Smith on 2021/4/8.
+// Created by Mike Smith on 2023/4/15.
 //
 
 #pragma once
 
-#import <core/stl.h>
-
-#import <Metal/Metal.h>
-#import <core/spin_mutex.h>
+#include <core/stl/string.h>
+#include <core/spin_mutex.h>
+#include <backends/metal/metal_api.h>
 
 namespace luisa::compute::metal {
 
 class MetalEvent {
 
-public:
-    struct Signaler {
-        __weak id<MTLCommandBuffer> handle;
-    };
-
 private:
-    id<MTLEvent> _handle;
-    uint64_t _counter{0u};
-    luisa::vector<Signaler> _signalers;
-
-private:
-    void _purge() noexcept {
-        _signalers.erase(
-            std::remove_if(
-                _signalers.begin(),
-                _signalers.end(),
-                [](auto &&s) noexcept {
-                    return s.handle == nullptr;
-                }),
-            _signalers.end());
-    }
+    MTL::Event *_handle;
+    uint64_t _signaled_value{0u};
+    MTL::CommandBuffer *_signaled_buffer{nullptr};
+    spin_mutex _mutex;
 
 public:
-    explicit MetalEvent(id<MTLEvent> handle) noexcept
-        : _handle{handle} {}
-    ~MetalEvent() noexcept { _handle = nullptr; }
-
-    void signal(id<MTLCommandBuffer> command_buffer) noexcept {
-        [command_buffer encodeSignalEvent:_handle
-                                    value:++_counter];
-        _purge();
-        _signalers.emplace_back(Signaler{command_buffer});
-    }
-
-    void wait(id<MTLCommandBuffer> command_buffer) noexcept {
-        if (_counter == 0u) [[unlikely]] {
-            LUISA_WARNING_WITH_LOCATION(
-                "Ignoring MetalEvent::wait() without signaling.");
-        } else [[likely]] {
-            [command_buffer encodeWaitForEvent:_handle
-                                         value:_counter];
-        }
-    }
-
-    void synchronize() noexcept {
-        for (auto &&s : _signalers) {
-            if (id<MTLCommandBuffer> h = s.handle) {
-                [h waitUntilCompleted];
-            }
-        }
-        _signalers.clear();
-    }
+    explicit MetalEvent(MTL::Device *device) noexcept;
+    ~MetalEvent() noexcept;
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    void signal(MTL::CommandQueue *queue) noexcept;
+    void wait(MTL::CommandQueue *queue) noexcept;
+    void synchronize() noexcept;
+    void set_name(luisa::string_view name) noexcept;
 };
 
 }// namespace luisa::compute::metal

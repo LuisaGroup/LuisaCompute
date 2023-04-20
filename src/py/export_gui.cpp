@@ -78,8 +78,8 @@ void export_gui(py::module &m) {
             w.window->set_mouse_callback([&w, set_action](int button, int action, float2 xy) {
                 set_action(w.mouse_states, button, action);
             });
-            w.window->set_key_callback([&w, set_action](int key, int action) {
-                set_action(w.key_states, key, action);
+            w.window->set_key_callback([&w, set_action](int key, int modifiers, int action) {
+                set_action(w.key_states, key, action);// fixme: add support for modifiers
             });
             w.window->set_cursor_position_callback([&w](float2 cursor_pos) {
                 w.cursur_pos = cursor_pos / w.size;
@@ -116,7 +116,7 @@ void export_gui(py::module &m) {
             for (auto &&i : remove_list) {
                 w.key_states.erase(i);
             }
-            w.window->pool_event();
+            w.window->poll_events();
         });
     py::class_<Clock>(m, "Clock")
         .def(py::init<>())

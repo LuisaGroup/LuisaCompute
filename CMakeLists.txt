@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18...3.23)
+cmake_minimum_required(VERSION 3.23...3.26)
 cmake_policy(VERSION 3.18)
 
 set(CMAKE_POLICY_DEFAULT_CMP0042 NEW)
@@ -15,7 +15,7 @@ project(LuisaCompute LANGUAGES C CXX VERSION 0.3.1)
 
 option(LUISA_COMPUTE_ENABLE_DSL "Enable C++ DSL" ON)
 option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
-option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" OFF)
+option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" ON)
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" OFF)
 option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" OFF)

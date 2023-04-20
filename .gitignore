@@ -315,3 +315,8 @@ src/ext/python311/**
 src/rust/Cargo.lock
 git_pusher.py
 git_puller.py
+
+
+config.json
+options.cli
+options.*.cli

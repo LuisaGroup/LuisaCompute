@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, ispc, metal", argv[0]);
         exit(1);
     }
-    auto device = context.create_device(argv[1]);
+    Device device = context.create_device(argv[1]);
 
     Callable sample = [](BindlessVar heap, Float2 uv, Float mip) noexcept {
         return heap.tex2d(0u).sample(uv, mip);
@@ -40,22 +40,22 @@ int main(int argc, char *argv[]) {
         image.write(coord, sample(heap, 2.0f * uv - make_float2(0.5f), t * 7.0f));
     };
 
-    auto fill_image = device.compile(fill_image_kernel);
+    Shader2D<BindlessArray, Image<float>> fill_image = device.compile(fill_image_kernel);
 
-    auto heap = device.create_bindless_array();
-    auto image_width = 0;
-    auto image_height = 0;
-    auto image_channels = 0;
-    auto image_pixels = stbi_load("test_path_tracing.png", &image_width, &image_height, &image_channels, 4);
-    auto texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 0u);
-    auto device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
-    std::vector<uint8_t> host_image(1024u * 1024u * 4u);
+    BindlessArray heap = device.create_bindless_array();
+    int image_width = 0;
+    int image_height = 0;
+    int image_channels = 0;
+    stbi_uc *image_pixels = stbi_load("test_path_tracing.png", &image_width, &image_height, &image_channels, 4);
+    Image<float> texture = device.create_image<float>(PixelStorage::BYTE4, uint2(image_width, image_height), 0u);
+    Image<float> device_image = device.create_image<float>(PixelStorage::BYTE4, 1024u, 1024u);
+    luisa::vector<uint8_t> host_image(1024u * 1024u * 4u);
 
-    auto event = device.create_event();
-    auto stream = device.create_stream();
-    std::vector<uint8_t> mipmaps(image_width * image_height * 4u * 2);
-    auto in_pixels = image_pixels;
-    auto out_pixels = mipmaps.data();
+    Event event = device.create_event();
+    Stream stream = device.create_stream();
+    luisa::vector<uint8_t> mipmaps(image_width * image_height * 4u * 2);
+    stbi_uc *in_pixels = image_pixels;
+    uint8_t *out_pixels = mipmaps.data();
 
     // generate mip-maps
     stream << heap.emplace_on_update(0u, texture, Sampler::linear_linear_mirror()).update()
@@ -63,9 +63,9 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("Mip Level: {}", texture.mip_levels());
 
-    for (auto i = 1u; i < texture.mip_levels(); i++) {
-        auto half_w = std::max(image_width / 2, 1);
-        auto half_h = std::max(image_height / 2, 1);
+    for (uint i = 1u; i < texture.mip_levels(); i++) {
+        uint half_w = std::max(image_width / 2, 1);
+        uint half_h = std::max(image_height / 2, 1);
         stbir_resize_uint8_srgb_edgemode(
             in_pixels,
             image_width, image_height, 0,

@@ -37,7 +37,7 @@ struct WindowImpl : public Window::IWindowImpl {
 #if defined(LUISA_PLATFORM_WINDOWS)
         window_handle = reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
 #elif defined(LUISA_PLATFORM_APPLE)
-// TODO: Apple
+        window_handle = reinterpret_cast<uint64_t>(glfwGetCocoaWindow(window));
 #else
         window_handle = reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
@@ -52,7 +52,8 @@ struct WindowImpl : public Window::IWindowImpl {
             auto y = 0.0;
             glfwGetCursorPos(self->window, &x, &y);
             if (auto &&cb = self->_mouse_button_callback) {
-                cb(button, action, make_float2(static_cast<float>(x), static_cast<float>(y)));
+                cb(static_cast<MouseButton>(button), static_cast<Action>(action),
+                   make_float2(static_cast<float>(x), static_cast<float>(y)));
             }
             // }
         });
@@ -69,7 +70,9 @@ struct WindowImpl : public Window::IWindowImpl {
             //     ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
             // } else {
             auto self = static_cast<WindowImpl *>(glfwGetWindowUserPointer(window));
-            if (auto &&cb = self->_key_callback) { cb(key, action); }
+            if (auto &&cb = self->_key_callback) {
+                cb(static_cast<Key>(key), mods, static_cast<Action>(action));
+            }
             // }
         });
         glfwSetScrollCallback(window, [](GLFWwindow *window, double dx, double dy) noexcept {
@@ -133,8 +136,20 @@ Window &Window::set_scroll_callback(Window::ScrollCallback cb) noexcept {
     return *this;
 }
 
-void Window::pool_event() noexcept {
+void Window::poll_events() noexcept {
     glfwPollEvents();
+}
+
+void Window::set_should_close(bool should_close) noexcept {
+    glfwSetWindowShouldClose(static_cast<detail::WindowImpl *>(_impl.get())->window, should_close);
+}
+
+bool Window::is_key_down(Key key) const noexcept {
+    return glfwGetKey(static_cast<detail::WindowImpl *>(_impl.get())->window, static_cast<int>(key)) != GLFW_RELEASE;
+}
+
+bool Window::is_mouse_button_down(MouseButton mb) const noexcept {
+    return glfwGetMouseButton(static_cast<detail::WindowImpl *>(_impl.get())->window, static_cast<int>(mb)) != GLFW_RELEASE;
 }
 
 }// namespace luisa::compute

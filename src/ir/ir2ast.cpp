@@ -1,8 +1,8 @@
-#include "ast/op.h"
-#include "ast/variable.h"
-#include "core/logging.h"
-#include "luisa_compute_ir/bindings.hpp"
-#include <magic_enum.hpp>
+#include <ast/op.h>
+#include <ast/variable.h>
+#include <core/logging.h>
+#include <core/magic_enum.h>
+#include <luisa_compute_ir/bindings.hpp>
 #include <ir/ir2ast.h>
 
 namespace luisa::compute {
@@ -37,7 +37,7 @@ void IR2AST::_convert_block(const ir::BasicBlock *block) noexcept {
             case ir::Instruction::Tag::AdDetach: _convert_instr_ad_detach(node); break;
             case ir::Instruction::Tag::Comment: _convert_instr_comment(node); break;
             case ir::Instruction::Tag::Debug: _convert_instr_debug(node); break;
-            default: LUISA_ERROR_WITH_LOCATION("Invalid instruction in body: `{}`.", magic_enum::enum_name(node->instruction->tag));
+            default: LUISA_ERROR_WITH_LOCATION("Invalid instruction in body: `{}`.", to_string(node->instruction->tag));
         }
         node_ref = node->next;
     }
@@ -82,7 +82,7 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
             }
             default: break;
         }
-        LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", magic_enum::enum_name(node->instruction->tag));
+        LUISA_ERROR_WITH_LOCATION("Invalid node type: {}.", to_string(node->instruction->tag));
     }();
     if (!_ctx->zero_init) {
         _ctx->node_to_exprs.emplace(node, expr);
@@ -132,7 +132,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
     auto type = _convert_type(node->type_.get());
     auto &&[func, arg_slice] = node->instruction->call;
     auto args = luisa::span{arg_slice.ptr, arg_slice.len};
-    auto function_name = magic_enum::enum_name(func.tag);
+    auto function_name = to_string(func.tag);
     auto builtin_func = [&](size_t arg_num, CallOp call_op) -> const Expression * {
         auto argument_information = arg_num == 0 ?
                                         "no arguments" :
@@ -162,7 +162,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
     auto make_vector = [&](size_t length) -> const Expression * {
         LUISA_ASSERT(args.size() == length, "`MakeVec` takes {} argument(s), got {}.", length, args.size());
         auto inner_type = ir::luisa_compute_ir_node_get(args[0])->type_.get();
-        LUISA_ASSERT(inner_type->tag == ir::Type::Tag::Primitive, "`MakeVec` supports primitive type only, got {}.", magic_enum::enum_name(inner_type->tag));
+        LUISA_ASSERT(inner_type->tag == ir::Type::Tag::Primitive, "`MakeVec` supports primitive type only, got {}.", to_string(inner_type->tag));
         LUISA_ASSERT(type->is_vector(), "`MakeVec` must return a vector, got {}.", type->description());
 
         auto converted_args = luisa::vector<const Expression *>{};
@@ -227,7 +227,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
             case ir::Const::Tag::Uint64: return c.uint64._0;
             case ir::Const::Tag::Generic: {
                 auto t = node->type_.get();
-                LUISA_ASSERT(t->tag == ir::Type::Tag::Primitive, "Invalid index type: {}.", magic_enum::enum_name(t->tag));
+                LUISA_ASSERT(t->tag == ir::Type::Tag::Primitive, "Invalid index type: {}.", to_string(t->tag));
                 auto do_cast = [&c]<typename T>() noexcept {
                     T x{};
                     std::memcpy(&x, c.generic._0.ptr, sizeof(T));
@@ -482,7 +482,7 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         }
         case ir::Func::Tag::ExtractElement: [[fallthrough]];
         case ir::Func::Tag::GetElementPtr: {
-            LUISA_ASSERT(args.size() == 2u, "{} takes 2 arguments.", magic_enum::enum_name(func.tag));
+            LUISA_ASSERT(args.size() == 2u, "{} takes 2 arguments.", to_string(func.tag));
             auto self = ir::luisa_compute_ir_node_get(args[0]);
             auto self_type = _convert_type(self->type_.get());
             if (self->type_->tag == ir::Type::Tag::Struct) {
@@ -851,7 +851,7 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                         case ir::Type::Tag::Array: LUISA_ERROR_WITH_LOCATION("Array of arrays is not supported.");
                         case ir::Type::Tag::Struct: LUISA_ERROR_WITH_LOCATION("Array of structs is not supported.");
                         case ir::Type::Tag::Void: LUISA_ERROR_WITH_LOCATION("Array of void is invalid.");
-                        default: LUISA_ERROR_WITH_LOCATION("Invalid array type: {}.", magic_enum::enum_name(elem->vector._0.element.tag));
+                        default: LUISA_ERROR_WITH_LOCATION("Invalid array type: {}.", to_string(elem->vector._0.element.tag));
                     }
                 }
                 default: LUISA_ERROR_WITH_LOCATION("Invalid array type.");
@@ -1036,7 +1036,7 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
         }
         case ir::Instruction::Tag::Bindless: return _ctx->function_builder->bindless_array();
         case ir::Instruction::Tag::Accel: return _ctx->function_builder->accel();
-        default: LUISA_ERROR_WITH_LOCATION("Invalid argument type: {}.", magic_enum::enum_name(node->instruction->tag));
+        default: LUISA_ERROR_WITH_LOCATION("Invalid argument type: {}.", to_string(node->instruction->tag));
     }
 }
 
@@ -1063,15 +1063,15 @@ void IR2AST::_process_local_declarations(const ir::BasicBlock *bb) noexcept {
                     case ir::Instruction::Tag::Texture2D: return 2u;
                     case ir::Instruction::Tag::Texture3D: return 3u;
                     default: LUISA_ERROR_WITH_LOCATION("Binding tag {} inconsistent with instruction tag {}.",
-                                                       magic_enum::enum_name(captured.binding.tag),
-                                                       magic_enum::enum_name(node->instruction->tag));
+                                                       to_string(captured.binding.tag),
+                                                       to_string(node->instruction->tag));
                 }
             }();
             auto texture_type = Type::texture(type, dimension);
             auto &&[handle, level] = captured.binding.texture._0;
             return _ctx->function_builder->texture_binding(texture_type, handle, level);
         }
-        default: LUISA_ERROR_WITH_LOCATION("Invalid binding tag {}.", magic_enum::enum_name(captured.binding.tag));
+        default: LUISA_ERROR_WITH_LOCATION("Invalid binding tag {}.", to_string(captured.binding.tag));
     }
 }
 

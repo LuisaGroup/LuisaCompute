@@ -5,7 +5,7 @@
 #include <Resource/GpuAllocator.h>
 #include <Shader/BuiltinKernel.h>
 #include <dxgi1_3.h>
-#include <Shader/ShaderCompiler.h>
+#include <backends/common/hlsl/shader_compiler.h>
 #include <Shader/ComputeShader.h>
 #include <core/logging.h>
 #include <runtime/context.h>
@@ -13,7 +13,7 @@
 #include <runtime/context_paths.h>
 namespace lc::dx {
 static std::mutex gDxcMutex;
-static vstd::optional<ShaderCompiler> gDxcCompiler;
+static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
 static int32 gDxcRefCount = 0;
 
 Device::LazyLoadShader::~LazyLoadShader() {}
@@ -54,7 +54,7 @@ bool Device::LazyLoadShader::Check(Device *self) {
     return false;
 }
 
-ShaderCompiler *Device::Compiler() {
+hlsl::ShaderCompiler *Device::Compiler() {
     return gDxcCompiler;
 }
 Device::Device(Context &ctx, DeviceConfig const *settings)
@@ -177,6 +177,7 @@ bool Device::SupportMeshShader() const {
     return (featureData.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1);
 }
 VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
+    r.clear();
     ComPtr<IDXGIFactory4> dxgiFactory;
     ComPtr<IDXGIAdapter1> adapter;
     ThrowIfFailed(CreateDXGIFactory2(0, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));

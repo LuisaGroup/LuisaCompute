@@ -8,9 +8,8 @@
 namespace luisa::compute::cuda {
 
 CUDAHostBufferPool::CUDAHostBufferPool(size_t size, bool write_combined) noexcept
-    : _first_fit{std::max(next_pow2(size), static_cast<size_t>(4096u)), alignment},
-      _write_combined{write_combined} {
-    auto flags = _write_combined ? CU_MEMHOSTALLOC_WRITECOMBINED : 0;
+    : _first_fit{std::max(next_pow2(size), static_cast<size_t>(4096u)), alignment} {
+    auto flags = write_combined ? CU_MEMHOSTALLOC_WRITECOMBINED : 0;
     LUISA_CHECK_CUDA(cuMemHostAlloc(
         reinterpret_cast<void **>(&_memory),
         _first_fit.size(), flags));

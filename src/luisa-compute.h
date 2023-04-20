@@ -26,6 +26,7 @@
 #include <core/stl.h>
 #include <core/thread_pool.h>
 #include <core/thread_safety.h>
+#include <core/magic_enum.h>
 
 #include <ast/ast_evaluator.h>
 #include <ast/constant_data.h>
