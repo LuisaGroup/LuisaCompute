@@ -5,6 +5,8 @@ if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE OR LUISA_COMPUTE_COM
             rust_device_common.h rust_device_common.cpp
             vulkan_swapchain.h vulkan_swapchain.cpp)
     add_library(luisa-compute-rust-device-common SHARED ${LUISA_COMPUTE_VULKAN_SWAPCHAIN_SOURCES})
+    set_target_properties(luisa-compute-rust-device-common PROPERTIES
+            OUTPUT_NAME lc-rust-device-common)
     target_link_libraries(luisa-compute-rust-device-common PRIVATE luisa-compute-runtime)
     target_link_libraries(luisa-compute-rust-device-common PRIVATE Vulkan::Vulkan ${X11_LIBRARIES})
 

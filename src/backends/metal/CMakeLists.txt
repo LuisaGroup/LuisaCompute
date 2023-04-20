@@ -16,6 +16,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
             # metal
             metal_api.cpp metal_api.h
+            metal_builtin_embedded.cpp metal_builtin_embedded.h
             metal_device.cpp metal_device.h
             metal_compiler.cpp metal_compiler.h
             metal_codegen_ast.cpp metal_codegen_ast.h
@@ -27,15 +28,18 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_command_encoder.cpp metal_command_encoder.h
             metal_stage_buffer_pool.cpp metal_stage_buffer_pool.h
             metal_callback_context.cpp metal_callback_context.h
+            metal_primitive.cpp metal_primitive.h
+            metal_procedural_primitive.cpp metal_procedural_primitive.h
+            metal_mesh.cpp metal_mesh.h
+            metal_accel.cpp metal_accel.h
+            metal_buffer.cpp metal_buffer.h
             )
 
     if (LUISA_COMPUTE_ENABLE_RUST)
         list(APPEND METAL_SOURCES metal_codegen_ir.cpp metal_codegen_ir.h)
     endif ()
 
-    luisa_compute_add_backend(metal
-            SOURCES ${METAL_SOURCES}
-            BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/metal_builtin")
+    luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
     target_link_libraries(lc-backend-metal PRIVATE
             "-framework Foundation"
             "-framework Metal"

@@ -20,6 +20,9 @@ AlwaysBreakTemplateDeclarations: MultiLine
 BreakBeforeBraces: Attach
 Cpp11BracedListStyle: true
 IndentWrappedFunctionNames: false
+LambdaBodyIndentation: OuterScope
+ObjCBlockIndentWidth: 4
+PPIndentWidth: 2
 BraceWrapping:
   AfterCaseLabel: false
   AfterClass: false
@@ -48,7 +51,8 @@ BreakConstructorInitializersBeforeComma: false
 AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakBeforeMultilineStrings: false
 ColumnLimit: 0
-SortIncludes: false
+SortIncludes: Never
+SortUsingDeclarations: true
 CompactNamespaces: true
 ContinuationIndentWidth: 4
 IndentCaseLabels: true
@@ -80,7 +84,8 @@ SpacesInParentheses: false
 SpacesInSquareBrackets: false
 TabWidth: 4
 UseTab: Never
-IndentRequires: true
+IndentRequiresClause: true
 SpacesInConditionalStatement: false
-SortUsingDeclarations: true
 AlignEscapedNewlines: Left
+ReferenceAlignment: Right
+ShortNamespaceLines: 0

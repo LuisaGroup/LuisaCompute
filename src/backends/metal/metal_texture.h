@@ -17,6 +17,10 @@ class MetalTexture {
 public:
     static constexpr auto max_level_count = 16u;
 
+    struct Binding {
+        MTL::ResourceID handle;
+    };
+
 private:
     std::array<MTL::Texture *, max_level_count> _maps{};
 
@@ -26,7 +30,8 @@ public:
                  uint width, uint height, uint depth,
                  uint mipmap_levels) noexcept;
     ~MetalTexture() noexcept;
-    [[nodiscard]] MTL::Texture *level(uint level) const noexcept;
+    [[nodiscard]] MTL::Texture *handle(uint level = 0u) const noexcept;
+    [[nodiscard]] Binding binding(uint level = 0u) const noexcept;
     void set_name(luisa::string_view name) noexcept;
 };
 

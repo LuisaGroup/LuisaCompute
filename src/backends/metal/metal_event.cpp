@@ -13,7 +13,6 @@ MetalEvent::MetalEvent(MTL::Device *device) noexcept
     : _handle{device->newEvent()} {}
 
 MetalEvent::~MetalEvent() noexcept {
-    synchronize();
     _handle->release();
 }
 

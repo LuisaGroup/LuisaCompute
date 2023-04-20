@@ -64,7 +64,7 @@ void MetalStream::dispatch(CommandList &&list) noexcept {
 }
 
 void MetalStream::present(MetalSwapchain *swapchain, MetalTexture *image) noexcept {
-    swapchain->present(_queue, image->level(0u));
+    swapchain->present(_queue, image->handle());
 }
 
 void MetalStream::submit(MTL::CommandBuffer *command_buffer,
@@ -75,18 +75,18 @@ void MetalStream::submit(MTL::CommandBuffer *command_buffer,
             _callback_lists.emplace(std::move(callbacks));
         }
         command_buffer->addCompletedHandler(^(MTL::CommandBuffer *) noexcept {
-          auto callbakcs = [self = this] {
-              std::scoped_lock lock{self->_callback_mutex};
-              if (self->_callback_lists.empty()) {
-                  LUISA_WARNING_WITH_LOCATION(
-                      "MetalStream::submit: Callback list is empty.");
-                  return CallbackContainer{};
-              }
-              auto callbacks = std::move(self->_callback_lists.front());
-              self->_callback_lists.pop();
-              return callbacks;
-          }();
-          for (auto callback : callbakcs) { callback->recycle(); }
+            auto callbakcs = [self = this] {
+                std::scoped_lock lock{self->_callback_mutex};
+                if (self->_callback_lists.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "MetalStream::submit: Callback list is empty.");
+                    return CallbackContainer{};
+                }
+                auto callbacks = std::move(self->_callback_lists.front());
+                self->_callback_lists.pop();
+                return callbacks;
+            }();
+            for (auto callback : callbakcs) { callback->recycle(); }
         });
     }
     command_buffer->commit();

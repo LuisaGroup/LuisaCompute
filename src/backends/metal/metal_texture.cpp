@@ -85,7 +85,7 @@ MetalTexture::~MetalTexture() noexcept {
     for (auto i = 0u; i < n; i++) { _maps[i]->release(); }
 }
 
-MTL::Texture *MetalTexture::level(uint level) const noexcept {
+MTL::Texture *MetalTexture::handle(uint level) const noexcept {
 #ifndef NDEBUG
     LUISA_ASSERT(level < _maps[0u]->mipmapLevelCount(),
                  "Invalid mipmap level {} for "
@@ -93,6 +93,10 @@ MTL::Texture *MetalTexture::level(uint level) const noexcept {
                  level, _maps[0u]->mipmapLevelCount());
 #endif
     return _maps[level];
+}
+
+MetalTexture::Binding MetalTexture::binding(uint level) const noexcept {
+    return {handle(level)->gpuResourceID()};
 }
 
 void MetalTexture::set_name(luisa::string_view name) noexcept {

@@ -1,0 +1,11 @@
+//
+// Created by Mike Smith on 2023/4/20.
+//
+
+#ifndef LUISACOMPUTE_METAL_PROCEDURAL_PRIMITIVE_H
+#define LUISACOMPUTE_METAL_PROCEDURAL_PRIMITIVE_H
+
+class metal_procedural_primitive {
+};
+
+#endif//LUISACOMPUTE_METAL_PROCEDURAL_PRIMITIVE_H
