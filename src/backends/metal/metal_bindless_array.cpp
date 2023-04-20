@@ -2,6 +2,7 @@
 // Created by Mike Smith on 2023/4/15.
 //
 
+#include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
 #include <backends/metal/metal_stage_buffer_pool.h>
 #include <backends/metal/metal_command_encoder.h>
@@ -44,7 +45,7 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
     for (auto &m : mods) {
         // update buffer slot
         if (m.buffer.op == Mod::Operation::EMPLACE) {
-            auto buffer = reinterpret_cast<MTL::Buffer *>(m.buffer.handle);
+            auto buffer = reinterpret_cast<MetalBuffer *>(m.buffer.handle)->handle();
             auto buffer_address = buffer->gpuAddress() + m.buffer.offset_bytes;
             auto buffer_size = buffer->length() - m.buffer.offset_bytes;
             // reuse the buffer slot
@@ -64,8 +65,9 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
         }
         // update texture2d slot
         if (m.tex2d.op == Mod::Operation::EMPLACE) {
-            auto texture = reinterpret_cast<MetalTexture *>(m.tex2d.handle)->level(0u);
+            auto texture = reinterpret_cast<MetalTexture *>(m.tex2d.handle)->handle();
             auto texture_id = texture->gpuResourceID();
+            m.tex2d.handle = luisa::bit_cast<uint64_t>(texture_id);
             if (auto old_texture = _tex2d_slots[m.slot];
                 old_texture != texture) {
                 _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
@@ -80,8 +82,9 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
         }
         // update texture3d slot
         if (m.tex3d.op == Mod::Operation::EMPLACE) {
-            auto texture = reinterpret_cast<MetalTexture *>(m.tex3d.handle)->level(0u);
+            auto texture = reinterpret_cast<MetalTexture *>(m.tex3d.handle)->handle();
             auto texture_id = texture->gpuResourceID();
+            m.tex3d.handle = luisa::bit_cast<uint64_t>(texture_id);
             if (auto old_texture = _tex3d_slots[m.slot];
                 old_texture != texture) {
                 _texture_tracker.release(reinterpret_cast<uint64_t>(old_texture));
@@ -117,11 +120,11 @@ void MetalBindlessArray::update(MetalCommandEncoder &encoder,
 
 void MetalBindlessArray::mark_resource_usages(MTL::ComputeCommandEncoder *encoder) noexcept {
     _buffer_tracker.traverse([encoder](auto resource) noexcept {
-        encoder->useResource(reinterpret_cast<MTL::Resource *>(resource),
+        encoder->useResource(reinterpret_cast<MTL::Buffer *>(resource),
                              MTL::ResourceUsageRead);
     });
     _texture_tracker.traverse([encoder](auto resource) noexcept {
-        encoder->useResource(reinterpret_cast<MTL::Resource *>(resource),
+        encoder->useResource(reinterpret_cast<MTL::Texture *>(resource),
                              MTL::ResourceUsageRead | MTL::ResourceUsageSample);
     });
 }

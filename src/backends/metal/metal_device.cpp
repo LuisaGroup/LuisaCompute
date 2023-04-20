@@ -8,8 +8,10 @@
 #include <backends/metal/metal_codegen_ir.h>
 #endif
 
+#include <backends/metal/metal_builtin_embedded.h>
 #include <backends/metal/metal_codegen_ast.h>
 #include <backends/metal/metal_compiler.h>
+#include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
 #include <backends/metal/metal_stream.h>
 #include <backends/metal/metal_event.h>
@@ -51,13 +53,9 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     _compiler = luisa::make_unique<MetalCompiler>(this);
 
     // TODO: load built-in kernels
-    auto builtin_kernel_stream = _io->read_internal_shader("metal_builtin_kernels.metal");
-    LUISA_ASSERT(builtin_kernel_stream != nullptr && builtin_kernel_stream->length() > 0u,
-                 "Failed to load built-in Metal kernels.");
-    luisa::vector<std::byte> builtin_kernel_data(builtin_kernel_stream->length());
-    builtin_kernel_stream->read(builtin_kernel_data);
     auto builtin_kernel_source = NS::String::alloc()->init(
-        builtin_kernel_data.data(), builtin_kernel_data.size(),
+        const_cast<char *>(luisa_metal_builtin_metal_builtin_kernels),
+        sizeof(luisa_metal_builtin_metal_builtin_kernels),
         NS::UTF8StringEncoding, false);
     auto compile_options = MTL::CompileOptions::alloc()->init();
     compile_options->setFastMathEnabled(true);
@@ -65,6 +63,10 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     compile_options->setLibraryType(MTL::LibraryTypeExecutable);
     NS::Error *error{nullptr};
     auto builtin_library = _handle->newLibrary(builtin_kernel_source, compile_options, &error);
+
+    builtin_kernel_source->release();
+    compile_options->release();
+
     if (error != nullptr) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to compile built-in Metal kernels: {}",
@@ -96,8 +98,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
         return pipeline;
     };
     _builtin_update_bindless_slots = create_builtin_compute_shader(MTLSTR("update_bindless_array"));
-    _builtin_update_instance_handles = create_builtin_compute_shader(MTLSTR("update_instance_handles"));
-    _builtin_update_instance_properties = create_builtin_compute_shader(MTLSTR("update_instance_properties"));
+    _builtin_update_accel_instances = create_builtin_compute_shader(MTLSTR("update_accel_instances"));
     compute_pipeline_desc->release();
 
     // render pipeline
@@ -129,14 +130,11 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
     builtin_swapchain_fragment_shader->release();
 
     builtin_library->release();
-    compile_options->release();
-    builtin_kernel_source->release();
 }
 
 MetalDevice::~MetalDevice() noexcept {
     _builtin_update_bindless_slots->release();
-    _builtin_update_instance_handles->release();
-    _builtin_update_instance_properties->release();
+    _builtin_update_accel_instances->release();
     _builtin_swapchain_present_ldr->release();
     _builtin_swapchain_present_hdr->release();
     _handle->release();
@@ -148,8 +146,7 @@ void *MetalDevice::native_handle() const noexcept {
 
 [[nodiscard]] inline auto create_device_buffer(MTL::Device *device, size_t element_stride, size_t element_count) noexcept {
     auto buffer_size = element_stride * element_count;
-    auto options = MTL::ResourceStorageModePrivate | MTL::ResourceHazardTrackingModeTracked;
-    auto buffer = device->newBuffer(buffer_size, options);
+    auto buffer = new_with_allocator<MetalBuffer>(device, buffer_size);
     BufferCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(buffer);
     info.native_handle = buffer;
@@ -179,8 +176,8 @@ BufferCreationInfo MetalDevice::create_buffer(const ir::CArc<ir::Type> *element,
 
 void MetalDevice::destroy_buffer(uint64_t handle) noexcept {
     with_autorelease_pool([=] {
-        auto buffer = reinterpret_cast<MTL::Buffer *>(handle);
-        buffer->release();
+        auto buffer = reinterpret_cast<MetalBuffer *>(handle);
+        delete_with_allocator(buffer);
     });
 }
 
@@ -404,16 +401,8 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
     with_autorelease_pool([=] {
         switch (resource_tag) {
             case Resource::Tag::BUFFER: {
-                auto buffer = reinterpret_cast<MTL::Buffer *>(resource_handle);
-                if (name.empty()) {
-                    buffer->setLabel(nullptr);
-                } else {
-                    auto mtl_name = NS::String::alloc()->init(
-                        const_cast<char *>(name.data()), name.size(),
-                        NS::UTF8StringEncoding, false);
-                    buffer->setLabel(mtl_name);
-                    mtl_name->release();
-                }
+                auto buffer = reinterpret_cast<MetalBuffer *>(resource_handle);
+                buffer->set_name(name);
                 break;
             }
             case Resource::Tag::TEXTURE: {

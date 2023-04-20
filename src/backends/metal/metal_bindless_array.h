@@ -26,7 +26,9 @@ public:
     };
     static_assert(sizeof(Slot) == 32);
 
-    using Binding = MTL::Buffer *;
+    struct Binding {
+        uint64_t array;
+    };
 
 private:
     MTL::Buffer *_array;
@@ -44,6 +46,7 @@ public:
     void update(MetalCommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;
     void mark_resource_usages(MTL::ComputeCommandEncoder *encoder) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _array; }
+    [[nodiscard]] auto binding() const noexcept { return Binding{_array->gpuAddress()}; }
 };
 
 }// namespace luisa::compute::metal

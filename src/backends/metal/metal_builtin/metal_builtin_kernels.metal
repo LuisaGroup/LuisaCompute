@@ -2,56 +2,70 @@
 
 using namespace metal;
 
-struct alignas(16) Instance {
-    array<float, 12> transform;
+struct alignas(16) AccelInstance {
+    float transform[12];// column-major packed
     uint options;
     uint mask;
     uint intersection_function_offset;
     uint mesh_index;
 };
 
-struct alignas(16) BuildRequest {
+struct alignas(16) AccelInstanceModification {
     uint index;
     uint flags;
-    uint padding[2];
-    float affine[12];
+    ulong primitive;
+    float4 affine[3];// row-major
 };
 
-static_assert(sizeof(Instance) == 64u, "");
-static_assert(sizeof(BuildRequest) == 64u, "");
+static_assert(sizeof(AccelInstance) == 64u, "");
+static_assert(sizeof(AccelInstanceModification) == 64u, "");
 
-[[kernel]] void update_instance_buffer(
-    device Instance *__restrict__ instances,
-    device const BuildRequest *__restrict__ requests,
-    constant uint &n,
-    uint tid [[thread_position_in_grid]]) {
+[[kernel]] void update_accel_instances(device AccelInstance *__restrict__ instances,
+                                       device const AccelInstanceModification *__restrict__ mods,
+                                       constant uint &n,
+                                       uint tid [[thread_position_in_grid]]) {
     if (tid < n) {
-        auto r = requests[tid];
-        instances[r.index].mesh_index = r.index;
-        instances[r.index].options = 0x07u;
-        instances[r.index].intersection_function_offset = 0u;
+        constexpr auto update_flag_primitive = 1u << 0u;
         constexpr auto update_flag_transform = 1u << 1u;
-        constexpr auto update_flag_visibility_on = 1u << 2u;
-        constexpr auto update_flag_visibility_off = 1u << 3u;
-        constexpr auto update_flag_visibility = update_flag_visibility_on | update_flag_visibility_off;
-        if (r.flags & update_flag_transform) {
-            auto p = instances[r.index].transform.data();
-            p[0] = r.affine[0];
-            p[1] = r.affine[4];
-            p[2] = r.affine[8];
-            p[3] = r.affine[1];
-            p[4] = r.affine[5];
-            p[5] = r.affine[9];
-            p[6] = r.affine[2];
-            p[7] = r.affine[6];
-            p[8] = r.affine[10];
-            p[9] = r.affine[3];
-            p[10] = r.affine[7];
-            p[11] = r.affine[11];
+        constexpr auto update_flag_opaque_on = 1u << 2u;
+        constexpr auto update_flag_opaque_off = 1u << 3u;
+        constexpr auto update_flag_visibility = 1u << 4u;
+        constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
+        constexpr auto update_flag_vis_mask_offset = 24u;
+
+        constexpr auto instance_option_disable_culling = 1u;
+        constexpr auto instance_option_opaque = 4u;
+        constexpr auto instance_option_non_opaque = 8u;
+
+        auto m = mods[tid];
+        auto instance = instances[m.index];
+        instance.intersection_function_offset = m.primitive;
+        if (m.flags & update_flag_primitive) {
+            instance.mesh_index = static_cast<uint>(m.primitive);
         }
-        if (r.flags & update_flag_visibility) {
-            instances[r.index].mask = (r.flags & update_flag_visibility_on) ? ~0u : 0u;
+        if (m.flags & update_flag_visibility) {
+            instance.mask = (m.flags >> update_flag_vis_mask_offset) & 0xffu;
         }
+        if (m.flags & update_flag_opaque) {
+            instance.options = (m.flags & update_flag_opaque_on) ?
+                                   instance_option_disable_culling | instance_option_opaque :
+                                   instance_option_disable_culling | instance_option_non_opaque;
+        }
+        if (m.flags & update_flag_transform) {
+            instance.transform[0] = m.affine[0].x;
+            instance.transform[1] = m.affine[1].x;
+            instance.transform[2] = m.affine[2].x;
+            instance.transform[3] = m.affine[0].y;
+            instance.transform[4] = m.affine[1].y;
+            instance.transform[5] = m.affine[2].y;
+            instance.transform[6] = m.affine[0].z;
+            instance.transform[7] = m.affine[1].z;
+            instance.transform[8] = m.affine[2].z;
+            instance.transform[9] = m.affine[0].w;
+            instance.transform[10] = m.affine[1].w;
+            instance.transform[11] = m.affine[2].w;
+        }
+        instances[m.index] = instance;
     }
 }
 
@@ -89,8 +103,8 @@ struct alignas(16) BindlessSlotModification {
 static_assert(sizeof(BindlessSlot) == 32u, "");
 static_assert(sizeof(BindlessSlotModification) == 64u, "");
 
-[[kernel]] void update_bindless_array(device BindlessSlot *slots,
-                                      device const BindlessSlotModification *mods,
+[[kernel]] void update_bindless_array(device BindlessSlot *__restrict__ slots,
+                                      device const BindlessSlotModification *__restrict__ mods,
                                       constant const uint &n,
                                       uint tid [[thread_position_in_grid]]) {
     if (tid < n) {
@@ -122,12 +136,6 @@ static_assert(sizeof(BindlessSlotModification) == 64u, "");
         }
         slots[m.slot] = slot;
     }
-}
-
-[[kernel]] void update_instance_handles() {
-}
-
-[[kernel]] void update_instance_properties() {
 }
 
 struct RasterData {

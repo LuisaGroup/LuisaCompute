@@ -5,6 +5,7 @@
 #include <core/pool.h>
 #include <core/logging.h>
 #include <runtime/rhi/pixel.h>
+#include <backends/metal/metal_buffer.h>
 #include <backends/metal/metal_texture.h>
 #include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_command_encoder.h>
@@ -72,7 +73,7 @@ MTL::CommandBuffer *MetalCommandEncoder::submit(CommandList::CallbackContainer &
 
 void MetalCommandEncoder::visit(BufferUploadCommand *command) noexcept {
     _prepare_command_buffer();
-    auto buffer = reinterpret_cast<const MTL::Buffer *>(command->handle());
+    auto buffer = reinterpret_cast<const MetalBuffer *>(command->handle())->handle();
     auto offset = command->offset();
     auto size = command->size();
     auto data = command->data();
@@ -90,7 +91,7 @@ void MetalCommandEncoder::visit(BufferUploadCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
     _prepare_command_buffer();
-    auto buffer = reinterpret_cast<const MTL::Buffer *>(command->handle());
+    auto buffer = reinterpret_cast<const MetalBuffer *>(command->handle())->handle();
     auto offset = command->offset();
     auto size = command->size();
     auto data = command->data();
@@ -112,8 +113,8 @@ void MetalCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(BufferCopyCommand *command) noexcept {
     _prepare_command_buffer();
-    auto src_buffer = reinterpret_cast<const MTL::Buffer *>(command->src_handle());
-    auto dst_buffer = reinterpret_cast<const MTL::Buffer *>(command->dst_handle());
+    auto src_buffer = reinterpret_cast<const MetalBuffer *>(command->src_handle())->handle();
+    auto dst_buffer = reinterpret_cast<const MetalBuffer *>(command->dst_handle())->handle();
     auto src_offset = command->src_offset();
     auto dst_offset = command->dst_offset();
     auto size = command->size();
@@ -124,9 +125,9 @@ void MetalCommandEncoder::visit(BufferCopyCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     _prepare_command_buffer();
-    auto buffer = reinterpret_cast<const MTL::Buffer *>(command->buffer());
+    auto buffer = reinterpret_cast<const MetalBuffer *>(command->buffer())->handle();
     auto buffer_offset = command->buffer_offset();
-    auto texture = reinterpret_cast<const MetalTexture *>(command->texture());
+    auto texture = reinterpret_cast<const MetalTexture *>(command->texture())->handle();
     auto texture_level = command->level();
     auto size = command->size();
     auto pitch_size = pixel_storage_size(command->storage(), make_uint3(size.x, 1u, 1u));
@@ -134,7 +135,7 @@ void MetalCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     auto encoder = _command_buffer->blitCommandEncoder();
     encoder->copyFromBuffer(buffer, buffer_offset, pitch_size, image_size,
                             MTL::Size{size.x, size.y, size.z},
-                            texture->level(0u), 0u, texture_level,
+                            texture, 0u, texture_level,
                             MTL::Origin{0u, 0u, 0u});
     encoder->endEncoding();
 }
@@ -145,7 +146,7 @@ void MetalCommandEncoder::visit(ShaderDispatchCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(TextureUploadCommand *command) noexcept {
     _prepare_command_buffer();
-    auto texture = reinterpret_cast<const MetalTexture *>(command->handle());
+    auto texture = reinterpret_cast<const MetalTexture *>(command->handle())->handle();
     auto level = command->level();
     auto size = command->size();
     auto data = command->data();
@@ -160,14 +161,14 @@ void MetalCommandEncoder::visit(TextureUploadCommand *command) noexcept {
         auto encoder = _command_buffer->blitCommandEncoder();
         encoder->copyFromBuffer(upload_buffer->buffer(), upload_buffer->offset(),
                                 pitch_size, image_size, MTL::Size{size.x, size.y, size.z},
-                                texture->level(0u), 0u, level, MTL::Origin{0u, 0u, 0u});
+                                texture, 0u, level, MTL::Origin{0u, 0u, 0u});
         encoder->endEncoding();
     });
 }
 
 void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
     _prepare_command_buffer();
-    auto texture = reinterpret_cast<const MetalTexture *>(command->handle());
+    auto texture = reinterpret_cast<const MetalTexture *>(command->handle())->handle();
     auto level = command->level();
     auto size = command->size();
     auto data = command->data();
@@ -177,7 +178,7 @@ void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
     auto total_size = image_size * size.z;
     with_download_buffer(total_size, [&](MetalStageBufferPool::Allocation *download_buffer) noexcept {
         auto encoder = _command_buffer->blitCommandEncoder();
-        encoder->copyFromTexture(texture->level(0u), 0u, level,
+        encoder->copyFromTexture(texture, 0u, level,
                                  MTL::Origin{0u, 0u, 0u},
                                  MTL::Size{size.x, size.y, size.z},
                                  download_buffer->buffer(),
@@ -196,32 +197,32 @@ void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
 
 void MetalCommandEncoder::visit(TextureCopyCommand *command) noexcept {
     _prepare_command_buffer();
-    auto src_texture = reinterpret_cast<const MetalTexture *>(command->src_handle());
-    auto dst_texture = reinterpret_cast<const MetalTexture *>(command->dst_handle());
+    auto src_texture = reinterpret_cast<const MetalTexture *>(command->src_handle())->handle();
+    auto dst_texture = reinterpret_cast<const MetalTexture *>(command->dst_handle())->handle();
     auto src_level = command->src_level();
     auto dst_level = command->dst_level();
     auto storage = command->storage();
     auto size = command->size();
     auto encoder = _command_buffer->blitCommandEncoder();
-    encoder->copyFromTexture(src_texture->level(0u), 0u, src_level,
+    encoder->copyFromTexture(src_texture, 0u, src_level,
                              MTL::Origin{0u, 0u, 0u},
                              MTL::Size{size.x, size.y, size.z},
-                             dst_texture->level(0u), 0u, dst_level,
+                             dst_texture, 0u, dst_level,
                              MTL::Origin{0u, 0u, 0u});
     encoder->endEncoding();
 }
 
 void MetalCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
     _prepare_command_buffer();
-    auto texture = reinterpret_cast<const MetalTexture *>(command->texture());
+    auto texture = reinterpret_cast<const MetalTexture *>(command->texture())->handle();
     auto texture_level = command->level();
-    auto buffer = reinterpret_cast<const MTL::Buffer *>(command->buffer());
+    auto buffer = reinterpret_cast<const MetalBuffer *>(command->buffer())->handle();
     auto buffer_offset = command->buffer_offset();
     auto size = command->size();
     auto pitch_size = pixel_storage_size(command->storage(), make_uint3(size.x, 1u, 1u));
     auto image_size = pixel_storage_size(command->storage(), make_uint3(size.xy(), 1u));
     auto encoder = _command_buffer->blitCommandEncoder();
-    encoder->copyFromTexture(texture->level(0u), 0u, texture_level,
+    encoder->copyFromTexture(texture, 0u, texture_level,
                              MTL::Origin{0u, 0u, 0u},
                              MTL::Size{size.x, size.y, size.z},
                              buffer, buffer_offset,

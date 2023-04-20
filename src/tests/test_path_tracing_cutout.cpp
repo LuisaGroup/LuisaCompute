@@ -222,12 +222,13 @@ int main(int argc, char *argv[]) {
             $for(depth, 10u) {
 
                 // trace
-                Var<CommittedHit> hit = accel.query_all(ray).on_triangle_candidate([&](auto &c) noexcept {
-                                   $if(filter_triangle_hit(c.hit())) {
-                                       c.commit();
-                                   };
-                               })
-                               .trace();
+                Var<CommittedHit> hit = accel.query_all(ray)
+                                            .on_triangle_candidate([&](auto &c) noexcept {
+                                                $if(filter_triangle_hit(c.hit())) {
+                                                    c.commit();
+                                                };
+                                            })
+                                            .trace();
                 $if(hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float4x4 m = accel.instance_transform(hit.inst);
