@@ -101,27 +101,6 @@ option("bin_dir")
 set_default("bin")
 set_showmenu(true)
 option_end()
-option("_lc_inter_bin_dir")
-set_default(false)
-set_showmenu(false)
-add_deps("bin_dir")
-before_check(function(option)
-	if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) then
-		local bin_dir = option:dep("bin_dir"):enabled()
-		if is_mode("debug") then
-			bin_dir = path.join(bin_dir, "debug")
-		elseif is_mode("releasedbg") then
-			bin_dir = path.join(bin_dir, "releasedbg")
-		else
-			bin_dir = path.join(bin_dir, "release")
-		end
-		option:enable(bin_dir)
-	else
-		option:enable(false)
-	end
-end)
-option_end()
-
 -- pre-defined options end
 if is_arch("x64", "x86_64", "arm64") then
 	option("_lc_vk_path")
@@ -132,7 +111,27 @@ if is_arch("x64", "x86_64", "arm64") then
 		if not path then
 			path = os.getenv("VK_SDK_PATH")
 		end
-		option:enable(path)
+		option:set_value(path)
+	end)
+	option_end()
+	option("_lc_inter_bin_dir")
+	set_default(false)
+	set_showmenu(false)
+	add_deps("bin_dir")
+	before_check(function(option)
+		if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) then
+			local bin_dir = option:dep("bin_dir"):enabled()
+			if is_mode("debug") then
+				bin_dir = path.join(bin_dir, "debug")
+			elseif is_mode("releasedbg") then
+				bin_dir = path.join(bin_dir, "releasedbg")
+			else
+				bin_dir = path.join(bin_dir, "release")
+			end
+			option:set_value(bin_dir)
+		else
+			option:set_value(false)
+		end
 	end)
 	option_end()
 	LCUseMimalloc = get_config("enable_mimalloc")

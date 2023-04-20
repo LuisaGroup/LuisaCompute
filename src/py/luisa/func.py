@@ -151,7 +151,8 @@ class func:
             get_global_device().impl().save_shader(f.function, name)
     # compiles an argument-type-specialized callable/kernel
     # returns FuncInstanceInfo
-    def compile(self, call_from_host: bool, allow_ref: bool, argtypes: tuple, arg_info=None):
+    def compile(self, func_type: int, allow_ref: bool, argtypes: tuple, arg_info=None):
+        call_from_host = func_type == 0
         # get python AST & context
         self.sourcelines = sourceinspect.getsourcelines(self.pyfunc)[0]
         self.sourcelines = [textwrap.fill(line, tabsize=4, width=9999) for line in self.sourcelines]
@@ -177,10 +178,13 @@ class func:
                 globalvars.current_context = top
         # build function
         # Note: must retain the builder object
-        if call_from_host:
-            f.builder = lcapi.FunctionBuilder.define_kernel(astgen)
-        else:
-            f.builder = lcapi.FunctionBuilder.define_callable(astgen)
+        match func_type:
+            case 0:
+                f.builder = lcapi.FunctionBuilder.define_kernel(astgen)
+            case 1:
+                f.builder = lcapi.FunctionBuilder.define_callable(astgen)
+            case 2:
+                f.builder = lcapi.FunctionBuilder.define_raster_stage(astgen)
         f.function = f.builder.function()
         # compile shader
         if call_from_host:
@@ -189,10 +193,10 @@ class func:
 
     # looks up arg_type_tuple; compile if not existing
     # returns FuncInstanceInfo
-    def get_compiled(self, call_from_host: bool, allow_ref:bool, argtypes: tuple, arg_info=None):
-        if (call_from_host,) + argtypes not in self.compiled_results:
+    def get_compiled(self, func_type: int, allow_ref:bool, argtypes: tuple, arg_info=None):
+        if (func_type,) + argtypes not in self.compiled_results:
             try:
-                self.compiled_results[(call_from_host,) + argtypes] = self.compile(call_from_host, allow_ref, argtypes, arg_info)
+                self.compiled_results[(func_type,) + argtypes] = self.compile(func_type, allow_ref, argtypes, arg_info)
             except Exception as e:
                 if hasattr(e, "already_printed"):
                     # hide the verbose traceback in AST builder
@@ -201,7 +205,7 @@ class func:
                     raise e1 from None
                 else:
                     raise
-        return self.compiled_results[(call_from_host,) + argtypes]
+        return self.compiled_results[(func_type,) + argtypes]
 
 
     # dispatch shader to stream
@@ -219,7 +223,7 @@ class func:
             is_buffer = True
         # get types of arguments and compile
         argtypes = tuple(dtype_of(a) for a in args)
-        f = self.get_compiled(call_from_host=True, allow_ref=False, argtypes=argtypes)
+        f = self.get_compiled(func_type=0, allow_ref=False, argtypes=argtypes)
         # create command
         command = lcapi.ComputeDispatchCmdEncoder.create(f.function.argument_size(), f.shader_handle, f.function)
         # push arguments
@@ -252,8 +256,8 @@ class func:
 
 
 def save_raster_shader(mesh_format: MeshFormat, vertex: func, pixel: func, vert_argtypes, pixel_argtypes, name: str, async_builder: bool=True):
-    vert_f = vertex.get_compiled(False, False,(AppData,) + vert_argtypes)
-    pixel_f = pixel.get_compiled(False, False, (vert_f.return_type, ) + pixel_argtypes)
+    vert_f = vertex.get_compiled(2, False,(AppData,) + vert_argtypes)
+    pixel_f = pixel.get_compiled(2, False, (vert_f.return_type, ) + pixel_argtypes)
     device = get_global_device().impl()
     check_val = device.check_raster_shader(vert_f.function, pixel_f.function)
     if (check_val > 0):

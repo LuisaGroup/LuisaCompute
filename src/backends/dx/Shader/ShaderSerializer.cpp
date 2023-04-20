@@ -405,7 +405,7 @@ ComPtr<ID3D12RootSignature> ShaderSerializer::DeSerializeRootSig(
     return rootSig;
 }
 vstd::vector<SavedArgument> ShaderSerializer::SerializeKernel(Function kernel) {
-    assert(kernel.tag() == Function::Tag::KERNEL);
+    assert(kernel.tag() != Function::Tag::CALLABLE);
     auto &&args = kernel.arguments();
     vstd::vector<SavedArgument> result;
     vstd::push_back_func(result, args.size(), [&](size_t i) {

@@ -234,7 +234,7 @@ void export_runtime(py::module &m) {
         */
 
         .def("check_raster_shader", [](DeviceInterface &self, Function vertex, Function pixel) -> int {
-            if (vertex.tag() != Function::Tag::CALLABLE || pixel.tag() != Function::Tag::CALLABLE) return 5;
+            if (vertex.tag() != Function::Tag::RASTER_STAGE || pixel.tag() != Function::Tag::RASTER_STAGE) return 5;
             auto v2p = vertex.return_type();
             auto vert_args = vertex.arguments();
             if (vert_args.empty() || vert_args[0].type() != Type::of<VertexData>()) {
@@ -412,6 +412,7 @@ void export_runtime(py::module &m) {
     py::class_<FunctionBuilder, luisa::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
         .def("define_kernel", &FunctionBuilder::define_kernel<const luisa::function<void()> &>)
         .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
+        .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
         .def("try_eval_int", [](FunctionBuilder &self, Expression const *expr) {
             auto eval = analyzer.back().try_eval(expr);
