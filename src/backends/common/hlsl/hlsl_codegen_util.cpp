@@ -5,6 +5,7 @@
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include <vstl/pdqsort.h>
+#include <core/dynamic_module.h>
 namespace lc::hlsl {
 struct RegisterIndexer {
     virtual void init() = 0;
@@ -28,31 +29,23 @@ struct SpirVRegisterIndexer : public RegisterIndexer {
         return count;
     }
 };
-vstd::StringBuilder CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx) {
-    auto bin = ctx->read_internal_shader(name);
-    vstd::StringBuilder str;
-    str.resize(bin->length());
-    bin->read({reinterpret_cast<std::byte *>(str.data()), str.size()});
-    return str;
-}
-vstd::vector<char> CodegenUtility::ReadInternalHLSLFileByte(vstd::string_view name, luisa::BinaryIO const *ctx) {
-    auto bin = ctx->read_internal_shader(name);
-    vstd::vector<char> str;
-    str.resize_uninitialized(bin->length());
-    bin->read({reinterpret_cast<std::byte *>(str.data()), str.size()});
-    return str;
+vstd::string_view CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx) {
+    static DynamicModule dyna_module = DynamicModule::load("lc-hlsl-builtin");
+    auto get_name = vstd::string{"get_"}.append(name);
+    auto get_func = dyna_module.function<char *()>(get_name);
+    get_name += "_size"sv;
+    auto get_size_func = dyna_module.function<int()>(get_name);
+    return {get_func(), static_cast<size_t>(get_size_func())};
 }
 namespace detail {
 static inline uint64 CalcAlign(uint64 value, uint64 align) {
     return (value + (align - 1)) & ~(align - 1);
 }
 static vstd::string_view HLSLHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
-    static auto header = util->ReadInternalHLSLFileByte("hlsl_header", internalDataPath);
-    return {header.data(), header.size()};
+    return CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
 }
 static vstd::string_view RayTracingHeader(CodegenUtility *util, luisa::BinaryIO const *internalDataPath) {
-    static auto header = util->ReadInternalHLSLFileByte("raytracing_header", internalDataPath);
-    return {header.data(), header.size()};
+    return CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
 }
 }// namespace detail
 // static thread_local vstd::unique_ptr<CodegenStackData> opt;

@@ -4,9 +4,6 @@ if LCDxBackend or LCVkBackend then
 	after_build(function(target)
 		if is_plat("windows") then
 			local bin_dir = target:targetdir()
-			local data_dir = path.join(bin_dir, ".data/dx_builtin")
-			os.mkdir(data_dir)
-			os.cp(path.join(os.scriptdir(), "dx/dx_builtin/*"), data_dir)
 			os.cp(path.join(os.scriptdir(), "dx/dx_support/*.dll"), bin_dir)
 		end
 	end)
@@ -43,6 +40,9 @@ if LCMetalBackend then
 end
 if LCVkBackend then
 	add_deps("lc-backend-vk", {inherit = false})
+end
+if LCVkBackend or LCDxBackend then
+	add_deps("lc-hlsl-builtin", {inherit = false})
 end
 if LCCpuBackend then
 	add_deps("lc-backend-cpu", {inherit = false})

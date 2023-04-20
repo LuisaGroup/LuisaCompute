@@ -79,10 +79,6 @@ Context::Context(string_view program_path) noexcept
     _impl->data_directory = _impl->runtime_directory / ".data";
     LUISA_INFO("Cache directory: {}.", to_string(_impl->cache_directory));
     LUISA_INFO("Data directory: {}.", to_string(_impl->data_directory));
-    if (!std::filesystem::exists(_impl->cache_directory)) {
-        LUISA_INFO("Created cache directory.");
-        std::filesystem::create_directories(_impl->cache_directory);
-    }
     DynamicModule::add_search_path(_impl->runtime_directory);
     for (auto &&p : std::filesystem::directory_iterator{_impl->runtime_directory}) {
         if (auto &&path = p.path();

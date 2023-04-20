@@ -94,7 +94,7 @@ CUDADevice::CUDADevice(Context &&ctx,
 
     // provide a default binary IO
     if (_io == nullptr) {
-        _default_io = luisa::make_unique<DefaultBinaryIO>(context(), "cuda");
+        _default_io = luisa::make_unique<DefaultBinaryIO>(context());
         _io = _default_io.get();
     }
     _compiler = luisa::make_unique<CUDACompiler>(this);
