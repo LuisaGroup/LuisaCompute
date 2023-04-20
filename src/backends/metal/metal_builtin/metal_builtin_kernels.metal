@@ -41,7 +41,7 @@ static_assert(sizeof(AccelInstanceModification) == 64u, "");
         auto instance = instances[m.index];
         instance.intersection_function_offset = m.primitive;
         if (m.flags & update_flag_primitive) {
-            instance.mesh_index = static_cast<uint>(m.primitive);
+            instance.mesh_index = m.index;
         }
         if (m.flags & update_flag_visibility) {
             instance.mask = (m.flags >> update_flag_vis_mask_offset) & 0xffu;

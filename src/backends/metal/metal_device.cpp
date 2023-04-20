@@ -18,8 +18,7 @@
 #include <backends/metal/metal_swapchain.h>
 #include <backends/metal/metal_bindless_array.h>
 #include <backends/metal/metal_accel.h>
-#include <backends/metal/metal_mesh.h>
-#include <backends/metal/metal_procedrual_primitive.h>
+#include <backends/metal/metal_primitive.h>
 #include <backends/metal/metal_device.h>
 
 namespace luisa::compute::metal {
