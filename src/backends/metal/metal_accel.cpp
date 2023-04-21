@@ -225,7 +225,7 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
     _resources.emplace_back(_instance_buffer);
     for (auto prim : _primitives) { prim->add_resources(_resources); }
     std::sort(_resources.begin(), _resources.end());
-    _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.end());
+    _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.cend());
 }
 
 void MetalAccel::set_name(luisa::string_view name) noexcept { _name = name; }
