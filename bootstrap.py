@@ -85,7 +85,7 @@ def print_help():
     print('  debug                  Debug mode')
     print('  reldbg                 Release with debug infomation mode')
     print('Options:')
-    print('  --config | -c          Configure build system')
+    print('  --config   | -c        Configure build system')
     print('  --features | -f [[no-]features]  Add/remove features')
     print('      Features:')
     print('          all                Enable all features listed below that are detected available')
@@ -98,7 +98,7 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('  --mode | -m [node]     Build mode')
+    print('  --mode    | -m [node]  Build mode')
     print('      Modes:')
     print('          debug              Debug mode')
     print('          release            Release mode')
@@ -126,6 +126,7 @@ def dump_cmake_options(config: dict):
 
 
 def dump_xmake_options(config: dict):
+    # TODO: @Maxwell help pls
     pass
 
 
@@ -139,42 +140,34 @@ def dump_build_system_options(config: dict):
         raise ValueError(f'Unknown build system: {build_sys}')
 
 
-def build_system_args_cmake(config: dict) -> List[str]:
+def build_system_args_cmake(config: dict, mode: str) -> List[str]:
     args = config['cmake_args']
-    if 'dsl' in config['features']:
-        args.append('-DLUISA_ENABLE_DSL=ON')
-    if 'python' in config['features']:
-        args.append('-DLUISA_ENABLE_PYTHON=ON')
-    if 'gui' in config['features']:
-        args.append('-DLUISA_ENABLE_GUI=ON')
-    if 'cuda' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_CUDA=ON')
-    if 'cpu' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_CPU=ON')
-    if 'remote' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_REMOTE=ON')
-    if 'dx' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_DX=ON')
-    if 'metal' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_METAL=ON')
-    if 'vulkan' in config['features']:
-        args.append('-DLUISA_COMPUTE_ENABLE_VULKAN=ON')
+    cmake_mode = {
+        'debug': 'Debug',
+        'release': 'Release',
+        'reldbg': 'RelWithDebInfo'
+    }
+    args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
     return args
 
 
-def build_system_args_xmake(config: dict) -> List[str]:
+def build_system_args_xmake(config: dict, mode: str) -> List[str]:
     args = config['xmake_args']
-    if 'cuda' in config['features']:
-        args.append('-c')
-    # TODO: Maxwell handle this pls
+    xmake_mode = {
+        'debug': 'debug',
+        'release': 'release',
+        'reldbg': 'releasedbg'
+    }
+    args.append(f'-m {xmake_mode[mode]}')
+    # TODO: @Maxwell help pls
     return args
 
 
-def build_system_args(config) -> List[str]:
+def build_system_args(config, mode) -> List[str]:
     if config['build_system'] == 'cmake':
-        return build_system_args_cmake(config)
+        return build_system_args_cmake(config, mode)
     elif config['build_system'] == 'xmake':
-        return build_system_args_xmake(config)
+        return build_system_args_xmake(config, mode)
     else:
         raise ValueError(f'Unknown build system: {config["build_system"]}')
 
@@ -220,7 +213,7 @@ def main(args: List[str]):
     build_jobs = multiprocessing.cpu_count()
     while i < len(args):
         opt = args[i]
-        if opt == '--clean':
+        if opt == '--clean' or opt == '-C':
             if os.path.exists(config['output']):
                 import shutil
                 shutil.rmtree(config['output'])
@@ -290,28 +283,16 @@ def main(args: List[str]):
     if run_config or run_build:
         output = config['output']
         if not os.path.exists(output):
+            run_config = True
             os.mkdir(output)
 
     # config build system
     if run_config:
-        args = build_system_args(config)
-
+        args = build_system_args(config, mode)
         if config['build_system'] == 'cmake':
-            cmake_mode = {
-                'debug': 'Debug',
-                'release': 'Release',
-                'reldbg': 'RelWithDebInfo'
-            }
-            args.append(f'-DCMAKE_BUILD_TYPE={cmake_mode[mode]}')
             p = Popen(['cmake', '..'] + args, cwd=output)
             p.wait()
         elif config['build_system'] == 'xmake':
-            xmake_mode = {
-                'debug': 'debug',
-                'release': 'release',
-                'reldbg': 'releasedbg'
-            }
-            args.append(f'-m {xmake_mode[mode]}')
             p = Popen(['xmake', 'f'] + args)
             p.wait()
         else:
