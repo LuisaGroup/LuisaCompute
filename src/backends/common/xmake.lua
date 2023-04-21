@@ -23,6 +23,6 @@ if (get_config("cuda_backend") or get_config("cpu_backend")) and get_config("_lc
 	add_rules("lc_vulkan")
 	add_files("vulkan_swapchain.cpp")
 	add_deps("lc-core")
-	add_defines("LC_VK_SWAPCHAIN_EXPORT")
+	add_defines("LC_BACKEND_EXPORT_DLL")
 	target_end()
 end
