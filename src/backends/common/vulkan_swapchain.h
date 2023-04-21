@@ -28,6 +28,7 @@
     } while (false)
 
 namespace luisa::compute {
+
 class LC_BACKEND_API VulkanSwapchain {
 public:
     class Impl;
