@@ -263,7 +263,9 @@ def main(args: List[str]):
             i += 1
             while i < len(args) and not args[i].startswith('-'):
                 f = args[i].lower()
-                if f.startswith('no-'):
+                if f == 'all':
+                    config['features'] = get_default_features()
+                elif f.startswith('no-'):
                     f = f[3:]
                     if f in config['features']:
                         config['features'].remove(f)
@@ -271,8 +273,6 @@ def main(args: List[str]):
                     if f not in config['features']:
                         config['features'].append(f)
                 i += 1
-            if "all" in config['features']:
-                config['features'] = get_default_features()
         elif opt == '--install' or opt == '-i':
             i += 1
             deps = []
