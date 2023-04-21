@@ -98,10 +98,22 @@ def print_help():
     print('  -- [args]              Pass arguments to build system')
 
 
-def dump_build_system_args(config: dict):
-    args = build_system_args(config)
-    with open(f"options.{config['build_system']}.cli", 'w') as f:
-        print('\n'.join(args), file=f)
+def dump_cmake_options(config: dict):
+    pass
+
+
+def dump_xmake_options(config: dict):
+    pass
+
+
+def dump_build_system_options(config: dict):
+    build_sys = config['build_system']
+    if build_sys == 'cmake':
+        dump_cmake_options(config)
+    elif build_sys == 'xmake':
+        dump_xmake_options(config)
+    else:
+        raise ValueError(f'Unknown build system: {build_sys}')
 
 
 def build_system_args_cmake(config: dict) -> List[str]:
@@ -238,10 +250,15 @@ def main(args: List[str]):
     with open('config.json', 'w') as f:
         json.dump(config, f, indent=4)
 
-    output = config['output']
-    if not os.path.exists(output):
-        os.mkdir(output)
-    dump_build_system_args(config)
+    # dump build system options, e.g., options.cmake and options.lua
+    dump_build_system_options(config)
+
+    # config and build
+    if run_config or run_build:
+        output = config['output']
+        if not os.path.exists(output):
+            os.mkdir(output)
+
     # config build system
     if run_config:
         args = build_system_args(config)
